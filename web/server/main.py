@@ -25,7 +25,8 @@ from fastapi import (
 )
 from fastapi.middleware.cors import CORSMiddleware
 from victor.config.settings import load_settings
-from victor.agent.orchestrator import AgentOrchestrator
+from victor.framework.client import VictorClient
+from victor.framework.session_config import SessionConfig
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -590,10 +591,12 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                 session_initialized = True  # Mark as initialized
             else:
                 try:
-                    agent = await AgentOrchestrator.from_settings(settings=settings)
+                    agent = VictorClient(SessionConfig())
+                    await agent.initialize()
 
-                    # CRITICAL FIX: Trigger background embedding preload
-                    agent.start_embedding_preload()
+                    # Trigger background embedding preload so first user turn
+                    # does not pay the warm-up cost.
+                    await agent.start_embedding_preload()
 
                     SESSION_AGENTS[session_id] = {
                         "agent": agent,
@@ -605,11 +608,11 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                     if session_token:
                         SESSION_TOKENS[session_token] = session_id
                     logger.info(
-                        f"Created new AgentOrchestrator for session {session_id} with preload started."
+                        f"Created new VictorClient for session {session_id} with preload started."
                     )
                     session_initialized = True  # Mark as initialized
                 except Exception as e:
-                    logger.error(f"Failed to create AgentOrchestrator: {e}", exc_info=True)
+                    logger.error(f"Failed to create VictorClient: {e}", exc_info=True)
                     await websocket.send_text(f"[error] Could not initialize agent: {str(e)}")
                     await websocket.close(code=1011, reason="Agent initialization failed")
                     return
@@ -641,7 +644,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
 
                 # Handle special commands
                 if user_message.strip() == "__reset_session__":
-                    agent.reset_conversation()
+                    await agent.reset_conversation()
                     await websocket.send_text("[session] reset")
                     logger.info(f"Session {session_id}: Conversation reset")
                     continue
