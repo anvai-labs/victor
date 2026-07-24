@@ -97,6 +97,71 @@ class TestMatchMultipleSync:
 
         assert len(result) <= 3
 
+    def test_all_marginal_candidates_select_nothing_without_edge(self):
+        """No high-confidence anchor → no chain (regression: 3 irrelevant skills
+        injected on a continuation turn when every candidate was marginal)."""
+        from victor.framework.skill_matcher import SkillMatcher
+
+        skills = {
+            name: _make_skill(name)
+            for name in ("migrate_database", "setup_ci_pipeline", "optimize_performance")
+        }
+        matcher = SkillMatcher(high_threshold=0.65, low_threshold=0.45, use_edge_fallback=False)
+        matcher._initialized = True
+        matcher._skills = skills
+
+        with patch.object(matcher, "_collection") as mock_coll:
+            mock_coll.search_sync.return_value = [
+                (_MockItem("migrate_database"), 0.58),
+                (_MockItem("setup_ci_pipeline"), 0.52),
+                (_MockItem("optimize_performance"), 0.47),
+            ]
+            result = matcher.match_multiple_sync("continue next steps of the plan")
+
+        assert result == []
+
+    def test_marginal_candidates_defer_to_edge_arbiter(self):
+        """Ambiguous zone with edge enabled → edge decides, at most one skill."""
+        from victor.framework.skill_matcher import SkillMatcher
+
+        debug = _make_skill("debug")
+        matcher = SkillMatcher(high_threshold=0.65, low_threshold=0.45, use_edge_fallback=True)
+        matcher._initialized = True
+        matcher._skills = {"debug": debug, "review": _make_skill("review")}
+
+        with (
+            patch.object(matcher, "_collection") as mock_coll,
+            patch.object(matcher, "_edge_llm_decide", return_value=(debug, 0.80)) as mock_edge,
+        ):
+            mock_coll.search_sync.return_value = [
+                (_MockItem("debug"), 0.60),
+                (_MockItem("review"), 0.55),
+            ]
+            result = matcher.match_multiple_sync("maybe debug this?")
+
+        mock_edge.assert_called_once()
+        assert result == [(debug, 0.80)]
+
+    def test_confident_anchor_drops_distant_companions(self):
+        """Companions outside the chain margin are excluded, not dragged along."""
+        from victor.framework.skill_matcher import SkillMatcher
+
+        skills = {name: _make_skill(name) for name in ("debug", "refactor", "docs")}
+        matcher = SkillMatcher(high_threshold=0.65, low_threshold=0.45, chain_margin=0.15)
+        matcher._initialized = True
+        matcher._skills = skills
+
+        with patch.object(matcher, "_collection") as mock_coll:
+            mock_coll.search_sync.return_value = [
+                (_MockItem("debug"), 0.85),
+                (_MockItem("refactor"), 0.74),
+                (_MockItem("docs"), 0.50),
+            ]
+            result = matcher.match_multiple_sync("debug then refactor")
+
+        names = {skill.name for skill, _ in result}
+        assert names == {"debug", "refactor"}
+
     def test_no_match_returns_empty(self):
         from victor.framework.skill_matcher import SkillMatcher
 
