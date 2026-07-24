@@ -28,6 +28,16 @@ class SkillRuntime:
         ):
             return
 
+        from victor.agent.action_authorizer import split_continuation_request
+
+        is_continuation, continuation_payload = split_continuation_request(user_message)
+        if is_continuation and not continuation_payload.strip():
+            # A bare "continue" names no new task — matching skills against it
+            # only injects noise into the very work being continued. Leave
+            # skills cleared for this turn.
+            logger.debug("Skipping skill auto-selection for bare continuation turn")
+            return
+
         try:
             matches = matcher.match_multiple_sync(user_message)
             analytics = getattr(runtime, "_skill_analytics", None)
