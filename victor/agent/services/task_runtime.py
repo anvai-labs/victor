@@ -88,6 +88,7 @@ class TaskCoordinator:
         self.prompt_builder = prompt_builder
         self.settings = settings
         self._current_intent = None
+        self._current_task_classification = None
         self._temperature = getattr(settings, "temperature", 0.7)
         self._tool_budget = getattr(settings, "tool_budget", 15)
         self._observed_files = []
@@ -184,7 +185,7 @@ class TaskCoordinator:
         """
         from victor.agent.prompt_builder import get_task_type_hint
         from victor.storage.embeddings.task_classifier import TaskTypeClassifier
-        from victor.agent.action_authorizer import ActionIntent
+        from victor.agent.action_authorizer import ActionIntent, split_continuation_request
         from victor.framework.task import (
             TaskClassification,
             TaskComplexity,
@@ -239,6 +240,41 @@ class TaskCoordinator:
         # Classify task complexity and adjust tool budget
         task_classification = self.task_analyzer.classify_complexity(user_message)
         complexity_tool_budget = DEFAULT_BUDGETS.get(task_classification.complexity, 15)
+
+        # Continuation carry-forward: a bare "continue"-style message describes no
+        # task of its own, so classifying its text (usually → SIMPLE) would slash
+        # the budget of the very work being continued (seen live: 200 → 20 on
+        # "continue next steps", starving the follow-up turn). Mirror the intent
+        # carry-forward in apply_intent_guard: a continuation may keep or raise
+        # the prior turn's budget, never shrink it.
+        is_continuation, _continuation_payload = split_continuation_request(user_message)
+        previous_classification = self._current_task_classification
+        if is_continuation and previous_classification is not None:
+            prior_budget = DEFAULT_BUDGETS.get(
+                previous_classification.complexity, complexity_tool_budget
+            )
+            if prior_budget > complexity_tool_budget:
+                matched_patterns = list(getattr(task_classification, "matched_patterns", []) or [])
+                task_classification = TaskClassification(
+                    complexity=previous_classification.complexity,
+                    tool_budget=prior_budget,
+                    confidence=max(
+                        float(getattr(task_classification, "confidence", 0.0)),
+                        float(getattr(previous_classification, "confidence", 0.0)),
+                    ),
+                    matched_patterns=[
+                        "continuation_complexity_carry_forward",
+                        *matched_patterns,
+                    ],
+                )
+                complexity_tool_budget = prior_budget
+                logger.info(
+                    "Continuation request detected; carrying forward prior task "
+                    "complexity %s (tool budget %d)",
+                    previous_classification.complexity.value,
+                    prior_budget,
+                )
+
         task_type_value = str(getattr(unified_task_type, "value", unified_task_type))
         if task_classification.complexity == TaskComplexity.SIMPLE:
             intent_result = self.task_analyzer.detect_intent(user_message)
@@ -348,6 +384,10 @@ class TaskCoordinator:
                 },
                 source="TaskCoordinator",
             )
+
+        # Remember the classification so a follow-up continuation turn can carry
+        # it forward instead of re-classifying the bare "continue" text.
+        self._current_task_classification = task_classification
 
         return task_classification, complexity_tool_budget
 
