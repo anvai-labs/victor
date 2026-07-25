@@ -1926,6 +1926,11 @@ async def run_oneshot(
                     buffered.flush(console)
                 else:
                     formatter.response(content=buffered.finalize())
+                    # Surface buffered statuses (provider errors land here via
+                    # EventDispatcher ERROR routing) so a failed turn is never
+                    # silent in pipe-friendly output.
+                    for status_message in buffered.statuses():
+                        formatter.info(status_message)
 
             await client.get_session_metrics()
 

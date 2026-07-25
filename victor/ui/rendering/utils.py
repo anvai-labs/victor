@@ -248,18 +248,49 @@ def extract_tool_result_payload(event: Any) -> dict[str, Any]:
     return payload
 
 
-def format_tool_args(arguments: dict[str, Any], max_width: int = 80) -> str:
+def _coerce_arguments_mapping(arguments: Any) -> dict[str, Any]:
+    """Best-effort coercion of tool arguments to a mapping for display.
+
+    Models sometimes deliver tool arguments as a raw JSON string (or another
+    non-mapping shape). Display formatting must never crash on that: in
+    session modality-doc-review-fixes-b4e87728 a str reached
+    ``format_tool_args`` and the resulting ``AttributeError: 'str' object has
+    no attribute 'items'`` replaced the real provider error in ``victor run``
+    output.
+    """
+    if isinstance(arguments, Mapping):
+        return dict(arguments)
+    if isinstance(arguments, str):
+        text = arguments.strip()
+        if not text:
+            return {}
+        import json
+
+        try:
+            parsed = json.loads(text)
+        except (ValueError, TypeError):
+            parsed = None
+        if isinstance(parsed, Mapping):
+            return dict(parsed)
+        return {"args": text}
+    if arguments is None:
+        return {}
+    return {"args": str(arguments)}
+
+
+def format_tool_args(arguments: Any, max_width: int = 80) -> str:
     """Format tool arguments for compact display.
 
     Shared utility used by all renderers for consistent arg formatting.
 
     Args:
-        arguments: Tool arguments dict
+        arguments: Tool arguments mapping (non-mapping shapes are coerced)
         max_width: Maximum total width for args string
 
     Returns:
         Formatted args string like "path='/file.py', limit=100"
     """
+    arguments = _coerce_arguments_mapping(arguments)
     if not arguments:
         return ""
     parts = []
@@ -303,16 +334,17 @@ def format_duration(elapsed: float) -> str:
     return f"{elapsed:.0f}s"
 
 
-def format_tool_args_bash_style(arguments: dict[str, Any], max_args: int = 5) -> str:
+def format_tool_args_bash_style(arguments: Any, max_args: int = 5) -> str:
     """Format tool arguments in bash CLI style (--key=value).
 
     Args:
-        arguments: Tool arguments dict
+        arguments: Tool arguments mapping (non-mapping shapes are coerced)
         max_args: Maximum number of arguments to show (rest truncated)
 
     Returns:
         Formatted args string like "--path='file.py' --limit=100"
     """
+    arguments = _coerce_arguments_mapping(arguments)
     if not arguments:
         return ""
 
