@@ -1566,6 +1566,19 @@ class ChatStreamHelperMixin:
                         f"cache_read={raw_usage.get('cache_read_input_tokens', 0)}"
                     )
 
+                # Sandhi attaches transport diagnostics (retry attempts, usage
+                # completeness, upstream request id) to the same terminal chunk
+                # that carries usage. Fold them into the turn so finalize can
+                # surface them — previously recorded by the transport and read
+                # by nothing.
+                chunk_meta = getattr(chunk, "metadata", None)
+                if isinstance(chunk_meta, dict):
+                    sandhi_diag = chunk_meta.get("sandhi_usage")
+                    if isinstance(sandhi_diag, dict) and hasattr(
+                        stream_ctx, "record_provider_diagnostics"
+                    ):
+                        stream_ctx.record_provider_diagnostics(sandhi_diag)
+
                 chunk, consecutive_garbage_chunks, garbage_detected = self._handle_stream_chunk(
                     chunk,
                     consecutive_garbage_chunks,
@@ -1595,6 +1608,17 @@ class ChatStreamHelperMixin:
                         full_content = full_content[
                             : repetition_detector.truncation_point(full_content)
                         ]
+                        # A loop with no tool call is UNUSABLE output, not an
+                        # answer. Without this flag the truncated narration was
+                        # emitted as the assistant turn and the loop simply ran
+                        # again, so the model could spend turn after turn
+                        # narrating ("I'll call the tool. Now. Executing.")
+                        # while the tool it meant to call never ran. Reuse the
+                        # garbage-detection contract: the handler turns this into
+                        # force_completion, which ends the spin and makes the
+                        # model deliver a final answer from what it already has.
+                        if not tool_calls:
+                            garbage_detected = True
                         logger.warning(
                             "Intra-turn repetition detected — stopping generation " "(segment: %r)",
                             repeated[:120],
