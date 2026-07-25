@@ -312,6 +312,42 @@ class SandhiTypedProviderMixin:
         except (TypeError, ValueError):
             return 120.0
 
+    async def discover_capabilities(self, model: str) -> Any:
+        """Descriptor-backed discovery for Sandhi-routed providers (gap G6).
+
+        Capability facts (tools/streaming) come from Sandhi's typed descriptor —
+        the wire truth the transport actually honors — instead of per-provider
+        hardcoded flags; limits stay Victor config policy. Falls back to the
+        config-only base implementation when the binding or descriptor is
+        absent, so behavior is unchanged for native-only installs.
+        """
+        descriptor = None
+        if _sg is not None and hasattr(_sg, "provider_descriptor_json"):
+            try:
+                descriptor = json.loads(_sg.provider_descriptor_json(self._sandhi_slug()))
+            except Exception:
+                descriptor = None
+        capabilities = descriptor.get("capabilities") if isinstance(descriptor, dict) else None
+        if not isinstance(capabilities, dict):
+            return await super().discover_capabilities(model)  # type: ignore[misc]
+
+        from victor.config.config_loaders import get_provider_limits
+        from victor.providers.runtime_capabilities import ProviderRuntimeCapabilities
+
+        provider_name = str(getattr(self, "name", self._sandhi_slug()))
+        limits = get_provider_limits(provider_name, model)
+        supports_tools = getattr(self, "supports_tools", lambda: False)
+        supports_streaming = getattr(self, "supports_streaming", lambda: False)
+        return ProviderRuntimeCapabilities(
+            provider=provider_name,
+            model=model,
+            context_window=limits.context_window,
+            supports_tools=bool(capabilities.get("tools", supports_tools())),
+            supports_streaming=bool(capabilities.get("streaming", supports_streaming())),
+            source="sandhi_descriptor",
+            raw=descriptor,
+        )
+
     def _gateway_overrides(self) -> Optional[Tuple[str, str]]:
         """Return ``(proxy_url, virtual_key)`` when gateway mode is configured.
 
