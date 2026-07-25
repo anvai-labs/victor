@@ -70,7 +70,7 @@ class ChatService:
     """[CANONICAL] Service for managing chat operations.
 
     The target implementation for chat operations following the
-    state-passed architectural pattern. Supersedes ChatCoordinator.
+    state-passed architectural pattern.
 
     This service follows SOLID principles:
     - SRP: Only handles chat operations
@@ -1442,8 +1442,7 @@ class ChatService:
 
         This is the canonical persistence helper for orchestrator message
         writes. It preserves the legacy logging behavior expected by existing
-        analytics flows while keeping ownership on ``ChatService`` rather than
-        the deprecated ``ChatCoordinator`` shim.
+        analytics flows while keeping ownership on ``ChatService``.
         """
         if memory_manager and memory_session_id:
             try:

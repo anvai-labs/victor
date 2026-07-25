@@ -62,7 +62,7 @@ class SessionService:
     """[CANONICAL] Service for session lifecycle and management.
 
     The target implementation for session operations following the
-    state-passed architectural pattern. Supersedes SessionCoordinator.
+    state-passed architectural pattern.
     """
 
     def __init__(

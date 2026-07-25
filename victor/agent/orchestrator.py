@@ -2206,7 +2206,7 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
         return self._context_service.get_context_metrics()
 
     def _init_conversation_embedding_store(self) -> None:
-        """Initialize embedding store. Delegates to SessionCoordinator."""
+        """Initialize embedding store via the memory runtime."""
         from victor.agent.runtime.memory_runtime import (
             initialize_conversation_embedding_store,
         )
