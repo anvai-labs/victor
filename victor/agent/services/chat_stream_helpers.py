@@ -1589,6 +1589,17 @@ class ChatStreamHelperMixin:
                         full_content = full_content[
                             : repetition_detector.truncation_point(full_content)
                         ]
+                        # A loop with no tool call is UNUSABLE output, not an
+                        # answer. Without this flag the truncated narration was
+                        # emitted as the assistant turn and the loop simply ran
+                        # again, so the model could spend turn after turn
+                        # narrating ("I'll call the tool. Now. Executing.")
+                        # while the tool it meant to call never ran. Reuse the
+                        # garbage-detection contract: the handler turns this into
+                        # force_completion, which ends the spin and makes the
+                        # model deliver a final answer from what it already has.
+                        if not tool_calls:
+                            garbage_detected = True
                         logger.warning(
                             "Intra-turn repetition detected — stopping generation " "(segment: %r)",
                             repeated[:120],

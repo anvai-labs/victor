@@ -11,13 +11,19 @@ Design notes:
   (``chat_stream_helpers._stream_provider_response_inner``); checks run only
   every ``check_every_chars`` of new content, over a bounded tail window —
   O(window) per check, no cost on healthy short responses.
-- Two complementary rules:
+- Three complementary rules:
   1. segment rule — any normalized sentence/line of at least
      ``min_segment_chars`` occurring ``max_repeats``+ times in the window
      (catches short-period loops like "Let me check the state.");
   2. block rule — the trailing 256-char block occurring 3+ times in the
      window (catches long-period multi-sentence loops whose individual
-     sentences stay under ``max_repeats``).
+     sentences stay under ``max_repeats``);
+  3. diversity rule — a window whose segments are overwhelmingly recycled
+     (few distinct, one recurring often). Rules 1 and 2 both miss a
+     *staccato* loop — "Calling now. Executing. Stop. Call. Now." — because
+     every segment is shorter than ``min_segment_chars`` and the varying
+     order keeps any 256-char block from repeating verbatim. Such a loop
+     used to run for thousands of characters before rule 2 caught it.
 - False-positive guards: the segment length floor excludes legitimately
   repetitive short lines (code braces, list bullets), and ``max_repeats``
   is high enough that stylistic echoes don't trip it.
@@ -37,6 +43,14 @@ _WS = re.compile(r"\s+")
 
 _BLOCK_CHARS = 256
 _BLOCK_REPEATS = 3
+
+# Rule 3 (diversity) thresholds. Deliberately conservative so ordinary output
+# never trips: a stuck stream recycles a tiny vocabulary, healthy prose and code
+# keep introducing new segments (ratio near 1.0). BOTH conditions must hold.
+_DIVERSITY_MIN_CHARS = 6  # ignore "}", "Now.", bullets — too small to judge
+_DIVERSITY_MIN_SEGMENTS = 24  # need a real sample before judging the window
+_DIVERSITY_MAX_RATIO = 0.25  # distinct/total ≤ this ⇒ ~4x average recycling
+_DIVERSITY_MIN_REPEATS = 8  # and one segment must recur at least this often
 
 
 def _normalize(segment: str) -> str:
@@ -84,21 +98,40 @@ class IntraTurnRepetitionDetector:
         return self._check()
 
     def _check(self) -> Optional[str]:
-        # Rule 1: repeated normalized segment (sentence/line) within the window.
+        # One pass over the window feeds rules 1 and 3: `counts` holds segments
+        # long enough to judge individually, `small` holds every segment above a
+        # much lower floor so a staccato loop is still measurable.
         counts: Counter[str] = Counter()
         originals: dict[str, str] = {}
+        small: Counter[str] = Counter()
+        small_originals: dict[str, str] = {}
         for raw in _SEGMENT_SPLIT.split(self._tail):
-            if len(raw) < self.min_segment_chars:
-                continue
             key = _normalize(raw)
-            if len(key) < self.min_segment_chars:
+            if len(key) >= _DIVERSITY_MIN_CHARS:
+                small[key] += 1
+                small_originals.setdefault(key, raw.strip())
+            if len(raw) < self.min_segment_chars or len(key) < self.min_segment_chars:
                 continue
             counts[key] += 1
             originals.setdefault(key, raw.strip())
+
+        # Rule 1: repeated normalized segment (sentence/line) within the window.
         if counts:
             key, count = counts.most_common(1)[0]
             if count >= self.max_repeats:
                 self._repeated_segment = originals[key]
+                return self._repeated_segment
+
+        # Rule 3: degenerate diversity — many segments drawn from a tiny pool.
+        # This is the rule that catches "Calling now. Executing. Stop. Now."
+        # style narration, which is invisible to rule 1 (segments below
+        # `min_segment_chars`) and to rule 2 (the shuffled order keeps any
+        # 256-char block from recurring verbatim).
+        total = sum(small.values())
+        if total >= _DIVERSITY_MIN_SEGMENTS:
+            key, count = small.most_common(1)[0]
+            if len(small) / total <= _DIVERSITY_MAX_RATIO and count >= _DIVERSITY_MIN_REPEATS:
+                self._repeated_segment = small_originals[key]
                 return self._repeated_segment
 
         # Rule 2: the trailing block recurring — long-period loops.
