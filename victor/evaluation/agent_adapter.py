@@ -277,6 +277,7 @@ class VictorAgentAdapter:
             pass
 
         # Execution tracking
+        self._served_prompt_identities: Dict[tuple, Dict[str, Any]] = {}
         self._tool_calls: List[EvalToolCall] = []
         self._file_edits: List[FileEdit] = []
         self._messages: List[Dict[str, str]] = []
@@ -404,6 +405,57 @@ class VictorAgentAdapter:
         ]
         return any(marker in lower for marker in test_pass_markers)
 
+    def _sample_served_prompt_identities(self) -> None:
+        """Fold the runtime's current per-turn served identities into the task record.
+
+        ``_last_served_prompt_identities`` is overwritten every turn — correct for
+        reward attribution, which only cares about the turn that just ended, but a
+        task spans many turns. Sampling on each tool call (plus once at payload
+        time) unions them without the runtime having to track a second lifetime.
+        """
+        intelligence = getattr(self.orchestrator, "runtime_intelligence", None)
+        identities = getattr(intelligence, "_last_served_prompt_identities", None) or []
+        for identity in identities:
+            candidate_hash = getattr(identity, "prompt_candidate_hash", None)
+            if not candidate_hash:
+                continue
+            section = getattr(identity, "prompt_section_name", None) or getattr(
+                identity, "section_name", None
+            )
+            key = (section, getattr(identity, "provider", None), candidate_hash)
+            if key not in self._served_prompt_identities:
+                self._served_prompt_identities[key] = identity.to_metadata()
+
+    def get_served_prompt_identities(self) -> List[Dict[str, Any]]:
+        """Prompt candidates actually served during this task.
+
+        Written into the evaluation artifact so ``seed_from_evaluations()`` can
+        attribute the task's pass/fail to the candidates that produced it. Until
+        this existed, only an explicit ``--prompt-candidate-hash`` A/B stamped
+        identity, so ordinary benchmark runs — the overwhelming majority —
+        carried ground-truth outcomes that no candidate could ever claim.
+
+        Falls back to the configured binding when nothing was observed (a
+        targeted run still knows what it bound).
+        """
+        self._sample_served_prompt_identities()
+        if self._served_prompt_identities:
+            return list(self._served_prompt_identities.values())
+
+        binding = self.config.prompt_binding
+        if binding is None:
+            return []
+        return [
+            {
+                "provider": binding.provider,
+                "prompt_candidate_hash": binding.prompt_candidate_hash,
+                "section_name": binding.section_name,
+                "prompt_section_name": binding.section_name,
+                "strategy_name": None,
+                "source": "explicit_binding",
+            }
+        ]
+
     def get_conversation_trace(self) -> Dict[str, Any]:
         """Serialize the full execution trace for post-hoc analysis.
 
@@ -438,6 +490,7 @@ class VictorAgentAdapter:
 
     def _on_tool_start_hook(self, tool_name: str, arguments: Dict[str, Any]) -> None:
         """Hook called by ToolRegistry before tool execution."""
+        self._sample_served_prompt_identities()
         self._on_tool_start(tool_name, arguments)
 
     def _on_tool_complete_hook(self, result: Any) -> None:
@@ -772,6 +825,7 @@ class VictorAgentAdapter:
             "files_modified": [getattr(e, "path", "") for e in self._file_edits[:10]],
             **_summarize_eval_tool_calls(self._tool_calls),
             "conversation_trace": self.get_conversation_trace(),
+            "prompt_identities": self.get_served_prompt_identities(),
         }
 
     def reset(self) -> None:
@@ -784,6 +838,9 @@ class VictorAgentAdapter:
         self._task_session_id = ""
         self._exploration_calls = 0
         self._made_edit_tool_call = False
+        # Served prompt identities are per-task evidence; carrying them across
+        # tasks would credit one task's candidates with another task's outcome.
+        self._served_prompt_identities = {}
         # Reset circuit breaker for new task
         self._tool_failures = {}
         self._tool_failure_counts = {}

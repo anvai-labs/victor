@@ -23,6 +23,8 @@ class PromptHygieneReport:
     repeated_trigrams: int
     unsupported_additions: List[str] = field(default_factory=list)
     violations: List[str] = field(default_factory=list)
+    redundant_additions: List[str] = field(default_factory=list)
+    truncated_tail: bool = False
 
 
 def evaluate_prompt_candidate(
@@ -43,6 +45,8 @@ def evaluate_prompt_candidate(
         candidate_text,
         allowed_additions,
     )
+    redundant_additions = find_redundant_additions(seed_text, candidate_text)
+    truncated_tail = has_truncated_tail(candidate_text)
 
     violations = []
     if growth_chars > max_growth_chars:
@@ -53,6 +57,10 @@ def evaluate_prompt_candidate(
         violations.append("repeated_trigrams")
     if unsupported_additions:
         violations.append("unsupported_additions")
+    if redundant_additions:
+        violations.append("redundant_additions")
+    if truncated_tail:
+        violations.append("truncated_tail")
 
     return PromptHygieneReport(
         accepted=not violations,
@@ -61,7 +69,119 @@ def evaluate_prompt_candidate(
         repeated_trigrams=repeated_trigrams,
         unsupported_additions=unsupported_additions,
         violations=violations,
+        redundant_additions=redundant_additions,
+        truncated_tail=truncated_tail,
     )
+
+
+# Newly added lines this similar to an existing line are restating, not adding.
+REDUNDANT_LINE_SIMILARITY = 0.6
+
+# Words that carry no instruction, dropped before comparing two lines.
+_STOPWORDS = frozenset(
+    {"a", "an", "the", "is", "are", "be", "it", "its", "this", "that", "your", "you"}
+)
+
+# A final line ending on one of these is a fragment, not an instruction.
+_DANGLING_WORDS = frozenset(
+    {
+        # conjunctions
+        "and",
+        "or",
+        "but",
+        "so",
+        "because",
+        "while",
+        "than",
+        "that",
+        "which",
+        # determiners
+        "the",
+        "a",
+        "an",
+        # prepositions
+        "to",
+        "of",
+        "for",
+        "with",
+        "from",
+        "into",
+        "over",
+        "under",
+        "by",
+        "on",
+        "in",
+        "at",
+        "as",
+        # temporal / conditional connectives
+        "then",
+        "before",
+        "after",
+        "if",
+        "when",
+    }
+)
+
+_TERMINATORS = (".", "!", "?", ":", ";", ")", '"', "'", "`", "—")
+
+
+def has_truncated_tail(text: str) -> bool:
+    """True when the candidate's final instruction is a fragment.
+
+    A live candidate was persisted ending ``"- Read error messages carefully
+    and"``: the bloat cap cut at the last space, which fell mid-sentence. The
+    last line of a prompt is an instruction, so a half-written one is a defect
+    the persist gate must catch, not merely a cosmetic issue.
+    """
+    lines = [line for line in text.strip().splitlines() if line.strip()]
+    if not lines:
+        return True
+    last = lines[-1].rstrip()
+    if last.endswith(_TERMINATORS):
+        return False
+    words = last.split()
+    return words[-1].lower() in _DANGLING_WORDS if words else True
+
+
+def find_redundant_additions(seed_text: str, candidate_text: str) -> List[str]:
+    """Added lines that merely restate guidance already in the seed.
+
+    Distinct from ``_find_unsupported_additions``: a rewrite legitimately adds
+    and rephrases lines, so *new* content is not itself a violation. What is a
+    violation is a mutation that appends a near-copy of a line already present
+    — a live candidate grew ``CONCISE_MODE_GUIDANCE`` by appending "Read the
+    error message carefully." directly beneath "Read error messages carefully
+    before retrying." Degenerate growth like that dilutes the section without
+    adding an instruction.
+    """
+    seed_lines = [line for line in seed_text.splitlines() if line.strip()]
+    seed_word_sets = [_content_words(line) for line in seed_lines]
+    seed_norm = {_normalize_line(line) for line in seed_lines}
+
+    redundant: List[str] = []
+    for raw_line in candidate_text.splitlines():
+        if not raw_line.strip() or _normalize_line(raw_line) in seed_norm:
+            continue
+        added = _content_words(raw_line)
+        if not added:
+            continue
+        for existing in seed_word_sets:
+            union = added | existing
+            if union and len(added & existing) / len(union) >= REDUNDANT_LINE_SIMILARITY:
+                redundant.append(raw_line.strip())
+                break
+    return redundant
+
+
+def _content_words(line: str) -> set:
+    """Instruction-bearing words of a line: bullet-stripped, de-pluralized."""
+    stripped = line.strip().lstrip("-*0123456789. ").lower()
+    words = {word.strip(".,:;()\"'") for word in stripped.split()}
+    return {
+        word[:-1] if word.endswith("s") and len(word) > 3 else word
+        for word in words
+        if word and word not in _STOPWORDS
+    }
 
 
 def _seed_similarity(seed_text: str, candidate_text: str) -> float:
@@ -117,20 +237,39 @@ def _tokens(text: str) -> List[str]:
 
 
 def boundary_aware_truncate(text: str, limit: int) -> tuple[str, bool]:
-    """Truncate ``text`` to ``limit`` chars without splitting a token.
+    """Truncate ``text`` to ``limit`` chars without severing an instruction.
 
-    When truncation is required the cut lands on the last whitespace at or
-    before ``limit`` so words/sentences are never severed mid-token. If no
-    whitespace is found, a hard cut at ``limit`` is used as a last resort.
+    The cut is taken at the strongest boundary available at or before
+    ``limit``, in descending order of preference:
+
+      1. a **line** boundary — drops the trailing partial line whole
+      2. a **sentence** boundary (``.``/``!``/``?`` followed by space)
+      3. a **word** boundary (last whitespace)
+      4. a hard cut at ``limit`` as a last resort
+
+    Word-boundary cutting alone (the original behaviour) is not sufficient for
+    prompts: it keeps a dangling clause as the final instruction. A real
+    candidate was persisted ending ``"- Read error messages carefully and"``,
+    because the last space before the cap fell mid-sentence. A prompt's last
+    line is an instruction, so a partial one is worse than no line at all.
 
     Returns ``(truncated_text, was_truncated)``.
     """
     if limit <= 0 or len(text) <= limit:
         return text, False
-    cut = text.rfind(" ", 0, limit)
-    if cut <= 0:
-        cut = limit
-    return text[:cut].rstrip(), True
+
+    head = text[:limit]
+
+    line_cut = head.rfind("\n")
+    if line_cut > 0:
+        return text[:line_cut].rstrip(), True
+
+    sentence_cut = max(head.rfind(". "), head.rfind("! "), head.rfind("? "))
+    if sentence_cut > 0:
+        return text[: sentence_cut + 1].rstrip(), True
+
+    word_cut = head.rfind(" ")
+    return text[: word_cut if word_cut > 0 else limit].rstrip(), True
 
 
 def sanitize_prompt_candidate(

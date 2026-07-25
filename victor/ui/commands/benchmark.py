@@ -1986,6 +1986,7 @@ async def _run_benchmark_async(
                         "turns": partial.get("turns", 0),
                         "session_id": adapter._task_session_id,
                         "conversation_trace": adapter.get_conversation_trace(),
+                        "prompt_identities": adapter.get_served_prompt_identities(),
                     }
                     raise
                 finally:
@@ -2038,6 +2039,9 @@ async def _run_benchmark_async(
                     # Persisted on TaskResult so the manifest + miner can
                     # reconstruct what the agent actually did.
                     "conversation_trace": adapter.get_conversation_trace(),
+                    # Candidates actually served — lets this task's pass/fail
+                    # become Pareto evidence without an explicit A/B flag.
+                    "prompt_identities": adapter.get_served_prompt_identities(),
                 }
 
         except Exception as e:
