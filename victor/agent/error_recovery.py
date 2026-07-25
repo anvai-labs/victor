@@ -29,6 +29,7 @@ from abc import ABC, abstractmethod
 import json
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass, field
+from difflib import SequenceMatcher
 from enum import Enum
 import asyncio
 import logging
@@ -36,6 +37,31 @@ import os
 import re
 
 logger = logging.getLogger(__name__)
+
+# Minimum basename similarity for a "Did you mean" suggestion to be trusted as a
+# silent substitute for the requested path. Typo-class matches score >= 0.94;
+# different-document matches score <= 0.7. Below the threshold the suggestion is
+# still surfaced to the model in the error text, but never auto-retried: a weak
+# match silently swaps in the wrong file and poisons the session path-redirect
+# cache, which the model cannot observe or escape.
+PATH_SUGGESTION_CONFIDENCE_THRESHOLD = 0.85
+
+
+def path_suggestion_confidence(original_path: str, suggested_path: str) -> float:
+    """Similarity ratio (0.0-1.0) between requested and suggested path basenames."""
+    original_name = os.path.basename(original_path.rstrip("/").replace("\\", "/"))
+    suggested_name = os.path.basename(suggested_path.rstrip("/").replace("\\", "/"))
+    if not original_name or not suggested_name:
+        return 0.0
+    return SequenceMatcher(None, original_name.lower(), suggested_name.lower()).ratio()
+
+
+def is_confident_path_suggestion(original_path: str, suggested_path: str) -> bool:
+    """True when a suggested path is close enough to auto-substitute for the original."""
+    return (
+        path_suggestion_confidence(original_path, suggested_path)
+        >= PATH_SUGGESTION_CONFIDENCE_THRESHOLD
+    )
 
 
 class ErrorRecoveryAction(Enum):
@@ -521,15 +547,25 @@ class FileNotFoundHandler(ErrorRecoveryHandler):
                 if candidate.replace("\\", "/").startswith(f"{base_path}/")
             ]
             if package_file_matches:
+                # Module-entry recovery (foo.py -> foo/__init__.py): the path-prefix
+                # containment is its own confidence signal; basename gate not applied.
                 return package_file_matches[0]
-            if file_suggestions:
-                return file_suggestions[0]
-            return filtered_suggestions[0]
+            return self._first_confident(
+                normalized_original, file_suggestions or filtered_suggestions
+            )
 
         if tool_name in {"ls", "find"} and directory_suggestions:
-            return directory_suggestions[0]
+            return self._first_confident(normalized_original, directory_suggestions)
 
-        return filtered_suggestions[0]
+        return self._first_confident(normalized_original, filtered_suggestions)
+
+    @staticmethod
+    def _first_confident(original_path: str, candidates: List[str]) -> Optional[str]:
+        """First candidate similar enough to auto-substitute; None keeps the honest error."""
+        for candidate in candidates:
+            if is_confident_path_suggestion(original_path, candidate):
+                return candidate
+        return None
 
 
 class RateLimitHandler(ErrorRecoveryHandler):

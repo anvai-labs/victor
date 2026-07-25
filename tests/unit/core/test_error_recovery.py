@@ -317,13 +317,50 @@ class TestFileNotFoundHandler:
     def test_handle_uses_file_arg_key_when_retrying_suggestion(self, handler):
         """Suggestion retries should preserve the original path argument key."""
         error = Exception(
-            "File not found: setup.py\nDid you mean one of these?\n  - pyproject.toml"
+            "File not found: setings.yaml\nDid you mean one of these?\n  - settings.yaml"
         )
 
-        result = handler.handle(error, "read", {"file": "setup.py"})
+        result = handler.handle(error, "read", {"file": "setings.yaml"})
 
         assert result.action == RecoveryAction.RETRY_WITH_INFERRED
-        assert result.modified_args["file"] == "pyproject.toml"
+        assert result.modified_args["file"] == "settings.yaml"
+
+    def test_handle_skips_weak_suggestion_for_different_document(self, handler):
+        """A dissimilar 'Did you mean' match must NOT silently substitute the file.
+
+        Regression: session proximaDB-5b2726a3 — read of a file absent from the
+        checked-out branch was silently answered with a different document, then
+        a sticky redirect made the not-found state unobservable to the model.
+        """
+        error = Exception(
+            "File not found: docs/12-design/MODALITY_COMPILE_TIME_COMPOSITION_2026_07_24.adoc\n"
+            "Did you mean one of these?\n"
+            "  - docs/12-design/ROOT_CRATE_DECOMPOSITION_PLAN_2026_06_21.adoc"
+        )
+
+        result = handler.handle(
+            error,
+            "read",
+            {"path": "docs/12-design/MODALITY_COMPILE_TIME_COMPOSITION_2026_07_24.adoc"},
+        )
+
+        assert result.action == RecoveryAction.SKIP
+        assert result.metadata["suggested_paths"] == [
+            "docs/12-design/ROOT_CRATE_DECOMPOSITION_PLAN_2026_06_21.adoc"
+        ]
+
+    def test_handle_retries_typo_class_suggestion(self, handler):
+        """A near-identical basename (typo/date slip) is safe to auto-retry."""
+        error = Exception(
+            "File not found: docs/TRACKER_2026_07_22.adoc\n"
+            "Did you mean one of these?\n"
+            "  - docs/TRACKER_2026_07_21.adoc"
+        )
+
+        result = handler.handle(error, "read", {"path": "docs/TRACKER_2026_07_22.adoc"})
+
+        assert result.action == RecoveryAction.RETRY_WITH_INFERRED
+        assert result.modified_args["path"] == "docs/TRACKER_2026_07_21.adoc"
 
     def test_handle_rejects_self_suggestion(self, handler):
         """Recovery should not retry the same unresolved path."""

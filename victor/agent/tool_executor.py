@@ -25,6 +25,7 @@ This module provides robust tool execution with:
 import asyncio
 from victor.core.json_utils import json_loads
 import logging
+import os
 import time
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
@@ -35,7 +36,7 @@ from victor.agent.debug_logger import TRACE
 from victor.core.constants import DEFAULT_VERTICAL
 
 from victor.agent.argument_normalizer import ArgumentNormalizer, NormalizationStrategy
-from victor.agent.error_recovery import recover_from_error
+from victor.agent.error_recovery import is_confident_path_suggestion, recover_from_error
 from victor.agent.safety import SafetyChecker, get_safety_checker
 from victor.storage.cache.tool_cache import ToolCache
 from victor.core.errors import (
@@ -737,14 +738,27 @@ class ToolExecutor:
         else:
             normalized_args, strategy = self.normalizer.normalize_arguments(arguments, tool_name)
 
-        # Issue 1: Path redirect — silently correct paths the model hallucinated
-        # in a prior turn and that PathResolver suggested an alternative for.
+        # Issue 1: Path redirect — correct paths the model hallucinated in a prior
+        # turn and that PathResolver suggested a confident alternative for. The
+        # substitution is announced in the result so the model can tell the
+        # requested path from the served one.
+        path_redirect_note: Optional[str] = None
         if self._failed_path_redirects:
             for _path_key in ("path", "file_path", "filename", "root"):
                 _bad = str(normalized_args.get(_path_key, ""))
                 if _bad and _bad in self._failed_path_redirects:
+                    if os.path.exists(_bad):
+                        # The path exists now (created/branch-switched since the
+                        # redirect was recorded) — the redirect is stale.
+                        del self._failed_path_redirects[_bad]
+                        break
                     _fixed = self._failed_path_redirects[_bad]
                     normalized_args = {**normalized_args, _path_key: _fixed}
+                    path_redirect_note = (
+                        f"[Note: requested path '{_bad}' does not exist; serving closest "
+                        f"match '{_fixed}' instead. If this is not the intended file, the "
+                        f"requested file is absent from the working tree.]"
+                    )
                     logger.info("Path redirect applied: '%s' → '%s'", _bad, _fixed)
                     break
 
@@ -772,6 +786,8 @@ class ToolExecutor:
             cached_result = self.cache.get(tool_name, normalized_args)
             if cached_result is not None:
                 self._stats[tool_name]["cache_hits"] += 1
+                if path_redirect_note and isinstance(cached_result, str):
+                    cached_result = f"{path_redirect_note}\n{cached_result}"
                 logger.log(TRACE, "Cache hit for %s", tool_name)
                 result = ToolExecutionResult(
                     tool_name=tool_name,
@@ -910,6 +926,11 @@ class ToolExecutor:
             if self.cache and self.is_cache_invalidating_tool(tool_name):
                 self._invalidate_cache_for_write_tool(tool_name, normalized_args)
 
+            # Announce a path substitution after caching so the cache holds the
+            # clean result keyed by the served path.
+            if path_redirect_note and isinstance(result, str):
+                result = f"{path_redirect_note}\n{result}"
+
         else:
             self._stats[tool_name]["failures"] += 1
             # Track failed signature to avoid retrying same failure
@@ -919,24 +940,27 @@ class ToolExecutor:
 
             # Issue 1: Record PathResolver suggestion for future path rewriting.
             # Filesystem tools embed "Did you mean...\n  - /path" in FileNotFoundError.
+            # Only typo-class (high basename similarity) suggestions are recorded;
+            # a weak fuzzy match must surface as an honest not-found error, not a
+            # silent substitute (session proximaDB-5b2726a3 spiral).
             if self._is_safe_read_only_path_retry(tool, normalized_args, error):
                 import re as _re
 
                 for _path_key in ("path", "file_path", "filename", "root"):
                     _bad = str(normalized_args.get(_path_key, ""))
                     if _bad:
-                        _match = _re.search(r"-\s+(\S+)", error)
-                        if _match:
-                            _suggested = _match.group(1)
-                            if _suggested.rstrip("/").replace("\\", "/") != _bad.rstrip(
-                                "/"
-                            ).replace("\\", "/"):
+                        _bad_norm = _bad.rstrip("/").replace("\\", "/")
+                        for _suggested in _re.findall(r"-\s+(\S+)", error):
+                            if _suggested.rstrip("/").replace(
+                                "\\", "/"
+                            ) != _bad_norm and is_confident_path_suggestion(_bad, _suggested):
                                 self._failed_path_redirects[_bad] = _suggested
                                 logger.info(
                                     "Path suggestion recorded: '%s' → '%s'",
                                     _bad,
                                     _suggested,
                                 )
+                                break
                         break
 
         # Emit RL event for tool execution (for learner activation)
@@ -1415,6 +1439,12 @@ class ToolExecutor:
             recovered_args,
             context,
         )
+        if success and isinstance(result, str):
+            result = (
+                f"[Note: requested path '{original_path}' does not exist; serving closest "
+                f"match '{recovered_path}' instead. If this is not the intended file, the "
+                f"requested file is absent from the working tree.]\n{result}"
+            )
         return recovered_args, result, success, recovered_error, retries + 1, error_info
 
     def has_failed_before(self, tool_name: str, arguments: Dict[str, Any]) -> bool:
