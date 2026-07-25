@@ -33,6 +33,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from victor.config.settings import get_settings
 from victor.core.events import MessagingEvent, ObservabilityBus, get_observability_bus
+from victor.ui.tui.wire_timeline import WireTimeline, parse_wire_line
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -1196,6 +1197,7 @@ class ObservabilityDashboard(App):
         self,
         log_file: Optional[str] = None,
         subscribe_to_bus: bool = True,
+        wire_log: Optional[str] = None,
         **kwargs,
     ):
         """Initialize the dashboard.
@@ -1203,10 +1205,15 @@ class ObservabilityDashboard(App):
         Args:
             log_file: Optional path to a JSONL log file to load
             subscribe_to_bus: Whether to subscribe to EventBus for real-time events
+            wire_log: Optional path to a v1 wire-event log (JSONL or a raw SSE
+                capture of ``POST /chat/stream``) to replay and tail in the
+                Agent tab
         """
         super().__init__(**kwargs)
         self._log_file = Path(log_file) if log_file else None
         self._subscribe_to_bus = subscribe_to_bus
+        self._wire_log = Path(wire_log) if wire_log else None
+        self._wire_log_pos = 0
         self._paused = False
         self._unsubscribe: Optional[Callable[[], None]] = None
         self._event_buffer: List[MessagingEvent] = []
@@ -1232,6 +1239,8 @@ class ObservabilityDashboard(App):
         with TabbedContent():
             with TabPane("Events", id="tab-events"):
                 yield EventLogView(id="event-log", highlight=True, markup=True)
+            with TabPane("Agent", id="tab-agent"):
+                yield WireTimeline(id="wire-timeline")
             with TabPane("Table", id="tab-table"):
                 yield EventTableView(id="event-table")
             with TabPane("Tools", id="tab-tools"):
@@ -1287,6 +1296,11 @@ class ObservabilityDashboard(App):
 
         logger.info("[Dashboard] All widget references acquired")
 
+        # Replay + tail a v1 wire-event log into the Agent tab (UX P5).
+        if self._wire_log is not None:
+            self._poll_wire_log()
+            self.set_interval(0.5, self._poll_wire_log)
+
         # Check if using JSONL backend - if so, load historical events
         # For in-memory backend, we only see events published after dashboard starts
         self._jsonl_path = Path(os.path.expanduser("~/.victor/metrics/victor.jsonl"))
@@ -1307,6 +1321,22 @@ class ObservabilityDashboard(App):
 
         if self._unsubscribe:
             self._unsubscribe()
+
+    def _poll_wire_log(self) -> None:
+        """Read newly appended wire-event lines and render them (tail -f)."""
+        if self._wire_log is None or not self._wire_log.exists():
+            return
+        try:
+            timeline = self.query_one("#wire-timeline", WireTimeline)
+            with self._wire_log.open("r", encoding="utf-8", errors="replace") as handle:
+                handle.seek(self._wire_log_pos)
+                for line in handle:
+                    wire = parse_wire_line(line)
+                    if wire is not None:
+                        timeline.feed_wire(wire)
+                self._wire_log_pos = handle.tell()
+        except Exception:  # a malformed log must never take the dashboard down
+            return
 
     def _subscribe_to_events(self) -> None:
         """Subscribe to ObservabilityBus for real-time events.

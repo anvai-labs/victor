@@ -299,25 +299,40 @@ entire top of funnel.
 
 ### P5. Bring `victor dashboard` (Textual) to event-stream parity
 
-**Work:**
-1. Render the P1 event stream in the TUI with the same semantics as P3:
-   collapsible thinking, tool timeline, streaming markdown content.
-2. Add session picker (from P0-B store) and provider/model switcher.
-3. Guard: TUI must consume events via `VictorClient.stream()` only — extend the
-   boundary guard tests if not already covered.
+**Premise note (2026-07-25):** the Textual dashboard
+(`victor/observability/dashboard`) is a passive observability viewer — it has
+no chat pane and never calls `VictorClient`. Consistent with this task's own
+alternatives note ("the dashboard serves a different job — monitoring"), P5
+adds wire-stream *rendering* to the dashboard rather than turning it into a
+second interactive chat client; interactive session/provider switching stays
+with the chat surfaces (Chainlit `ChatSettings`, CLI flags).
+
+**Work (as executed):**
+1. ✅ `victor/ui/tui/wire_timeline.py`: pure `WireTimelineState` (RenderAction →
+   Rich-markup lines, mirroring the Chainlit semantics: tool summary labels,
+   duration suffix, ✓/✗ marks, truncation notes, buffered text paragraphs) +
+   `WireTimeline` RichLog widget + `parse_wire_line` (accepts raw JSONL *and*
+   SSE `data:` framing, so a `curl -N` capture of `POST /chat/stream` replays
+   directly).
+2. ✅ Dashboard gains an **Agent tab** hosting the timeline, with
+   `victor observe dashboard --wire-log <path>` replay + live tail.
+3. ✅ Boundary guard extended: `victor/observability/dashboard` is now scanned
+   by `test_architectural_boundaries.py` (no `victor.agent.*`, no orchestrator
+   imports) — it was previously outside the guard entirely.
 
 **Acceptance criteria:**
-- Same recorded contract-test stream renders equivalently in CLI, TUI, web.
-- No `victor.agent.*` imports in the TUI layer.
+- Same recorded contract stream renders equivalently: the TUI test's golden
+  stream is the replay-parity stream from P3
+  (`tests/unit/ui/tui/test_wire_timeline.py` ↔
+  `tests/unit/ui/chat_app/test_wire_render_parity.py`).
+- No `victor.agent.*` imports in the TUI layer (guard-enforced, previously
+  unscanned).
 
-**Rationale:** Three surfaces rendering one contract is the co-design end-state:
-framework improvements appear everywhere simultaneously.
+**Deferred:** session picker / provider-model switcher in the dashboard — an
+interactive-client concern; revisit only if the dashboard's job expands beyond
+monitoring.
 
-**Alternatives:** Merge TUI into CLI chat (one terminal surface). Simpler, but
-the dashboard serves a different job (monitoring/multi-session). **Keep both,
-share the renderer.**
-
-**Dependencies:** P1, P0-B.
+**Dependencies:** P1, P3 (`map_wire_event`).
 
 ---
 

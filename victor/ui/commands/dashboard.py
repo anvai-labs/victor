@@ -54,6 +54,14 @@ def dashboard(
         "--live/--no-live",
         help="Enable/disable live event streaming from ObservabilityBus.",
     ),
+    wire_log: Optional[str] = typer.Option(
+        None,
+        "--wire-log",
+        help=(
+            "Path to a v1 wire-event log (JSONL, or a raw SSE capture of "
+            "POST /chat/stream) to replay and tail in the Agent tab."
+        ),
+    ),
     demo: bool = typer.Option(
         False,
         "--demo",
@@ -86,6 +94,9 @@ def dashboard(
         # Run demo mode with simulated events
         victor dashboard --demo
 
+        # Replay/tail an agent wire-event stream in the Agent tab
+        victor dashboard --wire-log chat.sse
+
         # Enable debug logging to troubleshoot event loading
         victor dashboard --log-level DEBUG
     """
@@ -100,6 +111,7 @@ def dashboard(
                 log_file=log_file,
                 live=live,
                 demo=demo,
+                wire_log=wire_log,
             )
         )
 
@@ -108,6 +120,7 @@ async def run_dashboard(
     log_file: Optional[str] = None,
     live: bool = True,
     demo: bool = False,
+    wire_log: Optional[str] = None,
 ) -> None:
     """Run the observability dashboard.
 
@@ -115,6 +128,7 @@ async def run_dashboard(
         log_file: Optional path to JSONL log file
         live: Whether to enable live event streaming
         demo: Whether to run in demo mode
+        wire_log: Optional v1 wire-event log to replay/tail in the Agent tab
     """
     try:
         from victor.observability.dashboard import ObservabilityDashboard
@@ -145,6 +159,7 @@ async def run_dashboard(
         app = ObservabilityDashboard(
             log_file=log_file,
             subscribe_to_bus=live,
+            wire_log=wire_log,
         )
         await app.run_async()
 
