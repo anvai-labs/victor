@@ -23,6 +23,7 @@ from fastapi import (
     HTTPException,
     Query,
 )
+from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from victor.config.settings import load_settings
 from victor.framework.client import VictorClient
@@ -467,6 +468,66 @@ async def issue_session_token(
     token = _issue_session_token(session_id)
     await SESSION_STORE.bind_token(token, session_id)
     return {"session_token": token, "session_id": session_id}
+
+
+class ChatStreamRequest(BaseModel):
+    """Request model for the typed SSE chat stream (UX P1)."""
+
+    message: str
+    session_id: Optional[str] = None
+
+
+@app.post("/chat/stream")
+async def chat_stream(
+    payload: ChatStreamRequest, _: None = Depends(_require_api_key)
+) -> StreamingResponse:
+    """Versioned JSON-over-SSE event stream for one chat turn (UX P1).
+
+    Emits the framework's typed events on the shared v1 wire contract
+    (victor/framework/wire_events.py): thinking → tool_call → tool_result →
+    content → stream_end, with in-stream failures surfaced as error events.
+    Debuggable with a plain ``curl -N``.
+    """
+    from victor.framework.wire_events import stream_sse
+
+    session = None
+    if payload.session_id:
+        session = await SESSION_STORE.acquire_connection(payload.session_id)
+        if session is None:
+            raise HTTPException(status_code=404, detail="Session not found")
+        agent = session.agent
+        session_id = payload.session_id
+    else:
+        if not await SESSION_STORE.has_capacity():
+            raise HTTPException(status_code=429, detail="Session limit reached")
+        agent = VictorClient(SessionConfig())
+        await agent.initialize()
+        session_id = str(uuid.uuid4())
+        try:
+            session, created = await SESSION_STORE.add(
+                WebSession(session_id=session_id, agent=agent, connection_count=1)
+            )
+            if not created:
+                await _shutdown_session_agent(WebSession(session_id=session_id, agent=agent))
+                agent = session.agent
+                await SESSION_STORE.acquire_connection(session_id)
+        except SessionLimitReached as exc:
+            await _shutdown_session_agent(WebSession(session_id=session_id, agent=agent))
+            raise HTTPException(status_code=429, detail="Session limit reached") from exc
+
+    async def event_source():
+        try:
+            async for frame in stream_sse(agent, payload.message):
+                yield frame
+            await SESSION_STORE.touch(session_id)
+        finally:
+            await SESSION_STORE.release_connection(session_id)
+
+    return StreamingResponse(
+        event_source(),
+        media_type="text/event-stream",
+        headers={"X-Session-Id": session_id, "Cache-Control": "no-cache"},
+    )
 
 
 # --- Minimal compatibility REST endpoints for VS Code client ---
