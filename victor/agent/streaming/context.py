@@ -62,6 +62,11 @@ class StreamingChatContext:
             "cache_read_input_tokens": 0,
         }
     )
+    # Aggregated Sandhi transport diagnostics (metadata["sandhi_usage"] on each
+    # provider response): retry attempts, usage completeness, upstream request
+    # ids. Accumulated across the turn's provider calls via
+    # record_provider_diagnostics(); surfaced on the stream_completed record.
+    provider_diagnostics: Dict[str, Any] = field(default_factory=dict)
 
     # Iteration control
     max_total_iterations: int = 30
@@ -179,6 +184,29 @@ class StreamingChatContext:
     def total_session_time(self) -> float:
         """Get total elapsed time since session start."""
         return time.time() - self.start_time
+
+    def record_provider_diagnostics(self, sandhi_diag: Dict[str, Any]) -> None:
+        """Fold one provider call's ``sandhi_usage`` diagnostics into the turn.
+
+        Aggregation: total attempts and provider-call count sum; incomplete
+        usage reports are counted (a non-"complete" completeness means the
+        billed token numbers may be partial); the last outcome and upstream
+        request id win (most recent call is the one a debugger wants).
+        """
+        diag = self.provider_diagnostics
+        diag["provider_calls"] = diag.get("provider_calls", 0) + 1
+        try:
+            attempts = int(sandhi_diag.get("attempts") or 1)
+        except (TypeError, ValueError):
+            attempts = 1
+        diag["attempts_total"] = diag.get("attempts_total", 0) + attempts
+        completeness = sandhi_diag.get("completeness")
+        if completeness and str(completeness).lower() != "complete":
+            diag["incomplete_usage_count"] = diag.get("incomplete_usage_count", 0) + 1
+        if sandhi_diag.get("outcome"):
+            diag["last_outcome"] = sandhi_diag["outcome"]
+        if sandhi_diag.get("upstream_request_id"):
+            diag["last_upstream_request_id"] = sandhi_diag["upstream_request_id"]
 
     def reset_activity_timer(self) -> None:
         """Reset the activity timer to current time.
