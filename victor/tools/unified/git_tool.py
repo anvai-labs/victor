@@ -506,6 +506,21 @@ async def _handle_pr(parsed: argparse.Namespace) -> str:
     return await _gh_pr_create(parsed)
 
 
+def _unescape_shell_metachars(text: str) -> str:
+    r"""Drop backslash escapes a caller added for shell safety they don't need.
+
+    The argv is ``shlex.quote``d before it reaches the shell, so backticks and
+    ``$`` inside a title/body are already inert. A caller that escapes them
+    anyway — models routinely emit ``\`main\``` out of caution — ships those
+    backslashes to GitHub verbatim, where they are markdown escapes and render
+    as literal backslashes, so every inline code span in the PR body breaks.
+    Neither ``\```` nor ``\$`` is meaningful markdown, so undoing them is safe;
+    every other escape (``\*``, ``\_``, ``\\``) is left alone because it may be
+    deliberate.
+    """
+    return text.replace("\\`", "`").replace("\\$", "$")
+
+
 def _build_gh_pr_argv(parsed: argparse.Namespace) -> List[str]:
     """Build the ``gh pr create`` argv from parsed PR options.
 
@@ -515,9 +530,9 @@ def _build_gh_pr_argv(parsed: argparse.Namespace) -> List[str]:
     """
     argv: List[str] = ["gh", "pr", "create"]
     if parsed.title:
-        argv += ["--title", parsed.title]
+        argv += ["--title", _unescape_shell_metachars(parsed.title)]
     if parsed.body is not None:
-        argv += ["--body", parsed.body]
+        argv += ["--body", _unescape_shell_metachars(parsed.body)]
     if getattr(parsed, "web", False):
         argv.append("--web")
     elif getattr(parsed, "fill", False) or parsed.body is None:

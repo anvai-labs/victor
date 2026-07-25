@@ -530,6 +530,20 @@ class TestPrGhFallback:
         assert "--body" in argv and "hello" in argv
         assert "--fill" not in argv
 
+    def test_build_gh_argv_strips_needless_backtick_escapes(self):
+        # argv is shlex.quoted, so `\`` was never needed for shell safety — but
+        # shipped to GitHub it is a markdown escape and breaks every code span.
+        argv = _build_gh_pr_argv(
+            _parse(r'git pr --title "promote \`main\`" --body "runs \`cargo test\` for \$HOME"')
+        )
+        assert "promote `main`" in argv
+        assert "runs `cargo test` for $HOME" in argv
+        assert not any("\\`" in a for a in argv)
+
+    def test_build_gh_argv_keeps_deliberate_markdown_escapes(self):
+        argv = _build_gh_pr_argv(_parse(r'git pr --title T --body "a \*literal\* star"'))
+        assert r"a \*literal\* star" in argv
+
     def test_build_gh_argv_web_skips_fill(self):
         argv = _build_gh_pr_argv(_parse("git pr --web"))
         assert "--web" in argv
