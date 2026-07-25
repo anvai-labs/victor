@@ -69,6 +69,7 @@ Complete reference for all environment variables recognized by Victor.
 | `VICTOR_DIR_NAME` | `.victor` | Directory name for Victor config |
 | `VICTOR_CONTEXT_FILE` | `init.md` | Project context filename |
 | `VICTOR_EXTRA_READ_ROOTS` | `unset` | Extra directories `read()` may access, `:`-separated. Opt-in only |
+| `VICTOR_CONVERSATION_DB` | `unset` | Pin the conversation store to an explicit path instead of deriving it from the cwd |
 | `VICTOR_DISABLE_WORKSPACE_GUARD` | `unset` | Set to `1` to drop the `read()` workspace scope entirely (testing) |
 
 #### Working across two repositories
@@ -87,6 +88,21 @@ Without it, an out-of-project path is still reachable via
 `ls(path='/abs/dir')` or `shell(cmd='sed -n "1,200p" /abs/file', action='read')`.
 Prefer `VICTOR_EXTRA_READ_ROOTS` when the whole session needs the second repo,
 since it keeps `read()`'s pagination and in-file search working.
+
+#### Conversations from a process that changes directory
+
+`ConversationStore` defaults to `{cwd}/.victor/project.db`. Any process that
+`chdir`s therefore writes its conversations somewhere unexpected — benchmark
+evaluation runs each task in a temporary workspace, so their sessions were lost
+with it. Set `VICTOR_CONVERSATION_DB` to pin the store:
+
+```bash
+VICTOR_CONVERSATION_DB=~/.victor/evaluations/sessions.db victor benchmark ...
+```
+
+Precedence is explicit `db_path` argument → this variable → project default.
+`victor benchmark` sets it automatically for the duration of a run (and restores
+whatever was there before), so this is only needed for custom embeddings.
 
 ### Mode Settings
 
