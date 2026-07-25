@@ -548,15 +548,19 @@ class TestCostAwareRouterEstimateCost:
     """Tests for the estimate_cost method."""
 
     def test_estimate_cost_basic(self):
-        """Test basic cost estimation."""
+        """Cost comes from the canonical per-MTok pricing config.
+
+        The previous inline math treated per-MTok reference numbers as
+        per-1k, overestimating by 1000x (this test used to pin that bug).
+        """
         router = CostAwareRouter()
         cost = router.estimate_cost(
             model="claude-sonnet-4-20250514",
             input_tokens=1000,
             output_tokens=500,
         )
-        # Sonnet: 3.0/1k input, 15.0/1k output
-        expected = (1000 / 1000) * 3.0 + (500 / 1000) * 15.0
+        # Canonical (provider_metrics.yaml): sonnet 3.0/MTok in, 15.0/MTok out
+        expected = (1000 / 1_000_000) * 3.0 + (500 / 1_000_000) * 15.0
         assert cost == expected
 
     def test_estimate_cost_zero_tokens(self):
@@ -590,16 +594,18 @@ class TestCostAwareRouterEstimateCost:
         assert cost == 0.0
 
     def test_estimate_cost_opus(self):
-        """Test cost estimation for high-cost model."""
+        """Unpriced models report zero, not fabricated numbers.
+
+        claude-opus-4-20250514 has no canonical pricing entry; the honest
+        answer is 0.0 rather than the 1000x-inflated legacy estimate.
+        """
         router = CostAwareRouter()
         cost = router.estimate_cost(
             model="claude-opus-4-20250514",
             input_tokens=2000,
             output_tokens=1000,
         )
-        # Opus: 15.0/1k input, 75.0/1k output
-        expected = (2000 / 1000) * 15.0 + (1000 / 1000) * 75.0
-        assert cost == expected
+        assert cost == 0.0
 
     def test_estimate_cost_large_token_count(self):
         """Test cost estimation with large token counts."""
@@ -609,8 +615,8 @@ class TestCostAwareRouterEstimateCost:
             input_tokens=100000,
             output_tokens=50000,
         )
-        # gpt-4o: 5.0/1k input, 15.0/1k output
-        expected = (100000 / 1000) * 5.0 + (50000 / 1000) * 15.0
+        # Canonical (provider_metrics.yaml): gpt-4o 2.5/MTok in, 10.0/MTok out
+        expected = (100000 / 1_000_000) * 2.5 + (50000 / 1_000_000) * 10.0
         assert cost == expected
 
 
