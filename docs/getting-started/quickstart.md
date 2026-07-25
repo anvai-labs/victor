@@ -77,7 +77,7 @@ Victor offers multiple ways to interact:
 ### Interactive CLI (Default)
 
 A rich terminal chat interface with syntax highlighting (the same surface as
-`victor chat`; the separate Textual observability app is `victor dashboard`):
+`victor chat`; the separate Textual observability app is `victor observe dashboard`):
 
 ```bash
 victor
@@ -211,7 +211,7 @@ Installation:
 Running Victor:
   victor                          # Interactive CLI (same as victor chat)
   victor chat                     # Interactive CLI
-  victor dashboard                # Textual observability dashboard
+  victor observe dashboard        # Textual observability dashboard
   victor "task"                   # One-shot mode
   victor chat --provider X        # Use specific provider
   victor --profile local          # Use saved profile
