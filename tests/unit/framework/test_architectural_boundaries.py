@@ -40,6 +40,9 @@ class TestUILayerArchitecturalBoundaries:
         ui_dirs = [
             repo_root / "victor" / "ui",
             repo_root / "victor" / "commands",
+            # The Textual observability dashboard is a UI surface too (UX P5):
+            # it must consume framework/client surfaces, never victor.agent.*.
+            repo_root / "victor" / "observability" / "dashboard",
         ]
         files = []
         for ui_dir in ui_dirs:
@@ -381,6 +384,9 @@ class TestRegressionGuards:
         ui_dirs = [
             repo_root / "victor" / "ui",
             repo_root / "victor" / "commands",
+            # The Textual observability dashboard is a UI surface too (UX P5):
+            # it must consume framework/client surfaces, never victor.agent.*.
+            repo_root / "victor" / "observability" / "dashboard",
         ]
         files = []
         for ui_dir in ui_dirs:
