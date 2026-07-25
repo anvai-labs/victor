@@ -104,22 +104,29 @@ plumbing, independent of the candidates themselves.
 every project on the machine. The current file holds 44 sessions across
 several repos, with no project field captured anywhere in the aggregation.
 
-**Most of the evidence is eval harness — and that is the right source, used
-wrongly.** Classifying sessions by their prompts, 4 of 32 are SWE-bench-style
-eval runs (*"Fix the following issue by editing the source code in this
-repository"*, under a turn budget that injects *"WARNING: 2 turns remaining out
-of 10"*). Those sessions are dense, so weighted by the signal that actually
-drives reflection:
+**A large minority of the evidence is eval harness — the right source, used
+wrongly.** Classifying sessions by their prompts and weighting by the signal
+that actually drives reflection:
 
 | Session kind | `tool_result` events | Share |
 |---|---|---|
-| eval harness | 462 | **59%** |
-| interactive | 316 | 41% |
+| eval harness | 240 | **31%** |
+| interactive | 538 | 69% |
+
+> **Corrected 2026-07-25.** An earlier revision of this document reported a 59%
+> eval share, counting any session carrying *"WARNING: N turns remaining out of
+> 10"* as a benchmark run. That turn budget is a shared mechanism: inspecting
+> the sessions directly shows most of them are **delegate/subagent runs on this
+> user's own repositories** ("Fix Bug 2: Reconcile `AnalysisFulfillment.check()`
+> …", "Review the single Rust crate …"), not benchmarks. Counting only the
+> unambiguous SWE-bench prompt (*"Fix the following issue by editing the source
+> code in this repository"*) gives 31%. The direction of the argument is
+> unchanged; the magnitude was overstated.
 
 Evals are the population a harness-level prompt *should* be tuned on: uniform
 tasks, diverse problems, repeatable, and — uniquely — carrying a ground-truth
-outcome. Interactive sessions have no verifiable success label at all. A 59%
-eval share is a feature.
+outcome. Interactive sessions have no verifiable success label at all. A
+substantial eval share is a feature.
 
 The defect is that **the pipeline consumes the eval population and discards the
 eval signal.** `completion_score = 1 - failure_rate * 1.5` is computed purely
@@ -283,10 +290,8 @@ reading a transcript; only the source of the hypothesis differs.
   require *some* evidence, not merely the absence of a benchmark requirement.
 - **No project scoping on traces.** Provider scoping landed here; project
   scoping needs a project field at the emission site first.
-- **Backfill is not attempted.** The ~680 existing real-model artifacts stay
-  unattributable; only runs from here on carry identity. A backfill would need
-  to infer which candidate was live at each historical timestamp, which the logs
-  do not record.
+- **Backfill was investigated and is not recoverable** — see below. Only runs
+  from here on carry identity.
 - **Eval and interactive sessions are not distinguished.** Tag run kind at
   emission so a section can be evolved on evals alone, on interactive alone, or
   on both deliberately — rather than on an unlabelled blend whose turn pressure
@@ -300,9 +305,46 @@ reading a transcript; only the source of the hypothesis differs.
   the default; flooring at the seed length works around that rather than
   reconciling per-section budgets.
 
+## Why historical artifacts cannot be backfilled
+
+Serializing `session_id` fixes attribution going forward. It was worth asking
+whether the ~1,600 existing tasks could be joined retroactively. They cannot,
+and the reason is worth recording so nobody repeats the search.
+
+**The sessions were never durable.** Each task runs inside a
+`tempfile.mkdtemp()` workspace that the agent chdirs into (`harness.py`,
+`agent_adapter.py`), while `ConversationStore` derives its path from the current
+working directory. Every eval task's conversation store lived in a directory
+deleted moments later. The data was not misfiled — it was never persisted.
+(Fixed: see `durable_evaluation_conversations`.)
+
+**No join key of sufficient specificity survives.** Restricting to tasks where
+an agent actually ran leaves 889 tasks across 48 runs:
+
+| | runs |
+|---|---|
+| no candidate session exists at all | 18 |
+| fewer candidate sessions than tasks (e.g. 50 tasks, 1 candidate) | 27 |
+| enough sessions to be 1:1 | 3 |
+
+Every candidate session's `project_path` is the repository, never a temp
+workspace — they are ordinary interactive sessions that overlapped in time.
+
+**Both fallbacks fail too.** The global `usage.jsonl` survives temp workspaces,
+but covers only 2026-07-08 onward while the runs span 2026-04-13 to 2026-07-15;
+7 of 48 runs fall inside coverage, 5 with zero matching sessions and 2 with a
+single candidate for 20 tasks each. Matching on message content instead of time
+finds **zero** sessions naming any of the 76 specific benchmark task ids.
+
+Every available join is many-tasks-to-one-session. That does not recover a lost
+fact, it invents one — and it would inject a fabricated ground-truth score into
+the reward path. A missing verdict correctly falls back to the labelled proxy;
+a wrong verdict does not.
+
 ## Reproducing
 
 ```bash
+python scripts/prune_eval_corpus.py report         # corpus composition
 python scripts/prompt_candidates.py audit
 python scripts/prompt_candidates.py show <hash>
 python scripts/prompt_candidates.py purge          # dry run
@@ -311,3 +353,10 @@ python scripts/prompt_candidates.py purge --apply  # backs up, then deletes
 
 The 2026-07-25 batch was purged to backup table
 `agent_prompt_candidate_backup_20260725_121347`.
+
+The evaluation corpus was 5,565 artifacts of which **48 (1%)** reflected an
+agent actually working — 88% were test fixtures (`model: test`/`test-model`) and
+12% recorded no tool call at all. Counting them together is what made the
+figures above hard to read. The noise is archived (not deleted) under
+`~/.victor/evaluations/archive/`, reversible with
+`prune_eval_corpus.py undo --apply`.

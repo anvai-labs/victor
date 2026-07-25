@@ -24,6 +24,7 @@ import asyncio
 import json
 import logging
 import os
+from contextlib import contextmanager
 import shutil
 import tempfile
 from abc import ABC, abstractmethod
@@ -277,6 +278,60 @@ def load_prompt_candidate_evaluation_suite(
     if not isinstance(payload, dict):
         raise ValueError("suite artifact must contain a JSON object")
     return PromptCandidateEvaluationSuiteResult.from_dict(payload)
+
+
+@contextmanager
+def durable_evaluation_conversations(db_path: Optional[Path] = None):
+    """Pin evaluation conversations to a durable, eval-owned database.
+
+    Each task runs inside a ``tempfile.mkdtemp()`` workspace and the agent
+    chdirs into it, while ``ConversationStore`` derives its path from the
+    current working directory. Evaluation conversations were therefore written
+    into a directory deleted moments later — or, when project paths had already
+    been cached, into whichever repo the run started from, mixing benchmark
+    sessions into a developer's own history. Neither outcome leaves the data
+    where anyone can read it back.
+
+    Pinning to ``{global}/evaluations/sessions.db`` makes eval conversations
+    survive the workspace and keeps them out of project stores. An explicit
+    ``VICTOR_CONVERSATION_DB`` already set by the caller is left alone.
+
+    Restores the previous value on exit, so an in-process caller (the test
+    suite, a notebook) is not left with a changed global.
+    """
+    from victor.agent.conversation.store import CONVERSATION_DB_ENV
+
+    previous = os.environ.get(CONVERSATION_DB_ENV)
+    if previous:
+        yield Path(previous)
+        return
+
+    if db_path is None:
+        try:
+            from victor.config.settings import get_project_paths
+
+            db_path = Path(get_project_paths().global_victor_dir) / "evaluations" / "sessions.db"
+        except Exception:
+            db_path = Path.home() / ".victor" / "evaluations" / "sessions.db"
+
+    try:
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        # A read-only or missing home should degrade to old behaviour, not
+        # abort the benchmark run.
+        logger.warning("Could not prepare durable evaluation store at %s: %s", db_path, exc)
+        yield None
+        return
+
+    os.environ[CONVERSATION_DB_ENV] = str(db_path)
+    logger.info("Evaluation conversations pinned to %s", db_path)
+    try:
+        yield db_path
+    finally:
+        if previous is None:
+            os.environ.pop(CONVERSATION_DB_ENV, None)
+        else:
+            os.environ[CONVERSATION_DB_ENV] = previous
 
 
 def _collect_observed_prompt_identities(result: "EvaluationResult") -> list[dict[str, Any]]:
@@ -994,6 +1049,26 @@ class EvaluationHarness:
         if runner is None:
             raise ValueError(f"No runner for benchmark: {config.benchmark}")
 
+        with durable_evaluation_conversations():
+            return await self._run_evaluation(
+                config,
+                runner,
+                agent_callback,
+                progress_callback,
+                retry_callback,
+                resume,
+            )
+
+    async def _run_evaluation(
+        self,
+        config: EvaluationConfig,
+        runner: Any,
+        agent_callback: Any,
+        progress_callback: Optional[Any] = None,
+        retry_callback: Optional[Any] = None,
+        resume: bool = False,
+    ) -> EvaluationResult:
+        """Run the evaluation body (see ``run_evaluation`` for the contract)."""
         # Warn if self-correction enabled but no retry_callback
         if config.enable_self_correction and retry_callback is None:
             logger.warning(

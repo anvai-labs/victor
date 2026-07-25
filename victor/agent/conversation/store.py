@@ -47,6 +47,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional, Tuple, TYPE_CHECKING
 import asyncio
 import logging
+import os
 import re
 import sqlite3
 import time
@@ -104,6 +105,34 @@ _SOURCE_PRIORITY_MAP: dict = {
 
 from victor.agent.conversation.session_model import ConversationSession
 
+CONVERSATION_DB_ENV = "VICTOR_CONVERSATION_DB"
+
+
+def _db_path_override() -> Optional[Path]:
+    """Explicit conversation-DB location from the environment, if set.
+
+    The default location is derived from the *current working directory*
+    (``{project}/.victor/project.db``). That silently breaks for any process
+    that chdirs: benchmark evaluation runs each task inside a
+    ``tempfile.mkdtemp()`` workspace, so their conversations were written into
+    a directory that is deleted when the task ends — or, depending on whether
+    project paths had already been resolved and cached, leaked into whichever
+    repo the run happened to start from. Neither is a place anyone can read
+    them back from afterwards.
+
+    Setting this pins the store to a durable, explicit path regardless of cwd.
+    Precedence is ``db_path`` argument > this variable > project default, so
+    callers that already pass a path are unaffected.
+    """
+    raw = os.environ.get(CONVERSATION_DB_ENV, "").strip()
+    if not raw:
+        return None
+    try:
+        return Path(raw).expanduser()
+    except (OSError, ValueError):
+        logger.warning("Ignoring unusable %s=%r", CONVERSATION_DB_ENV, raw)
+        return None
+
 
 class ConversationStore:
     """
@@ -153,7 +182,7 @@ class ConversationStore:
         from victor.config.settings import get_project_paths
 
         paths = get_project_paths()
-        self.db_path = db_path or paths.project_db
+        self.db_path = db_path or _db_path_override() or paths.project_db
         self.max_context_tokens = max_context_tokens
         self.response_reserve = response_reserve
         self.chars_per_token = chars_per_token
