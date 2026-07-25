@@ -153,8 +153,6 @@ class CostAwareRouter:
             cost_tier=CostTier.HIGH,
             capabilities=["tool_calling", "streaming", "vision", "code", "reasoning"],
             max_context=200000,
-            input_cost_per_1k=15.0,
-            output_cost_per_1k=75.0,
         ),
         ModelConfig(
             name="claude-sonnet-4-20250514",
@@ -162,8 +160,6 @@ class CostAwareRouter:
             cost_tier=CostTier.MEDIUM,
             capabilities=["tool_calling", "streaming", "vision", "code"],
             max_context=200000,
-            input_cost_per_1k=3.0,
-            output_cost_per_1k=15.0,
         ),
         ModelConfig(
             name="claude-3-5-haiku-20241022",
@@ -171,8 +167,6 @@ class CostAwareRouter:
             cost_tier=CostTier.LOW,
             capabilities=["tool_calling", "streaming", "code"],
             max_context=200000,
-            input_cost_per_1k=0.8,
-            output_cost_per_1k=4.0,
         ),
         # OpenAI models
         ModelConfig(
@@ -181,8 +175,6 @@ class CostAwareRouter:
             cost_tier=CostTier.MEDIUM,
             capabilities=["tool_calling", "streaming", "vision", "code"],
             max_context=128000,
-            input_cost_per_1k=5.0,
-            output_cost_per_1k=15.0,
         ),
         ModelConfig(
             name="gpt-4o-mini",
@@ -190,8 +182,6 @@ class CostAwareRouter:
             cost_tier=CostTier.LOW,
             capabilities=["tool_calling", "streaming", "vision", "code"],
             max_context=128000,
-            input_cost_per_1k=0.15,
-            output_cost_per_1k=0.6,
         ),
         # Local/Free models
         ModelConfig(
@@ -382,6 +372,17 @@ class CostAwareRouter:
         config = self.get_model(model)
         if not config:
             return 0.0
+
+        # Canonical pricing first (config/provider_metrics.yaml via
+        # metrics_capabilities) — the previous inline math multiplied
+        # per-MTok reference numbers as if they were per-1k, overestimating
+        # by 1000x. Legacy per-1k fields remain only as a fallback for
+        # user-registered models with no canonical entry.
+        from victor.config.metrics_capabilities import get_metrics_capabilities
+
+        capabilities = get_metrics_capabilities(config.provider, config.name)
+        if capabilities.cost_enabled:
+            return capabilities.calculate_cost(input_tokens, output_tokens)["total_cost"]
 
         input_cost = (input_tokens / 1000) * config.input_cost_per_1k
         output_cost = (output_tokens / 1000) * config.output_cost_per_1k

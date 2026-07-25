@@ -269,7 +269,9 @@ class MetricsCollector:
                 self._current_stream_metrics.first_token_time = time.time()
 
     def finalize_stream_metrics(
-        self, usage_data: Optional[Dict[str, int]] = None
+        self,
+        usage_data: Optional[Dict[str, int]] = None,
+        provider_diagnostics: Optional[Dict[str, Any]] = None,
     ) -> Optional[StreamMetrics]:
         """Finalize stream metrics at end of streaming session.
 
@@ -277,6 +279,9 @@ class MetricsCollector:
             usage_data: Optional cumulative token usage from provider API.
                        If provided, this will be recorded to enable actual
                        token counts instead of estimates.
+            provider_diagnostics: Optional aggregated Sandhi transport
+                       diagnostics (retry attempts, usage completeness,
+                       upstream request ids) for the turn.
 
         Returns:
             Finalized StreamMetrics or None if no active session
@@ -288,6 +293,9 @@ class MetricsCollector:
         # This enables accurate token counts instead of estimates
         if usage_data:
             self._current_stream_metrics.record_usage(usage_data)
+
+        if provider_diagnostics:
+            self._current_stream_metrics.metadata["sandhi_usage"] = dict(provider_diagnostics)
 
         # Calculate cost using provider capabilities
         try:
@@ -316,8 +324,16 @@ class MetricsCollector:
             "cache_read_tokens": metrics.cache_read_tokens,
             "cache_write_tokens": metrics.cache_write_tokens,
         }
+        if metrics.reasoning_tokens:
+            log_data["reasoning_tokens"] = metrics.reasoning_tokens
         if metrics.cost_calculated:
             log_data["total_cost"] = metrics.total_cost
+        if provider_diagnostics:
+            # Sandhi transport truth: retry attempts, usage completeness, and
+            # upstream request ids — durable on the canonical usage sink so
+            # cost analysis and the RL trace-miner can see retry burn and
+            # partial-usage turns.
+            log_data["sandhi_usage"] = dict(provider_diagnostics)
 
         self.usage_logger.log_event("stream_completed", log_data)
 

@@ -107,8 +107,6 @@ class ModelSwitcher:
                 display_name="Claude Sonnet 4",
                 context_window=200000,
                 supports_tools=True,
-                cost_per_1k_input=0.003,
-                cost_per_1k_output=0.015,
                 capabilities=["code", "analysis", "reasoning"],
             )
         )
@@ -119,8 +117,6 @@ class ModelSwitcher:
                 display_name="Claude Opus 4.5",
                 context_window=200000,
                 supports_tools=True,
-                cost_per_1k_input=0.015,
-                cost_per_1k_output=0.075,
                 capabilities=["code", "analysis", "reasoning", "complex"],
             )
         )
@@ -133,8 +129,6 @@ class ModelSwitcher:
                 display_name="GPT-4 Turbo",
                 context_window=128000,
                 supports_tools=True,
-                cost_per_1k_input=0.01,
-                cost_per_1k_output=0.03,
                 capabilities=["code", "analysis"],
             )
         )
@@ -145,8 +139,6 @@ class ModelSwitcher:
                 display_name="GPT-4o",
                 context_window=128000,
                 supports_tools=True,
-                cost_per_1k_input=0.005,
-                cost_per_1k_output=0.015,
                 capabilities=["code", "analysis", "vision"],
             )
         )
@@ -159,8 +151,6 @@ class ModelSwitcher:
                 display_name="Gemini 2.0 Flash",
                 context_window=1000000,
                 supports_tools=True,
-                cost_per_1k_input=0.00035,
-                cost_per_1k_output=0.00105,
                 capabilities=["code", "analysis", "fast"],
             )
         )
@@ -192,9 +182,24 @@ class ModelSwitcher:
     def register_model(self, model: ModelInfo) -> None:
         """Register a model as available.
 
+        Cost fields left at zero are hydrated from the canonical pricing
+        config (config/provider_metrics.yaml) so cheapest-model selection
+        sorts on real prices instead of a hand-maintained copy. Callers that
+        pass explicit costs keep them.
+
         Args:
             model: Model information
         """
+        if model.cost_per_1k_input == 0.0 and model.cost_per_1k_output == 0.0:
+            try:
+                from victor.config.metrics_capabilities import get_metrics_capabilities
+
+                capabilities = get_metrics_capabilities(model.provider, model.model_id)
+                if capabilities.cost_enabled:
+                    model.cost_per_1k_input = capabilities.input_cost_per_mtok / 1000
+                    model.cost_per_1k_output = capabilities.output_cost_per_mtok / 1000
+            except Exception:
+                logger.debug("Canonical pricing lookup failed for %s", model.full_id, exc_info=True)
         self._available_models[model.full_id] = model
         logger.debug(f"Registered model: {model.full_id}")
 

@@ -134,3 +134,50 @@ class TestWebServerArchitecturalBoundary:
             "web/server/ should import VictorClient from victor.framework.client "
             "to honor the UI-layer seam."
         )
+
+
+class TestWebServerSessionStateBoundary:
+    """Guard (P0-B): session state must live in the injectable store.
+
+    ``main.py`` previously held sessions in module-level mutable dicts
+    (``SESSION_AGENTS``/``SESSION_TOKENS``) guarded by a module-level lock —
+    unrestartable, single-worker state that also serialized agent creation
+    behind a global lock. State now lives behind the ``SessionStore``
+    protocol (``web/server/session_store.py``); this ratchet keeps the dicts
+    from coming back.
+    """
+
+    LEGACY_SESSION_GLOBALS = {"SESSION_AGENTS", "SESSION_TOKENS", "SESSION_LOCK"}
+
+    def test_no_module_level_session_dicts_in_main(self):
+        main_py = WEB_SERVER_DIR / "main.py"
+        if not main_py.exists():
+            pytest.skip("web/server/main.py not found")
+
+        tree = ast.parse(main_py.read_text(), filename=str(main_py))
+        offenders = []
+        for node in tree.body:  # module level only
+            targets = []
+            if isinstance(node, ast.Assign):
+                targets = node.targets
+            elif isinstance(node, ast.AnnAssign):
+                targets = [node.target]
+            for target in targets:
+                if isinstance(target, ast.Name) and target.id in self.LEGACY_SESSION_GLOBALS:
+                    offenders.append(f"{target.id} (line {node.lineno})")
+
+        assert not offenders, (
+            "Legacy module-level session state reintroduced in web/server/main.py: "
+            f"{offenders}. Use the SessionStore protocol "
+            "(web/server/session_store.py) instead."
+        )
+
+    def test_main_uses_session_store_seam(self):
+        main_py = WEB_SERVER_DIR / "main.py"
+        if not main_py.exists():
+            pytest.skip("web/server/main.py not found")
+        source = main_py.read_text()
+        assert "session_store" in source, (
+            "web/server/main.py no longer references the session_store seam — "
+            "if session management moved, update this guard deliberately."
+        )
