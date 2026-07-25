@@ -21,8 +21,10 @@ from — the agent loop stays legible everywhere without per-surface reshaping.
 Wire shape (``v`` is the contract version; additive-only within a version):
 
     {"v": 1, "event": "thinking",    "content": "..."}
-    {"v": 1, "event": "tool_call",   "tool": "read", "arguments": {...}}
-    {"v": 1, "event": "tool_result", "tool": "read", "success": true, "result": "..."}
+    {"v": 1, "event": "tool_call",   "tool": "read", "arguments": {...},
+             "call_id": "..."}                                   # call_id optional
+    {"v": 1, "event": "tool_result", "tool": "read", "success": true, "result": "...",
+             "call_id": "...", "elapsed_ms": 120, "truncated": true}  # last 3 optional
     {"v": 1, "event": "content",     "content": "..."}
     {"v": 1, "event": "error",       "message": "..."}
     {"v": 1, "event": "stream_end"}
@@ -34,6 +36,11 @@ Design notes:
   contract's six types stay closed while losing no fidelity.
 - Tool results are made JSON-safe and size-bounded: UIs render previews;
   full results belong to the conversation, not the event stream.
+- ``tool_result.result`` is always the human-readable output string, never the
+  internal tool-pipeline payload dict; ``call_id`` correlates parallel tool
+  calls with their results, ``elapsed_ms`` carries the measured duration, and
+  ``truncated`` flags output bounded upstream or on the wire (all additive,
+  UX P3).
 """
 
 from __future__ import annotations
@@ -93,17 +100,44 @@ def to_wire_event(event: Any) -> Optional[Dict[str, Any]]:
         arguments = getattr(event, "arguments", None)
         if isinstance(arguments, dict) and arguments:
             wire["arguments"] = _json_safe_arguments(arguments)
+        call_id = _extract_call_id(event)
+        if call_id:
+            wire["call_id"] = call_id
         return wire
 
     if event_type in ("tool_result", "tool_error"):
         success = bool(getattr(event, "success", True)) and event_type != "tool_error"
-        return {
+        wire = {
             "v": WIRE_VERSION,
             "event": "tool_result",
             "tool": getattr(event, "tool_name", None) or "tool",
             "success": success,
-            "result": _json_safe(getattr(event, "result", None)),
         }
+        raw_result = getattr(event, "result", None)
+        if isinstance(raw_result, dict) and (
+            "result" in raw_result or "original_result" in raw_result
+        ):
+            # The client surface flattens the internal tool-pipeline payload
+            # onto ``result`` (original_result, elapsed, follow_up_suggestions,
+            # was_pruned, …). Only contract fields cross the wire: the
+            # human-readable output string plus measured duration/truncation.
+            display = raw_result.get("original_result") or raw_result.get("result")
+            wire["result"] = _json_safe(display)
+            wire["success"] = success and bool(raw_result.get("success", True))
+            elapsed = raw_result.get("elapsed")
+            if isinstance(elapsed, (int, float)) and elapsed > 0:
+                wire["elapsed_ms"] = int(elapsed * 1000)
+            truncated = bool(raw_result.get("was_pruned")) or _was_bounded(display, wire["result"])
+            if truncated:
+                wire["truncated"] = True
+        else:
+            wire["result"] = _json_safe(raw_result)
+            if _was_bounded(raw_result, wire["result"]):
+                wire["truncated"] = True
+        call_id = _extract_call_id(event)
+        if call_id:
+            wire["call_id"] = call_id
+        return wire
 
     if event_type == "error":
         return {
@@ -120,6 +154,30 @@ def to_wire_event(event: Any) -> Optional[Dict[str, Any]]:
 
 def _json_safe_arguments(arguments: Dict[str, Any]) -> Dict[str, Any]:
     return {str(key): _json_safe(value, max_chars=2_048) for key, value in arguments.items()}
+
+
+def _extract_call_id(event: Any) -> Optional[str]:
+    """Best-effort tool call id, correlating parallel tool_call/tool_result pairs.
+
+    Mirrors the chat UI's extraction: the id may ride on the event itself or in
+    its metadata/payload under a few historical key names.
+    """
+    for attr in ("tool_call_id", "call_id"):
+        value = getattr(event, attr, None)
+        if value:
+            return str(value)
+    for container in (getattr(event, "metadata", None), getattr(event, "result", None)):
+        if isinstance(container, dict):
+            for key in ("tool_call_id", "id", "call_id"):
+                value = container.get(key)
+                if value:
+                    return str(value)
+    return None
+
+
+def _was_bounded(original: Any, on_wire: Any) -> bool:
+    """True when the wire value is a truncation of the original string."""
+    return isinstance(original, str) and isinstance(on_wire, str) and len(on_wire) != len(original)
 
 
 def encode_sse(wire_event: Dict[str, Any]) -> str:
