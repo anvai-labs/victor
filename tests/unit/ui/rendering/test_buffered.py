@@ -289,3 +289,44 @@ class TestEdgeCases:
         r = BufferedRenderer(user_message="")
         r.on_content("Hello")
         assert r.finalize() == "Hello"
+
+
+class TestStatusFlush:
+    """Statuses (surfaced provider errors) must appear in flush output."""
+
+    def test_flush_prints_statuses(self, renderer: BufferedRenderer) -> None:
+        renderer.on_status("❌ upstream status 400")
+        console = MagicMock()
+        renderer.flush(console)
+        printed = " ".join(str(call.args[0]) for call in console.print.call_args_list)
+        assert "upstream status 400" in printed
+
+    def test_statuses_accessor_returns_copy(self, renderer: BufferedRenderer) -> None:
+        renderer.on_status("one")
+        statuses = renderer.statuses()
+        statuses.append("two")
+        assert renderer.statuses() == ["one"]
+
+
+class TestStringArgumentsRegression:
+    """flush() must not crash when tool arguments arrived as a raw string.
+
+    Regression: session modality-doc-review-fixes-b4e87728 — a recovery-produced
+    tool call carried arguments as a JSON string; format_tool_args crashed with
+    AttributeError ('str' object has no attribute 'items'), replacing the real
+    provider error in `victor run` output.
+    """
+
+    def test_flush_with_string_arguments(self, renderer: BufferedRenderer) -> None:
+        renderer.on_tool_start(name="shell", arguments='{"cmd": "ls docs/"}')
+        renderer.on_tool_result(
+            name="shell",
+            success=True,
+            elapsed=0.1,
+            arguments='{"cmd": "ls docs/"}',
+            result="file1\nfile2",
+        )
+        console = MagicMock()
+        renderer.flush(console)  # must not raise
+        printed = " ".join(str(call.args[0]) for call in console.print.call_args_list)
+        assert "shell" in printed.lower()

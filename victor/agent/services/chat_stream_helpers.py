@@ -1399,6 +1399,12 @@ class ChatStreamHelperMixin:
         )
         waiting_since = time.monotonic()
         first_chunk_received = False
+        # Reasoning-only stream diagnostics: a thinking model (kimi-k3, DeepSeek-R,
+        # o-series) can burn the entire completion budget on reasoning deltas and
+        # finish with zero content — which otherwise presents as an opaque "empty
+        # response" that identical-parameter retries can never fix.
+        reasoning_chars = 0
+        last_stop_reason: Optional[str] = None
 
         # Producer/consumer split for deterministic, on-task stream cleanup.
         #
@@ -1537,6 +1543,15 @@ class ChatStreamHelperMixin:
                 # with it the turn's real token accounting, leaving the api_*_tokens at 0.
                 # Reading usage here makes the dominant cost term observable regardless of
                 # whether the chunk survives the filter.
+                chunk_stop_reason = getattr(chunk, "stop_reason", None)
+                if chunk_stop_reason:
+                    last_stop_reason = str(chunk_stop_reason)
+                chunk_meta = getattr(chunk, "metadata", None)
+                if isinstance(chunk_meta, dict):
+                    reasoning_delta = chunk_meta.get("reasoning_content")
+                    if reasoning_delta:
+                        reasoning_chars += len(str(reasoning_delta))
+
                 raw_usage = getattr(chunk, "usage", None)
                 if raw_usage:
                     for key in stream_ctx.cumulative_usage:
@@ -1654,12 +1669,28 @@ class ChatStreamHelperMixin:
             content_length = len(full_content.strip()) if full_content else 0
 
             if content_length == 0:
+                stream_ctx.empty_stream_diagnostics = {
+                    "reasoning_chars": reasoning_chars,
+                    "stop_reason": last_stop_reason,
+                }
                 self._record_provider_status_event(
                     stream_ctx,
                     "empty_stream_completed",
                     model=getattr(orch, "model", None),
+                    reasoning_chars=reasoning_chars,
+                    stop_reason=last_stop_reason,
                 )
-                logger.warning("Stream completed without content or tool calls")
+                if reasoning_chars:
+                    logger.warning(
+                        "Stream completed without content or tool calls after %d reasoning "
+                        "chars (stop_reason=%s) — reasoning likely consumed the completion "
+                        "budget (max_tokens=%s)",
+                        reasoning_chars,
+                        last_stop_reason,
+                        getattr(orch, "max_tokens", None),
+                    )
+                else:
+                    logger.warning("Stream completed without content or tool calls")
             elif content_length < 50:
                 self._record_provider_status_event(
                     stream_ctx,
@@ -1795,6 +1826,31 @@ class ChatStreamHelperMixin:
         """Handle empty response recovery with multi-strategy retry."""
         orch = self._orchestrator
 
+        # Reasoning-token exhaustion: when the empty stream carried reasoning
+        # deltas but no content, the completion budget was consumed by thinking.
+        # Retrying with identical parameters is deterministic failure (observed:
+        # two consecutive ~112s reasoning-only streams, session
+        # modality-doc-review-fixes-b4e87728) — raise max_tokens for the retry
+        # so the model has budget left after reasoning.
+        recovery_max_tokens = orch.max_tokens
+        diagnostics = getattr(stream_ctx, "empty_stream_diagnostics", None) or {}
+        if (
+            diagnostics.get("reasoning_chars")
+            and isinstance(recovery_max_tokens, int)
+            and recovery_max_tokens > 0
+        ):
+            recovery_max_tokens = min(recovery_max_tokens * 4, 32768)
+            if recovery_max_tokens > orch.max_tokens:
+                logger.info(
+                    "Empty stream diagnosed as reasoning-token exhaustion "
+                    "(reasoning_chars=%s, stop_reason=%s) — retrying with max_tokens=%s "
+                    "(was %s)",
+                    diagnostics.get("reasoning_chars"),
+                    diagnostics.get("stop_reason"),
+                    recovery_max_tokens,
+                    orch.max_tokens,
+                )
+
         recovery_temps = [0.7, 0.9]
         for temp in recovery_temps:
             try:
@@ -1839,7 +1895,7 @@ class ChatStreamHelperMixin:
                         messages=retry_assembled,
                         model=orch.model,
                         temperature=temp,
-                        max_tokens=orch.max_tokens,
+                        max_tokens=recovery_max_tokens,
                         tools=tools,
                         **provider_kwargs,
                     )
