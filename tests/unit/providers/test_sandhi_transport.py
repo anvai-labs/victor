@@ -446,3 +446,80 @@ def test_resolve_provider_gateway_drops_block_without_url():
     resolve_provider_gateway(base, "deepseek")
     assert "gateway" not in base
     assert base["api_key"] == "k"
+
+
+class TestWireContractHandshake:
+    """One-time fail-soft handshake against the installed binding."""
+
+    def setup_method(self):
+        st._wire_contract_checked = False
+
+    def teardown_method(self):
+        st._wire_contract_checked = False
+
+    def test_mismatch_warns_once(self, monkeypatch, caplog):
+        fake_sg = SimpleNamespace(wire_contract_version=lambda: "2")
+        import sys
+
+        monkeypatch.setitem(sys.modules, "sandhi_gateway", fake_sg)
+        with caplog.at_level("WARNING"):
+            st._verify_wire_contract()
+            st._verify_wire_contract()  # second call must be a no-op
+        warnings = [r for r in caplog.records if "wire-contract mismatch" in r.getMessage()]
+        assert len(warnings) == 1
+
+    def test_matching_version_is_silent(self, monkeypatch, caplog):
+        fake_sg = SimpleNamespace(wire_contract_version=lambda: "1")
+        import sys
+
+        monkeypatch.setitem(sys.modules, "sandhi_gateway", fake_sg)
+        with caplog.at_level("WARNING"):
+            st._verify_wire_contract()
+        assert not any("wire-contract" in r.getMessage() for r in caplog.records)
+
+    def test_old_binding_without_surface_is_silent(self, monkeypatch, caplog):
+        fake_sg = SimpleNamespace()  # predates wire_contract_version
+        import sys
+
+        monkeypatch.setitem(sys.modules, "sandhi_gateway", fake_sg)
+        with caplog.at_level("WARNING"):
+            st._verify_wire_contract()
+        assert not any("wire-contract" in r.getMessage() for r in caplog.records)
+
+
+class TestUpstreamBodySurfacing:
+    """details.upstream_body from ProviderErrorV1 must reach the surfaced message."""
+
+    def _typed_error(self, details=None):
+        import json as _json
+
+        payload = {
+            "code": "upstream_error",
+            "message": "upstream status 400",
+            "retryable": False,
+            "http_status": 400,
+            "provider": "moonshot",
+        }
+        if details is not None:
+            payload["details"] = details
+        return RuntimeError(_json.dumps(payload))
+
+    def test_upstream_body_appended_to_message(self):
+        body = '{"error":{"message":"tool call id call_9 not found"}}'
+        err = st.map_sandhi_error(self._typed_error({"upstream_body": body}), "moonshot", 30.0)
+        assert "tool call id call_9 not found" in str(err)
+
+    def test_no_details_keeps_prior_message(self):
+        err = st.map_sandhi_error(self._typed_error(), "moonshot", 30.0)
+        assert "upstream status 400" in str(err)
+        assert "upstream body" not in str(err)
+
+    def test_body_already_in_message_not_duplicated(self):
+        body = "duplicate snippet content that is already present"
+        payload_err = self._typed_error({"upstream_body": body})
+        import json as _json
+
+        parsed = _json.loads(str(payload_err))
+        parsed["message"] = f"upstream status 400: {body}"
+        err = st.map_sandhi_error(RuntimeError(_json.dumps(parsed)), "moonshot", 30.0)
+        assert str(err).count(body) == 1
