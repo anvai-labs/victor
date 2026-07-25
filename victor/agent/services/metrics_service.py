@@ -174,7 +174,9 @@ class AgentMetricsService:
     # ========================================================================
 
     def finalize_stream_metrics(
-        self, usage_data: Optional[Dict[str, int]] = None
+        self,
+        usage_data: Optional[Dict[str, int]] = None,
+        provider_diagnostics: Optional[Dict[str, Any]] = None,
     ) -> Optional["StreamMetrics"]:
         """Finalize stream metrics at end of streaming session.
 
@@ -186,11 +188,16 @@ class AgentMetricsService:
         Args:
             usage_data: Optional cumulative token usage from provider API.
                        When provided, enables accurate token counts.
+            provider_diagnostics: Optional aggregated Sandhi transport
+                       diagnostics (attempts, usage completeness, upstream
+                       request ids) for the turn.
 
         Returns:
             StreamMetrics with complete session data or None
         """
-        metrics = self._metrics_collector.finalize_stream_metrics(usage_data)
+        metrics = self._metrics_collector.finalize_stream_metrics(
+            usage_data, provider_diagnostics=provider_diagnostics
+        )
 
         # Record to session cost tracker for cumulative tracking
         if metrics:

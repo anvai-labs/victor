@@ -1547,6 +1547,19 @@ class ChatStreamHelperMixin:
                         f"cache_read={raw_usage.get('cache_read_input_tokens', 0)}"
                     )
 
+                # Sandhi attaches transport diagnostics (retry attempts, usage
+                # completeness, upstream request id) to the same terminal chunk
+                # that carries usage. Fold them into the turn so finalize can
+                # surface them — previously recorded by the transport and read
+                # by nothing.
+                chunk_meta = getattr(chunk, "metadata", None)
+                if isinstance(chunk_meta, dict):
+                    sandhi_diag = chunk_meta.get("sandhi_usage")
+                    if isinstance(sandhi_diag, dict) and hasattr(
+                        stream_ctx, "record_provider_diagnostics"
+                    ):
+                        stream_ctx.record_provider_diagnostics(sandhi_diag)
+
                 chunk, consecutive_garbage_chunks, garbage_detected = self._handle_stream_chunk(
                     chunk,
                     consecutive_garbage_chunks,
