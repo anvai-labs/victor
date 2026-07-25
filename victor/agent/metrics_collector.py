@@ -324,6 +324,8 @@ class MetricsCollector:
             "cache_read_tokens": metrics.cache_read_tokens,
             "cache_write_tokens": metrics.cache_write_tokens,
         }
+        if metrics.reasoning_tokens:
+            log_data["reasoning_tokens"] = metrics.reasoning_tokens
         if metrics.cost_calculated:
             log_data["total_cost"] = metrics.total_cost
         if provider_diagnostics:
