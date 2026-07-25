@@ -1246,6 +1246,35 @@ def _optimize_grep_to_rg(cmd: str) -> str:
     return optimized
 
 
+_PLACEHOLDER_CMDS = frozenset(
+    {
+        "...",
+        "…",
+        "cmd",
+        "command",
+        "<cmd>",
+        "<command>",
+        "your_command",
+        "your command",
+        "none",
+        "null",
+        "todo",
+    }
+)
+
+
+def _is_placeholder_cmd(command: str) -> bool:
+    """True when ``cmd`` is a doc placeholder the model copied verbatim.
+
+    Prompt guidance used to read ``shell(cmd='...', action='exec')``; models
+    emitted the literal ``...``, /bin/sh reported ``...: command not found``
+    (exit 127), and the session concluded the shell tool was unusable. Naming
+    the mistake is far more recoverable than a shell error about a missing
+    binary.
+    """
+    return command.strip().strip("'\"").casefold() in _PLACEHOLDER_CMDS
+
+
 def _is_dangerous(command: str) -> bool:
     """Check if command is potentially dangerous.
 
@@ -1521,6 +1550,20 @@ async def shell(
         return {
             "success": False,
             "error": "Missing required parameter: cmd",
+            "stdout": "",
+            "stderr": "",
+            "return_code": -1,
+        }
+
+    if _is_placeholder_cmd(cmd):
+        return {
+            "success": False,
+            "error": (
+                f"'{cmd.strip()}' is a documentation placeholder, not a command. "
+                "Pass the real command text, e.g. "
+                "shell(cmd='ls -la /path/to/dir', action='read') or "
+                "shell(cmd='pytest -q', action='exec')."
+            ),
             "stdout": "",
             "stderr": "",
             "return_code": -1,

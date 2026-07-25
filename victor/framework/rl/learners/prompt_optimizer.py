@@ -1462,6 +1462,7 @@ class PromptOptimizerLearner(BaseLearner):
             New PromptCandidate, or None if insufficient data
         """
         traces = self._collect_learning_traces(limit=50)
+        traces = self._scope_traces_to_provider(traces, provider)
 
         # Enrich traces with credit signals (FEP-0001 Phase 3)
         self._enrich_traces_with_credit(traces)
@@ -1515,20 +1516,31 @@ class PromptOptimizerLearner(BaseLearner):
             logger.info("Mutation produced no change for '%s'", section_name)
             return None
 
-        # Prompt bloat control: boundary-aware truncation (never mid-token).
+        # Prompt bloat control: boundary-aware truncation (never mid-instruction).
         # Strategies already sanitize, but this is a final safety net before persist.
-        if self._max_prompt_chars and len(new_text) > self._max_prompt_chars:
+        #
+        # The cap is a *bloat* control, so it can never sit below the seed it is
+        # measuring growth against. COMPLETION_GUIDANCE ships at 1551 chars while
+        # max_prompt_chars defaults to 1500, so every mutation of it was amputated
+        # to 1496 regardless of quality — the cap, not the strategy, decided the
+        # candidate. Floor the effective cap at the seed length so truncation only
+        # ever trims genuine growth.
+        effective_cap = (
+            max(self._max_prompt_chars, len(current_text)) if self._max_prompt_chars else 0
+        )
+        if effective_cap and len(new_text) > effective_cap:
             from victor.framework.rl.prompt_hygiene import boundary_aware_truncate
 
-            new_text, _ = boundary_aware_truncate(new_text, self._max_prompt_chars)
+            new_text, _ = boundary_aware_truncate(new_text, effective_cap)
             logger.info(
-                "GEPA bloat control: truncated '%s' to %d chars (boundary-aware)",
+                "GEPA bloat control: truncated '%s' to %d chars (boundary-aware, cap=%d)",
                 section_name,
                 len(new_text),
+                effective_cap,
             )
 
         # Reject if over 2x the limit (likely garbage output)
-        if self._max_prompt_chars and len(new_text) > 2 * self._max_prompt_chars:
+        if effective_cap and len(new_text) > 2 * effective_cap:
             logger.warning(
                 "GEPA rejected mutation for '%s': %d chars > 2x limit",
                 section_name,
@@ -1547,10 +1559,22 @@ class PromptOptimizerLearner(BaseLearner):
         # allowed_additions gate (prefpo_strategy.py); this net catches only
         # corruption. Garbage collapses (e.g. 44-char output) are already
         # rejected upstream in gepa_service.mutate() before reaching here.
+        #
+        # ``truncated_tail`` and ``redundant_additions`` are corruption too, and
+        # both were observed reaching the DB: a COMPLETION_GUIDANCE candidate
+        # persisted ending "- Read error messages carefully and", and a
+        # CONCISE_MODE_GUIDANCE candidate persisted with "Read the error message
+        # carefully." appended directly beneath the line it restates. Neither is
+        # a legitimate rewrite, so both join the structural set.
         from victor.framework.rl.prompt_hygiene import evaluate_prompt_candidate
 
         report = evaluate_prompt_candidate(current_text, new_text)
-        structural = {"growth_exceeded", "repeated_trigrams"}
+        structural = {
+            "growth_exceeded",
+            "repeated_trigrams",
+            "truncated_tail",
+            "redundant_additions",
+        }
         triggered = structural & set(report.violations)
         if triggered:
             logger.info(
@@ -2268,6 +2292,49 @@ class PromptOptimizerLearner(BaseLearner):
         return dict(metadata) if isinstance(metadata, dict) else {}
 
     @classmethod
+    def _artifact_identities(
+        cls,
+        payload: Dict[str, Any],
+    ) -> List[tuple[str, str, str, str]]:
+        """Every complete prompt identity an artifact can be attributed to.
+
+        Prefers the explicit identity (a targeted ``--prompt-candidate-hash``
+        A/B), then falls back to ``observed_prompt_identities`` — what the
+        runtime actually served during the run. The fallback is what makes
+        ordinary benchmark runs usable: before it existed, only hand-run A/Bs
+        carried identity, so nearly every eval artifact on disk was skipped and
+        the Pareto frontier stayed empty despite thousands of scored tasks.
+
+        Only fully-identified entries are returned, so callers need no further
+        validation.
+        """
+        candidate_hash, section_name, provider, model = cls._artifact_identity(payload)
+        if candidate_hash and section_name:
+            return [(candidate_hash, section_name, provider, model)]
+
+        identities: List[tuple[str, str, str, str]] = []
+        seen: set = set()
+        observed = payload.get("observed_prompt_identities")
+        if not isinstance(observed, list):
+            return identities
+        for entry in observed:
+            if not isinstance(entry, dict):
+                continue
+            entry_hash = cls._artifact_text_value(entry.get("prompt_candidate_hash"))
+            entry_section = cls._artifact_text_value(
+                entry.get("prompt_section_name") or entry.get("section_name")
+            )
+            if not entry_hash or not entry_section:
+                continue
+            entry_provider = cls._artifact_text_value(entry.get("provider")) or provider
+            key = (entry_hash, entry_section, entry_provider)
+            if key in seen:
+                continue
+            seen.add(key)
+            identities.append((entry_hash, entry_section, entry_provider, model))
+        return identities
+
+    @classmethod
     def _artifact_identity(
         cls,
         payload: Dict[str, Any],
@@ -2390,19 +2457,18 @@ class PromptOptimizerLearner(BaseLearner):
             try:
                 with open(eval_file) as f:
                     data = json.load(f)
-                candidate_hash, section_name, provider, model = self._artifact_identity(data)
-                if not candidate_hash or not section_name:
-                    continue
+                for candidate_hash, section_name, provider, model in self._artifact_identities(
+                    data
+                ):
+                    key = self._candidate_key(section_name, provider)
+                    frontier = self._pareto_frontiers.get(key)
+                    if frontier is None:
+                        continue
 
-                key = self._candidate_key(section_name, provider)
-                frontier = self._pareto_frontiers.get(key)
-                if frontier is None:
-                    continue
-
-                for instance_id, score in self._artifact_instance_scores(data, model=model):
-                    frontier.update_instance_score(candidate_hash, instance_id, score)
-                    updated += 1
-                self._sync_pareto_state(key)
+                    for instance_id, score in self._artifact_instance_scores(data, model=model):
+                        frontier.update_instance_score(candidate_hash, instance_id, score)
+                        updated += 1
+                    self._sync_pareto_state(key)
             except Exception:
                 continue
 
@@ -2485,6 +2551,8 @@ class PromptOptimizerLearner(BaseLearner):
                                     "tokens": 0,
                                 }
 
+                            self._absorb_session_identity(sessions[sid], data)
+
                             if etype == "tool_result":
                                 # tool_result is the event actually emitted per
                                 # tool invocation (a paired tool_call event is
@@ -2524,8 +2592,8 @@ class PromptOptimizerLearner(BaseLearner):
                 ExecutionTrace(
                     session_id=sid,
                     task_type=data["task_type"],
-                    provider=data.get("provider", "unknown"),
-                    model=data.get("model", "unknown"),
+                    provider=data.get("provider") or "unknown",
+                    model=data.get("model") or "unknown",
                     tool_calls=total_calls,
                     tool_failures=data["failures"],
                     success=failure_rate < 0.3,
@@ -2537,6 +2605,89 @@ class PromptOptimizerLearner(BaseLearner):
         # Sort by quality — high-quality traces first for GEPA reflection
         traces.sort(key=lambda t: -t.completion_score)
         return traces
+
+    @classmethod
+    def _scope_traces_to_provider(
+        cls,
+        traces: List[ExecutionTrace],
+        provider: str,
+    ) -> List[ExecutionTrace]:
+        """Keep only the traces that belong to the provider being evolved.
+
+        Candidates are persisted per ``(section, provider)``, but the trace pool
+        is the *global* ``~/.victor/logs/usage.jsonl`` — every project and every
+        provider the operator has ever run. Reflecting a ``moonshot`` candidate
+        over ZAI/Ollama/DeepSeek failures attributes another model's mistakes to
+        Moonshot's prompt.
+
+        Falls back to the unscoped pool when the provider's own traces are too
+        few to evolve from; a narrower-but-empty pool would just stall the loop,
+        and the caller logs the degraded provenance.
+        """
+        if not provider or provider == "default":
+            return traces
+        wanted = cls._normalize_provider_label(provider) or provider.lower()
+        scoped = [t for t in traces if cls._normalize_provider_label(t.provider) == wanted]
+        if len(scoped) < MIN_TRACES_FOR_EVOLUTION:
+            logger.info(
+                "Provider-scoped traces for '%s' insufficient (%d < %d); "
+                "falling back to the unscoped pool (%d traces, mixed provenance).",
+                wanted,
+                len(scoped),
+                MIN_TRACES_FOR_EVOLUTION,
+                len(traces),
+            )
+            return traces
+        logger.info(
+            "Scoped evolution traces to provider '%s': %d of %d.",
+            wanted,
+            len(scoped),
+            len(traces),
+        )
+        return scoped
+
+    @staticmethod
+    def _normalize_provider_label(raw: str) -> str:
+        """Map a runtime provider class name onto the candidate ``provider`` scope.
+
+        Candidates are stored under short scopes (``moonshot``, ``zai``,
+        ``ollama``); the JSONL logs the class name (``MoonshotProvider``,
+        ``SandhiOllamaProvider``, ``MoonshotCompatProvider``). Without this
+        mapping the two namespaces never meet.
+        """
+        label = str(raw or "").strip()
+        if not label:
+            return ""
+        for suffix in ("Provider", "Compat"):
+            while label.endswith(suffix):
+                label = label[: -len(suffix)]
+        # Gateway-fronted variants (SandhiOllama → ollama) share the upstream
+        # provider's prompt scope; the gateway is transport, not a dialect.
+        if label.startswith("Sandhi") and len(label) > len("Sandhi"):
+            label = label[len("Sandhi") :]
+        return label.lower()
+
+    @classmethod
+    def _absorb_session_identity(cls, session: Dict[str, Any], data: Dict[str, Any]) -> None:
+        """Fill a session's provider/model from any event that carries them.
+
+        ``provider``/``model`` were initialised to ``""`` and never assigned, so
+        every collected trace reported ``provider="unknown"`` even though
+        ``session_start`` and ``stream_completed`` events carry the real values.
+        Evolution therefore reflected over a provider-blind trace pool while
+        labelling the resulting candidate with the *current* session's provider.
+        First non-empty value wins — a session does not change provider mid-run.
+        """
+        if not isinstance(data, dict):
+            return
+        if not session.get("provider"):
+            provider = cls._normalize_provider_label(data.get("provider", ""))
+            if provider:
+                session["provider"] = provider
+        if not session.get("model"):
+            model = str(data.get("model") or "").strip()
+            if model:
+                session["model"] = model
 
     @staticmethod
     def _categorize_failure(error: str) -> str:
@@ -2655,6 +2806,8 @@ class PromptOptimizerLearner(BaseLearner):
                                     "details": [],  # v2: per-call details
                                 }
 
+                            self._absorb_session_identity(sessions[sid], data)
+
                             if etype == "tool_call":
                                 # Create a pending detail (reasoning enrichment).
                                 # Counting happens on tool_result (the reliably-
@@ -2725,8 +2878,8 @@ class PromptOptimizerLearner(BaseLearner):
                     ExecutionTrace(
                         session_id=sid,
                         task_type=data["task_type"],
-                        provider=data.get("provider", "unknown"),
-                        model=data.get("model", "unknown"),
+                        provider=data.get("provider") or "unknown",
+                        model=data.get("model") or "unknown",
                         tool_calls=data["tool_calls"],
                         tool_failures=data["failures"],
                         success=not has_failures,

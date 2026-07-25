@@ -68,6 +68,25 @@ Complete reference for all environment variables recognized by Victor.
 | `VICTOR_SKIP_ENV_FILE` | `unset` | Set to `1` to skip loading `.env` file |
 | `VICTOR_DIR_NAME` | `.victor` | Directory name for Victor config |
 | `VICTOR_CONTEXT_FILE` | `init.md` | Project context filename |
+| `VICTOR_EXTRA_READ_ROOTS` | `unset` | Extra directories `read()` may access, `:`-separated. Opt-in only |
+| `VICTOR_DISABLE_WORKSPACE_GUARD` | `unset` | Set to `1` to drop the `read()` workspace scope entirely (testing) |
+
+#### Working across two repositories
+
+`read()` is scoped to the current project plus its linked git worktrees.
+`ls()` and `shell()` are **not** scoped — the guard narrows one tool, it is not
+a sandbox. When a session legitimately spans two codebases — co-designing a wire
+contract, or letting Victor inspect its own `~/.victor` state — declare the
+second root:
+
+```bash
+VICTOR_EXTRA_READ_ROOTS=~/code/sandhi:~/.victor victor chat
+```
+
+Without it, an out-of-project path is still reachable via
+`ls(path='/abs/dir')` or `shell(cmd='sed -n "1,200p" /abs/file', action='read')`.
+Prefer `VICTOR_EXTRA_READ_ROOTS` when the whole session needs the second repo,
+since it keeps `read()`'s pagination and in-file search working.
 
 ### Mode Settings
 

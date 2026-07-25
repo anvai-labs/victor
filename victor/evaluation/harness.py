@@ -279,6 +279,36 @@ def load_prompt_candidate_evaluation_suite(
     return PromptCandidateEvaluationSuiteResult.from_dict(payload)
 
 
+def _collect_observed_prompt_identities(result: "EvaluationResult") -> list[dict[str, Any]]:
+    """Union the prompt identities served across every task in a run.
+
+    An artifact previously named a candidate only when the operator passed
+    ``--prompt-candidate-hash``, so ordinary benchmark runs produced ground-truth
+    pass/fail that no candidate could ever be credited with. Recording what was
+    actually served makes every run usable as Pareto evidence.
+
+    Deduplicated on (section, provider, hash) and order-stable so artifacts diff
+    cleanly across runs.
+    """
+    observed: dict[tuple[Any, Any, Any], dict[str, Any]] = {}
+    for task_result in result.task_results:
+        metadata = getattr(task_result, "metadata", None)
+        if not isinstance(metadata, dict):
+            continue
+        for identity in metadata.get("prompt_identities") or []:
+            if not isinstance(identity, dict):
+                continue
+            candidate_hash = identity.get("prompt_candidate_hash")
+            if not candidate_hash:
+                continue
+            section = identity.get("prompt_section_name") or identity.get("section_name")
+            observed.setdefault(
+                (section, identity.get("provider"), candidate_hash),
+                dict(identity),
+            )
+    return list(observed.values())
+
+
 def bind_prompt_candidate_evaluation_config(
     base_config: EvaluationConfig,
     spec: PromptCandidateEvaluationSpec,
@@ -1302,6 +1332,13 @@ class EvaluationHarness:
             if payload.get(key) is not None:
                 task_result.metadata[key] = payload.get(key)
 
+        # Which prompt candidates produced this task's outcome. Aggregated into
+        # the artifact by _save_results so seed_from_evaluations() can turn the
+        # task's pass/fail into Pareto evidence for those candidates.
+        prompt_identities = payload.get("prompt_identities")
+        if prompt_identities:
+            task_result.metadata["prompt_identities"] = list(prompt_identities)
+
         topology_events = payload.get("topology_events")
         if topology_events:
             task_result.metadata["topology_events"] = list(topology_events)
@@ -1616,6 +1653,7 @@ class EvaluationHarness:
         # Serialize result
         data = {
             "config": result.config.to_artifact_config(),
+            "observed_prompt_identities": _collect_observed_prompt_identities(result),
             "summary": summary,
             "runtime_evaluation_feedback": runtime_feedback_payload,
             "experiment_memory": experiment_memory.to_dict(),

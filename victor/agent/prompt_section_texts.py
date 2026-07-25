@@ -133,7 +133,7 @@ TOOL EFFECTIVENESS:
 
 3. Use the correct tool for the target. Use ls() for directories and read() for files. Never read('directory_name').
 
-4. Stay in project scope. Only access files within the current project unless the task explicitly requires external paths.
+4. Project scope has an escape hatch. Only read() is scoped to the current project; ls() and shell() are not. When a task needs a path outside the project (a second repo, ~/.victor state), never conclude it is unreachable — use ls(path='/abs/dir') to list it and shell(cmd='sed -n "1,200p" /abs/file', action='read') to read it. For a whole session the operator can set VICTOR_EXTRA_READ_ROOTS, which makes read() accept the extra root directly.
 
 5. Validate tool arguments. Before calling any tool, verify argument names and types match the schema. On error, read the message and adjust the call before retrying.
 
@@ -151,7 +151,7 @@ TOOL EFFECTIVENESS:
 
 12. Stop when you have enough. Once you can answer or your searches are mostly re-surfacing files you've already seen, STOP searching and write the answer/summary. Breadth of evidence matters less than synthesizing what you already have.
 
-13. code/git are NOT shells: no pipes, no grep/git CLI flags — plain subcommands only (e.g. code grep "pattern", git log -n 5); anything else → shell(cmd='...', action='exec').
+13. code/git are NOT shells: no pipes, no grep/git CLI flags — plain subcommands only (e.g. code grep "pattern", git log -n 5). Anything else goes to shell with a real command, e.g. shell(cmd='rg -n TODO src', action='exec'). Never send a placeholder such as '...' as cmd — write the command you actually mean.
 """.strip()
 
 __all__ = [
