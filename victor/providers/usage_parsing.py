@@ -180,6 +180,7 @@ def usage_dict_from_neutral(
         completion = int(neutral.get("tokens_out", 0) or 0)
         creation = int(neutral.get("cache_creation_tokens", 0) or 0)
         read = int(neutral.get("cache_read_tokens", 0) or 0)
+        reasoning = int(neutral.get("reasoning_tokens", 0) or 0)
     except (TypeError, ValueError):
         return None
 
@@ -204,4 +205,10 @@ def usage_dict_from_neutral(
         usage["cache_creation_input_tokens"] = creation
     if read:
         usage["cache_read_input_tokens"] = read
+    if reasoning:
+        # Observability key. Whether these are folded into completion_tokens
+        # (OpenAI/Anthropic) or reported separately (Gemini thoughtsTokenCount)
+        # is decided at cost time via the same reasoning > completion heuristic
+        # sandhi's billable() uses — not here.
+        usage["reasoning_tokens"] = reasoning
     return usage

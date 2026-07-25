@@ -62,6 +62,11 @@ class StreamMetrics:
     cache_read_tokens: int = 0
     cache_write_tokens: int = 0
 
+    # Separately-reported reasoning tokens (Gemini thoughtsTokenCount, OpenAI
+    # reasoning_tokens). May be folded into completion_tokens depending on the
+    # provider — see calculate_cost for the folding-aware pricing rule.
+    reasoning_tokens: int = 0
+
     # Cost tracking (USD)
     input_cost: float = 0.0
     output_cost: float = 0.0
@@ -89,6 +94,7 @@ class StreamMetrics:
             # Cache tokens (Anthropic-style naming)
             self.cache_read_tokens += usage.get("cache_read_input_tokens", 0)
             self.cache_write_tokens += usage.get("cache_creation_input_tokens", 0)
+            self.reasoning_tokens += usage.get("reasoning_tokens", 0)
 
             # Mark as actual usage if we got non-zero values
             if self.prompt_tokens > 0 or self.completion_tokens > 0:
@@ -103,9 +109,18 @@ class StreamMetrics:
         if not capabilities or not capabilities.cost_enabled:
             return
 
+        # Folding invariant (mirrors sandhi billable()): providers either fold
+        # reasoning tokens into completion_tokens (OpenAI, Anthropic) or report
+        # them separately (Gemini). Unfolded reasoning is billed output that
+        # completion_tokens does not contain — price it at the output rate.
+        # Detection is total: reasoning that cannot fit inside completion_tokens
+        # is unfolded; otherwise assume folded and never double-count.
+        unfolded_reasoning = (
+            self.reasoning_tokens if self.reasoning_tokens > self.completion_tokens else 0
+        )
         costs = capabilities.calculate_cost(
             self.prompt_tokens,
-            self.completion_tokens,
+            self.completion_tokens + unfolded_reasoning,
             self.cache_read_tokens,
             self.cache_write_tokens,
         )

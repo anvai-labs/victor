@@ -60,6 +60,7 @@ class StreamingChatContext:
             "completion_tokens": 0,
             "cache_creation_input_tokens": 0,
             "cache_read_input_tokens": 0,
+            "reasoning_tokens": 0,
         }
     )
     # Aggregated Sandhi transport diagnostics (metadata["sandhi_usage"] on each
