@@ -7,6 +7,8 @@ turns. The detector watches the running text of ONE generation.
 
 from __future__ import annotations
 
+import random
+
 from victor.agent.streaming.repetition_guard import IntraTurnRepetitionDetector
 
 
@@ -69,6 +71,72 @@ class TestTrigger:
             "Finally we execute the verification suite and gather the results. "
         )
         assert feed_all(make_detector(), para * 12) is not None
+
+
+class TestStaccatoLoop:
+    """Rule 3: a loop built from phrases SHORTER than ``min_segment_chars``.
+
+    The observed failure: the model narrated "Calling now. Executing. Stop.
+    Call. Now. I'll make the call." for thousands of characters instead of
+    emitting the tool call. Rule 1 cannot see it (every phrase is under the
+    24-char floor) and rule 2 cannot either (the shuffled order means no
+    256-char block ever recurs verbatim), so the stream ran to exhaustion.
+    """
+
+    PHRASES = [
+        "Calling now.",
+        "Executing.",
+        "Stop.",
+        "Call.",
+        "Now.",
+        "I'll make the call.",
+        "Here is the call.",
+        "Doing it.",
+        "Proceeding.",
+        "Done narrating.",
+        "Tool call:",
+        "I am calling.",
+        "Here goes.",
+        "Making it now.",
+    ]
+
+    def _shuffled_loop(self, count: int = 1200) -> str:
+        # Seeded => deterministic, but NOT periodic: a modular index cycles, which
+        # makes long blocks recur verbatim and hands the catch back to rule 2.
+        rnd = random.Random(7)
+        return " ".join(rnd.choice(self.PHRASES) for _ in range(count))
+
+    def test_shuffled_short_phrase_loop_triggers(self):
+        loop = self._shuffled_loop()
+        assert feed_all(make_detector(), loop) is not None
+
+    def test_shuffled_loop_is_invisible_to_the_other_rules(self):
+        # Guards the premise: if this ever starts tripping rule 1 or 2, the
+        # diversity rule is no longer the thing under test.
+        loop = self._shuffled_loop()
+        assert all(len(p) < 24 for p in self.PHRASES)  # rule 1 floor
+        window = loop[-4000:]
+        assert window.count(window[-256:]) == 1  # rule 2 block never recurs
+
+    def test_stops_within_a_couple_of_kilobytes(self):
+        # The whole point is bounding the waste; 200k chars used to stream.
+        detector = make_detector()
+        loop = self._shuffled_loop()
+        consumed = 0
+        for i in range(0, len(loop), 40):
+            consumed += len(loop[i : i + 40])
+            if detector.feed(loop[i : i + 40]) is not None:
+                break
+        assert consumed <= 2048, f"took {consumed} chars to notice the loop"
+
+    def test_varied_short_lines_do_not_trigger(self):
+        # Terse but legitimate output: many short lines, all distinct.
+        text = "\n".join(f"- step {i}: {'ab' * (i % 9 + 3)} done" for i in range(120))
+        assert feed_all(make_detector(), text) is None
+
+    def test_short_output_below_sample_floor_does_not_trigger(self):
+        # Too few segments to judge diversity — must not fire on a terse reply.
+        assert feed_all(make_detector(), "Done. Ok. Done. Ok. Done. Ok. Done. Ok. ") is None
 
 
 class TestWindowing:
