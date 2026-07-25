@@ -796,8 +796,14 @@ class LiveDisplayRenderer:
         return None
 
     def had_tool_calls(self) -> bool:
-        """Return True if at least one tool call was processed this turn."""
-        return self._tool_section_shown
+        """Return True if at least one tool call was processed this turn.
+
+        Tracks actual tool events (``_tool_seq``), not just whether the tool
+        section chrome was rendered — in non-TTY contexts tools can run
+        without the section ever being shown, and ``stream_response`` uses
+        this to judge whether an empty final content is a bug.
+        """
+        return self._tool_section_shown or self._tool_seq > 0
 
     def finalize(self) -> str:
         """Finalize response and return accumulated content.
