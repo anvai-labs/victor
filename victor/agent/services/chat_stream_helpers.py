@@ -1404,6 +1404,7 @@ class ChatStreamHelperMixin:
         # finish with zero content — which otherwise presents as an opaque "empty
         # response" that identical-parameter retries can never fix.
         reasoning_chars = 0
+        refusal_chars = 0
         last_stop_reason: Optional[str] = None
 
         # Producer/consumer split for deterministic, on-task stream cleanup.
@@ -1551,6 +1552,9 @@ class ChatStreamHelperMixin:
                     reasoning_delta = chunk_meta.get("reasoning_content")
                     if reasoning_delta:
                         reasoning_chars += len(str(reasoning_delta))
+                    refusal_delta = chunk_meta.get("refusal")
+                    if refusal_delta:
+                        refusal_chars += len(str(refusal_delta))
 
                 raw_usage = getattr(chunk, "usage", None)
                 if raw_usage:
@@ -1671,6 +1675,7 @@ class ChatStreamHelperMixin:
             if content_length == 0:
                 stream_ctx.empty_stream_diagnostics = {
                     "reasoning_chars": reasoning_chars,
+                    "refusal_chars": refusal_chars,
                     "stop_reason": last_stop_reason,
                 }
                 self._record_provider_status_event(
