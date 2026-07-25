@@ -1499,6 +1499,7 @@ class ChatStreamHelperMixin:
                     continue
 
                 if kind == "error":
+                    self._log_client_error_payload_shape(payload, assembled)
                     raise payload
                 if kind == "done":
                     self._record_provider_status_event(
@@ -1681,6 +1682,44 @@ class ChatStreamHelperMixin:
         return full_content, tool_calls, estimated_content_tokens, garbage_detected
 
     @staticmethod
+    def _log_client_error_payload_shape(error: BaseException, messages: Any) -> None:
+        """On a 4xx provider rejection, log the request's message shape.
+
+        A 4xx on a chat request is almost always a payload-structure problem
+        (broken tool_calls/tool pairing, invalid param) rather than a transient
+        fault, and the surfaced error body is often opaque ("upstream status
+        400"). Log a compact per-message summary — role, content length,
+        tool-call ids, tool_call_id — so the defect is attributable from the
+        session log alone (session modality-doc-review-fixes-b4e87728).
+        """
+        status = getattr(error, "status_code", None)
+        if not isinstance(status, int) or not (400 <= status < 500) or status == 429:
+            return
+        try:
+            parts = []
+            for i, message in enumerate(messages or []):
+                if not isinstance(message, dict):
+                    message = getattr(message, "__dict__", None) or {}
+                role = message.get("role", "?")
+                content = message.get("content")
+                entry = f"{i}:{role} len={len(content) if isinstance(content, str) else 0}"
+                tool_calls = message.get("tool_calls") or []
+                tc_ids = [tc.get("id", "?") for tc in tool_calls if isinstance(tc, dict)]
+                if tc_ids:
+                    entry += f" tool_calls={tc_ids}"
+                if message.get("tool_call_id"):
+                    entry += f" tool_call_id={message['tool_call_id']}"
+                parts.append(entry)
+            logger.warning(
+                "[provider-4xx] status=%s payload shape (%d messages): %s",
+                status,
+                len(parts),
+                " | ".join(parts),
+            )
+        except Exception:  # diagnostic must never mask the original error
+            logger.debug("[provider-4xx] shape summary failed", exc_info=True)
+
+    @staticmethod
     def _record_provider_status_event(
         stream_ctx: "StreamingChatContext",
         kind: str,
@@ -1792,6 +1831,25 @@ class ChatStreamHelperMixin:
 
                 if recovered_tool_calls:
                     logger.info(f"Recovery at temperature {temp} produced tool calls")
+                    # Record the assistant tool_calls message BEFORE the main loop
+                    # executes the tools. Without it the tool results land in history
+                    # with no matching assistant tool_calls entry, the pairing repairs
+                    # strand one side or the other on every subsequent turn, and
+                    # strict providers (Moonshot/OpenAI-compat) reject the payload
+                    # with a non-retryable 400 (session modality-doc-review-fixes-
+                    # b4e87728). Mirrors the normal tool-call path in
+                    # chat_stream_executor and the content path below.
+                    from victor.agent.conversation.types import (
+                        MESSAGE_SOURCE_METADATA_KEY,
+                        MessageSource,
+                    )
+
+                    orch.add_message(
+                        "assistant",
+                        "",
+                        tool_calls=recovered_tool_calls,
+                        metadata={MESSAGE_SOURCE_METADATA_KEY: MessageSource.AGENT_RESPONSE.value},
+                    )
                     return True, recovered_tool_calls, None
 
                 if full_content.strip():
