@@ -1119,13 +1119,18 @@ def auth_oauth_status(
 class AuthSetupWizard:
     """Interactive authentication setup wizard."""
 
-    def __init__(self, console: Console):
+    def __init__(self, console: Console, first_run: bool = False):
         """Initialize the wizard.
 
         Args:
             console: Rich console instance
+            first_run: When True the wizard runs as the core of the first-run
+                onboarding flow — the caller owns welcome/completion framing,
+                and low-value prompts (account name, tags) are auto-answered
+                to keep time-to-first-chat short.
         """
         self.console = console
+        self.first_run = first_run
         self.account_manager = get_account_manager()
         self.state: Dict[str, Any] = {
             "local_providers": [],
@@ -1141,7 +1146,8 @@ class AuthSetupWizard:
             Exit code (0 for success, 1 for error)
         """
         try:
-            self._show_welcome()
+            if not self.first_run:
+                self._show_welcome()
 
             # Check for migration
             if self._check_migration():
@@ -1158,23 +1164,29 @@ class AuthSetupWizard:
             if not self._select_provider_and_model():
                 return 0
 
-            # Step 4: Configure authentication
-            if not self._configure_authentication():
-                return 0
+            # Steps 4-6: authentication → name → test, looping back to
+            # credential entry when the connection test fails and the user
+            # asks to try again.
+            while True:
+                if not self._configure_authentication():
+                    return 0
 
-            # Step 5: Name the account
-            if not self._name_account():
-                return 0
+                if not self._name_account():
+                    return 0
 
-            # Step 6: Test connection
-            if not self._test_connection():
-                return 0
+                outcome = self._test_connection()
+                if outcome == "ok":
+                    break
+                if outcome == "abort":
+                    return 0
+                # outcome == "retry": re-enter credentials
 
             # Step 7: Save account
             self._save_account()
 
             # Step 8: Complete
-            self._show_completion()
+            if not self.first_run:
+                self._show_completion()
 
             return 0
 
@@ -1326,7 +1338,7 @@ class AuthSetupWizard:
             # Show all providers
             provider = Prompt.ask("Enter provider name")
         else:
-            provider = popular[int(choice)]
+            provider = popular[int(choice) - 1]
 
         self.state["selected_provider"] = provider.lower()
 
@@ -1336,6 +1348,7 @@ class AuthSetupWizard:
             self.console.print(f"\n[cyan]Popular {provider.capitalize()} models:[/]")
             for i, model in enumerate(models, 1):
                 self.console.print(f"  {i}. {model}")
+            self.console.print("  0. Other (enter model name)")
             self.console.print()
 
             model_choice = Prompt.ask(
@@ -1345,7 +1358,7 @@ class AuthSetupWizard:
             )
 
             if model_choice != "0":
-                self.state["selected_model"] = models[int(model_choice)]
+                self.state["selected_model"] = models[int(model_choice) - 1]
             else:
                 self.state["selected_model"] = Prompt.ask("Enter model name")
         else:
@@ -1404,11 +1417,6 @@ class AuthSetupWizard:
         Returns:
             False if user cancelled
         """
-        self.console.print()
-        self.console.print("[bold cyan]Step 5/6: Account Name[/]")
-        self.console.print("─" * 50)
-        self.console.print()
-
         # Suggest a name
         provider = self.state["selected_provider"]
         model = self.state["selected_model"]
@@ -1418,6 +1426,17 @@ class AuthSetupWizard:
             suggestion = f"{provider}-{variant}"
         else:
             suggestion = provider
+
+        if self.first_run:
+            # Keep first run short: accept the suggested name, no tags.
+            self.state["account_name"] = suggestion
+            self.state["tags"] = []
+            return True
+
+        self.console.print()
+        self.console.print("[bold cyan]Step 5/6: Account Name[/]")
+        self.console.print("─" * 50)
+        self.console.print()
 
         name = Prompt.ask("Account name", default=suggestion)
         self.state["account_name"] = name
@@ -1432,11 +1451,12 @@ class AuthSetupWizard:
         self.console.print(f"[green]✓[/] Account name: {name}")
         return True
 
-    def _test_connection(self) -> bool:
+    def _test_connection(self) -> str:
         """Test the connection.
 
         Returns:
-            False if test failed or user wants to retry
+            "ok" on success, "retry" to loop back to credential entry,
+            "abort" to exit the wizard.
         """
         self.console.print()
         self.console.print("[bold cyan]Step 6/6: Test Connection[/]")
@@ -1470,15 +1490,19 @@ class AuthSetupWizard:
         # Show results
         if result.success:
             self.console.print("[green]✓ Connection successful![/]")
-            return True
-        else:
-            self.console.print("[red]✗ Connection failed[/]")
-            if result.error:
-                self.console.print(f"  Error: {result.error}")
+            return "ok"
 
-            self.console.print()
-            retry = Confirm.ask("Try again?", default=False)
-            return not retry  # If not retrying, continue
+        self.console.print("[red]✗ Connection failed[/]")
+        if result.error:
+            self.console.print(f"  Error: {result.error}")
+        self.console.print("[dim]Run 'victor doctor' for a full environment diagnosis.[/]")
+
+        self.console.print()
+        if Confirm.ask("Try again with different credentials?", default=False):
+            return "retry"
+
+        self.console.print("[yellow]Setup not completed.[/] Resume anytime with: victor auth setup")
+        return "abort"
 
     def _save_account(self) -> None:
         """Save the account."""
@@ -1503,6 +1527,10 @@ class AuthSetupWizard:
         # Save to config and matching chat profile
         self.account_manager.save_account(account)
         profile_synced = _sync_profile_from_account(account)
+        # Expose the persisted account so wrapping flows (first-run
+        # onboarding) can re-sync the chat profile after rewriting
+        # profiles.yaml.
+        self.state["saved_account"] = account
 
         # Save API key to keyring
         if self.state["auth_method"] == "api_key" and "api_key" in self.state:

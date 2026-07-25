@@ -318,11 +318,11 @@ def onboarding_command(
     """Run the interactive onboarding wizard for first-time setup.
 
     The onboarding wizard guides you through:
-    - Environment detection (Ollama, API keys)
-    - Profile selection based on experience level
-    - Provider and model configuration
-    - Configuration validation
-    - Testing the setup
+    - Environment detection (Ollama, LM Studio, API keys)
+    - Provider and model selection
+    - Credential entry (stored in the system keyring)
+    - A live connection test
+    - Default profile installation and example prompts
 
     Use --force to re-run onboarding even if you've completed it before.
     """
@@ -341,20 +341,10 @@ def onboarding_command(
         console.print("  [cyan]victor profiles set-default <profile>[/]")
         return
 
-    # Run the onboarding wizard
-    console.print("\n[bold cyan]Welcome to Victor![/]")
-    console.print("Let's get you set up in 2 minutes...\n")
-
+    # Run the onboarding wizard (it owns welcome/completion framing)
     exit_code = run_onboarding()
 
-    if exit_code == 0:
-        console.print("\n[green]✓ Setup complete![/]")
-        console.print("")
-        console.print("Next steps:")
-        console.print("  1. [cyan]victor chat[/] - Start chatting")
-        console.print("  2. [cyan]victor doctor[/] - Run diagnostics")
-        console.print("  3. [cyan]victor profiles list[/] - See all profiles")
-    else:
+    if exit_code != 0:
         console.print("\n[yellow]Onboarding interrupted.[/]")
         console.print("Run [cyan]victor onboarding[/] again to complete setup.")
 
@@ -621,7 +611,8 @@ def callback(
     skip_onboarding: bool = typer.Option(
         False,
         "--skip-onboarding",
-        help="Skip first-time onboarding wizard",
+        "--no-setup",
+        help="Skip first-time setup wizard",
     ),
 ) -> None:
     """Victor - Open-source agentic AI framework with multi-provider support."""
@@ -638,11 +629,10 @@ def callback(
             from victor.config.settings import is_first_time_user
 
             if is_first_time_user():
-                console.print("\n[bold cyan]Welcome to Victor![/]")
-                console.print("Let's get you set up in 2 minutes...\n")
                 from victor.ui.commands.onboarding import run_onboarding
 
-                exit_code = run_onboarding()
+                # offer_chat=False: this path always drops into chat below.
+                exit_code = run_onboarding(offer_chat=False)
                 if exit_code != 0:
                     console.print("\n[yellow]Onboarding interrupted. Starting chat anyway...[/]")
                 else:

@@ -12,9 +12,30 @@ Before starting, ensure you have:
 
 ## Step 1: First Run
 
-### Option A: With Local Model (Ollama)
+### Option A: Guided Setup (Recommended)
 
-The simplest way to start - no API key required:
+Just run Victor — on a fresh machine it launches the setup wizard
+automatically:
+
+```bash
+victor
+```
+
+The wizard walks you through, in order:
+
+1. **Environment detection** — finds running local providers (Ollama, LM Studio)
+2. **Provider & model selection** — local or cloud (Anthropic, OpenAI, Google, ZhipuAI, …)
+3. **Credentials** — API key entry (stored securely in your system keyring) or OAuth
+4. **Connection test** — a live smoke test against the provider
+5. **You're ready** — your default profile is applied and example prompts are shown, then chat starts
+
+Skip it with `victor --no-setup`, or re-run it anytime with
+`victor onboarding --force`. If anything fails, run `victor doctor` for a
+full diagnosis.
+
+### Option B: Manual Setup with Local Model (Ollama)
+
+No API key required:
 
 ```bash
 # Make sure Ollama is running
@@ -27,7 +48,7 @@ ollama pull qwen2.5-coder:7b
 victor chat
 ```
 
-### Option B: With Cloud Provider
+### Option C: Manual Setup with Cloud Provider
 
 For more powerful models:
 
