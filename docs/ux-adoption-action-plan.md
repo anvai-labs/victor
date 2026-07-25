@@ -212,34 +212,45 @@ onboarding path.
 
 ## P3 — Web UI: event-driven rendering
 
-### P3. Rebuild the web chat UI around the P1 event stream
+### P3. Render the web chat surface from the P1 event stream
 
-**Work:**
-1. Replace request/response chat rendering with incremental rendering per
-   event: thinking (collapsible), tool_call (name + args, status pill),
-   tool_result (expandable, syntax-highlighted), content (markdown stream),
-   error (inline, with retry affordance), stream_end (finalize).
-2. Show tool execution as a live timeline with elapsed time; add "cancel" wired
-   to the session.
-3. Surface session resume (P0-B) in the UI: "Continue previous session" list.
-4. Keep the UI dependency-light; reuse the existing Vite project under `web/ui/`.
+**Premise correction (2026-07-25):** this task originally said "reuse the
+existing Vite project under `web/ui/`" — that project (and `ui/`) was removed
+in PR #141 (June 2026, security consolidation); the web chat surface is the
+pure-Python Chainlit app (`victor/ui/chat_app`, `victor ui`). The Chainlit
+app already renders incrementally (thinking steps, per-call tool steps with
+duration, streamed markdown, stop/retry actions — the chat-UX PR train), so
+P3's remaining substance is contract work, not UI rebuilding.
+
+**Work (as executed):**
+1. ✅ Wire-contract hygiene: `tool_result.result` on the wire is always the
+   human-readable output string — the internal tool-pipeline payload dict
+   (original_result, follow_up_suggestions, was_pruned, …) no longer leaks
+   through `to_wire_event`.
+2. ✅ Additive v1 fields real renderers need: `tool_call.call_id`,
+   `tool_result.call_id` (parallel-call correlation), `tool_result.elapsed_ms`
+   (live-timeline durations), `tool_result.truncated`.
+3. ✅ `map_wire_event()` in `victor/ui/chat_app/event_mapping.py`: pure
+   translator from v1 wire events to the same `RenderAction` vocabulary the
+   Chainlit app renders from — any Python surface consuming the contract
+   (P5 TUI, remote SSE consumers) inherits the reference render semantics.
+4. ✅ Renderer replay contract test
+   (`tests/unit/ui/chat_app/test_wire_render_parity.py`): one golden stream,
+   both mappers, pinned agreement on kinds/identity/correlation/outcome.
 
 **Acceptance criteria:**
-- Long tool runs show live progress; user can cancel mid-run.
-- Refreshing the page with a `service` session store restores the conversation.
-- No direct orchestrator-shaped payloads in the frontend — only the P1 schema.
+- Long tool runs show live progress with durations; user can cancel mid-run
+  (already shipped in the Chainlit app: per-call steps + stop action).
+- Only the P1 schema crosses the wire — no internal payload shapes (guarded
+  by `test_tool_result_payload_dict_never_leaks_internal_keys`).
+- A wire-fed renderer reproduces the in-process render semantics (parity test).
 
-**Rationale:** The web UI is the evaluation surface for most new users; today it
-presents an opaque spinner while the framework's best asset (visible reasoning)
-is discarded. This task converts P1 into perceived quality.
-
-**Alternatives:**
-- *E1 — Full app framework (Next.js) rewrite.* Nicer DX, but a large new stack
-  for a single chat surface. **Rejected.**
-- *E2 — Embed the Textual TUI via `textual-web`.* Zero new UI code and perfect
-  parity with terminal UX, but limited styling control for a product surface.
-  **Viable fallback** if web UI capacity is constrained.
-- **Recommended: incremental rendering in the existing Vite app.**
+**Deferred / follow-ups:**
+- Cross-visit session resume in Chainlit needs a Chainlit data layer +
+  history-by-id API — explicitly deferred as a FEP (see `chat_app/app.py`
+  docstring); best-effort same-process history replay already ships.
+- `vscode-victor`'s `streamChat` still speaks the pre-P1 `type`/`[DONE]`
+  protocol against `POST /chat/stream` — port to v1 (TypeScript, separate PR).
 
 **Dependencies:** P1 (event schema), P0-B (session resume), transitively P0-A.
 

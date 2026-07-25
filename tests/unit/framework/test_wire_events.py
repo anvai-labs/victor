@@ -83,6 +83,71 @@ class TestToWireEvent:
         assert "truncated" in big["result"]
         json.dumps(big)  # whole document must be JSON-serializable
 
+    def test_tool_result_payload_dict_never_leaks_internal_keys(self):
+        """The client surface flattens the internal tool-pipeline payload onto
+        ``result``; only contract fields may cross the wire (UX P3)."""
+        payload = {
+            "result": "preview",
+            "original_result": "full output text",
+            "success": True,
+            "elapsed": 0.12,
+            "was_pruned": False,
+            "follow_up_suggestions": [{"cmd": "victor x"}],
+            "arguments": {"path": "a.py"},
+            "tool_call_id": "call-7",
+        }
+        wire = to_wire_event(_event("tool_result", tool_name="read", result=payload))
+
+        assert wire["result"] == "full output text"
+        assert wire["success"] is True
+        assert wire["elapsed_ms"] == 120
+        assert wire["call_id"] == "call-7"
+        assert set(wire) <= {
+            "v",
+            "event",
+            "tool",
+            "success",
+            "result",
+            "call_id",
+            "elapsed_ms",
+            "truncated",
+        }
+        assert "follow_up_suggestions" not in json.dumps(wire)
+        assert "original_result" not in json.dumps(wire)
+
+    def test_tool_result_payload_pruned_flags_truncated(self):
+        payload = {"result": "short", "original_result": None, "success": True, "was_pruned": True}
+        wire = to_wire_event(_event("tool_result", tool_name="read", result=payload))
+        assert wire["truncated"] is True
+        assert wire["result"] == "short"
+
+    def test_tool_result_payload_failure_wins(self):
+        payload = {"result": "boom", "success": False}
+        wire = to_wire_event(_event("tool_result", tool_name="shell", result=payload))
+        assert wire["success"] is False
+
+    def test_tool_call_carries_call_id_when_present(self):
+        event = _event("tool_call", tool_name="read", arguments={"path": "a.py"})
+        event.metadata = {"tool_call_id": "call-1"}
+        wire = to_wire_event(event)
+        assert wire["call_id"] == "call-1"
+
+        # absent id -> key omitted (additive-optional, not null-filled)
+        bare = to_wire_event(_event("tool_call", tool_name="read"))
+        assert "call_id" not in bare
+
+    def test_scalar_tool_result_keeps_legacy_shape(self):
+        wire = to_wire_event(_event("tool_result", tool_name="read", result="ok"))
+        assert wire["result"] == "ok"
+        assert "elapsed_ms" not in wire
+        assert "truncated" not in wire
+
+    def test_wire_truncation_sets_truncated_flag(self):
+        big = to_wire_event(
+            _event("tool_result", tool_name="t", result="x" * (MAX_RESULT_CHARS + 5))
+        )
+        assert big["truncated"] is True
+
     def test_encode_sse_frames_one_record(self):
         frame = encode_sse({"v": 1, "event": "content", "content": "hi"})
         assert frame.startswith("data: ")
