@@ -126,3 +126,70 @@ def test_payload_shape_not_logged_for_non_client_errors(caplog, status):
         )
 
     assert not any("[provider-4xx]" in r.getMessage() for r in caplog.records)
+
+
+def _capture_orch(chunks, added, stream_kwargs):
+    async def _stream(**kwargs):
+        stream_kwargs.append(kwargs)
+        for chunk in chunks:
+            yield chunk
+
+    orch = _recovery_orch(chunks, added)
+    orch.provider = SimpleNamespace(stream=_stream)
+    return orch
+
+
+@pytest.mark.asyncio
+async def test_reasoning_exhaustion_raises_recovery_max_tokens():
+    """A reasoning-only empty stream must retry with a larger completion budget.
+
+    Regression: kimi-k3 burned the whole max_tokens budget on reasoning deltas
+    (~112s, zero content) and identical-parameter recovery failed identically.
+    """
+    added = []
+    stream_kwargs = []
+    orch = _capture_orch(
+        [SimpleNamespace(content="recovered", tool_calls=None)], added, stream_kwargs
+    )
+    ctx = _stream_ctx()
+    ctx.empty_stream_diagnostics = {"reasoning_chars": 8321, "stop_reason": "length"}
+    helper = _Helper(orch)
+
+    success, _, final_chunk = await helper._handle_empty_response_recovery(ctx, tools=[])
+
+    assert success is True
+    assert final_chunk is not None
+    assert stream_kwargs[0]["max_tokens"] == 4096 * 4
+
+
+@pytest.mark.asyncio
+async def test_reasoning_exhaustion_max_tokens_capped():
+    """The recovery budget bump is capped at 32768."""
+    added = []
+    stream_kwargs = []
+    orch = _capture_orch(
+        [SimpleNamespace(content="recovered", tool_calls=None)], added, stream_kwargs
+    )
+    orch.max_tokens = 16384
+    ctx = _stream_ctx()
+    ctx.empty_stream_diagnostics = {"reasoning_chars": 100, "stop_reason": "length"}
+    helper = _Helper(orch)
+
+    await helper._handle_empty_response_recovery(ctx, tools=[])
+
+    assert stream_kwargs[0]["max_tokens"] == 32768
+
+
+@pytest.mark.asyncio
+async def test_no_diagnostics_keeps_base_max_tokens():
+    """Without reasoning evidence the recovery keeps the configured budget."""
+    added = []
+    stream_kwargs = []
+    orch = _capture_orch(
+        [SimpleNamespace(content="recovered", tool_calls=None)], added, stream_kwargs
+    )
+    helper = _Helper(orch)
+
+    await helper._handle_empty_response_recovery(_stream_ctx(), tools=[])
+
+    assert stream_kwargs[0]["max_tokens"] == 4096
