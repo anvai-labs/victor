@@ -523,3 +523,99 @@ class TestUpstreamBodySurfacing:
         parsed["message"] = f"upstream status 400: {body}"
         err = st.map_sandhi_error(RuntimeError(_json.dumps(parsed)), "moonshot", 30.0)
         assert str(err).count(body) == 1
+
+
+# =============================================================================
+# Native body optional (foundations strategy F1) — the typed path must behave
+# identically when `extensions` is absent; native-only usage fields surface
+# through metadata["sandhi_usage"], never through the body.
+# =============================================================================
+
+
+def _typed_payload(**overrides):
+    payload = {
+        "schema_version": "1",
+        "id": "r9",
+        "model": "deepseek-chat",
+        "output": {"content": "hello", "tool_calls": []},
+        "finish_reason": "stop",
+        "usage": {
+            "tokens_in": 6,
+            "tokens_out": 5,
+            "cache_creation_tokens": 0,
+            "cache_read_tokens": 4,
+            "completeness": "final",
+            "attempts": 1,
+            "outcome": "success",
+        },
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_extensions_absent_is_behavior_identical(monkeypatch):
+    """With no native body, usage/metadata must match the with-body result."""
+    install_runtime(monkeypatch)
+    provider = make_provider()
+
+    with_native = provider._completion_from_typed(
+        _typed_payload(
+            extensions={
+                "openai": {
+                    "id": "r9",
+                    "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+                }
+            }
+        ),
+        "deepseek-chat",
+    )
+    without_native = provider._completion_from_typed(_typed_payload(), "deepseek-chat")
+
+    assert without_native.usage == with_native.usage
+    assert without_native.usage == {
+        "prompt_tokens": 10,
+        "completion_tokens": 5,
+        "total_tokens": 15,
+        "cache_read_input_tokens": 4,
+    }
+    assert without_native.metadata == with_native.metadata is None
+    assert without_native.content == "hello"
+    # Debug fallback: with no native body, raw_response is the typed document.
+    assert without_native.raw_response["schema_version"] == "1"
+
+
+def test_native_only_usage_fields_surface_as_diagnostics(monkeypatch):
+    """cache-miss/cost exist only in native bodies; the transport boundary
+    extracts them into metadata['sandhi_usage'] so the runtime never reads the
+    body (unblocks sandhi G8 native-body gating)."""
+    install_runtime(monkeypatch)
+    provider = make_provider()
+
+    response = provider._completion_from_typed(
+        _typed_payload(
+            extensions={
+                "openai": {
+                    "usage": {
+                        "prompt_tokens": 10,
+                        "completion_tokens": 5,
+                        "total_tokens": 15,
+                        "prompt_cache_miss_tokens": 7,
+                        "cost_in_usd_ticks": 123,
+                    }
+                }
+            }
+        ),
+        "deepseek-chat",
+    )
+
+    assert response.metadata["sandhi_usage"] == {
+        "cache_miss_tokens": 7,
+        "cost_in_usd_ticks": 123,
+    }
+
+
+def test_native_only_extractor_ignores_junk():
+    assert st._native_only_usage(None) == {}
+    assert st._native_only_usage("usage") == {}
+    assert st._native_only_usage({"prompt_cache_miss_tokens": "x", "cost_in_usd_ticks": None}) == {}
+    assert st._native_only_usage({"prompt_cache_miss_tokens": 0, "cost_in_usd_ticks": 0}) == {}

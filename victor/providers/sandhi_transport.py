@@ -313,6 +313,32 @@ def _tool_calls(calls: Any) -> Optional[List[Dict[str, Any]]]:
     return result
 
 
+def _native_only_usage(raw_usage: Any) -> Dict[str, int]:
+    """Extract usage fields that have no neutral home yet, once, at the boundary.
+
+    ``prompt_cache_miss_tokens`` (DeepSeek-style cache accounting) and
+    ``cost_in_usd_ticks`` (provider-reported cost) exist only in native bodies.
+    Surfacing them into ``metadata["sandhi_usage"]`` here keeps the runtime off
+    the native body entirely (foundations strategy F1 — the body becomes
+    debug-only, unblocking sandhi's G8 native-body gating). Long term these
+    belong in the neutral contract / Victor pricing respectively.
+    """
+    if not isinstance(raw_usage, dict):
+        return {}
+    fields: Dict[str, int] = {}
+    for source_key, target_key in (
+        ("prompt_cache_miss_tokens", "cache_miss_tokens"),
+        ("cost_in_usd_ticks", "cost_in_usd_ticks"),
+    ):
+        try:
+            value = int(raw_usage.get(source_key, 0) or 0)
+        except (TypeError, ValueError):
+            value = 0
+        if value:
+            fields[target_key] = value
+    return fields
+
+
 def _usage_diagnostics(usage: Any) -> Optional[Dict[str, Any]]:
     """Preserve non-routine typed metering state without polluting legacy token keys."""
     if not isinstance(usage, dict):
@@ -529,7 +555,11 @@ class SandhiTypedProviderMixin:
         metadata: Dict[str, Any] = {}
         if reasoning:
             metadata["reasoning_content"] = reasoning
-        if diagnostics := _usage_diagnostics(response.get("usage")):
+        diagnostics = dict(_usage_diagnostics(response.get("usage")) or {})
+        diagnostics.update(
+            _native_only_usage(native.get("usage") if isinstance(native, dict) else None)
+        )
+        if diagnostics:
             metadata["sandhi_usage"] = diagnostics
         return CompletionResponse(
             content=_text_content(output.get("content")),
@@ -538,6 +568,9 @@ class SandhiTypedProviderMixin:
             stop_reason=response.get("finish_reason"),
             usage=usage,
             model=response.get("model") or model,
+            # Debug-only: everything load-bearing rides `usage` (neutral) or
+            # `metadata["sandhi_usage"]` (boundary-extracted). May be absent
+            # once sandhi gates native-body emission (G8).
             raw_response=native if isinstance(native, dict) else response,
             metadata=metadata or None,
         )
