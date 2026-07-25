@@ -292,3 +292,110 @@ class TestConversationStoreTokenSchema:
 
         assert "prompt_tokens" in cols
         assert "completion_tokens" in cols
+
+
+class TestExtendedTokenFieldsSourcing:
+    """F1: extended token fields come from neutral usage + transport
+    diagnostics; the raw native body is only a legacy fallback and the
+    accumulator must behave identically when it is absent."""
+
+    @staticmethod
+    def _accumulate(response):
+        from victor.agent.services.turn_execution_runtime import TurnExecutor
+
+        cum = {
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+        }
+        executor = MagicMock(spec=TurnExecutor)
+        executor._chat_context = MagicMock()
+        executor._chat_context._cumulative_token_usage = cum
+        executor._token_tracker = None
+        TurnExecutor._accumulate_token_usage(executor, response)
+        return cum
+
+    def test_neutral_usage_without_raw_body(self):
+        """Typed transports with extensions absent lose nothing."""
+        from victor.providers.base import CompletionResponse
+
+        cum = self._accumulate(
+            CompletionResponse(
+                content="r",
+                usage={
+                    "prompt_tokens": 10,
+                    "completion_tokens": 5,
+                    "total_tokens": 15,
+                    "cache_read_input_tokens": 4,
+                    "reasoning_tokens": 3,
+                },
+            )
+        )
+        assert cum["cached_tokens"] == 4
+        assert cum["reasoning_tokens"] == 3
+        assert cum["cache_miss_tokens"] == 0
+        assert cum["cost_usd_micros"] == 0
+
+    def test_diagnostics_supply_native_only_fields(self):
+        from victor.providers.base import CompletionResponse
+
+        cum = self._accumulate(
+            CompletionResponse(
+                content="r",
+                usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+                metadata={"sandhi_usage": {"cache_miss_tokens": 7, "cost_in_usd_ticks": 123}},
+            )
+        )
+        assert cum["cache_miss_tokens"] == 7
+        assert cum["cost_usd_micros"] == 123
+
+    def test_legacy_raw_body_fallback_still_works(self):
+        """Non-typed providers keep their raw-usage extraction unchanged."""
+        from victor.providers.base import CompletionResponse
+
+        cum = self._accumulate(
+            CompletionResponse(
+                content="r",
+                usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+                raw_response={
+                    "usage": {
+                        "prompt_tokens_details": {"cached_tokens": 6},
+                        "completion_tokens_details": {"reasoning_tokens": 2},
+                        "prompt_cache_miss_tokens": 9,
+                        "cost_in_usd_ticks": 55,
+                    }
+                },
+            )
+        )
+        assert cum["cached_tokens"] == 6
+        assert cum["reasoning_tokens"] == 2
+        assert cum["cache_miss_tokens"] == 9
+        assert cum["cost_usd_micros"] == 55
+
+    def test_neutral_usage_wins_over_raw_body(self):
+        """No double counting: neutral values take precedence over the body."""
+        from victor.providers.base import CompletionResponse
+
+        cum = self._accumulate(
+            CompletionResponse(
+                content="r",
+                usage={
+                    "prompt_tokens": 10,
+                    "completion_tokens": 5,
+                    "total_tokens": 15,
+                    "cache_read_input_tokens": 4,
+                    "reasoning_tokens": 3,
+                },
+                metadata={"sandhi_usage": {"cache_miss_tokens": 7}},
+                raw_response={
+                    "usage": {
+                        "prompt_tokens_details": {"cached_tokens": 999},
+                        "completion_tokens_details": {"reasoning_tokens": 999},
+                        "prompt_cache_miss_tokens": 999,
+                    }
+                },
+            )
+        )
+        assert cum["cached_tokens"] == 4
+        assert cum["reasoning_tokens"] == 3
+        assert cum["cache_miss_tokens"] == 7

@@ -1983,27 +1983,37 @@ class TurnExecutor:
                 except Exception:
                     pass  # Never break the hot path over metrics
 
-            # Extract extended token fields from raw_response
+            # Extended token fields: neutral usage first, transport
+            # diagnostics (metadata["sandhi_usage"]) for the fields with no
+            # neutral home yet, and the raw native body only as a legacy
+            # fallback for non-typed providers. The native body must never be
+            # load-bearing (foundations strategy F1) — typed transports work
+            # identically with extensions absent.
+            usage = response.usage or {}
+            meta = getattr(response, "metadata", None) or {}
+            sandhi_usage = meta.get("sandhi_usage") or {}
             raw = getattr(response, "raw_response", None)
-            if raw and isinstance(raw, dict):
-                raw_usage = raw.get("usage", {}) or {}
-                cum = self._chat_context._cumulative_token_usage
-                prompt_details = raw_usage.get("prompt_tokens_details", {}) or {}
-                comp_details = raw_usage.get("completion_tokens_details", {}) or {}
-                cum["cached_tokens"] = cum.get("cached_tokens", 0) + (
-                    prompt_details.get("cached_tokens", 0)
-                    or raw_usage.get("prompt_cache_hit_tokens", 0)
-                    or raw_usage.get("cache_read_input_tokens", 0)
-                )
-                cum["cache_miss_tokens"] = cum.get("cache_miss_tokens", 0) + (
-                    raw_usage.get("prompt_cache_miss_tokens", 0)
-                )
-                cum["reasoning_tokens"] = cum.get("reasoning_tokens", 0) + (
-                    comp_details.get("reasoning_tokens", 0)
-                )
-                cum["cost_usd_micros"] = cum.get("cost_usd_micros", 0) + (
-                    raw_usage.get("cost_in_usd_ticks", 0)
-                )
+            raw_usage = (raw.get("usage") or {}) if isinstance(raw, dict) else {}
+            prompt_details = raw_usage.get("prompt_tokens_details", {}) or {}
+            comp_details = raw_usage.get("completion_tokens_details", {}) or {}
+
+            cum = self._chat_context._cumulative_token_usage
+            cum["cached_tokens"] = cum.get("cached_tokens", 0) + (
+                usage.get("cache_read_input_tokens", 0)
+                or prompt_details.get("cached_tokens", 0)
+                or raw_usage.get("prompt_cache_hit_tokens", 0)
+                or raw_usage.get("cache_read_input_tokens", 0)
+            )
+            cum["cache_miss_tokens"] = cum.get("cache_miss_tokens", 0) + (
+                sandhi_usage.get("cache_miss_tokens", 0)
+                or raw_usage.get("prompt_cache_miss_tokens", 0)
+            )
+            cum["reasoning_tokens"] = cum.get("reasoning_tokens", 0) + (
+                usage.get("reasoning_tokens", 0) or comp_details.get("reasoning_tokens", 0)
+            )
+            cum["cost_usd_micros"] = cum.get("cost_usd_micros", 0) + (
+                sandhi_usage.get("cost_in_usd_ticks", 0) or raw_usage.get("cost_in_usd_ticks", 0)
+            )
 
     async def _check_context_compaction(
         self,
