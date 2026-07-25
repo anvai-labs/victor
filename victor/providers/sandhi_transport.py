@@ -10,8 +10,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from json import JSONDecodeError
 from typing import Any, AsyncIterator, Dict, List, Optional, Tuple, Type
+
+logger = logging.getLogger(__name__)
 
 from victor.providers.anthropic_provider import AnthropicProvider
 from victor.providers.base import (
@@ -492,6 +495,35 @@ class SandhiTypedProviderMixin:
                         event.get("usage"), None, slug=self._sandhi_slug()
                     )
                     usage_diagnostics = _usage_diagnostics(event.get("usage"))
+                elif kind == "response_start":
+                    # Deliberately ignored (TD-0008 consumer-decision row): victor
+                    # derives model/id from the request and final chunk.
+                    continue
+                elif kind == "tool_call_end":
+                    # Deliberately ignored: call boundaries are tracked by the
+                    # indexed accumulation above; the terminal chunk assembles them.
+                    continue
+                elif kind == "error":
+                    # A typed error EVENT (as opposed to an iterator error) must
+                    # surface as the mapped ProviderError, never vanish mid-stream.
+                    payload = event.get("error")
+                    raise map_sandhi_error(
+                        RuntimeError(
+                            json.dumps(
+                                payload if isinstance(payload, dict) else {"code": "unknown"}
+                            )
+                        ),
+                        self._sandhi_slug(),
+                        timeout,
+                    )
+                else:
+                    # Contract-drift alarm (TD-0008 P1): a new ChatStreamEventV1
+                    # variant reached a consumer with no consumption decision.
+                    logger.warning(
+                        "sandhi stream event kind %r has no victor consumption decision "
+                        "— contract drift; add a handler or an explicit ignore",
+                        kind,
+                    )
             yield StreamChunk(
                 content="",
                 tool_calls=_tool_calls([calls[index] for index in sorted(calls)]),

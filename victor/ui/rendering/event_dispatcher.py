@@ -100,6 +100,12 @@ class EventDispatcher:
         # Reasoning content (DeepSeek API)
         elif event_metadata and "reasoning_content" in event_metadata:
             self._handle_reasoning_content(event_metadata, event_content)
+        # Model refusal (sandhi refusal_delta -> metadata.refusal): a refusal is
+        # the model's user-facing outcome for the turn — never swallow it.
+        elif event_metadata and "refusal" in event_metadata:
+            refusal_text = str(event_metadata.get("refusal") or "").strip()
+            if refusal_text:
+                self.renderer.on_status(f"\u26d4 Model refusal: {refusal_text}")
         # Plain content
         elif event_content:
             self._handle_content(event_content)
