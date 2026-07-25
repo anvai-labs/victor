@@ -148,6 +148,141 @@ class TestTaskPreparation:
         assert budget >= 50
         mock_task_analyzer.detect_intent.assert_called_with("Address them comprehensively.")
 
+
+class TestContinuationComplexityCarryForward:
+    """A continuation turn must not shrink the budget of the work being continued.
+
+    Regression: "continue next steps" was classified SIMPLE and slashed the tool
+    budget 200 → 20, starving the follow-up turn (session codingagent-363cca81).
+    """
+
+    @staticmethod
+    def _classification(complexity, confidence=0.9):
+        result = Mock()
+        result.complexity = complexity
+        result.confidence = confidence
+        result.matched_patterns = []
+        return result
+
+    def test_bare_continuation_carries_forward_prior_budget(
+        self,
+        task_coordinator,
+        mock_task_analyzer,
+        mock_unified_tracker,
+        mock_conversation_controller,
+    ):
+        from victor.framework.task import DEFAULT_BUDGETS, TaskComplexity
+
+        # Turn 1: an ACTION-complexity task (budget 200).
+        mock_task_analyzer.classify_complexity.return_value = self._classification(
+            TaskComplexity.ACTION
+        )
+        task_coordinator.prepare_task(
+            "Implement the plan across the web server and CLI",
+            Mock(value="edit"),
+            mock_conversation_controller,
+        )
+
+        # Turn 2: a bare continuation, classified SIMPLE from its own text.
+        mock_task_analyzer.classify_complexity.return_value = self._classification(
+            TaskComplexity.SIMPLE, confidence=0.5
+        )
+        classification, budget = task_coordinator.prepare_task(
+            "continue next steps",
+            Mock(value="design"),
+            mock_conversation_controller,
+        )
+
+        assert classification.complexity == TaskComplexity.ACTION
+        assert budget == DEFAULT_BUDGETS[TaskComplexity.ACTION]
+        assert "continuation_complexity_carry_forward" in classification.matched_patterns
+        # The SIMPLE budget-slashing branch must not have run.
+        mock_unified_tracker.set_tool_budget.assert_not_called()
+
+    def test_non_continuation_turn_still_reclassifies(
+        self,
+        task_coordinator,
+        mock_task_analyzer,
+        mock_unified_tracker,
+        mock_conversation_controller,
+    ):
+        from victor.framework.task import TaskComplexity
+
+        mock_task_analyzer.classify_complexity.return_value = self._classification(
+            TaskComplexity.ACTION
+        )
+        task_coordinator.prepare_task(
+            "Implement the plan", Mock(value="edit"), mock_conversation_controller
+        )
+
+        mock_task_analyzer.classify_complexity.return_value = self._classification(
+            TaskComplexity.SIMPLE, confidence=0.8
+        )
+        intent_result = Mock()
+        intent_result.intent = ActionIntent.READ_ONLY
+        intent_result.confidence = 0.8
+        mock_task_analyzer.detect_intent.return_value = intent_result
+
+        classification, _budget = task_coordinator.prepare_task(
+            "list the files in victor/ui", Mock(value="search"), mock_conversation_controller
+        )
+
+        assert classification.complexity == TaskComplexity.SIMPLE
+        mock_unified_tracker.set_tool_budget.assert_called_once()
+
+    def test_continuation_never_raises_a_larger_fresh_classification(
+        self,
+        task_coordinator,
+        mock_task_analyzer,
+        mock_conversation_controller,
+    ):
+        """Carry-forward is monotone: it never shrinks a bigger fresh budget."""
+        from victor.framework.task import DEFAULT_BUDGETS, TaskComplexity
+
+        mock_task_analyzer.classify_complexity.return_value = self._classification(
+            TaskComplexity.SIMPLE
+        )
+        task_coordinator.prepare_task(
+            "show me the readme", Mock(value="search"), mock_conversation_controller
+        )
+
+        # Continuation with a payload that itself classifies as ACTION keeps ACTION.
+        mock_task_analyzer.classify_complexity.return_value = self._classification(
+            TaskComplexity.ACTION
+        )
+        classification, budget = task_coordinator.prepare_task(
+            "continue and also refactor the session store",
+            Mock(value="edit"),
+            mock_conversation_controller,
+        )
+
+        assert classification.complexity == TaskComplexity.ACTION
+        assert budget == DEFAULT_BUDGETS[TaskComplexity.ACTION]
+
+    def test_first_turn_without_prior_classification_is_unchanged(
+        self,
+        task_coordinator,
+        mock_task_analyzer,
+        mock_unified_tracker,
+        mock_conversation_controller,
+    ):
+        from victor.framework.task import TaskComplexity
+
+        mock_task_analyzer.classify_complexity.return_value = self._classification(
+            TaskComplexity.SIMPLE, confidence=0.8
+        )
+        intent_result = Mock()
+        intent_result.intent = ActionIntent.READ_ONLY
+        intent_result.confidence = 0.8
+        mock_task_analyzer.detect_intent.return_value = intent_result
+
+        classification, _budget = task_coordinator.prepare_task(
+            "continue", Mock(value="search"), mock_conversation_controller
+        )
+
+        assert classification.complexity == TaskComplexity.SIMPLE
+        mock_unified_tracker.set_tool_budget.assert_called_once()
+
     def test_prepare_task_promotes_remediation_followup_even_for_design_task_type(
         self, task_coordinator, mock_task_analyzer, mock_conversation_controller
     ):
