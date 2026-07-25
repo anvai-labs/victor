@@ -10,8 +10,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from json import JSONDecodeError
 from typing import Any, AsyncIterator, Dict, List, Optional, Tuple, Type
+
+logger = logging.getLogger(__name__)
 
 from victor.providers.anthropic_provider import AnthropicProvider
 from victor.providers.base import (
@@ -108,6 +111,44 @@ def _typed_error_payload(message: str) -> Optional[Dict[str, Any]]:
     return value if isinstance(value, dict) and isinstance(value.get("code"), str) else None
 
 
+# The ChatRequestV1/ChatStreamEventV1 wire-contract version Victor speaks.
+# Single source for the request "schema_version" field and the handshake below.
+EXPECTED_WIRE_CONTRACT = "1"
+
+_wire_contract_checked = False
+
+
+def _verify_wire_contract() -> None:
+    """One-time fail-soft handshake against the installed sandhi binding.
+
+    Sandhi exposes ``wire_contract_version()`` precisely so consumers can
+    detect contract drift, but Victor previously hard-coded ``"1"`` and never
+    checked — a future contract bump would surface as silent shape drift
+    (fields ignored, events unrecognized) instead of one clear warning.
+    Feature-detected so bindings predating the surface stay supported.
+    """
+    global _wire_contract_checked
+    if _wire_contract_checked:
+        return
+    _wire_contract_checked = True
+    try:
+        import sandhi_gateway as sg
+
+        if not hasattr(sg, "wire_contract_version"):
+            return
+        actual = str(sg.wire_contract_version())
+    except Exception:  # pragma: no cover - handshake must never block transport
+        return
+    if actual != EXPECTED_WIRE_CONTRACT:
+        logger.warning(
+            "sandhi wire-contract mismatch: installed binding speaks version %r, "
+            "victor speaks %r — typed request/event shapes may drift silently; "
+            "align sandhi-gateway and victor versions",
+            actual,
+            EXPECTED_WIRE_CONTRACT,
+        )
+
+
 def map_sandhi_error(exc: BaseException, provider_name: str, timeout: float) -> ProviderError:
     """Map `ProviderErrorV1` from the FFI without changing retry ownership."""
     if isinstance(exc, (asyncio.TimeoutError, TimeoutError)):
@@ -120,6 +161,14 @@ def map_sandhi_error(exc: BaseException, provider_name: str, timeout: float) -> 
             f"sandhi binding failure: {exc}", provider=provider_name, raw_error=exc
         )
     detail = str(typed.get("message") or exc)
+    # Sandhi carries the full (capped) upstream error body in details["upstream_body"]
+    # (the message holds only a short display snippet). Append it so provider
+    # rejections are self-explaining at the surfaced-error level.
+    details = typed.get("details")
+    if isinstance(details, dict):
+        upstream_body = details.get("upstream_body")
+        if isinstance(upstream_body, str) and upstream_body and upstream_body[:80] not in detail:
+            detail = f"{detail} | upstream body: {upstream_body[:500]}"
     code = typed["code"]
     status = typed.get("http_status")
     if code == "rate_limited":
@@ -187,7 +236,7 @@ def _typed_request_from_openai_payload(payload: Dict[str, Any]) -> Dict[str, Any
         messages.append(message)
 
     request: Dict[str, Any] = {
-        "schema_version": "1",
+        "schema_version": EXPECTED_WIRE_CONTRACT,
         "model": str(payload.get("model", "")),
         "messages": messages,
     }
@@ -343,6 +392,7 @@ class SandhiTypedProviderMixin:
                 "sandhi-gateway 0.1.2 typed runtime is unavailable",
                 provider=self._sandhi_slug(),
             )
+        _verify_wire_contract()
         if self._sandhi_runtime is None:
             self._sandhi_runtime = _sg.ProviderRuntime()
         if self._sandhi_typed_providers is None:
