@@ -98,9 +98,25 @@ class SuggestingGroup(typer.core.TyperGroup):
     Only genuine unknown-command errors are enhanced; every other
     ``UsageError`` (missing arguments, bad options, etc.) is re-raised
     unchanged.
+
+    Also owns the legacy-alias hint (UX P2): flat commands that moved under a
+    verb group stay invocable but hidden; resolving one prints a one-line
+    pointer to the new path on stderr. ``legacy_paths`` maps old top-level
+    name -> new invocation, populated at registration time in ``cli.py``.
     """
 
+    #: old top-level command name -> replacement invocation (e.g. "config profiles")
+    legacy_paths: dict[str, str] = {}
+
     def resolve_command(self, ctx: click.Context, args: list[str]):
+        attempted = args[0] if args else ""
+        new_path = self.legacy_paths.get(attempted)
+        if new_path:
+            click.echo(
+                f"note: 'victor {attempted}' is moving to 'victor {new_path}' "
+                f"— the old form keeps working for now.",
+                err=True,
+            )
         try:
             return super().resolve_command(ctx, args)
         except click.exceptions.UsageError as exc:
