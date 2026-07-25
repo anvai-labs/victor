@@ -136,6 +136,13 @@ That is not hypothetical — the two disagree inside a single artifact:
 
 The run failed. The proxy scored it perfect.
 
+**Now fixed** (see *Fixes landed*). Where a benchmark graded the session, its
+verdict wins; the proxy survives only for interactive sessions, which nothing
+grades, and `ExecutionTrace.score_source` says which was used. Note that the
+verdict is derived from `status` and the test counts — deliberately *not* from
+the artifact's own `completion_score`, since that is the field shown
+contradicting itself above.
+
 ### The eval-driven path works — it just is not wired to ordinary eval runs
 
 `seed_from_evaluations()` reads `~/.victor/evaluations/eval_*.json` and writes
@@ -237,7 +244,8 @@ paste-ready literal (and refuses anything not classified `PROMOTE` without
 | Truncated / degenerate candidates reached the DB | new `truncated_tail` and `redundant_additions` hygiene violations, both enforced at the persist gate |
 | Every trace reported `provider="unknown"` | `_absorb_session_identity` fills provider/model from any event carrying them; `_normalize_provider_label` maps `MoonshotCompatProvider` → `moonshot`, `SandhiOllamaProvider` → `ollama` |
 | Provider-scoped candidates reflected from a mixed pool | `_scope_traces_to_provider` filters the pool to the provider being evolved, falling back (with a log) when it is too small |
-| Eval artifacts named a candidate only under an explicit `--prompt-candidate-hash` A/B, so ~680 real runs fed nothing | the runtime accumulates served identities per task (`RuntimeIntelligenceService.get_served_prompt_identities`), the harness unions them into `observed_prompt_identities`, and `_artifact_identities()` reads them — so every eval run becomes Pareto evidence |
+| Eval artifacts named a candidate only under an explicit `--prompt-candidate-hash` A/B, so ~680 real runs fed nothing | the eval adapter samples served identities per task, the harness unions them into `observed_prompt_identities`, and `_artifact_identities()` reads them — so every eval run becomes Pareto evidence |
+| `completion_score` was a tool-failure proxy even for graded sessions, and three collectors each used a *different* proxy | `session_id` is now serialized per task (the join key `TaskResult` already held in memory), `_harness_verdicts()` maps session → verdict, and all three collectors score through one `_score_session()`: harness verdict where a benchmark graded the session, proxy only where nothing did. `ExecutionTrace.score_source` records which |
 
 Verified against the real candidates: the persist gate now flags
 `redundant_additions` on the CONCISE mutation and `truncated_tail` on the
@@ -275,10 +283,6 @@ reading a transcript; only the source of the hypothesis differs.
   require *some* evidence, not merely the absence of a benchmark requirement.
 - **No project scoping on traces.** Provider scoping landed here; project
   scoping needs a project field at the emission site first.
-- **Reward on the harness verdict, not the tool-failure proxy.** Pareto instance
-  scores now come from `status` (pass = 1.0), but the *trace* pathway still
-  computes `completion_score` from tool-failure rate — a `"status": "failed"`
-  run can still score `1.0` there. Unify on the harness verdict.
 - **Backfill is not attempted.** The ~680 existing real-model artifacts stay
   unattributable; only runs from here on carry identity. A backfill would need
   to infer which candidate was live at each historical timestamp, which the logs

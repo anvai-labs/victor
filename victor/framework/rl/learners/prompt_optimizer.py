@@ -323,6 +323,20 @@ class ExecutionTrace:
     credit_signals: List[Dict[str, Any]] = field(default_factory=list)
     # Optional agent-level summary for multi-agent team runs
     agent_guidance: Optional[str] = None
+    # Where completion_score came from: "harness" (a benchmark graded this
+    # session) or "tool_failure_proxy" (no verdict exists — interactive work).
+    # Kept on the trace so reflection and audits can tell evidence from inference.
+    score_source: str = "tool_failure_proxy"
+
+
+@dataclass(frozen=True)
+class HarnessVerdict:
+    """Ground-truth outcome for one evaluated session."""
+
+    completion_score: float
+    success: bool
+    task_id: str
+    benchmark: str
 
 
 @dataclass
@@ -732,6 +746,9 @@ class GEPAStrategy:
 
 # Minimum traces required before evolution
 MIN_TRACES_FOR_EVOLUTION = 5
+# Evaluation artifacts number in the thousands while trace collection only
+# looks at the last ~50 sessions, so the verdict scan is bounded by mtime.
+MAX_EVAL_ARTIFACTS_SCANNED = 400
 MIN_SAMPLES_FOR_CONFIDENCE = 3
 
 # Confidence floor + non-baseline requirement that historically gated live
@@ -838,6 +855,8 @@ class PromptOptimizerLearner(BaseLearner):
         # brand-new candidate (is_active=False, sample_count=0) so it can earn
         # its first reward. Set by record_served() at injection time.
         self._last_served: Dict[str, str] = {}
+        # Lazily loaded session_id -> ground-truth outcome from benchmark runs.
+        self._harness_verdict_cache: Optional[Dict[str, HarnessVerdict]] = None
         self._use_pareto = use_pareto
         self._max_prompt_chars = max_prompt_chars
         self._pareto_frontiers: Dict[str, Any] = {}  # section → ParetoFrontier
@@ -2576,6 +2595,7 @@ class PromptOptimizerLearner(BaseLearner):
 
         # Convert to ExecutionTrace objects with quality scoring
         # Quality filter: skip sessions with < 2 tool calls (likely API errors)
+        verdicts = self._harness_verdicts()
         for sid, data in list(sessions.items())[-limit:]:
             if data["tool_calls"] < 2:
                 continue  # Skip trivially broken sessions
@@ -2584,9 +2604,9 @@ class PromptOptimizerLearner(BaseLearner):
             total_calls = data["tool_calls"]
             failure_rate = total_failures / max(total_calls, 1)
 
-            # Quality-based completion score (not just binary)
-            # Low failure rate = high quality trace, worth learning from
-            completion_score = max(0.0, 1.0 - failure_rate * 1.5)
+            completion_score, success, score_source = self._score_session(
+                verdicts.get(sid), failure_rate
+            )
 
             traces.append(
                 ExecutionTrace(
@@ -2596,15 +2616,144 @@ class PromptOptimizerLearner(BaseLearner):
                     model=data.get("model") or "unknown",
                     tool_calls=total_calls,
                     tool_failures=data["failures"],
-                    success=failure_rate < 0.3,
+                    success=success,
                     completion_score=completion_score,
                     tokens_used=data.get("tokens", 0),
+                    score_source=score_source,
                 )
             )
 
         # Sort by quality — high-quality traces first for GEPA reflection
         traces.sort(key=lambda t: -t.completion_score)
         return traces
+
+    @staticmethod
+    def _verdict_from_task(task: Dict[str, Any], benchmark: str) -> Optional[HarnessVerdict]:
+        """Build a verdict from one serialized task, or None if it cannot grade.
+
+        Derived from hard signals only — ``status`` and the test counts — and
+        deliberately *not* from the artifact's own ``completion_score`` field.
+        That field is the proxy this change exists to replace, and it is
+        observably unreliable: an artifact on disk carries
+        ``"status": "failed"`` alongside ``"completion_score": "1.0"``. Reading
+        it back would reimport the defect under a new name.
+
+        Test counts give partial credit where they exist, so a run that fixed
+        8 of 10 tests is better evidence than one that fixed none, without
+        trusting a soft score that can contradict the verdict.
+        """
+        session_id = str(task.get("session_id") or "").strip()
+        if not session_id:
+            return None
+        status = str(task.get("status") or "").strip().lower()
+        if not status:
+            return None
+
+        success = status == "passed"
+        if success:
+            score = 1.0
+        else:
+            try:
+                tests_total = int(task.get("tests_total") or 0)
+                tests_passed = int(task.get("tests_passed") or 0)
+            except (TypeError, ValueError):
+                tests_total = tests_passed = 0
+            # A non-passing run never scores 1.0, however many tests it passed.
+            score = min(tests_passed / tests_total, 0.99) if tests_total > 0 else 0.0
+            score = max(score, 0.0)
+
+        return HarnessVerdict(
+            completion_score=score,
+            success=success,
+            task_id=str(task.get("task_id") or ""),
+            benchmark=benchmark,
+        )
+
+    def _harness_verdicts(self, eval_dir: Optional[Path] = None) -> Dict[str, HarnessVerdict]:
+        """Map session_id → ground-truth outcome, from benchmark artifacts.
+
+        Evaluation runs are the only sessions that carry a real verdict: a
+        harness decided whether the task was actually solved. Traces from those
+        sessions must be scored by that verdict rather than by how tidily the
+        agent called its tools — an artifact on disk shows the two disagreeing
+        outright (``"status": "failed"`` alongside ``"completion_score": 1.0``
+        computed from the proxy).
+
+        Bounded to the most recent artifacts by mtime and memoized per instance:
+        the corpus runs to thousands of files, while trace collection only ever
+        looks at the last ~50 sessions.
+        """
+        if self._harness_verdict_cache is not None:
+            return self._harness_verdict_cache
+
+        if eval_dir is None:
+            try:
+                from victor.config.settings import get_project_paths
+
+                eval_dir = Path(get_project_paths().global_victor_dir) / "evaluations"
+            except Exception:
+                eval_dir = Path.home() / ".victor" / "evaluations"
+
+        verdicts: Dict[str, HarnessVerdict] = {}
+        try:
+            artifacts = sorted(
+                Path(eval_dir).glob("eval_*.json"),
+                key=lambda p: p.stat().st_mtime,
+                reverse=True,
+            )[:MAX_EVAL_ARTIFACTS_SCANNED]
+        except OSError:
+            artifacts = []
+
+        for artifact in artifacts:
+            try:
+                with open(artifact) as handle:
+                    payload = json_loads(handle.read())
+            except (OSError, JSONDecodeError, ValueError):
+                continue
+            if not isinstance(payload, dict):
+                continue
+            config = payload.get("config")
+            benchmark = str(
+                payload.get("benchmark")
+                or (config.get("benchmark") if isinstance(config, dict) else "")
+                or ""
+            )
+            tasks = payload.get("tasks")
+            if not isinstance(tasks, list):
+                continue
+            for task in tasks:
+                if not isinstance(task, dict):
+                    continue
+                verdict = self._verdict_from_task(task, benchmark)
+                if verdict is None:
+                    continue
+                # Artifacts are walked newest-first, so setdefault means a
+                # re-run's grade supersedes the earlier one for that session.
+                verdicts.setdefault(str(task.get("session_id")).strip(), verdict)
+
+        if verdicts:
+            logger.info(
+                "Loaded %d harness verdicts from %d evaluation artifacts",
+                len(verdicts),
+                len(artifacts),
+            )
+        self._harness_verdict_cache = verdicts
+        return verdicts
+
+    @staticmethod
+    def _score_session(
+        verdict: Optional[HarnessVerdict],
+        failure_rate: float,
+    ) -> tuple[float, bool, str]:
+        """Score one session: harness verdict when it exists, proxy otherwise.
+
+        Returns ``(completion_score, success, score_source)``.
+        """
+        if verdict is not None:
+            return verdict.completion_score, verdict.success, "harness"
+        # No verdict exists for interactive sessions — nothing graded them — so
+        # the tool-failure proxy stands, but it is labelled as inference.
+        return max(0.0, 1.0 - failure_rate * 1.5), failure_rate < 0.3, "tool_failure_proxy"
 
     @classmethod
     def _scope_traces_to_provider(
@@ -2871,9 +3020,17 @@ class PromptOptimizerLearner(BaseLearner):
             except Exception:
                 continue
 
+        verdicts = self._harness_verdicts()
         for sid, data in list(sessions.items())[-limit:]:
             if data["tool_calls"] > 0:
-                has_failures = bool(data["failures"])
+                # Was a flat 0.5-if-any-failure / 0.8-otherwise, a third scoring
+                # rule alongside v1's and the conversation collector's. All three
+                # now go through _score_session, so a session is graded the same
+                # way regardless of which collector observed it.
+                failure_rate = sum(data["failures"].values()) / max(data["tool_calls"], 1)
+                completion_score, success, score_source = self._score_session(
+                    verdicts.get(sid), failure_rate
+                )
                 traces.append(
                     ExecutionTrace(
                         session_id=sid,
@@ -2882,10 +3039,11 @@ class PromptOptimizerLearner(BaseLearner):
                         model=data.get("model") or "unknown",
                         tool_calls=data["tool_calls"],
                         tool_failures=data["failures"],
-                        success=not has_failures,
-                        completion_score=0.5 if has_failures else 0.8,
+                        success=success,
+                        completion_score=completion_score,
                         tokens_used=data.get("tokens", 0),
                         tool_call_details=data.get("details", []),
+                        score_source=score_source,
                     )
                 )
 
@@ -2919,6 +3077,7 @@ class PromptOptimizerLearner(BaseLearner):
             logger.debug("Failed to query RL training data: %s", e)
             return traces
 
+        verdicts = self._harness_verdicts()
         for sess in sessions:
             session_id = sess.get("session_id", "")
             provider = sess.get("provider") or "unknown"
@@ -2980,6 +3139,10 @@ class PromptOptimizerLearner(BaseLearner):
             total_failures = sum(failures.values())
             failure_rate = total_failures / max(total_tool_calls, 1)
 
+            completion_score, success, score_source = self._score_session(
+                verdicts.get(session_id), failure_rate
+            )
+
             traces.append(
                 ExecutionTrace(
                     session_id=session_id,
@@ -2988,10 +3151,11 @@ class PromptOptimizerLearner(BaseLearner):
                     model=model,
                     tool_calls=total_tool_calls,
                     tool_failures=failures,
-                    success=failure_rate < 0.3,
-                    completion_score=max(0.0, 1.0 - failure_rate * 1.5),
+                    success=success,
+                    completion_score=completion_score,
                     tokens_used=0,
                     tool_call_details=details,
+                    score_source=score_source,
                 )
             )
 

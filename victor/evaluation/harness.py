@@ -1662,6 +1662,13 @@ class EvaluationHarness:
             "tasks": [
                 {
                     "task_id": r.task_id,
+                    # The correlation spine. TaskResult has carried session_id in
+                    # memory (set from the agent payload) specifically to join this
+                    # task's logged decisions to its outcome, but it was never
+                    # serialized — so nothing downstream could match a usage.jsonl
+                    # trace to the harness verdict that graded it, and prompt
+                    # evolution scored eval sessions with a tool-failure proxy.
+                    "session_id": r.session_id,
                     "status": r.status.value,
                     "tests_passed": r.tests_passed,
                     "tests_total": r.tests_total,

@@ -972,6 +972,62 @@ class TestBenchmarkToolUsageMetrics:
         assert loaded["tasks"][0]["graph_calls"] == 1
         assert loaded["tasks"][0]["metadata"]["topology_events"][0]["action"] == "single_agent"
 
+    def test_save_results_persists_session_id_as_the_correlation_spine(self, tmp_path):
+        """The saved task must carry session_id, or its verdict cannot be joined.
+
+        TaskResult has held session_id in memory precisely to join a task's
+        logged decisions to its outcome, but it was never serialized — so
+        prompt evolution could not tell which usage.jsonl trace this verdict
+        graded, and fell back to a tool-failure proxy for eval sessions.
+        """
+        harness = EvaluationHarness(checkpoint_dir=tmp_path)
+        result = EvaluationResult(
+            config=EvaluationConfig(benchmark=BenchmarkType.SWE_BENCH, model="test"),
+            task_results=[
+                TaskResult(
+                    task_id="astropy__astropy-1",
+                    status=TaskStatus.FAILED,
+                    session_id="sess-abc",
+                    tests_passed=2,
+                    tests_total=5,
+                ),
+                TaskResult(task_id="no-session", status=TaskStatus.PASSED),
+            ],
+        )
+
+        loaded = harness.load_results(harness._save_results(result))
+
+        assert loaded["tasks"][0]["session_id"] == "sess-abc"
+        # Absent session ids stay empty rather than missing, so consumers can
+        # skip them without a KeyError.
+        assert loaded["tasks"][1]["session_id"] == ""
+
+    def test_saved_task_is_gradable_by_the_prompt_optimizer(self, tmp_path):
+        """The producer and consumer of the verdict must agree on the schema."""
+        from victor.framework.rl.learners.prompt_optimizer import PromptOptimizerLearner
+
+        harness = EvaluationHarness(checkpoint_dir=tmp_path)
+        result = EvaluationResult(
+            config=EvaluationConfig(benchmark=BenchmarkType.SWE_BENCH, model="test"),
+            task_results=[
+                TaskResult(
+                    task_id="t1",
+                    status=TaskStatus.FAILED,
+                    session_id="sess-abc",
+                    tests_passed=2,
+                    tests_total=5,
+                )
+            ],
+        )
+        loaded = harness.load_results(harness._save_results(result))
+
+        verdict = PromptOptimizerLearner._verdict_from_task(loaded["tasks"][0], "swe_bench")
+        assert verdict is not None
+        assert verdict.success is False
+        # Exact contract (partial credit is the test-pass ratio), expressed
+        # without depending on binary float representation.
+        assert verdict.completion_score == pytest.approx(2 / 5)
+
     def test_save_results_persists_task_report_efficiency_metrics(self, tmp_path):
         """Saved result JSON should keep task-report efficiency and ledger metadata."""
         harness = EvaluationHarness(checkpoint_dir=tmp_path)
