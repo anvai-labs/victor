@@ -90,6 +90,20 @@ def _reward(learner, *, success: bool, score: float) -> None:
     )
 
 
+class _DrawsLow:
+    """An RNG whose draw always succeeds — isolates the gate from chance.
+
+    A pending candidate's epsilon is scaled by
+    PENDING_BENCHMARK_EXPLORATION_FACTOR, so even ``exploration_epsilon=1.0``
+    leaves a coin flip. These tests assert *reachability*, not probability;
+    the rate itself is covered by test_pending_explores_at_a_reduced_rate.
+    """
+
+    @staticmethod
+    def random() -> float:
+        return 0.0
+
+
 class TestLoopCloses:
     def test_a_fresh_candidate_starts_inert(self, learner):
         candidate = _fresh_candidate(learner)
@@ -190,7 +204,10 @@ class TestBenchmarkGateHasAnExit:
         _fresh_candidate(learner, requires_benchmark=True, benchmark_passed=False)
         rec = _recommend(learner)
         assert (
-            should_serve_candidate(rec, exploration_enabled=True, exploration_epsilon=1.0) is True
+            should_serve_candidate(
+                rec, exploration_enabled=True, exploration_epsilon=1.0, rng=_DrawsLow()
+            )
+            is True
         )
 
     def test_pending_explores_at_a_reduced_rate(self, learner):
@@ -241,7 +258,9 @@ class TestBenchmarkGateHasAnExit:
         """The property the deadlock denied: inert + gated -> served -> rewarded."""
         candidate = _fresh_candidate(learner, requires_benchmark=True, benchmark_passed=False)
         rec = _recommend(learner)
-        assert should_serve_candidate(rec, exploration_enabled=True, exploration_epsilon=1.0)
+        assert should_serve_candidate(
+            rec, exploration_enabled=True, exploration_epsilon=1.0, rng=_DrawsLow()
+        )
         learner.record_served(SECTION, PROVIDER, rec.metadata["prompt_candidate_hash"])
 
         _reward(learner, success=True, score=0.9)
