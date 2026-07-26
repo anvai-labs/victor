@@ -283,9 +283,26 @@ reading a transcript; only the source of the hypothesis differs.
 
 ## Still open
 
-- **The loop itself** (FEP-0017): candidates are still never served, rewarded,
-  or promoted to `is_active`. Until that lands, `/prompt-optimize` generates
-  without selecting.
+- **~~The loop itself~~ — corrected: the loop closes.** This document previously
+  claimed candidates are never served or rewarded, inferring it from database
+  state (`sample_count=0`, `is_active=0`) without exercising the code path. That
+  was wrong. FEP-0017 is fully implemented — serve gate, `record_served` ledger,
+  `PROMPT_CANDIDATE_USED` dispatch, hash-first reward resolution, *and* the
+  streaming parity the FEP itself listed as unresolved. Driven end to end, an
+  inert candidate reaches `alpha=7.0, beta=1.0, sample_count=6` after six
+  rewarded turns and is then served on the exploit path with exploration off.
+  Pinned by `tests/unit/framework/rl/test_prompt_reward_loop_closes.py`.
+
+  The observed `sample_count=0` has a different cause — the next item.
+- **The benchmark gate is a dead end for the strategies that set it.**
+  `_servable_candidates` filters out `requires_benchmark` candidates until
+  `benchmark_passed`, and no runtime path ever benchmarks them: the only exit is
+  an operator running `victor benchmark --prompt-candidate-hash …`. A PrefPO
+  candidate is therefore never served → never rewarded → never promoted, and
+  not even exploration can reach it. **This is why two of the three audited
+  candidates sat permanently at zero samples**, which is what the stale claim
+  above misread as a broken loop. Fix undecided: auto-benchmark pending
+  candidates, expire the gate, or let exploration reach them at a lower epsilon.
 - **`requires_benchmark=0` plus no benchmark run means servable-unmeasured.**
   The ASI candidate could have been injected on 0.05/4. The serve gate should
   require *some* evidence, not merely the absence of a benchmark requirement.
@@ -302,8 +319,10 @@ reading a transcript; only the source of the hypothesis differs.
 - **Sections are not topic-fenced.** Tool-discipline lessons landed in an
   output-style section. Reflection should know which section it is mutating and
   reject guidance that does not belong to it.
-- **Reward is a tool-failure proxy.** Real task outcomes (`/rate`, completion
-  markers) should feed `completion_score`.
+- **Reward is a tool-failure proxy — for interactive sessions only.** Sessions a
+  benchmark graded now use its verdict (see *Fixes landed*); interactive work has
+  no verdict to defer to, so the proxy still stands there. Real task outcomes
+  (`/rate`, completion markers) should feed `completion_score` for those.
 - **The cap is still section-blind.** `COMPLETION_GUIDANCE` ships 51 chars over
   the default; flooring at the seed length works around that rather than
   reconciling per-section budgets.
