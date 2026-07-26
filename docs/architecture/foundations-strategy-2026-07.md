@@ -181,13 +181,20 @@ ahead of `KNOWN_CONTRACT_MINOR`, and a conditional floor-pin test asserts
 the installed binding meets Victor's floor once the export exists. No wire
 change; consumers stay tolerant-absent by construction.
 
-### 4.4 W3d — codec purity (G7)
+### 4.4 W3d — codec purity (G7) ✅ SHIPPED
 
-Promote recurring `extensions`-carried request params into typed v1 request
-fields (evidence-driven: only params used by ≥2 providers or load-bearing in
-Victor's request builder); route Google through the gemini-native request
-codec. Requires its own short addendum with the promoted-field list once
-W3a-c land; explicitly out of scope for this doc's first execution round.
+Design addendum: `w3d-codec-purity-addendum.md`. As executed (sandhi PR-B +
+victor PR-C): the evidence bar admitted exactly two params —
+`reasoning_effort` and `thinking` — promoted to typed v1 fields
+(`CHAT_CONTRACT_MINOR` 3→4, ratchet-forced), each with a per-encoder
+consumer-decision row. Victor dual-writes into extensions until the runtime
+speaks minor ≥ 4 (the W3c handshake is the migration tool). Two defects the
+evidence surfaced were also fixed: victor stops re-labeling its openai-shaped
+bucket onto native-encoder families (gemini/cohere/ollama — was shape
+corruption), and internal orchestration kwargs (`execution_mode`, topology
+hints) are stripped at the adapter boundary so they never reach a request
+body. Google already had a native gemini request codec on the sandhi side —
+the original "route Google through it" premise was stale.
 
 ---
 

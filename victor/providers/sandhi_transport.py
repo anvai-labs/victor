@@ -121,14 +121,65 @@ def _typed_error_payload(message: str) -> Optional[Dict[str, Any]]:
 EXPECTED_WIRE_CONTRACT = "1"
 
 # Additive rounds of the v1 contract Victor knows how to consume (W3c):
-# 3 = wire-truth latency on UsageV2 (sandhi#97), which _latency_fields reads.
-# The installed runtime's minor is read once by the handshake below; bindings
-# predating chat_contract_minor() report 0 — their documents simply never
-# carry the newer fields, which every consumer tolerates by construction.
-KNOWN_CONTRACT_MINOR = 3
+# 3 = wire-truth latency on UsageV2 (sandhi#97); 4 = reasoning_effort +
+# thinking typed request fields (W3d/G7). The installed runtime's minor is
+# read once by the handshake below; bindings predating chat_contract_minor()
+# report 0 — their documents simply never carry the newer fields, which every
+# consumer tolerates by construction.
+KNOWN_CONTRACT_MINOR = 4
+
+# The typed request fields land at minor 4 (W3d/G7). Below it, the runtime has
+# no such fields, so Victor dual-writes into extensions and only drops the
+# extensions copy once the installed runtime speaks >= this.
+_W3D_TYPED_FIELDS_MINOR = 4
+
+# Non-openai families whose sandhi encoder is a NATIVE translator (it clones
+# extensions[<family>] as the base request body). Victor's neutral mixin builds
+# an OpenAI-shaped bucket, so re-labeling it to these keys lets openai-shaped
+# params land inside a native Gemini/Cohere/Ollama body (shape corruption,
+# W3d/G7 D3). The bucket is dropped for these — typed fields carry what the
+# native encoders honor.
+_NATIVE_ENCODER_SLUGS = frozenset({"gemini", "cohere", "ollama"})
+
+# Internal orchestration keys that must never reach a provider request body
+# (W3d/G7 D4). They ride **kwargs from the runtime and would otherwise land in
+# extensions["openai"] and cross the wire.
+_INTERNAL_KWARG_KEYS = frozenset(
+    {
+        "execution_mode",
+        "provider_hint",
+        "escalation_target",
+        "topology_action",
+        "topology_kind",
+        "topology_metadata",
+        "task_type",
+        "temperature_override",
+    }
+)
 
 _wire_contract_checked = False
 _installed_contract_minor: int = 0
+
+
+def _normalize_thinking(value: Any) -> Optional[Dict[str, Any]]:
+    """Coerce Victor's `{type: enabled|disabled, budget_tokens?}` thinking arg
+    into the neutral ThinkingV1 shape `{enabled: bool, budget_tokens?: int}`
+    (W3d/G7). Returns None for shapes that carry no signal."""
+    if isinstance(value, bool):
+        return {"enabled": value}
+    if not isinstance(value, dict):
+        return None
+    if "enabled" in value:
+        enabled = bool(value["enabled"])
+    elif "type" in value:
+        enabled = str(value.get("type")) != "disabled"
+    else:
+        enabled = True
+    normalized: Dict[str, Any] = {"enabled": enabled}
+    budget = value.get("budget_tokens")
+    if isinstance(budget, int) and budget > 0:
+        normalized["budget_tokens"] = budget
+    return normalized
 
 
 def installed_chat_contract_minor() -> int:
@@ -316,6 +367,22 @@ def _typed_request_from_openai_payload(payload: Dict[str, Any]) -> Dict[str, Any
     if "stop" in payload:
         stop = payload["stop"]
         request["stop"] = stop if isinstance(stop, list) else [stop]
+
+    # W3d/G7: promote reasoning_effort + thinking to typed fields so they are
+    # portable across families (in extensions they reach only the openai
+    # encoder). Dual-write into extensions while the runtime predates the
+    # typed fields — dropping the extensions copy early would lose them on a
+    # pinned runtime. The W3c handshake makes this rollout-order-free.
+    typed_promoted: set[str] = set()
+    if "reasoning_effort" in payload:
+        request["reasoning_effort"] = payload["reasoning_effort"]
+        typed_promoted.add("reasoning_effort")
+    if "thinking" in payload:
+        normalized = _normalize_thinking(payload["thinking"])
+        if normalized is not None:
+            request["thinking"] = normalized
+            typed_promoted.add("thinking")
+
     reserved = {
         "model",
         "messages",
@@ -330,7 +397,13 @@ def _typed_request_from_openai_payload(payload: Dict[str, Any]) -> Dict[str, Any
         "stream",
         "stream_options",
     }
-    native = {key: value for key, value in payload.items() if key not in reserved}
+    # Drop the promoted keys from the extensions bucket once the runtime speaks
+    # the typed-field minor (else keep the copy — pinned runtimes have no typed
+    # fields). Internal orchestration keys never belong on the wire (D4).
+    excluded = reserved | _INTERNAL_KWARG_KEYS
+    if installed_chat_contract_minor() >= _W3D_TYPED_FIELDS_MINOR:
+        excluded = excluded | typed_promoted
+    native = {key: value for key, value in payload.items() if key not in excluded}
     if native:
         request["extensions"] = {"openai": native}
     return request
@@ -809,10 +882,15 @@ class SandhiNeutralProviderMixin(SandhiTypedProviderMixin):
             payload.setdefault("tool_choice", "auto")
         request = _typed_request_from_openai_payload(payload)
         slug = self._sandhi_slug()
-        if slug not in {"openai"}:
+        if slug != "openai":
             extensions = request.pop("extensions", {})
             native = extensions.get("openai") if isinstance(extensions, dict) else None
-            if native:
+            # W3d/G7 D3: for families whose sandhi encoder is a native
+            # translator (gemini/cohere/ollama), the encoder clones
+            # extensions[<slug>] verbatim as the base body — re-labeling an
+            # OpenAI-shaped bucket to that key corrupts the native request.
+            # Drop it; the typed fields carry what those encoders honor.
+            if native and slug not in _NATIVE_ENCODER_SLUGS:
                 request["extensions"] = {slug: native}
         return request
 
