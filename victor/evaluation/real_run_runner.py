@@ -32,6 +32,29 @@ from typing import Any, Awaitable, Callable, Optional
 
 logger = logging.getLogger(__name__)
 
+
+def _resolve_chat_service() -> Any:
+    """Return the canonical ChatService from the container.
+
+    Raises rather than returning ``None``: every caller here treats absence as
+    fatal, because a run that never reached ChatService is not a measurement of
+    it.
+    """
+    if get_container is None or ChatServiceProtocol is None:
+        raise RuntimeError("ChatService dependencies are unavailable in this install")
+
+    chat_service = get_container().get_optional(ChatServiceProtocol)
+    if chat_service is None:
+        # Deliberately not bootstrapped here: this module's contract is to drive
+        # ChatService via the container and never import AgentOrchestrator.
+        # Registering the service graph is the caller's job (see
+        # _ensure_canonical_services in the benchmark CLI).
+        raise RuntimeError(
+            "ChatService is not registered; the caller must build the service graph first"
+        )
+    return chat_service
+
+
 try:
     from victor.core import get_container
     from victor.agent.services.protocols import ChatServiceProtocol
@@ -148,12 +171,21 @@ class RealRunBenchmarkRunner:
 
         async def _run_task(task: Any) -> str:
             try:
-                if get_container is None or ChatServiceProtocol is None:
-                    raise RuntimeError("ChatService dependencies are unavailable")
-                chat_service = get_container().get(ChatServiceProtocol)
+                chat_service = _resolve_chat_service()
             except Exception as exc:
-                logger.warning("RealRunBenchmarkRunner: ChatService unavailable: %s", exc)
-                return ""
+                # Returning "" here used to look like a task the agent simply
+                # failed. It is not: no agent ran at all, and the harness went on
+                # to write a full artifact reporting 0 tool calls, 0 tokens and a
+                # test failure caused by the empty answer. Whole benchmark runs
+                # were recorded that way — indistinguishable from genuine poor
+                # performance unless you noticed the token count. The point of
+                # this runner is to measure the canonical ChatService path, so if
+                # that path is unavailable the run is meaningless and must stop.
+                raise RuntimeError(
+                    "RealRunBenchmarkRunner requires the canonical ChatService, which could "
+                    f"not be resolved ({exc}). Refusing to record a run that never invoked "
+                    "an agent. Use `victor benchmark run` for the adapter path."
+                ) from exc
 
             prompt = getattr(task, "prompt", None) or str(task)
             try:

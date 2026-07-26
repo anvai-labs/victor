@@ -1104,16 +1104,66 @@ def run_benchmark(
         console.print(f"\n[dim]Results saved to {output}[/]")
 
 
+async def _ensure_canonical_services(
+    config,
+    *,
+    profile: str,
+    vertical_hint: Optional[str],
+) -> None:
+    """Register ChatService and friends, if this process has not already.
+
+    Building the agent is what populates the DI container with the canonical
+    service graph. Skipped when ChatService is already registered, so an
+    embedder that wired its own services keeps them.
+    """
+    try:
+        from victor.agent.services.protocols import ChatServiceProtocol
+        from victor.core import get_container
+
+        if get_container().get_optional(ChatServiceProtocol) is not None:
+            return
+    except Exception:
+        pass  # fall through and try to build it
+
+    from victor.evaluation.agent_adapter import VictorAgentAdapter
+    from victor.framework.session_config import SessionConfig
+
+    session_config = SessionConfig.from_cli_flags(
+        agent_profile=profile,
+        provider_timeout=config.timeout_per_task,
+    )
+    await VictorAgentAdapter.create_from_session_config(
+        session_config,
+        profile=profile,
+        vertical=vertical_hint,
+        enable_observability=False,
+    )
+
+
 async def _run_real_benchmark_async(
     *,
     runner,
     config,
     output_dir: Optional[Path],
     resume: bool,
+    profile: str,
+    vertical_hint: Optional[str] = None,
 ):
     """Run a benchmark through the service-first ChatService real-run path."""
     from victor.evaluation.benchmarks.framework_comparison import Framework
     from victor.evaluation.real_run_runner import RealRunBenchmarkRunner, RealRunConfig
+
+    # ChatService is registered as a side effect of building the agent: the
+    # container only gains it once the conversation controller and streaming
+    # coordinator exist, and nothing but agent construction creates those. A CLI
+    # process that skipped this found no ChatService, and the runner used to
+    # swallow that and return an empty answer per task — recording a full
+    # artifact with 0 tool calls, 0 tokens and a test failure caused by the
+    # empty answer, indistinguishable from genuine poor performance.
+    #
+    # The agent is built for its service graph only; execution still goes
+    # through ChatService directly, which is the point of this path.
+    await _ensure_canonical_services(config, profile=profile, vertical_hint=vertical_hint)
 
     real_runner = RealRunBenchmarkRunner(
         RealRunConfig(
@@ -1220,6 +1270,8 @@ def run_real_benchmark(
                 config=config,
                 output_dir=bundle_output,
                 resume=resume,
+                profile=profile,
+                vertical_hint=_BENCHMARK_VERTICAL.get(config.benchmark),
             )
         )
     except Exception as exc:
