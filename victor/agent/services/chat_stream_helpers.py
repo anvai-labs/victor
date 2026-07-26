@@ -331,6 +331,22 @@ class ChatStreamHelperMixin:
             )
         logger.info(f"Task type detected: {unified_task_type.value}")
 
+        # Publish the settled type. Detection, continuation carry-forward, and the
+        # edit promotion above have all had their say by this point, so this is
+        # the first moment the turn's task type is final.
+        #
+        # Every consumer downstream read an attribute nobody assigned:
+        # ``TurnContext.task_type`` fell back to its "default" literal, that value
+        # rode into every RLEvent, and RL_OUTCOME therefore recorded "default" for
+        # every row ever written. Prompt evolution reads task_type back off those
+        # rows to scope candidates to the work they were learned from, so with one
+        # value for everything it could not distinguish an edit turn from a search
+        # — the population dimension existed in the schema and carried no
+        # information. The tracker was likewise only updated on the continuation
+        # branch, leaving the tool-selection guard reading GENERAL for real edits.
+        orch.unified_tracker.set_task_type(unified_task_type)
+        orch._current_task_type = unified_task_type.value
+
         prompt_requirements = extract_prompt_requirements(user_message)
         if prompt_requirements.has_explicit_requirements():
             orch.unified_tracker._progress.has_prompt_requirements = True
