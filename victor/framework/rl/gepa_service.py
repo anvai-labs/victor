@@ -17,7 +17,7 @@ import re
 import threading
 from typing import Any, Callable, Optional, Protocol, Tuple
 
-from victor.framework.rl.mutator_rotation import is_rate_limit
+from victor.framework.rl.mutator_rotation import is_worth_another_provider
 
 logger = logging.getLogger(__name__)
 
@@ -293,11 +293,14 @@ class GEPAService:
             # candidate from a model that had nothing to offer.
             logger.warning(
                 "GEPA rejected the candidate for %s on structural hygiene (%s); "
-                "returning the prompt unchanged (%d chars offered, seed %d).",
+                "returning the prompt unchanged (%d chars offered, seed %d, "
+                "growth %+d, repeated trigrams %d).",
                 section_name,
                 ",".join(sorted(triggered)),
                 len(sanitized),
                 len(current_text),
+                report.growth_chars,
+                report.repeated_trigrams,
             )
             return current_text
         return sanitized
@@ -463,13 +466,17 @@ class GEPAService:
     ) -> Optional[Tuple[Any, str]]:
         """Ask for a replacement mutator.
 
-        Transport *failures* only qualify when they are throttling: a malformed
-        prompt, a bad key, or a bug in this file fails identically on every
-        provider, so failing over on those would burn each one's quota to learn
-        nothing and bench healthy providers on our own defect. An empty answer is
-        the exception the callers opt into — it is model-specific, not shared.
+        Transport *failures* only qualify when a peer might do better: a
+        throttle, or something transient like a timeout. A malformed prompt, a bad
+        key, or a bug in this file fails identically on every provider, so failing
+        over on those would burn each one's quota to learn nothing. Note the
+        rotation still benches only on throttling — moving this call and writing
+        a provider off for the run are different decisions. An empty answer is the
+        exception the callers opt into: it is model-specific, not shared.
         """
-        if self._failover is None or (only_if_throttled and not is_rate_limit(error)):
+        if self._failover is None:
+            return None
+        if only_if_throttled and not is_worth_another_provider(error):
             return None
         try:
             return self._failover(self._model, error)

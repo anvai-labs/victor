@@ -28,6 +28,7 @@ from victor.framework.rl.mutator_rotation import (
     MutatorSpec,
     build_rotation,
     is_rate_limit,
+    is_worth_another_provider,
 )
 
 ZAI = ("zai", "glm-5.2", "zai-glm52-openai")
@@ -127,3 +128,33 @@ class TestRotation:
     def test_display_falls_back_to_provider_model(self):
         assert MutatorSpec("zai", "glm-5.2").display() == "zai/glm-5.2"
         assert MutatorSpec("zai", "glm-5.2", label="lbl").display() == "lbl"
+
+
+class TestBenchingAndRetryingAreSeparateQuestions:
+    """A timeout should move the call without writing the provider off.
+
+    Conflating the two cost a real reflection: a 420s reasoning call died on
+    "sandhi transport timed out", which is correctly not grounds to bench a
+    provider — a timeout says nothing about quota — but is exactly when a peer is
+    likely to answer. The failover declined, and the reflection was lost.
+    """
+
+    @pytest.mark.parametrize(
+        "error",
+        ["sandhi transport timed out: ", "connection reset by peer", "503 service unavailable"],
+    )
+    def test_transient_failures_are_worth_a_peer_but_not_a_bench(self, error):
+        assert is_worth_another_provider(error) is True
+        assert is_rate_limit(error) is False
+
+        rotation = build_rotation([ZAI, KIMI])
+        assert rotation.note_failure(rotation.specs[0], error) is False
+        assert len(rotation.available) == 2, "a timeout must not bench the provider"
+
+    @pytest.mark.parametrize("error", ["invalid api key", "400 malformed request"])
+    def test_our_own_defects_are_worth_neither(self, error):
+        assert is_worth_another_provider(error) is False
+
+    def test_a_throttle_is_worth_both(self):
+        assert is_worth_another_provider("rate limited (429)") is True
+        assert is_rate_limit("rate limited (429)") is True

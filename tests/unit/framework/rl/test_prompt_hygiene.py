@@ -6,6 +6,7 @@
 """Tests for prompt candidate hygiene checks."""
 
 from victor.framework.rl.prompt_hygiene import (
+    MAX_REPEATED_TRIGRAMS,
     boundary_aware_truncate,
     evaluate_prompt_candidate,
     find_redundant_additions,
@@ -25,9 +26,11 @@ class TestPromptHygiene:
         assert "growth_exceeded" in report.violations
 
     def test_rejects_repeated_trigrams(self):
+        # Three repeats sufficed when the cap was zero, but that cap also
+        # rejected two shipped sections; genuine garbage repeats far more.
         report = evaluate_prompt_candidate(
             "Base prompt.",
-            "Base prompt. repeat this phrase repeat this phrase repeat this phrase",
+            "Base prompt. " + "repeat this phrase " * 20,
             allowed_additions=["repeat this phrase"],
         )
 
@@ -257,3 +260,41 @@ class TestRewordingIsNotRedundancy:
             "- Read the error message carefully."
         )
         assert find_redundant_additions(seed, candidate) == ["- Read the error message carefully."]
+
+
+class TestTheTrigramCapAdmitsParallelStructure:
+    """Zero tolerance bounded parallel structure, not garbage.
+
+    Prompt sections are largely parallel structure. Measured over the shipped,
+    hand-reviewed sections, LARGE_FILE_PAGINATION_GUIDANCE scores 12 repeated
+    trigrams and PARALLEL_READ_GUIDANCE scores 4 — so at zero tolerance two of
+    our own prompts were rejectable as repetitive garbage, and a genuine
+    1421-char rewrite from kimi-k3 died on this gate.
+    """
+
+    def test_every_shipped_section_passes_its_own_gate(self):
+        import victor.agent.prompt_section_texts as sections
+
+        offenders = []
+        for name in dir(sections):
+            if not name.isupper():
+                continue
+            text = getattr(sections, name)
+            if not isinstance(text, str) or len(text) < 200:
+                continue
+            if "repeated_trigrams" in evaluate_prompt_candidate(text, text).violations:
+                offenders.append(name)
+        assert offenders == [], f"shipped prompts rejected as garbage: {offenders}"
+
+    def test_a_line_repeated_forty_times_is_still_garbage(self):
+        loop = "Do the thing carefully. " * 40
+        report = evaluate_prompt_candidate("Do the thing carefully.", loop)
+        assert "repeated_trigrams" in report.violations
+        assert report.repeated_trigrams > MAX_REPEATED_TRIGRAMS * 4
+
+    def test_the_cap_clears_the_worst_shipped_section_with_margin(self):
+        from victor.agent.prompt_section_texts import LARGE_FILE_PAGINATION_GUIDANCE as worst
+
+        from victor.framework.rl.prompt_hygiene import _repeated_trigram_count
+
+        assert _repeated_trigram_count(worst) < MAX_REPEATED_TRIGRAMS

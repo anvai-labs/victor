@@ -27,6 +27,21 @@ class PromptHygieneReport:
     truncated_tail: bool = False
 
 
+# Repeated trigrams tolerated before a candidate counts as repetitive garbage.
+#
+# This was zero, which is not a bound on garbage but a bound on parallel
+# structure — and prompt sections are largely parallel structure. Measured over
+# the shipped, hand-reviewed sections: LARGE_FILE_PAGINATION_GUIDANCE scores 12
+# and PARALLEL_READ_GUIDANCE scores 4, so at zero tolerance two of our own
+# prompts would be rejected as garbage if a mutation proposed them. A genuine
+# 1421-char rewrite from kimi-k3 died on this gate.
+#
+# Set to twice the highest count any shipped section reaches. The failure mode it
+# guards against is not subtle: a line repeated forty times scores 154, six times
+# this cap.
+MAX_REPEATED_TRIGRAMS = 24
+
+
 def evaluate_prompt_candidate(
     seed_text: str,
     candidate_text: str,
@@ -34,7 +49,7 @@ def evaluate_prompt_candidate(
     allowed_additions: Iterable[str] = (),
     max_growth_chars: int = 240,
     min_seed_similarity: float = 0.6,
-    max_repeated_trigrams: int = 0,
+    max_repeated_trigrams: int = MAX_REPEATED_TRIGRAMS,
 ) -> PromptHygieneReport:
     """Validate an optimized prompt against basic safety and quality constraints."""
     growth_chars = len(candidate_text) - len(seed_text)
@@ -76,6 +91,7 @@ def evaluate_prompt_candidate(
 
 # Newly added lines this similar to an existing line are restating, not adding.
 REDUNDANT_LINE_SIMILARITY = 0.6
+
 
 # Smallest share of the truncation limit a boundary cut may retain before it
 # counts as a collapse rather than a clean cut. Matches the quarter-of-the-seed

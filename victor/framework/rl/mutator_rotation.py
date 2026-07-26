@@ -43,10 +43,31 @@ logger = logging.getLogger(__name__)
 RATE_LIMIT_MARKERS = ("429", "rate limit", "rate_limit", "too many requests", "quota")
 
 
+# Substrings that mean "this attempt is not coming back", as distinct from
+# "this provider is out of quota". Worth retrying elsewhere, not worth benching
+# the provider over.
+TRANSIENT_MARKERS = ("timed out", "timeout", "connection reset", "connection error", "503", "502")
+
+
 def is_rate_limit(error: object) -> bool:
     """True when an error looks like a provider throttling us."""
     text = str(error or "").lower()
     return any(marker in text for marker in RATE_LIMIT_MARKERS)
+
+
+def is_worth_another_provider(error: object) -> bool:
+    """True when a *different* provider might succeed where this one failed.
+
+    Bench-worthiness and retry-worthiness are not the same question, and
+    conflating them cost a real reflection: a 420s reasoning call died on
+    ``sandhi transport timed out``, which is correctly *not* grounds to bench a
+    provider for the run — a timeout says nothing about quota — but is exactly
+    the situation where a peer is likely to answer. So a timeout now moves the
+    call without benching the provider, while a bad key or a malformed prompt
+    still fails everywhere and is not retried anywhere.
+    """
+    text = str(error or "").lower()
+    return is_rate_limit(error) or any(marker in text for marker in TRANSIENT_MARKERS)
 
 
 @dataclass(frozen=True)

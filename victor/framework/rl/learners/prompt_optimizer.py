@@ -1025,7 +1025,9 @@ class PromptOptimizerLearner(BaseLearner):
         self,
         provider: str,
         model: str,
-        timeout_s: float = 120.0,
+        # Matches GEPAModelSpec's default: a reasoning model rewriting a
+        # 1500-char section runs one to three minutes.
+        timeout_s: float = 180.0,
         base_url: str = "",
     ) -> None:
         """Push the active session's provider/model into the GEPA tier manager.
