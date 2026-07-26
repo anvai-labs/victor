@@ -166,7 +166,7 @@ progress. It is also the prerequisite for the web UI (P3) and TUI parity (P5).
 
 ## P2 — High-impact terminal UX: CLI consolidation
 
-### P2. Consolidate ~30 flat subcommands into ~6 verbs
+### P2. Consolidate ~22 flat subcommands into verb groups
 
 **Evidence:** `victor/ui/cli.py:41-61` imports ~20+ subcommand apps
 (`benchmark_app`, `bayesian_app`, `capabilities_app`, `chat_app`, `config_app`,
