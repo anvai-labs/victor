@@ -1574,10 +1574,12 @@ class ChatStreamHelperMixin:
                 chunk_meta = getattr(chunk, "metadata", None)
                 if isinstance(chunk_meta, dict):
                     sandhi_diag = chunk_meta.get("sandhi_usage")
-                    if isinstance(sandhi_diag, dict) and hasattr(
-                        stream_ctx, "record_provider_diagnostics"
-                    ):
-                        stream_ctx.record_provider_diagnostics(sandhi_diag)
+                    if isinstance(sandhi_diag, dict):
+                        if hasattr(stream_ctx, "record_provider_diagnostics"):
+                            stream_ctx.record_provider_diagnostics(sandhi_diag)
+                        # Wire-truth latency (W3b): prefer sandhi's boundary
+                        # measurement over client wall-clock in stream metrics.
+                        stream_ctx.stream_metrics.record_wire_latency(sandhi_diag)
 
                 chunk, consecutive_garbage_chunks, garbage_detected = self._handle_stream_chunk(
                     chunk,
