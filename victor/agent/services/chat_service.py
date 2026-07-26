@@ -428,40 +428,6 @@ class ChatService:
             return
         self._conversation.reset()
 
-    def resume_session(self, session_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Hydrate the live conversation from a stored session (cross-visit resume).
-
-        Symmetric to :meth:`reset_conversation`, which clears both message
-        stores: this repopulates BOTH the context buffer and the conversation
-        controller so the agent recalls the prior turns through every read
-        path (the streaming turn loop reads the controller's history; other
-        surfaces read the context buffer).
-
-        Args:
-            session_data: A stored-session dict from ``load_session`` — carries
-                ``conversation`` (a ``MessageHistory`` dict) and ``metadata``.
-
-        Returns:
-            The session ``metadata`` (title, message_count, …) for UI display.
-        """
-        from victor.agent.message_history import MessageHistory
-
-        conversation = session_data.get("conversation", {}) or {}
-        history = MessageHistory.from_dict(conversation)
-        non_system = [m for m in history.messages if getattr(m, "role", None) != "system"]
-
-        # Context buffer: clear (retaining system) then re-add the stored turns.
-        self._context.clear_messages(retain_system=True)
-        if non_system:
-            self._context.add_messages(non_system)
-
-        # Conversation controller: repoint its history at the stored session.
-        if hasattr(self._conversation, "load_history"):
-            self._conversation.load_history(history)
-
-        self._logger.debug("Resumed session with %d prior messages", len(non_system))
-        return session_data.get("metadata", {}) or {}
-
     def is_healthy(self) -> bool:
         """Check if the chat service is healthy.
 

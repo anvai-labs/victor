@@ -765,22 +765,25 @@ class VictorClient:
         if not self._initialized or not self._context:
             raise RuntimeError("VictorClient not initialized. Call initialize() first.")
 
+        from victor.agent.conversation.session_resume import hydrate_session
         from victor.agent.sqlite_session_persistence import get_sqlite_session_persistence
 
         session_data = get_sqlite_session_persistence().load_session(session_id)
         if not session_data:
             return None
 
-        services = self._resolve_runtime_services()
-        if services.chat is None:
-            logger.warning("ChatService not available for resume_session")
-            return None
-        metadata = services.chat.resume_session(session_data)
+        # Hydrate both live message stores: the ContextService buffer (via the
+        # resolved service) and the ConversationController the streaming turn
+        # loop reads (reached through the orchestrator, as active_session_id is
+        # below). Both are the live DI-container instances the turn path uses.
+        agent = self._agent
+        orchestrator = getattr(agent, "_orchestrator", None) if agent is not None else None
+        context_service = self._resolve_runtime_services().context
+        controller = getattr(orchestrator, "_conversation_controller", None)
+        metadata = hydrate_session(context_service, controller, session_data)
 
         # Stamp the resumed id/state on the orchestrator so continuation turns
         # append to the same session rather than minting a fresh one.
-        agent = self._agent
-        orchestrator = getattr(agent, "_orchestrator", None) if agent is not None else None
         if orchestrator is not None:
             orchestrator.active_session_id = session_id
             state_dict = session_data.get("conversation_state")

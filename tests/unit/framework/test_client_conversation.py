@@ -153,8 +153,9 @@ async def test_victor_client_get_messages_resolves_context_service_from_context_
 
 @pytest.mark.asyncio
 async def test_victor_client_resume_session_hydrates_and_stamps(monkeypatch) -> None:
-    """resume_session loads the store, delegates to ChatService, stamps id."""
+    """resume_session loads the store, hydrates both stores, stamps the id."""
     import victor.agent.sqlite_session_persistence as persistence_mod
+    import victor.framework.client as client_mod
 
     session_data = {"metadata": {"title": "arithmetic"}, "conversation": {}}
     monkeypatch.setattr(
@@ -162,25 +163,42 @@ async def test_victor_client_resume_session_hydrates_and_stamps(monkeypatch) -> 
         "get_sqlite_session_persistence",
         lambda *a, **k: SimpleNamespace(load_session=lambda sid: session_data),
     )
+    # Capture the hydration call — the helper's own two-store correctness is
+    # covered by test_session_resume; here we assert VictorClient wires it.
+    captured = {}
+
+    def _fake_hydrate(context_service, controller, data):
+        captured["context"] = context_service
+        captured["controller"] = controller
+        captured["data"] = data
+        return data.get("metadata", {})
+
+    monkeypatch.setattr(
+        "victor.agent.conversation.session_resume.hydrate_session", _fake_hydrate
+    )
 
     client = VictorClient(SessionConfig(), container=object())
     client._context = object()
     client._initialized = True
 
-    chat = MagicMock()
-    chat.resume_session.return_value = {"title": "arithmetic"}
+    context_service = object()
     monkeypatch.setattr(
         client,
         "_resolve_runtime_services",
-        lambda: SimpleNamespace(chat=chat, context=None, recovery=None),
+        lambda: SimpleNamespace(chat=None, context=context_service, recovery=None),
     )
-    orchestrator = SimpleNamespace(active_session_id=None, conversation_state=None)
+    controller = object()
+    orchestrator = SimpleNamespace(
+        active_session_id=None, conversation_state=None, _conversation_controller=controller
+    )
     client._agent = SimpleNamespace(_orchestrator=orchestrator)
 
     metadata = await client.resume_session("s42")
 
     assert metadata == {"title": "arithmetic"}
-    chat.resume_session.assert_called_once_with(session_data)
+    assert captured["data"] == session_data
+    assert captured["context"] is context_service
+    assert captured["controller"] is controller
     assert orchestrator.active_session_id == "s42"
 
 
