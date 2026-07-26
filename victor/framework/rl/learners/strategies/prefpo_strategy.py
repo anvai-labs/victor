@@ -161,11 +161,19 @@ class PrefPOStrategy:
         if not additions:
             return losing_text
 
-        merged_lines = [line.rstrip() for line in losing_text.rstrip().splitlines() if line.strip()]
-        merged = "\n".join(merged_lines)
-        for addition in additions:
-            if addition not in merged:
-                merged = f"{merged}\n{addition}" if merged else addition
+        # Only append. Rebuilding the text from non-blank lines discarded every
+        # blank line in the section as a side effect of the join — and when all
+        # additions were already present it discarded them for no gain at all,
+        # producing a "new candidate" whose entire diff was six removed blank
+        # lines. COMPLETION_GUIDANCE went 1551 -> 1545 chars with zero semantic
+        # change, three generations running, on two different models. Merging
+        # guidance is not a licence to reformat the prompt.
+        merged = losing_text.rstrip()
+        new_additions = [addition for addition in additions if addition not in merged]
+        if not new_additions:
+            return losing_text
+        for addition in new_additions:
+            merged = f"{merged}\n{addition}" if merged else addition
         return merged
 
     def _guidance_lines(self, traces: List[Any], current_text: str) -> List[str]:

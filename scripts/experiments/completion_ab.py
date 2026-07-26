@@ -193,7 +193,7 @@ if __name__ == "__main__":
     ap.add_argument("--strategies", default="enhanced,rubric,hybrid")
     ap.add_argument("--temps", default="0.6", help="comma-separated; e.g. '0.6,0.7' for full grid")
     ap.add_argument("--runs", type=int, default=1)
-    ap.add_argument("--profile", default="zai-coding")
+    ap.add_argument("--profile", default="zai-glm52-openai")
     args = ap.parse_args()
     asyncio.run(
         main(
