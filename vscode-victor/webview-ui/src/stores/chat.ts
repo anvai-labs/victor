@@ -228,7 +228,7 @@ let vscodeApi: VsCodeApi | null = null;
 
 export function getVsCodeApi(): VsCodeApi {
   if (!vscodeApi) {
-    // @ts-expect-error - acquireVsCodeApi is injected by VS Code
+    // acquireVsCodeApi is a VS Code webview global, declared in vite-env.d.ts.
     vscodeApi = acquireVsCodeApi();
   }
   return vscodeApi!;
