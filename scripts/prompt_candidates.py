@@ -23,6 +23,7 @@ and installed with the package. This script is the bridge:
     prompt_candidates.py audit                 # verdict per candidate
     prompt_candidates.py show <hash>           # full text + diff vs shipped baseline
     prompt_candidates.py export <hash>         # paste-ready Python literal
+    prompt_candidates.py promote <hash>        # write it into the shipped section module
     prompt_candidates.py purge --apply         # drop rejected candidates (backs up first)
 
 ``audit`` classifies each candidate against the shipped baseline; only
@@ -228,6 +229,160 @@ def cmd_export(args) -> int:
     return 0
 
 
+SECTION_TEXTS_PATH = REPO_ROOT / "victor" / "agent" / "prompt_section_texts.py"
+
+
+def _marker_placeholders() -> Dict[str, str]:
+    """Rendered marker value -> the name the source interpolates it under.
+
+    Longest first: substituting a value that is a prefix of another would corrupt
+    the longer one.
+    """
+    from victor.core import completion_markers as cm
+
+    names = ("FILE_DONE_MARKER", "TASK_DONE_MARKER", "SUMMARY_MARKER", "BLOCKED_MARKER")
+    pairs = {getattr(cm, name): name for name in names if hasattr(cm, name)}
+    return dict(sorted(pairs.items(), key=lambda kv: len(kv[0]), reverse=True))
+
+
+def _retemplatize(text: str) -> tuple[str, Optional[str]]:
+    """Turn rendered marker values back into ``{PLACEHOLDER}`` interpolations.
+
+    ``COMPLETION_GUIDANCE`` is the only f-string in the section module, and it is
+    also the section evolution targets most. A candidate's stored text is the
+    *rendered* output, so writing it back verbatim would hardcode
+    ``VICTOR_FILE_DONE::`` into the source and silently end
+    ``completion_markers.py``'s role as the single definition of those tokens —
+    renaming a marker would then change the detector and leave the prompt telling
+    the model to emit the old one.
+
+    Returns ``(templatized, error)``; a non-None error means do not write.
+    """
+    placeholders = _marker_placeholders()
+    if not any(value in text for value in placeholders):
+        return text, "candidate contains none of the completion markers"
+
+    # Literal braces would be interpolation sites once this becomes an f-string.
+    stray = [ch for ch in "{}" if ch in text]
+    if stray:
+        return text, (
+            f"candidate contains a literal {stray[0]!r}, which an f-string would read as "
+            "an interpolation; promote this section by hand"
+        )
+
+    templatized = text
+    for value, name in placeholders.items():
+        templatized = templatized.replace(value, "{" + name + "}")
+
+    rendered = templatized.format(**{name: value for value, name in placeholders.items()})
+    # Round trip or refuse. A near-miss here means the substitution was lossy,
+    # and the failure would only surface at runtime as a prompt that no longer
+    # matches the detector.
+    if rendered != text:
+        return text, "re-templatizing did not round-trip; refusing to write"
+    return templatized, None
+
+
+def _replace_section(source: str, section: str, body: str, is_fstring: bool) -> Optional[str]:
+    """Swap one ``SECTION = \"\"\"...\"\"\".strip()`` assignment for a new body."""
+    import re
+
+    pattern = re.compile(
+        rf'^{re.escape(section)} = (f?)"""\n.*?\n""".strip\(\)$',
+        re.DOTALL | re.MULTILINE,
+    )
+    match = pattern.search(source)
+    if match is None:
+        return None
+    prefix = "f" if is_fstring else ""
+    return (
+        source[: match.start()]
+        + f'{section} = {prefix}"""\n{body}\n""".strip()'
+        + source[match.end() :]
+    )
+
+
+def _is_fstring_section(source: str, section: str) -> bool:
+    import re
+
+    return bool(re.search(rf'^{re.escape(section)} = f"""', source, re.MULTILINE))
+
+
+def cmd_promote(args) -> int:
+    """Write a candidate's text into the shipped section module."""
+    candidates = _load(args.db)
+    cand = _find(candidates, args.hash)
+    if cand is None:
+        print(f"No unique candidate matching {args.hash!r}.", file=sys.stderr)
+        return 1
+
+    verdict, reasons = _verdict(cand, _baselines())
+    if verdict != "PROMOTE" and not args.force:
+        print(f"Refusing to promote a {verdict} candidate:", file=sys.stderr)
+        for reason in reasons:
+            print(f"  - {reason}", file=sys.stderr)
+        print(
+            "\nA candidate that has not beaten the shipped prompt on a paired benchmark "
+            "run is a proposal, not an improvement. Re-run with --force only if you have "
+            "reviewed the diff by hand.",
+            file=sys.stderr,
+        )
+        return 1
+
+    source = SECTION_TEXTS_PATH.read_text()
+    is_fstring = _is_fstring_section(source, cand.section_name)
+
+    body = cand.text
+    if is_fstring:
+        body, error = _retemplatize(cand.text)
+        if error is not None:
+            print(f"Cannot promote {cand.text_hash}: {error}.", file=sys.stderr)
+            return 1
+
+    provenance = (
+        f"# evolved candidate {cand.text_hash} ({cand.provider}, gen {cand.generation}, "
+        f"{cand.created_at}); benchmark {cand.benchmark_score:.2f} over "
+        f"{cand.benchmark_runs} run(s), {cand.sample_count} live samples"
+    )
+    updated = _replace_section(source, cand.section_name, body, is_fstring)
+    if updated is None:
+        print(
+            f'Could not locate a \'{cand.section_name} = """...""".strip()\' assignment '
+            f"in {SECTION_TEXTS_PATH.name}; promote it by hand.",
+            file=sys.stderr,
+        )
+        return 1
+    updated = updated.replace(f"{cand.section_name} = ", f"{provenance}\n{cand.section_name} = ", 1)
+
+    diff = "\n".join(
+        difflib.unified_diff(
+            source.splitlines(),
+            updated.splitlines(),
+            fromfile=f"a/{SECTION_TEXTS_PATH.name}",
+            tofile=f"b/{SECTION_TEXTS_PATH.name}",
+            lineterm="",
+        )
+    )
+    print(diff)
+
+    if not args.apply:
+        print(
+            f"\nDry run: {cand.section_name} would be replaced. Re-run with --apply to write, "
+            "then review, test, and open the PR yourself.",
+            file=sys.stderr,
+        )
+        return 0
+
+    SECTION_TEXTS_PATH.write_text(updated)
+    print(f"\nWrote {cand.section_name} to {SECTION_TEXTS_PATH}.", file=sys.stderr)
+    print(
+        "Verify before committing: python -c 'import victor.agent.prompt_section_texts' "
+        "and run the prompt tests.",
+        file=sys.stderr,
+    )
+    return 0
+
+
 def cmd_purge(args) -> int:
     baselines = _baselines()
     candidates = _load(args.db)
@@ -277,6 +432,15 @@ def main() -> int:
     export.add_argument("hash")
     export.add_argument("--force", action="store_true", help="export a non-PROMOTE candidate")
 
+    promote = sub.add_parser(
+        "promote", help="write a candidate into prompt_section_texts.py (dry run by default)"
+    )
+    promote.add_argument("hash", help="candidate text_hash (prefix is fine)")
+    promote.add_argument("--apply", action="store_true", help="write the file instead of diffing")
+    promote.add_argument(
+        "--force", action="store_true", help="promote a candidate the audit did not clear"
+    )
+
     purge = sub.add_parser("purge", help="drop REJECT/ORPHAN candidates (backs up first)")
     purge.add_argument("--apply", action="store_true", help="actually delete; default is a dry run")
 
@@ -285,10 +449,9 @@ def main() -> int:
         "audit": cmd_audit,
         "show": cmd_show,
         "export": cmd_export,
+        "promote": cmd_promote,
         "purge": cmd_purge,
-    }[
-        args.command
-    ](args)
+    }[args.command](args)
 
 
 if __name__ == "__main__":
