@@ -67,5 +67,10 @@ def test_request_and_response_compatibility_helpers(provider: MistralProvider) -
 
 
 @pytest.mark.asyncio
-async def test_model_listing_is_local_and_cannot_bypass_sandhi(provider: MistralProvider) -> None:
+async def test_model_listing_is_local_and_cannot_bypass_sandhi(
+    provider: MistralProvider, monkeypatch
+) -> None:
+    # Pin the fallback tier (see the groq twin): the catalog tier's coverage
+    # varies with the installed sandhi binding.
+    monkeypatch.setattr(type(provider), "_models_from_sandhi", lambda self: None)
     assert {entry["id"] for entry in await provider.list_models()} == set(MISTRAL_MODELS)

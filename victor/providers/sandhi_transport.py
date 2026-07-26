@@ -44,6 +44,11 @@ try:
 except Exception:  # pragma: no cover - diagnosed at provider construction
     _sg = None
 
+# sandhi-gateway >= 0.1.3 raises provider-boundary errors as a dedicated class
+# (message = serialized ProviderErrorV1). With it, provider-vs-binding
+# classification no longer depends on the message parsing as JSON.
+_SANDHI_PROVIDER_ERROR_CLS = getattr(_sg, "SandhiProviderError", None) if _sg else None
+
 
 # These are deliberately outside TD-0002's admitted typed set because they use a
 # different protocol or execution model. Keep the aliases synchronized with the
@@ -97,7 +102,7 @@ def resolve_transport_class(
         return native_cls
     if not sandhi_transport_available():
         raise ProviderConnectionError(
-            "sandhi-gateway 0.1.2 is required for provider transport",
+            "sandhi-gateway 0.1.3 is required for provider transport",
             provider=name,
         )
     return variant
@@ -157,6 +162,11 @@ def map_sandhi_error(exc: BaseException, provider_name: str, timeout: float) -> 
         )
     typed = _typed_error_payload(str(exc))
     if typed is None:
+        if _SANDHI_PROVIDER_ERROR_CLS is not None and isinstance(exc, _SANDHI_PROVIDER_ERROR_CLS):
+            # The typed class is authoritative: this IS a provider error even if
+            # the payload failed to parse — never misfile it as a binding failure
+            # (retry ownership differs).
+            return ProviderError(str(exc), provider=provider_name, raw_error=exc)
         return ProviderConnectionError(
             f"sandhi binding failure: {exc}", provider=provider_name, raw_error=exc
         )
@@ -451,7 +461,7 @@ class SandhiTypedProviderMixin:
     def _typed_provider(self, model: str) -> Any:
         if not sandhi_transport_available():
             raise ProviderConnectionError(
-                "sandhi-gateway 0.1.2 typed runtime is unavailable",
+                "sandhi-gateway 0.1.3 typed runtime is unavailable",
                 provider=self._sandhi_slug(),
             )
         _verify_wire_contract()

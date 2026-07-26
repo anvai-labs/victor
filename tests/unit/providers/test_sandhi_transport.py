@@ -619,3 +619,32 @@ def test_native_only_extractor_ignores_junk():
     assert st._native_only_usage("usage") == {}
     assert st._native_only_usage({"prompt_cache_miss_tokens": "x", "cost_in_usd_ticks": None}) == {}
     assert st._native_only_usage({"prompt_cache_miss_tokens": 0, "cost_in_usd_ticks": 0}) == {}
+
+
+class TestTypedErrorClassFastPath:
+    """sandhi>=0.1.3 SandhiProviderError: classification without parse dependence."""
+
+    def test_unparseable_typed_instance_stays_provider_error(self, monkeypatch):
+        class FakeSandhiProviderError(RuntimeError):
+            pass
+
+        monkeypatch.setattr(st, "_SANDHI_PROVIDER_ERROR_CLS", FakeSandhiProviderError)
+        err = st.map_sandhi_error(
+            FakeSandhiProviderError("truncated payload not json"), "moonshot", 30.0
+        )
+        from victor.providers.base import ProviderConnectionError, ProviderError
+
+        assert isinstance(err, ProviderError)
+        assert not isinstance(err, ProviderConnectionError)
+        assert "truncated payload not json" in str(err)
+
+    def test_plain_unparseable_runtime_error_stays_binding_failure(self, monkeypatch):
+        class FakeSandhiProviderError(RuntimeError):
+            pass
+
+        monkeypatch.setattr(st, "_SANDHI_PROVIDER_ERROR_CLS", FakeSandhiProviderError)
+        err = st.map_sandhi_error(RuntimeError("segfault in binding"), "moonshot", 30.0)
+        from victor.providers.base import ProviderConnectionError
+
+        assert isinstance(err, ProviderConnectionError)
+        assert "binding failure" in str(err)
