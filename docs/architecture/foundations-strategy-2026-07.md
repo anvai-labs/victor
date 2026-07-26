@@ -158,22 +158,28 @@ the default. The consumed-contract pin keeps `extensions` in the schema
 (additive-optional) — consumers must tolerate absence, which F1's
 extensions-absent test enforces.
 
-### 4.2 W3b — typed-response latency surface
+### 4.2 W3b — typed-response latency surface ✅ SHIPPED (as-built correction)
 
-UsageEvent already carries `duration_ms` / `time_to_first_token_ms`
-(sandhi#68), but the *typed response* does not — clients still self-measure.
-Additive: `ChatResponseV1.metadata.latency` (duration_ms; ttft_ms for
-streams' final `usage` event). Victor consumption: surface into
-`metadata["sandhi_usage"]` alongside attempts/completeness, replacing
-client-measured TTFT in stream metrics where wire truth is available.
+As built (sandhi#97 + victor#676), the fields live on **`UsageV2`**
+(`duration_ms` / `time_to_first_token_ms`, additive, skip-serialized) — not
+the originally sketched `ChatResponseV1.metadata.latency` — because that one
+struct covers both the response and the stream's terminal `usage` event, and
+`ChatResponseV1` has no metadata field. Stamped at `ProviderHandle::
+complete/stream` (the family-neutral seam; `MeteredProvider` is body-level
+and unwired). Victor surfaces them into `metadata["sandhi_usage"]` and
+`StreamMetrics` prefers wire truth over client wall-clock.
 
-### 4.3 W3c — minor-version negotiation
+### 4.3 W3c — minor-version negotiation ✅ SHIPPED (as executed)
 
-Today Victor checks `schema_version == "1"` only (policy). Additive
-handshake: transport exposes `contract_minor` (from sandhi's schema registry);
-Victor logs and gates feature use (e.g. only read `latency` when
-minor ≥ N). No wire change for existing fields; enables safe consumption of
-additive growth without hash-pinning.
+Sandhi (sandhi#99): `CHAT_CONTRACT_MINOR = 3` co-located with the major
+(bump history: 1=#68, 2=#90, 3=#97), **machine-enforced** by a digest
+ratchet test over the rendered contract schemas — any schema change without
+a minor bump fails CI. Exported as `chat_contract_minor()` in both bindings.
+Victor: the one-time wire handshake feature-detects the export (absent →
+minor 0), caches `installed_chat_contract_minor()`, logs when the runtime is
+ahead of `KNOWN_CONTRACT_MINOR`, and a conditional floor-pin test asserts
+the installed binding meets Victor's floor once the export exists. No wire
+change; consumers stay tolerant-absent by construction.
 
 ### 4.4 W3d — codec purity (G7)
 
