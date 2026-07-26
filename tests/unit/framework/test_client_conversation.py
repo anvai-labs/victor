@@ -155,7 +155,6 @@ async def test_victor_client_get_messages_resolves_context_service_from_context_
 async def test_victor_client_resume_session_hydrates_and_stamps(monkeypatch) -> None:
     """resume_session loads the store, hydrates both stores, stamps the id."""
     import victor.agent.sqlite_session_persistence as persistence_mod
-    import victor.framework.client as client_mod
 
     session_data = {"metadata": {"title": "arithmetic"}, "conversation": {}}
     monkeypatch.setattr(
