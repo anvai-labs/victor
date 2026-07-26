@@ -21,6 +21,10 @@ export interface ToolCall {
   error?: string;
   startTime?: number;
   endTime?: number;
+  /** Measured tool duration from the v1 wire contract (tool_result.elapsed_ms). */
+  elapsedMs?: number;
+  /** Result was bounded upstream or on the wire (tool_result.truncated). */
+  truncated?: boolean;
   category?: string;
   costTier?: 'free' | 'low' | 'medium' | 'high';
   isDangerous?: boolean;
@@ -55,7 +59,14 @@ export type ExtensionMessage =
   | { type: 'stream'; content: string }
   | { type: 'thinking'; thinking: boolean; content?: string }
   | { type: 'toolCall'; toolCall: ToolCall }
-  | { type: 'toolCallResult'; id: string; status: ToolCall['status']; result?: string }
+  | {
+      type: 'toolCallResult';
+      id: string;
+      status: ToolCall['status'];
+      result?: string;
+      elapsedMs?: number;
+      truncated?: boolean;
+    }
   | { type: 'error'; message: string }
   | { type: 'connected'; connected: boolean }
   | { type: 'settings'; settings: Settings };
