@@ -327,6 +327,10 @@ class ExecutionTrace:
     # session) or "tool_failure_proxy" (no verdict exists — interactive work).
     # Kept on the trace so reflection and audits can tell evidence from inference.
     score_source: str = "tool_failure_proxy"
+    # What kind of run produced this session — read from the event's own
+    # ``run_kind`` tag rather than inferred from prompt text, which conflated
+    # delegate workers with benchmark runs.
+    run_kind: str = "unknown"
 
 
 @dataclass(frozen=True)
@@ -2568,9 +2572,11 @@ class PromptOptimizerLearner(BaseLearner):
                                     "model": "",
                                     "task_type": "default",
                                     "tokens": 0,
+                                    "run_kind": "",
                                 }
 
                             self._absorb_session_identity(sessions[sid], data)
+                            self._absorb_run_kind(sessions[sid], event)
 
                             if etype == "tool_result":
                                 # tool_result is the event actually emitted per
@@ -2620,6 +2626,7 @@ class PromptOptimizerLearner(BaseLearner):
                     completion_score=completion_score,
                     tokens_used=data.get("tokens", 0),
                     score_source=score_source,
+                    run_kind=data.get("run_kind") or "unknown",
                 )
             )
 
@@ -2816,6 +2823,25 @@ class PromptOptimizerLearner(BaseLearner):
             label = label[len("Sandhi") :]
         return label.lower()
 
+    @staticmethod
+    def _absorb_run_kind(session: Dict[str, Any], event: Dict[str, Any]) -> None:
+        """Record the run kind the emitter stamped on this event.
+
+        Sits beside ``session_id`` on the event rather than inside ``data``,
+        because it describes the run rather than the thing that happened. First
+        non-empty value wins: a session does not change kind partway through.
+
+        Events written before the emitter tagged them carry nothing, and those
+        sessions stay ``unknown`` — deliberately, rather than being guessed from
+        prompt text, which is the inference that conflated delegate work with
+        benchmark runs in the first place.
+        """
+        if not isinstance(event, dict) or session.get("run_kind"):
+            return
+        kind = str(event.get("run_kind") or "").strip().lower()
+        if kind:
+            session["run_kind"] = kind
+
     @classmethod
     def _absorb_session_identity(cls, session: Dict[str, Any], data: Dict[str, Any]) -> None:
         """Fill a session's provider/model from any event that carries them.
@@ -2952,10 +2978,12 @@ class PromptOptimizerLearner(BaseLearner):
                                     "model": "",
                                     "task_type": "default",
                                     "tokens": 0,
+                                    "run_kind": "",
                                     "details": [],  # v2: per-call details
                                 }
 
                             self._absorb_session_identity(sessions[sid], data)
+                            self._absorb_run_kind(sessions[sid], event)
 
                             if etype == "tool_call":
                                 # Create a pending detail (reasoning enrichment).
@@ -3044,6 +3072,7 @@ class PromptOptimizerLearner(BaseLearner):
                         tokens_used=data.get("tokens", 0),
                         tool_call_details=data.get("details", []),
                         score_source=score_source,
+                        run_kind=data.get("run_kind") or "unknown",
                     )
                 )
 

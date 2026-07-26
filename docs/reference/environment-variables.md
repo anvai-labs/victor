@@ -70,6 +70,7 @@ Complete reference for all environment variables recognized by Victor.
 | `VICTOR_CONTEXT_FILE` | `init.md` | Project context filename |
 | `VICTOR_EXTRA_READ_ROOTS` | `unset` | Extra directories `read()` may access, `:`-separated. Opt-in only |
 | `VICTOR_CONVERSATION_DB` | `unset` | Pin the conversation store to an explicit path instead of deriving it from the cwd |
+| `VICTOR_RUN_KIND` | `interactive` | Seed the run kind stamped on every usage event: `interactive`, `evaluation`, `delegate`, `headless` |
 | `VICTOR_DISABLE_WORKSPACE_GUARD` | `unset` | Set to `1` to drop the `read()` workspace scope entirely (testing) |
 
 #### Working across two repositories
@@ -103,6 +104,25 @@ VICTOR_CONVERSATION_DB=~/.victor/evaluations/sessions.db victor benchmark ...
 Precedence is explicit `db_path` argument → this variable → project default.
 `victor benchmark` sets it automatically for the duration of a run (and restores
 whatever was there before), so this is only needed for custom embeddings.
+
+#### Telling apart the kind of run that produced a trace
+
+Every usage event carries a `run_kind` field beside `session_id`. Benchmark runs
+tag themselves `evaluation` and delegate workers tag themselves `delegate`, so
+consumers no longer have to guess from prompt text — the turn-budget notice
+("WARNING: N turns remaining") is emitted by the shared agentic loop and appears
+in both, which previously caused delegate work to be counted as benchmark runs.
+
+`VICTOR_RUN_KIND` seeds the default for a whole process, which is what a
+subprocess-based runner wants:
+
+```bash
+VICTOR_RUN_KIND=evaluation my-eval-runner.sh
+```
+
+An in-process scope always wins over the variable, and nesting is honoured — a
+delegate spawned inside an evaluation is tagged `delegate` for its duration and
+the evaluation tag resumes afterwards.
 
 ### Mode Settings
 

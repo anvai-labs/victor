@@ -36,6 +36,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Pattern, Set
 from uuid import UUID
 
+from victor.observability.run_kind import current_run_kind
+
 logger = logging.getLogger(__name__)
 
 
@@ -511,6 +513,12 @@ class EnhancedUsageLogger:
 
             log_entry = {
                 "session_id": self.session_id,
+                # A property of the run, not of the event, so it sits beside
+                # session_id rather than inside the payload. Recorded here
+                # because it cannot be recovered later: the turn-budget prompt
+                # that consumers used to classify on is emitted by the shared
+                # agentic loop, so delegate work read as benchmark runs.
+                "run_kind": current_run_kind(),
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "event_type": event_type,
                 "data": sanitized_data,
