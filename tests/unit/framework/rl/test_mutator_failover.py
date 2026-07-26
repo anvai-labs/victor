@@ -400,3 +400,41 @@ class _Config:
 )
 def test_spec_display(spec, expected):
     assert spec.display() == expected
+
+
+class TestTheCapNeverSitsBelowTheSeed:
+    """A bloat cap below the seed makes the cap, not the model, the author.
+
+    COMPLETION_GUIDANCE ships at 1551 chars against a 1500 default, so every
+    rewrite was requested "under 1500" and then truncated to fit. evolve()
+    already floors its own cap; the path that actually talks to the model did not.
+    """
+
+    def test_the_model_is_asked_for_at_least_the_seed_length(self):
+        seen = {}
+
+        class Recorder:
+            async def chat(self, *, messages, model, max_tokens, **kw):
+                del model, max_tokens, kw
+                seen["system"] = messages[0].content
+                return _Response(LONG_ENOUGH)
+
+        seed = "x" * 1551
+        service = GEPAService(provider=Recorder(), model="m", max_prompt_chars=1500)
+        service.mutate(seed, "reflection", "COMPLETION_GUIDANCE")
+
+        assert "1500 characters" not in seen["system"]
+        assert "1551" in seen["system"]
+
+    def test_an_explicit_larger_cap_still_wins(self):
+        seen = {}
+
+        class Recorder:
+            async def chat(self, *, messages, model, max_tokens, **kw):
+                del model, max_tokens, kw
+                seen["system"] = messages[0].content
+                return _Response(LONG_ENOUGH)
+
+        service = GEPAService(provider=Recorder(), model="m", max_prompt_chars=1500)
+        service.mutate("x" * 100, "reflection", "S", 4000)
+        assert "4000" in seen["system"]

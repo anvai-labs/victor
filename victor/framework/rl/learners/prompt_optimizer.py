@@ -1739,10 +1739,16 @@ class PromptOptimizerLearner(BaseLearner):
         }
         triggered = structural & set(report.violations)
         if triggered:
-            logger.info(
-                "GEPA rejected '%s' candidate at persist gate: %s",
+            # Warning, not info: this is the last gate before storage, so it is
+            # the one that turns a completed mutation into a bare "no change"
+            # row. Every other discard on this path already announces itself.
+            logger.warning(
+                "GEPA rejected the '%s' candidate at the persist gate (%s); "
+                "%d chars offered against a %d-char seed.",
                 section_name,
                 ",".join(sorted(triggered)),
+                len(new_text),
+                len(current_text),
             )
             return None
 

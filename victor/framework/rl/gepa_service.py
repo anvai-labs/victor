@@ -225,7 +225,13 @@ class GEPAService:
         max_chars: int = 0,
     ) -> str:
         """Generate improved prompt section from reflection."""
-        limit = max_chars or self._max_prompt_chars
+        # The cap is a *bloat* control, so it can never sit below the seed it
+        # measures growth against. COMPLETION_GUIDANCE ships at 1551 chars while
+        # max_prompt_chars defaults to 1500, so every rewrite of it was asked for
+        # under 1500 and then truncated to fit — the cap, not the model, decided
+        # the candidate. evolve() already floors its own cap this way; this path
+        # did not, and it is the one that talks to the model.
+        limit = max(max_chars or self._max_prompt_chars, len(current_text))
         system = MUTATE_SYSTEM.format(max_chars=limit, current_len=len(current_text))
         user_prompt = (
             f"Section: {section_name}\n\n"

@@ -172,3 +172,88 @@ class TestRedundantAdditions:
         report = evaluate_prompt_candidate(seed, seed + "\n- Read the error message carefully.")
         assert "redundant_additions" in report.violations
         assert report.accepted is False
+
+
+class TestEarlyBoundaryIsNotACollapse:
+    """A cut that keeps almost nothing is not a clean boundary.
+
+    Observed live: deepseek returned a short heading followed by one very long
+    line, so the last newline inside the 1500-char limit sat at 118. The line cut
+    discarded 92% of the allowance and the caller rejected the stump as
+    collapsed — a full rewrite, paid for and thrown away.
+    """
+
+    def test_a_long_second_line_does_not_collapse_to_the_heading(self):
+        text = "TASK COMPLETION (MANDATORY):\n" + "- keep going. " * 300
+        out, truncated = boundary_aware_truncate(text, 1500)
+
+        assert truncated is True
+        assert len(out) > 1000, f"collapsed to {len(out)} chars"
+        assert out != "TASK COMPLETION (MANDATORY):"
+
+    def test_the_retained_text_still_ends_cleanly(self):
+        text = "HEADING:\n" + "Do the thing properly. " * 200
+        out, _ = boundary_aware_truncate(text, 1200)
+        assert out.rstrip().endswith(".")
+
+    def test_an_early_line_cut_is_still_taken_when_the_text_is_short(self):
+        """The original behaviour must survive: this cut keeps 42% of a tiny cap."""
+        text = "- keep this line.\n- Read error messages carefully and check syntax."
+        assert boundary_aware_truncate(text, 40) == ("- keep this line.", True)
+
+
+class TestRewordingIsNotRedundancy:
+    """Redundancy needs both copies present, or every rewrite looks like one.
+
+    Measured against the shipped COMPLETION_GUIDANCE, the persist gate blocked
+    changing one word and blocked merging two bullets, while letting a pure
+    append through — it rejected exactly the improvements worth having. The one
+    genuine variant this pipeline has ever produced merged two redundant bullets
+    and tightened wording, so it would have died here.
+    """
+
+    SEED = "Rules:\n- Read error messages carefully before retrying."
+
+    def test_a_near_copy_appended_beside_the_original_is_still_caught(self):
+        """The live CONCISE_MODE_GUIDANCE corruption this check exists for."""
+        corrupt = self.SEED + "\n- Read the error message carefully."
+        assert find_redundant_additions(self.SEED, corrupt) == [
+            "- Read the error message carefully."
+        ]
+
+    def test_the_same_line_reworded_in_place_is_not_redundant(self):
+        reworded = "Rules:\n- Read the error message carefully."
+        assert find_redundant_additions(self.SEED, reworded) == []
+
+    def test_rewording_the_shipped_prompt_passes_the_persist_gate(self):
+        from victor.agent.prompt_section_texts import COMPLETION_GUIDANCE as base
+
+        structural = {
+            "growth_exceeded",
+            "repeated_trigrams",
+            "truncated_tail",
+            "redundant_additions",
+        }
+        for label, candidate in (
+            ("reword", base.replace("STOP", "STOP immediately", 1)),
+            (
+                "consolidate",
+                base.replace(
+                    "- After signaling completion, STOP",
+                    "- After signaling completion, STOP and do not continue",
+                    1,
+                ),
+            ),
+        ):
+            violations = set(evaluate_prompt_candidate(base, candidate).violations)
+            assert not (structural & violations), f"{label} blocked by {structural & violations}"
+
+    def test_a_line_resembling_a_survivor_is_still_flagged(self):
+        """Scanning must not stop at the first replaced line it resembles."""
+        seed = "Rules:\n- Keep answers short.\n- Read error messages carefully before retrying."
+        candidate = (
+            "Rules:\n- Keep responses brief.\n"
+            "- Read error messages carefully before retrying.\n"
+            "- Read the error message carefully."
+        )
+        assert find_redundant_additions(seed, candidate) == ["- Read the error message carefully."]
