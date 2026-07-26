@@ -215,4 +215,6 @@ class TestSuiteArtifactsCarryPerTaskOutcomes:
         from victor.evaluation.real_run_runner import RealRunBenchmarkRunner
 
         task = TaskResult(task_id="t1", status=TaskStatus.PASSED)
-        assert RealRunBenchmarkRunner._task_result_to_artifact(None, task) == task_result_to_artifact(task)
+        assert RealRunBenchmarkRunner._task_result_to_artifact(
+            None, task
+        ) == task_result_to_artifact(task)
