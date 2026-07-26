@@ -343,6 +343,67 @@ class HarnessVerdict:
     benchmark: str
 
 
+# Shaping is done by the structural caps below, not by the character budget: at
+# most 3 traces x 4 calls, each call bounded by its own field caps (120 args /
+# 160 intent / 240 error) to roughly 570 chars — so a full exemplar set lands
+# near 6.8k. The character budget is deliberately set above that as a safety
+# valve for pathological error blobs, rather than a second limiter that silently
+# drops whole traces from a well-formed set. Context is not the constraint: the
+# default reflect tier is gpt-4.1-mini, and 8k of exemplars plus the largest
+# section (2934 chars) is roughly 3k tokens.
+MAX_EXEMPLAR_CHARS = 8192
+MAX_EXEMPLAR_TRACES = 3
+MAX_EXEMPLAR_CALLS_PER_TRACE = 4
+
+
+def format_failing_exemplars(
+    traces: List["ExecutionTrace"],
+    *,
+    max_traces: int = MAX_EXEMPLAR_TRACES,
+    max_chars: int = MAX_EXEMPLAR_CHARS,
+) -> str:
+    """Render concrete failing tool calls for the reflection prompt.
+
+    Reflection used to receive only aggregate counts — "edit_mismatch: 7" — from
+    which no rewrite can be derived: the model is told a category is frequent but
+    never what the agent actually did or what the tool said back. The detail has
+    been collected all along on ``ToolCallTrace`` (``error_detail``,
+    ``arguments_summary``, ``reasoning_before``, populated by
+    ``_collect_traces_v2``) and simply never reached the prompt.
+
+    Worst traces first, so the budget is spent on the most informative failures.
+    Returns "" when nothing failed, so a clean run adds no noise.
+    """
+    failing = [
+        trace
+        for trace in traces
+        if any(not call.success for call in (trace.tool_call_details or []))
+    ]
+    if not failing:
+        return ""
+    failing.sort(key=lambda t: (t.completion_score, -len(t.tool_call_details)))
+
+    blocks: List[str] = ["- Failing exemplars (what actually went wrong):"]
+    budget = max_chars
+    for trace in failing[:max_traces]:
+        bad_calls = [c for c in trace.tool_call_details if not c.success]
+        if not bad_calls:
+            continue
+        lines = [f"  session {trace.session_id[:12]} (score {trace.completion_score:.2f}):"]
+        for call in bad_calls[:MAX_EXEMPLAR_CALLS_PER_TRACE]:
+            lines.append(f"    - {call.tool_name}({call.arguments_summary[:120]})")
+            if call.reasoning_before:
+                lines.append(f"      intent: {call.reasoning_before[:160]}")
+            if call.error_detail:
+                lines.append(f"      error:  {call.error_detail[:240]}")
+        block = "\n".join(lines)
+        if len(block) > budget:
+            break
+        blocks.append(block)
+        budget -= len(block)
+    return "\n".join(blocks) if len(blocks) > 1 else ""
+
+
 @dataclass
 class PromptCandidate:
     """An evolved prompt section candidate with Bayesian scoring.
@@ -638,13 +699,24 @@ class GEPAStrategy:
             lines.append("- Agent execution credit:")
             lines.extend(agent_guidance_blocks[:2])
 
+        # Counts give the shape of the problem; exemplars give the specifics a
+        # rewrite can act on. Without these the model receives only a histogram
+        # ("edit_mismatch: 7") and cannot tell what to write differently.
+        exemplars = format_failing_exemplars(traces)
+        if exemplars:
+            lines.append("")
+            lines.append(exemplars)
+
         reflection = "\n".join(lines)
 
         # Enhance with LLM-driven reflection (provider → decision service → skip)
+        # The section is passed in full: this prompt truncated it to 500 chars,
+        # so for most evolvable sections the model was asked to improve guidance
+        # whose majority it never saw.
         llm_prompt = (
             f"You are analyzing execution traces for an AI coding agent.\n\n"
             f"{reflection}\n\n"
-            f"Current prompt section '{section_name}':\n{current_text[:500]}\n\n"
+            f"Current prompt section '{section_name}':\n{current_text}\n\n"
             f"What 3 specific, actionable changes to this prompt guidance would "
             f"reduce the failure patterns above? Be concise — bullet points only."
         )

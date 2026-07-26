@@ -166,11 +166,21 @@ class GEPAService:
         return self._tier
 
     def reflect(self, traces_summary: str, section_name: str, current_text: str) -> str:
-        """Analyze ASI traces and produce actionable reflection."""
+        """Analyze ASI traces and produce actionable reflection.
+
+        The section is passed **in full**. It used to be truncated to 1000
+        characters, which predates sections three times that size — four of the
+        seven evolvable sections exceed the old cap (ASI 2934, GROUNDING_RULES
+        1912, COMPLETION_GUIDANCE 1551, GROUNDING_RULES_EXTENDED 1066). Asked to
+        diagnose text it could only partly read, the model reliably proposed
+        nothing substantive, and the mutator downstream returned approximately
+        its input: COMPLETION_GUIDANCE produced whitespace-only collapse on two
+        independent evolution runs.
+        """
         user_prompt = (
             f"Execution traces for section '{section_name}':\n\n"
             f"{traces_summary}\n\n"
-            f"Current prompt section:\n{current_text[:1000]}\n\n"
+            f"Current prompt section:\n{current_text}\n\n"
             f"Diagnose the failure patterns and propose specific fixes."
         )
         result = self._call_llm(REFLECT_SYSTEM, user_prompt)
@@ -196,7 +206,15 @@ class GEPAService:
         )
         result = self._call_llm(system, user_prompt, max_tokens=self._max_tokens)
         if not result:
-            return current_text  # Fallback: no change
+            # Returning the seed is the right fallback, but it must not be
+            # mistaken for a mutation: whatever runs after this sees "new" text
+            # identical to the input, and any reformatting it applies becomes
+            # the candidate's entire diff.
+            logger.warning(
+                "GEPA mutate produced no candidate for '%s'; returning the prompt unchanged.",
+                section_name,
+            )
+            return current_text
 
         original_len = len(result)
         from victor.framework.rl.prompt_hygiene import (
@@ -298,8 +316,26 @@ class GEPAService:
             content = self._strip_thinking(content)
             if content and len(content) > 20:
                 return content.strip()
+            logger.warning(
+                "GEPA %s tier (%s) returned no usable content (%d chars); "
+                "mutation will fall back to the unchanged prompt.",
+                self._tier,
+                self._model,
+                len(content or ""),
+            )
         except Exception as e:
-            logger.debug("GEPA %s tier LLM call failed: %s", self._tier, e)
+            # Warning, not debug. A rate limit here nullifies the entire
+            # evolution: mutate() falls back to current_text, a downstream
+            # strategy reformats it, and the whitespace-only result is stored
+            # and reported as an evolved candidate. That masqueraded as a
+            # strategy problem for two full runs because the cause —
+            # "rate limited (429)" — was only visible at DEBUG.
+            logger.warning(
+                "GEPA %s tier (%s) LLM call failed: %s — prompt will NOT be mutated.",
+                self._tier,
+                self._model,
+                e,
+            )
         return None
 
     @staticmethod

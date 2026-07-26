@@ -31,6 +31,7 @@ Usage:
 
 import asyncio
 import json
+import re
 import logging
 import os
 import sys
@@ -2918,11 +2919,85 @@ def show_capabilities() -> None:
     console.print(table)
 
 
+_SMALL_MODEL_RE = re.compile(r"[:\-](\d+(?:\.\d+)?)b\b", re.IGNORECASE)
+UNDERSIZED_MUTATOR_B = 7.0
+
+
+def _is_undersized_mutator(provider: Optional[str], model: Optional[str]) -> bool:
+    """True when the reflect/mutate model is too small to rewrite a long prompt.
+
+    Parameter count is parsed from the model name (``qwen3.5:2b`` -> 2.0), which
+    is the only signal available locally. Purely advisory — a false negative is
+    just a missing warning. Exists because a 2B local model silently rewrote
+    every prompt for months and the symptom (a whitespace-only diff) looks like
+    a strategy problem rather than a capacity one.
+    """
+    name = f"{provider or ''}/{model or ''}"
+    match = _SMALL_MODEL_RE.search(name)
+    if match is None:
+        return False
+    try:
+        return float(match.group(1)) < UNDERSIZED_MUTATOR_B
+    except ValueError:
+        return False
+
+
+def _resolve_mutator_spec(
+    profile: Optional[str], model: Optional[str]
+) -> tuple[Optional[str], Optional[str]]:
+    """Resolve the (provider, model) that will perform reflection and mutation.
+
+    Explicit --model wins; otherwise the profile's provider/model is used.
+    Returns (None, None) when neither is given, leaving GEPA's existing
+    resolution untouched so behaviour is unchanged for callers that do not ask.
+    """
+    if not profile and not model:
+        return None, None
+    resolved_provider = None
+    resolved_model = model
+    if profile:
+        try:
+            # The same two stores `victor auth show` consults, in its order.
+            # SessionConfig.from_cli_flags only records the profile *name* and
+            # Settings().load_profiles() does not carry these entries at all, so
+            # neither resolves a provider — an earlier attempt through them
+            # silently yielded nothing and the 2B fallback mutated anyway.
+            from victor.config.accounts import get_account_manager
+            from victor.framework.runtime_discovery import list_runtime_profiles
+
+            entry = next((p for p in list_runtime_profiles() if p.name == profile), None)
+            if entry is None:
+                entry = next(
+                    (a for a in get_account_manager().list_accounts() if a.name == profile),
+                    None,
+                )
+            if entry is None:
+                console.print(
+                    f"[yellow]Warning:[/] profile '{profile}' does not resolve; "
+                    "falling back to the session default model for reflect/mutate. "
+                    "Run 'victor auth list' for valid names."
+                )
+            else:
+                resolved_provider = getattr(entry, "provider", None)
+                resolved_model = model or getattr(entry, "model", None)
+        except Exception as exc:
+            logger.debug("Could not resolve mutator profile %r: %s", profile, exc)
+    return resolved_provider, resolved_model
+
+
 @benchmark_app.command("evolve")
 def evolve_prompts(
     provider: str = typer.Option("all", "--provider", "-p", help="Provider to evolve (or 'all')"),
     section: str = typer.Option("all", "--section", "-s", help="Section to evolve (or 'all')"),
     compliance: bool = typer.Option(False, "--compliance", help="Show GEPA compliance scorecard"),
+    profile: Optional[str] = typer.Option(
+        None,
+        "--profile",
+        help="Profile whose model performs reflection/mutation (not the provider being evolved)",
+    ),
+    model: Optional[str] = typer.Option(
+        None, "--model", "-m", help="Override the reflect/mutate model directly"
+    ),
 ) -> None:
     """Evolve prompts using GEPA + benchmark trace data.
 
@@ -2945,6 +3020,29 @@ def evolve_prompts(
         if learner is None:
             console.print("[yellow]Prompt optimizer not available[/]")
             return
+
+        # Which model rewrites the prompt is the single biggest determinant of
+        # whether evolution produces anything. GEPA defaults to use_main_model,
+        # so with no session to inherit from this CLI silently fell through to
+        # the local edge model — observed as ollama/qwen3.5:2b rewriting a
+        # 1551-char structured prompt, which it echoed. --provider selects the
+        # candidate namespace being evolved; it does NOT select the mutator.
+        # The /prompt-optimize slash command pushes the live session model here;
+        # the CLI had no equivalent until now.
+        mutator_provider, mutator_model = _resolve_mutator_spec(profile, model)
+        if mutator_provider and hasattr(learner, "set_main_model_spec"):
+            learner.set_main_model_spec(mutator_provider, mutator_model)
+        console.print(
+            f"[dim]Reflect/mutate model: {mutator_provider or 'session default'}"
+            f"/{mutator_model or 'default'}[/]"
+        )
+        if _is_undersized_mutator(mutator_provider, mutator_model):
+            console.print(
+                "[yellow]Warning:[/] the reflect/mutate model looks small. Rewriting a "
+                "1500+ character structured prompt needs a capable model; a tiny one "
+                "tends to echo its input, which reads as 'no change' or a "
+                "whitespace-only diff. Pass --profile/--model to choose."
+            )
 
         from victor.framework.rl.learners.prompt_optimizer import PromptOptimizerLearner
 
