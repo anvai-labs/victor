@@ -460,10 +460,19 @@ def _print_prompt_optimizer_sync_summary(sync_result) -> None:
             status_parts.append("approved")
         if getattr(decision, "promoted", False):
             status_parts.append("promoted")
+        # The paired result is the one that decides approval, so it leads. An
+        # absolute pass rate says nothing about whether this beats the prompt we
+        # already ship.
+        contrast = getattr(decision, "paired_contrast", None)
+        verdict = (
+            f"vs baseline {contrast.summary()}"
+            if contrast is not None
+            else f"pass_rate={decision.score:.1%} [dim](no baseline arm)[/]"
+        )
         console.print(
             "  "
             f"#{decision.rank} {decision.section_name}:{decision.provider}:{decision.prompt_candidate_hash} "
-            f"pass_rate={decision.score:.1%} [{', '.join(status_parts)}]"
+            f"{verdict} [{', '.join(status_parts)}]"
         )
 
     promoted_hash = getattr(sync_result, "promoted_prompt_candidate_hash", None)

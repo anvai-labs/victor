@@ -23,6 +23,7 @@ standardized benchmarks like SWE-bench, HumanEval, etc.
 import asyncio
 import json
 import logging
+import math
 import os
 from contextlib import contextmanager
 
@@ -89,6 +90,132 @@ class PromptCandidateEvaluationRun:
     config: EvaluationConfig
     result: EvaluationResult
     label: str
+
+
+@dataclass(frozen=True)
+class PairedContrast:
+    """One variant measured against the baseline on the *same* tasks.
+
+    A prompt candidate has never been compared to anything. It is scored on its
+    own absolute pass rate, and the gate asks only whether that rate clears a
+    fixed threshold — so a candidate can be approved while being worse than the
+    prompt it replaces, or rejected while beating it on a hard benchmark. The
+    number that matters is not "did it pass 50%" but "did it pass tasks the seed
+    failed, more often than the reverse".
+
+    Pairing is what makes that answerable at this sample size. Both arms run the
+    identical task set, so task difficulty cancels: only the tasks where the two
+    arms *disagree* carry information, and a handful of those says more than a
+    difference of two percentage points across forty independent tasks.
+    """
+
+    n_paired: int
+    variant_only_pass: int
+    baseline_only_pass: int
+    both_pass: int
+    both_fail: int
+
+    @property
+    def discordant(self) -> int:
+        """Tasks where exactly one arm passed — the only ones carrying signal."""
+        return self.variant_only_pass + self.baseline_only_pass
+
+    @property
+    def effect(self) -> int:
+        """Net tasks the variant gained. Negative means it lost ground."""
+        return self.variant_only_pass - self.baseline_only_pass
+
+    @property
+    def mcnemar_p(self) -> float:
+        """Two-sided exact p for the discordant split under a fair coin.
+
+        Exact rather than the chi-square approximation because the counts here
+        are small by construction — with 40 tasks a typical split is 11 vs 3, and
+        the approximation is unreliable below ~25 discordant pairs. `math.comb`
+        keeps this dependency-free; scipy is not worth a wheel for one binomial.
+        """
+        n = self.discordant
+        if n == 0:
+            return 1.0
+        extreme = max(self.variant_only_pass, self.baseline_only_pass)
+        tail = sum(math.comb(n, i) for i in range(extreme, n + 1)) / (2**n)
+        return min(1.0, 2.0 * tail)
+
+    @classmethod
+    def from_results(
+        cls,
+        baseline: "EvaluationResult",
+        variant: "EvaluationResult",
+    ) -> "PairedContrast":
+        """Pair two arms on task id. Raises when they share no tasks.
+
+        Silently returning an empty contrast would read downstream as "no
+        difference" — indistinguishable from a real tie — when the truth is that
+        the comparison never happened.
+        """
+        base_by_task = _passed_by_task(baseline)
+        variant_by_task = _passed_by_task(variant)
+        shared = sorted(set(base_by_task) & set(variant_by_task))
+        if not shared:
+            raise ValueError(
+                "Paired contrast needs a shared task set; baseline ran "
+                f"{len(base_by_task)} task(s) and the variant ran {len(variant_by_task)} "
+                "with no overlap."
+            )
+
+        counts = {"bb": 0, "vv": 0, "both": 0, "neither": 0}
+        for task_id in shared:
+            b, v = base_by_task[task_id], variant_by_task[task_id]
+            if v and not b:
+                counts["vv"] += 1
+            elif b and not v:
+                counts["bb"] += 1
+            elif b and v:
+                counts["both"] += 1
+            else:
+                counts["neither"] += 1
+
+        return cls(
+            n_paired=len(shared),
+            variant_only_pass=counts["vv"],
+            baseline_only_pass=counts["bb"],
+            both_pass=counts["both"],
+            both_fail=counts["neither"],
+        )
+
+    def summary(self) -> str:
+        """One line for the CLI: the effect, the split it rests on, and the p."""
+        sign = "+" if self.effect >= 0 else ""
+        return (
+            f"{sign}{self.effect}/{self.n_paired} "
+            f"(disc {self.variant_only_pass}/{self.baseline_only_pass}, "
+            f"p={self.mcnemar_p:.2f})"
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "n_paired": self.n_paired,
+            "variant_only_pass": self.variant_only_pass,
+            "baseline_only_pass": self.baseline_only_pass,
+            "both_pass": self.both_pass,
+            "both_fail": self.both_fail,
+            "discordant": self.discordant,
+            "effect": self.effect,
+            "mcnemar_p": self.mcnemar_p,
+        }
+
+
+def _passed_by_task(result: "EvaluationResult") -> dict[str, bool]:
+    """Map task id to whether it passed, for one arm.
+
+    Later results win on duplicate ids: a resumed run appends rather than
+    replaces, so the last attempt is the one that counts.
+    """
+    return {
+        task.task_id: task.status == TaskStatus.PASSED
+        for task in getattr(result, "task_results", []) or []
+        if getattr(task, "task_id", "")
+    }
 
 
 @dataclass

@@ -479,6 +479,8 @@ class PromptCandidateBenchmarkDecision:
     benchmark_score: float = 0.0
     benchmark_runs: int = 0
     promoted: bool = False
+    # None when the suite carried no baseline arm — an observation, not a contrast.
+    paired_contrast: Optional[Any] = None
 
 
 @dataclass
@@ -508,6 +510,11 @@ class PromptCandidateBenchmarkSyncResult:
                     "benchmark_score": decision.benchmark_score,
                     "benchmark_runs": decision.benchmark_runs,
                     "promoted": decision.promoted,
+                    "paired_contrast": (
+                        decision.paired_contrast.to_dict()
+                        if decision.paired_contrast is not None
+                        else None
+                    ),
                 }
                 for decision in self.decisions
             ],
@@ -1984,11 +1991,44 @@ class PromptOptimizerLearner(BaseLearner):
         self._save_candidate(candidate)
         return candidate
 
+    @staticmethod
+    def _baseline_run(runs: List[Any]) -> Optional[Any]:
+        """The seed arm, if the suite ran one."""
+        from victor.agent.optimization_injector import BASELINE_CANDIDATE_HASH
+
+        for run in runs:
+            config = getattr(run, "config", None)
+            spec = getattr(run, "spec", None)
+            candidate_hash = getattr(config, "prompt_candidate_hash", None) or getattr(
+                spec, "prompt_candidate_hash", None
+            )
+            if candidate_hash == BASELINE_CANDIDATE_HASH:
+                return run
+        return None
+
+    @staticmethod
+    def _paired_contrast(baseline_run: Optional[Any], run: Any) -> Optional[Any]:
+        """Pair a candidate arm against the baseline, or None when impossible."""
+        if baseline_run is None:
+            return None
+        from victor.evaluation.harness import PairedContrast
+
+        try:
+            return PairedContrast.from_results(
+                getattr(baseline_run, "result", None),
+                getattr(run, "result", None),
+            )
+        except (ValueError, AttributeError, TypeError) as exc:
+            # A failed pairing must not silently become "no difference".
+            logger.warning("Could not pair this arm against the baseline: %s", exc)
+            return None
+
     def sync_evaluation_suite(
         self,
         suite: Any,
         *,
         min_pass_rate: float = 0.5,
+        min_discordant: int = 8,
         promote_best: bool = False,
     ) -> PromptCandidateBenchmarkSyncResult:
         """Write a candidate-bound benchmark suite back into prompt-candidate state.
@@ -1997,13 +2037,47 @@ class PromptOptimizerLearner(BaseLearner):
         - every suite run contributes benchmark score history
         - only the suite winner can satisfy benchmark gating by default
         - promotion remains opt-in and only happens after the winner passes the gate
+
+        When the suite carries a baseline arm the gate is **comparative**: the
+        winner must beat the seed on the same tasks, by enough disagreements to
+        mean anything. An absolute pass rate cannot answer the question being
+        asked — it approves a candidate that clears 50% while being worse than
+        the prompt it replaces, and rejects one that beats the seed on a hard
+        benchmark. ``min_discordant`` is the floor on evidence: fewer than this
+        many tasks where the arms disagree is not a result, whichever way it
+        leans.
+
+        The p-value is reported, never enforced. At these sample sizes it is
+        advisory — a decision aid for the human reading the row, not a gate.
+
+        Without a baseline arm this falls back to the old absolute threshold and
+        says so, because a suite with nothing to compare against is an
+        observation, not an experiment.
         """
         if min_pass_rate < 0.0 or min_pass_rate > 1.0:
             raise ValueError("min_pass_rate must be between 0.0 and 1.0")
+        if min_discordant < 0:
+            raise ValueError("min_discordant must be non-negative")
 
         runs = list(getattr(suite, "runs", []) or [])
         if not runs:
             return PromptCandidateBenchmarkSyncResult()
+
+        baseline_run = self._baseline_run(runs)
+        # The baseline is the referent and can never be a candidate: ranking it
+        # alongside the arms it measures lets the seed "win" its own experiment
+        # and blocks every real candidate behind it.
+        runs = [run for run in runs if run is not baseline_run]
+        if not runs:
+            logger.warning("Suite contained only a baseline arm; nothing to evaluate.")
+            return PromptCandidateBenchmarkSyncResult()
+        if baseline_run is None:
+            logger.warning(
+                "Suite has no baseline arm, so candidates cannot be compared to the "
+                "seed; falling back to the absolute pass-rate gate (>= %.2f). Re-run "
+                "with --include-baseline for a real contrast.",
+                min_pass_rate,
+            )
 
         def _run_sort_key(run: Any) -> tuple[float, int, float]:
             result = getattr(run, "result", None)
@@ -2041,7 +2115,20 @@ class PromptOptimizerLearner(BaseLearner):
                 or ""
             )
             score = float(getattr(result, "pass_rate", 0.0) or 0.0)
-            passed = prompt_candidate_hash == best_hash and score > 0.0 and score >= min_pass_rate
+            contrast = self._paired_contrast(baseline_run, run)
+            is_winner = prompt_candidate_hash == best_hash
+            if contrast is not None:
+                passed = is_winner and contrast.effect > 0 and contrast.discordant >= min_discordant
+                if is_winner and not passed:
+                    logger.info(
+                        "Candidate %s did not clear the comparative gate: %s "
+                        "(needs a positive effect over at least %d discordant tasks).",
+                        prompt_candidate_hash[:12],
+                        contrast.summary(),
+                        min_discordant,
+                    )
+            else:
+                passed = is_winner and score > 0.0 and score >= min_pass_rate
 
             candidate = None
             recorded = bool(section_name and prompt_candidate_hash)
@@ -2065,6 +2152,7 @@ class PromptOptimizerLearner(BaseLearner):
                 rank=rank,
                 benchmark_score=(candidate.benchmark_score if candidate is not None else 0.0),
                 benchmark_runs=(candidate.benchmark_runs if candidate is not None else 0),
+                paired_contrast=contrast,
             )
             sync_result.decisions.append(decision)
 
