@@ -173,9 +173,7 @@ async def test_victor_client_resume_session_hydrates_and_stamps(monkeypatch) -> 
         captured["data"] = data
         return data.get("metadata", {})
 
-    monkeypatch.setattr(
-        "victor.agent.conversation.session_resume.hydrate_session", _fake_hydrate
-    )
+    monkeypatch.setattr("victor.agent.conversation.session_resume.hydrate_session", _fake_hydrate)
 
     client = VictorClient(SessionConfig(), container=object())
     client._context = object()
