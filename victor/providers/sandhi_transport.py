@@ -120,7 +120,22 @@ def _typed_error_payload(message: str) -> Optional[Dict[str, Any]]:
 # Single source for the request "schema_version" field and the handshake below.
 EXPECTED_WIRE_CONTRACT = "1"
 
+# Additive rounds of the v1 contract Victor knows how to consume (W3c):
+# 3 = wire-truth latency on UsageV2 (sandhi#97), which _latency_fields reads.
+# The installed runtime's minor is read once by the handshake below; bindings
+# predating chat_contract_minor() report 0 — their documents simply never
+# carry the newer fields, which every consumer tolerates by construction.
+KNOWN_CONTRACT_MINOR = 3
+
 _wire_contract_checked = False
+_installed_contract_minor: int = 0
+
+
+def installed_chat_contract_minor() -> int:
+    """The additive contract round the installed sandhi binding speaks (0 if
+    the binding predates the export). Populated by the one-time handshake."""
+    _verify_wire_contract()
+    return _installed_contract_minor
 
 
 def _verify_wire_contract() -> None:
@@ -132,13 +147,23 @@ def _verify_wire_contract() -> None:
     (fields ignored, events unrecognized) instead of one clear warning.
     Feature-detected so bindings predating the surface stay supported.
     """
-    global _wire_contract_checked
+    global _wire_contract_checked, _installed_contract_minor
     if _wire_contract_checked:
         return
     _wire_contract_checked = True
     try:
         import sandhi_gateway as sg
 
+        minor_fn = getattr(sg, "chat_contract_minor", None)
+        if callable(minor_fn):
+            _installed_contract_minor = int(minor_fn())
+            if _installed_contract_minor > KNOWN_CONTRACT_MINOR:
+                logger.info(
+                    "sandhi contract minor %d is ahead of victor's known minor %d — "
+                    "newer additive fields will be ignored until victor catches up",
+                    _installed_contract_minor,
+                    KNOWN_CONTRACT_MINOR,
+                )
         if not hasattr(sg, "wire_contract_version"):
             return
         actual = str(sg.wire_contract_version())

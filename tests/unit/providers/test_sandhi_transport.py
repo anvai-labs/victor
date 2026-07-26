@@ -6,6 +6,8 @@ import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import sys
+
 import pytest
 
 import victor.providers.sandhi_transport as st
@@ -699,3 +701,41 @@ def test_completion_surfaces_wire_latency_in_diagnostics(monkeypatch):
     payload["usage"]["duration_ms"] = 120
     response = provider._completion_from_typed(payload, "deepseek-chat")
     assert response.metadata["sandhi_usage"]["duration_ms"] == 120
+
+
+# =============================================================================
+# W3c: minor-version handshake — victor reads the installed contract minor.
+# =============================================================================
+
+
+def test_installed_minor_defaults_to_zero_for_old_bindings(monkeypatch):
+    import types
+
+    fake_sg = types.SimpleNamespace(wire_contract_version=lambda: "1")
+    monkeypatch.setitem(sys.modules, "sandhi_gateway", fake_sg)
+    monkeypatch.setattr(st, "_wire_contract_checked", False)
+    monkeypatch.setattr(st, "_installed_contract_minor", 0)
+    assert st.installed_chat_contract_minor() == 0
+
+
+def test_installed_minor_read_from_binding(monkeypatch):
+    import types
+
+    fake_sg = types.SimpleNamespace(
+        wire_contract_version=lambda: "1", chat_contract_minor=lambda: 3
+    )
+    monkeypatch.setitem(sys.modules, "sandhi_gateway", fake_sg)
+    monkeypatch.setattr(st, "_wire_contract_checked", False)
+    monkeypatch.setattr(st, "_installed_contract_minor", 0)
+    assert st.installed_chat_contract_minor() == 3
+
+
+def test_installed_binding_meets_victor_floor_when_export_exists():
+    """G-ledger floor pin: once the installed sandhi-gateway exports
+    chat_contract_minor, it must be >= victor's known minor (conditional so
+    the pinned pre-W3c binding keeps passing until the next pin bump)."""
+    sg = pytest.importorskip("sandhi_gateway")
+    minor_fn = getattr(sg, "chat_contract_minor", None)
+    if not callable(minor_fn):
+        pytest.skip("installed sandhi-gateway predates chat_contract_minor")
+    assert int(minor_fn()) >= st.KNOWN_CONTRACT_MINOR
