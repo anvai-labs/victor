@@ -2985,6 +2985,57 @@ def _resolve_mutator_spec(
     return resolved_provider, resolved_model
 
 
+_LEGACY_EVOLVE_PROVIDERS = ["openai", "xai", "deepseek", "anthropic"]
+
+
+def _providers_present_in_traces(limit: int = 400) -> list[str]:
+    """Providers that actually appear in the trace corpus, newest first.
+
+    ``--provider all`` used to mean a hardcoded ["openai", "xai", "deepseek",
+    "anthropic"]. Any provider outside that list could never be evolved, however
+    much evidence it had: an overnight run on zai produced 656 tool events and
+    123 graded tasks, and evolve created candidates for four providers that had
+    not run while creating none for the one that had. The next benchmark phase
+    then had nothing to serve, so the reward loop could not fire at all.
+
+    Deriving the list from the traces means evolution follows the evidence.
+    Falls back to the legacy list only when no provider can be identified, so a
+    fresh install still does something sensible.
+    """
+    from victor.framework.rl.learners.prompt_optimizer import PromptOptimizerLearner
+
+    counts: dict[str, int] = {}
+    try:
+        from victor.config.settings import get_project_paths
+
+        logs_dir = Path(get_project_paths().global_logs_dir)
+    except Exception:
+        logs_dir = Path.home() / ".victor" / "logs"
+
+    usage = logs_dir / "usage.jsonl"
+    if usage.exists():
+        try:
+            with open(usage) as handle:
+                for line in handle:
+                    try:
+                        data = json.loads(line).get("data") or {}
+                    except (ValueError, AttributeError):
+                        continue
+                    if not isinstance(data, dict):
+                        continue
+                    label = PromptOptimizerLearner._normalize_provider_label(
+                        data.get("provider", "")
+                    )
+                    if label:
+                        counts[label] = counts.get(label, 0) + 1
+        except OSError:
+            pass
+
+    if not counts:
+        return list(_LEGACY_EVOLVE_PROVIDERS)
+    return [name for name, _ in sorted(counts.items(), key=lambda kv: -kv[1])][:limit]
+
+
 @benchmark_app.command("evolve")
 def evolve_prompts(
     provider: str = typer.Option("all", "--provider", "-p", help="Provider to evolve (or 'all')"),
@@ -3055,9 +3106,10 @@ def evolve_prompts(
             matched = [s for s in sections if section.upper() in s]
             sections = matched if matched else sections
 
-        providers = ["openai", "xai", "deepseek", "anthropic"]
         if provider != "all":
             providers = [provider]
+        else:
+            providers = _providers_present_in_traces()
 
         section_text = _get_prompt_section_baselines(list(sections))
 
