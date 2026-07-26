@@ -25,6 +25,8 @@ import json
 import logging
 import os
 from contextlib import contextmanager
+
+from victor.observability.run_kind import RunKind, run_kind_scope
 import shutil
 import tempfile
 from abc import ABC, abstractmethod
@@ -1049,7 +1051,7 @@ class EvaluationHarness:
         if runner is None:
             raise ValueError(f"No runner for benchmark: {config.benchmark}")
 
-        with durable_evaluation_conversations():
+        with run_kind_scope(RunKind.EVALUATION), durable_evaluation_conversations():
             return await self._run_evaluation(
                 config,
                 runner,

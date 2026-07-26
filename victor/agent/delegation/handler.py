@@ -39,6 +39,7 @@ from victor.agent.subagents.orchestrator import (
     ROLE_DEFAULT_TOOLS,
     SubAgentOrchestrator,
 )
+from victor.observability.run_kind import RunKind, tagged_run
 from victor.agent.delegation.protocol import (
     DelegationPriority,
     DelegationRequest,
@@ -209,12 +210,18 @@ class DelegationHandler:
                 error=str(e),
             )
 
+    @tagged_run(RunKind.DELEGATE)
     async def _execute_delegation(
         self,
         delegation: ActiveDelegation,
         role: SubAgentRole,
     ) -> DelegationResponse:
         """Execute a delegation.
+
+        Everything the delegate emits is tagged as delegate work. Without it a
+        delegate is indistinguishable from a benchmark run downstream: both
+        carry the shared agentic loop's turn-budget notice, and classifying on
+        that text overstated the eval share of trace evidence roughly twofold.
 
         Args:
             delegation: Active delegation tracking

@@ -119,3 +119,38 @@ class TestScopeTracesToProvider:
         traces += [_trace("unknown", f"u{i}") for i in range(6)]
         scoped = PromptOptimizerLearner._scope_traces_to_provider(traces, "moonshot")
         assert len(scoped) == 6
+
+
+class TestAbsorbRunKind:
+    """Run kind is read off the event, never re-derived from prompt text."""
+
+    def test_reads_the_emitted_tag(self):
+        session = {"run_kind": ""}
+        PromptOptimizerLearner._absorb_run_kind(session, {"run_kind": "evaluation"})
+        assert session["run_kind"] == "evaluation"
+
+    def test_first_non_empty_wins(self):
+        session = {"run_kind": ""}
+        PromptOptimizerLearner._absorb_run_kind(session, {"run_kind": "evaluation"})
+        PromptOptimizerLearner._absorb_run_kind(session, {"run_kind": "delegate"})
+        assert session["run_kind"] == "evaluation"
+
+    def test_normalizes_case_and_padding(self):
+        session = {"run_kind": ""}
+        PromptOptimizerLearner._absorb_run_kind(session, {"run_kind": "  DELEGATE "})
+        assert session["run_kind"] == "delegate"
+
+    def test_untagged_events_leave_it_empty(self):
+        # Pre-existing log lines carry no tag; those sessions stay unknown
+        # rather than being guessed from their prompts.
+        session = {"run_kind": ""}
+        PromptOptimizerLearner._absorb_run_kind(session, {"session_id": "s", "data": {}})
+        assert session["run_kind"] == ""
+
+    def test_non_dict_event_is_ignored(self):
+        session = {"run_kind": ""}
+        PromptOptimizerLearner._absorb_run_kind(session, "not-a-dict")
+        assert session["run_kind"] == ""
+
+    def test_trace_defaults_to_unknown(self):
+        assert _trace("moonshot").run_kind == "unknown"

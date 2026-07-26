@@ -253,6 +253,7 @@ paste-ready literal (and refuses anything not classified `PROMOTE` without
 | Provider-scoped candidates reflected from a mixed pool | `_scope_traces_to_provider` filters the pool to the provider being evolved, falling back (with a log) when it is too small |
 | Eval artifacts named a candidate only under an explicit `--prompt-candidate-hash` A/B, so ~680 real runs fed nothing | the eval adapter samples served identities per task, the harness unions them into `observed_prompt_identities`, and `_artifact_identities()` reads them — so every eval run becomes Pareto evidence |
 | `completion_score` was a tool-failure proxy even for graded sessions, and three collectors each used a *different* proxy | `session_id` is now serialized per task (the join key `TaskResult` already held in memory), `_harness_verdicts()` maps session → verdict, and all three collectors score through one `_score_session()`: harness verdict where a benchmark graded the session, proxy only where nothing did. `ExecutionTrace.score_source` records which |
+| Run kind had to be inferred from prompt text, and the shared turn-budget notice made delegate work read as benchmark runs | every usage event now carries `run_kind` (`interactive`/`evaluation`/`delegate`/`headless`) stamped by whoever starts the run — a `ContextVar` scope so nesting and concurrency behave — and it reaches `ExecutionTrace.run_kind` |
 
 Verified against the real candidates: the persist gate now flags
 `redundant_additions` on the CONCISE mutation and `truncated_tail` on the
@@ -292,10 +293,12 @@ reading a transcript; only the source of the hypothesis differs.
   scoping needs a project field at the emission site first.
 - **Backfill was investigated and is not recoverable** — see below. Only runs
   from here on carry identity.
-- **Eval and interactive sessions are not distinguished.** Tag run kind at
-  emission so a section can be evolved on evals alone, on interactive alone, or
-  on both deliberately — rather than on an unlabelled blend whose turn pressure
-  is scaffold artifact.
+- **Scope evolution by run kind.** Events now carry `run_kind` (see *Fixes
+  landed*) and it reaches `ExecutionTrace`, but nothing filters on it yet: a
+  section could be evolved on evaluations alone, on interactive alone, or on
+  both deliberately. Sessions logged before the tag existed stay `unknown` and
+  must not be back-inferred — that inference is what produced the error
+  corrected above.
 - **Sections are not topic-fenced.** Tool-discipline lessons landed in an
   output-style section. Reflection should know which section it is mutating and
   reject guidance that does not belong to it.
