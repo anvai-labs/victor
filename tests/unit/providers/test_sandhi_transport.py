@@ -353,7 +353,10 @@ async def test_gateway_mode_points_ffi_handle_at_proxy_with_virtual_key(monkeypa
     # the virtual key replaces the credential; the proxy URL replaces the endpoint.
     assert args[:3] == ("deepseek", "deepseek-chat", "vk_test_123")
     assert kwargs["base_url"] == "http://localhost:8600"
-    assert kwargs["auth_scheme"] == "bearer"
+    # OpenAI-family handles send Bearer by default and the binding REJECTS an
+    # explicit auth_scheme outside the Anthropic/Gemini protocols — gateway
+    # mode must not pass one (live-proxy dogfood regression).
+    assert "auth_scheme" not in kwargs
 
 
 @pytest.mark.asyncio
@@ -369,6 +372,20 @@ async def test_gateway_mode_preserves_protocol_alongside_overrides(monkeypatch):
     _, kwargs = runtime.calls[0]
     assert kwargs["protocol"] == "chatgpt_responses"
     assert kwargs["base_url"] == "http://localhost:8600"
+    assert "auth_scheme" not in kwargs
+
+
+@pytest.mark.asyncio
+async def test_gateway_mode_requests_bearer_for_auth_scheme_families(monkeypatch):
+    """Anthropic/Gemini-protocol providers DO pass bearer so the virtual key
+    rides Authorization (the binding accepts auth_scheme only there)."""
+    runtime = install_runtime(monkeypatch)
+    provider = make_gateway_provider()
+    provider._sandhi_auth_scheme = "api_key"  # marks an auth-scheme family
+
+    await provider.chat([Message(role="user", content="hi")], model="deepseek-chat")
+
+    _, kwargs = runtime.calls[0]
     assert kwargs["auth_scheme"] == "bearer"
 
 
