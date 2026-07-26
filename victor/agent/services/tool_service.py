@@ -625,7 +625,7 @@ class ToolService:
     """[CANONICAL] Service for managing tool operations.
 
     The target implementation for tool operations following the
-    state-passed architectural pattern. Supersedes ToolCoordinator.
+    state-passed architectural pattern.
 
     This service follows SOLID principles:
     - SRP: Only handles tool operations
@@ -1147,7 +1147,7 @@ class ToolService:
             self._tool_call_parser = tool_call_parser
 
     # ==========================================================================
-    # Budget Properties (for parity with ToolCoordinator)
+    # Budget Properties
     # ==========================================================================
 
     @property

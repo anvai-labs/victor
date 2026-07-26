@@ -76,8 +76,6 @@ _MODULE_MEMBERS = {
     # See __getattr__ below for service-level re-exports
     # NOTE: chat_coordinator, sync_chat_coordinator, streaming_chat_coordinator,
     # unified_chat_coordinator removed as deprecated shims.
-    # These now import directly from victor.agent.services.chat_compat for backward compatibility.
-    # See __getattr__ below for service-level re-exports.
     "chat_protocols": [
         "ChatContextProtocol",
         "ChatOrchestratorProtocol",

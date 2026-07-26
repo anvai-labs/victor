@@ -340,19 +340,25 @@ monitoring.
 
 ### P6. Continue service-first migration (Chat/Tool/Session first)
 
-**Evidence:** `AgentOrchestrator` is ~4,703 LOC, capped by the
-`test_hotspot_size_guard` ratchet (per workspace docs). The 6 canonical
-services are mandatory; coordinators are documented as compatibility-only.
+**Premise correction (2026-07-25):** the migration this task described is
+already delivered on develop — the Chat/Tool/Session coordinators were
+*deleted* (`coordinators/__init__.py` records the removals), no adapter layer
+or per-domain facades remain, and the services own their behavior directly.
+See `docs/architecture/foundations-strategy-2026-07.md` §1.1 for the full
+evidence and §3.2 for the residue cleanup executed as F2 (dead facade
+protocols removed; stale docstrings purged; ratchets pinned to actuals:
+orchestrator 4702, tool_service 3079, selector 2765, chat_service 1739).
 
-**Work:**
-1. Migrate the 3 highest-fan-in coordinators (Chat, Tool, Session) fully into
-   their services; delete the compatibility shims behind them.
-2. Lower the size ratchet as lines leave (ratchet down only, never up).
-3. Do not route any new P0–P5 behavior through coordinators.
+**Remaining work (the long game):**
+1. Opportunistic orchestrator slimming — every extraction lowers the
+   `test_hotspot_size_guard` cap (ratchet down only, never up).
+2. Do not route any new behavior through the state-passed coordinators unless
+   it fits their pattern (exploration/safety/system-prompt/coordination
+   seams); never reintroduce effectful coordinator ownership.
 
 **Acceptance criteria:** Orchestrator LOC trending down per release; service
-delegation tests (`tests/unit/runtime/test_service_layer_validation.py`) stay
-green.
+delegation tests (`tests/unit/agent/services/test_service_layer_validation.py`)
+stay green.
 
 **Rationale:** P0-A removes the worst *consumer* of the orchestrator; P6
 shrinks the orchestrator itself so future UX work stops negotiating with a god
