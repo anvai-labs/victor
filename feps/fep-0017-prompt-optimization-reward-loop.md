@@ -2,7 +2,7 @@
 fep: "0017"
 title: "Close the prompt-optimization reward loop — serve, attribute, and reward evolved prompt candidates"
 type: Standards Track
-status: Draft
+status: Implemented
 created: 2026-07-14
 modified: 2026-07-14
 authors:
@@ -143,9 +143,11 @@ evolve() stores candidate (gen N)
 
 ## Unresolved Questions
 
-- **Streaming path**: `StreamingChatPipeline` has its own loop, not yet
-  integrated with `AgenticLoop`. This FEP closes the loop on `AgenticLoop.run()`
-  only; streaming parity (emit at the streaming-turn outcome) is a follow-up.
+- ~~**Streaming path**~~ — **resolved.** Both `run()` and `run_streaming()` now
+  call the shared `AgenticLoop._emit_prompt_reward_outcome`, so buffered and
+  streaming chat update the learner identically. This mattered more than the
+  FEP anticipated: interactive chat is predominantly streaming, so had parity
+  not landed the loop would have been closed almost nowhere in practice.
 - **Multi-section credit assignment**: when several sections are served in one
   turn, each currently receives the same turn-level completion score.
   Per-section/counterfactual attribution is deferred.

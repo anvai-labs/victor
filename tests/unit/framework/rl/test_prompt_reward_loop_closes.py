@@ -1,0 +1,192 @@
+# Copyright 2026 Vijaykumar Singh <singhvjd@gmail.com>
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""The FEP-0017 loop must actually turn, end to end.
+
+Each link — the serve gate, the served-hash ledger, reward resolution — has its
+own unit test. None of them asserts the property the FEP exists to guarantee:
+that a candidate which starts inert (``alpha=beta=1, sample_count=0``, the state
+GEPA writes) can be served, rewarded, and end up served again *on merit* rather
+than by exploration.
+
+That gap mattered: a prompt-evolution audit concluded from database state alone
+that the loop was still open, when in fact it closes — the candidates it looked
+at were blocked by the benchmark gate pinned at the bottom of this module. A
+test of the whole cycle is what distinguishes "the loop is broken" from "these
+candidates never entered it".
+"""
+
+import sqlite3
+from datetime import datetime
+
+import pytest
+
+from victor.framework.rl.base import RLOutcome
+from victor.framework.rl.learners.prompt_optimizer import (
+    PromptCandidate,
+    PromptOptimizerLearner,
+    should_serve_candidate,
+)
+
+SECTION = "COMPLETION_GUIDANCE"
+PROVIDER = "moonshot"
+CANDIDATE_HASH = "cafebabe1234"
+
+
+@pytest.fixture
+def learner():
+    conn = sqlite3.connect(":memory:")
+    try:
+        yield PromptOptimizerLearner(name="loop_test", db_connection=conn)
+    finally:
+        conn.close()
+
+
+def _fresh_candidate(learner, **overrides) -> PromptCandidate:
+    """A candidate in exactly the state ``evolve()`` leaves behind."""
+    candidate = PromptCandidate(
+        section_name=SECTION,
+        provider=PROVIDER,
+        text="TASK COMPLETION (MANDATORY): signal completion once.",
+        text_hash=CANDIDATE_HASH,
+        generation=1,
+        parent_hash="deadbeef0000",
+    )
+    for key, value in overrides.items():
+        setattr(candidate, key, value)
+    learner._candidates.setdefault(learner._candidate_key(SECTION, PROVIDER), []).append(candidate)
+    return candidate
+
+
+def _recommend(learner):
+    return learner.get_recommendation(
+        provider=PROVIDER, model="kimi-k3", task_type="default", section_name=SECTION
+    )
+
+
+def _reward(learner, *, success: bool, score: float) -> None:
+    learner.record_outcome(
+        RLOutcome(
+            provider=PROVIDER,
+            model="kimi-k3",
+            task_type="default",
+            success=success,
+            quality_score=score,
+            timestamp=datetime.now(),
+            metadata={"prompt_section": SECTION, "prompt_candidate_hash": CANDIDATE_HASH},
+        )
+    )
+
+
+class TestLoopCloses:
+    def test_a_fresh_candidate_starts_inert(self, learner):
+        candidate = _fresh_candidate(learner)
+        assert (candidate.alpha, candidate.beta_val, candidate.sample_count) == (1.0, 1.0, 0)
+
+    def test_exploration_serves_what_confidence_alone_never_would(self, learner):
+        _fresh_candidate(learner)
+        rec = _recommend(learner)
+        # The chicken-and-egg the FEP names: no samples means no confidence,
+        # so the exploit path can never bootstrap a new candidate.
+        assert (
+            should_serve_candidate(rec, exploration_enabled=False, exploration_epsilon=0.0) is False
+        )
+        assert (
+            should_serve_candidate(rec, exploration_enabled=True, exploration_epsilon=1.0) is True
+        )
+
+    def test_serve_then_reward_moves_the_posterior(self, learner):
+        candidate = _fresh_candidate(learner)
+        rec = _recommend(learner)
+        learner.record_served(SECTION, PROVIDER, rec.metadata["prompt_candidate_hash"])
+
+        _reward(learner, success=True, score=0.9)
+
+        assert candidate.sample_count == 1
+        assert candidate.alpha > 1.0
+        assert candidate.scores["completion_score"] > 0.0
+
+    def test_full_cycle_ends_with_the_candidate_served_on_merit(self, learner):
+        """Inert → explored → rewarded → served by confidence, exploration off."""
+        _fresh_candidate(learner)
+        rec = _recommend(learner)
+        assert should_serve_candidate(rec, exploration_enabled=True, exploration_epsilon=1.0)
+        learner.record_served(SECTION, PROVIDER, rec.metadata["prompt_candidate_hash"])
+
+        for _ in range(6):
+            _reward(learner, success=True, score=0.9)
+
+        proven = _recommend(learner)
+        assert proven.is_baseline is False
+        # Exploration OFF: this is the exploit path standing on earned evidence.
+        assert (
+            should_serve_candidate(proven, exploration_enabled=False, exploration_epsilon=0.0)
+            is True
+        )
+
+    def test_failures_push_the_posterior_the_other_way(self, learner):
+        candidate = _fresh_candidate(learner)
+        rec = _recommend(learner)
+        learner.record_served(SECTION, PROVIDER, rec.metadata["prompt_candidate_hash"])
+
+        for _ in range(5):
+            _reward(learner, success=False, score=0.1)
+
+        assert candidate.beta_val > candidate.alpha
+        assert candidate.sample_count == 5
+
+    def test_benchmark_approved_candidate_serves_without_any_samples(self, learner):
+        _fresh_candidate(learner, benchmark_passed=True, benchmark_runs=4)
+        rec = _recommend(learner)
+        assert rec.metadata["benchmark_passed"] is True
+        # The suite-validation path must not be blocked by is_baseline.
+        assert (
+            should_serve_candidate(rec, exploration_enabled=False, exploration_epsilon=0.0) is True
+        )
+
+
+class TestBenchmarkGateDeadlock:
+    """A candidate requiring a benchmark cannot reach the loop on its own.
+
+    ``_servable_candidates`` filters out ``requires_benchmark`` candidates until
+    ``benchmark_passed``, and no runtime path benchmarks them — only an operator
+    running ``victor benchmark --prompt-candidate-hash ...``. So a strategy that
+    sets the flag (PrefPO) produces candidates that are never served, therefore
+    never rewarded, therefore never promoted.
+
+    Pinned as *current behaviour*, not endorsed: this is the reason two of the
+    three candidates in the 2026-07-25 audit sat permanently at
+    ``sample_count=0``, which was misread as the reward loop being unwired.
+    """
+
+    def test_unbenchmarked_candidate_is_not_servable(self, learner):
+        _fresh_candidate(learner, requires_benchmark=True, benchmark_passed=False)
+        assert _recommend(learner) is None
+
+    def test_not_even_exploration_can_reach_it(self, learner):
+        _fresh_candidate(learner, requires_benchmark=True, benchmark_passed=False)
+        rec = _recommend(learner)
+        assert (
+            should_serve_candidate(rec, exploration_enabled=True, exploration_epsilon=1.0) is False
+        )
+
+    def test_a_passing_benchmark_is_the_only_exit(self, learner):
+        candidate = _fresh_candidate(learner, requires_benchmark=True, benchmark_passed=False)
+        assert _recommend(learner) is None
+
+        candidate.benchmark_passed = True
+
+        rec = _recommend(learner)
+        assert rec is not None
+        assert rec.metadata["prompt_candidate_hash"] == CANDIDATE_HASH
