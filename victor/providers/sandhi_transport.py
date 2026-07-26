@@ -102,7 +102,7 @@ def resolve_transport_class(
         return native_cls
     if not sandhi_transport_available():
         raise ProviderConnectionError(
-            "sandhi-gateway 0.1.3 is required for provider transport",
+            "sandhi-gateway 0.1.4 is required for provider transport",
             provider=name,
         )
     return variant
@@ -476,7 +476,7 @@ class SandhiTypedProviderMixin:
     def _typed_provider(self, model: str) -> Any:
         if not sandhi_transport_available():
             raise ProviderConnectionError(
-                "sandhi-gateway 0.1.3 typed runtime is unavailable",
+                "sandhi-gateway 0.1.4 typed runtime is unavailable",
                 provider=self._sandhi_slug(),
             )
         _verify_wire_contract()
