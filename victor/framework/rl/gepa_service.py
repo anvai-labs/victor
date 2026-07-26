@@ -27,10 +27,22 @@ logger = logging.getLogger(__name__)
 # provider construction owns this callback.
 MutatorFailover = Callable[[str, BaseException], Optional[Tuple[Any, str]]]
 
-# Retry budget for a call that came back empty. Enough to cover a reasoning
-# model's hidden tokens plus a full section rewrite; the mutate target is only
-# ~1500 characters, so the headroom is for thinking, not output.
-REASONING_TOKEN_BUDGET = 4096
+# Retry budget for a call that came back empty. The headroom is for thinking,
+# not output — the mutate target is only ~1500 characters. Measured on
+# deepseek-v4-pro with a realistic mutate prompt: 1000 tokens returns nothing at
+# all, 4096 returns a truncated 992 chars, 8192 returns 1345, and 16384 returns
+# 1485 — a full answer. Reasoning eats the budget before the rewrite starts, so
+# anything less than this silently trades away the end of the prompt.
+REASONING_TOKEN_BUDGET = 16384
+
+# A budget that large takes a reasoning model two to three minutes. The normal
+# 120s deadline would abort the retry before it answered, turning the escalation
+# into a slower way to fail.
+REASONING_TIMEOUT_S = 420.0
+
+
+class _EmptyResponse(RuntimeError):
+    """A call that succeeded and returned nothing. Not a throttle — see below."""
 
 
 # ---------------------------------------------------------------------------
@@ -323,12 +335,13 @@ class GEPAService:
         attempt on a provider that has not refused us.
         """
         budget = max_tokens or self._max_tokens
+        deadline = self._timeout_s
         failovers_left = self._max_failovers
         escalations_left = 1
 
         while True:
             try:
-                content = self._attempt_call(system_prompt, user_prompt, budget)
+                content = self._attempt_call(system_prompt, user_prompt, budget, deadline)
             except Exception as e:
                 # Warning, not debug. This masqueraded as a strategy problem for
                 # two full runs because "rate limited (429)" was only visible at
@@ -363,18 +376,37 @@ class GEPAService:
                 # improvement to offer" for every one of them.
                 escalations_left -= 1
                 budget = REASONING_TOKEN_BUDGET
+                # Extend the deadline with the budget. A 16k-token reasoning call
+                # takes minutes; leaving the 120s timeout in place would abort the
+                # retry before it answered and make the escalation a slower way to
+                # fail.
+                deadline = max(deadline, REASONING_TIMEOUT_S)
                 logger.warning(
                     "GEPA %s tier (%s) returned no content; retrying with a %d-token "
-                    "budget in case reasoning consumed it.",
+                    "budget and a %.0fs deadline in case reasoning consumed it.",
                     self._tier,
                     self._model,
                     budget,
+                    deadline,
                 )
                 continue
 
-            # Not a throttle, and the budget was already generous: another
-            # provider is unlikely to do better on the same prompt, so do not
-            # spend one finding out.
+            # The budget was already generous and it still said nothing, so this
+            # is about the model rather than the prompt. Measured on the same
+            # mutate prompt: deepseek-v4-pro returns 0 characters where kimi-k3
+            # returns a full 1624-character rewrite at the *original* budget. A
+            # peer is worth one call before writing the section off.
+            if failovers_left > 0:
+                replacement = self._request_failover(
+                    _EmptyResponse(f"{self._model} returned no content"),
+                    only_if_throttled=False,
+                )
+                if replacement is not None:
+                    failovers_left -= 1
+                    self._provider, self._model = replacement
+                    logger.warning("Still no content; trying %s instead.", self._model)
+                    continue
+
             logger.warning(
                 "GEPA %s tier (%s) returned no usable content; "
                 "mutation will fall back to the unchanged prompt.",
@@ -388,6 +420,7 @@ class GEPAService:
         system_prompt: str,
         user_prompt: str,
         max_tokens: Optional[int],
+        timeout_s: Optional[float] = None,
     ) -> Optional[str]:
         """One provider call. Raises on transport failure; None means no content."""
         from victor.providers.base import Message
@@ -409,21 +442,28 @@ class GEPAService:
                 max_tokens=max_tokens or self._max_tokens,
                 temperature=0.7,
             ),
-            timeout=self._timeout_s,
+            timeout=timeout_s or self._timeout_s,
         )
         content = self._strip_thinking(response.content if response else "")
         if content and len(content) > 20:
             return content.strip()
         return None
 
-    def _request_failover(self, error: BaseException) -> Optional[Tuple[Any, str]]:
-        """Ask for a replacement mutator, but only when we were throttled.
+    def _request_failover(
+        self,
+        error: BaseException,
+        *,
+        only_if_throttled: bool = True,
+    ) -> Optional[Tuple[Any, str]]:
+        """Ask for a replacement mutator.
 
-        A malformed prompt, a bad key, or a bug in this file fails identically on
-        every provider; failing over on those would burn each one's quota to
-        learn nothing and would bench healthy providers on our own defect.
+        Transport *failures* only qualify when they are throttling: a malformed
+        prompt, a bad key, or a bug in this file fails identically on every
+        provider, so failing over on those would burn each one's quota to learn
+        nothing and bench healthy providers on our own defect. An empty answer is
+        the exception the callers opt into — it is model-specific, not shared.
         """
-        if self._failover is None or not is_rate_limit(error):
+        if self._failover is None or (only_if_throttled and not is_rate_limit(error)):
             return None
         try:
             return self._failover(self._model, error)

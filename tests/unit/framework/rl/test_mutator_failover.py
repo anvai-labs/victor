@@ -78,14 +78,40 @@ class TestFailoverTriggering:
         assert "Reflection unavailable" in service.reflect("t", "COMPLETION_GUIDANCE", "c")
         assert healthy.calls == []
 
-    def test_an_empty_answer_does_not_move_to_another_provider(self):
-        """Silence is not a throttle; a peer would just cost a call."""
-        terse = FakeProvider("zai", {"glm-5.2": "too short"})
-        healthy = FakeProvider("moonshot", {})
-        service = make_service(terse, "glm-5.2", lambda m, e: (healthy, "kimi-k3"))
+    def test_an_empty_answer_tries_a_peer_only_after_the_budget_escalation(self):
+        """Order matters, and it is measured rather than assumed.
 
-        assert service.mutate("current text", "reflection", "COMPLETION") == "current text"
-        assert healthy.calls == []
+        A bigger budget on the same provider is the cheaper fix and the more
+        common cause, so it goes first. But an empty answer *is* model-specific:
+        on one mutate prompt deepseek-v4-pro returns 0 characters where kimi-k3
+        returns a full 1624-character rewrite at the original budget. Giving up
+        without trying the peer wastes the section.
+        """
+        from victor.framework.rl.gepa_service import REASONING_TOKEN_BUDGET
+
+        budgets: List[int] = []
+
+        class AlwaysEmpty:
+            async def chat(self, *, messages, model, max_tokens, **kw):
+                del messages, model, kw
+                budgets.append(max_tokens)
+                return _Response("")
+
+        healthy = FakeProvider("moonshot", {})
+        service = GEPAService(
+            provider=AlwaysEmpty(),
+            model="glm-5.2",
+            failover=lambda m, e: (healthy, "kimi-k3"),
+            max_tokens=1000,
+        )
+
+        assert service.mutate("current text", "reflection", "COMPLETION") == LONG_ENOUGH
+        assert budgets == [1000, REASONING_TOKEN_BUDGET], "escalate before switching"
+        assert healthy.calls == ["kimi-k3"]
+
+    def test_an_empty_answer_gives_up_when_there_is_no_peer(self):
+        terse = FakeProvider("zai", {"glm-5.2": "too short"})
+        assert make_service(terse, "glm-5.2").mutate("current text", "r", "S") == "current text"
 
     def test_no_failover_configured_degrades_to_the_old_behaviour(self):
         throttled = FakeProvider("zai", {"glm-5.2": RuntimeError("429")})
@@ -221,6 +247,34 @@ class TestEmptyAnswerEscalatesTheBudget:
 
         assert service.mutate("current", "reflection", "COMPLETION") == LONG_ENOUGH
         assert provider.budgets == [1000, REASONING_TOKEN_BUDGET]
+
+    def test_the_deadline_grows_with_the_budget(self):
+        """A 16k-token reasoning call takes minutes; 120s would abort it.
+
+        Without this the escalation is just a slower way to fail: the retry gets
+        the tokens it needs and then gets killed before answering.
+        """
+        from victor.framework.rl.gepa_service import REASONING_TIMEOUT_S
+
+        deadlines: List[float] = []
+
+        class SlowProvider:
+            async def chat(self, *, messages, model, max_tokens, **kw):
+                del messages, model, kw
+                return _Response("" if max_tokens < 4000 else LONG_ENOUGH)
+
+        service = GEPAService(provider=SlowProvider(), model="m", max_tokens=1000, timeout_s=120.0)
+        original = service._attempt_call
+
+        def spy(system, user, budget, timeout_s=None):
+            deadlines.append(timeout_s)
+            return original(system, user, budget, timeout_s)
+
+        service._attempt_call = spy  # type: ignore[method-assign]
+
+        assert service.mutate("current", "reflection", "COMPLETION") == LONG_ENOUGH
+        assert deadlines == [120.0, REASONING_TIMEOUT_S]
+        assert REASONING_TIMEOUT_S > 120.0
 
     def test_escalation_happens_once(self):
         """Two empty answers means the prompt, not the budget."""
