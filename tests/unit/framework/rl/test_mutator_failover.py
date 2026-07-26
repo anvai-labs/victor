@@ -87,76 +87,6 @@ class TestFailoverTriggering:
         assert service.mutate("current text", "reflection", "COMPLETION") == "current text"
         assert healthy.calls == []
 
-
-class TestEmptyAnswerEscalatesTheBudget:
-    """A reasoning model can spend the whole budget thinking and emit nothing.
-
-    Verified against deepseek-v4-pro: the identical mutate prompt returns 0
-    characters at 1000 max_tokens and a real 638-character rewrite at 4000. GEPA's
-    default predates reasoning models, so this read as "no improvement offered".
-    """
-
-    class BudgetSensitiveProvider:
-        """Returns content only once the budget clears a threshold."""
-
-        def __init__(self, needs: int) -> None:
-            self._needs = needs
-            self.budgets: List[int] = []
-
-        async def chat(self, *, messages: Any, model: str, max_tokens: int, **kw: Any) -> _Response:
-            del messages, model, kw
-            self.budgets.append(max_tokens)
-            return _Response(LONG_ENOUGH if max_tokens >= self._needs else "")
-
-    def test_a_second_attempt_gets_a_reasoning_sized_budget(self):
-        from victor.framework.rl.gepa_service import REASONING_TOKEN_BUDGET
-
-        provider = self.BudgetSensitiveProvider(needs=4000)
-        service = GEPAService(provider=provider, model="deepseek-v4-pro", max_tokens=1000)
-
-        assert service.mutate("current", "reflection", "COMPLETION") == LONG_ENOUGH
-        assert provider.budgets == [1000, REASONING_TOKEN_BUDGET]
-
-    def test_escalation_happens_once(self):
-        """Two empty answers means the prompt, not the budget."""
-        provider = self.BudgetSensitiveProvider(needs=10**9)
-        service = GEPAService(provider=provider, model="m", max_tokens=1000)
-
-        assert service.mutate("current", "reflection", "COMPLETION") == "current"
-        assert len(provider.budgets) == 2
-
-    def test_an_already_generous_budget_is_not_re_escalated(self):
-        from victor.framework.rl.gepa_service import REASONING_TOKEN_BUDGET
-
-        provider = self.BudgetSensitiveProvider(needs=10**9)
-        service = GEPAService(provider=provider, model="m", max_tokens=REASONING_TOKEN_BUDGET)
-
-        service.mutate("current", "reflection", "COMPLETION")
-        assert provider.budgets == [REASONING_TOKEN_BUDGET]
-
-    def test_escalation_does_not_consume_a_failover(self):
-        """The two recoveries are independent: an empty answer then a 429."""
-        calls: List[int] = []
-
-        class EmptyThen429:
-            async def chat(self, *, messages, model, max_tokens, **kw):
-                del messages, model, kw
-                calls.append(max_tokens)
-                if len(calls) == 1:
-                    return _Response("")
-                raise RuntimeError("rate limited (429)")
-
-        healthy = FakeProvider("moonshot", {})
-        service = GEPAService(
-            provider=EmptyThen429(),
-            model="glm-5.2",
-            failover=lambda m, e: (healthy, "kimi-k3"),
-            max_tokens=1000,
-        )
-
-        assert service.mutate("current", "reflection", "COMPLETION") == LONG_ENOUGH
-        assert healthy.calls == ["kimi-k3"]
-
     def test_no_failover_configured_degrades_to_the_old_behaviour(self):
         throttled = FakeProvider("zai", {"glm-5.2": RuntimeError("429")})
         assert make_service(throttled, "glm-5.2").mutate("current", "r", "S") == "current"
@@ -261,6 +191,127 @@ class TestRotationFailover:
 
         assert service.mutate("current text", "reflection", "COMPLETION") == LONG_ENOUGH
         assert healthy.calls == ["kimi-k3"]
+
+
+class TestEmptyAnswerEscalatesTheBudget:
+    """A reasoning model can spend the whole budget thinking and emit nothing.
+
+    Verified against deepseek-v4-pro: the identical mutate prompt returns 0
+    characters at 1000 max_tokens and a real 638-character rewrite at 4000. GEPA's
+    default predates reasoning models, so this read as "no improvement offered".
+    """
+
+    class BudgetSensitiveProvider:
+        """Returns content only once the budget clears a threshold."""
+
+        def __init__(self, needs: int) -> None:
+            self._needs = needs
+            self.budgets: List[int] = []
+
+        async def chat(self, *, messages: Any, model: str, max_tokens: int, **kw: Any) -> _Response:
+            del messages, model, kw
+            self.budgets.append(max_tokens)
+            return _Response(LONG_ENOUGH if max_tokens >= self._needs else "")
+
+    def test_a_second_attempt_gets_a_reasoning_sized_budget(self):
+        from victor.framework.rl.gepa_service import REASONING_TOKEN_BUDGET
+
+        provider = self.BudgetSensitiveProvider(needs=4000)
+        service = GEPAService(provider=provider, model="deepseek-v4-pro", max_tokens=1000)
+
+        assert service.mutate("current", "reflection", "COMPLETION") == LONG_ENOUGH
+        assert provider.budgets == [1000, REASONING_TOKEN_BUDGET]
+
+    def test_escalation_happens_once(self):
+        """Two empty answers means the prompt, not the budget."""
+        provider = self.BudgetSensitiveProvider(needs=10**9)
+        service = GEPAService(provider=provider, model="m", max_tokens=1000)
+
+        assert service.mutate("current", "reflection", "COMPLETION") == "current"
+        assert len(provider.budgets) == 2
+
+    def test_an_already_generous_budget_is_not_re_escalated(self):
+        from victor.framework.rl.gepa_service import REASONING_TOKEN_BUDGET
+
+        provider = self.BudgetSensitiveProvider(needs=10**9)
+        service = GEPAService(provider=provider, model="m", max_tokens=REASONING_TOKEN_BUDGET)
+
+        service.mutate("current", "reflection", "COMPLETION")
+        assert provider.budgets == [REASONING_TOKEN_BUDGET]
+
+    def test_escalation_does_not_consume_a_failover(self):
+        """The two recoveries are independent: an empty answer then a 429."""
+        calls: List[int] = []
+
+        class EmptyThen429:
+            async def chat(self, *, messages, model, max_tokens, **kw):
+                del messages, model, kw
+                calls.append(max_tokens)
+                if len(calls) == 1:
+                    return _Response("")
+                raise RuntimeError("rate limited (429)")
+
+        healthy = FakeProvider("moonshot", {})
+        service = GEPAService(
+            provider=EmptyThen429(),
+            model="glm-5.2",
+            failover=lambda m, e: (healthy, "kimi-k3"),
+            max_tokens=1000,
+        )
+
+        assert service.mutate("current", "reflection", "COMPLETION") == LONG_ENOUGH
+        assert healthy.calls == ["kimi-k3"]
+
+
+class TestRejectionIsVisible:
+    """A discarded candidate must say so, at a level the CLI shows.
+
+    Both hygiene gates returned ``current_text`` while logging at INFO, so a
+    mutation the provider had already been paid for vanished into a bare "no
+    change" row — indistinguishable from a model with nothing to offer. That is
+    the same defect as the 429 being logged at DEBUG.
+    """
+
+    def test_structural_rejection_warns_and_names_the_gate(self, caplog):
+        bloated = "\n".join(f"- an entirely new rule number {i}" for i in range(400))
+        service = make_service(FakeProvider("zai", {"m": bloated}), "m")
+
+        with caplog.at_level("WARNING"):
+            out = service.mutate(
+                "Rules:\n\n- keep it short", "reflection", "COMPLETION_GUIDANCE", 10**6
+            )
+
+        assert out == "Rules:\n\n- keep it short"
+        assert "COMPLETION_GUIDANCE" in caplog.text
+        assert "hygiene" in caplog.text.lower()
+        assert "unchanged" in caplog.text
+
+    def test_prefpo_hygiene_rejection_warns(self, caplog):
+        from unittest.mock import patch
+
+        from victor.framework.rl.learners.strategies.prefpo_strategy import PrefPOStrategy
+
+        strategy = PrefPOStrategy()
+        report = type("R", (), {"accepted": False, "violations": ["unsupported_additions"]})()
+
+        with (
+            patch.object(strategy, "_challenger_factory", return_value="challenger text"),
+            patch.object(
+                strategy,
+                "_judge",
+                return_value=("challenger", "Prefer challenger because it adds:\n- x"),
+            ),
+            patch.object(strategy, "_optimizer", return_value="candidate text"),
+            patch(
+                "victor.framework.rl.learners.strategies.prefpo_strategy.evaluate_prompt_candidate",
+                return_value=report,
+            ),
+        ):
+            with caplog.at_level("WARNING"):
+                assert strategy.reflect([object()], "COMPLETION_GUIDANCE", "current") == ""
+
+        assert "PrefPO rejected" in caplog.text
+        assert "unsupported_additions" in caplog.text
 
 
 class TestTierManagerWiring:

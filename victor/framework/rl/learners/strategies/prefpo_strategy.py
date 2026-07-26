@@ -87,8 +87,11 @@ class PrefPOStrategy:
             max_growth_chars=self._max_prompt_growth_chars,
         )
         if not report.accepted:
-            logger.info(
-                "PrefPO rejected candidate for %s due to hygiene violations: %s",
+            # Warning, not info: the strategy chain reads an empty reflection as
+            # "nothing to propose", so a rejection here is indistinguishable from
+            # having found no improvement unless it says so.
+            logger.warning(
+                "PrefPO rejected the candidate for %s on hygiene (%s); proposing nothing.",
                 section_name,
                 ",".join(report.violations),
             )

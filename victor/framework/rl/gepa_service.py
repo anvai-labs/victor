@@ -269,10 +269,17 @@ class GEPAService:
         structural = {"growth_exceeded", "repeated_trigrams"}
         triggered = structural & set(report.violations)
         if triggered:
-            logger.info(
-                "GEPA rejected candidate for %s due to structural hygiene " "violations: %s",
+            # Warning, not info: this discards a mutation the provider was paid
+            # for and leaves the caller with text identical to its input, which
+            # surfaces as a bare "no change" with no way to tell a rejected
+            # candidate from a model that had nothing to offer.
+            logger.warning(
+                "GEPA rejected the candidate for %s on structural hygiene (%s); "
+                "returning the prompt unchanged (%d chars offered, seed %d).",
                 section_name,
                 ",".join(sorted(triggered)),
+                len(sanitized),
+                len(current_text),
             )
             return current_text
         return sanitized
