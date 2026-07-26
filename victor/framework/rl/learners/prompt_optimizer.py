@@ -1049,6 +1049,17 @@ class PromptOptimizerLearner(BaseLearner):
                 timeout_s,
             )
 
+    def set_mutator_rotation(self, rotation: Any) -> None:
+        """Give GEPA somewhere to go when the active mutator returns a 429.
+
+        Without this the throttle is invisible above the transport: `_call_llm`
+        logs and returns None, `mutate()` hands back its input, and the caller
+        cannot tell "no improvement found" from "never asked".
+        """
+        if hasattr(self._strategy, "set_mutator_rotation"):
+            self._strategy.set_mutator_rotation(rotation)
+            logger.info("GEPA mutator failover armed: %s", rotation.summary())
+
     def _strategies_for_section(self, section_name: str) -> List["PromptOptimizationStrategy"]:
         """Return the configured strategy chain for a section."""
         if section_name in self._extra_strategies:

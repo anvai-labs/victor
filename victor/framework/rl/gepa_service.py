@@ -15,9 +15,22 @@ import asyncio
 import logging
 import re
 import threading
-from typing import Any, Optional, Protocol
+from typing import Any, Callable, Optional, Protocol, Tuple
+
+from victor.framework.rl.mutator_rotation import is_rate_limit
 
 logger = logging.getLogger(__name__)
+
+# Asked for a replacement mutator after a rate limit: given the model that was
+# refused and the error, return a ``(provider, model)`` to retry on, or None to
+# give up. The service deliberately cannot build providers itself — whoever owns
+# provider construction owns this callback.
+MutatorFailover = Callable[[str, BaseException], Optional[Tuple[Any, str]]]
+
+# Retry budget for a call that came back empty. Enough to cover a reasoning
+# model's hidden tokens plus a full section rewrite; the mutate target is only
+# ~1500 characters, so the headroom is for thinking, not output.
+REASONING_TOKEN_BUDGET = 4096
 
 
 # ---------------------------------------------------------------------------
@@ -154,6 +167,8 @@ class GEPAService:
         max_prompt_chars: int = 1500,
         timeout_s: float = 30.0,
         max_tokens: int = 1000,
+        failover: Optional[MutatorFailover] = None,
+        max_failovers: int = 3,
     ):
         self._provider = provider
         self._model = model
@@ -161,6 +176,8 @@ class GEPAService:
         self._max_prompt_chars = max_prompt_chars
         self._timeout_s = timeout_s
         self._max_tokens = max_tokens
+        self._failover = failover
+        self._max_failovers = max(0, max_failovers)
 
     def get_tier(self) -> str:
         return self._tier
@@ -289,54 +306,123 @@ class GEPAService:
         user_prompt: str,
         max_tokens: Optional[int] = None,
     ) -> Optional[str]:
-        """Call the provider synchronously via a persistent background event loop."""
-        try:
-            from victor.providers.base import Message
+        """Call the provider, failing over to another one if this one throttles.
 
-            # Suppress thinking for Qwen models
-            effective_user = user_prompt
-            if "qwen" in self._model.lower():
-                effective_user = f"/no_think\n{user_prompt}"
+        The retry lives here rather than a layer up because this is the only
+        place that knows the call failed. Returning None on a 429 nullifies the
+        whole evolution — `mutate()` falls back to `current_text`, a downstream
+        strategy reformats it, and the whitespace-only result is stored and
+        reported as an evolved candidate — so the section is worth one more
+        attempt on a provider that has not refused us.
+        """
+        budget = max_tokens or self._max_tokens
+        failovers_left = self._max_failovers
+        escalations_left = 1
 
-            messages = [
-                Message(role="system", content=system_prompt),
-                Message(role="user", content=effective_user),
-            ]
-            loop = _get_background_loop()
-            response = loop.run(
-                self._provider.chat(
-                    messages=messages,
-                    model=self._model,
-                    max_tokens=max_tokens or self._max_tokens,
-                    temperature=0.7,
-                ),
-                timeout=self._timeout_s,
-            )
-            content = response.content if response else ""
-            content = self._strip_thinking(content)
-            if content and len(content) > 20:
-                return content.strip()
+        while True:
+            try:
+                content = self._attempt_call(system_prompt, user_prompt, budget)
+            except Exception as e:
+                # Warning, not debug. This masqueraded as a strategy problem for
+                # two full runs because "rate limited (429)" was only visible at
+                # DEBUG.
+                logger.warning(
+                    "GEPA %s tier (%s) LLM call failed: %s",
+                    self._tier,
+                    self._model,
+                    e,
+                )
+                # Ask even on the last allowed attempt: the lookup is what
+                # reports the failure, and a shared rotation needs that to bench
+                # the provider for later sections.
+                replacement = self._request_failover(e)
+                if replacement is None or failovers_left <= 0:
+                    logger.warning("No mutator left to try — prompt will NOT be mutated.")
+                    return None
+                failovers_left -= 1
+                self._provider, self._model = replacement
+                logger.warning("Retrying the mutation on %s.", self._model)
+                continue
+
+            if content:
+                return content
+
+            if escalations_left > 0 and budget < REASONING_TOKEN_BUDGET:
+                # A successful call that returns nothing is usually a reasoning
+                # model that spent the whole budget thinking. Verified on
+                # deepseek-v4-pro: the identical mutate prompt yields 0 chars at
+                # 1000 tokens and a real rewrite at 4000. The old default was set
+                # before reasoning models, so this looked like "the model had no
+                # improvement to offer" for every one of them.
+                escalations_left -= 1
+                budget = REASONING_TOKEN_BUDGET
+                logger.warning(
+                    "GEPA %s tier (%s) returned no content; retrying with a %d-token "
+                    "budget in case reasoning consumed it.",
+                    self._tier,
+                    self._model,
+                    budget,
+                )
+                continue
+
+            # Not a throttle, and the budget was already generous: another
+            # provider is unlikely to do better on the same prompt, so do not
+            # spend one finding out.
             logger.warning(
-                "GEPA %s tier (%s) returned no usable content (%d chars); "
+                "GEPA %s tier (%s) returned no usable content; "
                 "mutation will fall back to the unchanged prompt.",
                 self._tier,
                 self._model,
-                len(content or ""),
             )
-        except Exception as e:
-            # Warning, not debug. A rate limit here nullifies the entire
-            # evolution: mutate() falls back to current_text, a downstream
-            # strategy reformats it, and the whitespace-only result is stored
-            # and reported as an evolved candidate. That masqueraded as a
-            # strategy problem for two full runs because the cause —
-            # "rate limited (429)" — was only visible at DEBUG.
-            logger.warning(
-                "GEPA %s tier (%s) LLM call failed: %s — prompt will NOT be mutated.",
-                self._tier,
-                self._model,
-                e,
-            )
+            return None
+
+    def _attempt_call(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        max_tokens: Optional[int],
+    ) -> Optional[str]:
+        """One provider call. Raises on transport failure; None means no content."""
+        from victor.providers.base import Message
+
+        # Suppress thinking for Qwen models
+        effective_user = user_prompt
+        if "qwen" in self._model.lower():
+            effective_user = f"/no_think\n{user_prompt}"
+
+        messages = [
+            Message(role="system", content=system_prompt),
+            Message(role="user", content=effective_user),
+        ]
+        loop = _get_background_loop()
+        response = loop.run(
+            self._provider.chat(
+                messages=messages,
+                model=self._model,
+                max_tokens=max_tokens or self._max_tokens,
+                temperature=0.7,
+            ),
+            timeout=self._timeout_s,
+        )
+        content = self._strip_thinking(response.content if response else "")
+        if content and len(content) > 20:
+            return content.strip()
         return None
+
+    def _request_failover(self, error: BaseException) -> Optional[Tuple[Any, str]]:
+        """Ask for a replacement mutator, but only when we were throttled.
+
+        A malformed prompt, a bad key, or a bug in this file fails identically on
+        every provider; failing over on those would burn each one's quota to
+        learn nothing and would bench healthy providers on our own defect.
+        """
+        if self._failover is None or not is_rate_limit(error):
+            return None
+        try:
+            return self._failover(self._model, error)
+        except Exception as exc:  # a broken failover must not mask the real error
+            logger.warning("GEPA failover lookup failed: %s", exc)
+            return None
 
     @staticmethod
     def _strip_thinking(content: str) -> str:
