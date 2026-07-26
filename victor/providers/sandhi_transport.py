@@ -543,12 +543,13 @@ class SandhiTypedProviderMixin:
                 )
             base_url = proxy_url
             api_key = virtual_key
-            # The binding accepts an explicit auth_scheme only for the
-            # Anthropic/Gemini protocols; request bearer there so the virtual
-            # key rides Authorization. OpenAI-family handles already send
-            # Bearer by default — passing the scheme raised ValueError and
-            # broke gateway mode for every openai-compat provider (found by
-            # the TD-0010 SDK-conformance dogfood against a live proxy).
+            # Compat guard for sandhi <= 0.1.4: those bindings REJECT an
+            # explicit auth_scheme outside the Anthropic/Gemini protocols
+            # (victor#678). sandhi >= 0.1.5 accepts "bearer" family-wide as a
+            # no-op (TD-0008 rule 5: reject contradictions, accept redundancy),
+            # so once the pin passes 0.1.4 this conditional can collapse to an
+            # unconditional "bearer". The real-binding construction conformance
+            # suite (test_sandhi_binding_construction.py) holds either way.
             auth_scheme = "bearer" if getattr(self, "_sandhi_auth_scheme", "") else ""
             explicit_base_url = proxy_url
         else:
