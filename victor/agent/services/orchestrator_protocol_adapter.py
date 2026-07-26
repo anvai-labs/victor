@@ -48,6 +48,22 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Internal orchestration/topology hints that ride **kwargs but are not provider
+# request params (W3d/G7 D4). Kept in sync with the sandhi codec's backstop
+# strip (victor/providers/sandhi_transport.py::_INTERNAL_KWARG_KEYS).
+_INTERNAL_KWARG_KEYS = frozenset(
+    {
+        "execution_mode",
+        "provider_hint",
+        "escalation_target",
+        "topology_action",
+        "topology_kind",
+        "topology_metadata",
+        "task_type",
+        "temperature_override",
+    }
+)
+
 
 class OrchestratorProtocolAdapter:
     """Adapts AgentOrchestrator to protocol interfaces.
@@ -157,6 +173,11 @@ class OrchestratorProtocolAdapter:
         Returns:
             CompletionResponse from the model
         """
+        # W3d/G7 D4: internal orchestration/topology hints ride **kwargs from
+        # the runtime but are not provider params — strip them here so they
+        # never reach a request body (the sandhi codec has a backstop strip,
+        # but this is the root-cause fix and covers every provider path).
+        kwargs = {key: value for key, value in kwargs.items() if key not in _INTERNAL_KWARG_KEYS}
         orch = self._orchestrator
         return await orch.provider.chat(
             messages=messages,

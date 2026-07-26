@@ -756,3 +756,88 @@ def test_installed_binding_meets_victor_floor_when_export_exists():
     if not callable(minor_fn):
         pytest.skip("installed sandhi-gateway predates chat_contract_minor")
     assert int(minor_fn()) >= st.KNOWN_CONTRACT_MINOR
+
+
+# =============================================================================
+# W3d/G7: codec purity — promoted typed fields, family-gated bucket, no leak.
+# =============================================================================
+
+
+def _openai_payload(**extra):
+    payload = {"model": "m", "messages": [{"role": "user", "content": "hi"}]}
+    payload.update(extra)
+    return payload
+
+
+def test_reasoning_effort_promoted_to_typed_field(monkeypatch):
+    monkeypatch.setattr(st, "_wire_contract_checked", True)
+    monkeypatch.setattr(st, "_installed_contract_minor", 4)
+    request = st._typed_request_from_openai_payload(_openai_payload(reasoning_effort="high"))
+    assert request["reasoning_effort"] == "high"
+    # At minor >= 4 the extensions copy is dropped (no dual-write).
+    assert "reasoning_effort" not in request.get("extensions", {}).get("openai", {})
+
+
+def test_thinking_normalized_from_victor_shape(monkeypatch):
+    monkeypatch.setattr(st, "_wire_contract_checked", True)
+    monkeypatch.setattr(st, "_installed_contract_minor", 4)
+    request = st._typed_request_from_openai_payload(
+        _openai_payload(thinking={"type": "enabled", "budget_tokens": 2048})
+    )
+    assert request["thinking"] == {"enabled": True, "budget_tokens": 2048}
+
+
+def test_dual_write_keeps_extensions_copy_below_minor_4(monkeypatch):
+    monkeypatch.setattr(st, "_wire_contract_checked", True)
+    monkeypatch.setattr(st, "_installed_contract_minor", 3)  # pinned pre-W3d runtime
+    request = st._typed_request_from_openai_payload(_openai_payload(reasoning_effort="high"))
+    assert request["reasoning_effort"] == "high"  # typed field always emitted
+    # ...and the extensions copy is retained so the old runtime still sees it.
+    assert request["extensions"]["openai"]["reasoning_effort"] == "high"
+
+
+def test_internal_kwargs_never_reach_extensions(monkeypatch):
+    monkeypatch.setattr(st, "_wire_contract_checked", True)
+    monkeypatch.setattr(st, "_installed_contract_minor", 4)
+    request = st._typed_request_from_openai_payload(
+        _openai_payload(execution_mode="fast", topology_action="escalate", top_p=0.9)
+    )
+    native = request.get("extensions", {}).get("openai", {})
+    assert "execution_mode" not in native
+    assert "topology_action" not in native
+    # A real (non-internal) passthrough param still rides extensions.
+    assert native.get("top_p") == 0.9
+
+
+def test_normalize_thinking_shapes():
+    assert st._normalize_thinking(True) == {"enabled": True}
+    assert st._normalize_thinking({"type": "disabled"}) == {"enabled": False}
+    assert st._normalize_thinking({"enabled": True, "budget_tokens": 100}) == {
+        "enabled": True,
+        "budget_tokens": 100,
+    }
+    assert st._normalize_thinking("nonsense") is None
+
+
+def test_neutral_mixin_drops_bucket_for_native_encoder_families(monkeypatch):
+    """W3d/G7 D3: gemini/cohere/ollama encoders clone extensions[<slug>] as the
+    base body, so an OpenAI-shaped bucket must NOT be re-labeled to their key."""
+    from victor.providers.base import Message
+
+    monkeypatch.setattr(st, "_wire_contract_checked", True)
+    monkeypatch.setattr(st, "_installed_contract_minor", 4)
+
+    class _Stub(st.SandhiNeutralProviderMixin):
+        def __init__(self, slug):
+            self._slug = slug
+
+        def _sandhi_slug(self):
+            return self._slug
+
+    msgs = [Message(role="user", content="hi")]
+    # Gemini: native encoder → bucket dropped even with a passthrough param.
+    gemini_req = _Stub("gemini")._neutral_request(msgs, "g", 0.7, 100, None, top_p=0.9)
+    assert "extensions" not in gemini_req
+    # An openai-compat local (lmstudio): bucket re-labeled, not dropped.
+    local_req = _Stub("lmstudio")._neutral_request(msgs, "m", 0.7, 100, None, top_p=0.9)
+    assert local_req.get("extensions", {}).get("lmstudio", {}).get("top_p") == 0.9
