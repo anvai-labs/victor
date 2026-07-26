@@ -74,6 +74,12 @@ class StreamMetrics:
     total_cost: float = 0.0
     cost_calculated: bool = False
 
+    # Wire-truth latency from sandhi's typed boundary (W3b) — preferred over
+    # client wall-clock when present (absent on non-sandhi providers and on
+    # sandhi-gateway <= 0.1.4).
+    wire_duration_ms: Optional[int] = None
+    wire_ttft_ms: Optional[int] = None
+
     # Observability features (consolidated)
     chunk_intervals: List[float] = field(default_factory=list)
     metadata: Dict[str, Any] = field(default_factory=dict)
@@ -99,6 +105,17 @@ class StreamMetrics:
             # Mark as actual usage if we got non-zero values
             if self.prompt_tokens > 0 or self.completion_tokens > 0:
                 self.has_actual_usage = True
+
+    def record_wire_latency(self, sandhi_usage: Optional[Dict[str, Any]]) -> None:
+        """Record wire-truth latency from the terminal chunk's diagnostics."""
+        if not isinstance(sandhi_usage, dict):
+            return
+        duration = sandhi_usage.get("duration_ms")
+        if isinstance(duration, (int, float)) and duration >= 0:
+            self.wire_duration_ms = int(duration)
+        ttft = sandhi_usage.get("time_to_first_token_ms")
+        if isinstance(ttft, (int, float)) and ttft >= 0:
+            self.wire_ttft_ms = int(ttft)
 
     def calculate_cost(self, capabilities: Any) -> None:
         """Calculate cost using provider capabilities.
@@ -144,14 +161,22 @@ class StreamMetrics:
 
     @property
     def time_to_first_token(self) -> Optional[float]:
-        """Time from start to first token (TTFT)."""
+        """Time from start to first token (TTFT), in seconds.
+
+        Prefers sandhi's wire-truth measurement (W3b) over client wall-clock —
+        the latter folds host-language scheduling noise into provider latency.
+        """
+        if self.wire_ttft_ms is not None:
+            return self.wire_ttft_ms / 1000.0
         if self.first_token_time and self.start_time:
             return self.first_token_time - self.start_time
         return None
 
     @property
     def total_duration(self) -> float:
-        """Total streaming duration."""
+        """Total streaming duration, in seconds (wire truth when available)."""
+        if self.wire_duration_ms is not None:
+            return self.wire_duration_ms / 1000.0
         if self.end_time and self.start_time:
             return self.end_time - self.start_time
         return 0.0

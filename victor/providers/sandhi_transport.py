@@ -364,6 +364,23 @@ def _native_only_usage(raw_usage: Any) -> Dict[str, int]:
     return fields
 
 
+def _latency_fields(usage: Any) -> Dict[str, int]:
+    """Wire-truth latency measured at sandhi's typed boundary (W3b).
+
+    Present from sandhi-gateway > 0.1.4; tolerant-absent before that. Carried
+    on every run (unlike the non-routine diagnostics) so stream metrics can
+    prefer wire truth over client wall-clock.
+    """
+    if not isinstance(usage, dict):
+        return {}
+    fields: Dict[str, int] = {}
+    for key in ("duration_ms", "time_to_first_token_ms"):
+        value = usage.get(key)
+        if isinstance(value, (int, float)) and value >= 0:
+            fields[key] = int(value)
+    return fields
+
+
 def _usage_diagnostics(usage: Any) -> Optional[Dict[str, Any]]:
     """Preserve non-routine typed metering state without polluting legacy token keys."""
     if not isinstance(usage, dict):
@@ -581,6 +598,7 @@ class SandhiTypedProviderMixin:
         if reasoning:
             metadata["reasoning_content"] = reasoning
         diagnostics = dict(_usage_diagnostics(response.get("usage")) or {})
+        diagnostics.update(_latency_fields(response.get("usage")))
         diagnostics.update(
             _native_only_usage(native.get("usage") if isinstance(native, dict) else None)
         )
@@ -635,7 +653,9 @@ class SandhiTypedProviderMixin:
                     usage = usage_dict_from_neutral(
                         event.get("usage"), None, slug=self._sandhi_slug()
                     )
-                    usage_diagnostics = _usage_diagnostics(event.get("usage"))
+                    usage_diagnostics = dict(_usage_diagnostics(event.get("usage")) or {})
+                    usage_diagnostics.update(_latency_fields(event.get("usage")))
+                    usage_diagnostics = usage_diagnostics or None
                 elif kind == "response_start":
                     # Deliberately ignored (TD-0008 consumer-decision row): victor
                     # derives model/id from the request and final chunk.

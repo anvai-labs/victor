@@ -512,3 +512,32 @@ class TestStreamBufferEdgeCases:
         assert result2 is not None
         assert result1["function"]["name"] == "tool1"
         assert result2["function"]["name"] == "tool2"
+
+
+class TestWireTruthLatency:
+    """W3b: StreamMetrics prefers sandhi's wire-measured latency."""
+
+    def test_wire_latency_preferred_over_wall_clock(self):
+        from victor.agent.stream_handler import StreamMetrics
+
+        metrics = StreamMetrics(start_time=100.0, first_token_time=105.0, end_time=110.0)
+        metrics.record_wire_latency({"duration_ms": 2000, "time_to_first_token_ms": 250})
+        assert metrics.time_to_first_token == 0.25
+        assert metrics.total_duration == 2.0
+
+    def test_wall_clock_fallback_when_wire_absent(self):
+        from victor.agent.stream_handler import StreamMetrics
+
+        metrics = StreamMetrics(start_time=100.0, first_token_time=100.5, end_time=103.0)
+        metrics.record_wire_latency({"attempts": 2})  # diagnostics without latency
+        assert metrics.time_to_first_token == 0.5
+        assert metrics.total_duration == 3.0
+
+    def test_record_wire_latency_tolerates_junk(self):
+        from victor.agent.stream_handler import StreamMetrics
+
+        metrics = StreamMetrics()
+        metrics.record_wire_latency(None)
+        metrics.record_wire_latency({"duration_ms": "x", "time_to_first_token_ms": -5})
+        assert metrics.wire_duration_ms is None
+        assert metrics.wire_ttft_ms is None

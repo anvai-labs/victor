@@ -674,3 +674,28 @@ def test_typed_request_honors_native_body_opt_in(monkeypatch):
     )
     # Opt-in restores sandhi's default (include): the field stays off the wire.
     assert "include_native_response" not in request
+
+
+# =============================================================================
+# W3b: wire-truth latency flows from the typed usage surface into diagnostics.
+# =============================================================================
+
+
+def test_latency_fields_extracted_from_neutral_usage():
+    assert st._latency_fields({"duration_ms": 120, "time_to_first_token_ms": 45}) == {
+        "duration_ms": 120,
+        "time_to_first_token_ms": 45,
+    }
+    # Tolerant-absent: pre-W3b runtimes carry neither field.
+    assert st._latency_fields({"tokens_in": 1}) == {}
+    assert st._latency_fields(None) == {}
+    assert st._latency_fields({"duration_ms": "x", "time_to_first_token_ms": -1}) == {}
+
+
+def test_completion_surfaces_wire_latency_in_diagnostics(monkeypatch):
+    install_runtime(monkeypatch)
+    provider = make_provider()
+    payload = _typed_payload()
+    payload["usage"]["duration_ms"] = 120
+    response = provider._completion_from_typed(payload, "deepseek-chat")
+    assert response.metadata["sandhi_usage"]["duration_ms"] == 120
