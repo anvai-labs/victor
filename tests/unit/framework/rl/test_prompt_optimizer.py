@@ -1206,8 +1206,11 @@ class TestPromptOptimizerLearner:
             for i in range(5)
         ]
         seed = "Base responses on tool output only."
-        # Repeated trigram phrase ⇒ repeated_trigrams (a structural violation).
-        rewrite = seed + "\nrepeat this phrase repeat this phrase repeat this phrase"
+        # Degenerate repetition ⇒ repeated_trigrams (a structural violation).
+        # Three repeats used to be enough, when the cap was zero. That cap also
+        # rejected two of our own shipped sections, so the fixture now repeats
+        # enough to be unambiguous garbage rather than merely parallel phrasing.
+        rewrite = seed + "\n" + "repeat this phrase " * 20
 
         with patch("victor.config.settings.get_settings", return_value=settings):
             learner = PromptOptimizerLearner(name="test", db_connection=db)

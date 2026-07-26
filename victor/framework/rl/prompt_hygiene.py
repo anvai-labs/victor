@@ -27,6 +27,21 @@ class PromptHygieneReport:
     truncated_tail: bool = False
 
 
+# Repeated trigrams tolerated before a candidate counts as repetitive garbage.
+#
+# This was zero, which is not a bound on garbage but a bound on parallel
+# structure — and prompt sections are largely parallel structure. Measured over
+# the shipped, hand-reviewed sections: LARGE_FILE_PAGINATION_GUIDANCE scores 12
+# and PARALLEL_READ_GUIDANCE scores 4, so at zero tolerance two of our own
+# prompts would be rejected as garbage if a mutation proposed them. A genuine
+# 1421-char rewrite from kimi-k3 died on this gate.
+#
+# Set to twice the highest count any shipped section reaches. The failure mode it
+# guards against is not subtle: a line repeated forty times scores 154, six times
+# this cap.
+MAX_REPEATED_TRIGRAMS = 24
+
+
 def evaluate_prompt_candidate(
     seed_text: str,
     candidate_text: str,
@@ -34,7 +49,7 @@ def evaluate_prompt_candidate(
     allowed_additions: Iterable[str] = (),
     max_growth_chars: int = 240,
     min_seed_similarity: float = 0.6,
-    max_repeated_trigrams: int = 0,
+    max_repeated_trigrams: int = MAX_REPEATED_TRIGRAMS,
 ) -> PromptHygieneReport:
     """Validate an optimized prompt against basic safety and quality constraints."""
     growth_chars = len(candidate_text) - len(seed_text)
@@ -76,6 +91,13 @@ def evaluate_prompt_candidate(
 
 # Newly added lines this similar to an existing line are restating, not adding.
 REDUNDANT_LINE_SIMILARITY = 0.6
+
+
+# Smallest share of the truncation limit a boundary cut may retain before it
+# counts as a collapse rather than a clean cut. Matches the quarter-of-the-seed
+# collapse guard callers apply, so truncation never returns a stump they will
+# immediately reject.
+MIN_BOUNDARY_RETENTION = 0.25
 
 # Words that carry no instruction, dropped before comparing two lines.
 _STOPWORDS = frozenset(
@@ -153,10 +175,23 @@ def find_redundant_additions(seed_text: str, candidate_text: str) -> List[str]:
     error message carefully." directly beneath "Read error messages carefully
     before retrying." Degenerate growth like that dilutes the section without
     adding an instruction.
+
+    ``dilutes`` is the operative word, and it is what separates this from an
+    ordinary rewrite. Redundancy needs *both* copies present: the corruption
+    above appended its near-copy directly beneath the line it restated. When a
+    line is reworded **in place** the original is gone, so the only thing left to
+    compare against is the seed line it replaced — and by that measure every
+    tightening of existing wording looked like corruption. Measured against the
+    shipped COMPLETION_GUIDANCE, changing one word tripped this, as did merging
+    two bullets, while a pure append passed; the gate was rejecting exactly the
+    improvements worth having and admitting the growth it meant to stop. So a
+    near-duplicate only counts when the line it restates survives in the
+    candidate.
     """
     seed_lines = [line for line in seed_text.splitlines() if line.strip()]
     seed_word_sets = [_content_words(line) for line in seed_lines]
     seed_norm = {_normalize_line(line) for line in seed_lines}
+    candidate_norm = {_normalize_line(line) for line in candidate_text.splitlines() if line.strip()}
 
     redundant: List[str] = []
     for raw_line in candidate_text.splitlines():
@@ -165,11 +200,18 @@ def find_redundant_additions(seed_text: str, candidate_text: str) -> List[str]:
         added = _content_words(raw_line)
         if not added:
             continue
-        for existing in seed_word_sets:
+        for seed_line, existing in zip(seed_lines, seed_word_sets):
             union = added | existing
-            if union and len(added & existing) / len(union) >= REDUNDANT_LINE_SIMILARITY:
-                redundant.append(raw_line.strip())
-                break
+            if not union:
+                continue
+            if len(added & existing) / len(union) < REDUNDANT_LINE_SIMILARITY:
+                continue
+            if _normalize_line(seed_line) not in candidate_norm:
+                # The line this restates was replaced, not duplicated. Keep
+                # scanning: it may also resemble a line that did survive.
+                continue
+            redundant.append(raw_line.strip())
+            break
     return redundant
 
 
@@ -260,16 +302,26 @@ def boundary_aware_truncate(text: str, limit: int) -> tuple[str, bool]:
 
     head = text[:limit]
 
+    # A boundary this early is not a boundary, it is a collapse: the strongest
+    # cut available can still discard nearly all of the budget we were allowed
+    # to use. A real candidate arrived as a short heading followed by one very
+    # long line, so the last newline inside a 1500-char limit sat at 118 — the
+    # line cut threw away 92% of the allowance, and the caller then rejected the
+    # 118-char stump as collapsed, wasting the whole mutation. The floor matches
+    # the caller's own collapse guard (a quarter), so this never hands back
+    # something that is about to be thrown away.
+    floor = int(limit * MIN_BOUNDARY_RETENTION)
+
     line_cut = head.rfind("\n")
-    if line_cut > 0:
+    if line_cut > floor:
         return text[:line_cut].rstrip(), True
 
     sentence_cut = max(head.rfind(". "), head.rfind("! "), head.rfind("? "))
-    if sentence_cut > 0:
+    if sentence_cut > floor:
         return text[: sentence_cut + 1].rstrip(), True
 
     word_cut = head.rfind(" ")
-    return text[: word_cut if word_cut > 0 else limit].rstrip(), True
+    return text[: word_cut if word_cut > floor else limit].rstrip(), True
 
 
 def sanitize_prompt_candidate(

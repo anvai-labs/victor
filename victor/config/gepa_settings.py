@@ -20,8 +20,16 @@ class GEPAModelSpec(BaseModel):
 
     provider: str = "ollama"
     model: str = "qwen3:8b"
-    timeout_s: float = 30.0
-    max_tokens: int = 1000
+    # 30s does not cover a reasoning model rewriting a 1500-char section; the
+    # observed calls run one to three minutes.
+    timeout_s: float = 180.0
+    # 1000 tokens predates reasoning models and is below what any measured
+    # mutator needs. Both deepseek-v4-pro and kimi-k3 return *nothing* at 1000 on
+    # a realistic mutate prompt — the budget goes to hidden reasoning before the
+    # rewrite starts — so every call paid a wasted attempt before the retry
+    # escalated it. deepseek needs 16384 to answer in full (992 chars at 4096,
+    # 1345 at 8192, 1485 at 16384); this starts where the answers actually are.
+    max_tokens: int = 8192
     base_url: str = ""  # Non-empty overrides provider default (e.g. coding endpoint)
 
 

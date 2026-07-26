@@ -150,12 +150,12 @@ class TestFailingExemplars:
 
 class TestReflectSeesTheWholeSection:
     def _service(self):
-        service = GEPAService.__new__(GEPAService)
-        service._tier = "economic"
-        service._max_prompt_chars = 1500
-        service._timeout_s = 30
-        service._max_tokens = 800
-        return service
+        # Real constructor, not __new__: hand-built instances silently skip every
+        # field added later, and the AttributeError surfaces as an unrelated
+        # test failure in whichever method reads the new one.
+        return GEPAService(
+            provider=None, model="", tier="economic", max_prompt_chars=1500, max_tokens=800
+        )
 
     def test_full_section_reaches_the_model(self):
         """A 1551-char section must arrive whole, not as its first 1000 chars."""
@@ -215,13 +215,13 @@ class TestMutationFailureIsVisible:
     """
 
     def _service(self):
-        service = GEPAService.__new__(GEPAService)
-        service._tier = "balanced"
-        service._max_prompt_chars = 1500
-        service._timeout_s = 30
-        service._max_tokens = 800
-        service._model = "glm-5.2"
-        return service
+        return GEPAService(
+            provider=None,
+            model="glm-5.2",
+            tier="balanced",
+            max_prompt_chars=1500,
+            max_tokens=800,
+        )
 
     def test_failed_mutation_returns_the_seed_and_warns(self, caplog):
         service = self._service()

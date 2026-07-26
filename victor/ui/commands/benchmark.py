@@ -460,10 +460,19 @@ def _print_prompt_optimizer_sync_summary(sync_result) -> None:
             status_parts.append("approved")
         if getattr(decision, "promoted", False):
             status_parts.append("promoted")
+        # The paired result is the one that decides approval, so it leads. An
+        # absolute pass rate says nothing about whether this beats the prompt we
+        # already ship.
+        contrast = getattr(decision, "paired_contrast", None)
+        verdict = (
+            f"vs baseline {contrast.summary()}"
+            if contrast is not None
+            else f"pass_rate={decision.score:.1%} [dim](no baseline arm)[/]"
+        )
         console.print(
             "  "
             f"#{decision.rank} {decision.section_name}:{decision.provider}:{decision.prompt_candidate_hash} "
-            f"pass_rate={decision.score:.1%} [{', '.join(status_parts)}]"
+            f"{verdict} [{', '.join(status_parts)}]"
         )
 
     promoted_hash = getattr(sync_result, "promoted_prompt_candidate_hash", None)
@@ -2942,6 +2951,28 @@ def _is_undersized_mutator(provider: Optional[str], model: Optional[str]) -> boo
         return False
 
 
+def _build_mutator_rotation(profiles: Optional[str]):
+    """Build a mutator rotation from a comma-separated profile list, or None."""
+    if not profiles:
+        return None
+    from victor.framework.rl.mutator_rotation import build_rotation
+
+    entries = []
+    for name in (n.strip() for n in profiles.split(",")):
+        if not name:
+            continue
+        provider, model = _resolve_mutator_spec(name, None)
+        if provider and model:
+            entries.append((provider, model, name))
+        else:
+            console.print(f"[yellow]Warning:[/] skipping unresolvable profile '{name}'")
+    rotation = build_rotation(entries)
+    if not rotation:
+        console.print("[yellow]Warning:[/] no profiles in --profiles resolved; ignoring it")
+        return None
+    return rotation
+
+
 def _resolve_mutator_spec(
     profile: Optional[str], model: Optional[str]
 ) -> tuple[Optional[str], Optional[str]]:
@@ -3049,6 +3080,15 @@ def evolve_prompts(
     model: Optional[str] = typer.Option(
         None, "--model", "-m", help="Override the reflect/mutate model directly"
     ),
+    profiles: Optional[str] = typer.Option(
+        None,
+        "--profiles",
+        help=(
+            "Comma-separated profiles to ROTATE the reflect/mutate model across sections, "
+            "e.g. zai-glm52-openai,kimi,deepseek-v4pro-openai. Spreads calls so one "
+            "provider's rate limit cannot stall the pass; a provider that 429s is benched."
+        ),
+    ),
 ) -> None:
     """Evolve prompts using GEPA + benchmark trace data.
 
@@ -3080,13 +3120,25 @@ def evolve_prompts(
         # candidate namespace being evolved; it does NOT select the mutator.
         # The /prompt-optimize slash command pushes the live session model here;
         # the CLI had no equivalent until now.
-        mutator_provider, mutator_model = _resolve_mutator_spec(profile, model)
-        if mutator_provider and hasattr(learner, "set_main_model_spec"):
-            learner.set_main_model_spec(mutator_provider, mutator_model)
-        console.print(
-            f"[dim]Reflect/mutate model: {mutator_provider or 'session default'}"
-            f"/{mutator_model or 'default'}[/]"
-        )
+        rotation = _build_mutator_rotation(profiles)
+        if rotation:
+            console.print(f"[dim]Reflect/mutate {rotation.summary()}[/]")
+            mutator_provider = mutator_model = None
+            # Spreading calls across sections is not enough on its own: a single
+            # section makes several calls, so one throttled provider still costs
+            # the whole section. Arming the failover lets an individual call move
+            # on, and both paths share this rotation — a provider benched mid-call
+            # drops out of the per-section round-robin too.
+            if hasattr(learner, "set_mutator_rotation"):
+                learner.set_mutator_rotation(rotation)
+        else:
+            mutator_provider, mutator_model = _resolve_mutator_spec(profile, model)
+            if mutator_provider and hasattr(learner, "set_main_model_spec"):
+                learner.set_main_model_spec(mutator_provider, mutator_model)
+            console.print(
+                f"[dim]Reflect/mutate model: {mutator_provider or 'session default'}"
+                f"/{mutator_model or 'default'}[/]"
+            )
         if _is_undersized_mutator(mutator_provider, mutator_model):
             console.print(
                 "[yellow]Warning:[/] the reflect/mutate model looks small. Rewriting a "
@@ -3176,7 +3228,29 @@ def evolve_prompts(
                 if current is None:
                     results.add_row(p, s[:20], "-", "-", "[yellow]not registered[/]")
                     continue
-                candidate = learner.evolve(s, current, provider=p)
+                # Rotate the mutator per section. A pass makes several LLM calls
+                # per section back-to-back; pointing them all at one provider
+                # reliably earns a 429 partway through, and a 429 in mutate is
+                # not a degraded result but no result at all.
+                spec = None
+                if rotation:
+                    spec = rotation.next_spec()
+                    if spec is None:
+                        results.add_row(p, s[:20], "-", "-", "[red]all mutators rate-limited[/]")
+                        continue
+                    if hasattr(learner, "set_main_model_spec"):
+                        learner.set_main_model_spec(
+                            spec.provider, spec.model, base_url=spec.base_url
+                        )
+                try:
+                    candidate = learner.evolve(s, current, provider=p)
+                except Exception as exc:
+                    # evolve() swallows most failures internally; this catches the
+                    # rest so one throttled provider cannot abort the whole pass.
+                    if rotation and spec is not None:
+                        rotation.note_failure(spec, exc)
+                    results.add_row(p, s[:20], "-", "-", f"[red]{str(exc)[:28]}[/]")
+                    continue
                 if candidate:
                     # Seed from aggregate benchmark data or defaults
                     agg = provider_agg.get(p)
