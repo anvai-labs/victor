@@ -133,6 +133,10 @@ class OrchestratorProtocol(Protocol):
         """Reset the conversation history."""
         ...
 
+    def resume_session(self, session_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Hydrate the live conversation from a stored session (cross-visit resume)."""
+        ...
+
 
 @runtime_checkable
 class TaskClassificationResultProtocol(Protocol):

@@ -456,6 +456,19 @@ class ConversationController:
         self._system_added = False
         logger.info("Conversation reset")
 
+    def load_history(self, history: MessageHistory) -> None:
+        """Replace the live history in place (cross-visit resume).
+
+        Repoints the controller at a previously stored session's messages so
+        the turn loop — which reads this controller's ``_history`` directly —
+        recalls the prior turns. The system message is re-established so the
+        history stays well-formed.
+        """
+        self._history = history
+        self._system_added = bool(history.messages) and history.messages[0].role == "system"
+        self.ensure_system_message()
+        logger.info("Conversation history loaded (%d messages)", len(history.messages))
+
     def compact_history(self, keep_recent: int = 10) -> int:
         """Compact history by removing old messages (simple strategy).
 
