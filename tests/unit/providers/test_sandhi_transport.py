@@ -648,3 +648,29 @@ class TestTypedErrorClassFastPath:
 
         assert isinstance(err, ProviderConnectionError)
         assert "binding failure" in str(err)
+
+
+# =============================================================================
+# W3a soak (sandhi#90): Victor opts out of the native-body echo by default.
+# =============================================================================
+
+
+def test_typed_request_opts_out_of_native_body_by_default():
+    request = st._typed_request_from_openai_payload(
+        {"model": "m", "messages": [{"role": "user", "content": "hi"}]}
+    )
+    assert request["include_native_response"] is False
+
+
+def test_typed_request_honors_native_body_opt_in(monkeypatch):
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(
+        "victor.config.settings.get_settings",
+        lambda: SimpleNamespace(provider=SimpleNamespace(sandhi_include_native_response=True)),
+    )
+    request = st._typed_request_from_openai_payload(
+        {"model": "m", "messages": [{"role": "user", "content": "hi"}]}
+    )
+    # Opt-in restores sandhi's default (include): the field stays off the wire.
+    assert "include_native_response" not in request

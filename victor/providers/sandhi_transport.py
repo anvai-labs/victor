@@ -225,6 +225,16 @@ def _canonical_content(content: Any) -> Any:
     return parts
 
 
+def _include_native_response() -> bool:
+    """Whether typed requests ask sandhi for the native-body echo (debug-only)."""
+    try:
+        from victor.config.settings import get_settings
+
+        return bool(get_settings().provider.sandhi_include_native_response)
+    except Exception:
+        return False  # neutral-only is the safe default
+
+
 def _typed_request_from_openai_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     """Translate Victor's normalized prompt into `ChatRequestV1`."""
     messages: List[Dict[str, Any]] = []
@@ -250,6 +260,11 @@ def _typed_request_from_openai_payload(payload: Dict[str, Any]) -> Dict[str, Any
         "model": str(payload.get("model", "")),
         "messages": messages,
     }
+    if not _include_native_response():
+        # W3a soak (sandhi#90): opt out of the native-body echo — Victor is
+        # neutral-contract-only since F1 (#665). Older sandhi runtimes ignore
+        # the unknown field and keep including the body, which F1 tolerates.
+        request["include_native_response"] = False
     tools = payload.get("tools")
     if isinstance(tools, list):
         request["tools"] = [
