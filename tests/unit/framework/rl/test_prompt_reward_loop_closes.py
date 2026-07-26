@@ -27,6 +27,7 @@ test of the whole cycle is what distinguishes "the loop is broken" from "these
 candidates never entered it".
 """
 
+import random
 import sqlite3
 from datetime import datetime
 
@@ -87,6 +88,20 @@ def _reward(learner, *, success: bool, score: float) -> None:
             metadata={"prompt_section": SECTION, "prompt_candidate_hash": CANDIDATE_HASH},
         )
     )
+
+
+class _DrawsLow:
+    """An RNG whose draw always succeeds — isolates the gate from chance.
+
+    A pending candidate's epsilon is scaled by
+    PENDING_BENCHMARK_EXPLORATION_FACTOR, so even ``exploration_epsilon=1.0``
+    leaves a coin flip. These tests assert *reachability*, not probability;
+    the rate itself is covered by test_pending_explores_at_a_reduced_rate.
+    """
+
+    @staticmethod
+    def random() -> float:
+        return 0.0
 
 
 class TestLoopCloses:
@@ -156,37 +171,99 @@ class TestLoopCloses:
         )
 
 
-class TestBenchmarkGateDeadlock:
-    """A candidate requiring a benchmark cannot reach the loop on its own.
+class TestBenchmarkGateHasAnExit:
+    """A benchmark-gated candidate must be able to earn its way in.
 
-    ``_servable_candidates`` filters out ``requires_benchmark`` candidates until
-    ``benchmark_passed``, and no runtime path benchmarks them — only an operator
-    running ``victor benchmark --prompt-candidate-hash ...``. So a strategy that
-    sets the flag (PrefPO) produces candidates that are never served, therefore
-    never rewarded, therefore never promoted.
+    Excluding pending candidates from recommendation entirely made the gate a
+    wall: nothing in the runtime benchmarks them, so the only exit was an
+    operator running ``victor benchmark --prompt-candidate-hash …`` by hand. On
+    a default config that stranded three of nine evolvable sections
+    (CONCISE_MODE_GUIDANCE, COMPLETION_GUIDANCE, GROUNDING_RULES) — and is why
+    two of the three candidates in the 2026-07-25 audit sat permanently at
+    ``sample_count=0``.
 
-    Pinned as *current behaviour*, not endorsed: this is the reason two of the
-    three candidates in the 2026-07-25 audit sat permanently at
-    ``sample_count=0``, which was misread as the reward loop being unwired.
+    The gate now lives in the *serve* decision: pending candidates are reachable
+    through exploration alone, and only when nothing servable exists.
     """
 
-    def test_unbenchmarked_candidate_is_not_servable(self, learner):
+    def test_pending_candidate_is_recommendable(self, learner):
         _fresh_candidate(learner, requires_benchmark=True, benchmark_passed=False)
-        assert _recommend(learner) is None
+        assert _recommend(learner) is not None
 
-    def test_not_even_exploration_can_reach_it(self, learner):
+    def test_pending_candidate_is_never_served_on_merit(self, learner):
+        candidate = _fresh_candidate(learner, requires_benchmark=True, benchmark_passed=False)
+        # Even with a posterior that would make any normal candidate proven.
+        candidate.alpha, candidate.sample_count = 50.0, 40
+        rec = _recommend(learner)
+        assert rec.confidence > 0.6
+        assert (
+            should_serve_candidate(rec, exploration_enabled=False, exploration_epsilon=0.0) is False
+        )
+
+    def test_exploration_can_reach_it(self, learner):
         _fresh_candidate(learner, requires_benchmark=True, benchmark_passed=False)
         rec = _recommend(learner)
         assert (
-            should_serve_candidate(rec, exploration_enabled=True, exploration_epsilon=1.0) is False
+            should_serve_candidate(
+                rec, exploration_enabled=True, exploration_epsilon=1.0, rng=_DrawsLow()
+            )
+            is True
         )
 
-    def test_a_passing_benchmark_is_the_only_exit(self, learner):
+    def test_pending_explores_at_a_reduced_rate(self, learner):
+        """Unvalidated candidates reach live traffic more rarely than merely-unsampled ones."""
+        _fresh_candidate(learner, requires_benchmark=True, benchmark_passed=False)
+        rec = _recommend(learner)
+        rng = random.Random(0)
+        served = sum(
+            should_serve_candidate(rec, exploration_enabled=True, exploration_epsilon=0.4, rng=rng)
+            for _ in range(4000)
+        )
+        # 0.4 * PENDING_BENCHMARK_EXPLORATION_FACTOR (0.5) = 0.2
+        assert 0.15 < served / 4000 < 0.25
+
+    def test_a_passing_benchmark_restores_the_merit_path(self, learner):
         candidate = _fresh_candidate(learner, requires_benchmark=True, benchmark_passed=False)
-        assert _recommend(learner) is None
+        rec = _recommend(learner)
+        assert (
+            should_serve_candidate(rec, exploration_enabled=False, exploration_epsilon=0.0) is False
+        )
 
         candidate.benchmark_passed = True
 
         rec = _recommend(learner)
-        assert rec is not None
-        assert rec.metadata["prompt_candidate_hash"] == CANDIDATE_HASH
+        assert (
+            should_serve_candidate(rec, exploration_enabled=False, exploration_epsilon=0.0) is True
+        )
+
+    def test_a_validated_candidate_is_never_displaced_by_a_pending_one(self, learner):
+        """An approved candidate must keep priority — pending is a fallback, not a peer."""
+        _fresh_candidate(learner, requires_benchmark=True, benchmark_passed=False)
+        approved = PromptCandidate(
+            section_name=SECTION,
+            provider=PROVIDER,
+            text="benchmark-approved text",
+            text_hash="approved00001",
+            generation=2,
+            parent_hash="deadbeef0000",
+            benchmark_passed=True,
+            benchmark_runs=3,
+        )
+        learner._candidates[learner._candidate_key(SECTION, PROVIDER)].append(approved)
+
+        rec = _recommend(learner)
+        assert rec.metadata["prompt_candidate_hash"] == "approved00001"
+
+    def test_pending_can_complete_the_whole_loop(self, learner):
+        """The property the deadlock denied: inert + gated -> served -> rewarded."""
+        candidate = _fresh_candidate(learner, requires_benchmark=True, benchmark_passed=False)
+        rec = _recommend(learner)
+        assert should_serve_candidate(
+            rec, exploration_enabled=True, exploration_epsilon=1.0, rng=_DrawsLow()
+        )
+        learner.record_served(SECTION, PROVIDER, rec.metadata["prompt_candidate_hash"])
+
+        _reward(learner, success=True, score=0.9)
+
+        assert candidate.sample_count == 1
+        assert candidate.alpha > 1.0

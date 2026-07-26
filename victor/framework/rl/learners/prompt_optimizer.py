@@ -759,6 +759,10 @@ MIN_SAMPLES_FOR_CONFIDENCE = 3
 # serving of an evolved candidate. Exposed as a constant so the serve decision
 # and its tests share one source of truth.
 SERVE_CONFIDENCE_FLOOR = 0.6
+# Pending-benchmark candidates explore at a fraction of the normal rate: they
+# must be able to earn evidence, but a candidate no suite has validated should
+# reach live traffic more rarely than one that merely lacks samples.
+PENDING_BENCHMARK_EXPLORATION_FACTOR = 0.5
 
 
 def should_serve_candidate(
@@ -782,13 +786,26 @@ def should_serve_candidate(
     """
     if rec is None:
         return False
-    proven = rec.confidence > SERVE_CONFIDENCE_FLOOR and not rec.is_baseline
-    approved = bool((getattr(rec, "metadata", None) or {}).get("benchmark_passed"))
-    if proven or approved:
-        return True
-    if exploration_enabled and exploration_epsilon > 0.0:
+    metadata = getattr(rec, "metadata", None) or {}
+    approved = bool(metadata.get("benchmark_passed"))
+    pending_benchmark = bool(metadata.get("requires_benchmark")) and not approved
+
+    if not pending_benchmark:
+        proven = rec.confidence > SERVE_CONFIDENCE_FLOOR and not rec.is_baseline
+        if proven or approved:
+            return True
+
+    # A candidate still awaiting its benchmark is reachable *only* here. It is
+    # never trusted on merit — no proven path, no approved path — but it can
+    # accumulate the live evidence that a benchmark would otherwise have to
+    # supply. Without this the gate has no exit and the candidate is inert
+    # forever; see _servable_candidates.
+    epsilon = exploration_epsilon
+    if pending_benchmark:
+        epsilon *= PENDING_BENCHMARK_EXPLORATION_FACTOR
+    if exploration_enabled and epsilon > 0.0:
         draw = rng if rng is not None else _SERVE_RNG
-        return draw.random() < exploration_epsilon
+        return draw.random() < epsilon
     return False
 
 
@@ -1274,11 +1291,38 @@ class PromptOptimizerLearner(BaseLearner):
     def _servable_candidates(
         candidates: List[PromptCandidate],
     ) -> List[PromptCandidate]:
-        """Filter out pending candidates that are explicitly benchmark-gated."""
+        """Candidates that may be served on merit — benchmark gate satisfied."""
         return [
             candidate
             for candidate in candidates
             if not candidate.requires_benchmark or candidate.benchmark_passed
+        ]
+
+    @staticmethod
+    def _pending_benchmark_candidates(
+        candidates: List[PromptCandidate],
+    ) -> List[PromptCandidate]:
+        """Candidates still awaiting the benchmark that would validate them.
+
+        Excluding these outright made the gate a wall rather than a gate:
+        nothing in the runtime benchmarks a pending candidate — the only exit is
+        an operator running ``victor benchmark --prompt-candidate-hash …`` by
+        hand. A PrefPO candidate was therefore never served, never rewarded and
+        never promoted for the life of the install. On a default config that is
+        three of nine evolvable sections (CONCISE_MODE_GUIDANCE,
+        COMPLETION_GUIDANCE, GROUNDING_RULES) unable to enter the loop at all.
+
+        They are offered only when nothing servable exists, and even then
+        ``should_serve_candidate`` reaches them through the exploration path
+        alone — never proven, never approved. So a validated candidate always
+        wins, an unvalidated one is never trusted on merit, and the dead end
+        becomes a slow path instead. Corruption is still excluded upstream by
+        the persist gate (truncated_tail / redundant_additions / growth).
+        """
+        return [
+            candidate
+            for candidate in candidates
+            if candidate.requires_benchmark and not candidate.benchmark_passed
         ]
 
     def record_outcome(self, outcome: RLOutcome) -> None:
@@ -1381,12 +1425,21 @@ class PromptOptimizerLearner(BaseLearner):
         if not section_name:
             return None
 
-        provider_candidates = self._servable_candidates(
-            self._candidates.get(self._candidate_key(section_name, provider or "default"), [])
+        provider_pool = self._candidates.get(
+            self._candidate_key(section_name, provider or "default"), []
         )
-        default_candidates = self._servable_candidates(
-            self._candidates.get(self._candidate_key(section_name, "default"), [])
-        )
+        default_pool = self._candidates.get(self._candidate_key(section_name, "default"), [])
+
+        provider_candidates = self._servable_candidates(provider_pool)
+        default_candidates = self._servable_candidates(default_pool)
+
+        # Only when nothing is servable anywhere do pending candidates get a
+        # look — so an approved candidate is never displaced by an unvalidated
+        # one, while a section whose every candidate is benchmark-gated still
+        # has a way into the loop.
+        if not provider_candidates and not default_candidates:
+            provider_candidates = self._pending_benchmark_candidates(provider_pool)
+            default_candidates = self._pending_benchmark_candidates(default_pool)
 
         candidates = provider_candidates or default_candidates
         if not candidates:
@@ -1457,6 +1510,9 @@ class PromptOptimizerLearner(BaseLearner):
                 "section_name": best.section_name,
                 "prompt_section_name": best.section_name,
                 "benchmark_passed": bool(best.benchmark_passed),
+                # Read by should_serve_candidate: a pending candidate is
+                # reachable through exploration only, never on merit.
+                "requires_benchmark": bool(best.requires_benchmark),
             },
         )
 
