@@ -518,7 +518,13 @@ class SandhiTypedProviderMixin:
                 )
             base_url = proxy_url
             api_key = virtual_key
-            auth_scheme = "bearer"
+            # The binding accepts an explicit auth_scheme only for the
+            # Anthropic/Gemini protocols; request bearer there so the virtual
+            # key rides Authorization. OpenAI-family handles already send
+            # Bearer by default — passing the scheme raised ValueError and
+            # broke gateway mode for every openai-compat provider (found by
+            # the TD-0010 SDK-conformance dogfood against a live proxy).
+            auth_scheme = "bearer" if getattr(self, "_sandhi_auth_scheme", "") else ""
             explicit_base_url = proxy_url
         else:
             base_url = str(getattr(self, "base_url", "") or "")
