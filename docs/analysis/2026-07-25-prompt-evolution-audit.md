@@ -294,15 +294,19 @@ reading a transcript; only the source of the hypothesis differs.
   Pinned by `tests/unit/framework/rl/test_prompt_reward_loop_closes.py`.
 
   The observed `sample_count=0` has a different cause — the next item.
-- **The benchmark gate is a dead end for the strategies that set it.**
-  `_servable_candidates` filters out `requires_benchmark` candidates until
-  `benchmark_passed`, and no runtime path ever benchmarks them: the only exit is
-  an operator running `victor benchmark --prompt-candidate-hash …`. A PrefPO
-  candidate is therefore never served → never rewarded → never promoted, and
-  not even exploration can reach it. **This is why two of the three audited
-  candidates sat permanently at zero samples**, which is what the stale claim
-  above misread as a broken loop. Fix undecided: auto-benchmark pending
-  candidates, expire the gate, or let exploration reach them at a lower epsilon.
+- **~~The benchmark gate is a dead end~~ — fixed.** `_servable_candidates`
+  excluded `requires_benchmark` candidates until `benchmark_passed`, and nothing
+  in the runtime ever benchmarks one — the only exit was an operator running
+  `victor benchmark --prompt-candidate-hash …` by hand. On the default config
+  that stranded **three of nine** evolvable sections (`CONCISE_MODE_GUIDANCE`,
+  `COMPLETION_GUIDANCE`, `GROUNDING_RULES`), which is why two of the three
+  audited candidates sat permanently at `sample_count=0`.
+
+  The gate moved into the *serve* decision: pending candidates are recommendable
+  but reachable through exploration alone (at half the normal epsilon), and only
+  when nothing servable exists — so a validated candidate is never displaced,
+  an unvalidated one is never trusted on merit, and the dead end becomes a slow
+  path. Pinned by `TestBenchmarkGateHasAnExit`.
 - **`requires_benchmark=0` plus no benchmark run means servable-unmeasured.**
   The ASI candidate could have been injected on 0.05/4. The serve gate should
   require *some* evidence, not merely the absence of a benchmark requirement.
