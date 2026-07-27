@@ -840,40 +840,25 @@ class IntelligentPromptBuilder:
     def _is_remotely_hosted(self) -> bool:
         """Whether the provider is a hosted API rather than a local runtime.
 
-        This is the MINIMAL-vs-STRUCTURED axis: hosted providers cache prompt
-        prefixes and tolerate the shorter, less scaffolded prompt, while a local
-        runtime benefits from the fuller structured guidance.
+        This is the MINIMAL-vs-STRUCTURED axis: a hosted provider tolerates the
+        shorter, less scaffolded prompt; a local runtime benefits from the fuller
+        structured guidance.
 
-        Resolution order, most authoritative first:
+        Read from the canonical ``LOCAL_PROVIDERS`` set in ``victor.config.api_keys``
+        — the same one the auth surface uses to decide a provider needs no API key,
+        and therefore the repo's actual statement of what runs locally.
 
-        1. The OpenAI-compat provider spec's ``prompt_caching`` capability, which
-           covers every dual-dialect profile (zai, deepseek, moonshot, xai, ...).
-        2. The canonical ``LOCAL_PROVIDERS`` set from ``victor.config.api_keys`` —
-           the same one the auth surface uses to decide a provider needs no API
-           key. Absence from the OpenAI-compat catalog carries no signal on its
-           own (both ``anthropic`` and ``ollama`` are absent), so it must not be
-           read as one.
+        This deliberately does NOT consult the OpenAI-compat spec's
+        ``prompt_caching`` capability. Whether a provider bills cached prefixes at
+        a discount is a *pricing* fact, not a hosting one: Moonshot is a hosted
+        cloud provider that declares ``prompt_caching: False``, and keying on it
+        demoted kimi-k3 from MINIMAL to STRUCTURED (see #706).
+
+        Model capability is a separate axis and comes from the capability catalog
+        via :meth:`_tool_calling_capabilities` — a hosted provider serving a weak
+        model is still caught by ``requires_strict_prompting``.
         """
         from victor.config.api_keys import LOCAL_PROVIDERS
-        from victor.providers.openai_compat_model_policy import (
-            get_openai_compat_provider_spec,
-        )
-
-        try:
-            spec = get_openai_compat_provider_spec(self.provider_name)
-        except Exception:
-            # Not in the OpenAI-compat catalog (anthropic, google, ollama, ...).
-            # Expected for those providers, so debug rather than warning — but
-            # logged, because a silently swallowed lookup is how a provider gets
-            # misclassified without anyone noticing.
-            logger.debug(
-                "[IntelligentPromptBuilder] No OpenAI-compat spec for %r; "
-                "falling back to the local-provider set",
-                self.provider_name,
-                exc_info=True,
-            )
-        else:
-            return bool(spec.capabilities.prompt_caching)
 
         return self.provider_name not in LOCAL_PROVIDERS
 
