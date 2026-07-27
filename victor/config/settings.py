@@ -409,6 +409,15 @@ class ProfileConfig(BaseSettings):
 
     provider: str = Field(..., description="Provider name (ollama, anthropic, openai, google)")
     model: str = Field(..., description="Model identifier")
+    account: Optional[str] = Field(
+        None,
+        description=(
+            "Provider account name (credential identity). Decoupled from the provider "
+            "transport slug: multiple accounts can share one provider/dialect (e.g. several "
+            "anthropic-dialect upstreams) while each resolves its own credential. When unset, "
+            "the provider's default account is used."
+        ),
+    )
     temperature: float = Field(0.6, ge=0.0, le=2.0)  # ADR-013 default flip 0.7→0.6 (A/B 2026-06-22)
     temperatures: Optional[Dict[str, float]] = Field(
         None,
@@ -2470,7 +2479,10 @@ class Settings(BaseSettings):
             return {}
 
     def get_provider_settings(
-        self, provider: str, profile_overrides: Optional[Dict[str, Any]] = None
+        self,
+        provider: str,
+        profile_overrides: Optional[Dict[str, Any]] = None,
+        account_name: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Get settings for a specific provider.
 
@@ -2487,6 +2499,13 @@ class Settings(BaseSettings):
         Args:
             provider: Provider name (or alias like 'gemini' for 'google')
             profile_overrides: Runtime overrides (e.g., coding_plan, auth_mode)
+            account_name: Credential-identity account to resolve (from the profile's
+                ``account`` field). Decouples credential identity from the provider
+                transport slug: when set, the named account's own key/endpoint are
+                used instead of the provider default, so multiple accounts under one
+                provider (e.g. several anthropic-dialect upstreams) never collide on
+                a shared credential slot. When None, falls back to the provider
+                default account (legacy single-account-per-provider behavior).
 
         Returns:
             Dictionary of provider settings
@@ -2502,7 +2521,20 @@ class Settings(BaseSettings):
 
             manager = get_account_manager()
             if manager.config_path.exists():
-                account = manager.get_account(provider=provider)
+                # Account-scoped selection: the profile's own account is the unit of
+                # credential identity. Fall back to the provider default only when the
+                # profile names no account (or names an unknown one), so misconfigured
+                # profiles degrade gracefully rather than silently dropping credentials.
+                if account_name:
+                    account = manager.get_account(name=account_name)
+                    if account is None:
+                        logger.warning(
+                            f"Profile account '{account_name}' not found; "
+                            f"falling back to provider '{provider}' default account"
+                        )
+                        account = manager.get_account(provider=provider)
+                else:
+                    account = manager.get_account(provider=provider)
                 if account:
                     account_data = {}
                     # Extract auth info

@@ -2151,14 +2151,24 @@ class PromptOptimizerLearner(BaseLearner):
             contrast = self._paired_contrast(baseline_run, run)
             is_winner = prompt_candidate_hash == best_hash
             if contrast is not None:
-                passed = is_winner and contrast.effect > 0 and contrast.discordant >= min_discordant
+                # Enough disagreements *and* a lead bigger than chance would
+                # produce on that many. The first condition alone approved a
+                # candidate at 8 versus 6 — 14 disagreements is plenty of
+                # evidence, and an effect of 2 against a 3.7 noise floor is
+                # still a coin flip (the exact test said p=0.79). Volume of
+                # disagreement is not the same question as asymmetry of it.
+                passed = (
+                    is_winner and contrast.discordant >= min_discordant and contrast.beats_noise()
+                )
                 if is_winner and not passed:
                     logger.info(
                         "Candidate %s did not clear the comparative gate: %s "
-                        "(needs a positive effect over at least %d discordant tasks).",
+                        "(needs %d+ discordant tasks and an effect above the "
+                        "%.1f noise floor).",
                         prompt_candidate_hash[:12],
                         contrast.summary(),
                         min_discordant,
+                        contrast.noise_floor,
                     )
             else:
                 passed = is_winner and score > 0.0 and score >= min_pass_rate

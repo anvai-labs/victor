@@ -126,6 +126,27 @@ class PairedContrast:
         return self.variant_only_pass - self.baseline_only_pass
 
     @property
+    def noise_floor(self) -> float:
+        """How large a lead a fair coin would produce on this many disagreements.
+
+        Under the null the variant wins each discordant task with probability
+        one half, so the effect has mean zero and standard deviation
+        ``sqrt(discordant)``. A lead smaller than that is indistinguishable from
+        chance however many tasks were run.
+
+        This is why "positive effect over enough disagreements" was not a
+        sufficient gate: a candidate cleared it at 8 versus 6 — an effect of two
+        against a noise floor of 3.7, which the exact test scored p=0.79. The
+        floor scales with the evidence, so more tasks demand a bigger lead in
+        absolute terms while making a genuine one easier to reach.
+        """
+        return math.sqrt(self.discordant)
+
+    def beats_noise(self) -> bool:
+        """True when the lead exceeds what chance alone would produce."""
+        return self.effect >= self.noise_floor and self.effect > 0
+
+    @property
     def mcnemar_p(self) -> float:
         """Two-sided exact p for the discordant split under a fair coin.
 

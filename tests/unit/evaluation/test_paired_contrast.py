@@ -290,3 +290,53 @@ class TestThrottledTasksAreNotEvidence:
 
         with pytest.raises(ValueError, match="shared task set"):
             PairedContrast.from_results(baseline, dead)
+
+
+class TestALeadMustBeatChance:
+    """Volume of disagreement is not the same question as asymmetry of it.
+
+    The gate asked for a positive effect over enough discordant tasks, and
+    approved a candidate at 8 versus 6: fourteen disagreements is ample
+    evidence, and a lead of two is still a coin flip. The exact test scored it
+    p=0.79. Under the null the effect has mean zero and standard deviation
+    sqrt(discordant), so that is the bar a real lead has to clear.
+    """
+
+    @staticmethod
+    def split(variant_only, baseline_only):
+        return PairedContrast(
+            n_paired=variant_only + baseline_only,
+            variant_only_pass=variant_only,
+            baseline_only_pass=baseline_only,
+            both_pass=0,
+            both_fail=0,
+        )
+
+    def test_the_floor_is_the_null_standard_deviation(self):
+        assert self.split(7, 7).noise_floor == pytest.approx(14**0.5)
+        assert self.split(5, 5).noise_floor == pytest.approx(10**0.5)
+
+    @pytest.mark.parametrize("v,b", [(8, 6), (6, 4), (4, 5), (7, 7)])
+    def test_leads_inside_the_noise_are_refused(self, v, b):
+        """Every result this session landed here."""
+        c = self.split(v, b)
+        assert c.beats_noise() is False
+        assert c.mcnemar_p > 0.5, "sanity: the exact test agrees these are noise"
+
+    @pytest.mark.parametrize("v,b", [(8, 1), (10, 0), (11, 3), (25, 10)])
+    def test_real_leads_still_pass(self, v, b):
+        c = self.split(v, b)
+        assert c.beats_noise() is True
+        assert c.mcnemar_p < 0.2, "sanity: the exact test agrees these are signal"
+
+    def test_a_tie_never_beats_the_floor(self):
+        assert self.split(0, 0).beats_noise() is False
+        assert self.split(6, 6).beats_noise() is False
+
+    def test_a_loss_never_passes_however_lopsided(self):
+        assert self.split(0, 10).beats_noise() is False
+
+    def test_more_tasks_demand_a_bigger_absolute_lead(self):
+        """The floor scales with evidence rather than being a fixed number."""
+        assert self.split(3, 0).beats_noise() is True  # 3 vs floor 1.7
+        assert self.split(3, 22).noise_floor > self.split(3, 0).noise_floor
