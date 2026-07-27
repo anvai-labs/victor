@@ -205,8 +205,37 @@ class PairedContrast:
         }
 
 
+def was_throttled(task: Any) -> bool:
+    """True when this task failed because the provider refused, not the prompt.
+
+    A task the agent never got a model response for says nothing about the
+    prompt under test. Left in, it reads as a failure caused by the candidate.
+    """
+    from victor.framework.rl.mutator_rotation import is_rate_limit
+
+    if getattr(task, "status", None) == TaskStatus.PASSED:
+        return False
+    haystack = " ".join(
+        str(part)
+        for part in (
+            getattr(task, "error_message", ""),
+            getattr(task, "stderr", ""),
+            getattr(task, "failure_details", {}),
+        )
+    )
+    return is_rate_limit(haystack)
+
+
 def _passed_by_task(result: "EvaluationResult") -> dict[str, bool]:
     """Map task id to whether it passed, for one arm.
+
+    Throttled tasks are omitted, which drops the whole pair — a task only
+    counts when *both* arms got a real attempt at it. Running three arms back to
+    back exhausted one provider's quota and the last arm recorded 0/24 in 128
+    seconds: ten explicit 429s and an agent that never received a response. That
+    is an aborted arm, not a candidate that lost, and scoring it as a loss is
+    the same defect as the mutator's invisible 429 — a quota failure wearing the
+    costume of a quality signal.
 
     Later results win on duplicate ids: a resumed run appends rather than
     replaces, so the last attempt is the one that counts.
@@ -214,7 +243,7 @@ def _passed_by_task(result: "EvaluationResult") -> dict[str, bool]:
     return {
         task.task_id: task.status == TaskStatus.PASSED
         for task in getattr(result, "task_results", []) or []
-        if getattr(task, "task_id", "")
+        if getattr(task, "task_id", "") and not was_throttled(task)
     }
 
 
