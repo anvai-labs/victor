@@ -212,3 +212,78 @@ class TestReporting:
     def test_a_run_without_a_contrast_serializes_as_null(self, learner):
         payload = learner.sync_evaluation_suite(suite(make_arm("cand-a", [True]))).to_dict()
         assert payload["decisions"][0]["paired_contrast"] is None
+
+
+class TestAnAbortedArmIsNotRecorded:
+    """Recording a throttled arm is worse than recording nothing.
+
+    A candidate nobody evaluated acquired "failed benchmark (0.00 over 1 runs)",
+    which every later audit, promotion check, and Thompson draw then treats as a
+    real measurement. The arm posted 0/24 in 128 seconds because the provider
+    had stopped answering, not because the prompt was bad.
+    """
+
+    @staticmethod
+    def throttled_arm(candidate_hash: str, n: int = 10):
+        config = EvaluationConfig(
+            benchmark=BenchmarkType.HUMAN_EVAL,
+            model="kimi-k3",
+            provider=PROVIDER,
+            prompt_candidate_hash=candidate_hash,
+            prompt_section_name=SECTION,
+        )
+        return PromptCandidateEvaluationRun(
+            spec=PromptCandidateEvaluationSpec(
+                section_name=SECTION, prompt_candidate_hash=candidate_hash, provider=PROVIDER
+            ),
+            config=config,
+            result=EvaluationResult(
+                config=config,
+                task_results=[
+                    TaskResult(
+                        task_id=f"task-{i}",
+                        status=TaskStatus.FAILED,
+                        error_message="rate limited (429) (provider=moonshot)",
+                    )
+                    for i in range(n)
+                ],
+            ),
+            label=f"{SECTION}:{candidate_hash}",
+        )
+
+    def test_it_is_skipped_rather_than_scored_zero(self, learner, caplog):
+        baseline = make_arm(BASELINE_CANDIDATE_HASH, outcomes("PPPPPPPPPP"))
+
+        with caplog.at_level("WARNING"):
+            result = learner.sync_evaluation_suite(
+                suite(baseline, self.throttled_arm("cand-a")), min_discordant=2
+            )
+
+        assert result.decisions == [], "an untested arm must not become a decision"
+        assert "never evaluated" in caplog.text
+        assert "rate-limited" in caplog.text
+
+    def test_a_healthy_arm_beside_a_throttled_one_still_counts(self, learner):
+        baseline = make_arm(BASELINE_CANDIDATE_HASH, outcomes("PFFFFFFFFF"))
+        good = make_arm("cand-better", outcomes("PPPPPPPFFF"))
+
+        result = learner.sync_evaluation_suite(
+            suite(baseline, good, self.throttled_arm("cand-worse")), min_discordant=6
+        )
+
+        recorded = [d.prompt_candidate_hash for d in result.decisions]
+        assert recorded == ["cand-better"]
+        assert result.approved_prompt_candidate_hash == "cand-better"
+
+    def test_a_few_throttled_tasks_do_not_discard_the_arm(self, learner):
+        """Only a dominated arm is aborted; stragglers just drop their pairs."""
+        baseline = make_arm(BASELINE_CANDIDATE_HASH, outcomes("PFFFFFFFFF"))
+        mostly_fine = make_arm("cand-better", outcomes("PPPPPPPFFF"))
+        mostly_fine.result.task_results[-1] = TaskResult(
+            task_id="task-9", status=TaskStatus.FAILED, error_message="rate limited (429)"
+        )
+
+        result = learner.sync_evaluation_suite(suite(baseline, mostly_fine), min_discordant=6)
+
+        assert [d.prompt_candidate_hash for d in result.decisions] == ["cand-better"]
+        assert result.decisions[0].paired_contrast.n_paired == 9
