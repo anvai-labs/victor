@@ -817,3 +817,166 @@ class TestPromptQuotesEnforcedBudget:
         guidance = builder._get_tool_guidance(context, strategy)
 
         assert "37" in guidance
+
+
+# =============================================================================
+# MODE / CAPABILITY REGRESSION TESTS
+# =============================================================================
+#
+# Regression cover for the sandhi-cdfbc589 refusal (2026-07-26):
+#   * `current_mode` was fed a ConversationStage name ("completion"), which
+#     _get_mode_hint did not recognise, so the BUILD mode the user selected never
+#     reached the prompt.
+#   * `zai` was absent from a hand-maintained CLOUD_PROVIDERS set and `glm` from a
+#     17-substring model-name list, so glm-5.2 — whose every tool call parsed as
+#     native_passthrough — was classified as a weak local model and handed the
+#     STRICT "you are a code analyst / plain English only" identity.
+# Together these told a build-mode agent it was read-only.
+
+
+class TestModeHintCoversEveryAgentMode:
+    """Every AgentMode must produce a hint; unknown values must be loud."""
+
+    @pytest.fixture
+    def temp_learning_store(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            yield ProfileLearningStore(db_path=Path(tmpdir) / "test_learning.db")
+
+    @pytest.fixture
+    def builder(self, temp_learning_store):
+        return IntelligentPromptBuilder(
+            provider_name="zai",
+            model="glm-5.2",
+            profile_name="zai:glm-5.2",
+            learning_store=temp_learning_store,
+        )
+
+    def test_every_agent_mode_has_a_hint(self, builder):
+        from victor.agent.mode_controller import AgentMode
+
+        for mode in AgentMode:
+            hint = builder._get_mode_hint(mode.value, 20)
+            assert hint, f"no mode hint for AgentMode.{mode.name}"
+            assert "MODE:" in hint
+
+    def test_conversation_stage_name_is_rejected_loudly(self, builder, caplog):
+        """A stage name here means mode and stage have been conflated again."""
+        import logging
+
+        with caplog.at_level(logging.WARNING):
+            hint = builder._get_mode_hint("completion", 20)
+
+        assert hint == ""
+        assert "Unknown operating mode" in caplog.text
+
+
+class TestCapabilityDrivenStrategy:
+    """Prompt strategy comes from declared capabilities, not provider names."""
+
+    @pytest.fixture
+    def temp_learning_store(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            yield ProfileLearningStore(db_path=Path(tmpdir) / "test_learning.db")
+
+    def _strategy(self, store, provider, model):
+        builder = IntelligentPromptBuilder(
+            provider_name=provider,
+            model=model,
+            profile_name=f"{provider}:{model}",
+            learning_store=store,
+        )
+        context = PromptContext(
+            task="t",
+            task_type="analysis",
+            profile_name=f"{provider}:{model}",
+            provider=provider,
+            model=model,
+        )
+        return builder._determine_strategy(context)
+
+    @pytest.mark.parametrize(
+        "provider,model",
+        [
+            ("zai", "glm-5.2"),
+            ("deepseek", "deepseek-v4pro"),
+            ("moonshot", "kimi-k3"),
+        ],
+    )
+    def test_dual_dialect_providers_are_not_demoted_to_strict(
+        self, temp_learning_store, provider, model
+    ):
+        """These were all absent from the old CLOUD_PROVIDERS/model-name lists."""
+        assert self._strategy(temp_learning_store, provider, model) is not PromptStrategy.STRICT
+
+    def test_builder_keeps_no_provider_name_sets(self):
+        """The stale lists must not come back — the catalog is the source."""
+        assert not hasattr(IntelligentPromptBuilder, "CLOUD_PROVIDERS")
+        assert not hasattr(IntelligentPromptBuilder, "LOCAL_PROVIDERS")
+        assert not hasattr(IntelligentPromptBuilder, "_has_native_tool_support")
+
+
+class TestBuildModeIsNeverToldItIsReadOnly:
+    """No strategy may present a read-only identity while writes are expected."""
+
+    @pytest.fixture
+    def temp_learning_store(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            yield ProfileLearningStore(db_path=Path(tmpdir) / "test_learning.db")
+
+    @pytest.fixture
+    def builder(self, temp_learning_store):
+        return IntelligentPromptBuilder(
+            provider_name="ollama",
+            model="codellama:7b",  # resolves to STRICT
+            profile_name="strictest",
+            learning_store=temp_learning_store,
+        )
+
+    @pytest.mark.parametrize("strategy", list(PromptStrategy))
+    @pytest.mark.parametrize("mode", ["build", "delegate"])
+    def test_identity_is_not_read_only_in_write_capable_modes(self, builder, strategy, mode):
+        identity = builder._get_base_identity(strategy, mode)
+
+        assert "You are a code analyst. Follow the rules below EXACTLY." not in identity
+
+    @pytest.mark.parametrize("mode", ["build", "delegate"])
+    def test_strict_rules_do_not_forbid_editing_in_write_capable_modes(self, builder, mode):
+        context = PromptContext(
+            task="t",
+            task_type="general",
+            profile_name="p",
+            provider="ollama",
+            model="codellama:7b",
+            current_mode=mode,
+        )
+
+        guidance = builder._get_tool_guidance(context, PromptStrategy.STRICT)
+
+        assert "Provide plain English text responses only." not in guidance
+
+    def test_read_oriented_modes_keep_the_original_wording(self, builder):
+        context = PromptContext(
+            task="t",
+            task_type="general",
+            profile_name="p",
+            provider="ollama",
+            model="codellama:7b",
+            current_mode="explore",
+        )
+
+        guidance = builder._get_tool_guidance(context, PromptStrategy.STRICT)
+        identity = builder._get_base_identity(PromptStrategy.STRICT, "explore")
+
+        assert "Provide plain English text responses only." in guidance
+        assert "You are a code analyst." in identity
+
+    @pytest.mark.asyncio
+    async def test_full_build_mode_prompt_has_no_read_only_instruction(self, builder):
+        prompt = await builder.build(
+            task="implement the metrics registry",
+            current_mode="build",
+            tool_budget=20,
+        )
+
+        assert "MODE: Build" in prompt
+        assert "plain English text responses only" not in prompt
