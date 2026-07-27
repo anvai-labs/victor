@@ -119,3 +119,48 @@ class TestWhichBenchmarksGetSource:
 
         known = {b.value for b in BenchmarkType}
         assert _SOURCE_BENCHMARKS <= known
+
+
+class TestSelfImportsAreNeverEmitted:
+    """Concatenation turns a valid cross-module import into a self-import.
+
+    conftest.py legitimately contains ``from solution import f`` to expose a
+    name to bare-assertion tests. Concatenated into solution.py that imports the
+    module into itself, and Python raises a partially-initialized circular
+    import. It cost 10 of 48 tasks in the first run that captured source.
+    """
+
+    def test_conftest_is_excluded(self):
+        conftest = "import builtins\nfrom solution import find_Volume\nbuiltins.find_Volume = find_Volume\n"
+        adapter = adapter_with([("solution.py", SOLUTION), ("conftest.py", conftest)])
+        captured = adapter._capture_solution_source()
+        assert "builtins" not in captured
+        assert captured == SOLUTION
+
+    def test_a_self_import_inside_solution_source_is_stripped(self):
+        adapter = adapter_with([("solution.py", "from solution import helper\n" + SOLUTION)])
+        captured = adapter._capture_solution_source()
+        assert "from solution import" not in captured
+        assert "def missing_number" in captured
+
+    def test_plain_import_solution_is_stripped_too(self):
+        adapter = adapter_with([("solution.py", "import solution\n" + SOLUTION)])
+        assert "import solution" not in adapter._capture_solution_source()
+
+    def test_unrelated_imports_survive(self):
+        """Only self-imports are the problem; real dependencies must stay."""
+        adapter = adapter_with(
+            [("solution.py", "import math\nfrom typing import List\n" + SOLUTION)]
+        )
+        captured = adapter._capture_solution_source()
+        assert "import math" in captured
+        assert "from typing import List" in captured
+
+    def test_the_result_still_executes(self):
+        conftest = "import builtins\nfrom solution import missing_number\n"
+        adapter = adapter_with([("solution.py", SOLUTION), ("conftest.py", conftest)])
+        namespace: dict = {}
+        exec(
+            adapter._capture_solution_source() + "\nassert missing_number([0,1,3]) == 2\n",
+            namespace,
+        )
