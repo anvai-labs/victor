@@ -57,6 +57,16 @@ benchmark_app = typer.Typer(
 )
 console = Console()
 
+# Benchmarks whose runner executes ``agent_output + test_code`` as one Python
+# file, so the agent's *source* is the artifact. Every other benchmark keeps
+# receiving a patch, which is what SWE-bench applies to a fresh clone.
+#
+# Opt-in rather than opt-out on purpose: only these two have been read and
+# confirmed to concatenate-and-run, so nothing else changes behaviour.
+# Slugs, not the enum: BenchmarkType is imported lazily inside functions here,
+# so a module-level reference to it would break the import.
+_SOURCE_BENCHMARKS = frozenset({"mbpp", "human_eval"})
+
 
 def _get_global_evaluations_dir() -> Path:
     """Resolve the global benchmark evaluations directory."""
@@ -2084,8 +2094,23 @@ async def _run_benchmark_async(
                     except Exception as e:
                         logger.debug("Failed to capture git diff: %s", e)
 
+                # Patch or source, decided by what the runner will do with it.
+                # SWE-bench applies this to a fresh clone, so it wants the diff.
+                # Code-generation runners execute `agent_output + test_code`
+                # directly, so a diff is a SyntaxError on line 3 — which is why
+                # MBPP scored 0 on every one of the 135 real tasks it has run.
+                # The patch stays as the fallback: an empty source capture should
+                # degrade to the old behaviour, not to nothing.
+                benchmark_slug = getattr(
+                    benchmark_task.benchmark, "value", benchmark_task.benchmark
+                )
+                if benchmark_slug in _SOURCE_BENCHMARKS:
+                    solution = trace.generated_code or patch
+                else:
+                    solution = patch
+
                 return {
-                    "code": patch,
+                    "code": solution,
                     "tokens_input": trace.token_usage.input_tokens,
                     "tokens_output": trace.token_usage.output_tokens,
                     "tokens_used": trace.token_usage.total_tokens,
