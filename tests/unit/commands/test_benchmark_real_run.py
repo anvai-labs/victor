@@ -37,6 +37,7 @@ class TestRunRealBenchmarkAsync:
                 config=config,
                 output_dir=tmp_path,
                 resume=True,
+                profile="default",
             )
 
         real_config = runner_cls.call_args.args[0]
