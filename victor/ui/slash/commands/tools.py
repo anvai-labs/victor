@@ -107,7 +107,9 @@ class ToolsCommand(BaseSlashCommand):
             table.add_row(name, category, access_badge, cost_indicator, desc)
 
         ctx.console.print(table)
-        ctx.console.print(f"\n[dim]Tool budget: {ctx.settings.tools.tool_call_budget}[/]")
+        # settings.tools.tool_call_budget is the whole-session cap, not the per-turn
+        # budget the loop enforces — label it as such so the two are not confused.
+        ctx.console.print(f"\n[dim]Session tool cap: {ctx.settings.tools.tool_call_budget}[/]")
         ctx.console.print(
             "[dim]Legend: [/][green]READ[/][dim] [yellow]WRITE[/][dim] [red]EXECUTE[/][dim] [blue]NETWORK[/][dim] [magenta]MIXED[/][dim] • Cost: [yellow]$[/] = low, [yellow]$$[/] = medium, [yellow]$$$[/] = high[/]"
         )

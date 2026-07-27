@@ -4433,24 +4433,23 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
         return ConversationStage.INITIAL
 
     def get_tool_calls_count(self) -> int:
-        """Get total tool calls made (protocol method).
+        """Get total tool calls made (protocol method), matching get_tool_budget().
 
         Returns:
             Non-negative count of tool calls in this session
         """
-        if self.unified_tracker:
-            return self.unified_tracker.tool_calls_used
-        return getattr(self, "tool_calls_used", 0)
+        return int(getattr(self, "tool_calls_used", 0) or 0)
 
     def get_tool_budget(self) -> int:
-        """Get tool call budget (protocol method).
+        """Get the *enforcing* tool budget (protocol method).
+
+        ``self.tool_budget`` seeds ``StreamingChatContext`` and halts the loop;
+        ``UnifiedTaskTracker`` is advisory by design and must not be quoted here.
 
         Returns:
             Maximum allowed tool calls
         """
-        if self.unified_tracker:
-            return self.unified_tracker.tool_budget
-        return getattr(self, "tool_budget", 50)
+        return int(getattr(self, "tool_budget", 50) or 50)
 
     def get_observed_files(self) -> Set[str]:
         """Get files observed/read during conversation (protocol method).

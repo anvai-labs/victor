@@ -84,7 +84,8 @@ class ContextState:
         observed_files: Files that have been read
         executed_tools: Tools that have been executed
         tool_calls_made: Total tool calls in this turn
-        tool_budget: Maximum tool calls allowed
+        tool_budget: Maximum tool calls allowed, or None if the runtime has not
+            supplied one yet (budget reminders stay silent while it is None)
         task_complexity: Current task complexity level
         last_reminder_at: Tool call count at last reminder
         reminder_history: Hash of last reminder content to detect changes
@@ -93,7 +94,9 @@ class ContextState:
     observed_files: Set[str] = field(default_factory=set)
     executed_tools: List[str] = field(default_factory=list)
     tool_calls_made: int = 0
-    tool_budget: int = 10
+    # None means "not yet told by the runtime". Budget reminders are suppressed
+    # entirely in that state — never invent a limit and count down against it.
+    tool_budget: Optional[int] = None
     task_complexity: str = "medium"
     task_hint: str = ""
     last_reminder_at: int = 0
@@ -205,6 +208,7 @@ class ContextReminderManager:
         tool_budget: Optional[int] = None,
         task_complexity: Optional[str] = None,
         task_hint: Optional[str] = None,
+        executed_tools: Optional[List[str]] = None,
     ) -> None:
         """Update the current context state.
 
@@ -215,10 +219,16 @@ class ContextReminderManager:
             tool_budget: Maximum tool calls allowed
             task_complexity: Current task complexity level
             task_hint: Task type hint to inject
+            executed_tools: Every tool executed in this batch (appends all). Prefer
+                this over ``executed_tool`` when a turn executes tools in parallel —
+                the progress reminder reports ``len(executed_tools)``, so appending
+                one name per batch understates the work done.
         """
         if observed_files is not None:
             self.state.observed_files = observed_files
-        if executed_tool:
+        if executed_tools:
+            self.state.executed_tools.extend(executed_tools)
+        elif executed_tool:
             self.state.executed_tools.append(executed_tool)
         if tool_calls is not None:
             self.state.tool_calls_made = tool_calls
@@ -258,8 +268,12 @@ class ContextReminderManager:
                 self.state.task_hint and ReminderType.TASK_HINT not in self.state.reminder_history
             )
 
-        # Special case: budget reminder only when running low
+        # Special case: budget reminder only when running low — and only when the
+        # runtime has actually told us the budget. Guessing one and counting down
+        # against it tells the model something it can measure as false.
         if reminder_type == ReminderType.BUDGET:
+            if self.state.tool_budget is None:
+                return False
             remaining = self.state.tool_budget - self.state.tool_calls_made
             return remaining <= 5 and remaining > 0
 
@@ -284,7 +298,9 @@ class ContextReminderManager:
         return "[No files read yet — gather evidence with the available tools before answering.]"
 
     def _format_budget_reminder(self) -> str:
-        """Format the budget reminder."""
+        """Format the budget reminder (empty when no budget has been supplied)."""
+        if self.state.tool_budget is None:
+            return ""
         remaining = self.state.tool_budget - self.state.tool_calls_made
         if remaining <= 3:
             warning_icon = self._presentation.icon("warning", with_color=False)
@@ -436,11 +452,12 @@ class ContextReminderManager:
         """
         parts = []
 
-        # Budget warning is critical
-        remaining = self.state.tool_budget - self.state.tool_calls_made
-        if remaining <= 3:
-            warning_icon = self._presentation.icon("warning", with_color=False)
-            parts.append(f"{warning_icon} {remaining} calls left")
+        # Budget warning is critical — but only when a budget is actually known.
+        if self.state.tool_budget is not None:
+            remaining = self.state.tool_budget - self.state.tool_calls_made
+            if remaining <= 3:
+                warning_icon = self._presentation.icon("warning", with_color=False)
+                parts.append(f"{warning_icon} {remaining} calls left")
 
         # File count
         if self.state.observed_files:
@@ -487,14 +504,16 @@ class ContextReminderManager:
 def create_reminder_manager(
     provider: str,
     task_complexity: str = "medium",
-    tool_budget: int = 10,
+    tool_budget: Optional[int] = None,
 ) -> ContextReminderManager:
     """Create a configured reminder manager for a task.
 
     Args:
         provider: The LLM provider name
         task_complexity: Task complexity level
-        tool_budget: Maximum tool calls allowed
+        tool_budget: Maximum tool calls allowed. Leave as None at construction time
+            and let the runtime supply the enforced budget via ``update_state`` —
+            a hardcoded default here is stated to the model as fact.
 
     Returns:
         Configured ContextReminderManager instance

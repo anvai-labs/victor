@@ -14,6 +14,7 @@
 
 """Tests for intelligent prompt builder with learning capabilities."""
 
+import re
 import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -717,3 +718,102 @@ class TestPromptGeneration:
 
         assert minimal_rules == GROUNDING_RULES
         assert strict_rules == GROUNDING_RULES_EXTENDED
+
+
+# =============================================================================
+# BUDGET TRUTHFULNESS REGRESSION TESTS
+# =============================================================================
+#
+# Regression cover for the sandhi-cdfbc589 refusal (2026-07-26). The enforced
+# tool budget was threaded all the way into _build_context and then discarded in
+# favour of ProfileMetrics.optimal_tool_budget (an EWMA-learned average, default
+# 10). The generated prompt therefore told the model "Budget: 10 calls max" while
+# the enforcer allowed 20. The model measured the claim as false, concluded it was
+# being injected against, and refused to continue.
+
+
+class TestPromptQuotesEnforcedBudget:
+    """The prompt may only state a budget the runtime actually enforces."""
+
+    @pytest.fixture
+    def temp_learning_store(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            yield ProfileLearningStore(db_path=Path(tmpdir) / "test_learning.db")
+
+    def _builder(self, store, provider="zai", model="glm-5.2"):
+        return IntelligentPromptBuilder(
+            provider_name=provider,
+            model=model,
+            profile_name=f"{provider}:{model}",
+            learning_store=store,
+        )
+
+    @pytest.mark.asyncio
+    async def test_enforced_budget_is_quoted_not_learned_average(self, temp_learning_store):
+        """A learned budget of 10 must not override an enforced budget of 20."""
+        builder = self._builder(temp_learning_store)
+        builder._metrics.optimal_tool_budget = 10
+
+        prompt = await builder.build(task="implement the metrics registry", tool_budget=20)
+
+        assert "Budget: 20 calls" in prompt
+        assert "Budget: 10 calls" not in prompt
+
+    @pytest.mark.asyncio
+    async def test_no_tool_budget_claim_when_budget_unknown(self, temp_learning_store):
+        """With no budget supplied, the prompt makes no tool-call budget claim.
+
+        The iteration budget ("Budget: N turns", from the mode hint) is a separate,
+        independently-supplied figure and is not asserted on here.
+        """
+        builder = self._builder(temp_learning_store)
+        builder._metrics.optimal_tool_budget = 10
+
+        prompt = await builder.build(task="implement the metrics registry")
+
+        assert re.search(r"Budget:\s*\d+\s*calls", prompt) is None
+
+    @pytest.mark.parametrize(
+        "strategy",
+        [PromptStrategy.MINIMAL, PromptStrategy.STRUCTURED, PromptStrategy.STRICT],
+    )
+    def test_tool_guidance_is_well_formed_without_a_budget(self, temp_learning_store, strategy):
+        """Dropping the budget line must not leave a dangling bullet or number."""
+        builder = self._builder(temp_learning_store)
+        context = PromptContext(
+            task="t",
+            task_type="general",
+            profile_name="p",
+            provider="zai",
+            model="glm-5.2",
+            available_tools=["read", "edit"],
+            recommended_tool_budget=None,
+        )
+
+        guidance = builder._get_tool_guidance(context, strategy)
+
+        assert "Budget" not in guidance
+        assert "None" not in guidance
+        for line in guidance.splitlines():
+            assert line.strip() not in {"-", "-.", ""} or line == ""
+            assert not line.rstrip().endswith("- ")
+
+    @pytest.mark.parametrize(
+        "strategy",
+        [PromptStrategy.MINIMAL, PromptStrategy.STRUCTURED, PromptStrategy.STRICT],
+    )
+    def test_tool_guidance_states_supplied_budget(self, temp_learning_store, strategy):
+        """Every strategy quotes the enforced number when one is supplied."""
+        builder = self._builder(temp_learning_store)
+        context = PromptContext(
+            task="t",
+            task_type="general",
+            profile_name="p",
+            provider="zai",
+            model="glm-5.2",
+            recommended_tool_budget=37,
+        )
+
+        guidance = builder._get_tool_guidance(context, strategy)
+
+        assert "37" in guidance
