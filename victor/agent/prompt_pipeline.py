@@ -660,14 +660,6 @@ class UnifiedPromptPipeline:
         # Build base prompt from SystemPromptBuilder
         base_prompt = self._builder.build()
 
-        # Establish the authenticated guidance channel. This must go in the system
-        # prompt (not the turn prefix) because it is what gives the per-turn
-        # envelope its meaning, and because it is stable for the session — which is
-        # also what keeps it inside the cached prefix.
-        declaration = channel_declaration(self._channel_nonce)
-        if declaration:
-            base_prompt = f"{base_prompt}\n\n{declaration}"
-
         # Append project context
         if project_context:
             base_prompt = f"{base_prompt}\n\n{project_context}"
@@ -683,6 +675,21 @@ class UnifiedPromptPipeline:
             credit = self._get_credit_guidance()
             if credit:
                 base_prompt = f"{base_prompt}\n\n{credit}"
+
+        # Establish the authenticated guidance channel (FEP-0026). This belongs in
+        # the system prompt rather than the turn prefix because it is what gives
+        # the per-turn envelope its meaning, and it is stable for the session.
+        #
+        # It goes LAST on purpose. The declaration embeds a per-session random
+        # nonce, so every byte after it differs between sessions. Placed earlier it
+        # truncated the cross-session cacheable prefix to ~21% of the prompt and
+        # pushed the whole project context past the divergence point (#707).
+        # Appending it keeps the long stable region — base prompt, tool guidance,
+        # grounding rules, project context — byte-identical across sessions, so
+        # only this short tail varies.
+        declaration = channel_declaration(self._channel_nonce)
+        if declaration:
+            base_prompt = f"{base_prompt}\n\n{declaration}"
 
         # Emit RL event
         self._emit_prompt_used_event(base_prompt)
