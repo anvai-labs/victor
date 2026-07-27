@@ -6,6 +6,8 @@ import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import sys
+
 import pytest
 
 import victor.providers.sandhi_transport as st
@@ -353,7 +355,10 @@ async def test_gateway_mode_points_ffi_handle_at_proxy_with_virtual_key(monkeypa
     # the virtual key replaces the credential; the proxy URL replaces the endpoint.
     assert args[:3] == ("deepseek", "deepseek-chat", "vk_test_123")
     assert kwargs["base_url"] == "http://localhost:8600"
-    assert kwargs["auth_scheme"] == "bearer"
+    # OpenAI-family handles send Bearer by default and the binding REJECTS an
+    # explicit auth_scheme outside the Anthropic/Gemini protocols — gateway
+    # mode must not pass one (live-proxy dogfood regression).
+    assert "auth_scheme" not in kwargs
 
 
 @pytest.mark.asyncio
@@ -369,6 +374,20 @@ async def test_gateway_mode_preserves_protocol_alongside_overrides(monkeypatch):
     _, kwargs = runtime.calls[0]
     assert kwargs["protocol"] == "chatgpt_responses"
     assert kwargs["base_url"] == "http://localhost:8600"
+    assert "auth_scheme" not in kwargs
+
+
+@pytest.mark.asyncio
+async def test_gateway_mode_requests_bearer_for_auth_scheme_families(monkeypatch):
+    """Anthropic/Gemini-protocol providers DO pass bearer so the virtual key
+    rides Authorization (the binding accepts auth_scheme only there)."""
+    runtime = install_runtime(monkeypatch)
+    provider = make_gateway_provider()
+    provider._sandhi_auth_scheme = "api_key"  # marks an auth-scheme family
+
+    await provider.chat([Message(role="user", content="hi")], model="deepseek-chat")
+
+    _, kwargs = runtime.calls[0]
     assert kwargs["auth_scheme"] == "bearer"
 
 
@@ -446,3 +465,379 @@ def test_resolve_provider_gateway_drops_block_without_url():
     resolve_provider_gateway(base, "deepseek")
     assert "gateway" not in base
     assert base["api_key"] == "k"
+
+
+class TestWireContractHandshake:
+    """One-time fail-soft handshake against the installed binding."""
+
+    def setup_method(self):
+        st._wire_contract_checked = False
+
+    def teardown_method(self):
+        st._wire_contract_checked = False
+
+    def test_mismatch_warns_once(self, monkeypatch, caplog):
+        fake_sg = SimpleNamespace(wire_contract_version=lambda: "2")
+        import sys
+
+        monkeypatch.setitem(sys.modules, "sandhi_gateway", fake_sg)
+        with caplog.at_level("WARNING"):
+            st._verify_wire_contract()
+            st._verify_wire_contract()  # second call must be a no-op
+        warnings = [r for r in caplog.records if "wire-contract mismatch" in r.getMessage()]
+        assert len(warnings) == 1
+
+    def test_matching_version_is_silent(self, monkeypatch, caplog):
+        fake_sg = SimpleNamespace(wire_contract_version=lambda: "1")
+        import sys
+
+        monkeypatch.setitem(sys.modules, "sandhi_gateway", fake_sg)
+        with caplog.at_level("WARNING"):
+            st._verify_wire_contract()
+        assert not any("wire-contract" in r.getMessage() for r in caplog.records)
+
+    def test_old_binding_without_surface_is_silent(self, monkeypatch, caplog):
+        fake_sg = SimpleNamespace()  # predates wire_contract_version
+        import sys
+
+        monkeypatch.setitem(sys.modules, "sandhi_gateway", fake_sg)
+        with caplog.at_level("WARNING"):
+            st._verify_wire_contract()
+        assert not any("wire-contract" in r.getMessage() for r in caplog.records)
+
+
+class TestUpstreamBodySurfacing:
+    """details.upstream_body from ProviderErrorV1 must reach the surfaced message."""
+
+    def _typed_error(self, details=None):
+        import json as _json
+
+        payload = {
+            "code": "upstream_error",
+            "message": "upstream status 400",
+            "retryable": False,
+            "http_status": 400,
+            "provider": "moonshot",
+        }
+        if details is not None:
+            payload["details"] = details
+        return RuntimeError(_json.dumps(payload))
+
+    def test_upstream_body_appended_to_message(self):
+        body = '{"error":{"message":"tool call id call_9 not found"}}'
+        err = st.map_sandhi_error(self._typed_error({"upstream_body": body}), "moonshot", 30.0)
+        assert "tool call id call_9 not found" in str(err)
+
+    def test_no_details_keeps_prior_message(self):
+        err = st.map_sandhi_error(self._typed_error(), "moonshot", 30.0)
+        assert "upstream status 400" in str(err)
+        assert "upstream body" not in str(err)
+
+    def test_body_already_in_message_not_duplicated(self):
+        body = "duplicate snippet content that is already present"
+        payload_err = self._typed_error({"upstream_body": body})
+        import json as _json
+
+        parsed = _json.loads(str(payload_err))
+        parsed["message"] = f"upstream status 400: {body}"
+        err = st.map_sandhi_error(RuntimeError(_json.dumps(parsed)), "moonshot", 30.0)
+        assert str(err).count(body) == 1
+
+
+# =============================================================================
+# Native body optional (foundations strategy F1) — the typed path must behave
+# identically when `extensions` is absent; native-only usage fields surface
+# through metadata["sandhi_usage"], never through the body.
+# =============================================================================
+
+
+def _typed_payload(**overrides):
+    payload = {
+        "schema_version": "1",
+        "id": "r9",
+        "model": "deepseek-chat",
+        "output": {"content": "hello", "tool_calls": []},
+        "finish_reason": "stop",
+        "usage": {
+            "tokens_in": 6,
+            "tokens_out": 5,
+            "cache_creation_tokens": 0,
+            "cache_read_tokens": 4,
+            "completeness": "final",
+            "attempts": 1,
+            "outcome": "success",
+        },
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_extensions_absent_is_behavior_identical(monkeypatch):
+    """With no native body, usage/metadata must match the with-body result."""
+    install_runtime(monkeypatch)
+    provider = make_provider()
+
+    with_native = provider._completion_from_typed(
+        _typed_payload(
+            extensions={
+                "openai": {
+                    "id": "r9",
+                    "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+                }
+            }
+        ),
+        "deepseek-chat",
+    )
+    without_native = provider._completion_from_typed(_typed_payload(), "deepseek-chat")
+
+    assert without_native.usage == with_native.usage
+    assert without_native.usage == {
+        "prompt_tokens": 10,
+        "completion_tokens": 5,
+        "total_tokens": 15,
+        "cache_read_input_tokens": 4,
+    }
+    assert without_native.metadata == with_native.metadata is None
+    assert without_native.content == "hello"
+    # Debug fallback: with no native body, raw_response is the typed document.
+    assert without_native.raw_response["schema_version"] == "1"
+
+
+def test_native_only_usage_fields_surface_as_diagnostics(monkeypatch):
+    """cache-miss/cost exist only in native bodies; the transport boundary
+    extracts them into metadata['sandhi_usage'] so the runtime never reads the
+    body (unblocks sandhi G8 native-body gating)."""
+    install_runtime(monkeypatch)
+    provider = make_provider()
+
+    response = provider._completion_from_typed(
+        _typed_payload(
+            extensions={
+                "openai": {
+                    "usage": {
+                        "prompt_tokens": 10,
+                        "completion_tokens": 5,
+                        "total_tokens": 15,
+                        "prompt_cache_miss_tokens": 7,
+                        "cost_in_usd_ticks": 123,
+                    }
+                }
+            }
+        ),
+        "deepseek-chat",
+    )
+
+    assert response.metadata["sandhi_usage"] == {
+        "cache_miss_tokens": 7,
+        "cost_in_usd_ticks": 123,
+    }
+
+
+def test_native_only_extractor_ignores_junk():
+    assert st._native_only_usage(None) == {}
+    assert st._native_only_usage("usage") == {}
+    assert st._native_only_usage({"prompt_cache_miss_tokens": "x", "cost_in_usd_ticks": None}) == {}
+    assert st._native_only_usage({"prompt_cache_miss_tokens": 0, "cost_in_usd_ticks": 0}) == {}
+
+
+class TestTypedErrorClassFastPath:
+    """sandhi>=0.1.3 SandhiProviderError: classification without parse dependence."""
+
+    def test_unparseable_typed_instance_stays_provider_error(self, monkeypatch):
+        class FakeSandhiProviderError(RuntimeError):
+            pass
+
+        monkeypatch.setattr(st, "_SANDHI_PROVIDER_ERROR_CLS", FakeSandhiProviderError)
+        err = st.map_sandhi_error(
+            FakeSandhiProviderError("truncated payload not json"), "moonshot", 30.0
+        )
+        from victor.providers.base import ProviderConnectionError, ProviderError
+
+        assert isinstance(err, ProviderError)
+        assert not isinstance(err, ProviderConnectionError)
+        assert "truncated payload not json" in str(err)
+
+    def test_plain_unparseable_runtime_error_stays_binding_failure(self, monkeypatch):
+        class FakeSandhiProviderError(RuntimeError):
+            pass
+
+        monkeypatch.setattr(st, "_SANDHI_PROVIDER_ERROR_CLS", FakeSandhiProviderError)
+        err = st.map_sandhi_error(RuntimeError("segfault in binding"), "moonshot", 30.0)
+        from victor.providers.base import ProviderConnectionError
+
+        assert isinstance(err, ProviderConnectionError)
+        assert "binding failure" in str(err)
+
+
+# =============================================================================
+# W3a soak (sandhi#90): Victor opts out of the native-body echo by default.
+# =============================================================================
+
+
+def test_typed_request_opts_out_of_native_body_by_default():
+    request = st._typed_request_from_openai_payload(
+        {"model": "m", "messages": [{"role": "user", "content": "hi"}]}
+    )
+    assert request["include_native_response"] is False
+
+
+def test_typed_request_honors_native_body_opt_in(monkeypatch):
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(
+        "victor.config.settings.get_settings",
+        lambda: SimpleNamespace(provider=SimpleNamespace(sandhi_include_native_response=True)),
+    )
+    request = st._typed_request_from_openai_payload(
+        {"model": "m", "messages": [{"role": "user", "content": "hi"}]}
+    )
+    # Opt-in restores sandhi's default (include): the field stays off the wire.
+    assert "include_native_response" not in request
+
+
+# =============================================================================
+# W3b: wire-truth latency flows from the typed usage surface into diagnostics.
+# =============================================================================
+
+
+def test_latency_fields_extracted_from_neutral_usage():
+    assert st._latency_fields({"duration_ms": 120, "time_to_first_token_ms": 45}) == {
+        "duration_ms": 120,
+        "time_to_first_token_ms": 45,
+    }
+    # Tolerant-absent: pre-W3b runtimes carry neither field.
+    assert st._latency_fields({"tokens_in": 1}) == {}
+    assert st._latency_fields(None) == {}
+    assert st._latency_fields({"duration_ms": "x", "time_to_first_token_ms": -1}) == {}
+
+
+def test_completion_surfaces_wire_latency_in_diagnostics(monkeypatch):
+    install_runtime(monkeypatch)
+    provider = make_provider()
+    payload = _typed_payload()
+    payload["usage"]["duration_ms"] = 120
+    response = provider._completion_from_typed(payload, "deepseek-chat")
+    assert response.metadata["sandhi_usage"]["duration_ms"] == 120
+
+
+# =============================================================================
+# W3c: minor-version handshake — victor reads the installed contract minor.
+# =============================================================================
+
+
+def test_installed_minor_defaults_to_zero_for_old_bindings(monkeypatch):
+    import types
+
+    fake_sg = types.SimpleNamespace(wire_contract_version=lambda: "1")
+    monkeypatch.setitem(sys.modules, "sandhi_gateway", fake_sg)
+    monkeypatch.setattr(st, "_wire_contract_checked", False)
+    monkeypatch.setattr(st, "_installed_contract_minor", 0)
+    assert st.installed_chat_contract_minor() == 0
+
+
+def test_installed_minor_read_from_binding(monkeypatch):
+    import types
+
+    fake_sg = types.SimpleNamespace(
+        wire_contract_version=lambda: "1", chat_contract_minor=lambda: 3
+    )
+    monkeypatch.setitem(sys.modules, "sandhi_gateway", fake_sg)
+    monkeypatch.setattr(st, "_wire_contract_checked", False)
+    monkeypatch.setattr(st, "_installed_contract_minor", 0)
+    assert st.installed_chat_contract_minor() == 3
+
+
+def test_installed_binding_meets_victor_floor_when_export_exists():
+    """G-ledger floor pin: once the installed sandhi-gateway exports
+    chat_contract_minor, it must be >= victor's known minor (conditional so
+    the pinned pre-W3c binding keeps passing until the next pin bump)."""
+    sg = pytest.importorskip("sandhi_gateway")
+    minor_fn = getattr(sg, "chat_contract_minor", None)
+    if not callable(minor_fn):
+        pytest.skip("installed sandhi-gateway predates chat_contract_minor")
+    assert int(minor_fn()) >= st.KNOWN_CONTRACT_MINOR
+
+
+# =============================================================================
+# W3d/G7: codec purity — promoted typed fields, family-gated bucket, no leak.
+# =============================================================================
+
+
+def _openai_payload(**extra):
+    payload = {"model": "m", "messages": [{"role": "user", "content": "hi"}]}
+    payload.update(extra)
+    return payload
+
+
+def test_reasoning_effort_promoted_to_typed_field(monkeypatch):
+    monkeypatch.setattr(st, "_wire_contract_checked", True)
+    monkeypatch.setattr(st, "_installed_contract_minor", 4)
+    request = st._typed_request_from_openai_payload(_openai_payload(reasoning_effort="high"))
+    assert request["reasoning_effort"] == "high"
+    # At minor >= 4 the extensions copy is dropped (no dual-write).
+    assert "reasoning_effort" not in request.get("extensions", {}).get("openai", {})
+
+
+def test_thinking_normalized_from_victor_shape(monkeypatch):
+    monkeypatch.setattr(st, "_wire_contract_checked", True)
+    monkeypatch.setattr(st, "_installed_contract_minor", 4)
+    request = st._typed_request_from_openai_payload(
+        _openai_payload(thinking={"type": "enabled", "budget_tokens": 2048})
+    )
+    assert request["thinking"] == {"enabled": True, "budget_tokens": 2048}
+
+
+def test_dual_write_keeps_extensions_copy_below_minor_4(monkeypatch):
+    monkeypatch.setattr(st, "_wire_contract_checked", True)
+    monkeypatch.setattr(st, "_installed_contract_minor", 3)  # pinned pre-W3d runtime
+    request = st._typed_request_from_openai_payload(_openai_payload(reasoning_effort="high"))
+    assert request["reasoning_effort"] == "high"  # typed field always emitted
+    # ...and the extensions copy is retained so the old runtime still sees it.
+    assert request["extensions"]["openai"]["reasoning_effort"] == "high"
+
+
+def test_internal_kwargs_never_reach_extensions(monkeypatch):
+    monkeypatch.setattr(st, "_wire_contract_checked", True)
+    monkeypatch.setattr(st, "_installed_contract_minor", 4)
+    request = st._typed_request_from_openai_payload(
+        _openai_payload(execution_mode="fast", topology_action="escalate", top_p=0.9)
+    )
+    native = request.get("extensions", {}).get("openai", {})
+    assert "execution_mode" not in native
+    assert "topology_action" not in native
+    # A real (non-internal) passthrough param still rides extensions.
+    assert native.get("top_p") == 0.9
+
+
+def test_normalize_thinking_shapes():
+    assert st._normalize_thinking(True) == {"enabled": True}
+    assert st._normalize_thinking({"type": "disabled"}) == {"enabled": False}
+    assert st._normalize_thinking({"enabled": True, "budget_tokens": 100}) == {
+        "enabled": True,
+        "budget_tokens": 100,
+    }
+    assert st._normalize_thinking("nonsense") is None
+
+
+def test_neutral_mixin_drops_bucket_for_native_encoder_families(monkeypatch):
+    """W3d/G7 D3: gemini/cohere/ollama encoders clone extensions[<slug>] as the
+    base body, so an OpenAI-shaped bucket must NOT be re-labeled to their key."""
+    from victor.providers.base import Message
+
+    monkeypatch.setattr(st, "_wire_contract_checked", True)
+    monkeypatch.setattr(st, "_installed_contract_minor", 4)
+
+    class _Stub(st.SandhiNeutralProviderMixin):
+        def __init__(self, slug):
+            self._slug = slug
+
+        def _sandhi_slug(self):
+            return self._slug
+
+    msgs = [Message(role="user", content="hi")]
+    # Gemini: native encoder → bucket dropped even with a passthrough param.
+    gemini_req = _Stub("gemini")._neutral_request(msgs, "g", 0.7, 100, None, top_p=0.9)
+    assert "extensions" not in gemini_req
+    # An openai-compat local (lmstudio): bucket re-labeled, not dropped.
+    local_req = _Stub("lmstudio")._neutral_request(msgs, "m", 0.7, 100, None, top_p=0.9)
+    assert local_req.get("extensions", {}).get("lmstudio", {}).get("top_p") == 0.9

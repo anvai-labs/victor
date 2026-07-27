@@ -57,6 +57,10 @@ class GEPAServiceStrategy:
         """Update the active model spec and invalidate cached services."""
         self._tier_manager.set_main_model_spec(spec)
 
+    def set_mutator_rotation(self, rotation: Any) -> None:
+        """Supply providers to fail over to when the active mutator is throttled."""
+        self._tier_manager.set_mutator_rotation(rotation)
+
     def reflect(
         self,
         traces: List[Any],

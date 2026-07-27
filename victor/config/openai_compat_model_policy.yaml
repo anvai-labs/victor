@@ -301,7 +301,7 @@ providers:
         preview: true
 
   deepseek:
-    default_model: deepseek-chat
+    default_model: deepseek-v4-pro
     timeout: 120
     max_retries: 5
     cache: {supported: true, kv_prefix_caching: true, read_discount: 0.9, ttl_seconds: 3600}
@@ -309,14 +309,27 @@ providers:
     context_window_routes:
       - {model_prefix: deepseek-, tokens: 131072}
     models:
+      deepseek-v4-pro:
+        description: DeepSeek V4 Pro - flagship
+        context_window: 131072
+        max_output: 8192
+        supports_tools: true
+        supports_thinking: false
+      deepseek-v4-flash:
+        description: DeepSeek V4 Flash - fast tier
+        context_window: 131072
+        max_output: 8192
+        supports_tools: true
+        supports_thinking: false
+      # Legacy aliases (still served by DeepSeek; not in /models discovery).
       deepseek-chat:
-        description: DeepSeek V3.2 non-thinking mode
+        description: DeepSeek chat (legacy alias -> current non-thinking model)
         context_window: 131072
         max_output: 8192
         supports_tools: true
         supports_thinking: false
       deepseek-reasoner:
-        description: DeepSeek V3.2 reasoning mode
+        description: DeepSeek reasoning (legacy alias -> current thinking model)
         context_window: 131072
         max_output: 65536
         supports_tools: false

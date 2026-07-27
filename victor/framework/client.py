@@ -719,6 +719,83 @@ class VictorClient:
             logger.warning("ContextService not available for get_messages")
             return []
 
+    def list_recent_sessions(self, limit: int = 10) -> List[Dict[str, Any]]:
+        """List recent stored sessions for a resume picker (cross-visit).
+
+        Reads the SQLite session persistence directly — a read-only lookup that
+        does not require an initialized agent, so a surface can render the
+        picker before a client is bound to a session.
+
+        Args:
+            limit: Maximum number of sessions to return (most recent first).
+
+        Returns:
+            Session summary dicts (session_id, title, message_count,
+            last_activity, …); empty on any lookup failure.
+        """
+        try:
+            from victor.agent.sqlite_session_persistence import (
+                get_sqlite_session_persistence,
+            )
+
+            return get_sqlite_session_persistence().list_sessions(limit=limit)
+        except Exception as exc:  # a picker must never take the surface down
+            logger.warning("list_recent_sessions failed: %s", exc)
+            return []
+
+    async def resume_session(self, session_id: str) -> Optional[Dict[str, Any]]:
+        """Resume a stored session so the agent recalls its prior turns.
+
+        Hydrates the live conversation from the ConversationStore via
+        ``ChatService.resume_session`` (which repopulates both message stores),
+        then stamps the resumed ``session_id`` (and conversation state, when
+        present) onto the orchestrator so continuation writes append to the
+        same session.
+
+        Args:
+            session_id: The stored session to resume.
+
+        Returns:
+            The session metadata (title, message_count, …) on success, or
+            ``None`` when the session is not found.
+
+        Raises:
+            RuntimeError: If the client is not initialized.
+        """
+        if not self._initialized or not self._context:
+            raise RuntimeError("VictorClient not initialized. Call initialize() first.")
+
+        from victor.agent.conversation.session_resume import hydrate_session
+        from victor.agent.sqlite_session_persistence import get_sqlite_session_persistence
+
+        session_data = get_sqlite_session_persistence().load_session(session_id)
+        if not session_data:
+            return None
+
+        # Hydrate both live message stores: the ContextService buffer (via the
+        # resolved service) and the ConversationController the streaming turn
+        # loop reads (reached through the orchestrator, as active_session_id is
+        # below). Both are the live DI-container instances the turn path uses.
+        agent = self._agent
+        orchestrator = getattr(agent, "_orchestrator", None) if agent is not None else None
+        context_service = self._resolve_runtime_services().context
+        controller = getattr(orchestrator, "_conversation_controller", None)
+        metadata = hydrate_session(context_service, controller, session_data)
+
+        # Stamp the resumed id/state on the orchestrator so continuation turns
+        # append to the same session rather than minting a fresh one.
+        if orchestrator is not None:
+            orchestrator.active_session_id = session_id
+            state_dict = session_data.get("conversation_state")
+            if state_dict:
+                try:
+                    from victor.agent.conversation_state import ConversationStateMachine
+
+                    orchestrator.conversation_state = ConversationStateMachine.from_dict(state_dict)
+                except Exception as exc:
+                    logger.debug("Could not restore conversation state: %s", exc)
+        return metadata
+
     # ─────────────────────────────────────────────────────────────────────────
     # Lifecycle Management
     # ─────────────────────────────────────────────────────────────────────────

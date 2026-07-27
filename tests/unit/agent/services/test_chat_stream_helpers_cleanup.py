@@ -185,6 +185,40 @@ async def test_varied_content_streams_fully():
     assert record["aclose_count"] == 1
 
 
+async def test_repetition_without_tool_calls_marks_the_turn_unusable():
+    """A loop with no tool call must not be delivered as if it were an answer.
+
+    The truncated narration used to come back as ordinary content, so the loop
+    ran again next turn — the model could burn turn after turn saying "I'll call
+    the tool. Now. Executing." while the tool never ran. Flagging it as garbage
+    is what makes the handler set force_completion and end the spin.
+    """
+    record: dict = {}
+    loop_sentence = "Let me check the remote tracking state of the branch. "
+    chunks = [StreamChunk(content=loop_sentence) for _ in range(200)]
+    helper = _Helper(_make_orch(_instrumented_stream(chunks, record, hang_forever=True)))
+
+    _content, tool_calls, _tokens, garbage = await helper._stream_provider_response_inner(
+        {}, {}, _ctx()
+    )
+
+    assert tool_calls is None
+    assert garbage is True
+
+
+async def test_varied_content_is_not_marked_unusable():
+    record: dict = {}
+    chunks = [
+        StreamChunk(content=f"Sentence {i} covers a different topic entirely, value {i * 13}. ")
+        for i in range(120)
+    ]
+    helper = _Helper(_make_orch(_instrumented_stream(chunks, record)))
+
+    _content, _tc, _tokens, garbage = await helper._stream_provider_response_inner({}, {}, _ctx())
+
+    assert garbage is False
+
+
 async def test_repetition_guard_disabled_via_settings():
     record: dict = {}
     loop_sentence = "Let me check the remote tracking state of the branch. "

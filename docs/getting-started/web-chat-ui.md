@@ -9,7 +9,7 @@ same agent runtime as the CLI/TUI/API.
 ```bash
 pip install "victor-ai[chat-ui]"
 victor ui                       # launches the Chainlit app in your browser
-victor ui --profile zai-coding  # use a profile from ~/.victor/profiles.yaml
+victor ui --profile zai-glm52-openai  # use a profile from ~/.victor/profiles.yaml
 ```
 
 `victor ui` shells out to `chainlit run` on `victor/ui/chat_app/app.py`. The selected profile is

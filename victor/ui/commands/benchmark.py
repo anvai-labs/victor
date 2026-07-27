@@ -31,6 +31,7 @@ Usage:
 
 import asyncio
 import json
+import re
 import logging
 import os
 import sys
@@ -55,6 +56,16 @@ benchmark_app = typer.Typer(
     help="Run AI coding benchmarks and compare against other frameworks.",
 )
 console = Console()
+
+# Benchmarks whose runner executes ``agent_output + test_code`` as one Python
+# file, so the agent's *source* is the artifact. Every other benchmark keeps
+# receiving a patch, which is what SWE-bench applies to a fresh clone.
+#
+# Opt-in rather than opt-out on purpose: only these two have been read and
+# confirmed to concatenate-and-run, so nothing else changes behaviour.
+# Slugs, not the enum: BenchmarkType is imported lazily inside functions here,
+# so a module-level reference to it would break the import.
+_SOURCE_BENCHMARKS = frozenset({"mbpp", "human_eval"})
 
 
 def _get_global_evaluations_dir() -> Path:
@@ -459,10 +470,19 @@ def _print_prompt_optimizer_sync_summary(sync_result) -> None:
             status_parts.append("approved")
         if getattr(decision, "promoted", False):
             status_parts.append("promoted")
+        # The paired result is the one that decides approval, so it leads. An
+        # absolute pass rate says nothing about whether this beats the prompt we
+        # already ship.
+        contrast = getattr(decision, "paired_contrast", None)
+        verdict = (
+            f"vs baseline {contrast.summary()}"
+            if contrast is not None
+            else f"pass_rate={decision.score:.1%} [dim](no baseline arm)[/]"
+        )
         console.print(
             "  "
             f"#{decision.rank} {decision.section_name}:{decision.provider}:{decision.prompt_candidate_hash} "
-            f"pass_rate={decision.score:.1%} [{', '.join(status_parts)}]"
+            f"{verdict} [{', '.join(status_parts)}]"
         )
 
     promoted_hash = getattr(sync_result, "promoted_prompt_candidate_hash", None)
@@ -1104,16 +1124,66 @@ def run_benchmark(
         console.print(f"\n[dim]Results saved to {output}[/]")
 
 
+async def _ensure_canonical_services(
+    config,
+    *,
+    profile: str,
+    vertical_hint: Optional[str],
+) -> None:
+    """Register ChatService and friends, if this process has not already.
+
+    Building the agent is what populates the DI container with the canonical
+    service graph. Skipped when ChatService is already registered, so an
+    embedder that wired its own services keeps them.
+    """
+    try:
+        from victor.agent.services.protocols import ChatServiceProtocol
+        from victor.core import get_container
+
+        if get_container().get_optional(ChatServiceProtocol) is not None:
+            return
+    except Exception:
+        pass  # fall through and try to build it
+
+    from victor.evaluation.agent_adapter import VictorAgentAdapter
+    from victor.framework.session_config import SessionConfig
+
+    session_config = SessionConfig.from_cli_flags(
+        agent_profile=profile,
+        provider_timeout=config.timeout_per_task,
+    )
+    await VictorAgentAdapter.create_from_session_config(
+        session_config,
+        profile=profile,
+        vertical=vertical_hint,
+        enable_observability=False,
+    )
+
+
 async def _run_real_benchmark_async(
     *,
     runner,
     config,
     output_dir: Optional[Path],
     resume: bool,
+    profile: str,
+    vertical_hint: Optional[str] = None,
 ):
     """Run a benchmark through the service-first ChatService real-run path."""
     from victor.evaluation.benchmarks.framework_comparison import Framework
     from victor.evaluation.real_run_runner import RealRunBenchmarkRunner, RealRunConfig
+
+    # ChatService is registered as a side effect of building the agent: the
+    # container only gains it once the conversation controller and streaming
+    # coordinator exist, and nothing but agent construction creates those. A CLI
+    # process that skipped this found no ChatService, and the runner used to
+    # swallow that and return an empty answer per task — recording a full
+    # artifact with 0 tool calls, 0 tokens and a test failure caused by the
+    # empty answer, indistinguishable from genuine poor performance.
+    #
+    # The agent is built for its service graph only; execution still goes
+    # through ChatService directly, which is the point of this path.
+    await _ensure_canonical_services(config, profile=profile, vertical_hint=vertical_hint)
 
     real_runner = RealRunBenchmarkRunner(
         RealRunConfig(
@@ -1220,6 +1290,8 @@ def run_real_benchmark(
                 config=config,
                 output_dir=bundle_output,
                 resume=resume,
+                profile=profile,
+                vertical_hint=_BENCHMARK_VERTICAL.get(config.benchmark),
             )
         )
     except Exception as exc:
@@ -1986,6 +2058,7 @@ async def _run_benchmark_async(
                         "turns": partial.get("turns", 0),
                         "session_id": adapter._task_session_id,
                         "conversation_trace": adapter.get_conversation_trace(),
+                        "prompt_identities": adapter.get_served_prompt_identities(),
                     }
                     raise
                 finally:
@@ -2021,8 +2094,23 @@ async def _run_benchmark_async(
                     except Exception as e:
                         logger.debug("Failed to capture git diff: %s", e)
 
+                # Patch or source, decided by what the runner will do with it.
+                # SWE-bench applies this to a fresh clone, so it wants the diff.
+                # Code-generation runners execute `agent_output + test_code`
+                # directly, so a diff is a SyntaxError on line 3 — which is why
+                # MBPP scored 0 on every one of the 135 real tasks it has run.
+                # The patch stays as the fallback: an empty source capture should
+                # degrade to the old behaviour, not to nothing.
+                benchmark_slug = getattr(
+                    benchmark_task.benchmark, "value", benchmark_task.benchmark
+                )
+                if benchmark_slug in _SOURCE_BENCHMARKS:
+                    solution = trace.generated_code or patch
+                else:
+                    solution = patch
+
                 return {
-                    "code": patch,
+                    "code": solution,
                     "tokens_input": trace.token_usage.input_tokens,
                     "tokens_output": trace.token_usage.output_tokens,
                     "tokens_used": trace.token_usage.total_tokens,
@@ -2038,6 +2126,9 @@ async def _run_benchmark_async(
                     # Persisted on TaskResult so the manifest + miner can
                     # reconstruct what the agent actually did.
                     "conversation_trace": adapter.get_conversation_trace(),
+                    # Candidates actually served — lets this task's pass/fail
+                    # become Pareto evidence without an explicit A/B flag.
+                    "prompt_identities": adapter.get_served_prompt_identities(),
                 }
 
         except Exception as e:
@@ -2862,11 +2953,167 @@ def show_capabilities() -> None:
     console.print(table)
 
 
+_SMALL_MODEL_RE = re.compile(r"[:\-](\d+(?:\.\d+)?)b\b", re.IGNORECASE)
+UNDERSIZED_MUTATOR_B = 7.0
+
+
+def _is_undersized_mutator(provider: Optional[str], model: Optional[str]) -> bool:
+    """True when the reflect/mutate model is too small to rewrite a long prompt.
+
+    Parameter count is parsed from the model name (``qwen3.5:2b`` -> 2.0), which
+    is the only signal available locally. Purely advisory — a false negative is
+    just a missing warning. Exists because a 2B local model silently rewrote
+    every prompt for months and the symptom (a whitespace-only diff) looks like
+    a strategy problem rather than a capacity one.
+    """
+    name = f"{provider or ''}/{model or ''}"
+    match = _SMALL_MODEL_RE.search(name)
+    if match is None:
+        return False
+    try:
+        return float(match.group(1)) < UNDERSIZED_MUTATOR_B
+    except ValueError:
+        return False
+
+
+def _build_mutator_rotation(profiles: Optional[str]):
+    """Build a mutator rotation from a comma-separated profile list, or None."""
+    if not profiles:
+        return None
+    from victor.framework.rl.mutator_rotation import build_rotation
+
+    entries = []
+    for name in (n.strip() for n in profiles.split(",")):
+        if not name:
+            continue
+        provider, model = _resolve_mutator_spec(name, None)
+        if provider and model:
+            entries.append((provider, model, name))
+        else:
+            console.print(f"[yellow]Warning:[/] skipping unresolvable profile '{name}'")
+    rotation = build_rotation(entries)
+    if not rotation:
+        console.print("[yellow]Warning:[/] no profiles in --profiles resolved; ignoring it")
+        return None
+    return rotation
+
+
+def _resolve_mutator_spec(
+    profile: Optional[str], model: Optional[str]
+) -> tuple[Optional[str], Optional[str]]:
+    """Resolve the (provider, model) that will perform reflection and mutation.
+
+    Explicit --model wins; otherwise the profile's provider/model is used.
+    Returns (None, None) when neither is given, leaving GEPA's existing
+    resolution untouched so behaviour is unchanged for callers that do not ask.
+    """
+    if not profile and not model:
+        return None, None
+    resolved_provider = None
+    resolved_model = model
+    if profile:
+        try:
+            # The same two stores `victor auth show` consults, in its order.
+            # SessionConfig.from_cli_flags only records the profile *name* and
+            # Settings().load_profiles() does not carry these entries at all, so
+            # neither resolves a provider — an earlier attempt through them
+            # silently yielded nothing and the 2B fallback mutated anyway.
+            from victor.config.accounts import get_account_manager
+            from victor.framework.runtime_discovery import list_runtime_profiles
+
+            entry = next((p for p in list_runtime_profiles() if p.name == profile), None)
+            if entry is None:
+                entry = next(
+                    (a for a in get_account_manager().list_accounts() if a.name == profile),
+                    None,
+                )
+            if entry is None:
+                console.print(
+                    f"[yellow]Warning:[/] profile '{profile}' does not resolve; "
+                    "falling back to the session default model for reflect/mutate. "
+                    "Run 'victor auth list' for valid names."
+                )
+            else:
+                resolved_provider = getattr(entry, "provider", None)
+                resolved_model = model or getattr(entry, "model", None)
+        except Exception as exc:
+            logger.debug("Could not resolve mutator profile %r: %s", profile, exc)
+    return resolved_provider, resolved_model
+
+
+_LEGACY_EVOLVE_PROVIDERS = ["openai", "xai", "deepseek", "anthropic"]
+
+
+def _providers_present_in_traces(limit: int = 400) -> list[str]:
+    """Providers that actually appear in the trace corpus, newest first.
+
+    ``--provider all`` used to mean a hardcoded ["openai", "xai", "deepseek",
+    "anthropic"]. Any provider outside that list could never be evolved, however
+    much evidence it had: an overnight run on zai produced 656 tool events and
+    123 graded tasks, and evolve created candidates for four providers that had
+    not run while creating none for the one that had. The next benchmark phase
+    then had nothing to serve, so the reward loop could not fire at all.
+
+    Deriving the list from the traces means evolution follows the evidence.
+    Falls back to the legacy list only when no provider can be identified, so a
+    fresh install still does something sensible.
+    """
+    from victor.framework.rl.learners.prompt_optimizer import PromptOptimizerLearner
+
+    counts: dict[str, int] = {}
+    try:
+        from victor.config.settings import get_project_paths
+
+        logs_dir = Path(get_project_paths().global_logs_dir)
+    except Exception:
+        logs_dir = Path.home() / ".victor" / "logs"
+
+    usage = logs_dir / "usage.jsonl"
+    if usage.exists():
+        try:
+            with open(usage) as handle:
+                for line in handle:
+                    try:
+                        data = json.loads(line).get("data") or {}
+                    except (ValueError, AttributeError):
+                        continue
+                    if not isinstance(data, dict):
+                        continue
+                    label = PromptOptimizerLearner._normalize_provider_label(
+                        data.get("provider", "")
+                    )
+                    if label:
+                        counts[label] = counts.get(label, 0) + 1
+        except OSError:
+            pass
+
+    if not counts:
+        return list(_LEGACY_EVOLVE_PROVIDERS)
+    return [name for name, _ in sorted(counts.items(), key=lambda kv: -kv[1])][:limit]
+
+
 @benchmark_app.command("evolve")
 def evolve_prompts(
     provider: str = typer.Option("all", "--provider", "-p", help="Provider to evolve (or 'all')"),
     section: str = typer.Option("all", "--section", "-s", help="Section to evolve (or 'all')"),
     compliance: bool = typer.Option(False, "--compliance", help="Show GEPA compliance scorecard"),
+    profile: Optional[str] = typer.Option(
+        None,
+        "--profile",
+        help="Profile whose model performs reflection/mutation (not the provider being evolved)",
+    ),
+    model: Optional[str] = typer.Option(
+        None, "--model", "-m", help="Override the reflect/mutate model directly"
+    ),
+    profiles: Optional[str] = typer.Option(
+        None,
+        "--profiles",
+        help=(
+            "Comma-separated profiles to ROTATE the reflect/mutate model across sections, "
+            "e.g. zai-glm52-openai,kimi,deepseek-v4pro-openai. Spreads calls so one "
+            "provider's rate limit cannot stall the pass; a provider that 429s is benched."
+        ),
+    ),
 ) -> None:
     """Evolve prompts using GEPA + benchmark trace data.
 
@@ -2890,6 +3137,41 @@ def evolve_prompts(
             console.print("[yellow]Prompt optimizer not available[/]")
             return
 
+        # Which model rewrites the prompt is the single biggest determinant of
+        # whether evolution produces anything. GEPA defaults to use_main_model,
+        # so with no session to inherit from this CLI silently fell through to
+        # the local edge model — observed as ollama/qwen3.5:2b rewriting a
+        # 1551-char structured prompt, which it echoed. --provider selects the
+        # candidate namespace being evolved; it does NOT select the mutator.
+        # The /prompt-optimize slash command pushes the live session model here;
+        # the CLI had no equivalent until now.
+        rotation = _build_mutator_rotation(profiles)
+        if rotation:
+            console.print(f"[dim]Reflect/mutate {rotation.summary()}[/]")
+            mutator_provider = mutator_model = None
+            # Spreading calls across sections is not enough on its own: a single
+            # section makes several calls, so one throttled provider still costs
+            # the whole section. Arming the failover lets an individual call move
+            # on, and both paths share this rotation — a provider benched mid-call
+            # drops out of the per-section round-robin too.
+            if hasattr(learner, "set_mutator_rotation"):
+                learner.set_mutator_rotation(rotation)
+        else:
+            mutator_provider, mutator_model = _resolve_mutator_spec(profile, model)
+            if mutator_provider and hasattr(learner, "set_main_model_spec"):
+                learner.set_main_model_spec(mutator_provider, mutator_model)
+            console.print(
+                f"[dim]Reflect/mutate model: {mutator_provider or 'session default'}"
+                f"/{mutator_model or 'default'}[/]"
+            )
+        if _is_undersized_mutator(mutator_provider, mutator_model):
+            console.print(
+                "[yellow]Warning:[/] the reflect/mutate model looks small. Rewriting a "
+                "1500+ character structured prompt needs a capable model; a tiny one "
+                "tends to echo its input, which reads as 'no change' or a "
+                "whitespace-only diff. Pass --profile/--model to choose."
+            )
+
         from victor.framework.rl.learners.prompt_optimizer import PromptOptimizerLearner
 
         sections = (
@@ -2901,9 +3183,10 @@ def evolve_prompts(
             matched = [s for s in sections if section.upper() in s]
             sections = matched if matched else sections
 
-        providers = ["openai", "xai", "deepseek", "anthropic"]
         if provider != "all":
             providers = [provider]
+        else:
+            providers = _providers_present_in_traces()
 
         section_text = _get_prompt_section_baselines(list(sections))
 
@@ -2970,7 +3253,29 @@ def evolve_prompts(
                 if current is None:
                     results.add_row(p, s[:20], "-", "-", "[yellow]not registered[/]")
                     continue
-                candidate = learner.evolve(s, current, provider=p)
+                # Rotate the mutator per section. A pass makes several LLM calls
+                # per section back-to-back; pointing them all at one provider
+                # reliably earns a 429 partway through, and a 429 in mutate is
+                # not a degraded result but no result at all.
+                spec = None
+                if rotation:
+                    spec = rotation.next_spec()
+                    if spec is None:
+                        results.add_row(p, s[:20], "-", "-", "[red]all mutators rate-limited[/]")
+                        continue
+                    if hasattr(learner, "set_main_model_spec"):
+                        learner.set_main_model_spec(
+                            spec.provider, spec.model, base_url=spec.base_url
+                        )
+                try:
+                    candidate = learner.evolve(s, current, provider=p)
+                except Exception as exc:
+                    # evolve() swallows most failures internally; this catches the
+                    # rest so one throttled provider cannot abort the whole pass.
+                    if rotation and spec is not None:
+                        rotation.note_failure(spec, exc)
+                    results.add_row(p, s[:20], "-", "-", f"[red]{str(exc)[:28]}[/]")
+                    continue
                 if candidate:
                     # Seed from aggregate benchmark data or defaults
                     agg = provider_agg.get(p)

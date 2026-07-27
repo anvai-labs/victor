@@ -323,6 +323,85 @@ class ExecutionTrace:
     credit_signals: List[Dict[str, Any]] = field(default_factory=list)
     # Optional agent-level summary for multi-agent team runs
     agent_guidance: Optional[str] = None
+    # Where completion_score came from: "harness" (a benchmark graded this
+    # session) or "tool_failure_proxy" (no verdict exists — interactive work).
+    # Kept on the trace so reflection and audits can tell evidence from inference.
+    score_source: str = "tool_failure_proxy"
+    # What kind of run produced this session — read from the event's own
+    # ``run_kind`` tag rather than inferred from prompt text, which conflated
+    # delegate workers with benchmark runs.
+    run_kind: str = "unknown"
+
+
+@dataclass(frozen=True)
+class HarnessVerdict:
+    """Ground-truth outcome for one evaluated session."""
+
+    completion_score: float
+    success: bool
+    task_id: str
+    benchmark: str
+
+
+# Shaping is done by the structural caps below, not by the character budget: at
+# most 3 traces x 4 calls, each call bounded by its own field caps (120 args /
+# 160 intent / 240 error) to roughly 570 chars — so a full exemplar set lands
+# near 6.8k. The character budget is deliberately set above that as a safety
+# valve for pathological error blobs, rather than a second limiter that silently
+# drops whole traces from a well-formed set. Context is not the constraint: the
+# default reflect tier is gpt-4.1-mini, and 8k of exemplars plus the largest
+# section (2934 chars) is roughly 3k tokens.
+MAX_EXEMPLAR_CHARS = 8192
+MAX_EXEMPLAR_TRACES = 3
+MAX_EXEMPLAR_CALLS_PER_TRACE = 4
+
+
+def format_failing_exemplars(
+    traces: List["ExecutionTrace"],
+    *,
+    max_traces: int = MAX_EXEMPLAR_TRACES,
+    max_chars: int = MAX_EXEMPLAR_CHARS,
+) -> str:
+    """Render concrete failing tool calls for the reflection prompt.
+
+    Reflection used to receive only aggregate counts — "edit_mismatch: 7" — from
+    which no rewrite can be derived: the model is told a category is frequent but
+    never what the agent actually did or what the tool said back. The detail has
+    been collected all along on ``ToolCallTrace`` (``error_detail``,
+    ``arguments_summary``, ``reasoning_before``, populated by
+    ``_collect_traces_v2``) and simply never reached the prompt.
+
+    Worst traces first, so the budget is spent on the most informative failures.
+    Returns "" when nothing failed, so a clean run adds no noise.
+    """
+    failing = [
+        trace
+        for trace in traces
+        if any(not call.success for call in (trace.tool_call_details or []))
+    ]
+    if not failing:
+        return ""
+    failing.sort(key=lambda t: (t.completion_score, -len(t.tool_call_details)))
+
+    blocks: List[str] = ["- Failing exemplars (what actually went wrong):"]
+    budget = max_chars
+    for trace in failing[:max_traces]:
+        bad_calls = [c for c in trace.tool_call_details if not c.success]
+        if not bad_calls:
+            continue
+        lines = [f"  session {trace.session_id[:12]} (score {trace.completion_score:.2f}):"]
+        for call in bad_calls[:MAX_EXEMPLAR_CALLS_PER_TRACE]:
+            lines.append(f"    - {call.tool_name}({call.arguments_summary[:120]})")
+            if call.reasoning_before:
+                lines.append(f"      intent: {call.reasoning_before[:160]}")
+            if call.error_detail:
+                lines.append(f"      error:  {call.error_detail[:240]}")
+        block = "\n".join(lines)
+        if len(block) > budget:
+            break
+        blocks.append(block)
+        budget -= len(block)
+    return "\n".join(blocks) if len(blocks) > 1 else ""
 
 
 @dataclass
@@ -400,6 +479,8 @@ class PromptCandidateBenchmarkDecision:
     benchmark_score: float = 0.0
     benchmark_runs: int = 0
     promoted: bool = False
+    # None when the suite carried no baseline arm — an observation, not a contrast.
+    paired_contrast: Optional[Any] = None
 
 
 @dataclass
@@ -429,6 +510,11 @@ class PromptCandidateBenchmarkSyncResult:
                     "benchmark_score": decision.benchmark_score,
                     "benchmark_runs": decision.benchmark_runs,
                     "promoted": decision.promoted,
+                    "paired_contrast": (
+                        decision.paired_contrast.to_dict()
+                        if decision.paired_contrast is not None
+                        else None
+                    ),
                 }
                 for decision in self.decisions
             ],
@@ -620,13 +706,24 @@ class GEPAStrategy:
             lines.append("- Agent execution credit:")
             lines.extend(agent_guidance_blocks[:2])
 
+        # Counts give the shape of the problem; exemplars give the specifics a
+        # rewrite can act on. Without these the model receives only a histogram
+        # ("edit_mismatch: 7") and cannot tell what to write differently.
+        exemplars = format_failing_exemplars(traces)
+        if exemplars:
+            lines.append("")
+            lines.append(exemplars)
+
         reflection = "\n".join(lines)
 
         # Enhance with LLM-driven reflection (provider → decision service → skip)
+        # The section is passed in full: this prompt truncated it to 500 chars,
+        # so for most evolvable sections the model was asked to improve guidance
+        # whose majority it never saw.
         llm_prompt = (
             f"You are analyzing execution traces for an AI coding agent.\n\n"
             f"{reflection}\n\n"
-            f"Current prompt section '{section_name}':\n{current_text[:500]}\n\n"
+            f"Current prompt section '{section_name}':\n{current_text}\n\n"
             f"What 3 specific, actionable changes to this prompt guidance would "
             f"reduce the failure patterns above? Be concise — bullet points only."
         )
@@ -732,12 +829,19 @@ class GEPAStrategy:
 
 # Minimum traces required before evolution
 MIN_TRACES_FOR_EVOLUTION = 5
+# Evaluation artifacts number in the thousands while trace collection only
+# looks at the last ~50 sessions, so the verdict scan is bounded by mtime.
+MAX_EVAL_ARTIFACTS_SCANNED = 400
 MIN_SAMPLES_FOR_CONFIDENCE = 3
 
 # Confidence floor + non-baseline requirement that historically gated live
 # serving of an evolved candidate. Exposed as a constant so the serve decision
 # and its tests share one source of truth.
 SERVE_CONFIDENCE_FLOOR = 0.6
+# Pending-benchmark candidates explore at a fraction of the normal rate: they
+# must be able to earn evidence, but a candidate no suite has validated should
+# reach live traffic more rarely than one that merely lacks samples.
+PENDING_BENCHMARK_EXPLORATION_FACTOR = 0.5
 
 
 def should_serve_candidate(
@@ -761,13 +865,26 @@ def should_serve_candidate(
     """
     if rec is None:
         return False
-    proven = rec.confidence > SERVE_CONFIDENCE_FLOOR and not rec.is_baseline
-    approved = bool((getattr(rec, "metadata", None) or {}).get("benchmark_passed"))
-    if proven or approved:
-        return True
-    if exploration_enabled and exploration_epsilon > 0.0:
+    metadata = getattr(rec, "metadata", None) or {}
+    approved = bool(metadata.get("benchmark_passed"))
+    pending_benchmark = bool(metadata.get("requires_benchmark")) and not approved
+
+    if not pending_benchmark:
+        proven = rec.confidence > SERVE_CONFIDENCE_FLOOR and not rec.is_baseline
+        if proven or approved:
+            return True
+
+    # A candidate still awaiting its benchmark is reachable *only* here. It is
+    # never trusted on merit — no proven path, no approved path — but it can
+    # accumulate the live evidence that a benchmark would otherwise have to
+    # supply. Without this the gate has no exit and the candidate is inert
+    # forever; see _servable_candidates.
+    epsilon = exploration_epsilon
+    if pending_benchmark:
+        epsilon *= PENDING_BENCHMARK_EXPLORATION_FACTOR
+    if exploration_enabled and epsilon > 0.0:
         draw = rng if rng is not None else _SERVE_RNG
-        return draw.random() < exploration_epsilon
+        return draw.random() < epsilon
     return False
 
 
@@ -838,6 +955,8 @@ class PromptOptimizerLearner(BaseLearner):
         # brand-new candidate (is_active=False, sample_count=0) so it can earn
         # its first reward. Set by record_served() at injection time.
         self._last_served: Dict[str, str] = {}
+        # Lazily loaded session_id -> ground-truth outcome from benchmark runs.
+        self._harness_verdict_cache: Optional[Dict[str, HarnessVerdict]] = None
         self._use_pareto = use_pareto
         self._max_prompt_chars = max_prompt_chars
         self._pareto_frontiers: Dict[str, Any] = {}  # section → ParetoFrontier
@@ -913,7 +1032,9 @@ class PromptOptimizerLearner(BaseLearner):
         self,
         provider: str,
         model: str,
-        timeout_s: float = 120.0,
+        # Matches GEPAModelSpec's default: a reasoning model rewriting a
+        # 1500-char section runs one to three minutes.
+        timeout_s: float = 180.0,
         base_url: str = "",
     ) -> None:
         """Push the active session's provider/model into the GEPA tier manager.
@@ -936,6 +1057,17 @@ class PromptOptimizerLearner(BaseLearner):
                 base_url or "default",
                 timeout_s,
             )
+
+    def set_mutator_rotation(self, rotation: Any) -> None:
+        """Give GEPA somewhere to go when the active mutator returns a 429.
+
+        Without this the throttle is invisible above the transport: `_call_llm`
+        logs and returns None, `mutate()` hands back its input, and the caller
+        cannot tell "no improvement found" from "never asked".
+        """
+        if hasattr(self._strategy, "set_mutator_rotation"):
+            self._strategy.set_mutator_rotation(rotation)
+            logger.info("GEPA mutator failover armed: %s", rotation.summary())
 
     def _strategies_for_section(self, section_name: str) -> List["PromptOptimizationStrategy"]:
         """Return the configured strategy chain for a section."""
@@ -1251,11 +1383,38 @@ class PromptOptimizerLearner(BaseLearner):
     def _servable_candidates(
         candidates: List[PromptCandidate],
     ) -> List[PromptCandidate]:
-        """Filter out pending candidates that are explicitly benchmark-gated."""
+        """Candidates that may be served on merit — benchmark gate satisfied."""
         return [
             candidate
             for candidate in candidates
             if not candidate.requires_benchmark or candidate.benchmark_passed
+        ]
+
+    @staticmethod
+    def _pending_benchmark_candidates(
+        candidates: List[PromptCandidate],
+    ) -> List[PromptCandidate]:
+        """Candidates still awaiting the benchmark that would validate them.
+
+        Excluding these outright made the gate a wall rather than a gate:
+        nothing in the runtime benchmarks a pending candidate — the only exit is
+        an operator running ``victor benchmark --prompt-candidate-hash …`` by
+        hand. A PrefPO candidate was therefore never served, never rewarded and
+        never promoted for the life of the install. On a default config that is
+        three of nine evolvable sections (CONCISE_MODE_GUIDANCE,
+        COMPLETION_GUIDANCE, GROUNDING_RULES) unable to enter the loop at all.
+
+        They are offered only when nothing servable exists, and even then
+        ``should_serve_candidate`` reaches them through the exploration path
+        alone — never proven, never approved. So a validated candidate always
+        wins, an unvalidated one is never trusted on merit, and the dead end
+        becomes a slow path instead. Corruption is still excluded upstream by
+        the persist gate (truncated_tail / redundant_additions / growth).
+        """
+        return [
+            candidate
+            for candidate in candidates
+            if candidate.requires_benchmark and not candidate.benchmark_passed
         ]
 
     def record_outcome(self, outcome: RLOutcome) -> None:
@@ -1358,12 +1517,21 @@ class PromptOptimizerLearner(BaseLearner):
         if not section_name:
             return None
 
-        provider_candidates = self._servable_candidates(
-            self._candidates.get(self._candidate_key(section_name, provider or "default"), [])
+        provider_pool = self._candidates.get(
+            self._candidate_key(section_name, provider or "default"), []
         )
-        default_candidates = self._servable_candidates(
-            self._candidates.get(self._candidate_key(section_name, "default"), [])
-        )
+        default_pool = self._candidates.get(self._candidate_key(section_name, "default"), [])
+
+        provider_candidates = self._servable_candidates(provider_pool)
+        default_candidates = self._servable_candidates(default_pool)
+
+        # Only when nothing is servable anywhere do pending candidates get a
+        # look — so an approved candidate is never displaced by an unvalidated
+        # one, while a section whose every candidate is benchmark-gated still
+        # has a way into the loop.
+        if not provider_candidates and not default_candidates:
+            provider_candidates = self._pending_benchmark_candidates(provider_pool)
+            default_candidates = self._pending_benchmark_candidates(default_pool)
 
         candidates = provider_candidates or default_candidates
         if not candidates:
@@ -1434,6 +1602,9 @@ class PromptOptimizerLearner(BaseLearner):
                 "section_name": best.section_name,
                 "prompt_section_name": best.section_name,
                 "benchmark_passed": bool(best.benchmark_passed),
+                # Read by should_serve_candidate: a pending candidate is
+                # reachable through exploration only, never on merit.
+                "requires_benchmark": bool(best.requires_benchmark),
             },
         )
 
@@ -1462,6 +1633,7 @@ class PromptOptimizerLearner(BaseLearner):
             New PromptCandidate, or None if insufficient data
         """
         traces = self._collect_learning_traces(limit=50)
+        traces = self._scope_traces_to_provider(traces, provider)
 
         # Enrich traces with credit signals (FEP-0001 Phase 3)
         self._enrich_traces_with_credit(traces)
@@ -1515,20 +1687,31 @@ class PromptOptimizerLearner(BaseLearner):
             logger.info("Mutation produced no change for '%s'", section_name)
             return None
 
-        # Prompt bloat control: boundary-aware truncation (never mid-token).
+        # Prompt bloat control: boundary-aware truncation (never mid-instruction).
         # Strategies already sanitize, but this is a final safety net before persist.
-        if self._max_prompt_chars and len(new_text) > self._max_prompt_chars:
+        #
+        # The cap is a *bloat* control, so it can never sit below the seed it is
+        # measuring growth against. COMPLETION_GUIDANCE ships at 1551 chars while
+        # max_prompt_chars defaults to 1500, so every mutation of it was amputated
+        # to 1496 regardless of quality — the cap, not the strategy, decided the
+        # candidate. Floor the effective cap at the seed length so truncation only
+        # ever trims genuine growth.
+        effective_cap = (
+            max(self._max_prompt_chars, len(current_text)) if self._max_prompt_chars else 0
+        )
+        if effective_cap and len(new_text) > effective_cap:
             from victor.framework.rl.prompt_hygiene import boundary_aware_truncate
 
-            new_text, _ = boundary_aware_truncate(new_text, self._max_prompt_chars)
+            new_text, _ = boundary_aware_truncate(new_text, effective_cap)
             logger.info(
-                "GEPA bloat control: truncated '%s' to %d chars (boundary-aware)",
+                "GEPA bloat control: truncated '%s' to %d chars (boundary-aware, cap=%d)",
                 section_name,
                 len(new_text),
+                effective_cap,
             )
 
         # Reject if over 2x the limit (likely garbage output)
-        if self._max_prompt_chars and len(new_text) > 2 * self._max_prompt_chars:
+        if effective_cap and len(new_text) > 2 * effective_cap:
             logger.warning(
                 "GEPA rejected mutation for '%s': %d chars > 2x limit",
                 section_name,
@@ -1547,16 +1730,34 @@ class PromptOptimizerLearner(BaseLearner):
         # allowed_additions gate (prefpo_strategy.py); this net catches only
         # corruption. Garbage collapses (e.g. 44-char output) are already
         # rejected upstream in gepa_service.mutate() before reaching here.
+        #
+        # ``truncated_tail`` and ``redundant_additions`` are corruption too, and
+        # both were observed reaching the DB: a COMPLETION_GUIDANCE candidate
+        # persisted ending "- Read error messages carefully and", and a
+        # CONCISE_MODE_GUIDANCE candidate persisted with "Read the error message
+        # carefully." appended directly beneath the line it restates. Neither is
+        # a legitimate rewrite, so both join the structural set.
         from victor.framework.rl.prompt_hygiene import evaluate_prompt_candidate
 
         report = evaluate_prompt_candidate(current_text, new_text)
-        structural = {"growth_exceeded", "repeated_trigrams"}
+        structural = {
+            "growth_exceeded",
+            "repeated_trigrams",
+            "truncated_tail",
+            "redundant_additions",
+        }
         triggered = structural & set(report.violations)
         if triggered:
-            logger.info(
-                "GEPA rejected '%s' candidate at persist gate: %s",
+            # Warning, not info: this is the last gate before storage, so it is
+            # the one that turns a completed mutation into a bare "no change"
+            # row. Every other discard on this path already announces itself.
+            logger.warning(
+                "GEPA rejected the '%s' candidate at the persist gate (%s); "
+                "%d chars offered against a %d-char seed.",
                 section_name,
                 ",".join(sorted(triggered)),
+                len(new_text),
+                len(current_text),
             )
             return None
 
@@ -1790,11 +1991,44 @@ class PromptOptimizerLearner(BaseLearner):
         self._save_candidate(candidate)
         return candidate
 
+    @staticmethod
+    def _baseline_run(runs: List[Any]) -> Optional[Any]:
+        """The seed arm, if the suite ran one."""
+        from victor.agent.optimization_injector import BASELINE_CANDIDATE_HASH
+
+        for run in runs:
+            config = getattr(run, "config", None)
+            spec = getattr(run, "spec", None)
+            candidate_hash = getattr(config, "prompt_candidate_hash", None) or getattr(
+                spec, "prompt_candidate_hash", None
+            )
+            if candidate_hash == BASELINE_CANDIDATE_HASH:
+                return run
+        return None
+
+    @staticmethod
+    def _paired_contrast(baseline_run: Optional[Any], run: Any) -> Optional[Any]:
+        """Pair a candidate arm against the baseline, or None when impossible."""
+        if baseline_run is None:
+            return None
+        from victor.evaluation.harness import PairedContrast
+
+        try:
+            return PairedContrast.from_results(
+                getattr(baseline_run, "result", None),
+                getattr(run, "result", None),
+            )
+        except (ValueError, AttributeError, TypeError) as exc:
+            # A failed pairing must not silently become "no difference".
+            logger.warning("Could not pair this arm against the baseline: %s", exc)
+            return None
+
     def sync_evaluation_suite(
         self,
         suite: Any,
         *,
         min_pass_rate: float = 0.5,
+        min_discordant: int = 8,
         promote_best: bool = False,
     ) -> PromptCandidateBenchmarkSyncResult:
         """Write a candidate-bound benchmark suite back into prompt-candidate state.
@@ -1803,13 +2037,47 @@ class PromptOptimizerLearner(BaseLearner):
         - every suite run contributes benchmark score history
         - only the suite winner can satisfy benchmark gating by default
         - promotion remains opt-in and only happens after the winner passes the gate
+
+        When the suite carries a baseline arm the gate is **comparative**: the
+        winner must beat the seed on the same tasks, by enough disagreements to
+        mean anything. An absolute pass rate cannot answer the question being
+        asked — it approves a candidate that clears 50% while being worse than
+        the prompt it replaces, and rejects one that beats the seed on a hard
+        benchmark. ``min_discordant`` is the floor on evidence: fewer than this
+        many tasks where the arms disagree is not a result, whichever way it
+        leans.
+
+        The p-value is reported, never enforced. At these sample sizes it is
+        advisory — a decision aid for the human reading the row, not a gate.
+
+        Without a baseline arm this falls back to the old absolute threshold and
+        says so, because a suite with nothing to compare against is an
+        observation, not an experiment.
         """
         if min_pass_rate < 0.0 or min_pass_rate > 1.0:
             raise ValueError("min_pass_rate must be between 0.0 and 1.0")
+        if min_discordant < 0:
+            raise ValueError("min_discordant must be non-negative")
 
         runs = list(getattr(suite, "runs", []) or [])
         if not runs:
             return PromptCandidateBenchmarkSyncResult()
+
+        baseline_run = self._baseline_run(runs)
+        # The baseline is the referent and can never be a candidate: ranking it
+        # alongside the arms it measures lets the seed "win" its own experiment
+        # and blocks every real candidate behind it.
+        runs = [run for run in runs if run is not baseline_run]
+        if not runs:
+            logger.warning("Suite contained only a baseline arm; nothing to evaluate.")
+            return PromptCandidateBenchmarkSyncResult()
+        if baseline_run is None:
+            logger.warning(
+                "Suite has no baseline arm, so candidates cannot be compared to the "
+                "seed; falling back to the absolute pass-rate gate (>= %.2f). Re-run "
+                "with --include-baseline for a real contrast.",
+                min_pass_rate,
+            )
 
         def _run_sort_key(run: Any) -> tuple[float, int, float]:
             result = getattr(run, "result", None)
@@ -1847,7 +2115,20 @@ class PromptOptimizerLearner(BaseLearner):
                 or ""
             )
             score = float(getattr(result, "pass_rate", 0.0) or 0.0)
-            passed = prompt_candidate_hash == best_hash and score > 0.0 and score >= min_pass_rate
+            contrast = self._paired_contrast(baseline_run, run)
+            is_winner = prompt_candidate_hash == best_hash
+            if contrast is not None:
+                passed = is_winner and contrast.effect > 0 and contrast.discordant >= min_discordant
+                if is_winner and not passed:
+                    logger.info(
+                        "Candidate %s did not clear the comparative gate: %s "
+                        "(needs a positive effect over at least %d discordant tasks).",
+                        prompt_candidate_hash[:12],
+                        contrast.summary(),
+                        min_discordant,
+                    )
+            else:
+                passed = is_winner and score > 0.0 and score >= min_pass_rate
 
             candidate = None
             recorded = bool(section_name and prompt_candidate_hash)
@@ -1871,6 +2152,7 @@ class PromptOptimizerLearner(BaseLearner):
                 rank=rank,
                 benchmark_score=(candidate.benchmark_score if candidate is not None else 0.0),
                 benchmark_runs=(candidate.benchmark_runs if candidate is not None else 0),
+                paired_contrast=contrast,
             )
             sync_result.decisions.append(decision)
 
@@ -2268,6 +2550,49 @@ class PromptOptimizerLearner(BaseLearner):
         return dict(metadata) if isinstance(metadata, dict) else {}
 
     @classmethod
+    def _artifact_identities(
+        cls,
+        payload: Dict[str, Any],
+    ) -> List[tuple[str, str, str, str]]:
+        """Every complete prompt identity an artifact can be attributed to.
+
+        Prefers the explicit identity (a targeted ``--prompt-candidate-hash``
+        A/B), then falls back to ``observed_prompt_identities`` — what the
+        runtime actually served during the run. The fallback is what makes
+        ordinary benchmark runs usable: before it existed, only hand-run A/Bs
+        carried identity, so nearly every eval artifact on disk was skipped and
+        the Pareto frontier stayed empty despite thousands of scored tasks.
+
+        Only fully-identified entries are returned, so callers need no further
+        validation.
+        """
+        candidate_hash, section_name, provider, model = cls._artifact_identity(payload)
+        if candidate_hash and section_name:
+            return [(candidate_hash, section_name, provider, model)]
+
+        identities: List[tuple[str, str, str, str]] = []
+        seen: set = set()
+        observed = payload.get("observed_prompt_identities")
+        if not isinstance(observed, list):
+            return identities
+        for entry in observed:
+            if not isinstance(entry, dict):
+                continue
+            entry_hash = cls._artifact_text_value(entry.get("prompt_candidate_hash"))
+            entry_section = cls._artifact_text_value(
+                entry.get("prompt_section_name") or entry.get("section_name")
+            )
+            if not entry_hash or not entry_section:
+                continue
+            entry_provider = cls._artifact_text_value(entry.get("provider")) or provider
+            key = (entry_hash, entry_section, entry_provider)
+            if key in seen:
+                continue
+            seen.add(key)
+            identities.append((entry_hash, entry_section, entry_provider, model))
+        return identities
+
+    @classmethod
     def _artifact_identity(
         cls,
         payload: Dict[str, Any],
@@ -2390,19 +2715,18 @@ class PromptOptimizerLearner(BaseLearner):
             try:
                 with open(eval_file) as f:
                     data = json.load(f)
-                candidate_hash, section_name, provider, model = self._artifact_identity(data)
-                if not candidate_hash or not section_name:
-                    continue
+                for candidate_hash, section_name, provider, model in self._artifact_identities(
+                    data
+                ):
+                    key = self._candidate_key(section_name, provider)
+                    frontier = self._pareto_frontiers.get(key)
+                    if frontier is None:
+                        continue
 
-                key = self._candidate_key(section_name, provider)
-                frontier = self._pareto_frontiers.get(key)
-                if frontier is None:
-                    continue
-
-                for instance_id, score in self._artifact_instance_scores(data, model=model):
-                    frontier.update_instance_score(candidate_hash, instance_id, score)
-                    updated += 1
-                self._sync_pareto_state(key)
+                    for instance_id, score in self._artifact_instance_scores(data, model=model):
+                        frontier.update_instance_score(candidate_hash, instance_id, score)
+                        updated += 1
+                    self._sync_pareto_state(key)
             except Exception:
                 continue
 
@@ -2483,7 +2807,11 @@ class PromptOptimizerLearner(BaseLearner):
                                     "model": "",
                                     "task_type": "default",
                                     "tokens": 0,
+                                    "run_kind": "",
                                 }
+
+                            self._absorb_session_identity(sessions[sid], data)
+                            self._absorb_run_kind(sessions[sid], event)
 
                             if etype == "tool_result":
                                 # tool_result is the event actually emitted per
@@ -2508,6 +2836,7 @@ class PromptOptimizerLearner(BaseLearner):
 
         # Convert to ExecutionTrace objects with quality scoring
         # Quality filter: skip sessions with < 2 tool calls (likely API errors)
+        verdicts = self._harness_verdicts()
         for sid, data in list(sessions.items())[-limit:]:
             if data["tool_calls"] < 2:
                 continue  # Skip trivially broken sessions
@@ -2516,27 +2845,259 @@ class PromptOptimizerLearner(BaseLearner):
             total_calls = data["tool_calls"]
             failure_rate = total_failures / max(total_calls, 1)
 
-            # Quality-based completion score (not just binary)
-            # Low failure rate = high quality trace, worth learning from
-            completion_score = max(0.0, 1.0 - failure_rate * 1.5)
+            completion_score, success, score_source = self._score_session(
+                verdicts.get(sid), failure_rate
+            )
 
             traces.append(
                 ExecutionTrace(
                     session_id=sid,
                     task_type=data["task_type"],
-                    provider=data.get("provider", "unknown"),
-                    model=data.get("model", "unknown"),
+                    provider=data.get("provider") or "unknown",
+                    model=data.get("model") or "unknown",
                     tool_calls=total_calls,
                     tool_failures=data["failures"],
-                    success=failure_rate < 0.3,
+                    success=success,
                     completion_score=completion_score,
                     tokens_used=data.get("tokens", 0),
+                    score_source=score_source,
+                    run_kind=data.get("run_kind") or "unknown",
                 )
             )
 
         # Sort by quality — high-quality traces first for GEPA reflection
         traces.sort(key=lambda t: -t.completion_score)
         return traces
+
+    @staticmethod
+    def _verdict_from_task(task: Dict[str, Any], benchmark: str) -> Optional[HarnessVerdict]:
+        """Build a verdict from one serialized task, or None if it cannot grade.
+
+        Derived from hard signals only — ``status`` and the test counts — and
+        deliberately *not* from the artifact's own ``completion_score`` field.
+        That field is the proxy this change exists to replace, and it is
+        observably unreliable: an artifact on disk carries
+        ``"status": "failed"`` alongside ``"completion_score": "1.0"``. Reading
+        it back would reimport the defect under a new name.
+
+        Test counts give partial credit where they exist, so a run that fixed
+        8 of 10 tests is better evidence than one that fixed none, without
+        trusting a soft score that can contradict the verdict.
+        """
+        session_id = str(task.get("session_id") or "").strip()
+        if not session_id:
+            return None
+        status = str(task.get("status") or "").strip().lower()
+        if not status:
+            return None
+
+        success = status == "passed"
+        if success:
+            score = 1.0
+        else:
+            try:
+                tests_total = int(task.get("tests_total") or 0)
+                tests_passed = int(task.get("tests_passed") or 0)
+            except (TypeError, ValueError):
+                tests_total = tests_passed = 0
+            # A non-passing run never scores 1.0, however many tests it passed.
+            score = min(tests_passed / tests_total, 0.99) if tests_total > 0 else 0.0
+            score = max(score, 0.0)
+
+        return HarnessVerdict(
+            completion_score=score,
+            success=success,
+            task_id=str(task.get("task_id") or ""),
+            benchmark=benchmark,
+        )
+
+    def _harness_verdicts(self, eval_dir: Optional[Path] = None) -> Dict[str, HarnessVerdict]:
+        """Map session_id → ground-truth outcome, from benchmark artifacts.
+
+        Evaluation runs are the only sessions that carry a real verdict: a
+        harness decided whether the task was actually solved. Traces from those
+        sessions must be scored by that verdict rather than by how tidily the
+        agent called its tools — an artifact on disk shows the two disagreeing
+        outright (``"status": "failed"`` alongside ``"completion_score": 1.0``
+        computed from the proxy).
+
+        Bounded to the most recent artifacts by mtime and memoized per instance:
+        the corpus runs to thousands of files, while trace collection only ever
+        looks at the last ~50 sessions.
+        """
+        if self._harness_verdict_cache is not None:
+            return self._harness_verdict_cache
+
+        if eval_dir is None:
+            try:
+                from victor.config.settings import get_project_paths
+
+                eval_dir = Path(get_project_paths().global_victor_dir) / "evaluations"
+            except Exception:
+                eval_dir = Path.home() / ".victor" / "evaluations"
+
+        verdicts: Dict[str, HarnessVerdict] = {}
+        try:
+            artifacts = sorted(
+                Path(eval_dir).glob("eval_*.json"),
+                key=lambda p: p.stat().st_mtime,
+                reverse=True,
+            )[:MAX_EVAL_ARTIFACTS_SCANNED]
+        except OSError:
+            artifacts = []
+
+        for artifact in artifacts:
+            try:
+                with open(artifact) as handle:
+                    payload = json_loads(handle.read())
+            except (OSError, JSONDecodeError, ValueError):
+                continue
+            if not isinstance(payload, dict):
+                continue
+            config = payload.get("config")
+            benchmark = str(
+                payload.get("benchmark")
+                or (config.get("benchmark") if isinstance(config, dict) else "")
+                or ""
+            )
+            tasks = payload.get("tasks")
+            if not isinstance(tasks, list):
+                continue
+            for task in tasks:
+                if not isinstance(task, dict):
+                    continue
+                verdict = self._verdict_from_task(task, benchmark)
+                if verdict is None:
+                    continue
+                # Artifacts are walked newest-first, so setdefault means a
+                # re-run's grade supersedes the earlier one for that session.
+                verdicts.setdefault(str(task.get("session_id")).strip(), verdict)
+
+        if verdicts:
+            logger.info(
+                "Loaded %d harness verdicts from %d evaluation artifacts",
+                len(verdicts),
+                len(artifacts),
+            )
+        self._harness_verdict_cache = verdicts
+        return verdicts
+
+    @staticmethod
+    def _score_session(
+        verdict: Optional[HarnessVerdict],
+        failure_rate: float,
+    ) -> tuple[float, bool, str]:
+        """Score one session: harness verdict when it exists, proxy otherwise.
+
+        Returns ``(completion_score, success, score_source)``.
+        """
+        if verdict is not None:
+            return verdict.completion_score, verdict.success, "harness"
+        # No verdict exists for interactive sessions — nothing graded them — so
+        # the tool-failure proxy stands, but it is labelled as inference.
+        return max(0.0, 1.0 - failure_rate * 1.5), failure_rate < 0.3, "tool_failure_proxy"
+
+    @classmethod
+    def _scope_traces_to_provider(
+        cls,
+        traces: List[ExecutionTrace],
+        provider: str,
+    ) -> List[ExecutionTrace]:
+        """Keep only the traces that belong to the provider being evolved.
+
+        Candidates are persisted per ``(section, provider)``, but the trace pool
+        is the *global* ``~/.victor/logs/usage.jsonl`` — every project and every
+        provider the operator has ever run. Reflecting a ``moonshot`` candidate
+        over ZAI/Ollama/DeepSeek failures attributes another model's mistakes to
+        Moonshot's prompt.
+
+        Falls back to the unscoped pool when the provider's own traces are too
+        few to evolve from; a narrower-but-empty pool would just stall the loop,
+        and the caller logs the degraded provenance.
+        """
+        if not provider or provider == "default":
+            return traces
+        wanted = cls._normalize_provider_label(provider) or provider.lower()
+        scoped = [t for t in traces if cls._normalize_provider_label(t.provider) == wanted]
+        if len(scoped) < MIN_TRACES_FOR_EVOLUTION:
+            logger.info(
+                "Provider-scoped traces for '%s' insufficient (%d < %d); "
+                "falling back to the unscoped pool (%d traces, mixed provenance).",
+                wanted,
+                len(scoped),
+                MIN_TRACES_FOR_EVOLUTION,
+                len(traces),
+            )
+            return traces
+        logger.info(
+            "Scoped evolution traces to provider '%s': %d of %d.",
+            wanted,
+            len(scoped),
+            len(traces),
+        )
+        return scoped
+
+    @staticmethod
+    def _normalize_provider_label(raw: str) -> str:
+        """Map a runtime provider class name onto the candidate ``provider`` scope.
+
+        Candidates are stored under short scopes (``moonshot``, ``zai``,
+        ``ollama``); the JSONL logs the class name (``MoonshotProvider``,
+        ``SandhiOllamaProvider``, ``MoonshotCompatProvider``). Without this
+        mapping the two namespaces never meet.
+        """
+        label = str(raw or "").strip()
+        if not label:
+            return ""
+        for suffix in ("Provider", "Compat"):
+            while label.endswith(suffix):
+                label = label[: -len(suffix)]
+        # Gateway-fronted variants (SandhiOllama → ollama) share the upstream
+        # provider's prompt scope; the gateway is transport, not a dialect.
+        if label.startswith("Sandhi") and len(label) > len("Sandhi"):
+            label = label[len("Sandhi") :]
+        return label.lower()
+
+    @staticmethod
+    def _absorb_run_kind(session: Dict[str, Any], event: Dict[str, Any]) -> None:
+        """Record the run kind the emitter stamped on this event.
+
+        Sits beside ``session_id`` on the event rather than inside ``data``,
+        because it describes the run rather than the thing that happened. First
+        non-empty value wins: a session does not change kind partway through.
+
+        Events written before the emitter tagged them carry nothing, and those
+        sessions stay ``unknown`` — deliberately, rather than being guessed from
+        prompt text, which is the inference that conflated delegate work with
+        benchmark runs in the first place.
+        """
+        if not isinstance(event, dict) or session.get("run_kind"):
+            return
+        kind = str(event.get("run_kind") or "").strip().lower()
+        if kind:
+            session["run_kind"] = kind
+
+    @classmethod
+    def _absorb_session_identity(cls, session: Dict[str, Any], data: Dict[str, Any]) -> None:
+        """Fill a session's provider/model from any event that carries them.
+
+        ``provider``/``model`` were initialised to ``""`` and never assigned, so
+        every collected trace reported ``provider="unknown"`` even though
+        ``session_start`` and ``stream_completed`` events carry the real values.
+        Evolution therefore reflected over a provider-blind trace pool while
+        labelling the resulting candidate with the *current* session's provider.
+        First non-empty value wins — a session does not change provider mid-run.
+        """
+        if not isinstance(data, dict):
+            return
+        if not session.get("provider"):
+            provider = cls._normalize_provider_label(data.get("provider", ""))
+            if provider:
+                session["provider"] = provider
+        if not session.get("model"):
+            model = str(data.get("model") or "").strip()
+            if model:
+                session["model"] = model
 
     @staticmethod
     def _categorize_failure(error: str) -> str:
@@ -2652,8 +3213,12 @@ class PromptOptimizerLearner(BaseLearner):
                                     "model": "",
                                     "task_type": "default",
                                     "tokens": 0,
+                                    "run_kind": "",
                                     "details": [],  # v2: per-call details
                                 }
+
+                            self._absorb_session_identity(sessions[sid], data)
+                            self._absorb_run_kind(sessions[sid], event)
 
                             if etype == "tool_call":
                                 # Create a pending detail (reasoning enrichment).
@@ -2718,21 +3283,31 @@ class PromptOptimizerLearner(BaseLearner):
             except Exception:
                 continue
 
+        verdicts = self._harness_verdicts()
         for sid, data in list(sessions.items())[-limit:]:
             if data["tool_calls"] > 0:
-                has_failures = bool(data["failures"])
+                # Was a flat 0.5-if-any-failure / 0.8-otherwise, a third scoring
+                # rule alongside v1's and the conversation collector's. All three
+                # now go through _score_session, so a session is graded the same
+                # way regardless of which collector observed it.
+                failure_rate = sum(data["failures"].values()) / max(data["tool_calls"], 1)
+                completion_score, success, score_source = self._score_session(
+                    verdicts.get(sid), failure_rate
+                )
                 traces.append(
                     ExecutionTrace(
                         session_id=sid,
                         task_type=data["task_type"],
-                        provider=data.get("provider", "unknown"),
-                        model=data.get("model", "unknown"),
+                        provider=data.get("provider") or "unknown",
+                        model=data.get("model") or "unknown",
                         tool_calls=data["tool_calls"],
                         tool_failures=data["failures"],
-                        success=not has_failures,
-                        completion_score=0.5 if has_failures else 0.8,
+                        success=success,
+                        completion_score=completion_score,
                         tokens_used=data.get("tokens", 0),
                         tool_call_details=data.get("details", []),
+                        score_source=score_source,
+                        run_kind=data.get("run_kind") or "unknown",
                     )
                 )
 
@@ -2766,6 +3341,7 @@ class PromptOptimizerLearner(BaseLearner):
             logger.debug("Failed to query RL training data: %s", e)
             return traces
 
+        verdicts = self._harness_verdicts()
         for sess in sessions:
             session_id = sess.get("session_id", "")
             provider = sess.get("provider") or "unknown"
@@ -2827,6 +3403,10 @@ class PromptOptimizerLearner(BaseLearner):
             total_failures = sum(failures.values())
             failure_rate = total_failures / max(total_tool_calls, 1)
 
+            completion_score, success, score_source = self._score_session(
+                verdicts.get(session_id), failure_rate
+            )
+
             traces.append(
                 ExecutionTrace(
                     session_id=session_id,
@@ -2835,10 +3415,11 @@ class PromptOptimizerLearner(BaseLearner):
                     model=model,
                     tool_calls=total_tool_calls,
                     tool_failures=failures,
-                    success=failure_rate < 0.3,
-                    completion_score=max(0.0, 1.0 - failure_rate * 1.5),
+                    success=success,
+                    completion_score=completion_score,
                     tokens_used=0,
                     tool_call_details=details,
+                    score_source=score_source,
                 )
             )
 

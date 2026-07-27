@@ -85,6 +85,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                         break;
                     case 'clearHistory':
                         this._messages = [];
+                        this._client.resetChatSession();
                         this._updateMessages();
                         break;
                     case 'applyCode':
@@ -245,6 +246,39 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     }
 
     private _handleStreamEvent(event: StreamEvent): void {
+        // v1 wire contract: reasoning text streams as `thinking` events.
+        if (event.type === 'thinking') {
+            this._postMessage({ type: 'thinking', thinking: true, content: event.content });
+            return;
+        }
+
+        // v1 wire contract: tool results arrive in-stream (with call_id
+        // correlation and measured duration), no event bridge required.
+        if (event.type === 'tool_result') {
+            const status = event.success === false ? 'error' : 'success';
+            let tracked: ToolCall | undefined =
+                event.callId ? this._trackedToolCalls.get(event.callId) : undefined;
+            if (!tracked) {
+                tracked = this._upsertTrackedToolCall({
+                    id: event.callId,
+                    name: event.toolName || 'tool',
+                    arguments: {},
+                });
+            }
+            tracked.status = status;
+            tracked.result = event.content;
+            this._postMessage({
+                type: 'toolCallResult',
+                id: tracked.id,
+                status,
+                result: event.content,
+                elapsedMs: event.elapsedMs,
+                truncated: event.truncated,
+            });
+            return;
+        }
+
+        // Legacy pre-v1 correlation event: wire up the /events bridge.
         if (event.type !== 'request' || !event.requestId) {
             return;
         }

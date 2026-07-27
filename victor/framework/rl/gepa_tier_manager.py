@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import logging
 from collections import deque
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional, Tuple
 
 from victor.framework.rl.gepa_service import GEPAService
 
@@ -32,6 +32,43 @@ TIER_UPGRADE = {
     "balanced": "performance",
     "performance": "performance",
 }
+
+
+class _RotationFailover:
+    """Hands a throttled GEPAService a provider that has not refused us yet.
+
+    Stateful because a single service may fail over more than once in a run: it
+    tracks which spec is currently live so the *right* one gets benched on the
+    next 429, rather than repeatedly benching whichever provider started out.
+    """
+
+    def __init__(
+        self,
+        rotation: Any,
+        build: Callable[[str, str], Optional[Any]],
+        provider_name: str,
+        model: str,
+    ) -> None:
+        from victor.framework.rl.mutator_rotation import MutatorSpec
+
+        self._rotation = rotation
+        self._build = build
+        self._live = MutatorSpec(provider=provider_name, model=model)
+
+    def __call__(self, model: str, error: BaseException) -> Optional[Tuple[Any, str]]:
+        del model  # the live spec is authoritative; the caller's copy can lag
+        self._rotation.note_failure(self._live, error)
+        while True:
+            spec = self._rotation.next_spec()
+            if spec is None:
+                return None
+            provider = self._build(spec.provider, spec.base_url)
+            if provider is None:
+                # Bench it, or an unbuildable spec would be handed back forever.
+                self._rotation.bench(spec, "provider could not be built")
+                continue
+            self._live = spec
+            return provider, spec.model
 
 
 class GEPATierManager:
@@ -53,6 +90,7 @@ class GEPATierManager:
 
         self._use_main_model: bool = getattr(config, "use_main_model", True)
         self._main_model_spec: Optional[Any] = main_model_spec
+        self._rotation: Optional[Any] = None
 
         self._auto_switch: bool = getattr(config, "auto_tier_switch", True)
         self._convergence_window: int = getattr(config, "convergence_window", 10)
@@ -174,28 +212,17 @@ class GEPATierManager:
         model = spec.model
         base_url = getattr(spec, "base_url", "") or ""
 
-        try:
-            from victor.providers.registry import ProviderRegistry
-            from victor.providers.sandhi_transport import resolve_transport_class
-
-            provider_cls = ProviderRegistry.get(provider_name)
-            typed_cls = resolve_transport_class(provider_name, provider_cls, {})
-            provider = typed_cls(base_url=base_url) if base_url else typed_cls()
-        except Exception as e:
+        provider = self._build_provider(provider_name, base_url)
+        if provider is None:
             logger.warning(
-                "Failed to create %s provider for GEPA %s tier: %s. " "Falling back to Ollama.",
+                "Failed to create %s provider for GEPA %s tier. Falling back to Ollama.",
                 provider_name,
                 tier,
-                e,
             )
-            try:
-                from victor.providers.ollama_provider import OllamaProvider
-                from victor.providers.sandhi_transport import resolve_transport_class as _resolve
-
-                provider = _resolve("ollama", OllamaProvider, {})()
-                model = "qwen3:8b"
-            except Exception:
-                raise RuntimeError(f"Cannot create any provider for GEPA {tier} tier") from e
+            provider = self._build_provider("ollama", "")
+            if provider is None:
+                raise RuntimeError(f"Cannot create any provider for GEPA {tier} tier")
+            model = "qwen3:8b"
 
         return GEPAService(
             provider=provider,
@@ -204,7 +231,33 @@ class GEPATierManager:
             max_prompt_chars=getattr(self._config, "max_prompt_chars", 1500),
             timeout_s=spec.timeout_s,
             max_tokens=spec.max_tokens,
+            failover=self._make_failover(provider_name, model),
         )
+
+    @staticmethod
+    def _build_provider(provider_name: str, base_url: str) -> Optional[Any]:
+        """Instantiate a transport-wrapped provider, or None if it cannot be built."""
+        try:
+            from victor.providers.registry import ProviderRegistry
+            from victor.providers.sandhi_transport import resolve_transport_class
+
+            provider_cls = ProviderRegistry.get(provider_name)
+            typed_cls = resolve_transport_class(provider_name, provider_cls, {})
+            return typed_cls(base_url=base_url) if base_url else typed_cls()
+        except Exception as e:
+            logger.warning("Cannot build provider %s: %s", provider_name, e)
+            return None
+
+    def set_mutator_rotation(self, rotation: Any) -> None:
+        """Supply providers to fail over to when the active mutator is throttled."""
+        self._rotation = rotation
+        self._services.clear()
+
+    def _make_failover(self, provider_name: str, model: str) -> Optional[Any]:
+        """Bind a failover for a service that starts out on ``provider_name``."""
+        if self._rotation is None:
+            return None
+        return _RotationFailover(self._rotation, self._build_provider, provider_name, model)
 
     def _get_tier_spec(self, tier: str) -> Any:
         """Get the GEPAModelSpec for a tier from config."""

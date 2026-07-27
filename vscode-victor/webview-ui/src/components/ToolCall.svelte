@@ -31,14 +31,15 @@
     return icons[key] || icons.default;
   }
 
-  // Calculate duration
+  // Calculate duration — prefer the server-measured elapsed_ms from the v1
+  // wire contract; fall back to client-side start/end timestamps.
   function getDuration(): string | null {
-    if (toolCall.startTime && toolCall.endTime) {
-      const ms = toolCall.endTime - toolCall.startTime;
-      if (ms < 1000) return `${ms}ms`;
-      return `${(ms / 1000).toFixed(1)}s`;
-    }
-    return null;
+    const ms =
+      toolCall.elapsedMs ??
+      (toolCall.startTime && toolCall.endTime ? toolCall.endTime - toolCall.startTime : null);
+    if (ms === null || ms === undefined) return null;
+    if (ms < 1000) return `${ms}ms`;
+    return `${(ms / 1000).toFixed(1)}s`;
   }
 
   // Toggle expanded state

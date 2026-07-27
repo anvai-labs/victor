@@ -62,6 +62,7 @@ class SkillMatcher:
         high_threshold: float = 0.65,
         low_threshold: float = 0.45,
         use_edge_fallback: bool = True,
+        chain_margin: float = 0.15,
     ):
         from victor.storage.embeddings.collections import StaticEmbeddingCollection
 
@@ -73,6 +74,7 @@ class SkillMatcher:
         self._high_threshold = high_threshold
         self._low_threshold = low_threshold
         self._use_edge_fallback = use_edge_fallback
+        self._chain_margin = chain_margin
         self._initialized = False
 
     @property
@@ -200,17 +202,27 @@ class SkillMatcher:
         if not candidates:
             return []
 
-        # Single dominant match — return just that one
-        if len(candidates) == 1:
-            return [candidates[0]]
-        if (
-            candidates[0][1] >= self._high_threshold
-            and candidates[1][1] < self._low_threshold + 0.05
-        ):
-            return [candidates[0]]
+        # A skill selection needs a high-confidence anchor. Without one, a long
+        # message full of generic terms can pull several marginal skills past
+        # the low threshold and inject an irrelevant chain (seen live:
+        # migrate_database → setup_ci_pipeline → optimize_performance on a
+        # UX-plan continuation turn). Precision beats recall for prompt
+        # injection — in the ambiguous zone, defer to the edge arbiter or
+        # select nothing.
+        top_score = candidates[0][1]
+        if top_score < self._high_threshold:
+            if self._use_edge_fallback:
+                edge_result = self._edge_llm_decide(user_message, results)
+                if edge_result:
+                    return [edge_result]
+            return []
 
-        # Multiple viable candidates — order by phase then score
-        ordered = self._order_by_phase(candidates)
+        # Companions ride only within a fixed relevance margin of the anchor —
+        # a confident top match must not drag distant also-rans along.
+        chain = [
+            (skill, score) for skill, score in candidates if score >= top_score - self._chain_margin
+        ]
+        ordered = self._order_by_phase(chain)
         return ordered[:max_skills]
 
     @staticmethod

@@ -394,6 +394,10 @@ async def stream_with_events(
             if status_message:
                 yield milestone_event(str(status_message), metadata=chunk_metadata)
 
+            refusal_text = chunk_metadata.get("refusal")
+            if refusal_text:
+                yield milestone_event(f"Model refusal: {refusal_text}", metadata=chunk_metadata)
+
             reasoning_content = chunk_metadata.get("reasoning_content")
             if reasoning_content:
                 yield registry.from_external(

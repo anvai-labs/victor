@@ -66,11 +66,20 @@ export interface VictorEvent {
 }
 
 export interface StreamEvent {
+    /** v1 wire kinds: thinking | tool_call | tool_result | content | error |
+     *  stream_end — plus legacy kinds (request, done, unknown) from pre-v1
+     *  servers. */
     type: string;
     requestId?: string;
     content?: string;
     toolCalls?: ToolCall[];
     error?: string;
+    /** v1 tool_result fields */
+    toolName?: string;
+    callId?: string;
+    success?: boolean;
+    elapsedMs?: number;
+    truncated?: boolean;
     raw: Record<string, unknown>;
 }
 
@@ -222,6 +231,8 @@ const DEFAULT_WS_CONFIG: WebSocketConfig = {
 
 export class VictorClient {
     private client: AxiosInstance;
+    /** Server-side chat session id (v1 wire contract, X-Session-Id header). */
+    private chatSessionId: string | null = null;
     private serverUrl: string;
     private apiToken?: string;
     private sessionToken?: string;
@@ -655,6 +666,81 @@ export class VictorClient {
         }
     }
 
+    /** Chat session continuity: populated from the X-Session-Id response
+     *  header of `/chat/stream` and echoed back as `session_id`. */
+    getChatSessionId(): string | null {
+        return this.chatSessionId;
+    }
+
+    /** Forget the server-side chat session (e.g. on "clear history"). */
+    resetChatSession(): void {
+        this.chatSessionId = null;
+    }
+
+    private _handleWireEvent(
+        data: Record<string, unknown>,
+        onChunk: (chunk: string) => void,
+        onToolCall: ((toolCall: ToolCall) => void) | undefined,
+        onEvent: ((event: StreamEvent) => void) | undefined,
+        settle: { done: boolean; resolve: () => void; reject: (err: Error) => void }
+    ): void {
+        const event = data.event as string;
+        if (event === 'content') {
+            const content = typeof data.content === 'string' ? data.content : '';
+            if (content) {
+                onChunk(content);
+            }
+            onEvent?.({ type: 'content', content, raw: data });
+        } else if (event === 'thinking') {
+            const content = typeof data.content === 'string' ? data.content : '';
+            onEvent?.({ type: 'thinking', content, raw: data });
+        } else if (event === 'tool_call') {
+            const toolCall: ToolCall = {
+                id: typeof data.call_id === 'string' ? data.call_id : undefined,
+                name: typeof data.tool === 'string' ? data.tool : 'tool',
+                arguments: (typeof data.arguments === 'object' && data.arguments !== null
+                    ? data.arguments
+                    : {}) as Record<string, unknown>,
+                status: 'running',
+            };
+            onToolCall?.(toolCall);
+            onEvent?.({
+                type: 'tool_call',
+                toolCalls: [toolCall],
+                callId: toolCall.id,
+                raw: data,
+            });
+        } else if (event === 'tool_result') {
+            const result = data.result;
+            onEvent?.({
+                type: 'tool_result',
+                toolName: typeof data.tool === 'string' ? data.tool : 'tool',
+                callId: typeof data.call_id === 'string' ? data.call_id : undefined,
+                success: data.success !== false,
+                content: typeof result === 'string' ? result : result == null ? '' : JSON.stringify(result),
+                elapsedMs: typeof data.elapsed_ms === 'number' ? data.elapsed_ms : undefined,
+                truncated: data.truncated === true,
+                raw: data,
+            });
+        } else if (event === 'error') {
+            const message = typeof data.message === 'string' ? data.message : 'Unknown stream error';
+            onEvent?.({ type: 'error', error: message, raw: data });
+            if (!settle.done) {
+                settle.done = true;
+                settle.reject(new VictorError(message, VictorErrorType.ServerError));
+            }
+        } else if (event === 'stream_end') {
+            onEvent?.({ type: 'stream_end', raw: data });
+            if (!settle.done) {
+                settle.done = true;
+                settle.resolve();
+            }
+        } else {
+            // Additive contract growth must never crash a consumer.
+            onEvent?.({ type: event, raw: data });
+        }
+    }
+
     async streamChat(
         messages: ChatMessage[],
         onChunk: (chunk: string) => void,
@@ -662,12 +748,26 @@ export class VictorClient {
         onEvent?: (event: StreamEvent) => void
     ): Promise<void> {
         try {
-            const response = await this.client.post('/chat/stream', { messages }, {
+            // v1 wire contract: the server owns conversation history per
+            // session, so only the newest user message goes up, plus the
+            // session id captured from a prior response's X-Session-Id.
+            const latestUser = [...messages].reverse().find((m) => m.role === 'user');
+            const body: Record<string, unknown> = { message: latestUser?.content ?? '' };
+            if (this.chatSessionId) {
+                body.session_id = this.chatSessionId;
+            }
+            const response = await this.client.post('/chat/stream', body, {
                 responseType: 'stream',
             });
+            const headers = (response.headers ?? {}) as Record<string, unknown>;
+            const sessionId = headers['x-session-id'] ?? headers['X-Session-Id'];
+            if (typeof sessionId === 'string' && sessionId) {
+                this.chatSessionId = sessionId;
+            }
 
             return new Promise((resolve, reject) => {
                 let buffer = '';
+                const settle = { done: false, resolve, reject };
 
                 response.data.on('data', (chunk: Buffer) => {
                     buffer += chunk.toString();
@@ -677,13 +777,18 @@ export class VictorClient {
                     for (const line of lines) {
                         if (line.startsWith('data: ')) {
                             const payload = line.slice(6);
-                            // Skip [DONE] marker
+                            // Legacy pre-v1 terminator
                             if (payload === '[DONE]') {
                                 onEvent?.({ type: 'done', raw: { type: 'done' } });
                                 return;
                             }
                             try {
                                 const data = JSON.parse(payload) as Record<string, unknown>;
+                                if (data.v === 1 && typeof data.event === 'string') {
+                                    this._handleWireEvent(data, onChunk, onToolCall, onEvent, settle);
+                                    continue;
+                                }
+                                // Legacy pre-v1 protocol (type-discriminated)
                                 const requestId = typeof data.request_id === 'string'
                                     ? data.request_id
                                     : undefined;
@@ -737,7 +842,10 @@ export class VictorClient {
                                         requestId,
                                         raw: data,
                                     });
-                                    reject(new VictorError(message, VictorErrorType.ServerError));
+                                    if (!settle.done) {
+                                        settle.done = true;
+                                        settle.reject(new VictorError(message, VictorErrorType.ServerError));
+                                    }
                                 } else {
                                     onEvent?.({
                                         type: typeof data.type === 'string' ? data.type : 'unknown',
@@ -753,8 +861,17 @@ export class VictorClient {
                     }
                 });
 
-                response.data.on('end', () => resolve());
+                response.data.on('end', () => {
+                    if (!settle.done) {
+                        settle.done = true;
+                        resolve();
+                    }
+                });
                 response.data.on('error', (err: Error) => {
+                    if (settle.done) {
+                        return;
+                    }
+                    settle.done = true;
                     const handled = this._handleError(err);
                     console.error('[VictorClient] streamChat error', handled);
                     reject(handled);

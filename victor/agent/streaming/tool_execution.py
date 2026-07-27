@@ -656,7 +656,16 @@ class ToolExecutionHandler:
         for batch_index, tool_call in enumerate(tool_calls, start=1):
             tool_name = tool_call.get("name", "tool")
             tool_args = tool_call.get("arguments", {})
-            status_msg = self._get_tool_status_message(tool_name, tool_args)
+            try:
+                status_msg = self._get_tool_status_message(tool_name, tool_args)
+            except Exception:
+                # A cosmetic status message must never abort tool execution.
+                logger.warning(
+                    "Tool status message generation failed for '%s'",
+                    tool_name,
+                    exc_info=True,
+                )
+                status_msg = f"Running {tool_name}..."
             chunk = self._chunk_generator.generate_tool_start_chunk(
                 tool_name,
                 tool_args,

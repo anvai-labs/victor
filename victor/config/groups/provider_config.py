@@ -100,6 +100,12 @@ class ProviderSettings(BaseModel):
     default generation parameters, and provider-specific settings.
     """
 
+    # Sandhi typed transport: ask for the full native provider body under
+    # ChatResponseV1.extensions. Off by default — Victor consumes only the
+    # neutral contract (F1, victor#665) and the body is debug-only weight.
+    # Flip on for wire-level debugging of a provider integration.
+    sandhi_include_native_response: bool = False
+
     # Default provider and model
     default_provider: str = "ollama"
     default_model: str = "qwen3.5:27b-q4_K_M"  # MoE model: fast + knowledgeable

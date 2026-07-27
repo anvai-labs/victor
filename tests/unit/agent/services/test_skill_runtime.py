@@ -177,3 +177,46 @@ def test_inject_skills_caps_at_three_and_preserves_phase_order():
     assert "review" in host._system_prompt
     assert "extra" not in host._system_prompt
     prompt_runtime.sync_conversation_system_prompt.assert_called_once_with()
+
+
+def _make_host(matcher):
+    return SimpleNamespace(
+        clear_active_skills=MagicMock(),
+        inject_skill=MagicMock(),
+        inject_skills=MagicMock(),
+        _skill_matcher=matcher,
+        _skill_auto_disabled=False,
+        _manual_skill_active=False,
+        _skill_analytics=None,
+        _last_skill_match_info=None,
+    )
+
+
+def test_bare_continuation_skips_skill_auto_selection():
+    """A bare "continue" names no new task — the matcher must not run.
+
+    Regression: 3 irrelevant skills were auto-injected on a continuation turn
+    (session codingagent-363cca81).
+    """
+    matcher = MagicMock()
+    matcher._initialized = True
+    runtime = SkillRuntime(OrchestratorProtocolAdapter(_make_host(matcher)))
+    runtime.clear_active_skills = MagicMock()
+
+    for message in ("continue", "  Continue  ", "go on", "keep going"):
+        runtime.apply_skill_for_turn(message)
+
+    matcher.match_multiple_sync.assert_not_called()
+
+
+def test_continuation_with_payload_still_matches_skills():
+    """A continuation that names new work still gets skill matching on it."""
+    matcher = MagicMock()
+    matcher._initialized = True
+    matcher.match_multiple_sync.return_value = []
+    runtime = SkillRuntime(OrchestratorProtocolAdapter(_make_host(matcher)))
+    runtime.clear_active_skills = MagicMock()
+
+    runtime.apply_skill_for_turn("continue, and also migrate the database schema")
+
+    matcher.match_multiple_sync.assert_called_once()

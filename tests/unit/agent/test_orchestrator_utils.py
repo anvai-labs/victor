@@ -430,6 +430,19 @@ class TestGetToolStatusMessage:
         )
         assert result == f"{self.ICON_PREFIX} Running execute_bash: `{'y' * 80}...`"
 
+    def test_non_dict_args_returns_generic_message(self):
+        """Non-dict arguments (e.g. a model emitting a JSON array) must not raise.
+
+        Regression: glm-5.2 emitted `write` arguments as a list; the `.get()`
+        call raised AttributeError and killed the whole streaming turn.
+        """
+        for bad_args in ([{"path": "a.py"}], ["a", "b"], "raw string", 7, None, True):
+            for tool_name in ("write", "read", "shell", "edit", "ls"):
+                result = get_tool_status_message(
+                    tool_name, bad_args, presentation=self.presentation
+                )
+                assert result == f"{self.ICON_PREFIX} Running {tool_name}..."
+
     def test_execute_bash_no_command(self):
         """Test execute_bash without command key falls back to default."""
         result = get_tool_status_message("execute_bash", {}, presentation=self.presentation)

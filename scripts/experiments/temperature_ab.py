@@ -20,7 +20,7 @@ completion + quality while not increasing turns/variance — same match-or-beat 
 
 Usage (needs a real model; authenticate via the bridge first):
     eval "$(victor auth env -p zai 2>/dev/null | grep '^export')"
-    python scripts/experiments/temperature_ab.py --profile zai-coding --temps 0.6,0.7 --runs 2
+    python scripts/experiments/temperature_ab.py --profile zai-glm52-openai --temps 0.6,0.7 --runs 2
 """
 
 from __future__ import annotations
@@ -168,6 +168,6 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--temps", default="0.6,0.7", help="comma-separated temperatures to compare")
     ap.add_argument("--runs", type=int, default=2, help="repeats per task (captures variance)")
-    ap.add_argument("--profile", default="zai-coding", help="agent profile (model/provider)")
+    ap.add_argument("--profile", default="zai-glm52-openai", help="agent profile (model/provider)")
     args = ap.parse_args()
     asyncio.run(main([float(x) for x in args.temps.split(",")], args.runs, args.profile or None))

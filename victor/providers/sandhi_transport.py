@@ -10,8 +10,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from json import JSONDecodeError
 from typing import Any, AsyncIterator, Dict, List, Optional, Tuple, Type
+
+logger = logging.getLogger(__name__)
 
 from victor.providers.anthropic_provider import AnthropicProvider
 from victor.providers.base import (
@@ -40,6 +43,11 @@ try:
     import sandhi_gateway as _sg  # type: ignore[import-untyped]
 except Exception:  # pragma: no cover - diagnosed at provider construction
     _sg = None
+
+# sandhi-gateway >= 0.1.3 raises provider-boundary errors as a dedicated class
+# (message = serialized ProviderErrorV1). With it, provider-vs-binding
+# classification no longer depends on the message parsing as JSON.
+_SANDHI_PROVIDER_ERROR_CLS = getattr(_sg, "SandhiProviderError", None) if _sg else None
 
 
 # These are deliberately outside TD-0002's admitted typed set because they use a
@@ -94,7 +102,7 @@ def resolve_transport_class(
         return native_cls
     if not sandhi_transport_available():
         raise ProviderConnectionError(
-            "sandhi-gateway 0.1.2 is required for provider transport",
+            "sandhi-gateway 0.1.4 is required for provider transport",
             provider=name,
         )
     return variant
@@ -108,6 +116,120 @@ def _typed_error_payload(message: str) -> Optional[Dict[str, Any]]:
     return value if isinstance(value, dict) and isinstance(value.get("code"), str) else None
 
 
+# The ChatRequestV1/ChatStreamEventV1 wire-contract version Victor speaks.
+# Single source for the request "schema_version" field and the handshake below.
+EXPECTED_WIRE_CONTRACT = "1"
+
+# Additive rounds of the v1 contract Victor knows how to consume (W3c):
+# 3 = wire-truth latency on UsageV2 (sandhi#97); 4 = reasoning_effort +
+# thinking typed request fields (W3d/G7). The installed runtime's minor is
+# read once by the handshake below; bindings predating chat_contract_minor()
+# report 0 — their documents simply never carry the newer fields, which every
+# consumer tolerates by construction.
+KNOWN_CONTRACT_MINOR = 4
+
+# The typed request fields land at minor 4 (W3d/G7). Below it, the runtime has
+# no such fields, so Victor dual-writes into extensions and only drops the
+# extensions copy once the installed runtime speaks >= this.
+_W3D_TYPED_FIELDS_MINOR = 4
+
+# Non-openai families whose sandhi encoder is a NATIVE translator (it clones
+# extensions[<family>] as the base request body). Victor's neutral mixin builds
+# an OpenAI-shaped bucket, so re-labeling it to these keys lets openai-shaped
+# params land inside a native Gemini/Cohere/Ollama body (shape corruption,
+# W3d/G7 D3). The bucket is dropped for these — typed fields carry what the
+# native encoders honor.
+_NATIVE_ENCODER_SLUGS = frozenset({"gemini", "cohere", "ollama"})
+
+# Internal orchestration keys that must never reach a provider request body
+# (W3d/G7 D4). They ride **kwargs from the runtime and would otherwise land in
+# extensions["openai"] and cross the wire.
+_INTERNAL_KWARG_KEYS = frozenset(
+    {
+        "execution_mode",
+        "provider_hint",
+        "escalation_target",
+        "topology_action",
+        "topology_kind",
+        "topology_metadata",
+        "task_type",
+        "temperature_override",
+    }
+)
+
+_wire_contract_checked = False
+_installed_contract_minor: int = 0
+
+
+def _normalize_thinking(value: Any) -> Optional[Dict[str, Any]]:
+    """Coerce Victor's `{type: enabled|disabled, budget_tokens?}` thinking arg
+    into the neutral ThinkingV1 shape `{enabled: bool, budget_tokens?: int}`
+    (W3d/G7). Returns None for shapes that carry no signal."""
+    if isinstance(value, bool):
+        return {"enabled": value}
+    if not isinstance(value, dict):
+        return None
+    if "enabled" in value:
+        enabled = bool(value["enabled"])
+    elif "type" in value:
+        enabled = str(value.get("type")) != "disabled"
+    else:
+        enabled = True
+    normalized: Dict[str, Any] = {"enabled": enabled}
+    budget = value.get("budget_tokens")
+    if isinstance(budget, int) and budget > 0:
+        normalized["budget_tokens"] = budget
+    return normalized
+
+
+def installed_chat_contract_minor() -> int:
+    """The additive contract round the installed sandhi binding speaks (0 if
+    the binding predates the export). Populated by the one-time handshake."""
+    _verify_wire_contract()
+    return _installed_contract_minor
+
+
+def _verify_wire_contract() -> None:
+    """One-time fail-soft handshake against the installed sandhi binding.
+
+    Sandhi exposes ``wire_contract_version()`` precisely so consumers can
+    detect contract drift, but Victor previously hard-coded ``"1"`` and never
+    checked — a future contract bump would surface as silent shape drift
+    (fields ignored, events unrecognized) instead of one clear warning.
+    Feature-detected so bindings predating the surface stay supported.
+    """
+    global _wire_contract_checked, _installed_contract_minor
+    if _wire_contract_checked:
+        return
+    _wire_contract_checked = True
+    try:
+        import sandhi_gateway as sg
+
+        minor_fn = getattr(sg, "chat_contract_minor", None)
+        if callable(minor_fn):
+            _installed_contract_minor = int(minor_fn())
+            if _installed_contract_minor > KNOWN_CONTRACT_MINOR:
+                logger.info(
+                    "sandhi contract minor %d is ahead of victor's known minor %d — "
+                    "newer additive fields will be ignored until victor catches up",
+                    _installed_contract_minor,
+                    KNOWN_CONTRACT_MINOR,
+                )
+        if not hasattr(sg, "wire_contract_version"):
+            return
+        actual = str(sg.wire_contract_version())
+    except Exception:  # pragma: no cover - handshake must never block transport
+        return
+    if actual != EXPECTED_WIRE_CONTRACT:
+        logger.warning(
+            "sandhi wire-contract mismatch: installed binding speaks version %r, "
+            "victor speaks %r — typed request/event shapes may drift silently; "
+            "align sandhi-gateway and victor versions",
+            actual,
+            EXPECTED_WIRE_CONTRACT,
+        )
+
+
 def map_sandhi_error(exc: BaseException, provider_name: str, timeout: float) -> ProviderError:
     """Map `ProviderErrorV1` from the FFI without changing retry ownership."""
     if isinstance(exc, (asyncio.TimeoutError, TimeoutError)):
@@ -116,10 +238,23 @@ def map_sandhi_error(exc: BaseException, provider_name: str, timeout: float) -> 
         )
     typed = _typed_error_payload(str(exc))
     if typed is None:
+        if _SANDHI_PROVIDER_ERROR_CLS is not None and isinstance(exc, _SANDHI_PROVIDER_ERROR_CLS):
+            # The typed class is authoritative: this IS a provider error even if
+            # the payload failed to parse — never misfile it as a binding failure
+            # (retry ownership differs).
+            return ProviderError(str(exc), provider=provider_name, raw_error=exc)
         return ProviderConnectionError(
             f"sandhi binding failure: {exc}", provider=provider_name, raw_error=exc
         )
     detail = str(typed.get("message") or exc)
+    # Sandhi carries the full (capped) upstream error body in details["upstream_body"]
+    # (the message holds only a short display snippet). Append it so provider
+    # rejections are self-explaining at the surfaced-error level.
+    details = typed.get("details")
+    if isinstance(details, dict):
+        upstream_body = details.get("upstream_body")
+        if isinstance(upstream_body, str) and upstream_body and upstream_body[:80] not in detail:
+            detail = f"{detail} | upstream body: {upstream_body[:500]}"
     code = typed["code"]
     status = typed.get("http_status")
     if code == "rate_limited":
@@ -166,6 +301,16 @@ def _canonical_content(content: Any) -> Any:
     return parts
 
 
+def _include_native_response() -> bool:
+    """Whether typed requests ask sandhi for the native-body echo (debug-only)."""
+    try:
+        from victor.config.settings import get_settings
+
+        return bool(get_settings().provider.sandhi_include_native_response)
+    except Exception:
+        return False  # neutral-only is the safe default
+
+
 def _typed_request_from_openai_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     """Translate Victor's normalized prompt into `ChatRequestV1`."""
     messages: List[Dict[str, Any]] = []
@@ -187,10 +332,15 @@ def _typed_request_from_openai_payload(payload: Dict[str, Any]) -> Dict[str, Any
         messages.append(message)
 
     request: Dict[str, Any] = {
-        "schema_version": "1",
+        "schema_version": EXPECTED_WIRE_CONTRACT,
         "model": str(payload.get("model", "")),
         "messages": messages,
     }
+    if not _include_native_response():
+        # W3a soak (sandhi#90): opt out of the native-body echo — Victor is
+        # neutral-contract-only since F1 (#665). Older sandhi runtimes ignore
+        # the unknown field and keep including the body, which F1 tolerates.
+        request["include_native_response"] = False
     tools = payload.get("tools")
     if isinstance(tools, list):
         request["tools"] = [
@@ -217,6 +367,22 @@ def _typed_request_from_openai_payload(payload: Dict[str, Any]) -> Dict[str, Any
     if "stop" in payload:
         stop = payload["stop"]
         request["stop"] = stop if isinstance(stop, list) else [stop]
+
+    # W3d/G7: promote reasoning_effort + thinking to typed fields so they are
+    # portable across families (in extensions they reach only the openai
+    # encoder). Dual-write into extensions while the runtime predates the
+    # typed fields — dropping the extensions copy early would lose them on a
+    # pinned runtime. The W3c handshake makes this rollout-order-free.
+    typed_promoted: set[str] = set()
+    if "reasoning_effort" in payload:
+        request["reasoning_effort"] = payload["reasoning_effort"]
+        typed_promoted.add("reasoning_effort")
+    if "thinking" in payload:
+        normalized = _normalize_thinking(payload["thinking"])
+        if normalized is not None:
+            request["thinking"] = normalized
+            typed_promoted.add("thinking")
+
     reserved = {
         "model",
         "messages",
@@ -231,7 +397,13 @@ def _typed_request_from_openai_payload(payload: Dict[str, Any]) -> Dict[str, Any
         "stream",
         "stream_options",
     }
-    native = {key: value for key, value in payload.items() if key not in reserved}
+    # Drop the promoted keys from the extensions bucket once the runtime speaks
+    # the typed-field minor (else keep the copy — pinned runtimes have no typed
+    # fields). Internal orchestration keys never belong on the wire (D4).
+    excluded = reserved | _INTERNAL_KWARG_KEYS
+    if installed_chat_contract_minor() >= _W3D_TYPED_FIELDS_MINOR:
+        excluded = excluded | typed_promoted
+    native = {key: value for key, value in payload.items() if key not in excluded}
     if native:
         request["extensions"] = {"openai": native}
     return request
@@ -262,6 +434,49 @@ def _tool_calls(calls: Any) -> Optional[List[Dict[str, Any]]]:
                 pass
         result.append({"id": call.get("id"), "name": call.get("name"), "arguments": arguments})
     return result
+
+
+def _native_only_usage(raw_usage: Any) -> Dict[str, int]:
+    """Extract usage fields that have no neutral home yet, once, at the boundary.
+
+    ``prompt_cache_miss_tokens`` (DeepSeek-style cache accounting) and
+    ``cost_in_usd_ticks`` (provider-reported cost) exist only in native bodies.
+    Surfacing them into ``metadata["sandhi_usage"]`` here keeps the runtime off
+    the native body entirely (foundations strategy F1 — the body becomes
+    debug-only, unblocking sandhi's G8 native-body gating). Long term these
+    belong in the neutral contract / Victor pricing respectively.
+    """
+    if not isinstance(raw_usage, dict):
+        return {}
+    fields: Dict[str, int] = {}
+    for source_key, target_key in (
+        ("prompt_cache_miss_tokens", "cache_miss_tokens"),
+        ("cost_in_usd_ticks", "cost_in_usd_ticks"),
+    ):
+        try:
+            value = int(raw_usage.get(source_key, 0) or 0)
+        except (TypeError, ValueError):
+            value = 0
+        if value:
+            fields[target_key] = value
+    return fields
+
+
+def _latency_fields(usage: Any) -> Dict[str, int]:
+    """Wire-truth latency measured at sandhi's typed boundary (W3b).
+
+    Present from sandhi-gateway > 0.1.4; tolerant-absent before that. Carried
+    on every run (unlike the non-routine diagnostics) so stream metrics can
+    prefer wire truth over client wall-clock.
+    """
+    if not isinstance(usage, dict):
+        return {}
+    fields: Dict[str, int] = {}
+    for key in ("duration_ms", "time_to_first_token_ms"):
+        value = usage.get(key)
+        if isinstance(value, (int, float)) and value >= 0:
+            fields[key] = int(value)
+    return fields
 
 
 def _usage_diagnostics(usage: Any) -> Optional[Dict[str, Any]]:
@@ -312,6 +527,42 @@ class SandhiTypedProviderMixin:
         except (TypeError, ValueError):
             return 120.0
 
+    async def discover_capabilities(self, model: str) -> Any:
+        """Descriptor-backed discovery for Sandhi-routed providers (gap G6).
+
+        Capability facts (tools/streaming) come from Sandhi's typed descriptor —
+        the wire truth the transport actually honors — instead of per-provider
+        hardcoded flags; limits stay Victor config policy. Falls back to the
+        config-only base implementation when the binding or descriptor is
+        absent, so behavior is unchanged for native-only installs.
+        """
+        descriptor = None
+        if _sg is not None and hasattr(_sg, "provider_descriptor_json"):
+            try:
+                descriptor = json.loads(_sg.provider_descriptor_json(self._sandhi_slug()))
+            except Exception:
+                descriptor = None
+        capabilities = descriptor.get("capabilities") if isinstance(descriptor, dict) else None
+        if not isinstance(capabilities, dict):
+            return await super().discover_capabilities(model)  # type: ignore[misc]
+
+        from victor.config.config_loaders import get_provider_limits
+        from victor.providers.runtime_capabilities import ProviderRuntimeCapabilities
+
+        provider_name = str(getattr(self, "name", self._sandhi_slug()))
+        limits = get_provider_limits(provider_name, model)
+        supports_tools = getattr(self, "supports_tools", lambda: False)
+        supports_streaming = getattr(self, "supports_streaming", lambda: False)
+        return ProviderRuntimeCapabilities(
+            provider=provider_name,
+            model=model,
+            context_window=limits.context_window,
+            supports_tools=bool(capabilities.get("tools", supports_tools())),
+            supports_streaming=bool(capabilities.get("streaming", supports_streaming())),
+            source="sandhi_descriptor",
+            raw=descriptor,
+        )
+
     def _gateway_overrides(self) -> Optional[Tuple[str, str]]:
         """Return ``(proxy_url, virtual_key)`` when gateway mode is configured.
 
@@ -340,9 +591,10 @@ class SandhiTypedProviderMixin:
     def _typed_provider(self, model: str) -> Any:
         if not sandhi_transport_available():
             raise ProviderConnectionError(
-                "sandhi-gateway 0.1.2 typed runtime is unavailable",
+                "sandhi-gateway 0.1.4 typed runtime is unavailable",
                 provider=self._sandhi_slug(),
             )
+        _verify_wire_contract()
         if self._sandhi_runtime is None:
             self._sandhi_runtime = _sg.ProviderRuntime()
         if self._sandhi_typed_providers is None:
@@ -364,7 +616,14 @@ class SandhiTypedProviderMixin:
                 )
             base_url = proxy_url
             api_key = virtual_key
-            auth_scheme = "bearer"
+            # Compat guard for sandhi <= 0.1.4: those bindings REJECT an
+            # explicit auth_scheme outside the Anthropic/Gemini protocols
+            # (victor#678). sandhi >= 0.1.5 accepts "bearer" family-wide as a
+            # no-op (TD-0008 rule 5: reject contradictions, accept redundancy),
+            # so once the pin passes 0.1.4 this conditional can collapse to an
+            # unconditional "bearer". The real-binding construction conformance
+            # suite (test_sandhi_binding_construction.py) holds either way.
+            auth_scheme = "bearer" if getattr(self, "_sandhi_auth_scheme", "") else ""
             explicit_base_url = proxy_url
         else:
             base_url = str(getattr(self, "base_url", "") or "")
@@ -443,7 +702,12 @@ class SandhiTypedProviderMixin:
         metadata: Dict[str, Any] = {}
         if reasoning:
             metadata["reasoning_content"] = reasoning
-        if diagnostics := _usage_diagnostics(response.get("usage")):
+        diagnostics = dict(_usage_diagnostics(response.get("usage")) or {})
+        diagnostics.update(_latency_fields(response.get("usage")))
+        diagnostics.update(
+            _native_only_usage(native.get("usage") if isinstance(native, dict) else None)
+        )
+        if diagnostics:
             metadata["sandhi_usage"] = diagnostics
         return CompletionResponse(
             content=_text_content(output.get("content")),
@@ -452,6 +716,9 @@ class SandhiTypedProviderMixin:
             stop_reason=response.get("finish_reason"),
             usage=usage,
             model=response.get("model") or model,
+            # Debug-only: everything load-bearing rides `usage` (neutral) or
+            # `metadata["sandhi_usage"]` (boundary-extracted). May be absent
+            # once sandhi gates native-body emission (G8).
             raw_response=native if isinstance(native, dict) else response,
             metadata=metadata or None,
         )
@@ -491,7 +758,38 @@ class SandhiTypedProviderMixin:
                     usage = usage_dict_from_neutral(
                         event.get("usage"), None, slug=self._sandhi_slug()
                     )
-                    usage_diagnostics = _usage_diagnostics(event.get("usage"))
+                    usage_diagnostics = dict(_usage_diagnostics(event.get("usage")) or {})
+                    usage_diagnostics.update(_latency_fields(event.get("usage")))
+                    usage_diagnostics = usage_diagnostics or None
+                elif kind == "response_start":
+                    # Deliberately ignored (TD-0008 consumer-decision row): victor
+                    # derives model/id from the request and final chunk.
+                    continue
+                elif kind == "tool_call_end":
+                    # Deliberately ignored: call boundaries are tracked by the
+                    # indexed accumulation above; the terminal chunk assembles them.
+                    continue
+                elif kind == "error":
+                    # A typed error EVENT (as opposed to an iterator error) must
+                    # surface as the mapped ProviderError, never vanish mid-stream.
+                    payload = event.get("error")
+                    raise map_sandhi_error(
+                        RuntimeError(
+                            json.dumps(
+                                payload if isinstance(payload, dict) else {"code": "unknown"}
+                            )
+                        ),
+                        self._sandhi_slug(),
+                        timeout,
+                    )
+                else:
+                    # Contract-drift alarm (TD-0008 P1): a new ChatStreamEventV1
+                    # variant reached a consumer with no consumption decision.
+                    logger.warning(
+                        "sandhi stream event kind %r has no victor consumption decision "
+                        "— contract drift; add a handler or an explicit ignore",
+                        kind,
+                    )
             yield StreamChunk(
                 content="",
                 tool_calls=_tool_calls([calls[index] for index in sorted(calls)]),
@@ -584,10 +882,15 @@ class SandhiNeutralProviderMixin(SandhiTypedProviderMixin):
             payload.setdefault("tool_choice", "auto")
         request = _typed_request_from_openai_payload(payload)
         slug = self._sandhi_slug()
-        if slug not in {"openai"}:
+        if slug != "openai":
             extensions = request.pop("extensions", {})
             native = extensions.get("openai") if isinstance(extensions, dict) else None
-            if native:
+            # W3d/G7 D3: for families whose sandhi encoder is a native
+            # translator (gemini/cohere/ollama), the encoder clones
+            # extensions[<slug>] verbatim as the base body — re-labeling an
+            # OpenAI-shaped bucket to that key corrupts the native request.
+            # Drop it; the typed fields carry what those encoders honor.
+            if native and slug not in _NATIVE_ENCODER_SLUGS:
                 request["extensions"] = {slug: native}
         return request
 

@@ -132,7 +132,13 @@ function createChatStore() {
     },
 
     // Update tool call result
-    updateToolCall(id: string, status: ToolCall['status'], result?: string) {
+    updateToolCall(
+      id: string,
+      status: ToolCall['status'],
+      result?: string,
+      elapsedMs?: number,
+      truncated?: boolean
+    ) {
       update(state => {
         const messages = state.messages.map(msg => {
           if (msg.toolCalls) {
@@ -140,7 +146,7 @@ function createChatStore() {
               ...msg,
               toolCalls: msg.toolCalls.map(tc =>
                 tc.id === id
-                  ? { ...tc, status, result, endTime: Date.now() }
+                  ? { ...tc, status, result, elapsedMs, truncated, endTime: Date.now() }
                   : tc
               ),
             };
@@ -222,7 +228,7 @@ let vscodeApi: VsCodeApi | null = null;
 
 export function getVsCodeApi(): VsCodeApi {
   if (!vscodeApi) {
-    // @ts-expect-error - acquireVsCodeApi is injected by VS Code
+    // acquireVsCodeApi is a VS Code webview global, declared in vite-env.d.ts.
     vscodeApi = acquireVsCodeApi();
   }
   return vscodeApi!;
@@ -254,7 +260,7 @@ export function handleExtensionMessage(data: ExtensionMessage): void {
       break;
 
     case 'toolCallResult':
-      chatStore.updateToolCall(data.id, data.status, data.result);
+      chatStore.updateToolCall(data.id, data.status, data.result, data.elapsedMs, data.truncated);
       break;
 
     case 'error':

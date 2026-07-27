@@ -149,3 +149,98 @@ async def test_victor_client_get_messages_resolves_context_service_from_context_
 
     mock_context_service.get_messages.assert_awaited_once_with(limit=5, role=None)
     assert messages == fake_messages
+
+
+@pytest.mark.asyncio
+async def test_victor_client_resume_session_hydrates_and_stamps(monkeypatch) -> None:
+    """resume_session loads the store, hydrates both stores, stamps the id."""
+    import victor.agent.sqlite_session_persistence as persistence_mod
+
+    session_data = {"metadata": {"title": "arithmetic"}, "conversation": {}}
+    monkeypatch.setattr(
+        persistence_mod,
+        "get_sqlite_session_persistence",
+        lambda *a, **k: SimpleNamespace(load_session=lambda sid: session_data),
+    )
+    # Capture the hydration call — the helper's own two-store correctness is
+    # covered by test_session_resume; here we assert VictorClient wires it.
+    captured = {}
+
+    def _fake_hydrate(context_service, controller, data):
+        captured["context"] = context_service
+        captured["controller"] = controller
+        captured["data"] = data
+        return data.get("metadata", {})
+
+    monkeypatch.setattr("victor.agent.conversation.session_resume.hydrate_session", _fake_hydrate)
+
+    client = VictorClient(SessionConfig(), container=object())
+    client._context = object()
+    client._initialized = True
+
+    context_service = object()
+    monkeypatch.setattr(
+        client,
+        "_resolve_runtime_services",
+        lambda: SimpleNamespace(chat=None, context=context_service, recovery=None),
+    )
+    controller = object()
+    orchestrator = SimpleNamespace(
+        active_session_id=None, conversation_state=None, _conversation_controller=controller
+    )
+    client._agent = SimpleNamespace(_orchestrator=orchestrator)
+
+    metadata = await client.resume_session("s42")
+
+    assert metadata == {"title": "arithmetic"}
+    assert captured["data"] == session_data
+    assert captured["context"] is context_service
+    assert captured["controller"] is controller
+    assert orchestrator.active_session_id == "s42"
+
+
+@pytest.mark.asyncio
+async def test_victor_client_resume_session_returns_none_when_missing(monkeypatch) -> None:
+    import victor.agent.sqlite_session_persistence as persistence_mod
+
+    monkeypatch.setattr(
+        persistence_mod,
+        "get_sqlite_session_persistence",
+        lambda *a, **k: SimpleNamespace(load_session=lambda sid: None),
+    )
+    client = VictorClient(SessionConfig(), container=object())
+    client._context = object()
+    client._initialized = True
+
+    assert await client.resume_session("gone") is None
+
+
+@pytest.mark.asyncio
+async def test_victor_client_resume_session_raises_when_not_initialized() -> None:
+    client = VictorClient(SessionConfig(), container=object())
+    with pytest.raises(RuntimeError):
+        await client.resume_session("s1")
+
+
+def test_victor_client_list_recent_sessions(monkeypatch) -> None:
+    import victor.agent.sqlite_session_persistence as persistence_mod
+
+    rows = [{"session_id": "s1", "title": "a"}, {"session_id": "s2", "title": "b"}]
+    monkeypatch.setattr(
+        persistence_mod,
+        "get_sqlite_session_persistence",
+        lambda *a, **k: SimpleNamespace(list_sessions=lambda limit: rows[:limit]),
+    )
+    client = VictorClient(SessionConfig(), container=object())
+    assert client.list_recent_sessions(limit=5) == rows
+
+
+def test_victor_client_list_recent_sessions_survives_failure(monkeypatch) -> None:
+    import victor.agent.sqlite_session_persistence as persistence_mod
+
+    def _boom(*a, **k):
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(persistence_mod, "get_sqlite_session_persistence", _boom)
+    client = VictorClient(SessionConfig(), container=object())
+    assert client.list_recent_sessions() == []

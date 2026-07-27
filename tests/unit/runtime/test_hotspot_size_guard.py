@@ -15,28 +15,29 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 
-# Audited 2026-07-02. Caps may only be lowered, never raised.
+# Audited 2026-07-02; ratcheted down 2026-07-25 (F2, foundations strategy §3.2).
+# Caps may only be lowered, never raised.
 HOTSPOT_LINE_CAPS = {
     # Calibrated to develop's size when the guard arrived via the main->develop
     # back-merge (the guard was born on main pinned to main's sizes and never saw
     # develop's pre-existing growth). The no-raise ratchet binds from HERE forward.
-    "victor/agent/orchestrator.py": 4704,
+    "victor/agent/orchestrator.py": 4702,
     "victor/agent/services/planning_runtime.py": 3518,
-    "victor/agent/services/tool_service.py": 3085,
+    "victor/agent/services/tool_service.py": 3079,
     "victor/agent/services/runtime_intelligence.py": 2864,
     "victor/framework/vertical_integration.py": 2631,
     # +2 lines: FEP-0018 verifier wiring at the AgenticLoop construction site.
     "victor/agent/services/turn_execution_runtime.py": 2390,
     # F-004: package-ified tool_selection; parent capped at current size
     # (extraction deferred — this ratchet only prevents further growth).
-    "victor/agent/tool_selection/selector.py": 2882,
+    "victor/agent/tool_selection/selector.py": 2765,
     # F-003: context_compactor is a 1827-LOC god-object; decomposition deferred as
     # low-ROI (works, not a proven bottleneck). Ratchet prevents further growth.
     "victor/agent/context_compactor.py": 1827,
     # Audited 2026-07-22. [CANONICAL] chat service (1,740 LOC) — the largest
     # service after orchestrator; bind it so "chat operations" don't quietly
     # sprawl the way the orchestrator facade did.
-    "victor/agent/services/chat_service.py": 1740,
+    "victor/agent/services/chat_service.py": 1739,
 }
 
 

@@ -157,13 +157,20 @@ class TestAgentCallback:
 
         with patch("victor.evaluation.real_run_runner.get_container") as mock_get:
             container = MagicMock()
-            container.get.return_value = mock_chat
+            container.get_optional.return_value = mock_chat
             mock_get.return_value = container
             result = await callback(_mock_task())
 
         assert "hello" in result
 
-    async def test_agent_callback_returns_empty_on_chat_service_unavailable(self):
+    async def test_agent_callback_raises_when_chat_service_is_unavailable(self):
+        """A run that never reached ChatService is not a measurement of it.
+
+        This used to return "" and let the harness record a complete artifact
+        showing 0 tool calls, 0 tokens and a test failure caused by the empty
+        answer — indistinguishable from genuine poor performance. Whole
+        benchmark runs were written that way.
+        """
         config = _config()
         runner = RealRunBenchmarkRunner(config)
         callback = runner._make_agent_callback()
@@ -172,9 +179,21 @@ class TestAgentCallback:
             "victor.evaluation.real_run_runner.get_container",
             side_effect=RuntimeError("no container"),
         ):
-            result = await callback(_mock_task())
+            with pytest.raises(RuntimeError, match="canonical ChatService"):
+                await callback(_mock_task())
 
-        assert result == ""
+    async def test_agent_callback_raises_when_chat_service_is_unregistered(self):
+        """Present container, absent service — still fatal, not a silent empty run."""
+        config = _config()
+        runner = RealRunBenchmarkRunner(config)
+        callback = runner._make_agent_callback()
+
+        with patch("victor.evaluation.real_run_runner.get_container") as mock_get:
+            container = MagicMock()
+            container.get_optional.return_value = None
+            mock_get.return_value = container
+            with pytest.raises(RuntimeError, match="canonical ChatService"):
+                await callback(_mock_task())
 
 
 # ---------------------------------------------------------------------------

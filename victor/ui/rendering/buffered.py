@@ -145,6 +145,10 @@ class BufferedRenderer:
         """Return True if at least one tool call was processed this turn."""
         return bool(self._tool_calls)
 
+    def statuses(self) -> list[str]:
+        """Return buffered status messages (includes surfaced provider errors)."""
+        return list(self._statuses)
+
     def finalize(self) -> str:
         """Return accumulated content."""
         content = "".join(self._content_chunks)
@@ -201,6 +205,12 @@ class BufferedRenderer:
                             )
                 else:
                     console.print(f"[blue]•[/] [bold]{display_name}[/] [dim]pending[/]")
+
+        # Print statuses — this is where surfaced provider errors land
+        # (EventDispatcher routes ERROR events to on_status), so skipping them
+        # hides the real failure from non-interactive output.
+        for status in self._statuses:
+            console.print(status)
 
         # Print reasoning if --show-reasoning
         if self._reasoning_chunks:

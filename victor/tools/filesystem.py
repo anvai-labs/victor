@@ -1275,9 +1275,35 @@ _ALLOWED_READ_ROOTS_CACHE: "Dict[str, Tuple[float, frozenset]]" = {}
 _ALLOWED_READ_ROOTS_TTL = 60.0  # seconds
 
 
+EXTRA_READ_ROOTS_ENV = "VICTOR_EXTRA_READ_ROOTS"
+
+
+def _extra_read_roots() -> "Tuple[str, ...]":
+    """Operator-declared roots outside the project, for cross-repo work.
+
+    ``VICTOR_EXTRA_READ_ROOTS`` holds ``os.pathsep``-separated paths (``~`` is
+    expanded). This is the supported way to let one Victor session read a second
+    repo — co-designing a wire contract across two codebases, or inspecting
+    Victor's own ``~/.victor`` state — without disabling the guard wholesale.
+
+    Opt-in only: with the variable unset, behaviour is exactly as before.
+    """
+    raw = os.environ.get(EXTRA_READ_ROOTS_ENV, "")
+    roots = set()
+    for entry in raw.split(os.pathsep):
+        entry = entry.strip()
+        if not entry:
+            continue
+        try:
+            roots.add(str(Path(entry).expanduser().resolve()))
+        except OSError:
+            continue
+    return tuple(sorted(roots))
+
+
 def _discover_read_roots(project_root: Path) -> "frozenset[str]":
-    """Return the project root plus every linked git-worktree root (as strings)."""
-    roots = {str(project_root)}
+    """Return the project root, every linked git-worktree root, and extra roots."""
+    roots = {str(project_root), *_extra_read_roots()}
     try:
         import subprocess
 
@@ -1300,8 +1326,10 @@ def _discover_read_roots(project_root: Path) -> "frozenset[str]":
 
 
 def _allowed_read_roots(project_root: Path, *, refresh: bool = False) -> "frozenset[str]":
-    """Cached set of in-workspace roots (project root + git worktrees)."""
-    key = str(project_root)
+    """Cached set of in-workspace roots (project root + worktrees + extra roots)."""
+    # The extra roots are part of the key: changing VICTOR_EXTRA_READ_ROOTS
+    # mid-session must take effect immediately, not after the TTL expires.
+    key = "\x00".join((str(project_root), *_extra_read_roots()))
     now = time.monotonic()
     if not refresh:
         cached = _ALLOWED_READ_ROOTS_CACHE.get(key)
@@ -1310,6 +1338,37 @@ def _allowed_read_roots(project_root: Path, *, refresh: bool = False) -> "frozen
     roots = _discover_read_roots(project_root)
     _ALLOWED_READ_ROOTS_CACHE[key] = (now + _ALLOWED_READ_ROOTS_TTL, roots)
     return roots
+
+
+def _out_of_workspace_message(path: str, file_path: Path, project_root: Path) -> str:
+    """Explain the guard *and* how to get the content anyway.
+
+    The previous message ended at "Use ls('.') to see files", which reads as a
+    hard stop: sessions asked to inspect a second repo concluded the path was
+    unreachable and gave up, even though ``ls`` and ``shell`` have no workspace
+    restriction at all. A guard that cannot be routed around is
+    indistinguishable from a missing capability, so state every route.
+    """
+    is_dir = file_path.is_dir()
+    if is_dir:
+        # ls() is not scoped, so it reaches the directory with no extra setup.
+        one_off = f"ls(path='{file_path}')"
+    elif file_path.suffix.lower() in {".db", ".sqlite", ".sqlite3"}:
+        # A text pager on a binary store is the advice that stalls sessions.
+        one_off = f"shell(cmd='sqlite3 {file_path} \".tables\"', action='read')"
+    else:
+        one_off = f"shell(cmd='sed -n \"1,200p\" {file_path}', action='read')"
+    declared_root = file_path if is_dir else file_path.parent
+    return (
+        f"read() is scoped to the {project_root.name} workspace, and '{path}' is "
+        f"outside it. Only read() is scoped — ls() and shell() are not, so this "
+        f"is not a sandbox and the path is still reachable:\n"
+        f"  - now: {one_off}\n"
+        f"  - for the whole session: launch victor with "
+        f"{EXTRA_READ_ROOTS_ENV}={declared_root}, which makes read() accept it "
+        f"directly (keeping pagination and in-file search).\n"
+        f"Use ls('.') for files inside {project_root.name}."
+    )
 
 
 def _path_within_workspace(file_path: Path, project_root: Path) -> bool:
@@ -1483,11 +1542,7 @@ async def read(
             # documented) working dirs, so a naive prefix check would wrongly block
             # reads that edit/write already permit.
             if not _path_within_workspace(file_path, _project_root):
-                return (
-                    f"Path '{path}' is outside the current workspace "
-                    f"({_project_root.name}). You are working in the "
-                    f"{_project_root.name} project. Use ls('.') to see files."
-                )
+                return _out_of_workspace_message(path, file_path, _project_root)
         except Exception:
             pass
 

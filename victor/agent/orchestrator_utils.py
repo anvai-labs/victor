@@ -166,6 +166,11 @@ def get_tool_status_message(
     canonical_tool_name = get_canonical_name(tool_name)
     display_name = tool_name or canonical_tool_name
 
+    if not isinstance(tool_args, dict):
+        # Providers/models can emit non-dict arguments; a cosmetic status
+        # message must never raise into the streaming loop.
+        return f"{running_icon} Running {display_name}..."
+
     if canonical_tool_name == "shell":
         cmd = tool_args.get("cmd") or tool_args.get("command")
         if not cmd:

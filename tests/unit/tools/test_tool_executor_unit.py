@@ -2231,6 +2231,114 @@ class TestFailedPathRedirects:
         assert mock_tool.execute.await_count == 1
 
     @pytest.mark.asyncio
+    async def test_execute_does_not_retry_with_weak_suggestion(self):
+        """A dissimilar suggested file must surface as an honest not-found error.
+
+        Regression: session proximaDB-5b2726a3 — a read of a file absent from the
+        checked-out branch was silently answered with an unrelated document.
+        """
+        registry = ToolRegistry()
+        mock_tool = MagicMock(spec=BaseTool)
+        mock_tool.name = "read"
+        mock_tool.parameters = {
+            "type": "object",
+            "properties": {"path": {"type": "string"}},
+        }
+        mock_tool.execute = AsyncMock(
+            side_effect=FileNotFoundError(
+                "File not found: docs/MODALITY_COMPILE_TIME_COMPOSITION_2026_07_24.adoc\n"
+                "Did you mean one of these?\n"
+                "  - docs/ROOT_CRATE_DECOMPOSITION_PLAN_2026_06_21.adoc"
+            )
+        )
+        registry.register(mock_tool)
+
+        mock_safety = MagicMock()
+        mock_safety.check_and_confirm = AsyncMock(return_value=(True, None))
+        executor = ToolExecutor(
+            tool_registry=registry,
+            max_retries=0,
+            safety_checker=mock_safety,
+        )
+
+        result = await executor.execute(
+            "read", {"path": "docs/MODALITY_COMPILE_TIME_COMPOSITION_2026_07_24.adoc"}
+        )
+
+        assert result.success is False
+        assert "Did you mean" in (result.error or "")
+        assert executor._failed_path_redirects == {}
+        assert mock_tool.execute.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_recovered_retry_annotates_string_result(self):
+        """A substituted read must announce the requested vs served path."""
+        registry = ToolRegistry()
+        mock_tool = MagicMock(spec=BaseTool)
+        mock_tool.name = "read"
+        mock_tool.parameters = {
+            "type": "object",
+            "properties": {"path": {"type": "string"}},
+        }
+        mock_tool.execute = AsyncMock(
+            side_effect=[
+                FileNotFoundError(
+                    "File not found: /docs/setings.yaml\n"
+                    "Did you mean one of these?\n  - /docs/settings.yaml"
+                ),
+                "file contents",
+            ]
+        )
+        registry.register(mock_tool)
+
+        mock_safety = MagicMock()
+        mock_safety.check_and_confirm = AsyncMock(return_value=(True, None))
+        executor = ToolExecutor(
+            tool_registry=registry,
+            max_retries=0,
+            safety_checker=mock_safety,
+        )
+
+        result = await executor.execute("read", {"path": "/docs/setings.yaml"})
+
+        assert result.success is True
+        assert result.result.startswith("[Note: requested path '/docs/setings.yaml' does not exist")
+        assert "'/docs/settings.yaml'" in result.result
+        assert result.result.endswith("file contents")
+
+    @pytest.mark.asyncio
+    async def test_stale_redirect_dropped_when_path_exists(self, tmp_path):
+        """A recorded redirect must be discarded once the original path exists."""
+        real_file = tmp_path / "target.py"
+        real_file.write_text("print('hi')\n")
+
+        registry = ToolRegistry()
+        mock_tool = MagicMock(spec=BaseTool)
+        mock_tool.name = "read"
+        mock_tool.parameters = {
+            "type": "object",
+            "properties": {"path": {"type": "string"}},
+        }
+        mock_tool.execute = AsyncMock(return_value="fresh contents")
+        registry.register(mock_tool)
+
+        mock_safety = MagicMock()
+        mock_safety.check_and_confirm = AsyncMock(return_value=(True, None))
+        executor = ToolExecutor(
+            tool_registry=registry,
+            max_retries=0,
+            safety_checker=mock_safety,
+        )
+        executor._failed_path_redirects[str(real_file)] = str(tmp_path / "other.py")
+
+        result = await executor.execute("read", {"path": str(real_file)})
+
+        assert result.success is True
+        assert result.result == "fresh contents"
+        assert str(real_file) not in executor._failed_path_redirects
+        assert mock_tool.execute.await_args.kwargs["path"] == str(real_file)
+
+    @pytest.mark.asyncio
     async def test_execute_does_not_retry_write_tool_with_suggested_path(self):
         """Write-capable tools should not get implicit path rewriting retries."""
         mock_tool = MagicMock(spec=BaseTool)

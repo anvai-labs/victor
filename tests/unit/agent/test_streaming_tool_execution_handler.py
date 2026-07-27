@@ -225,6 +225,62 @@ def test_tool_start_chunks_include_batch_metadata():
     assert second["batch_index"] == 2
 
 
+def test_tool_start_chunks_survive_status_message_failure():
+    """A raising status-message helper must not abort the streaming turn.
+
+    Regression: glm-5.2 emitted `write` arguments as a JSON list; the dict-assuming
+    status helper raised AttributeError and killed the whole turn before execution
+    (session codingagent-363cca81, 2026-07-24).
+    """
+    recovery_runtime = SimpleNamespace()
+
+    def start_chunk(tool_name, tool_args, status_msg, tool_call_id=None):
+        return StreamChunk(
+            content="",
+            metadata={
+                "tool_start": {
+                    "name": tool_name,
+                    "arguments": tool_args,
+                    "status_msg": status_msg,
+                }
+            },
+        )
+
+    async def _unused_async_generator(_stream_ctx):
+        if False:
+            yield None
+
+    def raising_status_message(tool_name, tool_args):
+        return tool_args["path"]  # TypeError on list args, like dict-assuming helper
+
+    handler = ToolExecutionHandler(
+        recovery_runtime=recovery_runtime,
+        chunk_generator=SimpleNamespace(generate_tool_start_chunk=start_chunk),
+        message_adder=SimpleNamespace(add_message=MagicMock()),
+        reminder_manager=SimpleNamespace(),
+        unified_tracker=SimpleNamespace(unique_resources=set()),
+        settings=SimpleNamespace(tool_call_budget_warning_threshold=250),
+        recovery_context_factory=lambda stream_ctx: {"stream_ctx": stream_ctx},
+        check_progress_with_handler=lambda _stream_ctx: None,
+        handle_force_completion_with_handler=lambda _stream_ctx: None,
+        handle_budget_exhausted=_unused_async_generator,
+        handle_force_final_response=_unused_async_generator,
+        execute_tool_calls=AsyncMock(),
+        get_tool_status_message=raising_status_message,
+        observed_files=set(),
+    )
+    result = ToolExecutionResult()
+
+    last_tool_name = handler._add_tool_start_chunks(
+        [{"name": "write", "arguments": [{"path": "a.py", "content": "x"}]}],
+        result,
+    )
+
+    assert last_tool_name == "write"
+    assert len(result.chunks) == 1
+    assert result.chunks[0].metadata["tool_start"]["status_msg"] == "Running write..."
+
+
 @pytest.mark.asyncio
 async def test_execute_tools_marks_system_reminders_as_noninteractive_history():
     recovery_runtime = SimpleNamespace(

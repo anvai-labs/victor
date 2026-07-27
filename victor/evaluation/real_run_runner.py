@@ -32,6 +32,29 @@ from typing import Any, Awaitable, Callable, Optional
 
 logger = logging.getLogger(__name__)
 
+
+def _resolve_chat_service() -> Any:
+    """Return the canonical ChatService from the container.
+
+    Raises rather than returning ``None``: every caller here treats absence as
+    fatal, because a run that never reached ChatService is not a measurement of
+    it.
+    """
+    if get_container is None or ChatServiceProtocol is None:
+        raise RuntimeError("ChatService dependencies are unavailable in this install")
+
+    chat_service = get_container().get_optional(ChatServiceProtocol)
+    if chat_service is None:
+        # Deliberately not bootstrapped here: this module's contract is to drive
+        # ChatService via the container and never import AgentOrchestrator.
+        # Registering the service graph is the caller's job (see
+        # _ensure_canonical_services in the benchmark CLI).
+        raise RuntimeError(
+            "ChatService is not registered; the caller must build the service graph first"
+        )
+    return chat_service
+
+
 try:
     from victor.core import get_container
     from victor.agent.services.protocols import ChatServiceProtocol
@@ -148,12 +171,21 @@ class RealRunBenchmarkRunner:
 
         async def _run_task(task: Any) -> str:
             try:
-                if get_container is None or ChatServiceProtocol is None:
-                    raise RuntimeError("ChatService dependencies are unavailable")
-                chat_service = get_container().get(ChatServiceProtocol)
+                chat_service = _resolve_chat_service()
             except Exception as exc:
-                logger.warning("RealRunBenchmarkRunner: ChatService unavailable: %s", exc)
-                return ""
+                # Returning "" here used to look like a task the agent simply
+                # failed. It is not: no agent ran at all, and the harness went on
+                # to write a full artifact reporting 0 tool calls, 0 tokens and a
+                # test failure caused by the empty answer. Whole benchmark runs
+                # were recorded that way — indistinguishable from genuine poor
+                # performance unless you noticed the token count. The point of
+                # this runner is to measure the canonical ChatService path, so if
+                # that path is unavailable the run is meaningless and must stop.
+                raise RuntimeError(
+                    "RealRunBenchmarkRunner requires the canonical ChatService, which could "
+                    f"not be resolved ({exc}). Refusing to record a run that never invoked "
+                    "an agent. Use `victor benchmark run` for the adapter path."
+                ) from exc
 
             prompt = getattr(task, "prompt", None) or str(task)
             try:
@@ -268,34 +300,16 @@ class RealRunBenchmarkRunner:
         }
 
     def _task_result_to_artifact(self, task_result: Any) -> dict[str, Any]:
-        """Serialize a TaskResult-like object into benchmark artifact fields."""
-        status = getattr(task_result, "status", None)
-        failure_category = getattr(task_result, "failure_category", None)
-        return {
-            "task_id": getattr(task_result, "task_id", None),
-            "status": getattr(status, "value", status),
-            # Correlation spine — joins this task's decisions to its outcome.
-            # The full execution trace lives in the per-run eval_manifest_*.jsonl.
-            "session_id": getattr(task_result, "session_id", ""),
-            "tests_passed": getattr(task_result, "tests_passed", 0),
-            "tests_total": getattr(task_result, "tests_total", 0),
-            "duration": getattr(task_result, "duration_seconds", 0.0),
-            "duration_seconds": getattr(task_result, "duration_seconds", 0.0),
-            "tokens_used": getattr(task_result, "tokens_used", 0),
-            "tokens_input": getattr(task_result, "tokens_input", 0),
-            "tokens_output": getattr(task_result, "tokens_output", 0),
-            "cached_tokens": getattr(task_result, "cached_tokens", 0),
-            "reasoning_tokens": getattr(task_result, "reasoning_tokens", 0),
-            "cost_usd_micros": getattr(task_result, "cost_usd_micros", 0),
-            "tool_calls": getattr(task_result, "tool_calls", 0),
-            "turns": getattr(task_result, "turns", 0),
-            "code_search_calls": getattr(task_result, "code_search_calls", 0),
-            "graph_calls": getattr(task_result, "graph_calls", 0),
-            "completion_score": getattr(task_result, "completion_score", 0.0),
-            "failure_category": getattr(failure_category, "value", failure_category),
-            "failure_details": dict(getattr(task_result, "failure_details", {}) or {}),
-            "metadata": dict(getattr(task_result, "metadata", {}) or {}),
-        }
+        """Serialize a TaskResult-like object into benchmark artifact fields.
+
+        Delegates to the shared writer that lives next to its inverse. Two copies
+        of this mapping would drift, and a field that stops round-tripping is
+        invisible until something downstream reads a zero it should not have.
+        The full execution trace still lives in the per-run eval_manifest_*.jsonl.
+        """
+        from victor.evaluation.harness import task_result_to_artifact
+
+        return task_result_to_artifact(task_result)
 
     @staticmethod
     def _json_default(obj: Any) -> Any:

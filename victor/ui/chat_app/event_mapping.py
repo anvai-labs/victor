@@ -16,9 +16,20 @@
 
 The chat UI (``app.py``) drives Chainlit from these actions, but this module imports
 **nothing** from Chainlit so the mapping is unit-testable without the optional ``chat-ui``
-extra installed. It operates on the public surface of ``VictorClient.stream()`` events
-(``event_type``, ``content``, ``tool_name``, ``result``, ``metadata``) — see
-``victor/framework/client.py``.
+extra installed.
+
+Two parallel translators produce the same :class:`RenderAction` vocabulary:
+
+- :func:`map_event` — the in-process path, over the public surface of
+  ``VictorClient.stream()`` events (``event_type``, ``content``, ``tool_name``,
+  ``result``, ``metadata``; see ``victor/framework/client.py``). Keeps the rich
+  in-process fields (full output, follow-up hints).
+- :func:`map_wire_event` — the cross-surface path, over v1 wire-event dicts
+  (``victor/framework/wire_events.py``), for renderers fed by the versioned
+  contract (SSE consumers, TUI parity). Bounded by design.
+
+Their agreement over the same stream is pinned by the renderer replay contract
+test (``tests/unit/ui/chat_app/test_wire_render_parity.py``).
 """
 
 from __future__ import annotations
@@ -150,6 +161,60 @@ def map_event(event: Any) -> RenderAction:
         )
 
     return RenderAction(RenderKind.IGNORE)
+
+
+def map_wire_event(wire: Any) -> RenderAction:
+    """Translate one v1 wire event (``victor.framework.wire_events``) into a RenderAction.
+
+    The wire contract is the cross-surface schema (web SSE, TUI, remote UIs);
+    this mapper gives every Python surface the same render semantics for it
+    that the in-process chat app has for raw client events. Unknown event
+    types map to :attr:`RenderKind.IGNORE` — additive contract growth never
+    crashes a renderer.
+
+    Parity with :func:`map_event` over the same underlying stream is pinned by
+    the renderer replay contract test; the wire path differs only where the
+    contract intentionally bounds payloads (result size, no follow-up hints).
+    """
+    if not isinstance(wire, dict):
+        return RenderAction(RenderKind.IGNORE)
+
+    event = str(wire.get("event", ""))
+
+    if event == "content":
+        return RenderAction(RenderKind.TOKEN, text=str(wire.get("content", "") or ""))
+
+    if event == "thinking":
+        return RenderAction(RenderKind.THINKING, text=str(wire.get("content", "") or ""))
+
+    if event == "tool_call":
+        return RenderAction(
+            RenderKind.TOOL_START,
+            tool_name=str(wire.get("tool", "") or "tool"),
+            call_id=str(wire["call_id"]) if wire.get("call_id") else None,
+            metadata={"arguments": wire.get("arguments", {}) or {}},
+        )
+
+    if event == "tool_result":
+        result = wire.get("result")
+        elapsed_ms = wire.get("elapsed_ms")
+        return RenderAction(
+            RenderKind.TOOL_END,
+            text="" if result is None else str(result),
+            tool_name=str(wire.get("tool", "") or "tool"),
+            call_id=str(wire["call_id"]) if wire.get("call_id") else None,
+            success=bool(wire.get("success", True)),
+            elapsed=(float(elapsed_ms) / 1000.0) if isinstance(elapsed_ms, (int, float)) else 0.0,
+            was_pruned=bool(wire.get("truncated", False)),
+        )
+
+    if event == "error":
+        return RenderAction(
+            RenderKind.ERROR,
+            text=str(wire.get("message", "") or "Unknown streaming error"),
+        )
+
+    return RenderAction(RenderKind.IGNORE)  # stream_end + future additive types
 
 
 def segment_turn(kinds: Iterable["RenderKind"]) -> List[str]:

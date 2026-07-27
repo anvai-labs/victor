@@ -2403,9 +2403,12 @@ class TestDashboardSyncBridge:
                 live=False,
                 demo=True,
                 log_level="DEBUG",
+                wire_log=None,
             )
 
-        mock_async.assert_called_once_with(log_file="events.jsonl", live=False, demo=True)
+        mock_async.assert_called_once_with(
+            log_file="events.jsonl", live=False, demo=True, wire_log=None
+        )
         mock_run_sync.assert_called_once_with(coro)
 
 

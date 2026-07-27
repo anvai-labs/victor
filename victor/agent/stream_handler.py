@@ -62,12 +62,23 @@ class StreamMetrics:
     cache_read_tokens: int = 0
     cache_write_tokens: int = 0
 
+    # Separately-reported reasoning tokens (Gemini thoughtsTokenCount, OpenAI
+    # reasoning_tokens). May be folded into completion_tokens depending on the
+    # provider — see calculate_cost for the folding-aware pricing rule.
+    reasoning_tokens: int = 0
+
     # Cost tracking (USD)
     input_cost: float = 0.0
     output_cost: float = 0.0
     cache_cost: float = 0.0
     total_cost: float = 0.0
     cost_calculated: bool = False
+
+    # Wire-truth latency from sandhi's typed boundary (W3b) — preferred over
+    # client wall-clock when present (absent on non-sandhi providers and on
+    # sandhi-gateway <= 0.1.4).
+    wire_duration_ms: Optional[int] = None
+    wire_ttft_ms: Optional[int] = None
 
     # Observability features (consolidated)
     chunk_intervals: List[float] = field(default_factory=list)
@@ -89,10 +100,22 @@ class StreamMetrics:
             # Cache tokens (Anthropic-style naming)
             self.cache_read_tokens += usage.get("cache_read_input_tokens", 0)
             self.cache_write_tokens += usage.get("cache_creation_input_tokens", 0)
+            self.reasoning_tokens += usage.get("reasoning_tokens", 0)
 
             # Mark as actual usage if we got non-zero values
             if self.prompt_tokens > 0 or self.completion_tokens > 0:
                 self.has_actual_usage = True
+
+    def record_wire_latency(self, sandhi_usage: Optional[Dict[str, Any]]) -> None:
+        """Record wire-truth latency from the terminal chunk's diagnostics."""
+        if not isinstance(sandhi_usage, dict):
+            return
+        duration = sandhi_usage.get("duration_ms")
+        if isinstance(duration, (int, float)) and duration >= 0:
+            self.wire_duration_ms = int(duration)
+        ttft = sandhi_usage.get("time_to_first_token_ms")
+        if isinstance(ttft, (int, float)) and ttft >= 0:
+            self.wire_ttft_ms = int(ttft)
 
     def calculate_cost(self, capabilities: Any) -> None:
         """Calculate cost using provider capabilities.
@@ -103,9 +126,18 @@ class StreamMetrics:
         if not capabilities or not capabilities.cost_enabled:
             return
 
+        # Folding invariant (mirrors sandhi billable()): providers either fold
+        # reasoning tokens into completion_tokens (OpenAI, Anthropic) or report
+        # them separately (Gemini). Unfolded reasoning is billed output that
+        # completion_tokens does not contain — price it at the output rate.
+        # Detection is total: reasoning that cannot fit inside completion_tokens
+        # is unfolded; otherwise assume folded and never double-count.
+        unfolded_reasoning = (
+            self.reasoning_tokens if self.reasoning_tokens > self.completion_tokens else 0
+        )
         costs = capabilities.calculate_cost(
             self.prompt_tokens,
-            self.completion_tokens,
+            self.completion_tokens + unfolded_reasoning,
             self.cache_read_tokens,
             self.cache_write_tokens,
         )
@@ -129,14 +161,22 @@ class StreamMetrics:
 
     @property
     def time_to_first_token(self) -> Optional[float]:
-        """Time from start to first token (TTFT)."""
+        """Time from start to first token (TTFT), in seconds.
+
+        Prefers sandhi's wire-truth measurement (W3b) over client wall-clock —
+        the latter folds host-language scheduling noise into provider latency.
+        """
+        if self.wire_ttft_ms is not None:
+            return self.wire_ttft_ms / 1000.0
         if self.first_token_time and self.start_time:
             return self.first_token_time - self.start_time
         return None
 
     @property
     def total_duration(self) -> float:
-        """Total streaming duration."""
+        """Total streaming duration, in seconds (wire truth when available)."""
+        if self.wire_duration_ms is not None:
+            return self.wire_duration_ms / 1000.0
         if self.end_time and self.start_time:
             return self.end_time - self.start_time
         return 0.0

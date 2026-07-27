@@ -625,7 +625,7 @@ class ToolService:
     """[CANONICAL] Service for managing tool operations.
 
     The target implementation for tool operations following the
-    state-passed architectural pattern. Supersedes ToolCoordinator.
+    state-passed architectural pattern.
 
     This service follows SOLID principles:
     - SRP: Only handles tool operations
@@ -1147,7 +1147,7 @@ class ToolService:
             self._tool_call_parser = tool_call_parser
 
     # ==========================================================================
-    # Budget Properties (for parity with ToolCoordinator)
+    # Budget Properties
     # ==========================================================================
 
     @property
@@ -2073,12 +2073,7 @@ class ToolService:
             from victor.agent.argument_normalizer import ArgumentNormalizer
 
             for tc in tool_calls:
-                args = tc.get("arguments")
-                if isinstance(args, str):
-                    tc["arguments"] = ArgumentNormalizer.coerce_arg_string(args)
-                elif args is None:
-                    tc["arguments"] = {}
-
+                ArgumentNormalizer.normalize_arguments_shape(tc)
                 parsed_args = tc.get("arguments")
                 if isinstance(parsed_args, dict):
                     tc["arguments"] = parser.normalize_args(tc.get("name", ""), parsed_args)

@@ -893,6 +893,52 @@ class ArgumentNormalizer:
         return arguments
 
     @staticmethod
+    def normalize_arguments_shape(tool_call: Dict[str, Any]) -> None:
+        """Guarantee ``tool_call["arguments"]`` is a dict, in place.
+
+        A model can emit ``arguments`` as any JSON value (seen live: glm-5.2
+        sent a list for ``write``); an unchecked non-dict crashes dict-assuming
+        consumers (status messages, telemetry) before execution-time validation
+        can feed a corrective error back to the model.
+
+        Shapes handled: ``str`` → :meth:`coerce_arg_string` ladder; ``None`` →
+        ``{}``; single-element ``[dict]`` → unwrapped (forgiveness — models
+        sometimes wrap the args object in an array); any other non-object →
+        the call is marked ``_invalid`` with a corrective ``_error`` (the
+        pipeline's skip-result path returns it to the model as a tool_error)
+        and ``arguments`` is reset to ``{}`` so downstream dict access is safe.
+        """
+        args = tool_call.get("arguments")
+        if isinstance(args, str):
+            tool_call["arguments"] = ArgumentNormalizer.coerce_arg_string(args)
+            return
+        if args is None:
+            tool_call["arguments"] = {}
+            return
+        if isinstance(args, list) and len(args) == 1 and isinstance(args[0], dict):
+            logger.warning(
+                "Unwrapped single-element list arguments for tool '%s'",
+                tool_call.get("name"),
+            )
+            tool_call["arguments"] = args[0]
+            return
+        if not isinstance(args, dict):
+            type_name = type(args).__name__
+            logger.warning(
+                "Tool '%s' arguments have non-object shape (%s); "
+                "marking invalid for corrective feedback",
+                tool_call.get("name"),
+                type_name,
+            )
+            tool_call["_invalid"] = True
+            tool_call["_error"] = (
+                f"Tool '{tool_call.get('name')}' arguments must be a single JSON "
+                f"object of parameters, got {type_name}. Re-issue the call "
+                'with an object, e.g. {"param": value}.'
+            )
+            tool_call["arguments"] = {}
+
+    @staticmethod
     def coerce_arg_string(raw: str) -> Dict[str, Any]:
         """Coerce a raw model ``arguments`` *string* into a dict.
 

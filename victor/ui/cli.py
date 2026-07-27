@@ -318,11 +318,11 @@ def onboarding_command(
     """Run the interactive onboarding wizard for first-time setup.
 
     The onboarding wizard guides you through:
-    - Environment detection (Ollama, API keys)
-    - Profile selection based on experience level
-    - Provider and model configuration
-    - Configuration validation
-    - Testing the setup
+    - Environment detection (Ollama, LM Studio, API keys)
+    - Provider and model selection
+    - Credential entry (stored in the system keyring)
+    - A live connection test
+    - Default profile installation and example prompts
 
     Use --force to re-run onboarding even if you've completed it before.
     """
@@ -341,20 +341,10 @@ def onboarding_command(
         console.print("  [cyan]victor profiles set-default <profile>[/]")
         return
 
-    # Run the onboarding wizard
-    console.print("\n[bold cyan]Welcome to Victor![/]")
-    console.print("Let's get you set up in 2 minutes...\n")
-
+    # Run the onboarding wizard (it owns welcome/completion framing)
     exit_code = run_onboarding()
 
-    if exit_code == 0:
-        console.print("\n[green]✓ Setup complete![/]")
-        console.print("")
-        console.print("Next steps:")
-        console.print("  1. [cyan]victor chat[/] - Start chatting")
-        console.print("  2. [cyan]victor doctor[/] - Run diagnostics")
-        console.print("  3. [cyan]victor profiles list[/] - See all profiles")
-    else:
+    if exit_code != 0:
         console.print("\n[yellow]Onboarding interrupted.[/]")
         console.print("Run [cyan]victor onboarding[/] again to complete setup.")
 
@@ -417,51 +407,101 @@ app.add_typer(chat_app)
 app.add_typer(auth_app, name="auth", help="Manage authentication and provider accounts.")
 app.add_typer(init_app)
 app.add_typer(models_app)
-app.add_typer(profiles_app, name="profiles")
 app.add_typer(ui_app, name="ui", help="Launch the Victor web chat UI (Chainlit).")
+
+# --- Verb groups (UX P2): satellites nest under their owning verb; the old
+# flat names stay invocable below as hidden aliases with a migration hint. ---
+config_app.add_typer(profiles_app, name="profiles")
+config_app.add_typer(providers_app)
+
+index_app.add_typer(graph_app)
+index_app.add_typer(embeddings_app)
+
+tools_app.add_typer(capabilities_app)
+tools_app.add_typer(examples_app)
+
+observe_app = typer.Typer(name="observe", help="Observability, benchmarking, and experiments.")
+observe_app.add_typer(dashboard_app)
+observe_app.add_typer(bayesian_app)
+observe_app.add_typer(observability_app, name="observability")
+observe_app.add_typer(gateway_app, name="gateway")
+observe_app.add_typer(benchmark_app)
+observe_app.add_typer(experiment_app)
+observe_app.add_typer(ab_app)
+observe_app.add_typer(ml_app)
+
+data_app = typer.Typer(name="data", help="Sessions, databases, and stored artifacts.")
+data_app.add_typer(sessions_app)
+data_app.add_typer(db_app)
+
+# --- Configuration ---
+app.add_typer(config_app, rich_help_panel="Configuration")
 
 # --- Development ---
 app.add_typer(tools_app, rich_help_panel="Development")
 app.add_typer(skills_app, rich_help_panel="Development")
 app.add_typer(workflow_app, rich_help_panel="Development")
 app.add_typer(index_app, rich_help_panel="Development")
-app.add_typer(graph_app, rich_help_panel="Development")
 app.add_typer(plugin_app, rich_help_panel="Development")
 app.add_typer(serve_app, rich_help_panel="Development")
 app.add_typer(mcp_app, rich_help_panel="Development")
 app.add_typer(verify_app, name="verify", rich_help_panel="Development")
 
-# --- Benchmarking & Experiments ---
-app.add_typer(benchmark_app, rich_help_panel="Benchmarking & Experiments")
-app.add_typer(experiment_app, rich_help_panel="Benchmarking & Experiments")
-app.add_typer(ab_app, rich_help_panel="Benchmarking & Experiments")
-app.add_typer(ml_app, rich_help_panel="Benchmarking & Experiments")
-
-# --- Data & Sessions ---
-app.add_typer(sessions_app, rich_help_panel="Data & Sessions")
-app.add_typer(db_app, rich_help_panel="Data & Sessions")
-app.add_typer(embeddings_app, rich_help_panel="Data & Sessions")
-
-# --- Observability ---
-app.add_typer(dashboard_app, rich_help_panel="Observability")
-app.add_typer(bayesian_app, rich_help_panel="Observability")
-app.add_typer(observability_app, name="observability", rich_help_panel="Observability")
-app.add_typer(gateway_app, name="gateway", rich_help_panel="Observability")
+# --- Observability / Data verbs ---
+app.add_typer(observe_app, rich_help_panel="Observability")
+app.add_typer(data_app, rich_help_panel="Data & Sessions")
 
 # --- Documentation ---
 app.add_typer(docs_app, rich_help_panel="Documentation")
-app.add_typer(examples_app, rich_help_panel="Documentation")
 vertical_app.add_typer(scaffold_app, name="scaffold")
 app.add_typer(vertical_app, rich_help_panel="Documentation")
-app.add_typer(capabilities_app, rich_help_panel="Documentation")
 
 # --- Advanced ---
-app.add_typer(config_app, rich_help_panel="Advanced")
-app.add_typer(providers_app, rich_help_panel="Advanced")
 app.add_typer(security_app, rich_help_panel="Advanced")
 app.add_typer(fep_app, rich_help_panel="Advanced")
 coding_app = typer.Typer(name="coding", help="Coding vertical specialized commands.")
 app.add_typer(coding_app, rich_help_panel="Advanced")
+
+# --- Legacy flat aliases (UX P2): hidden but fully functional. Resolution
+# prints a one-line pointer to the new verb path (SuggestingGroup). Remove
+# after one minor release per the deprecation policy. ---
+_LEGACY_VERB_PATHS = {
+    # keys are the apps' intrinsic top-level names (some are singular)
+    "profiles": "config profiles",
+    "provider": "config provider",
+    "graph": "index graph",
+    "embedding": "index embedding",
+    "capability": "tool capability",
+    "examples": "tool examples",
+    "dashboard": "observe dashboard",
+    "bayesian": "observe bayesian",
+    "observability": "observe observability",
+    "gateway": "observe gateway",
+    "benchmark": "observe benchmark",
+    "experiment": "observe experiment",
+    "ab": "observe ab",
+    "ml": "observe ml",
+    "session": "data session",
+    "db": "data db",
+}
+SuggestingGroup.legacy_paths = dict(_LEGACY_VERB_PATHS)
+
+app.add_typer(profiles_app, name="profiles", hidden=True)
+app.add_typer(providers_app, hidden=True)
+app.add_typer(graph_app, hidden=True)
+app.add_typer(embeddings_app, hidden=True)
+app.add_typer(capabilities_app, hidden=True)
+app.add_typer(examples_app, hidden=True)
+app.add_typer(dashboard_app, hidden=True)
+app.add_typer(bayesian_app, hidden=True)
+app.add_typer(observability_app, name="observability", hidden=True)
+app.add_typer(gateway_app, name="gateway", hidden=True)
+app.add_typer(benchmark_app, hidden=True)
+app.add_typer(experiment_app, hidden=True)
+app.add_typer(ab_app, hidden=True)
+app.add_typer(ml_app, hidden=True)
+app.add_typer(sessions_app, hidden=True)
+app.add_typer(db_app, hidden=True)
 
 
 # --- Deprecated / Hidden (lazy-loaded for startup performance) ---
@@ -571,7 +611,8 @@ def callback(
     skip_onboarding: bool = typer.Option(
         False,
         "--skip-onboarding",
-        help="Skip first-time onboarding wizard",
+        "--no-setup",
+        help="Skip first-time setup wizard",
     ),
 ) -> None:
     """Victor - Open-source agentic AI framework with multi-provider support."""
@@ -588,11 +629,10 @@ def callback(
             from victor.config.settings import is_first_time_user
 
             if is_first_time_user():
-                console.print("\n[bold cyan]Welcome to Victor![/]")
-                console.print("Let's get you set up in 2 minutes...\n")
                 from victor.ui.commands.onboarding import run_onboarding
 
-                exit_code = run_onboarding()
+                # offer_chat=False: this path always drops into chat below.
+                exit_code = run_onboarding(offer_chat=False)
                 if exit_code != 0:
                     console.print("\n[yellow]Onboarding interrupted. Starting chat anyway...[/]")
                 else:

@@ -188,24 +188,80 @@ async def on_chat_start() -> None:
     except Exception:  # approval is best-effort; chat still works without it
         logger.debug("Approval handler registration skipped", exc_info=True)
 
-    # Best-effort session-restore seam: a reconnected session whose client already holds history
-    # replays its prior turns; a fresh client raises (uninitialized) and we greet normally. Full
-    # cross-visit resume is a deferred FEP (needs a Chainlit data layer + history-by-id API).
+    # Best-effort in-session replay: a reconnected session whose client already holds history
+    # replays its prior turns; a fresh client raises (uninitialized) and we fall through.
     restored = False
     try:
         for author, content in history_messages(await client.get_messages(limit=50)):
             await cl.Message(content=content, author=author).send()
             restored = True
     except Exception:
-        logger.debug("no prior session history to restore", exc_info=True)
+        logger.debug("no in-session history to restore", exc_info=True)
 
     if not restored:
-        await cl.Message(
-            content="**Victor** is ready. Ask me to write code, search the repo, run tools — "
+        # Cross-visit resume: offer to continue a previously stored session.
+        actions = _resume_actions(client)
+        greeting = (
+            "**Victor** is ready. Ask me to write code, search the repo, run tools — "
             "I'll stream my reasoning and tool calls as I work."
-        ).send()
+        )
+        if actions:
+            greeting += "\n\n_Or continue a previous session:_"
+        await cl.Message(content=greeting, actions=actions or None).send()
 
     await _send_settings(client)
+
+
+def _resume_actions(client: "VictorClient") -> list:
+    """Build 'continue previous session' picker actions from stored sessions."""
+    try:
+        sessions = client.list_recent_sessions(limit=5)
+    except Exception:
+        logger.debug("could not list recent sessions", exc_info=True)
+        return []
+    actions = []
+    for session in sessions:
+        session_id = session.get("session_id")
+        if not session_id:
+            continue
+        title = session.get("title") or "Untitled session"
+        count = session.get("message_count", 0)
+        actions.append(
+            cl.Action(
+                name="resume_session",
+                payload={"session_id": session_id},
+                label=f"↩ {title} ({count} msgs)",
+            )
+        )
+    return actions
+
+
+@cl.action_callback("resume_session")
+async def _on_resume_session(action: "cl.Action") -> None:
+    """Resume a stored session: hydrate the agent, then replay its turns."""
+    session_id = (action.payload or {}).get("session_id")
+    if not session_id:
+        return
+    client = _get_client()
+    try:
+        await client.initialize()
+        metadata = await client.resume_session(session_id)
+    except Exception as exc:
+        logger.warning("resume_session failed: %s", exc, exc_info=True)
+        await cl.Message(content=f"⚠️ Could not resume that session: {exc}").send()
+        return
+    if metadata is None:
+        await cl.Message(content="⚠️ That session could not be found.").send()
+        return
+
+    title = metadata.get("title", "session")
+    await cl.Message(content=f"**Resumed:** {title} — the agent recalls the prior turns.").send()
+    # Replay the restored turns into the transcript so the user sees the context.
+    try:
+        for author, content in history_messages(await client.get_messages(limit=50)):
+            await cl.Message(content=content, author=author).send()
+    except Exception:
+        logger.debug("resume replay skipped", exc_info=True)
 
 
 @cl.on_settings_update

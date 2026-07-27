@@ -12,99 +12,103 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Interactive onboarding wizard for first-time Victor setup.
+"""First-run onboarding for Victor.
 
-This module provides an interactive wizard that guides new users through:
-1. Welcome and introduction to Victor
-2. Environment detection (Ollama, API keys, etc.)
-3. Profile selection based on experience level
-4. Provider configuration
-5. Configuration validation
-6. Testing the setup
-7. Starting first chat
+Sequences the existing setup primitives into one guided journey:
 
-The wizard uses Rich for beautiful terminal UI with panels, tables, and prompts.
+1. Welcome and confirmation
+2. Provider + credential setup via :class:`AuthSetupWizard` (the ``victor
+   auth setup`` core) — provider picker, key entry stored in the system
+   keyring, and a real connection smoke test
+3. Default-profile installation so bare ``victor`` starts with the chosen
+   provider/model (the recommended experience profile is applied without
+   extra questions)
+4. Completion panel with copy-paste example prompts and next steps
+
+Failures point at ``victor doctor`` inline instead of leaving the user
+stranded. The flow is idempotent: success writes
+``~/.victor/.onboarding_completed`` which gates future first-run triggers,
+and ``victor onboarding --force`` re-runs it.
 """
 
 from __future__ import annotations
 
-import os
-import subprocess
 from datetime import datetime
-from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
-from rich.console import Console
+from rich.console import Console, Group
 from rich.panel import Panel
+from rich.prompt import Confirm
 from rich.table import Table
-from rich.prompt import Confirm, Prompt
 from rich.text import Text
 
 from victor.config.profiles import (
-    ProfileLevel,
-    PROFILES,
-    get_profile,
+    ProfileManager,
     get_recommended_profile,
     install_profile,
 )
 from victor.config.settings import get_project_paths
 
+#: Copy-paste prompts offered on the completion screen.
+EXAMPLE_PROMPTS = [
+    "Explain what this repository does and how it is structured",
+    "Write a Python script that renames every .txt file in a folder to .md",
+    "Review this function for bugs: <paste code>",
+]
+
 
 class OnboardingWizard:
-    """Interactive onboarding wizard for Victor setup."""
+    """First-run wizard: auth setup → default profile → next steps."""
 
-    def __init__(self, console: Optional[Console] = None):
+    def __init__(self, console: Optional[Console] = None, offer_chat: bool = True):
         """Initialize the wizard.
 
         Args:
             console: Optional Rich console instance (creates default if None)
+            offer_chat: Whether the completion screen offers to start a chat.
+                The bare ``victor`` first-run path passes False because it
+                always drops into interactive chat right after onboarding.
         """
         self.console = console or Console()
+        self.offer_chat = offer_chat
         self.config_dir = get_project_paths().global_victor_dir
-        self.state: Dict[str, Any] = {
-            "step": 0,
-            "selected_profile": None,
-            "provider": None,
-            "model": None,
-            "api_keys_configured": False,
-            "ollama_available": False,
-            "has_cloud_keys": False,
-        }
 
     def run(self) -> int:
-        """Run the complete onboarding wizard.
+        """Run the complete onboarding flow.
 
         Returns:
-            Exit code (0 for success, 1 for cancellation/error)
+            Exit code (0 for success/cancellation, 1 for error)
         """
         try:
-            # Removed console.clear() - jarring UX, destroys user context
             self._show_welcome()
 
             if not self._confirm_start():
                 self.console.print("\n[yellow]Onboarding cancelled.[/]")
                 return 0
 
-            # Step 1: Environment Detection
-            self._detect_environment()
+            # Provider + credentials + connection smoke test. The auth wizard
+            # is the single owner of provider selection, key persistence
+            # (keyring + accounts config), and validation — onboarding only
+            # frames it and finishes the job.
+            from victor.ui.commands.auth import AuthSetupWizard
 
-            # Step 2: Profile Selection
-            if not self._select_profile():
+            auth_wizard = AuthSetupWizard(self.console, first_run=True)
+            exit_code = auth_wizard.run()
+            if exit_code != 0:
+                self._show_doctor_hint()
+                return exit_code
+
+            provider = auth_wizard.state.get("selected_provider")
+            model = auth_wizard.state.get("selected_model")
+            account = auth_wizard.state.get("saved_account")
+            if not provider or account is None:
+                # User backed out inside the auth wizard; nothing was saved.
+                self.console.print("\n[yellow]Onboarding cancelled.[/]")
                 return 0
 
-            # Step 3: Provider Configuration
-            if not self._configure_provider():
-                return 0
-
-            # Step 4: Apply Configuration
-            self._apply_configuration()
-
-            # Step 5: Validate Configuration
-            if not self._validate_configuration():
-                return 0
-
-            # Step 6: Complete and Next Steps
-            self._show_completion()
+            self._install_default_profile(provider, model, account)
+            self._write_completion_marker(provider, model)
+            self._show_completion(provider, model)
 
             return 0
 
@@ -113,6 +117,7 @@ class OnboardingWizard:
             return 0
         except Exception as e:
             self.console.print(f"\n[red]✗[/] An error occurred: {e}")
+            self._show_doctor_hint()
             return 1
 
     def _show_welcome(self) -> None:
@@ -127,14 +132,16 @@ class OnboardingWizard:
         features.add_column("", style="cyan")
         features.add_column("", style="white")
 
-        features.add_row("✦", "22 LLM provider adapters")
-        features.add_row("✦", "33 tool modules")
+        features.add_row("✦", "24 LLM provider adapters")
+        features.add_row("✦", "34 tool modules")
         features.add_row("✦", "Multi-agent coordination")
         features.add_row("✦", "Domain-specific verticals")
         features.add_row("✦", "YAML workflow engine")
 
+        # Group, not Text + Table: rich renderables don't support "+", and
+        # the resulting TypeError used to kill the whole wizard at step 0.
         panel = Panel.fit(
-            welcome_text + "\n" + features,
+            Group(welcome_text, features),
             title="[bold cyan]Victor Setup Wizard[/]",
             border_style="cyan",
             padding=(1, 2),
@@ -161,400 +168,70 @@ class OnboardingWizard:
 
         return Confirm.ask("Ready to set up Victor?", default=True)
 
-    def _detect_environment(self) -> None:
-        """Step 1: Detect the user's environment."""
-        self.console.print("\n[bold cyan]Step 1/5: Environment Detection[/]")
-        self.console.print("─" * 50)
+    def _install_default_profile(self, provider: str, model: Optional[str], account: Any) -> None:
+        """Point bare ``victor`` at the configured provider.
 
-        # Check Ollama
-        self.console.print("\n[yellow]🔍[/] Checking for Ollama (local models)...")
-        self.state["ollama_available"] = self._check_ollama()
-
-        if self.state["ollama_available"]:
-            self.console.print("  [green]✓[/] Ollama is running")
-            try:
-                result = subprocess.run(
-                    ["ollama", "list"],
-                    capture_output=True,
-                    timeout=5,
-                )
-                if result.returncode == 0:
-                    models = result.stdout.decode().strip().split("\n")[1:]  # Skip header
-                    if models:
-                        self.console.print(f"  [dim]Found {len(models)} model(s)[/]")
-            except Exception:
-                pass
-        else:
-            self.console.print("  [dim]Ollama not running[/]")
-            self.console.print("  [dim]Install: https://ollama.com[/]")
-
-        # Check for API keys
-        self.console.print("\n[yellow]🔍[/] Checking for cloud provider API keys...")
-        api_keys = self._check_api_keys()
-        self.state["has_cloud_keys"] = bool(api_keys)
-
-        if api_keys:
-            self.console.print(f"  [green]✓[/] Found API keys for: {', '.join(api_keys)}")
-        else:
-            self.console.print("  [dim]No API keys configured[/]")
-
-        # Recommendation
-        recommended = get_recommended_profile()
-        self.console.print(f"\n💡 [yellow]Recommended profile:[/] {recommended.display_name}")
-
-    def _check_ollama(self) -> bool:
-        """Check if Ollama is available and running.
-
-        Returns:
-            True if Ollama is running
+        The auth wizard persists the account (keyring + config.yaml) and an
+        account-named chat profile, but startup reads the ``default`` profile
+        from profiles.yaml — without this step a first-run cloud user would
+        still boot on the built-in Ollama default.
         """
+        recommended = get_recommended_profile()
+        # Local providers report a placeholder model; let the profile
+        # template pick its own default in that case.
+        model_override = None if model in (None, "", "default") else model
+
+        profiles_path = install_profile(
+            recommended,
+            config_dir=self.config_dir,
+            provider_override=provider,
+            model_override=model_override,
+        )
+        # install_profile rewrites profiles.yaml wholesale; restore the
+        # account-named chat profile the auth wizard just synced.
         try:
-            result = subprocess.run(
-                ["ollama", "list"],
-                capture_output=True,
-                timeout=3,
-            )
-            return result.returncode == 0
-        except (FileNotFoundError, subprocess.TimeoutExpired):
-            return False
+            ProfileManager.for_config_dir(self.config_dir).upsert_account_profile(account)
         except Exception:
-            return False
+            pass  # the default profile alone is enough to start chatting
 
-    def _check_api_keys(self) -> List[str]:
-        """Check for configured API keys.
+        self.console.print()
+        self.console.print(f"[green]✓[/] Applied '{recommended.name}' profile — saved to:")
+        self.console.print(f"  [dim]{profiles_path}[/]")
+        self.console.print("  [dim]Change later with: victor config profiles list[/]")
 
-        Returns:
-            List of provider names with configured keys
-        """
-        providers = {
-            "ANTHROPIC_API_KEY": "Anthropic",
-            "OPENAI_API_KEY": "OpenAI",
-            "GOOGLE_API_KEY": "Google",
-            "AZURE_API_KEY": "Azure",
-            "XAI_API_KEY": "xAI",
-            "COHERE_API_KEY": "Cohere",
-        }
-
-        found = []
-        for env_var, provider in providers.items():
-            if os.getenv(env_var):
-                found.append(provider)
-
-        return found
-
-    def _select_profile(self) -> bool:
-        """Step 2: Profile selection.
-
-        Returns:
-            False if user cancels, True otherwise
-        """
-        self.console.print("\n[bold cyan]Step 2/5: Profile Selection[/]")
-        self.console.print("─" * 50)
-
-        # Show available profiles
-        self.console.print("\n[bold]Available Profiles:[/]\n")
-
-        for level in [ProfileLevel.BASIC, ProfileLevel.ADVANCED, ProfileLevel.EXPERT]:
-            profiles = [p for p in PROFILES.values() if p.level == level]
-            if not profiles:
-                continue
-
-            level_style = {
-                ProfileLevel.BASIC: "green",
-                ProfileLevel.ADVANCED: "yellow",
-                ProfileLevel.EXPERT: "red",
-            }.get(level, "white")
-
-            for profile in profiles:
-                self.console.print(f"  [{level_style}]{profile.display_name}[/]")
-                self.console.print(f"  [dim]{profile.description}[/]")
-                self.console.print()
-
-        # Get recommendation
-        recommended = get_recommended_profile()
-
-        # Prompt for selection
-        self.console.print(f"💡 [yellow]Recommended for you:[/] {recommended.display_name}\n")
-
-        choices = [p.name for p in PROFILES.values()]
-        choice = Prompt.ask(
-            "Choose a profile",
-            choices=choices,
-            default=recommended.name,
-            show_choices=True,
-        )
-
-        if choice is None:
-            return False
-
-        self.state["selected_profile"] = get_profile(choice)
-        return True
-
-    def _configure_provider(self) -> bool:
-        """Step 3: Provider configuration.
-
-        Returns:
-            False if user cancels, True otherwise
-        """
-        self.console.print("\n[bold cyan]Step 3/5: Provider Configuration[/]")
-        self.console.print("─" * 50)
-
-        provider_options = [
-            "ollama",
-            "anthropic",
-            "openai",
-            "google",
-            "lmstudio",
-            "auto",
-        ]
-
-        # Default to auto or based on environment
-        if self.state["has_cloud_keys"]:
-            default_provider = "auto"
-        elif self.state["ollama_available"]:
-            default_provider = "ollama"
-        else:
-            default_provider = "auto"
-
-        self.console.print("\n[bold]Available providers:[/]")
-        self.console.print("  [cyan]ollama[/] - Local models (free, private)")
-        self.console.print("  [cyan]anthropic[/] - Claude (API key required)")
-        self.console.print("  [cyan]openai[/] - GPT (API key required)")
-        self.console.print("  [cyan]google[/] - Gemini (API key required)")
-        self.console.print("  [cyan]auto[/] - Auto-detect best option\n")
-
-        provider = Prompt.ask(
-            "Select provider",
-            choices=provider_options,
-            default=default_provider,
-            show_choices=True,
-        )
-
-        if provider is None:
-            return False
-
-        if provider == "auto":
-            provider = self._auto_detect_provider()
-
-        self.state["provider"] = provider
-
-        # Model selection
-        self.console.print(f"\n[bold]Select model for {provider}:[/]")
-        models = self._get_models_for_provider(provider)
-
-        if models:
-            # Default to qwen3.5:27b-q4_K_M if available (first in list)
-            default_model = "qwen3.5:27b-q4_K_M"
-            for i, model in enumerate(models[:5], 1):  # Show first 5
-                desc = model.get("description", "")
-                self.console.print(f"  {i}. [cyan]{model['id']}[/] - {desc}")
-
-            model_choice = Prompt.ask(
-                "Choose model (1-5 or model name)",
-                default=default_model,
-            )
-
-            # Try to parse as number
-            try:
-                model_num = int(model_choice)
-                if 1 <= model_num <= len(models):
-                    self.state["model"] = models[model_num - 1]["id"]
-                else:
-                    self.state["model"] = model_choice
-            except ValueError:
-                self.state["model"] = model_choice
-        else:
-            # Use default model
-            self.state["model"] = self._get_default_model(provider)
-            self.console.print(f"\n[dim]Using default model: {self.state['model']}[/]")
-
-        return True
-
-    def _auto_detect_provider(self) -> str:
-        """Auto-detect the best available provider.
-
-        Returns:
-            Provider name
-        """
-        if self.state["has_cloud_keys"]:
-            # Prefer Anthropic, then OpenAI
-            if os.getenv("ANTHROPIC_API_KEY"):
-                return "anthropic"
-            if os.getenv("OPENAI_API_KEY"):
-                return "openai"
-
-        # Default to Ollama
-        return "ollama"
-
-    def _get_models_for_provider(self, provider: str) -> List[Dict[str, str]]:
-        """Get available models for a provider.
-
-        Args:
-            provider: Provider name
-
-        Returns:
-            List of model dictionaries with 'id' and 'description'
-        """
-        models = {
-            "ollama": [
-                {
-                    "id": "qwen3.5:27b-q4_K_M",
-                    "description": "MoE model, fast + knowledgeable (recommended)",
-                },
-                {"id": "qwen2.5-coder:7b", "description": "Coding-focused, 7B params"},
-                {
-                    "id": "qwen2.5-coder:14b",
-                    "description": "Coding-focused, 14B params",
-                },
-                {"id": "qwen2.5:7b", "description": "General purpose, 7B params"},
-                {"id": "llama3.2:3b", "description": "Fast, efficient, 3B params"},
-            ],
-            "anthropic": [
-                {"id": "claude-3-5-sonnet-20241022", "description": "Powerful, newer"},
-            ],
-            "openai": [
-                {"id": "gpt-4o", "description": "Fast, multimodal"},
-                {"id": "gpt-4o-mini", "description": "Very fast, efficient"},
-            ],
-            "google": [
-                {
-                    "id": "gemini-2.0-flash-exp",
-                    "description": "Very fast, experimental",
-                },
-                {"id": "gemini-1.5-pro", "description": "Balanced"},
-            ],
-            "lmstudio": [
-                {"id": "local-model", "description": "Your loaded model"},
-            ],
-            "vllm": [
-                {"id": "local-model", "description": "Your loaded model"},
-            ],
-            "deepseek": [
-                {"id": "deepseek-chat", "description": "Fast, efficient"},
-            ],
-            "xai": [
-                {"id": "grok-beta", "description": "Fast, capable"},
-            ],
-            "zai": [
-                {"id": "glm-4.7", "description": "Fast, cost-effective"},
-            ],
-            "cohere": [
-                {"id": "command-r-plus", "description": "Command-optimized"},
-            ],
-        }
-        return models.get(provider, [])
-
-    def _get_default_model(self, provider: str) -> str:
-        """Get default model for a provider.
-
-        Args:
-            provider: Provider name
-
-        Returns:
-            Default model identifier
-        """
-        defaults = {
-            "ollama": "qwen3.5:27b-q4_K_M",  # Fast MoE model
-            "anthropic": "claude-sonnet-4-5-20250514",
-            "openai": "gpt-4o",
-            "google": "gemini-2.0-flash-exp",
-            "lmstudio": "local-model",
-        }
-        return defaults.get(provider, "qwen3.5:27b-q4_K_M")
-
-    def _apply_configuration(self) -> None:
-        """Step 4: Apply configuration."""
-        self.console.print("\n[bold cyan]Step 4/5: Apply Configuration[/]")
-        self.console.print("─" * 50)
-
-        profile = self.state["selected_profile"]
-        provider = self.state["provider"]
-        model = self.state["model"]
-
-        self.console.print("\n[yellow]⚙️[/] Applying configuration...")
-        self.console.print(f"  Profile: [cyan]{profile.display_name}[/]")
-        self.console.print(f"  Provider: [cyan]{provider}[/]")
-        self.console.print(f"  Model: [cyan]{model}[/]")
-
+    def _write_completion_marker(self, provider: str, model: Optional[str]) -> None:
+        """Record completion so first-run detection never re-triggers."""
+        marker_file = self.config_dir / ".onboarding_completed"
+        completed_at = datetime.now().isoformat()
         try:
-            profiles_path = install_profile(
-                profile,
-                config_dir=self.config_dir,
-                provider_override=provider,
-                model_override=model,
-            )
-            self.console.print("\n  [green]✓[/] Configuration saved to:")
-            self.console.print(f"  [dim]{profiles_path}[/]")
-
-            # Create onboarding completion marker
-            marker_file = self.config_dir / ".onboarding_completed"
-            completed_at = datetime.now().isoformat()
             marker_file.write_text(
                 f"# Onboarding completed successfully\n"
                 f"# Completed at: {completed_at}\n"
-                f"# Profile: {profile.name}\n"
                 f"# Provider: {provider}\n"
                 f"# Model: {model}\n"
             )
+        except Exception:
+            pass  # marker is an optimization; setup itself succeeded
 
-        except Exception as e:
-            self.console.print(f"\n  [red]✗[/] Failed to save configuration: {e}")
-            raise
-
-    def _validate_configuration(self) -> bool:
-        """Step 5: Validate configuration.
-
-        Returns:
-            False if validation fails, True otherwise
-        """
-        self.console.print("\n[bold cyan]Step 5/5: Validate Configuration[/]")
-        self.console.print("─" * 50)
-
-        self.console.print("\n[yellow]🔍[/] Validating configuration...")
-
-        # Import validation
+    def _show_doctor_hint(self) -> None:
+        """Point at ``victor doctor``, with a quick inline snapshot."""
+        self.console.print()
         try:
-            from victor.config.validation import validate_configuration
-            from victor.config.settings import load_settings
-        except ImportError:
-            self.console.print("  [yellow]⚠[/] Validation module not available")
-            return True
+            from victor.ui.commands.doctor import DoctorChecks, Severity
 
-        try:
-            settings = load_settings()
-            result = validate_configuration(settings)
+            checks = DoctorChecks()
+            checks.check_api_keys()
+            checks.check_local_providers()
+            for check in checks.checks:
+                style = "green" if check.severity == Severity.SUCCESS else "yellow"
+                self.console.print(f"  [{style}]{check.name}:[/] {check.message}")
+        except Exception:
+            pass
+        self.console.print("[dim]Run [cyan]victor doctor[/] for a full diagnosis.[/]")
 
-            if result.is_valid():
-                self.console.print("  [green]✓[/] Configuration is valid!")
-            else:
-                self.console.print("  [yellow]⚠[/] Configuration has warnings:")
-                for error in result.errors:
-                    self.console.print(f"    [dim]• {error.message}[/]")
-                # Continue despite warnings
-
-        except Exception as e:
-            self.console.print(f"  [yellow]⚠[/] Validation skipped: {e}")
-
-        # Test provider connection
-        self.console.print("\n[yellow]🔍[/] Testing provider connection...")
-        provider = self.state["provider"]
-
-        if provider == "ollama":
-            if self.state["ollama_available"]:
-                self.console.print("  [green]✓[/] Ollama connection OK")
-            else:
-                self.console.print("  [yellow]⚠[/] Ollama not running - start with: ollama serve")
-        elif provider in ["anthropic", "openai", "google"]:
-            if self.state["has_cloud_keys"]:
-                self.console.print(f"  [green]✓[/] {provider.title()} API key configured")
-            else:
-                self.console.print(f"  [yellow]⚠[/] {provider.title()} API key not set")
-
-        return True
-
-    def _show_completion(self) -> None:
+    def _show_completion(self, provider: str, model: Optional[str]) -> None:
         """Show completion screen and next steps."""
-        self.console.print("\n[bold cyan]✓ Setup Complete![/]")
+        self.console.print("\n[bold cyan]✓ You're ready![/]")
         self.console.print("═" * 50)
 
         # Summary table
@@ -562,27 +239,29 @@ class OnboardingWizard:
         table.add_column("", style="yellow")
         table.add_column("", style="white")
 
-        profile = self.state["selected_profile"]
-        table.add_row("Profile", profile.display_name)
-        table.add_row("Provider", self.state["provider"])
-        table.add_row("Model", self.state["model"])
+        table.add_row("Provider", provider)
+        table.add_row("Model", str(model or "auto"))
         table.add_row("Config", str(self.config_dir / "profiles.yaml"))
 
         self.console.print("\n[bold]Your Configuration:[/]")
         self.console.print(table)
 
+        # Example prompts to get going immediately
+        self.console.print("\n[bold]Try asking:[/]")
+        for prompt in EXAMPLE_PROMPTS:
+            self.console.print(f'  [cyan]"{prompt}"[/]')
+
         # Next steps
         self.console.print("\n[bold]Next Steps:[/]")
-        self.console.print("  1. [cyan]victor doctor[/] - Run diagnostics")
-        self.console.print("  2. [cyan]victor chat[/] - Start chatting")
-        self.console.print("  3. [cyan]victor profiles list[/] - See other profiles")
-        self.console.print("\n[dim]For more information:[/]")
-        self.console.print("  [dim]https://github.com/victor-ai/victor[/]")
+        self.console.print("  [cyan]victor[/] - Start chatting")
+        self.console.print("  [cyan]victor examples[/] - Browse runnable examples")
+        self.console.print("  [cyan]victor doctor[/] - Run diagnostics")
 
-        # Offer to start chat
-        self.console.print()
-        if Confirm.ask("Start your first chat now?", default=False):
-            self._start_first_chat()
+        # Offer to start chat (skipped when the caller starts chat itself)
+        if self.offer_chat:
+            self.console.print()
+            if Confirm.ask("Start your first chat now?", default=True):
+                self._start_first_chat()
 
     def _start_first_chat(self) -> None:
         """Start the first chat session."""
@@ -597,17 +276,22 @@ class OnboardingWizard:
             self.console.print(f"\n[yellow]Chat ended: {e}[/]")
 
 
-def run_onboarding() -> int:
+def run_onboarding(offer_chat: bool = True) -> int:
     """Run the onboarding wizard.
 
-    This is the entry point for 'victor init' command.
+    Entry point for bare ``victor`` first-run detection, ``victor
+    onboarding``, and ``victor init --wizard``.
+
+    Args:
+        offer_chat: Whether the completion screen offers to start a chat.
+            Pass False when the caller drops into chat itself.
 
     Returns:
         Exit code (0 for success, 1 for error)
     """
     console = Console()
     try:
-        wizard = OnboardingWizard(console)
+        wizard = OnboardingWizard(console, offer_chat=offer_chat)
         return wizard.run()
     except Exception as e:
         console.print(f"\n[red]✗[/] Onboarding failed: {e}")

@@ -331,6 +331,22 @@ class ChatStreamHelperMixin:
             )
         logger.info(f"Task type detected: {unified_task_type.value}")
 
+        # Publish the settled type. Detection, continuation carry-forward, and the
+        # edit promotion above have all had their say by this point, so this is
+        # the first moment the turn's task type is final.
+        #
+        # Every consumer downstream read an attribute nobody assigned:
+        # ``TurnContext.task_type`` fell back to its "default" literal, that value
+        # rode into every RLEvent, and RL_OUTCOME therefore recorded "default" for
+        # every row ever written. Prompt evolution reads task_type back off those
+        # rows to scope candidates to the work they were learned from, so with one
+        # value for everything it could not distinguish an edit turn from a search
+        # — the population dimension existed in the schema and carried no
+        # information. The tracker was likewise only updated on the continuation
+        # branch, leaving the tool-selection guard reading GENERAL for real edits.
+        orch.unified_tracker.set_task_type(unified_task_type)
+        orch._current_task_type = unified_task_type.value
+
         prompt_requirements = extract_prompt_requirements(user_message)
         if prompt_requirements.has_explicit_requirements():
             orch.unified_tracker._progress.has_prompt_requirements = True
@@ -1399,6 +1415,13 @@ class ChatStreamHelperMixin:
         )
         waiting_since = time.monotonic()
         first_chunk_received = False
+        # Reasoning-only stream diagnostics: a thinking model (kimi-k3, DeepSeek-R,
+        # o-series) can burn the entire completion budget on reasoning deltas and
+        # finish with zero content — which otherwise presents as an opaque "empty
+        # response" that identical-parameter retries can never fix.
+        reasoning_chars = 0
+        refusal_chars = 0
+        last_stop_reason: Optional[str] = None
 
         # Producer/consumer split for deterministic, on-task stream cleanup.
         #
@@ -1499,6 +1522,7 @@ class ChatStreamHelperMixin:
                     continue
 
                 if kind == "error":
+                    self._log_client_error_payload_shape(payload, assembled)
                     raise payload
                 if kind == "done":
                     self._record_provider_status_event(
@@ -1536,6 +1560,18 @@ class ChatStreamHelperMixin:
                 # with it the turn's real token accounting, leaving the api_*_tokens at 0.
                 # Reading usage here makes the dominant cost term observable regardless of
                 # whether the chunk survives the filter.
+                chunk_stop_reason = getattr(chunk, "stop_reason", None)
+                if chunk_stop_reason:
+                    last_stop_reason = str(chunk_stop_reason)
+                chunk_meta = getattr(chunk, "metadata", None)
+                if isinstance(chunk_meta, dict):
+                    reasoning_delta = chunk_meta.get("reasoning_content")
+                    if reasoning_delta:
+                        reasoning_chars += len(str(reasoning_delta))
+                    refusal_delta = chunk_meta.get("refusal")
+                    if refusal_delta:
+                        refusal_chars += len(str(refusal_delta))
+
                 raw_usage = getattr(chunk, "usage", None)
                 if raw_usage:
                     for key in stream_ctx.cumulative_usage:
@@ -1545,6 +1581,21 @@ class ChatStreamHelperMixin:
                         f"out={raw_usage.get('completion_tokens', 0)} "
                         f"cache_read={raw_usage.get('cache_read_input_tokens', 0)}"
                     )
+
+                # Sandhi attaches transport diagnostics (retry attempts, usage
+                # completeness, upstream request id) to the same terminal chunk
+                # that carries usage. Fold them into the turn so finalize can
+                # surface them — previously recorded by the transport and read
+                # by nothing.
+                chunk_meta = getattr(chunk, "metadata", None)
+                if isinstance(chunk_meta, dict):
+                    sandhi_diag = chunk_meta.get("sandhi_usage")
+                    if isinstance(sandhi_diag, dict):
+                        if hasattr(stream_ctx, "record_provider_diagnostics"):
+                            stream_ctx.record_provider_diagnostics(sandhi_diag)
+                        # Wire-truth latency (W3b): prefer sandhi's boundary
+                        # measurement over client wall-clock in stream metrics.
+                        stream_ctx.stream_metrics.record_wire_latency(sandhi_diag)
 
                 chunk, consecutive_garbage_chunks, garbage_detected = self._handle_stream_chunk(
                     chunk,
@@ -1575,6 +1626,17 @@ class ChatStreamHelperMixin:
                         full_content = full_content[
                             : repetition_detector.truncation_point(full_content)
                         ]
+                        # A loop with no tool call is UNUSABLE output, not an
+                        # answer. Without this flag the truncated narration was
+                        # emitted as the assistant turn and the loop simply ran
+                        # again, so the model could spend turn after turn
+                        # narrating ("I'll call the tool. Now. Executing.")
+                        # while the tool it meant to call never ran. Reuse the
+                        # garbage-detection contract: the handler turns this into
+                        # force_completion, which ends the spin and makes the
+                        # model deliver a final answer from what it already has.
+                        if not tool_calls:
+                            garbage_detected = True
                         logger.warning(
                             "Intra-turn repetition detected — stopping generation " "(segment: %r)",
                             repeated[:120],
@@ -1629,12 +1691,29 @@ class ChatStreamHelperMixin:
             content_length = len(full_content.strip()) if full_content else 0
 
             if content_length == 0:
+                stream_ctx.empty_stream_diagnostics = {
+                    "reasoning_chars": reasoning_chars,
+                    "refusal_chars": refusal_chars,
+                    "stop_reason": last_stop_reason,
+                }
                 self._record_provider_status_event(
                     stream_ctx,
                     "empty_stream_completed",
                     model=getattr(orch, "model", None),
+                    reasoning_chars=reasoning_chars,
+                    stop_reason=last_stop_reason,
                 )
-                logger.warning("Stream completed without content or tool calls")
+                if reasoning_chars:
+                    logger.warning(
+                        "Stream completed without content or tool calls after %d reasoning "
+                        "chars (stop_reason=%s) — reasoning likely consumed the completion "
+                        "budget (max_tokens=%s)",
+                        reasoning_chars,
+                        last_stop_reason,
+                        getattr(orch, "max_tokens", None),
+                    )
+                else:
+                    logger.warning("Stream completed without content or tool calls")
             elif content_length < 50:
                 self._record_provider_status_event(
                     stream_ctx,
@@ -1679,6 +1758,44 @@ class ChatStreamHelperMixin:
 
         stream_ctx.estimated_content_tokens = estimated_content_tokens
         return full_content, tool_calls, estimated_content_tokens, garbage_detected
+
+    @staticmethod
+    def _log_client_error_payload_shape(error: BaseException, messages: Any) -> None:
+        """On a 4xx provider rejection, log the request's message shape.
+
+        A 4xx on a chat request is almost always a payload-structure problem
+        (broken tool_calls/tool pairing, invalid param) rather than a transient
+        fault, and the surfaced error body is often opaque ("upstream status
+        400"). Log a compact per-message summary — role, content length,
+        tool-call ids, tool_call_id — so the defect is attributable from the
+        session log alone (session modality-doc-review-fixes-b4e87728).
+        """
+        status = getattr(error, "status_code", None)
+        if not isinstance(status, int) or not (400 <= status < 500) or status == 429:
+            return
+        try:
+            parts = []
+            for i, message in enumerate(messages or []):
+                if not isinstance(message, dict):
+                    message = getattr(message, "__dict__", None) or {}
+                role = message.get("role", "?")
+                content = message.get("content")
+                entry = f"{i}:{role} len={len(content) if isinstance(content, str) else 0}"
+                tool_calls = message.get("tool_calls") or []
+                tc_ids = [tc.get("id", "?") for tc in tool_calls if isinstance(tc, dict)]
+                if tc_ids:
+                    entry += f" tool_calls={tc_ids}"
+                if message.get("tool_call_id"):
+                    entry += f" tool_call_id={message['tool_call_id']}"
+                parts.append(entry)
+            logger.warning(
+                "[provider-4xx] status=%s payload shape (%d messages): %s",
+                status,
+                len(parts),
+                " | ".join(parts),
+            )
+        except Exception:  # diagnostic must never mask the original error
+            logger.debug("[provider-4xx] shape summary failed", exc_info=True)
 
     @staticmethod
     def _record_provider_status_event(
@@ -1732,6 +1849,31 @@ class ChatStreamHelperMixin:
         """Handle empty response recovery with multi-strategy retry."""
         orch = self._orchestrator
 
+        # Reasoning-token exhaustion: when the empty stream carried reasoning
+        # deltas but no content, the completion budget was consumed by thinking.
+        # Retrying with identical parameters is deterministic failure (observed:
+        # two consecutive ~112s reasoning-only streams, session
+        # modality-doc-review-fixes-b4e87728) — raise max_tokens for the retry
+        # so the model has budget left after reasoning.
+        recovery_max_tokens = orch.max_tokens
+        diagnostics = getattr(stream_ctx, "empty_stream_diagnostics", None) or {}
+        if (
+            diagnostics.get("reasoning_chars")
+            and isinstance(recovery_max_tokens, int)
+            and recovery_max_tokens > 0
+        ):
+            recovery_max_tokens = min(recovery_max_tokens * 4, 32768)
+            if recovery_max_tokens > orch.max_tokens:
+                logger.info(
+                    "Empty stream diagnosed as reasoning-token exhaustion "
+                    "(reasoning_chars=%s, stop_reason=%s) — retrying with max_tokens=%s "
+                    "(was %s)",
+                    diagnostics.get("reasoning_chars"),
+                    diagnostics.get("stop_reason"),
+                    recovery_max_tokens,
+                    orch.max_tokens,
+                )
+
         recovery_temps = [0.7, 0.9]
         for temp in recovery_temps:
             try:
@@ -1776,7 +1918,7 @@ class ChatStreamHelperMixin:
                         messages=retry_assembled,
                         model=orch.model,
                         temperature=temp,
-                        max_tokens=orch.max_tokens,
+                        max_tokens=recovery_max_tokens,
                         tools=tools,
                         **provider_kwargs,
                     )
@@ -1792,6 +1934,25 @@ class ChatStreamHelperMixin:
 
                 if recovered_tool_calls:
                     logger.info(f"Recovery at temperature {temp} produced tool calls")
+                    # Record the assistant tool_calls message BEFORE the main loop
+                    # executes the tools. Without it the tool results land in history
+                    # with no matching assistant tool_calls entry, the pairing repairs
+                    # strand one side or the other on every subsequent turn, and
+                    # strict providers (Moonshot/OpenAI-compat) reject the payload
+                    # with a non-retryable 400 (session modality-doc-review-fixes-
+                    # b4e87728). Mirrors the normal tool-call path in
+                    # chat_stream_executor and the content path below.
+                    from victor.agent.conversation.types import (
+                        MESSAGE_SOURCE_METADATA_KEY,
+                        MessageSource,
+                    )
+
+                    orch.add_message(
+                        "assistant",
+                        "",
+                        tool_calls=recovered_tool_calls,
+                        metadata={MESSAGE_SOURCE_METADATA_KEY: MessageSource.AGENT_RESPONSE.value},
+                    )
                     return True, recovered_tool_calls, None
 
                 if full_content.strip():

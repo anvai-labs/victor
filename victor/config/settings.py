@@ -2548,9 +2548,10 @@ def is_first_time_user() -> bool:
 
     A user is considered a first-time user if:
     1. No onboarding completion marker exists
-    2. No profiles.yaml exists in ~/.victor/
-    3. No API keys are configured in environment
-    4. Ollama is not available (local provider check)
+    2. No unified accounts config (~/.victor/config.yaml) exists
+    3. No profiles.yaml exists in ~/.victor/
+    4. No API keys are configured in environment
+    5. Ollama is not available (local provider check)
 
     The onboarding completion marker (.onboarding_completed) is authoritative:
     if it exists, the user has completed setup regardless of current provider status.
@@ -2566,6 +2567,12 @@ def is_first_time_user() -> bool:
 
     if onboarding_marker.exists():
         # User has completed onboarding, not first-time
+        return False
+
+    # Unified accounts config (written by `victor auth setup` / `victor auth
+    # add`) counts as configured even without env keys or profiles.yaml —
+    # keys may live only in the system keyring.
+    if (victor_dir / "config.yaml").exists():
         return False
 
     # Check if profiles.yaml exists

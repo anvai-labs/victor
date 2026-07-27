@@ -52,11 +52,24 @@ def test_cache_policy_is_agent_economics_not_wire_logic() -> None:
 
 
 @pytest.mark.asyncio
-async def test_list_models_is_local_policy_and_does_not_bypass_sandhi() -> None:
+async def test_list_models_is_local_policy_and_does_not_bypass_sandhi(monkeypatch) -> None:
     provider = GroqProvider(api_key="test-key")
+    # Listing is two-tier (TD-0004): sandhi catalog data first, Victor's admitted
+    # policy as fallback — WHICH tier answers depends on the installed binding's
+    # catalog coverage, so pin the fallback tier for a deterministic assertion.
+    # The invariant under test is "local, no I/O", not "which tier".
+    monkeypatch.setattr(type(provider), "_models_from_sandhi", lambda self: None)
     models = await provider.list_models()
     assert {entry["id"] for entry in models} == set(GROQ_MODELS)
     assert not hasattr(provider, "client")
+
+
+@pytest.mark.asyncio
+async def test_list_models_prefers_sandhi_catalog_tier(monkeypatch) -> None:
+    provider = GroqProvider(api_key="test-key")
+    catalog = [{"id": "catalog-model", "context_window": 8192}]
+    monkeypatch.setattr(type(provider), "_models_from_sandhi", lambda self: list(catalog))
+    assert await provider.list_models() == catalog
 
 
 @pytest.mark.asyncio

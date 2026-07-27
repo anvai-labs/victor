@@ -23,7 +23,11 @@ standardized benchmarks like SWE-bench, HumanEval, etc.
 import asyncio
 import json
 import logging
+import math
 import os
+from contextlib import contextmanager
+
+from victor.observability.run_kind import RunKind, run_kind_scope
 import shutil
 import tempfile
 from abc import ABC, abstractmethod
@@ -88,6 +92,132 @@ class PromptCandidateEvaluationRun:
     label: str
 
 
+@dataclass(frozen=True)
+class PairedContrast:
+    """One variant measured against the baseline on the *same* tasks.
+
+    A prompt candidate has never been compared to anything. It is scored on its
+    own absolute pass rate, and the gate asks only whether that rate clears a
+    fixed threshold — so a candidate can be approved while being worse than the
+    prompt it replaces, or rejected while beating it on a hard benchmark. The
+    number that matters is not "did it pass 50%" but "did it pass tasks the seed
+    failed, more often than the reverse".
+
+    Pairing is what makes that answerable at this sample size. Both arms run the
+    identical task set, so task difficulty cancels: only the tasks where the two
+    arms *disagree* carry information, and a handful of those says more than a
+    difference of two percentage points across forty independent tasks.
+    """
+
+    n_paired: int
+    variant_only_pass: int
+    baseline_only_pass: int
+    both_pass: int
+    both_fail: int
+
+    @property
+    def discordant(self) -> int:
+        """Tasks where exactly one arm passed — the only ones carrying signal."""
+        return self.variant_only_pass + self.baseline_only_pass
+
+    @property
+    def effect(self) -> int:
+        """Net tasks the variant gained. Negative means it lost ground."""
+        return self.variant_only_pass - self.baseline_only_pass
+
+    @property
+    def mcnemar_p(self) -> float:
+        """Two-sided exact p for the discordant split under a fair coin.
+
+        Exact rather than the chi-square approximation because the counts here
+        are small by construction — with 40 tasks a typical split is 11 vs 3, and
+        the approximation is unreliable below ~25 discordant pairs. `math.comb`
+        keeps this dependency-free; scipy is not worth a wheel for one binomial.
+        """
+        n = self.discordant
+        if n == 0:
+            return 1.0
+        extreme = max(self.variant_only_pass, self.baseline_only_pass)
+        tail = sum(math.comb(n, i) for i in range(extreme, n + 1)) / (2**n)
+        return min(1.0, 2.0 * tail)
+
+    @classmethod
+    def from_results(
+        cls,
+        baseline: "EvaluationResult",
+        variant: "EvaluationResult",
+    ) -> "PairedContrast":
+        """Pair two arms on task id. Raises when they share no tasks.
+
+        Silently returning an empty contrast would read downstream as "no
+        difference" — indistinguishable from a real tie — when the truth is that
+        the comparison never happened.
+        """
+        base_by_task = _passed_by_task(baseline)
+        variant_by_task = _passed_by_task(variant)
+        shared = sorted(set(base_by_task) & set(variant_by_task))
+        if not shared:
+            raise ValueError(
+                "Paired contrast needs a shared task set; baseline ran "
+                f"{len(base_by_task)} task(s) and the variant ran {len(variant_by_task)} "
+                "with no overlap."
+            )
+
+        counts = {"bb": 0, "vv": 0, "both": 0, "neither": 0}
+        for task_id in shared:
+            b, v = base_by_task[task_id], variant_by_task[task_id]
+            if v and not b:
+                counts["vv"] += 1
+            elif b and not v:
+                counts["bb"] += 1
+            elif b and v:
+                counts["both"] += 1
+            else:
+                counts["neither"] += 1
+
+        return cls(
+            n_paired=len(shared),
+            variant_only_pass=counts["vv"],
+            baseline_only_pass=counts["bb"],
+            both_pass=counts["both"],
+            both_fail=counts["neither"],
+        )
+
+    def summary(self) -> str:
+        """One line for the CLI: the effect, the split it rests on, and the p."""
+        sign = "+" if self.effect >= 0 else ""
+        return (
+            f"{sign}{self.effect}/{self.n_paired} "
+            f"(disc {self.variant_only_pass}/{self.baseline_only_pass}, "
+            f"p={self.mcnemar_p:.2f})"
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "n_paired": self.n_paired,
+            "variant_only_pass": self.variant_only_pass,
+            "baseline_only_pass": self.baseline_only_pass,
+            "both_pass": self.both_pass,
+            "both_fail": self.both_fail,
+            "discordant": self.discordant,
+            "effect": self.effect,
+            "mcnemar_p": self.mcnemar_p,
+        }
+
+
+def _passed_by_task(result: "EvaluationResult") -> dict[str, bool]:
+    """Map task id to whether it passed, for one arm.
+
+    Later results win on duplicate ids: a resumed run appends rather than
+    replaces, so the last attempt is the one that counts.
+    """
+    return {
+        task.task_id: task.status == TaskStatus.PASSED
+        for task in getattr(result, "task_results", []) or []
+        if getattr(task, "task_id", "")
+    }
+
+
 @dataclass
 class PromptCandidateEvaluationSuiteResult:
     """Collected results from evaluating multiple prompt candidates separately."""
@@ -123,6 +253,12 @@ class PromptCandidateEvaluationSuiteResult:
                     "prompt_candidate_hash": run.config.prompt_candidate_hash,
                     "section_name": run.config.prompt_section_name,
                     "metrics": run.result.get_metrics(),
+                    # Per-task outcomes, not just the aggregate. A paired
+                    # contrast needs to know *which* tasks each arm passed;
+                    # ``from_dict`` has always read this key, and nothing wrote it.
+                    "task_results": [
+                        task_result_to_artifact(task) for task in (run.result.task_results or [])
+                    ],
                 }
                 for run in self.runs
             ],
@@ -220,6 +356,44 @@ def evaluation_config_from_artifact_config(payload: dict[str, Any]) -> Evaluatio
     )
 
 
+def task_result_to_artifact(task_result: Any) -> dict[str, Any]:
+    """Serialize a TaskResult into the shape ``task_result_from_artifact`` reads.
+
+    Lives beside its inverse on purpose. The only writer used to be a private
+    method on the real-run runner, so the suite serializer had no way to persist
+    per-task outcomes and wrote aggregate metrics alone — while ``from_dict``
+    read a ``task_results`` key nobody produced. A suite therefore round-tripped
+    to zero tasks, which is fatal for a paired contrast: pairing needs to know
+    *which* tasks each arm passed, and pass rates alone cannot say.
+    """
+    status = getattr(task_result, "status", None)
+    failure_category = getattr(task_result, "failure_category", None)
+    return {
+        "task_id": getattr(task_result, "task_id", None),
+        "status": getattr(status, "value", status),
+        # Correlation spine — joins this task's decisions to its outcome.
+        "session_id": getattr(task_result, "session_id", ""),
+        "tests_passed": getattr(task_result, "tests_passed", 0),
+        "tests_total": getattr(task_result, "tests_total", 0),
+        "duration": getattr(task_result, "duration_seconds", 0.0),
+        "duration_seconds": getattr(task_result, "duration_seconds", 0.0),
+        "tokens_used": getattr(task_result, "tokens_used", 0),
+        "tokens_input": getattr(task_result, "tokens_input", 0),
+        "tokens_output": getattr(task_result, "tokens_output", 0),
+        "cached_tokens": getattr(task_result, "cached_tokens", 0),
+        "reasoning_tokens": getattr(task_result, "reasoning_tokens", 0),
+        "cost_usd_micros": getattr(task_result, "cost_usd_micros", 0),
+        "tool_calls": getattr(task_result, "tool_calls", 0),
+        "turns": getattr(task_result, "turns", 0),
+        "code_search_calls": getattr(task_result, "code_search_calls", 0),
+        "graph_calls": getattr(task_result, "graph_calls", 0),
+        "completion_score": getattr(task_result, "completion_score", 0.0),
+        "failure_category": getattr(failure_category, "value", failure_category),
+        "failure_details": dict(getattr(task_result, "failure_details", {}) or {}),
+        "metadata": dict(getattr(task_result, "metadata", {}) or {}),
+    }
+
+
 def task_result_from_artifact(payload: dict[str, Any]) -> TaskResult:
     """Reconstruct a task result from a saved suite artifact entry."""
     failure_category_value = payload.get("failure_category")
@@ -277,6 +451,90 @@ def load_prompt_candidate_evaluation_suite(
     if not isinstance(payload, dict):
         raise ValueError("suite artifact must contain a JSON object")
     return PromptCandidateEvaluationSuiteResult.from_dict(payload)
+
+
+@contextmanager
+def durable_evaluation_conversations(db_path: Optional[Path] = None):
+    """Pin evaluation conversations to a durable, eval-owned database.
+
+    Each task runs inside a ``tempfile.mkdtemp()`` workspace and the agent
+    chdirs into it, while ``ConversationStore`` derives its path from the
+    current working directory. Evaluation conversations were therefore written
+    into a directory deleted moments later — or, when project paths had already
+    been cached, into whichever repo the run started from, mixing benchmark
+    sessions into a developer's own history. Neither outcome leaves the data
+    where anyone can read it back.
+
+    Pinning to ``{global}/evaluations/sessions.db`` makes eval conversations
+    survive the workspace and keeps them out of project stores. An explicit
+    ``VICTOR_CONVERSATION_DB`` already set by the caller is left alone.
+
+    Restores the previous value on exit, so an in-process caller (the test
+    suite, a notebook) is not left with a changed global.
+    """
+    from victor.agent.conversation.store import CONVERSATION_DB_ENV
+
+    previous = os.environ.get(CONVERSATION_DB_ENV)
+    if previous:
+        yield Path(previous)
+        return
+
+    if db_path is None:
+        try:
+            from victor.config.settings import get_project_paths
+
+            db_path = Path(get_project_paths().global_victor_dir) / "evaluations" / "sessions.db"
+        except Exception:
+            db_path = Path.home() / ".victor" / "evaluations" / "sessions.db"
+
+    try:
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        # A read-only or missing home should degrade to old behaviour, not
+        # abort the benchmark run.
+        logger.warning("Could not prepare durable evaluation store at %s: %s", db_path, exc)
+        yield None
+        return
+
+    os.environ[CONVERSATION_DB_ENV] = str(db_path)
+    logger.info("Evaluation conversations pinned to %s", db_path)
+    try:
+        yield db_path
+    finally:
+        if previous is None:
+            os.environ.pop(CONVERSATION_DB_ENV, None)
+        else:
+            os.environ[CONVERSATION_DB_ENV] = previous
+
+
+def _collect_observed_prompt_identities(result: "EvaluationResult") -> list[dict[str, Any]]:
+    """Union the prompt identities served across every task in a run.
+
+    An artifact previously named a candidate only when the operator passed
+    ``--prompt-candidate-hash``, so ordinary benchmark runs produced ground-truth
+    pass/fail that no candidate could ever be credited with. Recording what was
+    actually served makes every run usable as Pareto evidence.
+
+    Deduplicated on (section, provider, hash) and order-stable so artifacts diff
+    cleanly across runs.
+    """
+    observed: dict[tuple[Any, Any, Any], dict[str, Any]] = {}
+    for task_result in result.task_results:
+        metadata = getattr(task_result, "metadata", None)
+        if not isinstance(metadata, dict):
+            continue
+        for identity in metadata.get("prompt_identities") or []:
+            if not isinstance(identity, dict):
+                continue
+            candidate_hash = identity.get("prompt_candidate_hash")
+            if not candidate_hash:
+                continue
+            section = identity.get("prompt_section_name") or identity.get("section_name")
+            observed.setdefault(
+                (section, identity.get("provider"), candidate_hash),
+                dict(identity),
+            )
+    return list(observed.values())
 
 
 def bind_prompt_candidate_evaluation_config(
@@ -964,6 +1222,26 @@ class EvaluationHarness:
         if runner is None:
             raise ValueError(f"No runner for benchmark: {config.benchmark}")
 
+        with run_kind_scope(RunKind.EVALUATION), durable_evaluation_conversations():
+            return await self._run_evaluation(
+                config,
+                runner,
+                agent_callback,
+                progress_callback,
+                retry_callback,
+                resume,
+            )
+
+    async def _run_evaluation(
+        self,
+        config: EvaluationConfig,
+        runner: Any,
+        agent_callback: Any,
+        progress_callback: Optional[Any] = None,
+        retry_callback: Optional[Any] = None,
+        resume: bool = False,
+    ) -> EvaluationResult:
+        """Run the evaluation body (see ``run_evaluation`` for the contract)."""
         # Warn if self-correction enabled but no retry_callback
         if config.enable_self_correction and retry_callback is None:
             logger.warning(
@@ -1302,6 +1580,13 @@ class EvaluationHarness:
             if payload.get(key) is not None:
                 task_result.metadata[key] = payload.get(key)
 
+        # Which prompt candidates produced this task's outcome. Aggregated into
+        # the artifact by _save_results so seed_from_evaluations() can turn the
+        # task's pass/fail into Pareto evidence for those candidates.
+        prompt_identities = payload.get("prompt_identities")
+        if prompt_identities:
+            task_result.metadata["prompt_identities"] = list(prompt_identities)
+
         topology_events = payload.get("topology_events")
         if topology_events:
             task_result.metadata["topology_events"] = list(topology_events)
@@ -1616,6 +1901,7 @@ class EvaluationHarness:
         # Serialize result
         data = {
             "config": result.config.to_artifact_config(),
+            "observed_prompt_identities": _collect_observed_prompt_identities(result),
             "summary": summary,
             "runtime_evaluation_feedback": runtime_feedback_payload,
             "experiment_memory": experiment_memory.to_dict(),
@@ -1624,6 +1910,13 @@ class EvaluationHarness:
             "tasks": [
                 {
                     "task_id": r.task_id,
+                    # The correlation spine. TaskResult has carried session_id in
+                    # memory (set from the agent payload) specifically to join this
+                    # task's logged decisions to its outcome, but it was never
+                    # serialized — so nothing downstream could match a usage.jsonl
+                    # trace to the harness verdict that graded it, and prompt
+                    # evolution scored eval sessions with a tool-failure proxy.
+                    "session_id": r.session_id,
                     "status": r.status.value,
                     "tests_passed": r.tests_passed,
                     "tests_total": r.tests_total,
