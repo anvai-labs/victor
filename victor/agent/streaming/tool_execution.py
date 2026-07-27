@@ -739,14 +739,16 @@ class ToolExecutionHandler:
             tool_calls=stream_ctx.tool_calls_used + len(tool_calls),
         )
 
-        # Get and inject consolidated reminder
-        reminder = self._reminder_manager.get_consolidated_reminder()
-        if reminder:
-            self._message_adder.add_message(
-                "user",
-                f"[SYSTEM-REMINDER: {reminder}]",
-                metadata=build_internal_history_metadata("system_reminder"),
-            )
+        # The consolidated reminder is NOT injected here as a bare role="user"
+        # message any more. It is delivered by the turn prefix
+        # (UnifiedPromptPipeline.compose_turn_prefix), inside the authenticated
+        # <system-reminder key="..."> envelope, where the model can tell it apart
+        # from something the user said.
+        #
+        # This must stay a single consumer: get_consolidated_reminder() is stateful
+        # and consuming — it suppresses unchanged content via reminder_history and
+        # advances last_reminder_at — so two live call sites would starve each
+        # other, each seeing only the reminders the other had not already taken.
 
     @staticmethod
     def _should_force_completion_after_terminal_skips(

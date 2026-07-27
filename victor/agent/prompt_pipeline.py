@@ -53,6 +53,11 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, Set, TYPE_CHECKING
 
+from victor.agent.control_plane import (
+    channel_declaration,
+    mint_channel_nonce,
+    wrap_guidance,
+)
 from victor.framework.request_scope_heuristics import (
     contains_keyword_marker,
     has_ambiguous_target_reference,
@@ -511,6 +516,11 @@ class UnifiedPromptPipeline:
     ):
         self._economics = detect_cache_economics(provider)
         self._tier = self._economics.tier
+        # Per-session nonce authenticating framework-authored guidance. Minted once
+        # here because this pipeline owns both ends of the contract: the system
+        # prompt that declares the key and the turn prefix that carries it.
+        # Re-minting mid-session would invalidate the declaration already sent.
+        self._channel_nonce = mint_channel_nonce()
         self._builder = builder
         self._registry = registry
         self._optimizer = optimizer
@@ -649,6 +659,14 @@ class UnifiedPromptPipeline:
 
         # Build base prompt from SystemPromptBuilder
         base_prompt = self._builder.build()
+
+        # Establish the authenticated guidance channel. This must go in the system
+        # prompt (not the turn prefix) because it is what gives the per-turn
+        # envelope its meaning, and because it is stable for the session — which is
+        # also what keeps it inside the cached prefix.
+        declaration = channel_declaration(self._channel_nonce)
+        if declaration:
+            base_prompt = f"{base_prompt}\n\n{declaration}"
 
         # Append project context
         if project_context:
@@ -836,8 +854,10 @@ class UnifiedPromptPipeline:
         compression = compress_prompt_blocks(
             block.content for block in document.iter_renderable_blocks()
         )
-        reminder_body = compression.compressed_prompt
-        return "<system-reminder>\n" + reminder_body + "\n</system-reminder>\n\n"
+        # Carry the session key so the model can tell this apart from any
+        # look-alike text arriving via tool output, file contents, or the user
+        # turn. The key is declared once in the system prompt.
+        return wrap_guidance(compression.compressed_prompt, self._channel_nonce)
 
     # ----------------------------------------------------------------
     # Migrated from the removed SystemPromptCoordinator seam

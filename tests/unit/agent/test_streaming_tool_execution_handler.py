@@ -339,11 +339,18 @@ async def test_execute_tools_marks_system_reminders_as_noninteractive_history():
         tool_budget=5,
     )
 
-    message_adder.add_message.assert_any_call(
-        "user",
-        "[SYSTEM-REMINDER: use more tools]",
-        metadata=build_internal_history_metadata("system_reminder"),
-    )
+    # The reminder is no longer injected here as a bare role="user" message.
+    # It is delivered by the turn prefix (UnifiedPromptPipeline.compose_turn_prefix)
+    # inside the authenticated <system-reminder key="..."> envelope, where the model
+    # can tell it apart from something the user said. This site must not also
+    # consume it: get_consolidated_reminder() is stateful and consuming, so two
+    # live call sites would starve each other.
+    assert reminder_manager.update_state.called, "reminder state must still be updated"
+    for call in message_adder.add_message.call_args_list:
+        assert "[SYSTEM-REMINDER:" not in str(call), (
+            "reminders must travel in the authenticated turn prefix, not as a bare "
+            f"user message: {call}"
+        )
 
 
 @pytest.mark.asyncio

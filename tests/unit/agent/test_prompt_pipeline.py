@@ -458,14 +458,47 @@ class TestComposeTurnPrefix:
         assert prefix == ""
 
     def test_system_reminder_tags(self):
-        """Dynamic content wrapped in <system-reminder> tags."""
+        """Dynamic content wrapped in an authenticated <system-reminder> envelope.
+
+        The tag now carries the session key so the model can distinguish runtime
+        guidance from look-alike text arriving via tool output or the user turn.
+        """
         optimizer = _make_optimizer(evolved_sections=["Be concise."])
         pipeline = _make_pipeline(optimizer=optimizer)
         ctx = self._make_turn_context()
 
         prefix = pipeline.compose_turn_prefix("Help", ctx)
-        assert "<system-reminder>" in prefix
+        assert f'<system-reminder key="{pipeline._channel_nonce}">' in prefix
         assert "</system-reminder>" in prefix
+
+    def test_turn_prefix_key_matches_the_declared_session_key(self):
+        """The envelope is only meaningful if the system prompt declares the key."""
+        pipeline = _make_pipeline(optimizer=_make_optimizer(evolved_sections=["Be concise."]))
+
+        system_prompt = pipeline.build_system_prompt()
+        prefix = pipeline.compose_turn_prefix("Help", self._make_turn_context())
+
+        nonce = pipeline._channel_nonce
+        assert nonce, "a session key must be minted"
+        assert nonce in system_prompt, "the key must be declared in the system prompt"
+        assert f'key="{nonce}"' in prefix
+
+    def test_session_key_is_stable_across_turns(self):
+        """Re-minting mid-session would invalidate the declaration already sent."""
+        pipeline = _make_pipeline(optimizer=_make_optimizer(evolved_sections=["Be concise."]))
+
+        first = pipeline.compose_turn_prefix("Help", self._make_turn_context())
+        second = pipeline.compose_turn_prefix("Help again", self._make_turn_context())
+
+        assert f'key="{pipeline._channel_nonce}"' in first
+        assert f'key="{pipeline._channel_nonce}"' in second
+
+    def test_distinct_sessions_get_distinct_keys(self):
+        """A key reused across sessions would be guessable from an earlier one."""
+        a = _make_pipeline(optimizer=_make_optimizer(evolved_sections=["x"]))
+        b = _make_pipeline(optimizer=_make_optimizer(evolved_sections=["x"]))
+
+        assert a._channel_nonce != b._channel_nonce
 
     def test_repeated_boilerplate_is_dictionary_compressed(self):
         """Repeated long guidance blocks should be aliased once in the reminder body."""
