@@ -79,6 +79,7 @@ from victor.tools.core_tool_aliases import canonicalize_core_tool_name
 
 if TYPE_CHECKING:
     from victor.agent.conversation_embedding_store import ConversationEmbeddingStore
+    from victor.agent.tool_calling.base import ToolCallingCapabilities
     from victor.storage.embeddings.service import EmbeddingService
 
 logger = logging.getLogger(__name__)
@@ -532,17 +533,11 @@ class IntelligentPromptBuilder:
     - Reinforcement signals from user feedback
     """
 
-    # Cloud providers with robust native tool calling
-    CLOUD_PROVIDERS = {
-        "anthropic",
-        "openai",
-        "google",
-        "xai",
-        "moonshot",
-        "kimi",
-        "deepseek",
-    }
-    LOCAL_PROVIDERS = {"ollama", "lmstudio", "vllm"}
+    # NOTE: this class deliberately keeps no provider-name sets. Prompt strategy is
+    # derived from declared capabilities (config/model_capabilities.yaml via
+    # ModelCapabilityLoader, plus the provider spec's prompt_caching flag) — see
+    # _determine_strategy(). Hand-maintained name lists silently misclassified every
+    # provider added after they were written.
 
     # Grounding rules (thrifty & performant)
     GROUNDING_RULES_MINIMAL = CANONICAL_GROUNDING_RULES
@@ -585,6 +580,10 @@ class IntelligentPromptBuilder:
         self._metrics = self._learning_store.load_metrics(
             self.profile_name, self.provider_name, self.model
         )
+
+        # Declared tool-calling capabilities, resolved lazily and cached for the
+        # lifetime of the builder (a builder is bound to one provider/model pair).
+        self._capabilities: Optional["ToolCallingCapabilities"] = None
 
         # Observers for feedback
         self._observers: List[Callable[[str, float, bool], None]] = []
@@ -801,49 +800,87 @@ class IntelligentPromptBuilder:
         return self._retrieval_gateway
 
     def _determine_strategy(self, context: PromptContext) -> PromptStrategy:
-        """Determine the best prompt strategy based on context and learning."""
-        # Cloud providers with good native tool support
-        if self.provider_name in self.CLOUD_PROVIDERS:
-            return PromptStrategy.MINIMAL
+        """Determine the best prompt strategy from declared capabilities.
 
-        # Use learned strategy if we have enough data
+        Capabilities come from ``config/model_capabilities.yaml`` via
+        ``ModelCapabilityLoader`` — the same source the tool-calling adapters use.
+        This replaces two hand-maintained name lists (``CLOUD_PROVIDERS`` and a
+        17-substring model-name match) that no dual-dialect provider ever appeared
+        in: a glm-5.2 session whose every tool call parsed as
+        ``native_passthrough`` was classified as a weak local model and handed the
+        STRICT "you are a code analyst / plain English only" prompt.
+        """
+        caps = self._tool_calling_capabilities()
+
+        # Models the catalog flags as needing strict prompting always get it.
+        if caps.requires_strict_prompting:
+            return PromptStrategy.STRICT
+
+        # Use learned strategy once we have enough evidence for this profile.
         if self._metrics.total_requests >= 10:
             return self._metrics.get_recommended_strategy()
 
-        # Default based on model capabilities
-        if self._has_native_tool_support():
-            return PromptStrategy.STRUCTURED
+        if caps.native_tool_calls:
+            # Hosted providers cache the prefix and need less scaffolding; local
+            # runtimes get the fuller structured guidance.
+            return (
+                PromptStrategy.MINIMAL if self._is_remotely_hosted() else PromptStrategy.STRUCTURED
+            )
 
         return PromptStrategy.STRICT
 
-    def _has_native_tool_support(self) -> bool:
-        """Check if model has native tool calling support."""
-        # Use set for O(1) lookup instead of list iteration
-        patterns = {
-            "qwen2.5",
-            "qwen-2.5",
-            "qwen3",
-            "qwen-3",
-            "llama-3.1",
-            "llama3.1",
-            "llama-3.2",
-            "llama3.2",
-            "llama-3.3",
-            "llama3.3",
-            "ministral",
-            "mistral",
-            "mixtral",
-            "command-r",
-            "firefunction",
-            "hermes",
-            "functionary",
-        }
-        return any(pattern in self.model_lower for pattern in patterns)
+    def _tool_calling_capabilities(self) -> "ToolCallingCapabilities":
+        """Resolve declared tool-calling capabilities for this provider/model."""
+        if self._capabilities is None:
+            from victor.agent.tool_calling.capabilities import get_model_capabilities
+
+            self._capabilities = get_model_capabilities(self.provider_name, self.model)
+        return self._capabilities
+
+    def _is_remotely_hosted(self) -> bool:
+        """Whether the provider is a hosted API rather than a local runtime.
+
+        This is the MINIMAL-vs-STRUCTURED axis: hosted providers cache prompt
+        prefixes and tolerate the shorter, less scaffolded prompt, while a local
+        runtime benefits from the fuller structured guidance.
+
+        Resolution order, most authoritative first:
+
+        1. The OpenAI-compat provider spec's ``prompt_caching`` capability, which
+           covers every dual-dialect profile (zai, deepseek, moonshot, xai, ...).
+        2. The canonical ``LOCAL_PROVIDERS`` set from ``victor.config.api_keys`` —
+           the same one the auth surface uses to decide a provider needs no API
+           key. Absence from the OpenAI-compat catalog carries no signal on its
+           own (both ``anthropic`` and ``ollama`` are absent), so it must not be
+           read as one.
+        """
+        from victor.config.api_keys import LOCAL_PROVIDERS
+        from victor.providers.openai_compat_model_policy import (
+            get_openai_compat_provider_spec,
+        )
+
+        try:
+            spec = get_openai_compat_provider_spec(self.provider_name)
+        except Exception:
+            # Not in the OpenAI-compat catalog (anthropic, google, ollama, ...).
+            # Expected for those providers, so debug rather than warning — but
+            # logged, because a silently swallowed lookup is how a provider gets
+            # misclassified without anyone noticing.
+            logger.debug(
+                "[IntelligentPromptBuilder] No OpenAI-compat spec for %r; "
+                "falling back to the local-provider set",
+                self.provider_name,
+                exc_info=True,
+            )
+        else:
+            return bool(spec.capabilities.prompt_caching)
+
+        return self.provider_name not in LOCAL_PROVIDERS
 
     def _generate_prompt(self, context: PromptContext, strategy: PromptStrategy) -> str:
         """Generate the system prompt based on strategy."""
         # Build parts list efficiently
-        parts = [self._get_base_identity(strategy)]
+        parts = [self._get_base_identity(strategy, context.current_mode)]
 
         # Add optional parts only if they exist
         optional_parts = [
@@ -867,8 +904,16 @@ class IntelligentPromptBuilder:
 
         return "\n\n".join(parts)
 
-    def _get_base_identity(self, strategy: PromptStrategy) -> str:
-        """Get base identity prompt based on strategy."""
+    # Modes in which the agent is expected to change the workspace. In these modes
+    # no strategy may present a read-only identity: doing so contradicts the
+    # operating mode the user selected, and a well-behaved model resolves that
+    # contradiction by refusing to edit.
+    _WRITE_CAPABLE_MODES = frozenset({"build", "delegate"})
+
+    def _get_base_identity(self, strategy: PromptStrategy, current_mode: str = "explore") -> str:
+        """Get base identity prompt based on strategy and operating mode."""
+        writes_allowed = str(current_mode or "").lower() in self._WRITE_CAPABLE_MODES
+
         if strategy == PromptStrategy.MINIMAL:
             return (
                 "You are an expert code analyst with access to tools for exploring "
@@ -880,7 +925,13 @@ class IntelligentPromptBuilder:
                 "When asked to write or complete code, provide working implementations directly.\n"
                 "When asked to explore or analyze code, use the available tools."
             )
-        else:  # STRICT or ADAPTIVE
+        elif writes_allowed:  # STRICT or ADAPTIVE, in a write-capable mode
+            return (
+                "You are a coding assistant. Follow the rules below EXACTLY.\n"
+                "Your job is to help the user understand and modify code — when the "
+                "task calls for a change, make it rather than only describing it."
+            )
+        else:  # STRICT or ADAPTIVE, read-oriented mode
             return (
                 "You are a code analyst. Follow the rules below EXACTLY.\n"
                 "Your primary job is to help the user understand and modify code."
@@ -907,14 +958,32 @@ class IntelligentPromptBuilder:
         return hints.get(task_type_str, "")
 
     def _get_mode_hint(self, mode: str, iteration_budget: int) -> str:
-        """Get mode-specific hint (concise)."""
+        """Get mode-specific hint (concise).
+
+        Covers every ``AgentMode`` member. An unrecognised mode is logged rather
+        than silently dropped: the previous version knew only explore/build/plan,
+        so REVIEW and DELEGATE — and every ``ConversationStage`` name that used to
+        be passed in here — produced an empty hint with no trace of why.
+        """
         mode_hints = {
             "explore": f"MODE: Explore - Understand code. Budget: {iteration_budget} turns.",
             "build": f"MODE: Build - Implement. Budget: {iteration_budget} turns.",
             "plan": f"MODE: Plan - Draft plan first. Budget: {iteration_budget} turns.",
+            "review": f"MODE: Review - Assess and critique. Budget: {iteration_budget} turns.",
+            "delegate": f"MODE: Delegate - Dispatch subtasks. Budget: {iteration_budget} turns.",
         }
         mode_str = str(mode).lower() if mode else "explore"
-        return mode_hints.get(mode_str, "")
+        hint = mode_hints.get(mode_str)
+        if hint is None:
+            logger.warning(
+                "[IntelligentPromptBuilder] Unknown operating mode %r — omitting mode hint. "
+                "Expected one of %s (a ConversationStage name here means the mode and the "
+                "stage have been conflated again).",
+                mode,
+                sorted(mode_hints),
+            )
+            return ""
+        return hint
 
     def _get_tool_guidance(
         self,
@@ -961,13 +1030,19 @@ class IntelligentPromptBuilder:
             rules = ["Call tools sequentially; wait for each result."]
             if budget:
                 rules.append(f"Budget: {budget} calls max.")
-            rules.extend(
-                [
-                    "Gather sufficient info before answering.",
-                    "Provide plain English text responses only.",
-                    "Ensure calls are unique and purposeful.",
-                ]
-            )
+            rules.append("Gather sufficient info before answering.")
+            # "Plain English only" is a formatting rule meant to stop weak models
+            # emitting raw JSON/XML tool syntax as prose. In a write-capable mode it
+            # reads as "do not edit, just describe" and directly contradicts the
+            # operating mode, so state the formatting intent without the prohibition.
+            if str(context.current_mode or "").lower() in self._WRITE_CAPABLE_MODES:
+                rules.append(
+                    "Write prose as plain text — never emit raw tool-call syntax as "
+                    "your answer. Use the tools to make changes."
+                )
+            else:
+                rules.append("Provide plain English text responses only.")
+            rules.append("Ensure calls are unique and purposeful.")
             body = "\n".join(f"{i}. {rule}" for i, rule in enumerate(rules, start=1))
             return f"TOOL RULES:\n{body}{browse_guidance}"
 
