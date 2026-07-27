@@ -141,11 +141,19 @@ def _verdict(cand: Candidate, baselines: Dict[str, str]) -> tuple:
             f"unproven: {cand.benchmark_runs} benchmark runs, {cand.sample_count} live samples"
         )
 
+    # Severity counts defects only. The servable note below is an advisory —
+    # it tells the operator this candidate can already be injected, which is a
+    # reason to look sooner, not evidence against the text. Counted as a defect
+    # it pushed every servable-but-unproven candidate from HOLD to REJECT, and
+    # purge deletes REJECTs: one --apply would have destroyed the best evolved
+    # candidate we had, whose only fault was 1 benchmark run instead of 3.
+    defects = list(reasons)
+
     if servable and reasons:
         reasons.append("SERVABLE despite the above — Thompson sampling can inject it today")
 
-    if reasons:
-        return ("REJECT" if len(reasons) > 1 or has_truncated_tail(cand.text) else "HOLD"), reasons
+    if defects:
+        return ("REJECT" if len(defects) > 1 or has_truncated_tail(cand.text) else "HOLD"), reasons
     return "PROMOTE", ["clean diff against the shipped baseline with benchmark evidence"]
 
 

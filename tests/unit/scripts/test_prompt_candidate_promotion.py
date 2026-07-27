@@ -285,3 +285,69 @@ class TestProposingAHandWrittenCandidate:
         db = self._db(tmp_path)
         text = self._seed().rstrip() + "\n- Read the error messages carefully and"
         assert pc.cmd_propose(self._args(db, tmp_path, text, force=True)) == 0
+
+
+class TestSeverityCountsDefectsNotAdvisories:
+    """An advisory must not push a candidate into the bucket purge deletes.
+
+    Every REJECT carried the same two lines: "unproven: N benchmark runs" and
+    "SERVABLE despite the above". The second is a note that the candidate can
+    already be injected — a reason to look sooner, not evidence against the
+    text. Counted toward severity it turned every servable-but-unproven
+    candidate into a REJECT, and purge deletes REJECTs. One --apply would have
+    destroyed the best evolved candidate available, whose only fault was having
+    1 benchmark run instead of 3.
+    """
+
+    @staticmethod
+    def candidate(**overrides):
+        from victor.agent.prompt_section_texts import GROUNDING_RULES
+
+        defaults = {
+            "section_name": "GROUNDING_RULES",
+            "provider": "moonshot",
+            "text_hash": "785071738065",
+            "parent_hash": pc._md5(GROUNDING_RULES),
+            "text": GROUNDING_RULES + " One extra grounded instruction, cleanly ended.",
+            "generation": 1,
+            "sample_count": 52,
+            "is_active": 0,
+            "requires_benchmark": 0,
+            # The real candidate was gate-approved on 1 run, which is why it
+            # read as "unproven" rather than "failed benchmark".
+            "benchmark_passed": 1,
+            "benchmark_runs": 1,
+            "benchmark_score": 0.67,
+            "strategy_chain": "gepa",
+            "created_at": "2026-07-27",
+        }
+        defaults.update(overrides)
+        return pc.Candidate(**defaults)
+
+    def test_an_under_tested_servable_candidate_is_held_not_rejected(self):
+        verdict, reasons = pc._verdict(self.candidate(), pc._baselines())
+
+        assert verdict == "HOLD", "only defects decide severity"
+        assert any("unproven" in r for r in reasons)
+        assert any("SERVABLE" in r for r in reasons), "the advisory is still shown"
+
+    def test_the_advisory_is_reported_but_never_counted(self):
+        """Shown to the operator, absent from the severity arithmetic."""
+        held = self.candidate()
+        verdict, reasons = pc._verdict(held, pc._baselines())
+        defect_like = [r for r in reasons if "SERVABLE" not in r]
+        assert len(defect_like) == 1 and verdict == "HOLD"
+
+    def test_two_real_defects_still_reject(self):
+        """The fix must not make REJECT unreachable."""
+        verdict, _ = pc._verdict(
+            self.candidate(parent_hash="staleparent1", text="Rules: do the thing and"),
+            pc._baselines(),
+        )
+        assert verdict == "REJECT"
+
+    def test_a_truncated_tail_alone_still_rejects(self):
+        verdict, _ = pc._verdict(
+            self.candidate(text="Base responses on tool output only and"), pc._baselines()
+        )
+        assert verdict == "REJECT"
