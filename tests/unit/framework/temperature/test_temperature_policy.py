@@ -199,3 +199,28 @@ def test_full_resolver_ratchet_then_bounds_ordering():
     assert abs(r.value - 0.70) < 1e-9
     names = [m[0] for m in r.modifier_trace]
     assert names == ["spin_ratchet", "model_bounds"]  # recovery absent (no adjuster)
+
+
+def test_kimi_k3_temperature_is_pinned_to_one():
+    """kimi-k3 rejects any temperature != 1.0; its bounds collapse to a point so
+    the terminal clamp forces 1.0 regardless of profile/default/spin (no profile
+    need carry temperature: 1.0)."""
+    from victor.framework.temperature.defaults import model_bounds
+
+    assert model_bounds("kimi-k3") == (1.0, 1.0)
+
+    mod = ModelBoundsModifier()
+    # A low profile/default value is forced up to 1.0.
+    assert mod.adjust(0.6, _req(model_name="kimi-k3"), TemperatureContext())[0] == 1.0
+    # A high value is forced down to 1.0.
+    assert mod.adjust(2.0, _req(model_name="kimi-k3"), TemperatureContext())[0] == 1.0
+
+
+def test_kimi_k3_pin_overrides_profile_and_ratchet_end_to_end():
+    """Even an explicit profile temperature and an active spin ratchet cannot move
+    kimi-k3 off 1.0 — the terminal model_bounds clamp runs last."""
+    resolver = build_default_resolver(hint_provider=None, ratchet_step=0.05, ratchet_cap=0.9)
+    ctx = TemperatureContext(ratchet_state=RatchetState(steps=3))
+    r = resolver.resolve(_req(task_type="x", model_name="kimi-k3", profile_temperature=0.3), ctx)
+    assert r.value == 1.0
+    assert r.modifier_trace[-1][0] == "model_bounds"

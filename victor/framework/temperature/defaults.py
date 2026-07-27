@@ -45,6 +45,11 @@ MODEL_TEMPERATURE_RANGES: Dict[str, Tuple[float, float]] = {
     "gpt": (0.0, 1.0),
     "deepseek": (0.2, 0.9),
     "glm": (0.0, 1.0),
+    # Fixed-temperature models: bounds collapse to a point so the terminal
+    # ModelBoundsModifier forces exactly that value (overriding profile, global
+    # default, spin ratchet, and recovery alike). kimi-k3 rejects any temperature
+    # != 1.0 ("only 1 is allowed for this model"), so no profile need carry it.
+    "kimi-k3": (1.0, 1.0),
 }
 
 # Full range when no model pattern matches.
