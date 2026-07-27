@@ -353,7 +353,7 @@ class TestLiveDisplayRenderer:
         )
 
         mock_console.print.assert_called()
-        call_str = str(mock_console.print.call_args)
+        call_str = str(mock_console.print.call_args_list)
         assert "success" in call_str
         assert "✓" in call_str
 
@@ -404,7 +404,7 @@ class TestLiveDisplayRenderer:
         )
 
         mock_console.print.assert_called()
-        call_str = str(mock_console.print.call_args)
+        call_str = str(mock_console.print.call_args_list)
         assert "error" in call_str
         assert "✗" in call_str
         assert "Error:" in call_str
@@ -476,7 +476,7 @@ class TestLiveDisplayRenderer:
         renderer.on_status("Thinking deeply...")
 
         mock_console.print.assert_called()
-        call_str = str(mock_console.print.call_args)
+        call_str = str(mock_console.print.call_args_list)
         assert "dim" in call_str
         assert "Thinking" in call_str
 
