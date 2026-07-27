@@ -29,6 +29,7 @@ Usage:
 import asyncio
 import logging
 import os
+import re
 import time
 from collections import Counter
 from dataclasses import dataclass
@@ -1396,6 +1397,14 @@ class VictorAgentAdapter:
         else:
             trace.generated_patch = self._generate_combined_patch()
 
+        # A patch is the right artifact for SWE-bench, which applies it to a
+        # fresh clone. Code-generation benchmarks are the opposite: MBPP and
+        # HumanEval execute ``agent_output + test_code`` directly, so they need
+        # Python source. Handing them a diff makes line 3 of solution.py read
+        # "@@ -0,0 +1,27 @@" — a SyntaxError before a single test runs, which is
+        # why MBPP scored 0 on all 135 real tasks it has ever been given.
+        trace.generated_code = self._capture_solution_source()
+
         # Populate correction metrics if tracking is enabled
         if self._metrics_collector:
             trace.correction_metrics = self._metrics_collector.metrics.to_dict()
@@ -1416,6 +1425,61 @@ class VictorAgentAdapter:
                     )
 
         return trace
+
+    def _capture_solution_source(self) -> str:
+        """Concatenated source of the Python files the agent wrote.
+
+        Built from the tracked edits rather than the workspace, so it survives
+        the temp directory being cleaned up before the caller looks at it. Last
+        write to a path wins — an agent that revises a file twice means the
+        second version.
+
+        Test files and conftest.py are excluded. The runner appends the
+        benchmark's own tests to this string, so a stale copy of the agent's
+        guess at them would shadow the real ones — and conftest.py is pytest
+        plumbing that routinely contains ``from solution import f``. Concatenated
+        into solution.py that line imports the module into itself, which cost 10
+        of 48 tasks a circular-import failure in the first run that used this.
+
+        Self-imports are stripped for the same reason even when they appear in a
+        file that is otherwise solution source: valid in a separate module,
+        fatal once everything becomes one file.
+        """
+        from pathlib import Path as _Path
+
+        by_path: dict = {}
+        for edit in self._file_edits:
+            path = str(getattr(edit, "path", "") or "")
+            if not path.endswith(".py"):
+                continue
+            name = _Path(path).name
+            if name.startswith("test_") or name.endswith("_test.py") or name == "conftest.py":
+                continue
+            content = getattr(edit, "after_content", "") or ""
+            if not content.strip() and self.config.working_dir:
+                # after_content is best-effort; the workspace still exists here.
+                try:
+                    candidate = _Path(self.config.working_dir) / path
+                    if candidate.is_file():
+                        content = candidate.read_text(errors="replace")
+                except Exception:
+                    content = ""
+            if content.strip():
+                by_path[path] = self._strip_self_imports(content)
+
+        return "\n\n".join(by_path[path] for path in sorted(by_path))
+
+    @staticmethod
+    def _strip_self_imports(source: str) -> str:
+        """Drop ``import solution`` lines, which self-import once concatenated."""
+        # Substitution rather than splitlines/join: the latter silently drops a
+        # trailing newline, and this text gets concatenated with the benchmark's
+        # tests.
+        return re.sub(
+            r"(?m)^[ \t]*(?:from[ \t]+solution[ \t]+import\b|import[ \t]+solution\b).*\n?",
+            "",
+            source,
+        )
 
     def _determine_complexity(self, task: BenchmarkTask, task_description: str) -> str:
         """Determine task complexity using fallback chain.
