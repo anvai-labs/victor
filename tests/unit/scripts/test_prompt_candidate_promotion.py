@@ -178,3 +178,176 @@ class TestPromotionRefusesUnprovenCandidates:
 
         assert pc.cmd_promote(args) == 1
         assert "Refusing to promote a HOLD candidate" in capsys.readouterr().err
+
+
+SCHEMA = """
+CREATE TABLE agent_prompt_candidate (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    section_name TEXT NOT NULL, provider TEXT NOT NULL DEFAULT 'default',
+    text_hash TEXT NOT NULL, text TEXT NOT NULL, generation INTEGER DEFAULT 0,
+    parent_hash TEXT, created_at TEXT DEFAULT (datetime('now')),
+    char_length INTEGER DEFAULT 0, benchmark_score REAL DEFAULT 0.0,
+    benchmark_runs INTEGER DEFAULT 0, benchmark_passed INTEGER DEFAULT 0,
+    sample_count INTEGER DEFAULT 0, is_active INTEGER DEFAULT 0,
+    strategy_name TEXT DEFAULT 'gepa', strategy_chain TEXT DEFAULT 'gepa',
+    requires_benchmark INTEGER DEFAULT 0,
+    UNIQUE(section_name, provider, text_hash)
+);
+"""
+
+
+class TestProposingAHandWrittenCandidate:
+    """A human reading failure traces often sees the fix before reflection does.
+
+    In one mbpp run the largest failure class was the agent renaming functions
+    away from the identifiers the tests call — 16 of 48 tasks — and evolution
+    did not surface it at all. Without a way to register a hand-written
+    candidate, that fix could only be applied on faith. Registering it puts it
+    through the same paired benchmark and McNemar gate an evolved one faces.
+    """
+
+    @staticmethod
+    def _db(tmp_path):
+        import sqlite3
+
+        path = tmp_path / "victor.db"
+        con = sqlite3.connect(path)
+        con.executescript(SCHEMA)
+        con.commit()
+        con.close()
+        return path
+
+    @staticmethod
+    def _args(db, tmp_path, text, section="GROUNDING_RULES", force=False):
+        f = tmp_path / "cand.txt"
+        f.write_text(text)
+        return argparse.Namespace(
+            db=db, section=section, file=str(f), provider="moonshot", force=force
+        )
+
+    def _seed(self):
+        from victor.agent.prompt_section_texts import GROUNDING_RULES
+
+        return GROUNDING_RULES
+
+    def test_a_registered_candidate_is_inert_until_measured(self, tmp_path):
+        import sqlite3
+
+        db = self._db(tmp_path)
+        text = self._seed().rstrip() + " Always match the identifiers the tests call."
+        assert pc.cmd_propose(self._args(db, tmp_path, text)) == 0
+
+        con = sqlite3.connect(db)
+        row = con.execute(
+            "SELECT requires_benchmark, is_active, strategy_name, generation "
+            "FROM agent_prompt_candidate"
+        ).fetchone()
+        con.close()
+        assert row == (1, 0, "human", 0), "must not serve before it is measured"
+
+    def test_the_parent_is_the_shipped_seed(self, tmp_path):
+        """Otherwise the audit reads the diff against the wrong text."""
+        import sqlite3
+
+        db = self._db(tmp_path)
+        text = self._seed().rstrip() + " Always match the identifiers the tests call."
+        pc.cmd_propose(self._args(db, tmp_path, text))
+
+        con = sqlite3.connect(db)
+        parent = con.execute("SELECT parent_hash FROM agent_prompt_candidate").fetchone()[0]
+        con.close()
+        assert parent == pc._md5(self._seed())
+
+    def test_an_unknown_section_is_refused(self, tmp_path, capsys):
+        db = self._db(tmp_path)
+        args = self._args(db, tmp_path, "text", section="NOT_A_SECTION")
+        assert pc.cmd_propose(args) == 1
+        assert "Unknown section" in capsys.readouterr().err
+
+    def test_text_identical_to_the_seed_is_refused(self, tmp_path, capsys):
+        db = self._db(tmp_path)
+        assert pc.cmd_propose(self._args(db, tmp_path, self._seed())) == 1
+        assert "nothing to measure" in capsys.readouterr().out
+
+    def test_an_empty_candidate_is_refused(self, tmp_path, capsys):
+        db = self._db(tmp_path)
+        assert pc.cmd_propose(self._args(db, tmp_path, "   \n")) == 1
+        assert "empty" in capsys.readouterr().err
+
+    def test_hand_written_text_is_not_exempt_from_hygiene(self, tmp_path, capsys):
+        """A truncated tail is the same defect whoever wrote it."""
+        db = self._db(tmp_path)
+        text = self._seed().rstrip() + "\n- Read the error messages carefully and"
+        assert pc.cmd_propose(self._args(db, tmp_path, text)) == 1
+        assert "mid-sentence" in capsys.readouterr().err
+
+    def test_force_overrides_hygiene(self, tmp_path):
+        db = self._db(tmp_path)
+        text = self._seed().rstrip() + "\n- Read the error messages carefully and"
+        assert pc.cmd_propose(self._args(db, tmp_path, text, force=True)) == 0
+
+
+class TestSeverityCountsDefectsNotAdvisories:
+    """An advisory must not push a candidate into the bucket purge deletes.
+
+    Every REJECT carried the same two lines: "unproven: N benchmark runs" and
+    "SERVABLE despite the above". The second is a note that the candidate can
+    already be injected — a reason to look sooner, not evidence against the
+    text. Counted toward severity it turned every servable-but-unproven
+    candidate into a REJECT, and purge deletes REJECTs. One --apply would have
+    destroyed the best evolved candidate available, whose only fault was having
+    1 benchmark run instead of 3.
+    """
+
+    @staticmethod
+    def candidate(**overrides):
+        from victor.agent.prompt_section_texts import GROUNDING_RULES
+
+        defaults = {
+            "section_name": "GROUNDING_RULES",
+            "provider": "moonshot",
+            "text_hash": "785071738065",
+            "parent_hash": pc._md5(GROUNDING_RULES),
+            "text": GROUNDING_RULES + " One extra grounded instruction, cleanly ended.",
+            "generation": 1,
+            "sample_count": 52,
+            "is_active": 0,
+            "requires_benchmark": 0,
+            # The real candidate was gate-approved on 1 run, which is why it
+            # read as "unproven" rather than "failed benchmark".
+            "benchmark_passed": 1,
+            "benchmark_runs": 1,
+            "benchmark_score": 0.67,
+            "strategy_chain": "gepa",
+            "created_at": "2026-07-27",
+        }
+        defaults.update(overrides)
+        return pc.Candidate(**defaults)
+
+    def test_an_under_tested_servable_candidate_is_held_not_rejected(self):
+        verdict, reasons = pc._verdict(self.candidate(), pc._baselines())
+
+        assert verdict == "HOLD", "only defects decide severity"
+        assert any("unproven" in r for r in reasons)
+        assert any("SERVABLE" in r for r in reasons), "the advisory is still shown"
+
+    def test_the_advisory_is_reported_but_never_counted(self):
+        """Shown to the operator, absent from the severity arithmetic."""
+        held = self.candidate()
+        verdict, reasons = pc._verdict(held, pc._baselines())
+        defect_like = [r for r in reasons if "SERVABLE" not in r]
+        assert len(defect_like) == 1 and verdict == "HOLD"
+
+    def test_two_real_defects_still_reject(self):
+        """The fix must not make REJECT unreachable."""
+        verdict, _ = pc._verdict(
+            self.candidate(parent_hash="staleparent1", text="Rules: do the thing and"),
+            pc._baselines(),
+        )
+        assert verdict == "REJECT"
+
+    def test_a_truncated_tail_alone_still_rejects(self):
+        verdict, _ = pc._verdict(
+            self.candidate(text="Base responses on tool output only and"), pc._baselines()
+        )
+        assert verdict == "REJECT"

@@ -23,6 +23,7 @@ and installed with the package. This script is the bridge:
     prompt_candidates.py audit                 # verdict per candidate
     prompt_candidates.py show <hash>           # full text + diff vs shipped baseline
     prompt_candidates.py export <hash>         # paste-ready Python literal
+    prompt_candidates.py propose SECTION        # register a hand-written candidate
     prompt_candidates.py promote <hash>        # write it into the shipped section module
     prompt_candidates.py purge --apply         # drop rejected candidates (backs up first)
 
@@ -140,11 +141,19 @@ def _verdict(cand: Candidate, baselines: Dict[str, str]) -> tuple:
             f"unproven: {cand.benchmark_runs} benchmark runs, {cand.sample_count} live samples"
         )
 
+    # Severity counts defects only. The servable note below is an advisory —
+    # it tells the operator this candidate can already be injected, which is a
+    # reason to look sooner, not evidence against the text. Counted as a defect
+    # it pushed every servable-but-unproven candidate from HOLD to REJECT, and
+    # purge deletes REJECTs: one --apply would have destroyed the best evolved
+    # candidate we had, whose only fault was 1 benchmark run instead of 3.
+    defects = list(reasons)
+
     if servable and reasons:
         reasons.append("SERVABLE despite the above — Thompson sampling can inject it today")
 
-    if reasons:
-        return ("REJECT" if len(reasons) > 1 or has_truncated_tail(cand.text) else "HOLD"), reasons
+    if defects:
+        return ("REJECT" if len(defects) > 1 or has_truncated_tail(cand.text) else "HOLD"), reasons
     return "PROMOTE", ["clean diff against the shipped baseline with benchmark evidence"]
 
 
@@ -383,6 +392,84 @@ def cmd_promote(args) -> int:
     return 0
 
 
+def cmd_propose(args) -> int:
+    """Register a hand-written candidate so it can be measured, not just trusted.
+
+    Evolution is not the only source of a good prompt. A human reading failure
+    traces often sees the fix first — the largest failure class in one mbpp run
+    was the agent renaming functions away from the identifiers the tests call,
+    which reflection did not surface at all.
+
+    Without this, a human-proposed improvement can only be applied on faith:
+    edit the section, ship it, hope. Registering it as a candidate puts it
+    through the identical paired benchmark and McNemar gate an evolved candidate
+    faces, so "I think this helps" becomes "+6/24 against the seed, p=0.03".
+    """
+    section = args.section
+    baselines = _baselines()
+    if section not in baselines:
+        print(
+            f"Unknown section {section!r}. Known: {', '.join(sorted(baselines))}",
+            file=sys.stderr,
+        )
+        return 1
+
+    text = Path(args.file).read_text().rstrip("\n") if args.file else sys.stdin.read().rstrip("\n")
+    if not text.strip():
+        print("Refusing to register an empty candidate.", file=sys.stderr)
+        return 1
+
+    seed = baselines[section]
+    if text == seed:
+        print("Candidate is byte-identical to the shipped section; nothing to measure.")
+        return 1
+
+    text_hash = _md5(text)
+    parent_hash = _md5(seed)
+
+    # Same corruption checks the runtime persist gate applies. A hand-written
+    # candidate is not exempt: a truncated tail or a restated line is the same
+    # defect whoever wrote it.
+    find_redundant_additions, has_truncated_tail = _hygiene()
+    problems = []
+    if has_truncated_tail(text):
+        problems.append("ends mid-sentence — the final instruction is a fragment")
+    for line in find_redundant_additions(seed, text):
+        problems.append(f"restates existing guidance: {line!r}")
+    if problems and not args.force:
+        print("Refusing to register:", file=sys.stderr)
+        for problem in problems:
+            print(f"  - {problem}", file=sys.stderr)
+        print("Re-run with --force to register anyway.", file=sys.stderr)
+        return 1
+
+    con = sqlite3.connect(args.db)
+    try:
+        with con:
+            con.execute(
+                f"INSERT OR REPLACE INTO {TABLE} "
+                "(section_name, provider, text_hash, text, generation, parent_hash, "
+                " char_length, strategy_name, strategy_chain, requires_benchmark, is_active) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, 'human', 'human', 1, 0)",
+                (section, args.provider, text_hash, text, 0, parent_hash, len(text)),
+            )
+    finally:
+        con.close()
+
+    delta = len(text) - len(seed)
+    print(
+        f"Registered {text_hash} for {section} / {args.provider} ({len(text)} chars, {delta:+d})."
+    )
+    print(
+        "\nIt is inert until measured — requires_benchmark=1 and is_active=0, so nothing\n"
+        "serves it. Measure it against the shipped prompt:\n\n"
+        f"  victor benchmark run-prompt-suite mbpp --prompt-section {section} \\\n"
+        f"    --candidate-hash {text_hash} --include-baseline -n 24 \\\n"
+        "    --record-benchmark-results --profile kimi\n"
+    )
+    return 0
+
+
 def cmd_purge(args) -> int:
     baselines = _baselines()
     candidates = _load(args.db)
@@ -432,6 +519,14 @@ def main() -> int:
     export.add_argument("hash")
     export.add_argument("--force", action="store_true", help="export a non-PROMOTE candidate")
 
+    propose = sub.add_parser(
+        "propose", help="register a hand-written candidate so it can be benchmarked"
+    )
+    propose.add_argument("section", help="section name, e.g. GROUNDING_RULES")
+    propose.add_argument("--file", help="file holding the candidate text (default: stdin)")
+    propose.add_argument("--provider", default="default", help="provider scope for the candidate")
+    propose.add_argument("--force", action="store_true", help="register despite hygiene problems")
+
     promote = sub.add_parser(
         "promote", help="write a candidate into prompt_section_texts.py (dry run by default)"
     )
@@ -449,6 +544,7 @@ def main() -> int:
         "audit": cmd_audit,
         "show": cmd_show,
         "export": cmd_export,
+        "propose": cmd_propose,
         "promote": cmd_promote,
         "purge": cmd_purge,
     }[args.command](args)

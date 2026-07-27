@@ -55,9 +55,15 @@ async def create_orchestrator_from_settings(
             )
         raise ValueError(error_msg)
 
-    # Get provider-level settings
+    # Get provider-level settings.
+    # Thread the profile's credential-identity account through resolution so the
+    # profile's own key/endpoint are used (not the provider default). getattr covers
+    # both the first-class ProfileConfig.account field and any residual pydantic-extra.
     profile_extras = profile.__pydantic_extra__ if hasattr(profile, "__pydantic_extra__") else {}
-    provider_settings = settings.get_provider_settings(profile.provider, profile_extras)
+    account_name = getattr(profile, "account", None) or profile_extras.get("account")
+    provider_settings = settings.get_provider_settings(
+        profile.provider, profile_extras, account_name=account_name
+    )
 
     if profile_extras:
         logger.debug(

@@ -574,16 +574,24 @@ class AccountManager:
             api_key = kwargs.get("api_key")
 
             if not api_key:
-                # Check environment variable first
-                api_key = self._get_api_key_from_env(account.provider)
+                # Account-scoped key FIRST: an explicitly-configured per-account key
+                # (auth.value) is authoritative for THAT account. Provider-scoped env
+                # vars and keyring are shared across every account of a provider, so
+                # for multiple accounts under one provider (e.g. several anthropic-
+                # dialect upstreams: kimi/deepseek/zai via /anthropic endpoints) the
+                # shared slot would otherwise shadow — or be clobbered by — the
+                # account's own key. Account value also works non-interactively
+                # (config file, not keyring), so `victor run` resolves it too.
+                if account.auth.value:
+                    api_key = account.auth.value
 
-                # Check keyring second
+                # Provider-scoped environment variable.
+                if not api_key:
+                    api_key = self._get_api_key_from_env(account.provider)
+
+                # Provider-scoped keyring.
                 if not api_key and account.auth.source == "keyring":
                     api_key = self._get_api_key_from_keyring(account.provider)
-
-                # Check explicit value last
-                if not api_key and account.auth.value:
-                    api_key = account.auth.value
 
             if api_key:
                 config["api_key"] = api_key

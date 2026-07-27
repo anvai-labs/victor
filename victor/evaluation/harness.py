@@ -126,6 +126,27 @@ class PairedContrast:
         return self.variant_only_pass - self.baseline_only_pass
 
     @property
+    def noise_floor(self) -> float:
+        """How large a lead a fair coin would produce on this many disagreements.
+
+        Under the null the variant wins each discordant task with probability
+        one half, so the effect has mean zero and standard deviation
+        ``sqrt(discordant)``. A lead smaller than that is indistinguishable from
+        chance however many tasks were run.
+
+        This is why "positive effect over enough disagreements" was not a
+        sufficient gate: a candidate cleared it at 8 versus 6 — an effect of two
+        against a noise floor of 3.7, which the exact test scored p=0.79. The
+        floor scales with the evidence, so more tasks demand a bigger lead in
+        absolute terms while making a genuine one easier to reach.
+        """
+        return math.sqrt(self.discordant)
+
+    def beats_noise(self) -> bool:
+        """True when the lead exceeds what chance alone would produce."""
+        return self.effect >= self.noise_floor and self.effect > 0
+
+    @property
     def mcnemar_p(self) -> float:
         """Two-sided exact p for the discordant split under a fair coin.
 
@@ -205,8 +226,37 @@ class PairedContrast:
         }
 
 
+def was_throttled(task: Any) -> bool:
+    """True when this task failed because the provider refused, not the prompt.
+
+    A task the agent never got a model response for says nothing about the
+    prompt under test. Left in, it reads as a failure caused by the candidate.
+    """
+    from victor.framework.rl.mutator_rotation import is_rate_limit
+
+    if getattr(task, "status", None) == TaskStatus.PASSED:
+        return False
+    haystack = " ".join(
+        str(part)
+        for part in (
+            getattr(task, "error_message", ""),
+            getattr(task, "stderr", ""),
+            getattr(task, "failure_details", {}),
+        )
+    )
+    return is_rate_limit(haystack)
+
+
 def _passed_by_task(result: "EvaluationResult") -> dict[str, bool]:
     """Map task id to whether it passed, for one arm.
+
+    Throttled tasks are omitted, which drops the whole pair — a task only
+    counts when *both* arms got a real attempt at it. Running three arms back to
+    back exhausted one provider's quota and the last arm recorded 0/24 in 128
+    seconds: ten explicit 429s and an agent that never received a response. That
+    is an aborted arm, not a candidate that lost, and scoring it as a loss is
+    the same defect as the mutator's invisible 429 — a quota failure wearing the
+    costume of a quality signal.
 
     Later results win on duplicate ids: a resumed run appends rather than
     replaces, so the last attempt is the one that counts.
@@ -214,7 +264,7 @@ def _passed_by_task(result: "EvaluationResult") -> dict[str, bool]:
     return {
         task.task_id: task.status == TaskStatus.PASSED
         for task in getattr(result, "task_results", []) or []
-        if getattr(task, "task_id", "")
+        if getattr(task, "task_id", "") and not was_throttled(task)
     }
 
 

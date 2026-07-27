@@ -829,6 +829,12 @@ class GEPAStrategy:
 
 # Minimum traces required before evolution
 MIN_TRACES_FOR_EVOLUTION = 5
+
+# Share of an arm's tasks that may be rate-limited before the arm counts as
+# aborted rather than measured. Set low: a handful of throttled tasks already
+# drop out of the paired contrast, so this only has to catch the case where a
+# provider quit partway and the remainder is not a sample of anything.
+MAX_THROTTLED_TASK_SHARE = 0.25
 # Evaluation artifacts number in the thousands while trace collection only
 # looks at the last ~50 sessions, so the verdict scan is bounded by mtime.
 MAX_EVAL_ARTIFACTS_SCANNED = 400
@@ -1992,6 +1998,14 @@ class PromptOptimizerLearner(BaseLearner):
         return candidate
 
     @staticmethod
+    def _throttled_task_share(result: Any) -> tuple[int, int]:
+        """(throttled, total) tasks for one arm."""
+        from victor.evaluation.harness import was_throttled
+
+        tasks = list(getattr(result, "task_results", []) or [])
+        return sum(1 for task in tasks if was_throttled(task)), len(tasks)
+
+    @staticmethod
     def _baseline_run(runs: List[Any]) -> Optional[Any]:
         """The seed arm, if the suite ran one."""
         from victor.agent.optimization_injector import BASELINE_CANDIDATE_HASH
@@ -2115,17 +2129,46 @@ class PromptOptimizerLearner(BaseLearner):
                 or ""
             )
             score = float(getattr(result, "pass_rate", 0.0) or 0.0)
+
+            # An arm the provider throttled was never evaluated. Recording it is
+            # worse than recording nothing: a candidate nobody tested acquires a
+            # "failed benchmark (0.00 over 1 runs)" that every later audit,
+            # promotion check, and Thompson draw treats as real. Observed live —
+            # three arms back to back exhausted one provider and the last one
+            # posted 0/24 in 128 seconds against a prompt that never ran.
+            throttled, total = self._throttled_task_share(result)
+            if total and throttled / total > MAX_THROTTLED_TASK_SHARE:
+                logger.warning(
+                    "Skipping %s: %d of %d tasks were rate-limited, so this arm was "
+                    "never evaluated. Re-run it with fresh quota — recording it would "
+                    "mark an untested candidate as failed.",
+                    prompt_candidate_hash[:12] or "an arm",
+                    throttled,
+                    total,
+                )
+                continue
+
             contrast = self._paired_contrast(baseline_run, run)
             is_winner = prompt_candidate_hash == best_hash
             if contrast is not None:
-                passed = is_winner and contrast.effect > 0 and contrast.discordant >= min_discordant
+                # Enough disagreements *and* a lead bigger than chance would
+                # produce on that many. The first condition alone approved a
+                # candidate at 8 versus 6 — 14 disagreements is plenty of
+                # evidence, and an effect of 2 against a 3.7 noise floor is
+                # still a coin flip (the exact test said p=0.79). Volume of
+                # disagreement is not the same question as asymmetry of it.
+                passed = (
+                    is_winner and contrast.discordant >= min_discordant and contrast.beats_noise()
+                )
                 if is_winner and not passed:
                     logger.info(
                         "Candidate %s did not clear the comparative gate: %s "
-                        "(needs a positive effect over at least %d discordant tasks).",
+                        "(needs %d+ discordant tasks and an effect above the "
+                        "%.1f noise floor).",
                         prompt_candidate_hash[:12],
                         contrast.summary(),
                         min_discordant,
+                        contrast.noise_floor,
                     )
             else:
                 passed = is_winner and score > 0.0 and score >= min_pass_rate

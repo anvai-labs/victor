@@ -218,3 +218,125 @@ class TestSuiteArtifactsCarryPerTaskOutcomes:
         assert RealRunBenchmarkRunner._task_result_to_artifact(
             None, task
         ) == task_result_to_artifact(task)
+
+
+class TestThrottledTasksAreNotEvidence:
+    """A task the agent never got a response for says nothing about the prompt.
+
+    Three arms run back to back exhausted one provider's quota and the last arm
+    recorded 0/24 in 128 seconds — ten explicit 429s against a prompt that never
+    ran. Scored as a loss, that gave an untested candidate a permanent "failed
+    benchmark" record. It is the mutator's invisible 429 again: a quota failure
+    wearing the costume of a quality signal.
+    """
+
+    @staticmethod
+    def throttled(task_id: str) -> TaskResult:
+        return TaskResult(
+            task_id=task_id,
+            status=TaskStatus.FAILED,
+            error_message="[df4c8825] rate limited (429) (provider=moonshot)",
+        )
+
+    @staticmethod
+    def ran(task_id: str, passed: bool) -> TaskResult:
+        return TaskResult(
+            task_id=task_id,
+            status=TaskStatus.PASSED if passed else TaskStatus.FAILED,
+            error_message="" if passed else "AssertionError",
+        )
+
+    def test_a_throttled_task_is_recognised(self):
+        from victor.evaluation.harness import was_throttled
+
+        assert was_throttled(self.throttled("t1")) is True
+        assert was_throttled(self.ran("t2", False)) is False
+        assert was_throttled(self.ran("t3", True)) is False
+
+    def test_a_throttled_pair_is_dropped_not_counted_as_a_loss(self):
+        baseline = EvaluationResult(
+            config=None, task_results=[self.ran("t1", True), self.ran("t2", True)]
+        )
+        variant = EvaluationResult(
+            config=None, task_results=[self.ran("t1", True), self.throttled("t2")]
+        )
+
+        c = PairedContrast.from_results(baseline, variant)
+
+        assert c.n_paired == 1, "the throttled task must not be paired"
+        assert c.baseline_only_pass == 0, "a 429 is not the candidate losing"
+        assert c.effect == 0
+
+    def test_the_valid_tasks_still_count(self):
+        """Dropping the pair, not the arm — partial quota loss keeps its signal."""
+        baseline = EvaluationResult(
+            config=None,
+            task_results=[self.ran("t1", False), self.ran("t2", False), self.ran("t3", True)],
+        )
+        variant = EvaluationResult(
+            config=None,
+            task_results=[self.ran("t1", True), self.ran("t2", True), self.throttled("t3")],
+        )
+
+        c = PairedContrast.from_results(baseline, variant)
+
+        assert c.n_paired == 2
+        assert c.variant_only_pass == 2
+        assert c.effect == 2
+
+    def test_an_arm_lost_entirely_to_throttling_raises_rather_than_scoring_zero(self):
+        baseline = EvaluationResult(config=None, task_results=[self.ran("t1", True)])
+        dead = EvaluationResult(config=None, task_results=[self.throttled("t1")])
+
+        with pytest.raises(ValueError, match="shared task set"):
+            PairedContrast.from_results(baseline, dead)
+
+
+class TestALeadMustBeatChance:
+    """Volume of disagreement is not the same question as asymmetry of it.
+
+    The gate asked for a positive effect over enough discordant tasks, and
+    approved a candidate at 8 versus 6: fourteen disagreements is ample
+    evidence, and a lead of two is still a coin flip. The exact test scored it
+    p=0.79. Under the null the effect has mean zero and standard deviation
+    sqrt(discordant), so that is the bar a real lead has to clear.
+    """
+
+    @staticmethod
+    def split(variant_only, baseline_only):
+        return PairedContrast(
+            n_paired=variant_only + baseline_only,
+            variant_only_pass=variant_only,
+            baseline_only_pass=baseline_only,
+            both_pass=0,
+            both_fail=0,
+        )
+
+    def test_the_floor_is_the_null_standard_deviation(self):
+        assert self.split(7, 7).noise_floor == pytest.approx(14**0.5)
+        assert self.split(5, 5).noise_floor == pytest.approx(10**0.5)
+
+    @pytest.mark.parametrize("v,b", [(8, 6), (6, 4), (4, 5), (7, 7)])
+    def test_leads_inside_the_noise_are_refused(self, v, b):
+        """Every result this session landed here."""
+        c = self.split(v, b)
+        assert c.beats_noise() is False
+        assert c.mcnemar_p > 0.5, "sanity: the exact test agrees these are noise"
+
+    @pytest.mark.parametrize("v,b", [(8, 1), (10, 0), (11, 3), (25, 10)])
+    def test_real_leads_still_pass(self, v, b):
+        c = self.split(v, b)
+        assert c.beats_noise() is True
+        assert c.mcnemar_p < 0.2, "sanity: the exact test agrees these are signal"
+
+    def test_a_tie_never_beats_the_floor(self):
+        assert self.split(0, 0).beats_noise() is False
+        assert self.split(6, 6).beats_noise() is False
+
+    def test_a_loss_never_passes_however_lopsided(self):
+        assert self.split(0, 10).beats_noise() is False
+
+    def test_more_tasks_demand_a_bigger_absolute_lead(self):
+        """The floor scales with evidence rather than being a fixed number."""
+        assert self.split(3, 0).beats_noise() is True  # 3 vs floor 1.7
+        assert self.split(3, 22).noise_floor > self.split(3, 0).noise_floor

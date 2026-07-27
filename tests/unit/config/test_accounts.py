@@ -540,3 +540,47 @@ class TestModelSuffixParsing:
         )
         assert account5.get_endpoint_variant() is None
         assert account5.get_base_model() == "glm-4.6"
+
+
+class TestAccountScopedCredential:
+    """An explicitly-configured per-account key (auth.value) is authoritative for
+    that account, winning over the shared provider-scoped env var / keyring.
+
+    Regression: multiple accounts under one provider (anthropic-dialect upstreams
+    kimi/deepseek/zai via /anthropic endpoints) collided on the single provider
+    credential slot — the shared ANTHROPIC_API_KEY was sent to moonshot's endpoint,
+    and `victor auth add --source keyring` clobbered the real anthropic key.
+    """
+
+    def _account(self):
+        return ProviderAccount(
+            name="kimi-k3-anthropic",
+            provider="anthropic",
+            model="kimi-k3",
+            auth=AuthConfig(method="api_key", source="keyring", value="sk-moonshot-account-key"),
+            endpoint="https://api.moonshot.ai/anthropic",
+        )
+
+    def test_account_value_beats_provider_env(self, temp_config_dir, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-shared-real-key")
+        mgr = AccountManager(config_path=temp_config_dir / "config.yaml")
+        cfg = mgr.resolve_provider_config(account=self._account())
+        assert cfg["api_key"] == "sk-moonshot-account-key"
+
+    def test_account_without_value_falls_back_to_provider_env(self, temp_config_dir, monkeypatch):
+        # A normal account (no per-account value) keeps the old provider-scoped path.
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-shared-real-key")
+        mgr = AccountManager(config_path=temp_config_dir / "config.yaml")
+        acct = ProviderAccount(
+            name="claude",
+            provider="anthropic",
+            model="claude-sonnet-4-5",
+            auth=AuthConfig(method="api_key", source="keyring", value=None),
+        )
+        cfg = mgr.resolve_provider_config(account=acct)
+        assert cfg["api_key"] == "sk-ant-shared-real-key"
+
+    def test_explicit_kwarg_still_wins_over_account_value(self, temp_config_dir, monkeypatch):
+        mgr = AccountManager(config_path=temp_config_dir / "config.yaml")
+        cfg = mgr.resolve_provider_config(account=self._account(), api_key="sk-explicit-override")
+        assert cfg["api_key"] == "sk-explicit-override"
