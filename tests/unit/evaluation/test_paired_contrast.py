@@ -125,3 +125,96 @@ class TestMcNemar:
     def test_summary_reads_as_a_decision_aid(self):
         assert contrast(11, 3, both=20, neither=6).summary() == "+8/40 (disc 11/3, p=0.06)"
         assert contrast(1, 5).summary().startswith("-4/")
+
+
+class TestSuiteArtifactsCarryPerTaskOutcomes:
+    """A saved suite must be pairable, or the contrast only works in memory.
+
+    ``to_dict`` wrote aggregate metrics alone while ``from_dict`` read a
+    ``task_results`` key nobody produced, so a suite round-tripped to zero tasks.
+    Pass rates cannot answer a paired question: pairing needs to know *which*
+    tasks each arm passed.
+    """
+
+    @staticmethod
+    def _suite():
+        from victor.evaluation.harness import (
+            PromptCandidateEvaluationRun,
+            PromptCandidateEvaluationSpec,
+            PromptCandidateEvaluationSuiteResult,
+        )
+        from victor.evaluation.protocol import BenchmarkType, EvaluationConfig
+
+        def one(candidate_hash, outcomes):
+            config = EvaluationConfig(
+                benchmark=BenchmarkType.HUMAN_EVAL,
+                model="m",
+                provider="p",
+                prompt_candidate_hash=candidate_hash,
+                prompt_section_name="S",
+            )
+            return PromptCandidateEvaluationRun(
+                spec=PromptCandidateEvaluationSpec(
+                    section_name="S", prompt_candidate_hash=candidate_hash
+                ),
+                config=config,
+                result=EvaluationResult(
+                    config=config,
+                    task_results=[
+                        TaskResult(
+                            task_id=f"t{i}",
+                            status=TaskStatus.PASSED if ok else TaskStatus.FAILED,
+                        )
+                        for i, ok in enumerate(outcomes)
+                    ],
+                ),
+                label=f"S:{candidate_hash}",
+            )
+
+        baseline = one("__baseline__", [True, False, False, True])
+        candidate = one("cand", [True, True, True, False])
+        return (
+            PromptCandidateEvaluationSuiteResult(
+                base_config=baseline.config, runs=[baseline, candidate]
+            ),
+            baseline,
+            candidate,
+        )
+
+    def test_per_task_outcomes_survive_the_round_trip(self):
+        from victor.evaluation.harness import PromptCandidateEvaluationSuiteResult
+
+        suite, _, _ = self._suite()
+        restored = PromptCandidateEvaluationSuiteResult.from_dict(suite.to_dict())
+
+        assert [len(run.result.task_results) for run in restored.runs] == [4, 4]
+
+    def test_a_contrast_from_disk_equals_the_one_from_memory(self):
+        from victor.evaluation.harness import PromptCandidateEvaluationSuiteResult
+
+        suite, baseline, candidate = self._suite()
+        restored = PromptCandidateEvaluationSuiteResult.from_dict(suite.to_dict())
+
+        from_disk = PairedContrast.from_results(restored.runs[0].result, restored.runs[1].result)
+        in_memory = PairedContrast.from_results(baseline.result, candidate.result)
+        assert from_disk == in_memory
+
+    def test_the_writer_is_the_inverse_of_the_reader(self):
+        """One mapping, not two: a second copy drifts field by field."""
+        from victor.evaluation.harness import task_result_from_artifact, task_result_to_artifact
+
+        original = TaskResult(task_id="t1", status=TaskStatus.PASSED, tests_passed=3, tests_total=4)
+        restored = task_result_from_artifact(task_result_to_artifact(original))
+
+        assert restored.task_id == original.task_id
+        assert restored.status == original.status
+        assert (restored.tests_passed, restored.tests_total) == (3, 4)
+
+    def test_the_real_run_runner_uses_the_shared_writer(self):
+        from victor.evaluation.harness import task_result_to_artifact
+        from victor.evaluation.real_run_runner import RealRunBenchmarkRunner
+
+        task = TaskResult(task_id="t1", status=TaskStatus.PASSED)
+        assert RealRunBenchmarkRunner._task_result_to_artifact(
+            None, task
+        ) == task_result_to_artifact(task)

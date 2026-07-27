@@ -300,34 +300,16 @@ class RealRunBenchmarkRunner:
         }
 
     def _task_result_to_artifact(self, task_result: Any) -> dict[str, Any]:
-        """Serialize a TaskResult-like object into benchmark artifact fields."""
-        status = getattr(task_result, "status", None)
-        failure_category = getattr(task_result, "failure_category", None)
-        return {
-            "task_id": getattr(task_result, "task_id", None),
-            "status": getattr(status, "value", status),
-            # Correlation spine — joins this task's decisions to its outcome.
-            # The full execution trace lives in the per-run eval_manifest_*.jsonl.
-            "session_id": getattr(task_result, "session_id", ""),
-            "tests_passed": getattr(task_result, "tests_passed", 0),
-            "tests_total": getattr(task_result, "tests_total", 0),
-            "duration": getattr(task_result, "duration_seconds", 0.0),
-            "duration_seconds": getattr(task_result, "duration_seconds", 0.0),
-            "tokens_used": getattr(task_result, "tokens_used", 0),
-            "tokens_input": getattr(task_result, "tokens_input", 0),
-            "tokens_output": getattr(task_result, "tokens_output", 0),
-            "cached_tokens": getattr(task_result, "cached_tokens", 0),
-            "reasoning_tokens": getattr(task_result, "reasoning_tokens", 0),
-            "cost_usd_micros": getattr(task_result, "cost_usd_micros", 0),
-            "tool_calls": getattr(task_result, "tool_calls", 0),
-            "turns": getattr(task_result, "turns", 0),
-            "code_search_calls": getattr(task_result, "code_search_calls", 0),
-            "graph_calls": getattr(task_result, "graph_calls", 0),
-            "completion_score": getattr(task_result, "completion_score", 0.0),
-            "failure_category": getattr(failure_category, "value", failure_category),
-            "failure_details": dict(getattr(task_result, "failure_details", {}) or {}),
-            "metadata": dict(getattr(task_result, "metadata", {}) or {}),
-        }
+        """Serialize a TaskResult-like object into benchmark artifact fields.
+
+        Delegates to the shared writer that lives next to its inverse. Two copies
+        of this mapping would drift, and a field that stops round-tripping is
+        invisible until something downstream reads a zero it should not have.
+        The full execution trace still lives in the per-run eval_manifest_*.jsonl.
+        """
+        from victor.evaluation.harness import task_result_to_artifact
+
+        return task_result_to_artifact(task_result)
 
     @staticmethod
     def _json_default(obj: Any) -> Any:

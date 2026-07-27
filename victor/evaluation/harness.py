@@ -253,6 +253,12 @@ class PromptCandidateEvaluationSuiteResult:
                     "prompt_candidate_hash": run.config.prompt_candidate_hash,
                     "section_name": run.config.prompt_section_name,
                     "metrics": run.result.get_metrics(),
+                    # Per-task outcomes, not just the aggregate. A paired
+                    # contrast needs to know *which* tasks each arm passed;
+                    # ``from_dict`` has always read this key, and nothing wrote it.
+                    "task_results": [
+                        task_result_to_artifact(task) for task in (run.result.task_results or [])
+                    ],
                 }
                 for run in self.runs
             ],
@@ -348,6 +354,44 @@ def evaluation_config_from_artifact_config(payload: dict[str, Any]) -> Evaluatio
         max_turns=int(payload.get("max_turns", 10) or 10),
         dataset_metadata=dict(payload.get("dataset_metadata") or {}),
     )
+
+
+def task_result_to_artifact(task_result: Any) -> dict[str, Any]:
+    """Serialize a TaskResult into the shape ``task_result_from_artifact`` reads.
+
+    Lives beside its inverse on purpose. The only writer used to be a private
+    method on the real-run runner, so the suite serializer had no way to persist
+    per-task outcomes and wrote aggregate metrics alone — while ``from_dict``
+    read a ``task_results`` key nobody produced. A suite therefore round-tripped
+    to zero tasks, which is fatal for a paired contrast: pairing needs to know
+    *which* tasks each arm passed, and pass rates alone cannot say.
+    """
+    status = getattr(task_result, "status", None)
+    failure_category = getattr(task_result, "failure_category", None)
+    return {
+        "task_id": getattr(task_result, "task_id", None),
+        "status": getattr(status, "value", status),
+        # Correlation spine — joins this task's decisions to its outcome.
+        "session_id": getattr(task_result, "session_id", ""),
+        "tests_passed": getattr(task_result, "tests_passed", 0),
+        "tests_total": getattr(task_result, "tests_total", 0),
+        "duration": getattr(task_result, "duration_seconds", 0.0),
+        "duration_seconds": getattr(task_result, "duration_seconds", 0.0),
+        "tokens_used": getattr(task_result, "tokens_used", 0),
+        "tokens_input": getattr(task_result, "tokens_input", 0),
+        "tokens_output": getattr(task_result, "tokens_output", 0),
+        "cached_tokens": getattr(task_result, "cached_tokens", 0),
+        "reasoning_tokens": getattr(task_result, "reasoning_tokens", 0),
+        "cost_usd_micros": getattr(task_result, "cost_usd_micros", 0),
+        "tool_calls": getattr(task_result, "tool_calls", 0),
+        "turns": getattr(task_result, "turns", 0),
+        "code_search_calls": getattr(task_result, "code_search_calls", 0),
+        "graph_calls": getattr(task_result, "graph_calls", 0),
+        "completion_score": getattr(task_result, "completion_score", 0.0),
+        "failure_category": getattr(failure_category, "value", failure_category),
+        "failure_details": dict(getattr(task_result, "failure_details", {}) or {}),
+        "metadata": dict(getattr(task_result, "metadata", {}) or {}),
+    }
 
 
 def task_result_from_artifact(payload: dict[str, Any]) -> TaskResult:
