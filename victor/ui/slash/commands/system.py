@@ -139,7 +139,7 @@ class ConfigCommand(BaseSlashCommand):
                 f"[bold]Air-gapped:[/] {ctx.settings.security.airgapped_mode}\n"
                 f"[bold]Semantic Selection:[/] {ctx.settings.tools.use_semantic_tool_selection}\n"
                 f"[bold]Embedding Model:[/] {ctx.settings.search.unified_embedding_model}\n"
-                f"[bold]Tool Budget:[/] {ctx.settings.tools.tool_call_budget}\n"
+                f"[bold]Session Tool Cap:[/] {ctx.settings.tools.tool_call_budget}\n"
                 f"[bold]Budget Calibration:[/] "
                 f"{'on' if ctx.settings.tools.tool_budget_calibration_enabled else 'off'}"
                 f" (min_confidence={ctx.settings.tools.tool_budget_calibration_min_confidence})\n"
@@ -172,13 +172,19 @@ class StatusCommand(BaseSlashCommand):
         agent = ctx.agent
         history = agent.conversation
         tool_calls = getattr(agent, "tool_calls_used", 0)
-        tool_budget = ctx.settings.tools.tool_call_budget
+        # Pair the counter with the budget it is enforced against. Using
+        # settings.tools.tool_call_budget here reported a session cap (2000) as the
+        # denominator of a per-turn count.
+        tool_budget = getattr(agent, "tool_budget", None)
 
+        tool_calls_line = (
+            f"{tool_calls} / {tool_budget}" if tool_budget is not None else f"{tool_calls}"
+        )
         content = (
             f"[bold]Provider:[/] {agent.provider_name}\n"
             f"[bold]Model:[/] {agent.model}\n"
             f"[bold]Messages:[/] {history.message_count()}\n"
-            f"[bold]Tool Calls:[/] {tool_calls} / {tool_budget}\n"
+            f"[bold]Tool Calls:[/] {tool_calls_line}\n"
         )
 
         # Add conversation state if available

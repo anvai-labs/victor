@@ -226,7 +226,10 @@ class PromptContext:
 
     # Tool context
     available_tools: List[str] = field(default_factory=list)
-    recommended_tool_budget: int = 10
+    # The budget the runtime actually enforces this turn, or None if unknown.
+    # This is quoted verbatim to the model, so it must never be a guess or a
+    # learned average — see _get_tool_guidance().
+    recommended_tool_budget: Optional[int] = None
 
     # Mode context
     current_mode: str = "explore"
@@ -644,7 +647,7 @@ class IntelligentPromptBuilder:
         conversation_history: Optional[List[Dict[str, Any]]] = None,
         available_tools: Optional[List[str]] = None,
         current_mode: str = "explore",
-        tool_budget: int = 10,
+        tool_budget: Optional[int] = None,
         iteration_budget: int = 20,
         session_id: Optional[str] = None,
         continuation_context: Optional[str] = None,
@@ -657,7 +660,8 @@ class IntelligentPromptBuilder:
             conversation_history: Recent conversation messages
             available_tools: List of available tool names
             current_mode: Current agent mode (explore/build/plan)
-            tool_budget: Remaining tool call budget
+            tool_budget: Tool call budget the runtime enforces this turn, or None
+                if unknown (the prompt then omits any budget claim)
             iteration_budget: Remaining iteration budget
             session_id: Session ID for context retrieval
             continuation_context: Context from previous continuation
@@ -703,7 +707,7 @@ class IntelligentPromptBuilder:
         conversation_history: Optional[List[Dict[str, Any]]],
         available_tools: List[str],
         current_mode: str,
-        tool_budget: int,
+        tool_budget: Optional[int],
         iteration_budget: int,
         session_id: Optional[str],
         continuation_context: Optional[str],
@@ -716,7 +720,12 @@ class IntelligentPromptBuilder:
             provider=self.provider_name,
             model=self.model,
             available_tools=available_tools,
-            recommended_tool_budget=self._metrics.optimal_tool_budget,
+            # Quote the budget the runtime enforces, not the EWMA-learned one.
+            # `optimal_tool_budget` remains a learning signal for budget
+            # recommendations; it is not a fact about this turn, and stating it as
+            # one produced a prompt that claimed "Budget: 10 calls max" while the
+            # enforcer allowed 20.
+            recommended_tool_budget=tool_budget,
             current_mode=current_mode,
             iteration_budget=iteration_budget,
             continuation_context=continuation_context,
@@ -924,31 +933,43 @@ class IntelligentPromptBuilder:
         if available_tools:
             browse_guidance = f"\n- Available tools: {', '.join(available_tools[:6])}"
 
+        # Only state a budget the runtime actually enforces. When it is unknown, say
+        # nothing rather than quoting a default — a countdown the model can measure as
+        # false reads exactly like an injected instruction, and it will (correctly)
+        # refuse to act on it.
+        budget = context.recommended_tool_budget
+
         if strategy == PromptStrategy.MINIMAL:
-            return (
-                "TOOLS:\n- Use for information gathering\n"
-                f"- Budget: {context.recommended_tool_budget} calls"
-                f"{browse_guidance}"
-            )
+            rules = ["Use for information gathering"]
+            if budget:
+                rules.append(f"Budget: {budget} calls")
+            body = "\n".join(f"- {rule}" for rule in rules)
+            return f"TOOLS:\n{body}{browse_guidance}"
 
         elif strategy == PromptStrategy.STRUCTURED:
-            return (
-                "TOOL RULES:\n"
-                "- Use ls/read to inspect code\n"
-                "- Call tools sequentially, waiting for results\n"
-                f"- Budget: {context.recommended_tool_budget} calls\n"
-                f"- Ensure each call provides NEW information{browse_guidance}"
-            )
+            rules = [
+                "Use ls/read to inspect code",
+                "Call tools sequentially, waiting for results",
+            ]
+            if budget:
+                rules.append(f"Budget: {budget} calls")
+            rules.append("Ensure each call provides NEW information")
+            body = "\n".join(f"- {rule}" for rule in rules)
+            return f"TOOL RULES:\n{body}{browse_guidance}"
 
         else:  # STRICT
-            return (
-                "TOOL RULES:\n"
-                "1. Call tools sequentially; wait for each result.\n"
-                f"2. Budget: {context.recommended_tool_budget} calls max.\n"
-                "3. Gather sufficient info before answering.\n"
-                "4. Provide plain English text responses only.\n"
-                f"5. Ensure calls are unique and purposeful.{browse_guidance}"
+            rules = ["Call tools sequentially; wait for each result."]
+            if budget:
+                rules.append(f"Budget: {budget} calls max.")
+            rules.extend(
+                [
+                    "Gather sufficient info before answering.",
+                    "Provide plain English text responses only.",
+                    "Ensure calls are unique and purposeful.",
+                ]
             )
+            body = "\n".join(f"{i}. {rule}" for i, rule in enumerate(rules, start=1))
+            return f"TOOL RULES:\n{body}{browse_guidance}"
 
     def _format_context_fragments(self, fragments: List[ContextFragment]) -> str:
         """Format relevant context fragments."""

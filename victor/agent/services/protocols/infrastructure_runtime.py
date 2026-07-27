@@ -21,7 +21,16 @@ compatibility aliases only.
 
 from __future__ import annotations
 
-from typing import Any, AsyncIterator, Dict, Optional, Protocol, Set, runtime_checkable
+from typing import (
+    Any,
+    AsyncIterator,
+    Dict,
+    List,
+    Optional,
+    Protocol,
+    Set,
+    runtime_checkable,
+)
 
 __all__ = [
     "IntentClassifierProtocol",
@@ -71,6 +80,7 @@ class ReminderManagerProtocol(Protocol):
         tool_budget: Optional[int] = None,
         task_complexity: Optional[str] = None,
         task_hint: Optional[str] = None,
+        executed_tools: Optional[List[str]] = None,
     ) -> None:
         """Update the current context state."""
         ...

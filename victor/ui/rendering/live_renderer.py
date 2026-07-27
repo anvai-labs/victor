@@ -11,7 +11,7 @@ import os
 import re
 import time
 from collections import deque
-from typing import Any
+from typing import Any, Callable
 
 from rich import box
 from rich.console import Console, Group
@@ -64,13 +64,22 @@ class LiveDisplayRenderer:
     _MAX_CONTENT_BUFFER_SIZE = 50_000  # 50K chars — prevents unbounded memory growth
     _THINKING_BUFFER_LIMIT = 10_000  # Discard thinking content beyond this
 
-    def __init__(self, console: Console):
+    def __init__(
+        self,
+        console: Console,
+        tool_budget_source: Callable[[], int | None] | None = None,
+    ):
         """Initialize LiveDisplayRenderer.
 
         Args:
             console: Rich Console for output
+            tool_budget_source: Optional callable returning the tool-call budget the
+                runtime currently enforces (e.g. ``lambda: agent.tool_budget``). When
+                omitted the status footer shows the tool count without a denominator
+                rather than quoting a budget nothing enforces.
         """
         self.console = console
+        self._tool_budget_source = tool_budget_source
         self._live: Live | None = None
         self._content_buffer = ""  # Single source of truth for all content
         self._is_paused = False
@@ -87,13 +96,11 @@ class LiveDisplayRenderer:
         # of clobbering a single scalar slot.
         self._active_tools: dict[str, dict[str, Any]] = {}
         self._tool_seq = 0
-        # During-turn status footer: cached tool-call budget. Mirrors the
-        # between-turns ``bottom_toolbar`` (chat.py::_build_cli_runtime_segment)
-        # so the user can see Tools used/budget WHILE a turn runs, not only
-        # between turns. ``_tool_budget_resolved`` distinguishes "not yet read"
-        # from "read and unset".
-        self._tool_budget: int | None = None
-        self._tool_budget_resolved = False
+        # During-turn status footer. Mirrors the between-turns ``bottom_toolbar``
+        # (chat.py::_build_cli_runtime_segment) so the user can see Tools
+        # used/budget WHILE a turn runs, not only between turns. The budget is read
+        # live from ``_tool_budget_source`` rather than cached, because the enforced
+        # budget changes mid-session.
         # Live tool-output streaming (progressive terminal block)
         self._tool_progress_lines: deque[str] = deque(maxlen=12)
         self._tool_progress_active = False
@@ -263,23 +270,29 @@ class LiveDisplayRenderer:
             logger.debug("on_tool_progress render failed", exc_info=True)
 
     def _get_tool_budget(self) -> int | None:
-        """Resolve and cache the configured tool-call budget.
+        """Resolve the tool-call budget the runtime actually enforces.
 
-        Read once (lazily, behind the first render) from settings so repeated
-        Live ticks don't re-load config. Returns None when unset/unavailable.
+        Read live from the injected source (typically ``agent.tool_budget``) on
+        every tick, because the enforced budget is adjusted mid-session by task
+        complexity, progress relief, and model switches.
+
+        Deliberately does *not* fall back to ``settings.tools.tool_call_budget``:
+        that value is ``BUDGET_LIMITS.max_session_budget`` (2000), a whole-session
+        cap, and showing it beside a per-turn tool count produced a footer like
+        ``Tools 16/2000`` while the enforcer allowed 20. With no source wired we
+        show the count alone rather than a number nothing enforces.
         """
-        if not self._tool_budget_resolved:
-            self._tool_budget_resolved = True
-            try:
-                from victor.config.settings import load_settings
-
-                tools = getattr(load_settings(), "tools", None)
-                budget = getattr(tools, "tool_call_budget", None)
-                self._tool_budget = int(budget) if budget else None
-            except Exception:  # pragma: no cover - never break the stream over UI
-                logger.debug("tool budget resolution failed", exc_info=True)
-                self._tool_budget = None
-        return self._tool_budget
+        if self._tool_budget_source is None:
+            return None
+        try:
+            budget = self._tool_budget_source()
+        except Exception:  # pragma: no cover - never break the stream over UI
+            logger.debug("tool budget resolution failed", exc_info=True)
+            return None
+        try:
+            return int(budget) if budget else None
+        except (TypeError, ValueError):
+            return None
 
     def _status_widget(self) -> Text | None:
         """Persistent during-turn footer: ``Tools used/budget``.
