@@ -53,6 +53,82 @@ class ReminderType(Enum):
     CUSTOM = "custom"  # User-defined reminders
 
 
+def _declare_reminder_decisions() -> Dict[ReminderType, str]:
+    """Bind each emitted reminder to the decision it informs. See REMINDER_DECISIONS."""
+    return {
+        ReminderType.EVIDENCE: (
+            "whether a file still needs reading — files read in earlier turns can "
+            "fall out of a compacted context, so this is not derivable from history"
+        ),
+        ReminderType.BUDGET: (
+            "whether to start wrapping up — the enforced tool budget lives on the "
+            "runtime side and is never visible to the model"
+        ),
+        ReminderType.TASK_HINT: (
+            "how much exploration the task warrants, keyed on measured complexity "
+            "rather than the task-type guidance already in the system prompt"
+        ),
+        ReminderType.COMPACTION: (
+            "whether to re-read something that was summarised away — by definition "
+            "the model cannot see what was removed from its own context"
+        ),
+        # Deliberately absent, and must stay absent:
+        #   PROGRESS  — every tool_call and result is already serialised onto the
+        #               wire (openai_compat.build_openai_messages), so a count
+        #               restates visible information. It also undercounted.
+        #   GROUNDING — GROUNDING_RULES already ships in the system prompt every
+        #               turn; repeating it per-turn buys nothing.
+    }
+
+
+#: What decision the model makes with each reminder — the co-design contract for
+#: this boundary. A signal earns its place only if it informs a decision the model
+#: could not already make from what is in its context.
+#:
+#: Restating something already on the wire is not neutral: it costs tokens every
+#: turn and creates a second copy that can disagree with the first. In session
+#: sandhi-cdfbc589 the progress reminder reported "3 tools used" after eight calls
+#: (it appended one name per batch while the counter advanced per call). The model
+#: compared it with the tool calls in its own context, found it false, and treated
+#: the mismatch as evidence of tampering — a redundant signal could only agree
+#: (adding nothing) or disagree (actively misleading).
+#:
+#: Types absent from this mapping are not emitted. Adding one means answering:
+#: what does the model do with this that it could not do without it?
+REMINDER_DECISIONS: Dict["ReminderType", str] = {}
+
+
+def _declare_retired_reminders() -> Dict[ReminderType, str]:
+    """Types deliberately not emitted, and why. See REMINDER_DECISIONS."""
+    return {
+        ReminderType.PROGRESS: (
+            "every tool_call and its result is already serialised onto the wire "
+            "(openai_compat.build_openai_messages), so a per-turn count restates "
+            "what the model can see — and in sandhi-cdfbc589 it restated it wrongly"
+        ),
+        ReminderType.GROUNDING: (
+            "GROUNDING_RULES already ships in the system prompt on every turn; "
+            "repeating it per-turn costs tokens and buys no new decision"
+        ),
+    }
+
+
+REMINDER_DECISIONS = _declare_reminder_decisions()
+RETIRED_REMINDERS = _declare_retired_reminders()
+
+
+def _is_emittable(reminder_type: "ReminderType") -> bool:
+    """Whether this type may reach the model.
+
+    CUSTOM is exempt: it carries a caller-supplied formatter, so the caller owns
+    the justification for it. Every built-in type must appear in
+    REMINDER_DECISIONS, or it is one we deliberately retired.
+    """
+    if reminder_type is ReminderType.CUSTOM:
+        return True
+    return reminder_type in REMINDER_DECISIONS
+
+
 @dataclass
 class ReminderConfig:
     """Configuration for reminder injection behavior.
@@ -256,6 +332,12 @@ class ContextReminderManager:
         Returns:
             True if the reminder should be injected
         """
+        # A type with no declared consumer decision is not emitted. This is the
+        # gate, not the config: disabling by config alone would leave the
+        # formatter reachable and let the signal creep back in via `force=True`.
+        if not _is_emittable(reminder_type):
+            return False
+
         config = self.configs.get(reminder_type)
         if not config or not config.enabled:
             return False
@@ -349,6 +431,8 @@ class ContextReminderManager:
         Returns:
             The formatted reminder string, or None if not needed
         """
+        if not _is_emittable(reminder_type):
+            return None
         if not self.should_inject_reminder(reminder_type):
             return None
 
@@ -402,6 +486,8 @@ class ContextReminderManager:
             if reminder_type == ReminderType.CUSTOM:
                 continue
 
+            if not _is_emittable(reminder_type):
+                continue
             if force or self.should_inject_reminder(reminder_type):
                 content = self.get_reminder(reminder_type)
                 if content:
