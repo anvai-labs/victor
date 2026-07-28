@@ -33,8 +33,8 @@ reflexively re-pin it.
 
 from __future__ import annotations
 
+import pathlib
 import tempfile
-from pathlib import Path
 
 import pytest
 
@@ -49,25 +49,26 @@ from victor.agent.intelligent_prompt_builder import (
 # Regenerate deliberately, never blindly.
 STRATEGY_MATRIX = [
     # Hosted + native + not strict -> MINIMAL
-    ("anthropic", "claude-opus-4", PromptStrategy.MINIMAL),  # native=T strict=F
-    ("openai", "gpt-5", PromptStrategy.MINIMAL),  # native=T strict=F
-    ("google", "gemini-3", PromptStrategy.MINIMAL),  # native=T strict=F
-    ("xai", "grok-4", PromptStrategy.MINIMAL),  # native=T strict=F
-    ("deepseek", "deepseek-v4pro", PromptStrategy.MINIMAL),  # native=T strict=F
-    ("openrouter", "claude-3", PromptStrategy.MINIMAL),  # native=T strict=F
-    ("together", "mixtral-8x7b", PromptStrategy.MINIMAL),  # native=T strict=F
-    ("fireworks", "firefunction-v2", PromptStrategy.MINIMAL),  # native=T strict=F
-    ("cerebras", "llama3.1-8b", PromptStrategy.MINIMAL),  # native=T strict=F
+    ("anthropic", "claude-opus-4", PromptStrategy.MINIMAL),  # claude-*
+    ("openai", "gpt-5.4", PromptStrategy.MINIMAL),  # gpt-5.4*
+    ("google", "gemini-3", PromptStrategy.MINIMAL),  # gemini-3*
+    ("xai", "grok-4", PromptStrategy.MINIMAL),  # grok-4*
+    ("openrouter", "claude-3", PromptStrategy.MINIMAL),  # claude-*
+    ("together", "mixtral-8x7b", PromptStrategy.MINIMAL),  # mixtral*
+    ("fireworks", "firefunction-v2", PromptStrategy.MINIMAL),  # firefunction*
+    ("cerebras", "llama3.1-8b", PromptStrategy.MINIMAL),  # llama3.1*
     # The two that motivated this file:
-    ("zai", "glm-5.2", PromptStrategy.MINIMAL),  # was STRICT before #700
-    ("moonshot", "kimi-k3", PromptStrategy.MINIMAL),  # was STRUCTURED after #700
+    ("zai", "glm-5.2", PromptStrategy.MINIMAL),  # glm-5*   — was STRICT before #700
+    ("moonshot", "kimi-k3", PromptStrategy.MINIMAL),  # kimi-k3* — was STRUCTURED after #700
     # Local + native + not strict -> STRUCTURED
-    ("ollama", "qwen2.5-coder:7b", PromptStrategy.STRUCTURED),  # native=T strict=F
-    ("lmstudio", "mistral-7b", PromptStrategy.STRUCTURED),  # native=T strict=F
-    ("vllm", "qwen3-32b", PromptStrategy.STRUCTURED),  # native=T strict=F
-    # Catalog says the model needs strict prompting -> STRICT, wherever it runs
-    ("ollama", "codellama:7b", PromptStrategy.STRICT),  # native=F strict=T
-    ("ollama", "llama-3.3-70b", PromptStrategy.STRICT),  # native=F strict=T
+    ("ollama", "qwen2.5-coder:7b", PromptStrategy.STRUCTURED),  # qwen2.5*
+    ("lmstudio", "mistral-7b", PromptStrategy.STRUCTURED),  # mistral*
+    ("vllm", "qwen3:32b", PromptStrategy.STRUCTURED),  # qwen3:*
+    # requires_strict_prompting -> STRICT regardless of native tool support.
+    # llama3.3 DOES support native tool calling (native=True); it is pinned STRICT
+    # because the catalog marks it as needing strict prompting on a local runtime.
+    ("ollama", "llama3.3:70b", PromptStrategy.STRICT),  # llama3.3*  native=T strict=T
+    ("ollama", "codellama:7b", PromptStrategy.STRICT),  # codellama* native=F strict=T
 ]
 
 
@@ -75,7 +76,7 @@ STRATEGY_MATRIX = [
 def learning_store():
     """Cold profile store — pins the *derived* strategy, not a learned one."""
     with tempfile.TemporaryDirectory() as tmpdir:
-        yield ProfileLearningStore(db_path=Path(tmpdir) / "parity.db")
+        yield ProfileLearningStore(db_path=pathlib.Path(tmpdir) / "parity.db")
 
 
 def _strategy(store, provider: str, model: str) -> PromptStrategy:
@@ -177,3 +178,63 @@ class TestClassificationSources:
         assert not hasattr(IntelligentPromptBuilder, "CLOUD_PROVIDERS")
         assert not hasattr(IntelligentPromptBuilder, "LOCAL_PROVIDERS")
         assert not hasattr(IntelligentPromptBuilder, "_has_native_tool_support")
+
+
+class TestMatrixUsesRealModelIdentifiers:
+    """Every pinned row must name a model the capability catalog recognises.
+
+    The first version of this file pinned ``llama-3.3-70b`` and ``qwen3-32b``.
+    Neither matches any catalog pattern (the real identifiers are ``llama3.3:70b``
+    and ``qwen3:32b``), so those rows silently exercised the unknown-model
+    fallback while *reading* as statements about Llama 3.3 and Qwen3 — and led to
+    Llama 3.3 being described as lacking native tool calling, which is false: it
+    supports it, and is STRICT here only because the catalog marks it as needing
+    strict prompting on a local runtime.
+
+    A parity table whose rows name models that do not exist pins nothing.
+    """
+
+    @staticmethod
+    def _catalog_patterns() -> list[str]:
+        import yaml
+
+        config = pathlib.Path(__file__).resolve().parents[3] / (
+            "victor/config/model_capabilities.yaml"
+        )
+        return sorted(yaml.safe_load(config.read_text()).get("models", {}))
+
+    @staticmethod
+    def _matches(model: str, patterns: list[str]) -> str | None:
+        import fnmatch
+
+        hits = [p for p in patterns if fnmatch.fnmatch(model.lower(), p.lower())]
+        return max(hits, key=len) if hits else None
+
+    def test_every_row_matches_a_catalog_pattern(self):
+        patterns = self._catalog_patterns()
+
+        unmatched = [
+            f"{provider}/{model}"
+            for provider, model, _ in STRATEGY_MATRIX
+            if self._matches(model, patterns) is None
+        ]
+
+        assert not unmatched, (
+            "these rows name models the catalog does not recognise, so they pin the "
+            f"unknown-model fallback rather than the model: {unmatched}. Use the real "
+            "identifier (e.g. 'llama3.3:70b', not 'llama-3.3-70b')."
+        )
+
+    def test_strict_rows_are_strict_for_a_stated_catalog_reason(self):
+        """A STRICT pin must come from declared capability, not a lookup miss."""
+        from victor.agent.tool_calling.capabilities import get_model_capabilities
+
+        for provider, model, expected in STRATEGY_MATRIX:
+            if expected is not PromptStrategy.STRICT:
+                continue
+            caps = get_model_capabilities(provider, model)
+            assert caps.requires_strict_prompting or not caps.native_tool_calls, (
+                f"{provider}/{model} is pinned STRICT but the catalog declares "
+                f"native={caps.native_tool_calls} strict={caps.requires_strict_prompting} "
+                "— that is a fallback, not a decision"
+            )
