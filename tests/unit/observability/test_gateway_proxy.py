@@ -164,6 +164,46 @@ def test_streaming_passes_through_and_meters_final_usage() -> None:
     assert ev["tokens_in"] == 12 and ev["tokens_out"] == 4
 
 
+@respx.mock
+def test_streaming_meters_usage_when_upstream_drops_mid_stream() -> None:
+    """A torn upstream stream must still meter the usage it already parsed.
+
+    Real usage arrives in an early chunk; the upstream then drops before ``[DONE]``
+    (a client disconnect raises the same way at ``yield chunk``). Pre-fix,
+    ``meter_tokens`` sat after the ``async with`` with no try/finally, so the
+    exception skipped it and the call settled zero — the same class of metering
+    hole ADR-0005 D1 closed in sandhi.
+    """
+
+    async def dropping_upstream():
+        yield b'data: {"choices":[],"usage":{"prompt_tokens":12,"completion_tokens":4}}\n\n'
+        raise RuntimeError("upstream disconnected mid-stream")
+
+    respx.post(UPSTREAM).mock(return_value=httpx.Response(200, content=dropping_upstream()))
+    client = _client()
+
+    try:
+        with client.stream(
+            "POST",
+            "/v1/chat/completions",
+            headers={"Authorization": "Bearer vk-secret"},
+            json={"model": "gpt-4o", "stream": True, "messages": []},
+        ) as resp:
+            for _ in resp.iter_bytes():  # drain what arrives; the stream tears mid-way
+                pass
+    except Exception:
+        # The torn upstream surfaces to the client as some transport error
+        # (raw RuntimeError under TestClient; an httpx protocol error in prod).
+        # We don't care which — the assertion below is the real gate: the usage
+        # the tee already parsed must still have been metered.
+        pass
+
+    usage = client.get("/gateway/usage").json()
+    assert usage["event_count"] == 1, usage
+    ev = usage["events"][0]
+    assert ev["tokens_in"] == 12 and ev["tokens_out"] == 4
+
+
 def test_usage_line_parser() -> None:
     assert _usage_from_data_line("data: [DONE]") is None
     assert _usage_from_data_line(": keep-alive comment") is None
