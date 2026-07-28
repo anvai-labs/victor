@@ -3184,7 +3184,8 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
             self.conversation.add_preview_message(role, content, preview_metadata)
             return
 
-        content = envelope_if_internal(role, content, kwargs.get("metadata"), self._channel_nonce())
+        _nonce = getattr(getattr(self, "_prompt_pipeline", None), "_channel_nonce", "")
+        content = envelope_if_internal(role, content, kwargs.get("metadata"), _nonce)
         # Intercept dynamic system nudges for cache-friendly injection
         if role == "system" and getattr(self, "_cache_optimization_enabled", False):
             # Check if history already contains a system message (the root prompt)
