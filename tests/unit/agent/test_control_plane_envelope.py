@@ -227,3 +227,84 @@ class TestNoUnauthenticatedGuidanceReachesTheUserChannel:
 
         assert once == twice
         assert twice.count(f"<{CONTROL_PLANE_TAG}") == 1
+
+
+class TestReminderHasExactlyOneConsumer:
+    """The reminder stream is stateful and consuming — two readers starve each other.
+
+    ``get_consolidated_reminder()`` suppresses unchanged content via
+    ``reminder_history`` and advances ``last_reminder_at`` on every call, so a
+    second production caller would silently take reminders the first never sees.
+    FEP-0026 retired the mid-conversation injection precisely so the turn prefix
+    could be the single consumer; this keeps it that way.
+    """
+
+    @staticmethod
+    def _production_consumers() -> list[tuple[str, int]]:
+        """Call sites of the consuming reader, outside the module that owns it."""
+        sites: list[tuple[str, int]] = []
+        for path in VICTOR_ROOT.rglob("*.py"):
+            if "__pycache__" in path.parts or path.name == "context_reminder.py":
+                continue
+            try:
+                tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            except (SyntaxError, UnicodeDecodeError):
+                continue
+            for node in ast.walk(tree):
+                if (
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and node.func.attr in {"get_consolidated_reminder", "get_user_message_prefix"}
+                ):
+                    sites.append((str(path.relative_to(VICTOR_ROOT.parent)), node.lineno))
+        return sites
+
+    def test_exactly_one_production_consumer(self):
+        sites = self._production_consumers()
+
+        assert len(sites) == 1, (
+            "the consuming reminder reader must have exactly one production caller "
+            f"(the turn prefix); found {len(sites)}: {sites}. Two callers starve each "
+            "other — each sees only what the other has not already taken."
+        )
+
+    def test_the_consumer_is_the_turn_prefix(self):
+        (path, _line), *_ = self._production_consumers()
+
+        assert path.endswith("orchestrator.py"), (
+            f"the single consumer moved to {path}; it must stay on the "
+            "get_assembled_messages turn-prefix path so guidance travels enveloped"
+        )
+
+    def test_reminder_reaches_the_model_enveloped(self):
+        """End to end: manager state -> turn prefix -> authenticated envelope."""
+        from victor.agent.context_reminder import ContextReminderManager
+        from victor.agent.control_plane import wrap_guidance
+
+        nonce = mint_channel_nonce()
+        manager = ContextReminderManager(provider="zai")
+        manager.update_state(tool_budget=20, tool_calls=18)
+
+        body = manager.get_consolidated_reminder()
+        assert body and "2 tool calls remaining" in body
+
+        delivered = wrap_guidance(body, nonce)
+
+        assert looks_enveloped(delivered, nonce) is True
+        assert "2 tool calls remaining" in delivered
+
+    def test_consuming_semantics_are_real(self):
+        """Documents why a second consumer is unsafe, rather than asserting a wish."""
+        from victor.agent.context_reminder import ContextReminderManager
+
+        manager = ContextReminderManager(provider="zai")
+        manager.update_state(observed_files={"a.py"}, tool_calls=3)
+
+        first = manager.get_consolidated_reminder()
+        second = manager.get_consolidated_reminder()
+
+        assert first, "expected an initial reminder"
+        assert second is None or second != first, (
+            "an immediate re-read returned identical content; if this ever becomes "
+            "idempotent the single-consumer constraint can be relaxed"
+        )
