@@ -149,7 +149,20 @@ class ConversationMessage:
         token_count: int = 0,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> ConversationMessage:
-        """Create from provider Message."""
+        """Create from provider Message, carrying its metadata across.
+
+        The provider ``Message``'s own metadata is merged in, with any explicitly
+        passed ``metadata`` taking precedence. Without this the bridge dropped
+        ``MessageSource`` on every message, so ``_SOURCE_ROLE_OVERRIDES`` in
+        ``conversation/scoring.py`` never fired: everything scored as UNKNOWN and
+        fell through to ``_ROLE_SCORES``. Agent guidance is injected with
+        ``role="user"``, so it scored 0.8 — identical to something the user typed,
+        rather than the 0.2 the override intends — and could evict real user
+        intent during compaction.
+        """
+        merged: Dict[str, Any] = dict(getattr(msg, "metadata", None) or {})
+        if metadata:
+            merged.update(metadata)
         return cls(
             role=msg.role,
             content=msg.content,
@@ -158,7 +171,7 @@ class ConversationMessage:
             tool_call_id=msg.tool_call_id,
             priority=priority,
             token_count=token_count,
-            metadata=metadata or {},
+            metadata=merged,
         )
 
     def to_provider_format(self) -> Dict[str, Any]:
