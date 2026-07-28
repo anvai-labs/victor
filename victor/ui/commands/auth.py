@@ -322,20 +322,25 @@ def auth_add(
     # Save API key to keyring if provided.
     #
     # The keyring slot keyring["victor", "{provider}_api_key"] is PROVIDER-scoped
-    # (shared across every account of a provider). Writing it for a non-default
-    # named account clobbers the credential of the other accounts under the same
-    # provider — the exact failure that let an anthropic-dialect account overwrite
-    # the real Anthropic key. The account's key is already persisted per-account in
-    # auth.value (config.yaml, 0600) and resolve_provider_config() reads that first,
-    # so we only write the shared slot for the account being made the provider
-    # default (legacy single-account-per-provider convenience / external readers).
+    # (shared across every account of a provider). Writing it for a *named,
+    # non-default* account clobbers the credential of the other accounts under the
+    # same provider — the exact failure that let an anthropic-dialect account
+    # overwrite the real Anthropic key. The account's key is already persisted
+    # per-account in auth.value (config.yaml, 0600) and resolve_provider_config()
+    # reads that first, so account-scoped resolution never needs this slot.
+    #
+    # We still populate it for the provider's default account (name defaults to
+    # "default", or --default was passed) so the plain single-account onboarding
+    # (`victor auth add -p anthropic -m ...`) and external keyring readers
+    # (auth env / status) keep working.
+    is_provider_default = name == "default" or set_default
     if api_key and auth_method == "api_key" and source == "keyring":
-        if set_default:
+        if is_provider_default:
             try:
                 from victor.config.api_keys import _set_key_in_keyring
 
                 _set_key_in_keyring(provider, api_key)
-                console.print("[green]✓[/] API key saved to keyring (default account)")
+                console.print("[green]✓[/] API key saved to keyring")
             except Exception as e:
                 console.print(f"[yellow]⚠[/] Could not save to keyring: {e}")
                 console.print("[dim]API key stored in config file instead[/]")
