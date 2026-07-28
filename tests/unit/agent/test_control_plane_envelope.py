@@ -308,3 +308,70 @@ class TestReminderHasExactlyOneConsumer:
             "an immediate re-read returned identical content; if this ever becomes "
             "idempotent the single-consumer constraint can be relaxed"
         )
+
+
+class TestEnvelopeIsNotDoubleLabelled:
+    """The envelope is the label; the legacy prefix inside it is redundant.
+
+    Live repro (repro-tdd0011, 2026-07-28) produced:
+
+        <system-reminder key="39a20af8..."> [SYSTEM-REMINDER: You are an expert ...]
+
+    Both wrappers say the same thing — "this is runtime guidance" — but only the
+    outer one is verifiable. Keeping the inner one costs tokens on every turn and,
+    worse, teaches the model that an *unkeyed* ``[SYSTEM-REMINDER:`` marker is a
+    normal thing to see inside authentic guidance, which is exactly the pattern
+    the channel exists to make suspicious.
+
+    Type labels that say something the envelope does not — ``[ACTION-GUIDANCE:``,
+    ``[FILES:`` — are unaffected; they describe content, not provenance.
+    """
+
+    @staticmethod
+    def _injection_sites() -> list[tuple[str, int]]:
+        """add_message calls whose content literal re-labels provenance."""
+        sites: list[tuple[str, int]] = []
+        for path in VICTOR_ROOT.rglob("*.py"):
+            if "__pycache__" in path.parts:
+                continue
+            try:
+                tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            except (SyntaxError, UnicodeDecodeError):
+                continue
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                func = node.func
+                name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
+                if name != "add_message":
+                    continue
+                for arg in node.args:
+                    literal = ""
+                    if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                        literal = arg.value
+                    elif isinstance(arg, ast.JoinedStr):
+                        literal = "".join(
+                            v.value
+                            for v in arg.values
+                            if isinstance(v, ast.Constant) and isinstance(v.value, str)
+                        )
+                    if "[SYSTEM-REMINDER:" in literal:
+                        sites.append((str(path.relative_to(VICTOR_ROOT.parent)), node.lineno))
+        return sites
+
+    def test_no_injection_re_labels_provenance(self):
+        sites = self._injection_sites()
+
+        assert not sites, (
+            "these sites wrap content in a legacy '[SYSTEM-REMINDER:' prefix, which "
+            f"the authenticated envelope already provides: {sites}. The inner label "
+            "is unverifiable and duplicates the outer one."
+        )
+
+    def test_enveloped_guidance_carries_no_inner_provenance_label(self):
+        nonce = mint_channel_nonce()
+
+        wrapped = wrap_guidance("You are an expert coding assistant.", nonce)
+
+        assert looks_enveloped(wrapped, nonce)
+        assert "[SYSTEM-REMINDER:" not in wrapped
