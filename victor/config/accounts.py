@@ -580,9 +580,12 @@ class AccountManager:
                 # for multiple accounts under one provider (e.g. several anthropic-
                 # dialect upstreams: kimi/deepseek/zai via /anthropic endpoints) the
                 # shared slot would otherwise shadow — or be clobbered by — the
-                # account's own key. Account value also works non-interactively
+                # account's own key. auth.value also resolves non-interactively
                 # (config file, not keyring), so `victor run` resolves it too.
-                if account.auth.value:
+                #
+                # sentinelpass stores a lookup DOMAIN (not a key) in auth.value, so it
+                # is excluded here and resolved via its own source path.
+                if account.auth.value and account.auth.source != "sentinelpass":
                     api_key = account.auth.value
 
                 # Provider-scoped environment variable.

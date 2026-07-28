@@ -109,8 +109,9 @@ if TYPE_CHECKING:
 from victor.agent.argument_normalizer import ArgumentNormalizer, NormalizationStrategy
 from victor.agent.message_history import MessageHistory
 from victor.agent.control_plane import envelope_if_internal
-from victor.agent.prompt_prefix import apply_turn_prefix
 from victor.agent.conversation.store import ConversationStore
+from victor.agent.prompt_prefix import apply_turn_prefix
+from victor.agent.system_nudges import log_dropped_system_nudge
 
 # DI container bootstrap
 from victor.core.bootstrap import ensure_bootstrapped, get_service_optional
@@ -2144,8 +2145,6 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
                     runtime_context_overrides.get("prompt_overlays")
                 )
 
-            # Attribute is `reminder_manager`; reading `_reminder_manager` (never
-            # exists) left this whole turn-prefix channel dead. See FEP-0026.
             reminder_mgr = getattr(self, "reminder_manager", None)
             if reminder_mgr:
                 turn_ctx.reminder_text = reminder_mgr.get_consolidated_reminder()
@@ -3185,24 +3184,14 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
             self.conversation.add_preview_message(role, content, preview_metadata)
             return
 
-        # Authenticated so the model can tell it from user speech (FEP-0026).
-        _nonce = getattr(getattr(self, "_prompt_pipeline", None), "_channel_nonce", "")
-        content = envelope_if_internal(role, content, kwargs.get("metadata"), _nonce)
-
+        content = envelope_if_internal(role, content, kwargs.get("metadata"), self._channel_nonce())
         # Intercept dynamic system nudges for cache-friendly injection
         if role == "system" and getattr(self, "_cache_optimization_enabled", False):
             # Check if history already contains a system message (the root prompt)
             has_root_system = any(m.role == "system" for m in self.conversation._messages)
             if has_root_system and hasattr(self, "reminder_manager") and self.reminder_manager:
-                # Bracket-delimited nudges are dropped to keep the cached prefix
-                # byte-stable. This used to happen silently via a bare `return`.
                 if content.startswith("[") and content.endswith("]"):
-                    logger.warning(
-                        "[cache] Dropping bracket-delimited system nudge to keep the "
-                        "cached prefix stable; deliver it via the reminder manager. "
-                        "Content: %.120s",
-                        content,
-                    )
+                    log_dropped_system_nudge(content)
                     return
 
         max_history = getattr(self.settings, "max_conversation_history", 100)

@@ -149,13 +149,16 @@ class ConversationMessage:
         token_count: int = 0,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> ConversationMessage:
-        """Create from provider Message.
+        """Create from provider Message, carrying its metadata across.
 
-        The provider ``Message``'s own ``metadata`` is carried across, with any
-        explicitly-passed ``metadata`` taking precedence. Without this the bridge
-        dropped ``MessageSource`` on every message, so ``_SOURCE_ROLE_OVERRIDES``
-        in ``conversation/scoring.py`` never fired on the live assembly path and
-        agent-authored scaffolding was scored as if the user had typed it.
+        The provider ``Message``'s own metadata is merged in, with any explicitly
+        passed ``metadata`` taking precedence. Without this the bridge dropped
+        ``MessageSource`` on every message, so ``_SOURCE_ROLE_OVERRIDES`` in
+        ``conversation/scoring.py`` never fired: everything scored as UNKNOWN and
+        fell through to ``_ROLE_SCORES``. Agent guidance is injected with
+        ``role="user"``, so it scored 0.8 — identical to something the user typed,
+        rather than the 0.2 the override intends — and could evict real user
+        intent during compaction.
         """
         merged: Dict[str, Any] = dict(getattr(msg, "metadata", None) or {})
         if metadata:

@@ -26,8 +26,19 @@ on:
   # `CI Success` merge gate (set on develop); a path-filtered trigger would skip
   # docs/config-only PRs, leaving the required check unreported and the PR
   # BLOCKED (unmergeable). The gates run on every PR so the aggregate reports.
+  # NO `branches:` filter on purpose. Restricting this to [main, develop] meant a
+  # PR whose base is another feature branch — i.e. every PR in a stack — got NO
+  # gate at all: no Black, no Ruff, no strict MyPy, no guards, and no `CI Success`.
+  # Observed on PRs #700/#701/#702, which showed 1-2 reported checks instead of 24
+  # and read as "green" while being almost entirely ungated. Each was only really
+  # tested once retargeted to develop, i.e. after review had already happened
+  # against a vacuous signal.
+  #
+  # This does not change the develop-lightweight gating strategy (see README):
+  # ci-fast is the lightweight gate, and it now runs wherever a PR is opened.
+  # `CI Success` is only *required* on develop/main, so reporting it on a
+  # feature-base PR is informational and cannot block anything.
   pull_request:
-    branches: [main, develop]
   workflow_dispatch:
 
 env:

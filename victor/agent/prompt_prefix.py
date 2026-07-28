@@ -15,10 +15,10 @@
 """Placement of the composed turn prefix onto an assembled message list.
 
 ``UnifiedPromptPipeline.compose_turn_prefix`` builds the per-turn guidance block;
-this module puts it where the provider will see it. Keeping placement next to
-composition means the two rules that matter — it rides the *last user* message
-(so it stays outside the cached system prefix) and it must not disturb anything
-else about that message — live in one place.
+this puts it where the provider will see it. Keeping placement next to
+composition means the two rules that matter live in one place: it rides the
+*last user* message (so it stays outside the cached system prefix), and it must
+not disturb anything else about that message.
 """
 
 from __future__ import annotations
@@ -34,9 +34,14 @@ __all__ = ["apply_turn_prefix"]
 def apply_turn_prefix(messages: List["Message"], prefix: str) -> List["Message"]:
     """Prepend ``prefix`` to the last user message, in place.
 
+    Copies rather than reconstructs. Building a fresh ``Message`` here discarded
+    everything except role and content — metadata (and with it ``MessageSource``,
+    which compaction scoring keys on), ``name``, ``tool_calls`` and
+    ``tool_call_id`` — from the message it replaced.
+
     Args:
         messages: Assembled provider messages. Returned unchanged when there is
-            no prefix or no user message to carry it.
+            no prefix, or no user message to carry it.
         prefix: Composed turn prefix, already framed by the caller.
 
     Returns:
@@ -47,9 +52,6 @@ def apply_turn_prefix(messages: List["Message"], prefix: str) -> List["Message"]
 
     for i in range(len(messages) - 1, -1, -1):
         if messages[i].role == "user":
-            # Copy rather than construct a fresh Message: rebuilding dropped
-            # metadata (MessageSource), name, tool_calls and tool_call_id, which
-            # is why source-aware compaction scoring saw no source on this path.
             messages[i] = messages[i].model_copy(update={"content": prefix + messages[i].content})
             break
 

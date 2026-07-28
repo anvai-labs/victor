@@ -1,0 +1,139 @@
+---
+# Nightly full unit suite against develop.
+#
+# Why this exists
+# ---------------
+# The develop gate is lightweight by design (see workflows/README.md): a PR to
+# develop runs ci-fast plus only the unit tests that mirror the files it touched.
+# That is a deliberate tradeoff — the full non-slow suite is ~7h single-process —
+# and this workflow does NOT change it.
+#
+# What it closes is a different gap. Because each PR is verified against the
+# develop of its moment and nothing re-runs afterwards, a set of individually
+# green PRs is never executed *as a unit* until the develop -> main promotion.
+# An interaction break therefore surfaces weeks later, on the promotion PR, where
+# it blocks a release and is expensive to bisect across the whole delta.
+#
+# Running the same sharded suite nightly costs nothing per merge, keeps develop
+# fast, and moves that discovery from "at promotion" to "within a day", with a
+# diff small enough to attribute.
+#
+# This workflow is intentionally NOT a required check. It must never gate a merge
+# or appear in branch protection: a required check that does not report on every
+# PR makes PRs unmergeable (see the note on paths filters in ci-fast.yml).
+name: Nightly Develop Suite
+
+on:
+  schedule:
+    # 04:00 UTC — after the usual merge window, before the working day.
+    - cron: '0 4 * * *'
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Ref to test (defaults to develop)'
+        required: false
+        default: 'develop'
+
+concurrency:
+  group: nightly-develop
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  full-suite:
+    name: Nightly Units (Py${{ matrix.python-version }}, Shard ${{ matrix.shard }})
+    runs-on: ubuntu-latest
+    # Matches ci-test.yml's cap: the heaviest duration-split shard runs long.
+    timeout-minutes: 120
+    env:
+      PYTHONPATH: ${{ github.workspace }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Single interpreter, not ci-test's 3x12. This is a signal about
+        # develop's health, not release verification — the full 3-version matrix
+        # still runs at develop -> main. 3.12 is the primary dev interpreter.
+        python-version: ["3.12"]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.ref || 'develop' }}
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/pip
+            ~/.cache/pipenv
+          key: >-
+            ${{ runner.os }}-pip-${{ matrix.python-version }}-${{
+            hashFiles('**/requirements*.txt', '**/pyproject.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-${{ matrix.python-version }}-
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip uninstall -y victor victor-ai victor-contracts || true
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          # In-repo contracts first so victor-ai resolves it locally, not from PyPI.
+          pip install --no-cache-dir -e ./victor-contracts
+          # Retry: under parallel shards PyPI intermittently returns an empty
+          # index response, which pip treats as "no versions" rather than a
+          # network error and does not retry itself. Mirrors ci-test.yml.
+          for attempt in 1 2 3 4 5; do
+            if pip install --no-cache-dir -e ".[dev,ci,api]"; then
+              break
+            fi
+            if [ "$attempt" = "5" ]; then
+              echo "Dependency install failed after 5 attempts"
+              exit 1
+            fi
+            echo "Install attempt ${attempt} failed; retrying in $((attempt * 10))s..."
+            sleep $((attempt * 10))
+          done
+          pip install --no-cache-dir --no-deps -e ./victor-contracts
+          pip install pytest-split
+
+      - name: Verify local import path
+        run: python -c "import victor; print(victor.__file__)"
+
+      - name: Run unit tests (shard ${{ matrix.shard }}/12)
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          pytest tests/unit \
+            --splits=12 --group=${{ matrix.shard }} \
+            -m "not slow" \
+            --timeout=300 --tb=short -q
+
+  report:
+    name: Nightly Develop Summary
+    runs-on: ubuntu-latest
+    needs: [full-suite]
+    if: always()
+    steps:
+      - name: Summarise
+        run: |
+          result="${{ needs.full-suite.result }}"
+          echo "## Nightly develop suite: ${result}" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$result" != "success" ]; then
+            {
+              echo ""
+              echo "develop is red. Every PR merged since the last green nightly is a"
+              echo "candidate — the whole point of this job is that the window is one"
+              echo "day's merges rather than a release delta, so bisect there first."
+              echo ""
+              echo "This job does not gate merges. It is a signal, not a block."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
