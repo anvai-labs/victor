@@ -606,6 +606,214 @@ jobs:
             tests/unit/framework/rl/test_trace_cache_l2.py \
             -q --tb=short --timeout=60
 
+  attribution:
+    # No third-party AI-agent authorship attribution in commits/PR text. Victor's
+    # own agent (victor-code-ai) is the allowed first-party exception. The policy
+    # is documented in CLAUDE.md but was never enforced — .githooks/commit-msg now
+    # gives local feedback and this job enforces it in CI. Targets *attribution*,
+    # not mention (CLAUDE.md / Anthropic-API / OpenAI-API refs all pass).
+    name: No Agent Attribution
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Scan commits for agent authorship attribution
+        # Refs passed via env (not inline ${{…}}) to satisfy the Semgrep
+        # run-shell-injection rule (same convention as the quick-tests job).
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          BEFORE: ${{ github.event.before }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -e
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            python3 scripts/ci/check_no_agent_attribution.py --range "${PR_BASE}..${PR_HEAD}"
+          elif echo "$BEFORE" | grep -qE '^0{40}$'; then
+            git log -1 --format=%B > "$RUNNER_TEMP/msg.txt"
+            python3 scripts/ci/check_no_agent_attribution.py --message-file "$RUNNER_TEMP/msg.txt"
+          else
+            python3 scripts/ci/check_no_agent_attribution.py --range "${BEFORE}..${SHA}"
+          fi
+
+  lint-title:
+    # Conventional-commit PR title gate. PR-only — the action errors on push
+    # events; a skip is a pass for the ci-success aggregate. Mirrors Sandhi's gate.
+    name: PR Title (Conventional)
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: amannn/action-semantic-pull-request@v5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          requireScope: false
+          types: |
+            feat
+            fix
+            perf
+            refactor
+            docs
+            test
+            ci
+            chore
+            build
+            revert
+
+  vertical-boundaries:
+    # Vertical contract-boundary audit — pins that extracted vertical packages
+    # don't leak across boundaries. Cheap; previously only in verticals.yml (not
+    # required). Promoted into the develop merge gate.
+    name: Vertical Contract Boundaries
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Run boundary check
+        run: python scripts/ci/check_extracted_vertical_boundaries.py
+
+  fep-validate:
+    # Validate FEPs touched by the PR (feps/**). Promotes the standalone
+    # fep-validation.yml (which ran + commented but was never required) into the
+    # merge gate. The heavy install/validate only run when a FEP changed, so a
+    # non-FEP PR pays just the git-diff step (a skip is a pass for ci-success).
+    name: FEP Validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Find modified FEP files
+        id: find-feps
+        env:
+          BASE_BRANCH: ${{ github.base_ref || 'develop' }}
+        run: |
+          BASE="${BASE_BRANCH:-develop}"
+          git fetch origin "$BASE" --quiet 2>/dev/null || true
+          FEP_FILES=$(git diff --name-only --diff-filter=AM "origin/${BASE}...HEAD" | grep '^feps/fep-.*\.md$' || true)
+          if [ -n "$FEP_FILES" ]; then
+            echo "fep_files=$(printf '%s' "$FEP_FILES" | tr '\n' ' ' | sed 's/ $//')" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/setup-python@v5
+        if: steps.find-feps.outputs.fep_files != ''
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install Victor
+        if: steps.find-feps.outputs.fep_files != ''
+        run: |
+          python -m pip install --upgrade pip
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -e ./victor-contracts
+          pip install -e ".[dev]"
+      - name: Validate each FEP
+        if: steps.find-feps.outputs.fep_files != ''
+        run: |
+          rc=0
+          for f in ${{ steps.find-feps.outputs.fep_files }}; do
+            victor fep validate "$f" || { echo "::error::$f failed validation"; rc=1; }
+          done
+          exit $rc
+
+  secret-scan:
+    # Gitleaks over full history. Mirrors security.yml (which is main-only) so a
+    # leaked secret is caught on develop, not at promotion. Config: .gitleaks.toml.
+    name: Secret Scan (Gitleaks)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Gitleaks
+        uses: docker://ghcr.io/gitleaks/gitleaks:v8.30.1
+        with:
+          args: git /github/workspace --redact --verbose --no-banner
+
+  code-security:
+    # Bandit high+confidence gate over victor/. Mirrors security.yml (main-only)
+    # so a code-injection finding is caught on develop. Config: .bandit.
+    name: Code Security (Bandit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Bandit
+        run: pip install bandit[toml]
+      - name: Bandit (high severity + high confidence, blocking)
+        run: |
+          bandit -r victor/ \
+            -f json \
+            -o bandit-report.json \
+            --severity-level high \
+            --confidence-level high \
+            -s B101,B324 \
+            --ini .bandit
+
+  dependency-audit:
+    # pip-audit over installed deps, blocking on high+critical CVEs not in the
+    # .pip-audit-known-vulnerabilities allowlist (the documented escape hatch).
+    # Mirrors security.yml (main-only) so a vulnerable dep is caught on develop.
+    name: Dependency Audit (pip-audit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install package for audit
+        run: |
+          pip install -e ./victor-contracts
+          pip install -e .
+      - name: pip-audit (high+critical, allowlisted exceptions)
+        run: |
+          pip install pip-audit
+          pip-audit --format json --output audit-report.json 2>&1 | tee /tmp/pip-audit-output.txt || true
+          python3 - <<'PY'
+          import json, subprocess, sys
+          try:
+              with open("audit-report.json", encoding="utf-8") as f:
+                  report = json.load(f)
+          except FileNotFoundError:
+              result = subprocess.run(["pip-audit"], capture_output=True, text=True, check=False)
+              print(result.stdout, result.stderr)
+              sys.exit(result.returncode)
+          known_cves = set()
+          try:
+              with open(".pip-audit-known-vulnerabilities", encoding="utf-8") as f:
+                  for line in f:
+                      line = line.strip()
+                      if line and not line.startswith("#"):
+                          cve = line.split("|", 1)[0].strip()
+                          if cve.startswith("CVE-"):
+                              known_cves.add(cve)
+          except FileNotFoundError:
+              print("No .pip-audit-known-vulnerabilities file found")
+          vulns = report.get("vulnerabilities", [])
+          filtered = [v for v in vulns if v.get("id") not in known_cves]
+          if filtered:
+              print(f"Found {len(filtered)} unexcepted vulnerabilities:", file=sys.stderr)
+              for v in filtered:
+                  print(f"  {v.get('id')} - {v.get('package')}", file=sys.stderr)
+              sys.exit(1)
+          print(f"No unexcepted vulnerabilities ({len(known_cves)} accepted in allowlist).")
+          PY
+
   # Aggregate merge gate — mirrors ProximaDB's `CI Success` pattern (see
   # ../proximaDB/.github/workflows/ci.yml `ci-success`). A single required
   # status check that is green iff every core gate passed (or was path-skipped).
@@ -638,6 +846,13 @@ jobs:
       - security-quick
       - quick-tests
       - collect-check
+      - attribution
+      - lint-title
+      - vertical-boundaries
+      - fep-validate
+      - secret-scan
+      - code-security
+      - dependency-audit
     if: always()
     steps:
       - name: Require all required jobs green
