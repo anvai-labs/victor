@@ -336,6 +336,29 @@ class TestInitSynthesizer:
         assert bootstrap.provider_init_kwargs["max_retries"] == 0
         assert "model" not in bootstrap.provider_init_kwargs
 
+    def test_resolve_provider_bootstrap_threads_profile_account(self):
+        """The profile's credential-identity ``account`` threads into provider
+        settings so init resolves the profile's OWN key/endpoint (account-scoped
+        resolution) rather than the provider default."""
+        profile = SimpleNamespace(
+            provider="anthropic",
+            model="glm-5.2",
+            account="kimi-k3-anthropic",
+            temperature=0.4,
+            max_tokens=8192,
+            __pydantic_extra__={},
+        )
+        mock_settings = MagicMock()
+        mock_settings.load_profiles.return_value = {"kimi-anthropic": profile}
+        mock_settings.get_provider_settings.return_value = {"api_key": "sk-moonshot"}
+
+        with patch("victor.config.settings.load_settings", return_value=mock_settings):
+            InitSynthesizer._resolve_provider_bootstrap("kimi-anthropic", None)
+
+        called = mock_settings.get_provider_settings.call_args
+        assert called.args[0] == "anthropic"
+        assert called.kwargs.get("account_name") == "kimi-k3-anthropic"
+
     def test_resolve_local_fallback_selection_avoids_non_ollama_default_model(self):
         """Local fallback should not reuse a remote provider's default model name."""
         mock_settings = MagicMock()
