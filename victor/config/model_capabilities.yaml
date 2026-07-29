@@ -657,13 +657,20 @@ models:
       code_generation: true
 
     providers:
+      # CodeLlama has no native function calling in the official Meta model
+      # (see MODEL_CARD.md); community function-calling variants are separate
+      # fine-tunes. A runtime can format tools into the prompt, but it cannot
+      # give the weights a capability they were never trained for — so no
+      # provider may claim native tool calls here.
       ollama:
         native_tool_calls: false
         requires_strict_prompting: true
       lmstudio:
-        native_tool_calls: true   # LMStudio can enable it
+        native_tool_calls: false
+        requires_strict_prompting: true
       vllm:
-        native_tool_calls: true
+        native_tool_calls: false
+        requires_strict_prompting: true
 
     settings:
       recommended_tool_budget: 8
@@ -968,7 +975,10 @@ models:
       recommended_tool_budget: 12
 
   "gemma:*":
-    # Legacy Gemma
+    # Legacy Gemma (1.x/2.x). Native function calling arrived with Gemma 4
+    # (and FunctionGemma for 3-270M) — both matched by their own patterns
+    # below. Base Gemma needs a separate fine-tune, which is why third-party
+    # *-Function-Calling variants exist. No runtime can substitute for that.
     training:
       tool_calling: false
 
@@ -977,9 +987,11 @@ models:
         native_tool_calls: false
         requires_strict_prompting: true
       lmstudio:
-        native_tool_calls: true
+        native_tool_calls: false
+        requires_strict_prompting: true
       vllm:
-        native_tool_calls: true
+        native_tool_calls: false
+        requires_strict_prompting: true
 
     settings:
       recommended_tool_budget: 8

@@ -109,6 +109,8 @@ if TYPE_CHECKING:
 from victor.agent.argument_normalizer import ArgumentNormalizer, NormalizationStrategy
 from victor.agent.message_history import MessageHistory
 from victor.agent.conversation.store import ConversationStore
+from victor.agent.prompt_prefix import apply_turn_prefix
+from victor.agent.system_nudges import log_dropped_system_nudge
 
 # DI container bootstrap
 from victor.core.bootstrap import ensure_bootstrapped, get_service_optional
@@ -2170,18 +2172,7 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
                 injector._last_failure_category = None
                 injector._last_failure_error = None
 
-        if prefix:
-            from victor.providers.base import Message as Msg
-
-            for i in range(len(messages) - 1, -1, -1):
-                if messages[i].role == "user":
-                    messages[i] = Msg(
-                        role="user",
-                        content=prefix + messages[i].content,
-                    )
-                    break
-
-        return messages
+        return apply_turn_prefix(messages, prefix)
 
     def _check_context_overflow(self, max_context_chars: int = 200000) -> bool:
         """Check if context is at risk of overflow.
@@ -3201,9 +3192,7 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
                 # If content looks like a nudge (e.g. "[FILES: ...]" or budget warning),
                 # update reminder_manager state instead of appending.
                 if content.startswith("[") and content.endswith("]"):
-                    logger.debug("[cache] Intercepted system nudge for reminder_manager injection")
-                    # Note: Caller usually updates manager state before this;
-                    # if not, we simply skip appending to keep prefix stable.
+                    log_dropped_system_nudge(content)
                     return
 
         max_history = getattr(self.settings, "max_conversation_history", 100)
@@ -4433,24 +4422,23 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
         return ConversationStage.INITIAL
 
     def get_tool_calls_count(self) -> int:
-        """Get total tool calls made (protocol method).
+        """Get total tool calls made (protocol method), matching get_tool_budget().
 
         Returns:
             Non-negative count of tool calls in this session
         """
-        if self.unified_tracker:
-            return self.unified_tracker.tool_calls_used
-        return getattr(self, "tool_calls_used", 0)
+        return int(getattr(self, "tool_calls_used", 0) or 0)
 
     def get_tool_budget(self) -> int:
-        """Get tool call budget (protocol method).
+        """Get the *enforcing* tool budget (protocol method).
+
+        ``self.tool_budget`` seeds ``StreamingChatContext`` and halts the loop;
+        ``UnifiedTaskTracker`` is advisory by design and must not be quoted here.
 
         Returns:
             Maximum allowed tool calls
         """
-        if self.unified_tracker:
-            return self.unified_tracker.tool_budget
-        return getattr(self, "tool_budget", 50)
+        return int(getattr(self, "tool_budget", 50) or 50)
 
     def get_observed_files(self) -> Set[str]:
         """Get files observed/read during conversation (protocol method).

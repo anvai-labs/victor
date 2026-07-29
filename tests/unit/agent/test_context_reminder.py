@@ -106,7 +106,9 @@ class TestContextState:
         assert state.observed_files == set()
         assert state.executed_tools == []
         assert state.tool_calls_made == 0
-        assert state.tool_budget == 10
+        # No default budget: the runtime supplies the enforced number via
+        # update_state(). A hardcoded default here gets stated to the model as fact.
+        assert state.tool_budget is None
         assert state.task_complexity == "medium"
         assert state.task_hint == ""
         assert state.last_reminder_at == 0
@@ -726,3 +728,85 @@ class TestEdgeCases:
         idx_m = reminder.index("m.py")
         idx_z = reminder.index("z.py")
         assert idx_a < idx_m < idx_z
+
+
+# =============================================================================
+# BUDGET TRUTHFULNESS REGRESSION TESTS
+# =============================================================================
+#
+# Regression cover for the sandhi-cdfbc589 refusal (2026-07-26): the reminder
+# manager was constructed with a hardcoded budget of 10 that no enforcer used,
+# then counted down against it in messages injected into the model's context.
+# The model measured the claim as false and stopped working.
+
+
+class TestBudgetIsNeverInvented:
+    """The reminder must state a budget only when the runtime supplied one."""
+
+    def test_no_budget_reminder_when_budget_unknown(self):
+        """With no budget supplied, no countdown is emitted at any call count."""
+        manager = ContextReminderManager()
+
+        for calls in (0, 1, 5, 9, 50, 500):
+            manager.update_state(tool_calls=calls)
+            assert manager._format_budget_reminder() == ""
+            assert manager.should_inject_reminder(ReminderType.BUDGET) is False
+
+    def test_minimal_reminder_omits_budget_when_unknown(self):
+        """get_minimal_reminder must not fabricate a 'calls left' figure."""
+        manager = ContextReminderManager()
+        manager.update_state(tool_calls=100, observed_files={"a.py"})
+
+        minimal = manager.get_minimal_reminder()
+
+        assert minimal is not None
+        assert "calls left" not in minimal
+        assert "1 files read" in minimal
+
+    def test_consolidated_reminder_has_no_budget_claim_when_unknown(self):
+        """The consolidated string the model actually sees carries no budget."""
+        manager = ContextReminderManager()
+        manager.update_state(tool_calls=9, executed_tools=["read", "shell"])
+
+        reminder = manager.get_consolidated_reminder(force=True) or ""
+
+        assert "remaining" not in reminder
+        assert "wrap up" not in reminder
+
+    def test_budget_reminder_returns_once_runtime_supplies_one(self):
+        """Supplying the enforced budget re-enables the countdown."""
+        manager = ContextReminderManager()
+        manager.update_state(tool_calls=18, tool_budget=20)
+
+        assert "2 tool calls remaining" in manager._format_budget_reminder()
+
+    def test_factory_does_not_default_a_budget(self):
+        """create_reminder_manager must not seed a budget of its own."""
+        manager = create_reminder_manager(provider="zai", task_complexity="simple")
+
+        assert manager.state.tool_budget is None
+
+
+class TestProgressCountMatchesCallCount:
+    """Progress must report the same quantity the enforcer counts."""
+
+    def test_executed_tools_records_every_tool_in_a_parallel_batch(self):
+        """A batch of N calls contributes N names, not one."""
+        manager = ContextReminderManager()
+
+        manager.update_state(executed_tools=["read"], tool_calls=1)
+        manager.update_state(executed_tools=["code", "code", "code"], tool_calls=4)
+        manager.update_state(executed_tools=["shell", "shell"], tool_calls=6)
+
+        reminder = manager._format_progress_reminder()
+
+        assert "6 tools used" in reminder
+        assert manager.state.tool_calls_made == 6
+        assert len(manager.state.executed_tools) == manager.state.tool_calls_made
+
+    def test_singular_executed_tool_still_supported(self):
+        """The single-name form remains valid for non-batched callers."""
+        manager = ContextReminderManager()
+        manager.update_state(executed_tool="read", tool_calls=1)
+
+        assert manager.state.executed_tools == ["read"]

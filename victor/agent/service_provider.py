@@ -762,12 +762,14 @@ class OrchestratorServiceProvider:
 
         provider = getattr(self._settings, "provider", "unknown")
         task_complexity = "medium"
-        tool_budget = getattr(self._settings, "tool_budget", 10)
 
+        # No tool_budget here on purpose. `Settings` has no top-level `tool_budget`,
+        # so the previous `getattr(self._settings, "tool_budget", 10)` always yielded
+        # the literal 10 — which the reminder then counted down against and stated to
+        # the model as fact. The enforced budget arrives later via update_state().
         return create_reminder_manager(
             provider=provider,
             task_complexity=task_complexity,
-            tool_budget=tool_budget,
         )
 
     def _create_rl_coordinator(self) -> "RLLearningRuntimeProtocol":

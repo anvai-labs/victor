@@ -53,6 +53,82 @@ class ReminderType(Enum):
     CUSTOM = "custom"  # User-defined reminders
 
 
+def _declare_reminder_decisions() -> Dict[ReminderType, str]:
+    """Bind each emitted reminder to the decision it informs. See REMINDER_DECISIONS."""
+    return {
+        ReminderType.EVIDENCE: (
+            "whether a file still needs reading — files read in earlier turns can "
+            "fall out of a compacted context, so this is not derivable from history"
+        ),
+        ReminderType.BUDGET: (
+            "whether to start wrapping up — the enforced tool budget lives on the "
+            "runtime side and is never visible to the model"
+        ),
+        ReminderType.TASK_HINT: (
+            "how much exploration the task warrants, keyed on measured complexity "
+            "rather than the task-type guidance already in the system prompt"
+        ),
+        ReminderType.COMPACTION: (
+            "whether to re-read something that was summarised away — by definition "
+            "the model cannot see what was removed from its own context"
+        ),
+        # Deliberately absent, and must stay absent:
+        #   PROGRESS  — every tool_call and result is already serialised onto the
+        #               wire (openai_compat.build_openai_messages), so a count
+        #               restates visible information. It also undercounted.
+        #   GROUNDING — GROUNDING_RULES already ships in the system prompt every
+        #               turn; repeating it per-turn buys nothing.
+    }
+
+
+#: What decision the model makes with each reminder — the co-design contract for
+#: this boundary. A signal earns its place only if it informs a decision the model
+#: could not already make from what is in its context.
+#:
+#: Restating something already on the wire is not neutral: it costs tokens every
+#: turn and creates a second copy that can disagree with the first. In session
+#: sandhi-cdfbc589 the progress reminder reported "3 tools used" after eight calls
+#: (it appended one name per batch while the counter advanced per call). The model
+#: compared it with the tool calls in its own context, found it false, and treated
+#: the mismatch as evidence of tampering — a redundant signal could only agree
+#: (adding nothing) or disagree (actively misleading).
+#:
+#: Types absent from this mapping are not emitted. Adding one means answering:
+#: what does the model do with this that it could not do without it?
+REMINDER_DECISIONS: Dict["ReminderType", str] = {}
+
+
+def _declare_retired_reminders() -> Dict[ReminderType, str]:
+    """Types deliberately not emitted, and why. See REMINDER_DECISIONS."""
+    return {
+        ReminderType.PROGRESS: (
+            "every tool_call and its result is already serialised onto the wire "
+            "(openai_compat.build_openai_messages), so a per-turn count restates "
+            "what the model can see — and in sandhi-cdfbc589 it restated it wrongly"
+        ),
+        ReminderType.GROUNDING: (
+            "GROUNDING_RULES already ships in the system prompt on every turn; "
+            "repeating it per-turn costs tokens and buys no new decision"
+        ),
+    }
+
+
+REMINDER_DECISIONS = _declare_reminder_decisions()
+RETIRED_REMINDERS = _declare_retired_reminders()
+
+
+def _is_emittable(reminder_type: "ReminderType") -> bool:
+    """Whether this type may reach the model.
+
+    CUSTOM is exempt: it carries a caller-supplied formatter, so the caller owns
+    the justification for it. Every built-in type must appear in
+    REMINDER_DECISIONS, or it is one we deliberately retired.
+    """
+    if reminder_type is ReminderType.CUSTOM:
+        return True
+    return reminder_type in REMINDER_DECISIONS
+
+
 @dataclass
 class ReminderConfig:
     """Configuration for reminder injection behavior.
@@ -84,7 +160,8 @@ class ContextState:
         observed_files: Files that have been read
         executed_tools: Tools that have been executed
         tool_calls_made: Total tool calls in this turn
-        tool_budget: Maximum tool calls allowed
+        tool_budget: Maximum tool calls allowed, or None if the runtime has not
+            supplied one yet (budget reminders stay silent while it is None)
         task_complexity: Current task complexity level
         last_reminder_at: Tool call count at last reminder
         reminder_history: Hash of last reminder content to detect changes
@@ -93,7 +170,9 @@ class ContextState:
     observed_files: Set[str] = field(default_factory=set)
     executed_tools: List[str] = field(default_factory=list)
     tool_calls_made: int = 0
-    tool_budget: int = 10
+    # None means "not yet told by the runtime". Budget reminders are suppressed
+    # entirely in that state — never invent a limit and count down against it.
+    tool_budget: Optional[int] = None
     task_complexity: str = "medium"
     task_hint: str = ""
     last_reminder_at: int = 0
@@ -205,6 +284,7 @@ class ContextReminderManager:
         tool_budget: Optional[int] = None,
         task_complexity: Optional[str] = None,
         task_hint: Optional[str] = None,
+        executed_tools: Optional[List[str]] = None,
     ) -> None:
         """Update the current context state.
 
@@ -215,10 +295,16 @@ class ContextReminderManager:
             tool_budget: Maximum tool calls allowed
             task_complexity: Current task complexity level
             task_hint: Task type hint to inject
+            executed_tools: Every tool executed in this batch (appends all). Prefer
+                this over ``executed_tool`` when a turn executes tools in parallel —
+                the progress reminder reports ``len(executed_tools)``, so appending
+                one name per batch understates the work done.
         """
         if observed_files is not None:
             self.state.observed_files = observed_files
-        if executed_tool:
+        if executed_tools:
+            self.state.executed_tools.extend(executed_tools)
+        elif executed_tool:
             self.state.executed_tools.append(executed_tool)
         if tool_calls is not None:
             self.state.tool_calls_made = tool_calls
@@ -246,6 +332,12 @@ class ContextReminderManager:
         Returns:
             True if the reminder should be injected
         """
+        # A type with no declared consumer decision is not emitted. This is the
+        # gate, not the config: disabling by config alone would leave the
+        # formatter reachable and let the signal creep back in via `force=True`.
+        if not _is_emittable(reminder_type):
+            return False
+
         config = self.configs.get(reminder_type)
         if not config or not config.enabled:
             return False
@@ -258,8 +350,12 @@ class ContextReminderManager:
                 self.state.task_hint and ReminderType.TASK_HINT not in self.state.reminder_history
             )
 
-        # Special case: budget reminder only when running low
+        # Special case: budget reminder only when running low — and only when the
+        # runtime has actually told us the budget. Guessing one and counting down
+        # against it tells the model something it can measure as false.
         if reminder_type == ReminderType.BUDGET:
+            if self.state.tool_budget is None:
+                return False
             remaining = self.state.tool_budget - self.state.tool_calls_made
             return remaining <= 5 and remaining > 0
 
@@ -284,7 +380,9 @@ class ContextReminderManager:
         return "[No files read yet — gather evidence with the available tools before answering.]"
 
     def _format_budget_reminder(self) -> str:
-        """Format the budget reminder."""
+        """Format the budget reminder (empty when no budget has been supplied)."""
+        if self.state.tool_budget is None:
+            return ""
         remaining = self.state.tool_budget - self.state.tool_calls_made
         if remaining <= 3:
             warning_icon = self._presentation.icon("warning", with_color=False)
@@ -333,6 +431,8 @@ class ContextReminderManager:
         Returns:
             The formatted reminder string, or None if not needed
         """
+        if not _is_emittable(reminder_type):
+            return None
         if not self.should_inject_reminder(reminder_type):
             return None
 
@@ -386,6 +486,8 @@ class ContextReminderManager:
             if reminder_type == ReminderType.CUSTOM:
                 continue
 
+            if not _is_emittable(reminder_type):
+                continue
             if force or self.should_inject_reminder(reminder_type):
                 content = self.get_reminder(reminder_type)
                 if content:
@@ -436,11 +538,12 @@ class ContextReminderManager:
         """
         parts = []
 
-        # Budget warning is critical
-        remaining = self.state.tool_budget - self.state.tool_calls_made
-        if remaining <= 3:
-            warning_icon = self._presentation.icon("warning", with_color=False)
-            parts.append(f"{warning_icon} {remaining} calls left")
+        # Budget warning is critical — but only when a budget is actually known.
+        if self.state.tool_budget is not None:
+            remaining = self.state.tool_budget - self.state.tool_calls_made
+            if remaining <= 3:
+                warning_icon = self._presentation.icon("warning", with_color=False)
+                parts.append(f"{warning_icon} {remaining} calls left")
 
         # File count
         if self.state.observed_files:
@@ -487,14 +590,16 @@ class ContextReminderManager:
 def create_reminder_manager(
     provider: str,
     task_complexity: str = "medium",
-    tool_budget: int = 10,
+    tool_budget: Optional[int] = None,
 ) -> ContextReminderManager:
     """Create a configured reminder manager for a task.
 
     Args:
         provider: The LLM provider name
         task_complexity: Task complexity level
-        tool_budget: Maximum tool calls allowed
+        tool_budget: Maximum tool calls allowed. Leave as None at construction time
+            and let the runtime supply the enforced budget via ``update_state`` —
+            a hardcoded default here is stated to the model as fact.
 
     Returns:
         Configured ContextReminderManager instance

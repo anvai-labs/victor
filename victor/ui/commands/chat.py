@@ -1900,7 +1900,12 @@ async def run_oneshot(
                 if renderer_choice in {"rich-text", "text"}:
                     use_live = False
                 renderer = (
-                    LiveDisplayRenderer(console)
+                    LiveDisplayRenderer(
+                        console,
+                        tool_budget_source=lambda: _coerce_cli_int(
+                            getattr(agent, "tool_budget", None)
+                        ),
+                    )
                     if use_live
                     else FormatterRenderer(formatter, console)
                 )
@@ -2553,11 +2558,10 @@ def _build_cli_runtime_segment(
 
     parts: list[str] = []
     tool_calls_used = _coerce_cli_int(getattr(agent, "tool_calls_used", None))
+    # No settings fallback: settings.tools.tool_call_budget is the whole-session cap
+    # (BUDGET_LIMITS.max_session_budget = 2000), not the per-turn budget this counter
+    # is measured against. Pairing them showed "Tools 16/2000" while 20 was enforced.
     tool_budget = _coerce_cli_int(getattr(agent, "tool_budget", None))
-    if tool_budget is None:
-        tool_budget = _coerce_cli_int(
-            getattr(getattr(settings, "tools", None), "tool_call_budget", None)
-        )
     if tool_calls_used is not None and tool_budget is not None:
         label = "t" if compact else "Tools"
         parts.append(f"{label} {tool_calls_used}/{tool_budget}")
@@ -3342,7 +3346,12 @@ async def _run_cli_repl(
 
                 use_live = renderer_choice in {"rich", "auto"}
                 if use_live:
-                    renderer = LiveDisplayRenderer(console)
+                    renderer = LiveDisplayRenderer(
+                        console,
+                        tool_budget_source=lambda: _coerce_cli_int(
+                            getattr(agent, "tool_budget", None)
+                        ),
+                    )
                 else:
                     formatter = create_formatter()
                     renderer = FormatterRenderer(formatter, console)

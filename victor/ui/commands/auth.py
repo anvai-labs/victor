@@ -319,16 +319,36 @@ def auth_add(
         config.defaults.account = name
         manager.save_config(config)
 
-    # Save API key to keyring if provided
+    # Save API key to keyring if provided.
+    #
+    # The keyring slot keyring["victor", "{provider}_api_key"] is PROVIDER-scoped
+    # (shared across every account of a provider). Writing it for a *named,
+    # non-default* account clobbers the credential of the other accounts under the
+    # same provider — the exact failure that let an anthropic-dialect account
+    # overwrite the real Anthropic key. The account's key is already persisted
+    # per-account in auth.value (config.yaml, 0600) and resolve_provider_config()
+    # reads that first, so account-scoped resolution never needs this slot.
+    #
+    # We still populate it for the provider's default account (name defaults to
+    # "default", or --default was passed) so the plain single-account onboarding
+    # (`victor auth add -p anthropic -m ...`) and external keyring readers
+    # (auth env / status) keep working.
+    is_provider_default = name == "default" or set_default
     if api_key and auth_method == "api_key" and source == "keyring":
-        try:
-            from victor.config.api_keys import _set_key_in_keyring
+        if is_provider_default:
+            try:
+                from victor.config.api_keys import _set_key_in_keyring
 
-            _set_key_in_keyring(provider, api_key)
-            console.print("[green]✓[/] API key saved to keyring")
-        except Exception as e:
-            console.print(f"[yellow]⚠[/] Could not save to keyring: {e}")
-            console.print("[dim]API key stored in config file instead[/]")
+                _set_key_in_keyring(provider, api_key)
+                console.print("[green]✓[/] API key saved to keyring")
+            except Exception as e:
+                console.print(f"[yellow]⚠[/] Could not save to keyring: {e}")
+                console.print("[dim]API key stored in config file instead[/]")
+        else:
+            console.print(
+                f"[green]✓[/] API key stored account-scoped for '{name}' "
+                "(shared keyring slot left untouched)"
+            )
 
     console.print(f"[green]✓[/] Account '{name}' added successfully")
     if profile_synced:
@@ -1532,22 +1552,34 @@ class AuthSetupWizard:
         # profiles.yaml.
         self.state["saved_account"] = account
 
-        # Save API key to keyring
-        if self.state["auth_method"] == "api_key" and "api_key" in self.state:
-            try:
-                from victor.config.api_keys import _set_key_in_keyring
+        # First account for this config becomes the provider default.
+        accounts = self.account_manager.list_accounts()
+        is_default = len(accounts) == 1
 
-                _set_key_in_keyring(
-                    self.state["selected_provider"],
-                    self.state["api_key"],
+        # Save API key to keyring only for the default account. The shared
+        # keyring["victor", "{provider}_api_key"] slot is provider-scoped, so writing
+        # it for a non-default account would clobber the other accounts' credentials.
+        # Every account already carries its own key in auth.value (read first by
+        # resolve_provider_config), so account-scoped resolution never needs this slot.
+        if self.state["auth_method"] == "api_key" and "api_key" in self.state:
+            if is_default:
+                try:
+                    from victor.config.api_keys import _set_key_in_keyring
+
+                    _set_key_in_keyring(
+                        self.state["selected_provider"],
+                        self.state["api_key"],
+                    )
+                    self.console.print("[green]✓[/] API key saved to keyring")
+                except Exception as e:
+                    self.console.print(f"[yellow]⚠[/] Could not save to keyring: {e}")
+            else:
+                self.console.print(
+                    f"[green]✓[/] API key stored account-scoped for '{account.name}'"
                 )
-                self.console.print("[green]✓[/] API key saved to keyring")
-            except Exception as e:
-                self.console.print(f"[yellow]⚠[/] Could not save to keyring: {e}")
 
         # Set as default if it's the first account
-        accounts = self.account_manager.list_accounts()
-        if len(accounts) == 1:
+        if is_default:
             config = self.account_manager.load_config()
             config.defaults.account = account.name
             self.account_manager.save_config(config)
