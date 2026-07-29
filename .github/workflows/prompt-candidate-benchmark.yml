@@ -1,0 +1,101 @@
+name: Prompt-candidate benchmark gate
+
+# Gates a prompt-candidate change on the CLASSIFIED benchmark verdict.
+#
+# Trust model (why green/red can be automated):
+#   - The suite runs ON THE PR BRANCH, so the measurement is on-target by
+#     construction — the stale-tree confound that produced a +9/60 "winner" that
+#     was a -10/60 regression cannot exist here.
+#   - --ci-gate exits non-zero unless the verdict is GREEN, and every red is
+#     CLASSIFIED (red_incomplete / red_throttled / red_unrecorded /
+#     red_cross_provider / red_no_baseline / red_refused), so a red routes to
+#     its fix (re-run / re-run-with-quota / fix-infra / re-evolve) instead of a
+#     human diagnosis. A statistical verdict only fires on a valid measurement.
+#
+# Opt-in: a ~3h, quota-burning run is not per-PR. Trigger manually with the
+# candidate hashes; merge the PR only if this workflow goes green.
+#
+# Requires: the DEEPSEEK_API_KEY repo secret, and the --ci-gate flag + the
+# classified-verdict classifier (PRs #722 harness fix, #723 classifier, and the
+# run-prompt-suite --ci-gate wiring). Uses --provider/--model + the secret
+# directly so it does not depend on a local keyring account.
+
+on:
+  workflow_dispatch:
+    inputs:
+      benchmark:
+        description: "Benchmark to run (mbpp, humaneval)"
+        required: true
+        default: mbpp
+      prompt_section:
+        description: "Prompt section the candidates target"
+        required: true
+        default: GROUNDING_RULES
+      candidate_hashes:
+        description: "Space-separated candidate hashes to evaluate"
+        required: true
+      n:
+        description: "Tasks per arm (>=60 for the noise floor to clear)"
+        required: false
+        default: "60"
+      provider:
+        description: "Provider (reads <PROVIDER>_API_KEY from secrets)"
+        required: false
+        default: deepseek
+      model:
+        description: "Model id for the provider"
+        required: false
+        default: deepseek-v4-flash
+
+permissions:
+  contents: read
+
+jobs:
+  benchmark-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    env:
+      # Map the provider choice to its secret. Add more providers as needed.
+      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+      CANDIDATE_HASHES: ${{ inputs.candidate_hashes }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install victor + benchmark deps
+        run: |
+          python -m pip install --upgrade pip
+          # CPU torch keeps the runner lean; the benchmark doesn't need CUDA.
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          # In-repo contracts FIRST so victor-ai resolves the local SDK, not PyPI.
+          pip install --no-cache-dir -e ./victor-contracts
+          pip install --no-cache-dir -e ".[dev,ci,api,embeddings]"
+          pip install --no-cache-dir --no-deps -e ./victor-contracts
+          # Benchmark runtime deps not pulled by the extras above.
+          pip install --no-cache-dir datasets sentencepiece protobuf
+          python -c "import victor, lancedb, datasets; print('install OK')"
+
+      - name: Run prompt-candidate suite (classified gate)
+        run: |
+          set -euo pipefail
+          # Expand the space-separated hashes into repeated --candidate-hash flags.
+          hashes=()
+          for h in $CANDIDATE_HASHES; do hashes+=(--candidate-hash "$h"); done
+          if [ ${#hashes[@]} -eq 0 ]; then
+            echo "::error::no candidate_hashes supplied"
+            exit 2
+          fi
+          # --ci-gate makes the exit code the gate: 0 = GREEN (merge), 1 = a
+          # classified red (see the VERDICT= line it prints for the routing reason).
+          victor benchmark run-prompt-suite "${{ inputs.benchmark }}" \
+            --prompt-section "${{ inputs.prompt_section }}" \
+            "${hashes[@]}" \
+            --include-baseline \
+            -n "${{ inputs.n }}" \
+            --record-benchmark-results \
+            --ci-gate \
+            --provider "${{ inputs.provider }}" \
+            --model "${{ inputs.model }}"
