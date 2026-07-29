@@ -40,6 +40,7 @@ concurrency:
 
 permissions:
   contents: read
+  issues: write  # report job opens/comments a tracking issue when the nightly is red
 
 jobs:
   full-suite:
@@ -136,4 +137,35 @@ jobs:
               echo "This job does not gate merges. It is a signal, not a block."
             } >> "$GITHUB_STEP_SUMMARY"
             exit 1
+          fi
+
+      - name: Notify on failure (tracking issue)
+        # The summary above is invisible unless someone opens the run. Surface a red
+        # nightly as a repo issue so it isn't missed — reuses one open tracking issue
+        # (comments on it) rather than spamming a new issue per night. Runs even though
+        # the Summarise step exited 1 (if: always()).
+        if: ${{ always() && needs.full-suite.result != 'success' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          title="🟥 Nightly develop suite is red"
+          {
+            echo "The nightly develop unit suite failed."
+            echo ""
+            echo "Failed run: ${RUN_URL}"
+            echo ""
+            echo "Every PR merged since the last green nightly is a candidate — the"
+            echo "window is one day's merges rather than a release delta, so bisect"
+            echo "there first."
+            echo ""
+            echo "_(Signal only — this does not gate merges; ci-fast still gates PRs.)_"
+          } > /tmp/nightly-body.md
+          num=$(gh issue list --state open --search "Nightly develop suite is red in:title" \
+                  --json number --jq '.[].number' | head -n1 || true)
+          if [ -n "$num" ]; then
+            gh issue comment "$num" --body-file /tmp/nightly-body.md
+          else
+            gh issue create --title "$title" --body-file /tmp/nightly-body.md
           fi
