@@ -1018,11 +1018,46 @@ class MBPPRunner(BaseBenchmarkRunner):
         return self._filter_tasks(tasks, config)
 
     def _build_prompt(self, item: dict) -> str:
-        """Build the prompt for the agent."""
+        """Build the prompt for the agent.
+
+        Includes the function name the tests call, extracted from
+        ``test_list`` — see :meth:`_expected_function_name` for why revealing
+        it is the harness's job, not the prompt's.
+        """
+        text = item["text"]
+        name = self._expected_function_name(item)
+        name_hint = (
+            f"\n\nThe test suite calls your solution as ``{name}(...)``; define "
+            "it with that exact name."
+            if name
+            else ""
+        )
         return f'''"""
-{item["text"]}
+{text}{name_hint}
 """
 '''
+
+    def _expected_function_name(self, item: dict) -> str | None:
+        """The function name the tests call, or None if it can't be parsed.
+
+        MBPP's task ``text`` is prose; the function name lives only in
+        ``test_list``, which the runner appends *after* the agent has written
+        its solution. A name the agent cannot see is unguessable, so identifier
+        mismatch (``NameError``) is benchmark noise rather than a prompt-quality
+        signal — an n=60 run produced 38 such failures, and the "match test
+        identifiers" prompt candidate was net-negative precisely because the
+        identifiers are hidden at solution time. HumanEval hands the agent the
+        full signature; revealing the name here isolates logic from
+        name-inference luck and leaves residual failures that prompt evolution
+        can actually act on.
+        """
+        import re
+
+        for test in item.get("test_list", []):
+            match = re.search(r"\bassert\s+(\w+)\s*\(", test)
+            if match:
+                return match.group(1)
+        return None
 
     def _build_test_code(self, item: dict) -> str:
         """Build test code from test_list."""
