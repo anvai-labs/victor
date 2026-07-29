@@ -415,7 +415,11 @@ class ChatStreamHelperMixin:
 
                 orch.add_message(
                     "user",
-                    f"[SYSTEM-REMINDER: {intelligent_context['system_prompt_addition']}]",
+                    # No "[SYSTEM-REMINDER:" prefix: the authenticated envelope
+                    # (FEP-0026) already marks this as runtime guidance, and it is
+                    # the only marker the model can verify. An inner unkeyed label
+                    # would teach it that unverifiable provenance markers are normal.
+                    intelligent_context["system_prompt_addition"],
                     metadata=build_internal_history_metadata(
                         "system_reminder", source=MessageSource.AGENT_GUIDANCE
                     ),

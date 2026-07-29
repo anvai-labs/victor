@@ -108,6 +108,7 @@ if TYPE_CHECKING:
 # Runtime imports - used for instantiation, enums, constants, or function calls
 from victor.agent.argument_normalizer import ArgumentNormalizer, NormalizationStrategy
 from victor.agent.message_history import MessageHistory
+from victor.agent.control_plane import envelope_if_internal
 from victor.agent.conversation.store import ConversationStore
 from victor.agent.prompt_prefix import apply_turn_prefix
 from victor.agent.system_nudges import log_dropped_system_nudge
@@ -2144,10 +2145,9 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
                     runtime_context_overrides.get("prompt_overlays")
                 )
 
-            # Get context reminders
-            reminder_mgr = getattr(self, "_reminder_manager", None)
+            reminder_mgr = getattr(self, "reminder_manager", None)
             if reminder_mgr:
-                turn_ctx.reminder_text = reminder_mgr.get_user_message_prefix()
+                turn_ctx.reminder_text = reminder_mgr.get_consolidated_reminder()
 
             # Get last user message text for KNN few-shot matching
             last_user_msg = ""
@@ -3184,13 +3184,13 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
             self.conversation.add_preview_message(role, content, preview_metadata)
             return
 
+        _nonce = getattr(getattr(self, "_prompt_pipeline", None), "_channel_nonce", "")
+        content = envelope_if_internal(role, content, kwargs.get("metadata"), _nonce)
         # Intercept dynamic system nudges for cache-friendly injection
         if role == "system" and getattr(self, "_cache_optimization_enabled", False):
             # Check if history already contains a system message (the root prompt)
             has_root_system = any(m.role == "system" for m in self.conversation._messages)
             if has_root_system and hasattr(self, "reminder_manager") and self.reminder_manager:
-                # If content looks like a nudge (e.g. "[FILES: ...]" or budget warning),
-                # update reminder_manager state instead of appending.
                 if content.startswith("[") and content.endswith("]"):
                     log_dropped_system_nudge(content)
                     return
