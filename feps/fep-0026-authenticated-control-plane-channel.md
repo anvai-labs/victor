@@ -2,9 +2,9 @@
 fep: "0026"
 title: "Authenticated control-plane channel for framework-authored guidance"
 type: Standards Track
-status: Draft
+status: Review
 created: 2026-07-27
-modified: 2026-07-27
+modified: 2026-07-28
 authors:
   - name: Vijaykumar Singh
     email: singhvjd@gmail.com
