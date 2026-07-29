@@ -2289,6 +2289,7 @@ class TestBenchmarkSyncBridge:
                 apply_rollout_decision=False,
                 rollout_decision_dry_run=False,
                 min_approval_pass_rate=0.5,
+                ci_gate=False,
             )
 
         mock_async.assert_called_once()

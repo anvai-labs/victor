@@ -495,6 +495,32 @@ def _print_prompt_optimizer_sync_summary(sync_result) -> None:
         console.print("[yellow]No candidate met the benchmark approval threshold.[/]")
 
 
+def _print_suite_verdict(verdict: Any, reason: str) -> None:
+    """Print the classified verdict — color by trust, with a machine-parseable line.
+
+    This is the gate signal a CI workflow consumes. It replaces the ambiguity
+    where "no candidate met the threshold" read identically for a valid
+    statistical loss and for a result that was never recorded: the verdict
+    names whether the measurement was valid at all, and routes the red.
+    """
+    from victor.evaluation.suite_verdict import SuiteVerdict
+
+    routing = {
+        SuiteVerdict.GREEN: ("GREEN", "promote / merge"),
+        SuiteVerdict.RED_REFUSED: ("RED_REFUSED", "re-evolve"),
+        SuiteVerdict.RED_INCOMPLETE: ("RED_INCOMPLETE", "re-run"),
+        SuiteVerdict.RED_THROTTLED: ("RED_THROTTLED", "re-run with quota"),
+        SuiteVerdict.RED_UNRECORDED: ("RED_UNRECORDED", "fix infra"),
+        SuiteVerdict.RED_CROSS_PROVIDER: ("RED_CROSS_PROVIDER", "re-run same provider"),
+        SuiteVerdict.RED_NO_BASELINE: ("RED_NO_BASELINE", "add a baseline arm"),
+    }
+    label, action = routing[verdict]
+    style = "bold green" if verdict is SuiteVerdict.GREEN else "bold red"
+    console.print(f"\n[{style}]Suite verdict: {label} — {action}[/]")
+    console.print(f"[dim]  reason: {reason}[/]")
+    console.print(f"VERDICT={verdict.value}")
+
+
 def _ensure_benchmark_runtime_tools(adapter) -> object:
     """Fail fast when the benchmark session is missing required core tools."""
     readiness = adapter.get_benchmark_tool_readiness()
@@ -1451,10 +1477,23 @@ def run_prompt_suite(
         max=1.0,
         help="Minimum pass rate the suite winner must reach before benchmark approval.",
     ),
+    ci_gate: bool = typer.Option(
+        False,
+        "--ci-gate",
+        help=(
+            "Exit non-zero unless the suite is GREEN (valid measurement + cleared the "
+            "comparative gate). For CI: a classified red carries its routing reason "
+            "(re-run / re-run-with-quota / fix-infra / re-evolve) instead of an ambiguous "
+            "failure. Requires --record-benchmark-results."
+        ),
+    ),
 ) -> None:
     """Run one benchmark evaluation per prompt candidate and drive rollout decisions safely."""
     _configure_log_level(log_level, debug_modules=debug_modules)
 
+    if ci_gate and not record_benchmark_results:
+        console.print("[bold red]Error:[/] --ci-gate requires --record-benchmark-results")
+        raise typer.Exit(1)
     if promote_best and not record_benchmark_results:
         console.print("[bold red]Error:[/] --promote-best requires --record-benchmark-results")
         raise typer.Exit(1)
@@ -1608,6 +1647,18 @@ def run_prompt_suite(
         prompt_rollout_analysis = workflow.prompt_rollout_analysis
         prompt_rollout_decision = workflow.prompt_rollout_decision
         _print_prompt_optimizer_sync_summary(prompt_optimizer_sync)
+
+        # Classified gate signal: validity is asserted before any statistical
+        # claim, so green/red is trustworthy enough to automate. See
+        # victor.evaluation.suite_verdict.
+        from victor.evaluation.suite_verdict import SuiteVerdict, verdict_from_sync
+
+        suite_verdict, suite_verdict_reason = verdict_from_sync(
+            suite, prompt_optimizer_sync, min_tasks=max_tasks or 0
+        )
+        _print_suite_verdict(suite_verdict, suite_verdict_reason)
+        if ci_gate and suite_verdict is not SuiteVerdict.GREEN:
+            raise typer.Exit(1)
         if prompt_rollout is not None:
             if prompt_rollout.get("created"):
                 console.print(
