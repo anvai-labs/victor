@@ -1,5 +1,5 @@
 ---
-fep: "0026"
+fep: "0027"
 title: "Settle partial usage when a model stream aborts"
 type: Standards Track
 status: Draft
