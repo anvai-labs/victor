@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Block third-party AI-agent authorship attribution in commit messages.
+# The human drives the code, not the agents (Claude/Codex/Gemini/Copilot/...).
+# Our own agent — victor-code-ai — is the allowed first-party exception.
+# Active when core.hooksPath=.githooks (see CONTRIBUTING.md / repo setup).
+# Bypass once with `git commit --no-verify`.
+set -euo pipefail
+
+root="$(git rev-parse --show-toplevel)"
+checker="$root/scripts/ci/check_no_agent_attribution.py"
+
+# Fail open only if the checker is missing (older checkouts); otherwise enforce.
+if [ -f "$checker" ]; then
+  exec python3 "$checker" --message-file "$1"
+fi

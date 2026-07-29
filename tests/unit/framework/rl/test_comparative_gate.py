@@ -287,3 +287,104 @@ class TestAnAbortedArmIsNotRecorded:
 
         assert [d.prompt_candidate_hash for d in result.decisions] == ["cand-better"]
         assert result.decisions[0].paired_contrast.n_paired == 9
+
+
+class TestCrossProviderRecording:
+    """A candidate evolved under one provider but measured under another must
+    still be recordable.
+
+    Serving already resolves this: ``optimization_injector`` falls back to
+    ``find_candidate_any_provider`` so the candidate's *text* is injected when
+    the run's provider differs from where it was evolved. Recording used
+    ``_find_candidate`` with no such fallback, so a cross-provider run that
+    cleared the gate reported ``recorded=False`` and was silently dropped —
+    ``decision.passed = passed AND recorded``. In practice every candidate is
+    measured cross-provider (evolved under whichever provider had quota,
+    benchmarked under whichever has it now), so this discarded every real
+    result. An n=60 run measured a +9/60 winner this way and reported "no
+    candidate met the threshold" because the result could not be written back.
+    """
+
+    STORED_PROVIDER = "moonshot"
+    RUN_PROVIDER = "deepseek"
+
+    @pytest.fixture
+    def cross_learner(self):
+        """One candidate stored under STORED_PROVIDER; arms will name RUN_PROVIDER."""
+        conn = sqlite3.connect(":memory:")
+        try:
+            learner = PromptOptimizerLearner(name="test", db_connection=conn)
+            learner._candidates[learner._candidate_key(SECTION, self.STORED_PROVIDER)] = [
+                PromptCandidate(
+                    section_name=SECTION,
+                    provider=self.STORED_PROVIDER,
+                    text="candidate measured under a different provider",
+                    text_hash="cand-cross",
+                    generation=1,
+                    parent_hash="seed",
+                    requires_benchmark=True,
+                )
+            ]
+            yield learner
+        finally:
+            conn.close()
+
+    @staticmethod
+    def _arm(
+        candidate_hash: str, outcomes: list[bool], provider: str
+    ) -> PromptCandidateEvaluationRun:
+        config = EvaluationConfig(
+            benchmark=BenchmarkType.HUMAN_EVAL,
+            model="glm-5.2",
+            provider=provider,
+            prompt_candidate_hash=candidate_hash,
+            prompt_section_name=SECTION,
+        )
+        return PromptCandidateEvaluationRun(
+            spec=PromptCandidateEvaluationSpec(
+                section_name=SECTION, prompt_candidate_hash=candidate_hash, provider=provider
+            ),
+            config=config,
+            result=EvaluationResult(
+                config=config,
+                task_results=[
+                    TaskResult(
+                        task_id=f"task-{i}",
+                        status=TaskStatus.PASSED if ok else TaskStatus.FAILED,
+                    )
+                    for i, ok in enumerate(outcomes)
+                ],
+            ),
+            label=f"{SECTION}:{candidate_hash}",
+        )
+
+    def test_record_benchmark_result_attributes_across_providers(self, cross_learner):
+        """The direct recording call must find the candidate by section+hash
+        even when the run provider differs from where it was stored."""
+        recorded = cross_learner.record_benchmark_result(
+            section_name=SECTION,
+            provider=self.RUN_PROVIDER,
+            text_hash="cand-cross",
+            score=0.7,
+            passed=True,
+        )
+
+        assert recorded is not None, "cross-provider result was silently dropped"
+        assert recorded.benchmark_runs >= 1
+        assert recorded.benchmark_passed is True
+
+    def test_a_gate_clearing_cross_provider_run_is_approved(self, cross_learner):
+        """The n=60 scenario: a winner stored under moonshot, measured under
+        deepseek, beating the seed by enough to clear the noise floor."""
+        baseline = self._arm(BASELINE_CANDIDATE_HASH, outcomes("PFFFFFFFFF"), self.RUN_PROVIDER)
+        winner = self._arm("cand-cross", outcomes("PPPPPPPFFF"), self.RUN_PROVIDER)
+
+        result = cross_learner.sync_evaluation_suite(suite(baseline, winner), min_discordant=6)
+
+        decision = result.decisions[0]
+        assert decision.paired_contrast.effect == 6, "the measurement itself is valid"
+        assert (
+            decision.passed is True
+        ), "a gate-clearing result must not be discarded for provider mismatch"
+        assert result.approved_prompt_candidate_hash == "cand-cross"
+        assert decision.recorded is True

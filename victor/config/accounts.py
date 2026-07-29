@@ -478,8 +478,14 @@ class AccountManager:
 
         Resolution order:
         1. Account name (if provided)
-        2. Provider + model match
-        3. Default account from config
+        2. Provider + model match (most specific)
+        3. Provider-only match (first account for that provider)
+        4. Default account from config — ONLY when no provider was requested
+
+        Provider invariant: a provider-scoped lookup never returns an account
+        of a different provider. If a provider is requested but has no account,
+        None is returned so callers degrade to provider-scoped env/keyring
+        resolution rather than silently using another provider's credentials.
 
         Args:
             name: Account name to lookup
@@ -499,14 +505,28 @@ class AccountManager:
             logger.debug(f"Account not found: {name}")
             return None
 
-        # 2. Match by provider + model
+        # 2. Match by provider + model (most specific)
         if provider and model:
             for account in config.list_accounts():
                 if account.provider == provider and account.model == model:
                     return account
             logger.debug(f"No account found for {provider}/{model}")
 
-        # 3. Return default account
+        # 3. Match by provider only — NEVER cross providers. A provider-scoped
+        # request must resolve to an account of THAT provider (the first one),
+        # or None. Returning a different provider's global default here is what
+        # previously made ``account: null`` profiles on keyring/OAuth-only
+        # providers silently resolve the wrong credential: ``get_account(
+        # provider="anthropic")`` returned the ollama ``default`` account.
+        if provider:
+            for account in config.list_accounts():
+                if account.provider == provider:
+                    return account
+            logger.debug(f"No account found for provider '{provider}'")
+            return None
+
+        # 4. Return the global default account — only when no provider was
+        # requested (e.g. ``auth test`` with no flags wants the default account).
         default_name = config.defaults.account
         return config.get_account(default_name)
 
