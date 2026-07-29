@@ -88,12 +88,8 @@ class TestProviderConstrainedFallback:
         assert result.name == "claude"
 
     def test_provider_plus_model_pins_exact_account(self, manager):
-        manager.save_account(
-            _acct("claude", "anthropic", model="claude-sonnet", key="sk-sonnet")
-        )
-        manager.save_account(
-            _acct("haiku", "anthropic", model="claude-haiku", key="sk-haiku")
-        )
+        manager.save_account(_acct("claude", "anthropic", model="claude-sonnet", key="sk-sonnet"))
+        manager.save_account(_acct("haiku", "anthropic", model="claude-haiku", key="sk-haiku"))
 
         result = manager.get_account(provider="anthropic", model="claude-haiku")
         assert result.name == "haiku"
