@@ -1987,6 +1987,18 @@ class PromptOptimizerLearner(BaseLearner):
         """
         candidate = self._find_candidate(section_name, provider, text_hash)
         if candidate is None:
+            # A candidate served cross-provider — evolved under one provider,
+            # measured under another — must still be recordable. Serving resolves
+            # it via ``find_candidate_any_provider`` (optimization_injector), so
+            # the candidate's text is injected correctly; recording has to agree
+            # or the measurement is silently discarded. ``recorded=False`` forces
+            # ``decision.passed`` false however strongly the candidate won, so
+            # every cross-provider benchmark (all of them, in practice) reported
+            # "no candidate met the threshold" on results that cleared the gate.
+            candidate = self.find_candidate_any_provider(
+                section_name=section_name, text_hash=text_hash
+            )
+        if candidate is None:
             return None
 
         previous_runs = candidate.benchmark_runs
