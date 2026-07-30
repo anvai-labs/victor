@@ -1,4 +1,4 @@
-# ADR 015: Victor Core Adopts victor-codegraph as the Foundational Code Parser
+# ADR-015: Victor Core Adopts victor-codegraph as the Foundational Code Parser
 
 ## Metadata
 

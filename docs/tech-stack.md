@@ -217,7 +217,7 @@ erDiagram
 ## Technical Debt Register
 
 > Consolidated from `docs/tech-debt/`, `docs/architecture/` analysis, and codebase audits.
-> Last verified against the codebase: 2026-07-02.
+> Last verified against the codebase: 2026-07-29.
 
 **Namespaces.** Three ID families appear in Victor docs — keep them distinct:
 
@@ -256,6 +256,16 @@ erDiagram
 
 | TD-21 | Usage attribution + typed provider boundary | `sandhi` is the OSS owner of typed provider transport, usage/cache metering, virtual keys, budgets, and proxy ingress. Phases 1–3 shipped. The 2026-07-22 migration replaced the provider-native/flagged pilot with one persistent typed `ProviderRuntime`: admitted OpenAI-compatible cloud providers are thin Victor model/orchestration policies over FFI; Anthropic/Gemini/Ollama/local families resolve to typed handles; retries, HTTP/SSE, roles/tools, structured errors, and `UsageV2` live in Rust. Sandhi 0.1.1 is the last published release and the complete scope ships once as 0.1.2. Azure, Hugging Face, Vertex, Bedrock, Replicate, and MLX are explicitly Victor-native in 0.1.2 because they use distinct protocols/execution models; unclassified Victor providers fail closed. Remaining release blockers: delete bypassed direct-wire methods in the admitted native/local Victor classes and add explicit subscription auth semantics (Anthropic Messages bearer auth and an OpenAI Responses codec). Canonical ledger: Sandhi `docs/td/TD-0002-typed-provider-runtime.md`; decisions: FEP-0020 and ADR-018. | High | In progress | `victor/providers/`, `sandhi/crates/sandhi-{core,providers,proxy}/` |
 
+| TD-22 | Interactive Terminal TUI | Build a first-class interactive **Textual** TUI (conversation pane, tool/diff pane, agent-state sidebar, keyboard nav) as a peer surface to the REPL and Chainlit web UI, driven by the existing `RenderAction` event stream — no new event vocabulary. Today only `victor/ui/tui/wire_timeline.py` (171 lines) exists and it merely *replays* a recorded JSONL stream; there is no live TUI, so terminal users must open a browser for the rich experience. Select via terminal-capability detection with the plain REPL as fallback. Decision: [ADR-020](architecture/adr/020-interactive-terminal-tui.md). | High | Planned | `victor/ui/tui/` |
+
+| TD-23 | Terminal-native HITL & loop transparency | Add an in-terminal tool-approval renderer (peer to the Chainlit `AskActionMessage` path) mapping the same surface-agnostic approval contract, so CLI users never switch to a browser to approve `bash`/`write_file`/`git_push`; surface the live PERCEIVE→PLAN→ACT→EVALUATE phase + token/cost inline; wire `/help` (via the existing `slash/handler.py:list_commands()`); load optional `~/.victor/keybindings.json`; add a stall watchdog around the streaming event wait so a wedged loop is visible+killable, not a silent freeze (cf. TD-20). Decision: [ADR-021](architecture/adr/021-terminal-native-hitl-and-loop-transparency.md). | High | Planned | `victor/ui/` |
+
+| TD-24 | Provider gateway feature layer | The policy plane above the sandhi transport runtime (TD-21): user-declared model **fallback chains**, a hard **budget-enforce** mode layered on the existing C0 cost tracker, an optional **semantic response cache** (default OFF, graduated per TD-17), and a routing-throughput benchmark → move the router's selection/scoring inner loop to the Rust `_NATIVE_AVAILABLE` pattern only if the Python router confirms a ceiling (the field reports LiteLLM degrading past ~500 RPS single-instance). Decision: [ADR-022](architecture/adr/022-provider-gateway-feature-layer.md); depends TD-21; companion FEP likely for the config schema. | High | Planned | `victor/providers/` |
+
+| TD-25 | Multi-agent team durability | Propagate the StateGraph checkpoint + `interrupt` primitives through `UnifiedTeamCoordinator` to member execution: member-granular checkpoint/resume (resume at the last completed member, not the top), durable interruptible members surfaced terminal-natively (ADR-021), and member-tagged per-member streaming lanes for the TUI (ADR-020). No new multi-agent graph abstraction — teams remain formations used directly as nodes. Decision: [ADR-023](architecture/adr/023-multi-agent-team-durability.md) (FEP-gated — team-node contract is public surface). | Medium | Planned | `victor/teams/` |
+
+| TD-26 | Abstraction canonicalization + import guard | Declare **one canonical surface per concern** and document/collapse the rest: provider construction/lookup (`providers/factory.py` + `providers/registry.py` vs runtime `ProviderService` vs orchestrator `ProviderManager`), state (`GlobalStateManager` / `state/managers.py` / `state/factory.py`), caching (`cache_manager` / `query_cache` / `embedding_cache_manager`). Factor the boundary rules into one shared module consumed by both the post-hoc AST tests and a new **opt-in import-time guard** (fail-fast in dev; AST tests remain the CI authority). Decision: [ADR-024](architecture/adr/024-abstraction-canonicalization-and-import-guard.md). | Medium | Planned | `victor/providers/`, `victor/state/`, `tests/unit/framework/` |
+
 Cross-referenced debt tracked in the EVR backlog (do not duplicate IDs here):
 
 | EVR ID | Description | Priority | Status |
@@ -277,12 +287,17 @@ gantt
         TD-14 Orchestrator Ratchet : a5, 2026-07-01, 2026-08-15
         TD-17 Flag Graduation    : a6, 2026-07-15, 2026-08-15
         TD-18 Docs Governance    :active, a7, 2026-07-01, 2026-07-15
+        TD-23 Terminal HITL/UX   : a8, 2026-08-01, 2026-09-15
+        TD-22 Interactive TUI    : a9, 2026-08-15, 2026-10-15
+        TD-24 Gateway Features   : a10, 2026-08-15, 2026-10-01
     section Medium Priority
         TD-5 Observability       : b1, 2026-07-15, 2026-08-15
         TD-10 Workspace Rename   :active, b3, 2026-05-15, 2026-07-15
         TD-15 Services Sprawl    : b4, 2026-08-01, 2026-09-15
         TD-16 Arch Doc Drift     : b5, 2026-07-15, 2026-08-01
         TD-11/12/13 ProximaDB CCG : b6, 2026-08-01, 2026-10-01
+        TD-26 Abstraction Canon  : b7, 2026-09-01, 2026-10-15
+        TD-25 Team Durability    : b8, 2026-09-15, 2026-11-15
     section Low Priority
         TD-2 Vertical Cleanup    : c1, 2026-09-01, 2026-10-01
 ```

@@ -24,8 +24,9 @@ Current runtime shape:
 - Facades and deprecated coordinators remain compatibility or grouping
   surfaces; they are not the canonical ownership layer for new behavior.
 
-See `docs/architecture/CURRENT_STATE.md` for the authoritative current runtime
-architecture.
+See [`docs/architecture.md`](../../architecture.md) (canonical system architecture) and
+[ADR-019](019-orchestrator-service-runtime-decomposition.md) (the decomposition *target* the
+service-first runtime is converging toward) for the authoritative current runtime architecture.
 
 ## Context
 
@@ -201,3 +202,4 @@ result = await agent.run("Hello!")
 |------|---------|---------|--------|
 | 2025-02-26 | 1.0 | Initial ADR | Vijaykumar Singh |
 | 2026-05-04 | 1.1 | Marked superseded; redirected to current service-first runtime docs | Vijaykumar Singh |
+| 2026-07-29 | 1.2 | Reconciliation: fixed dead `CURRENT_STATE.md` pointer → `architecture.md`; linked ADR-019 as the decomposition target | Vijaykumar Singh |
