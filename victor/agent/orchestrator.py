@@ -108,6 +108,11 @@ if TYPE_CHECKING:
 # Runtime imports - used for instantiation, enums, constants, or function calls
 from victor.agent.argument_normalizer import ArgumentNormalizer, NormalizationStrategy
 from victor.agent.message_history import MessageHistory
+from victor.agent.task_report_metadata import (
+    build_compaction_metadata,
+    build_continuation_metadata,
+    resolve_task_type,
+)
 from victor.agent.control_plane import envelope_if_internal
 from victor.agent.conversation.store import ConversationStore
 from victor.agent.prompt_prefix import apply_turn_prefix
@@ -2335,7 +2340,9 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
         }
         if response is not None and hasattr(response, "stop_reason"):
             report_metadata["stop_reason"] = getattr(response, "stop_reason", None)
-        report_metadata.update(self._build_task_report_continuation_metadata())
+        report_metadata.update(
+            build_continuation_metadata(getattr(self, "_current_stream_context", None))
+        )
         if metadata:
             report_metadata.update(metadata)
 
@@ -2346,116 +2353,19 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
             metadata=report_metadata,
             error=str(error) if error else None,
             tool_schema_tokens=int(last_tool_event.get("tool_tokens", 0) or 0),
-            compaction=self._build_task_report_compaction_metadata(),
+            compaction=build_compaction_metadata(
+                getattr(self, "_current_stream_context", None),
+                getattr(self, "_context_service", None),
+            ),
         )
 
     def _resolve_task_report_task_type(self) -> str:
-        """Resolve the most specific available task type for task-level metrics."""
-        stream_ctx = getattr(self, "_current_stream_context", None)
-        if stream_ctx is not None:
-            unified_task_type = getattr(
-                getattr(stream_ctx, "unified_task_type", None), "value", None
-            )
-            if unified_task_type:
-                return str(unified_task_type)
-            coarse_task_type = getattr(stream_ctx, "coarse_task_type", None)
-            if coarse_task_type:
-                return str(coarse_task_type)
-
-        unified_tracker = getattr(self, "unified_tracker", None)
-        tracker_task_type = getattr(unified_tracker, "task_type", None)
-        if tracker_task_type:
-            return str(tracker_task_type)
-
-        for attr_name in ("_current_task_type", "_task_type"):
-            value = getattr(self, attr_name, None)
-            if value:
-                return str(value)
-
-        return "default"
-
-    def _build_task_report_compaction_metadata(self) -> Dict[str, Any]:
-        """Collect compaction continuity signals for the current task report."""
-        stream_ctx = getattr(self, "_current_stream_context", None)
-        perf_metrics: Dict[str, Any] = {}
-        context_service = getattr(self, "_context_service", None)
-        if context_service is not None and hasattr(context_service, "get_performance_metrics"):
-            try:
-                perf_metrics = context_service.get_performance_metrics() or {}
-            except Exception as exc:
-                logger.debug(
-                    "Failed to read context performance metrics for task report: %s",
-                    exc,
-                )
-
-        summary = ""
-        occurred = False
-        messages_removed = 0
-        if stream_ctx is not None:
-            summary = str(getattr(stream_ctx, "compaction_summary", "") or "")
-            occurred = bool(
-                getattr(stream_ctx, "compaction_occurred", False)
-                or getattr(stream_ctx, "last_compaction_turn", -1) >= 0
-            )
-            messages_removed = int(getattr(stream_ctx, "compaction_message_removed_count", 0) or 0)
-
-        saved_tokens = int(perf_metrics.get("last_compaction_saved_tokens", 0) or 0)
-        return {
-            "occurred": occurred or bool(summary) or messages_removed > 0 or saved_tokens > 0,
-            "summary": summary,
-            "messages_removed": messages_removed,
-            "saved_tokens": saved_tokens,
-            "strategy": str(getattr(stream_ctx, "last_compaction_strategy", "") or ""),
-            "reason": str(getattr(stream_ctx, "last_compaction_reason", "") or ""),
-            "policy_reason": str(getattr(stream_ctx, "last_compaction_policy_reason", "") or ""),
-        }
-
-    def _build_task_report_continuation_metadata(self) -> Dict[str, Any]:
-        """Collect bounded continuation-ledger state for reporting/export paths."""
-        stream_ctx = getattr(self, "_current_stream_context", None)
-        if stream_ctx is None:
-            return {}
-
-        metadata: Dict[str, Any] = {}
-        task_intent = str(getattr(stream_ctx, "task_intent", "") or "").strip()
-        if task_intent:
-            metadata["task_intent"] = task_intent
-
-        plan_steps = [
-            str(item).strip()
-            for item in (getattr(stream_ctx, "plan_steps", []) or [])
-            if str(item).strip()
-        ][:6]
-        if plan_steps:
-            metadata["plan_steps"] = plan_steps
-
-        intent_log = [
-            dict(item)
-            for item in (getattr(stream_ctx, "intent_log", []) or [])
-            if isinstance(item, dict)
-        ][-6:]
-        if intent_log:
-            metadata["intent_log"] = intent_log
-
-        resume_summary = str(getattr(stream_ctx, "resume_summary", "") or "").strip()
-        if resume_summary:
-            metadata["resume_summary"] = resume_summary
-
-        if bool(getattr(stream_ctx, "degraded_resume_state", False)):
-            metadata["degraded_resume_state"] = True
-
-        build_ledger = getattr(stream_ctx, "build_continuation_ledger", None)
-        if callable(build_ledger):
-            try:
-                continuation_ledger = str(
-                    build_ledger(max_events=4, max_plan_steps=4, max_chars=500) or ""
-                ).strip()
-            except TypeError:
-                continuation_ledger = str(build_ledger() or "").strip()
-            if continuation_ledger:
-                metadata["continuation_ledger"] = continuation_ledger
-
-        return metadata
+        """Resolve task type via the pure task-report metadata helper (ADR-019)."""
+        return resolve_task_type(
+            getattr(self, "_current_stream_context", None),
+            getattr(self, "unified_tracker", None),
+            (getattr(self, "_current_task_type", None), getattr(self, "_task_type", None)),
+        )
 
     async def _preload_embeddings(self) -> None:
         """Preload tool embeddings in background to avoid blocking first query.

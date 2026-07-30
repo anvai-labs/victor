@@ -54,9 +54,15 @@ Adopt three invariants as the decomposition target, and lower the ratchet caps t
    silently carry undocumented mega-modules. No module in `services/` exceeds a declared size cap
    (start at current max, ratchet down).
 
-3. **Access is via `ExecutionContext.services` only.** The direct `_service` reach-ins are removed;
-   a guard extension of `test_service_layer_validation.py` fails the build on new
-   `self._<x>_service` access from the orchestrator body.
+3. **Non-composition-root code reaches services via `ExecutionContext.services`; nothing reaches
+   service *private internals*.** *(Reconciled 2026-07-30.)* The original wording — "remove the
+   orchestrator's direct `_service` reach-ins" — was wrong: the orchestrator is the **composition
+   root**, so it legitimately holds and delegates to its services, and `test_service_layer_validation.py`
+   in fact *requires* those `self._<x>_service` references. The real targets of the
+   "`ExecutionContext.services`-only" rule are therefore (a) **non-orchestrator** code reaching
+   services directly, and (b) any code (orchestrator included) reaching into a service's **private
+   internals**. An access-boundary guard is deferred until it is scoped to those two cases; it is not
+   part of increment 1.
 
 This ADR does **not** introduce a new orchestration abstraction (explicitly a non-goal in the
 evaluation-centric vision) — it finishes the service-first one ADR-001's update already names.
@@ -113,3 +119,4 @@ Incremental, ratchet-gated (no separate FEP — internal runtime, no public-API 
 | Date | Version | Changes | Author |
 |------|---------|---------|--------|
 | 2026-07-29 | 1.0 | Initial ADR — records the decomposition target for TD-14/TD-15 | Vijaykumar Singh |
+| 2026-07-30 | 1.1 | Reconciled §3 (orchestrator is the composition root; access-boundary rule re-scoped, guard deferred). Increment 1 shipped: extracted the pure task-report metadata builders to `victor/agent/task_report_metadata.py`; orchestrator 4690→4600, ratchet lowered. | Vijaykumar Singh |
