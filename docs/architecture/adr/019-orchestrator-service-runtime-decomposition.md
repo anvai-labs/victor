@@ -120,3 +120,4 @@ Incremental, ratchet-gated (no separate FEP — internal runtime, no public-API 
 |------|---------|---------|--------|
 | 2026-07-29 | 1.0 | Initial ADR — records the decomposition target for TD-14/TD-15 | Vijaykumar Singh |
 | 2026-07-30 | 1.1 | Reconciled §3 (orchestrator is the composition root; access-boundary rule re-scoped, guard deferred). Increment 1 shipped: extracted the pure task-report metadata builders to `victor/agent/task_report_metadata.py`; orchestrator 4690→4600, ratchet lowered. | Vijaykumar Singh |
+| 2026-07-30 | 1.2 | Increment 2 shipped: extracted the tool-supply policy (Tool-Necessity Gate + context-window budgeter) to `victor/agent/tool_supply_policy.py` (impure deps injected as callables); orchestrator 4600→4402, ratchet lowered. | Vijaykumar Singh |
