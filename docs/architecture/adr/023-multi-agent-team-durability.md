@@ -1,0 +1,95 @@
+# ADR-023: Multi-Agent Team Durability — Checkpoint, Interrupt, Per-Member Streaming
+
+## Metadata
+
+- **Status**: Proposed
+- **Date**: 2026-07-29
+- **Decision Makers**: Vijaykumar Singh
+- **Related ADRs**: 003 (workflow engine / StateGraph — the primitives this propagates), 021
+  (terminal-native HITL — where team interrupts surface)
+- **Work tracked by**: [TD-25](../../tech-stack.md#technical-debt-register)
+- **Benchmark**: [competitive-benchmark-2026-07.md](../competitive-benchmark-2026-07.md) §4
+
+## Context
+
+Victor's multi-agent model is a genuine strength: `UnifiedTeamCoordinator` is used *directly* as a
+StateGraph node (teams are formations — SEQUENTIAL/PARALLEL/HIERARCHICAL/PIPELINE — not a separate
+graph abstraction), with `WorkspaceIsolation` per member. This is arguably cleaner than CrewAI's
+role model or AutoGen's conversation model, and CLAUDE.md deliberately forbids a wrapper node type.
+
+The StateGraph engine (ADR-003) already has **checkpointing and HITL-interrupt primitives**. The gap
+is that a *team node* does not propagate them to its members' execution:
+
+- **No team-run checkpoint/resume.** A long multi-member run cannot be durably checkpointed and
+  replayed at member granularity; a crash mid-formation loses in-flight member state. LangGraph — the
+  category bar — makes checkpoint + time-travel replay first-class.
+- **HITL mid-run is web-only.** A member hitting an approval gate defers to Chainlit (see ADR-021);
+  there is no terminal-native interrupt/resume for a paused team member.
+- **Per-member streaming is incomplete.** The user sees aggregate progress, not each member's live
+  stream — hard to follow a HIERARCHICAL or PARALLEL formation.
+
+## Decision
+
+Give team nodes a **durability contract** that propagates the StateGraph primitives to member
+execution, without introducing a new multi-agent graph abstraction:
+
+1. **Member-granular checkpoint/resume.** `UnifiedTeamCoordinator` checkpoints per-member state to
+   the StateGraph checkpointer so a formation resumes at the last completed member (or mid-member
+   step where the member itself checkpoints), not from the top.
+2. **Interruptible members.** A member's approval/`ASK` gate raises a StateGraph `interrupt`, so the
+   team run *pauses durably* and resumes on approval — surfaced terminal-natively via ADR-021 (not
+   browser-bound).
+3. **Per-member streaming.** Each member's `RenderAction` stream is tagged with member identity and
+   fanned out so the TUI (ADR-020) can show per-member progress lanes.
+
+This is a *contract on the team node* — the public shape of how a team participates in a graph —
+so it is FEP-gated (below).
+
+## Rationale
+
+- **First principles.** Durability is the property that separates a demo multi-agent run from a
+  production one: it must survive a crash, pause for a human, and be observable per participant.
+  LangGraph set that bar; formations without it are behind regardless of how clean the topology model
+  is.
+- **Reuse, not reinvent.** The checkpointer and `interrupt` already exist at the graph layer; this
+  ADR *threads them through* the team node rather than building a parallel mechanism — honoring the
+  "teams are formations, not graphs" rule.
+- **Co-design.** Depends on ADR-021 for the terminal interrupt surface and ADR-020 for per-member
+  streaming lanes; the three specify one coherent multi-agent UX.
+
+## Consequences
+
+- **Positive**: crash-safe, pausable, observable team runs; parity with LangGraph on the durability
+  contract while keeping the cleaner formation model.
+- **Negative**: checkpoint volume grows (member-granular snapshots); the team-node contract change is
+  a public surface ⇒ FEP + migration for existing team definitions.
+- **Neutral**: single-agent runs and the formation taxonomy are unchanged.
+
+## Implementation
+
+- **Companion FEP required** — the team-node durability contract (checkpoint identity, interrupt
+  semantics, member-tagged streaming) is a `victor.framework` public surface. FEP first, then:
+  1. member-granular checkpoint/resume via the existing StateGraph checkpointer;
+  2. member `interrupt` → durable pause → resume, wired to ADR-021's terminal approval;
+  3. member-tagged `RenderAction` fan-out for ADR-020's per-member lanes.
+
+## Alternatives Considered
+
+- **A dedicated multi-agent graph abstraction.** Rejected — explicitly forbidden (CLAUDE.md; teams
+  are formations used directly as nodes). Durability must ride the existing StateGraph primitives.
+- **Checkpoint only at formation boundaries (not per member).** Rejected: loses in-flight member
+  work on crash; the whole point is member-granular resume.
+- **Keep HITL web-only for teams.** Rejected: same terminal-first argument as ADR-021.
+
+## References
+
+- [ADR-003](003-workflow-engine.md), [ADR-020](020-interactive-terminal-tui.md),
+  [ADR-021](021-terminal-native-hitl-and-loop-transparency.md)
+- `victor/teams/unified_coordinator.py`, `victor/workflows/unified_compiler.py`,
+  [TD-10](../../tech-stack.md#technical-debt-register) (workspace isolation rename)
+
+## Revision History
+
+| Date | Version | Changes | Author |
+|------|---------|---------|--------|
+| 2026-07-29 | 1.0 | Initial ADR — team durability contract (checkpoint/interrupt/per-member stream) | Vijaykumar Singh |

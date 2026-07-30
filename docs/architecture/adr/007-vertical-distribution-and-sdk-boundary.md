@@ -1,4 +1,4 @@
-# ADR 007: Vertical Distribution Model and Contracts Boundary
+# ADR-007: Vertical Distribution Model and Contracts Boundary
 
 ## Metadata
 

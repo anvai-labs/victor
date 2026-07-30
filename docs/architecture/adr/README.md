@@ -18,7 +18,7 @@ entry — the ADR itself never tracks tasks.
 ## ADR Index
 
 Status is the governance state of the *decision*. Implementation is the observed state of the
-*code* (verified 2026-07-02).
+*code* (verified 2026-07-29).
 
 | ADR | Title | Status | Implementation | Date |
 |-----|-------|--------|----------------|------|
@@ -40,6 +40,14 @@ Status is the governance state of the *decision*. Implementation is the observed
 | [ADR-016](016-distribution-packaging-strategy.md) | Distribution & Packaging: Docker image primary, pip dev; reject native single-binary | Proposed | Not started | 2026-07-02 |
 | [ADR-017](017-rl-budget-calibration.md) | RL-Driven Tool-Budget Calibration | Proposed | Partial (3 modules shipped; wiring gated on FEP-0002 review) | 2026-07-08 |
 | [ADR-018](018-adopt-sandhi-usage-gateway.md) | Adopt the `sandhi` OSS usage gateway (per-user/team attribution + shared-key metering) | Proposed | Not started (decision doc; see FEP-0020, AnvaiOps ADR-0047) | 2026-07-18 |
+| [ADR-019](019-orchestrator-service-runtime-decomposition.md) | Orchestrator & service-runtime target decomposition | Proposed | Not started (records the target for TD-14/TD-15) | 2026-07-29 |
+| [ADR-020](020-interactive-terminal-tui.md) | Interactive terminal TUI (Textual) as a first-class surface | Proposed | Not started (TD-22) | 2026-07-29 |
+| [ADR-021](021-terminal-native-hitl-and-loop-transparency.md) | Terminal-native HITL & agent-loop transparency | Proposed | Not started (TD-23) | 2026-07-29 |
+| [ADR-022](022-provider-gateway-feature-layer.md) | Provider gateway feature layer & routing performance | Proposed | Not started (TD-24; depends TD-21) | 2026-07-29 |
+| [ADR-023](023-multi-agent-team-durability.md) | Multi-agent team durability (checkpoint/interrupt/per-member stream) | Proposed | Not started (TD-25; FEP-gated) | 2026-07-29 |
+| [ADR-024](024-abstraction-canonicalization-and-import-guard.md) | Abstraction canonicalization + import-time boundary guard | Proposed | Not started (TD-26) | 2026-07-29 |
+| [ADR-025](025-ratify-evaluation-centric-p0-decisions.md) | Ratify the evaluation-centric P0 decisions | Proposed | In progress via EVR-2/3/4/5 (ratifies ADR-009/010/011/012) | 2026-07-29 |
+| [ADR-026](026-durable-code-memory-ga.md) | Durable code memory GA (one `oid`, correlated graph+vector, tiered) | Proposed | Partial (records GA target for TD-11/12/13 + ADR-015 later phases) | 2026-07-29 |
 
 ## External ADR series (cross-repo)
 
@@ -78,12 +86,13 @@ When making a significant architectural decision:
 
 1. Copy the [template](000-template.md)
 2. Fill in all sections
-3. Use the next sequential number (next free: **ADR-019**)
+3. Use the next sequential number (next free: **ADR-027**)
 4. Update this index (both tables if cross-repo)
 5. Submit for review
 
-Heading convention: `# ADR-0NN: Title` (hyphenated) with a `## Metadata` list — ADRs 006/007/008/014/015
-predate this and drift cosmetically; new ADRs must follow it.
+Heading convention: `# ADR-0NN: Title` (hyphenated) with a `## Metadata` list. ADRs 006/007/008/014/015
+predated this and were normalized to it on 2026-07-29 (heading hyphenation + `## Metadata` blocks on
+006/008/016); new ADRs must follow it.
 
 ## ADR Lifecycle
 

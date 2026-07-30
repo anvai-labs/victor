@@ -1,4 +1,4 @@
-# ADR 014: Extract the code→CPG chunker into a shared `victor-codegraph` package
+# ADR-014: Extract the code→CPG chunker into a shared `victor-codegraph` package
 
 ## Metadata
 

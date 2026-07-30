@@ -1,7 +1,11 @@
 # ADR-016: Distribution & Packaging Strategy
 
-**Status**: Proposed
-**Date**: 2026-07-02
+## Metadata
+
+- **Status**: Proposed
+- **Date**: 2026-07-02
+- **Decision Makers**: Vijaykumar Singh
+- **Related ADRs**: 007 (Vertical Distribution & Contracts Boundary), 014 (shared `victor-codegraph`)
 
 ## Context
 
