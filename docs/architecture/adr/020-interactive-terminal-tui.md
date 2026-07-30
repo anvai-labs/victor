@@ -3,7 +3,8 @@
 ## Metadata
 
 - **Status**: Accepted (2026-07-30 — v1 shipped: `victor tui` / `victor chat --tui`, opt-in,
-  `victor/ui/tui/`; the dedicated diff pane and per-member team lanes remain deferred. Was Proposed.)
+  `victor/ui/tui/`, incl. the unified diff pane (`diff_pane.py`, F3 toggle / F4 cycle). Per-member
+  team lanes (ADR-023) and light/high-contrast theme variants remain deferred. Was Proposed.)
 - **Date**: 2026-07-29
 - **Decision Makers**: Vijaykumar Singh
 - **Related ADRs**: 021 (terminal-native HITL & loop transparency — shares the surface), 005 (event
