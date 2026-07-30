@@ -1,10 +1,12 @@
-/* Victor interactive TUI — dark theme (ADR-020).
-   Palette mirrors victor/ui/theme.py (Dracula-family) so the TUI matches the
-   REPL's per-tool colouring. Light/high-contrast variants are a follow-up. */
+/* Victor interactive TUI (ADR-020).
+   Colours reference the active Textual theme's variables (see themes.py) rather
+   than hard-coded hex, so `victor tui --theme light|high-contrast` and the F6
+   runtime cycle restyle the whole app. victor-dark reproduces the REPL's
+   Dracula palette. */
 
 Screen {
-    background: #282a36;
-    color: #f8f8f2;
+    background: $background;
+    color: $foreground;
 }
 
 #body {
@@ -15,9 +17,9 @@ Screen {
     width: 28;
     min-width: 22;
     padding: 1 1;
-    border-right: solid #44475a;
-    background: #21222c;
-    color: #f8f8f2;
+    border-right: solid $primary;
+    background: $panel;
+    color: $foreground;
 }
 
 #main {
@@ -27,33 +29,36 @@ Screen {
 #conversation {
     height: 1fr;
     padding: 0 1;
-    background: #282a36;
+    background: $background;
+    color: $foreground;
 }
 
 #diff-pane {
     height: auto;
     max-height: 45%;
     padding: 0 1;
-    border-top: solid #44475a;
-    background: #1b1c26;
+    border-top: solid $primary;
+    background: $surface;
+    color: $foreground;
     scrollbar-size: 1 1;
 }
 
 #status-bar {
     height: 1;
     padding: 0 1;
-    background: #21222c;
-    color: #6272a4;
+    background: $panel;
+    color: $secondary;
 }
 
 #prompt {
     height: 3;
-    border: round #44475a;
-    background: #21222c;
+    border: round $primary;
+    background: $panel;
+    color: $foreground;
 }
 
 #prompt:focus {
-    border: round #8be9fd;
+    border: round $accent;
 }
 
 /* ── Modal dialogs ─────────────────────────────────────────────── */
@@ -68,12 +73,12 @@ ApprovalScreen {
     height: auto;
     max-height: 80%;
     padding: 1 2;
-    border: thick #ffb86c;
-    background: #282a36;
+    border: thick $warning;
+    background: $surface;
 }
 
 #approval-title { padding-bottom: 1; }
-#approval-desc { color: #bd93f9; padding-bottom: 1; }
+#approval-desc { color: $secondary; padding-bottom: 1; }
 #approval-preview { height: auto; max-height: 24; }
 #approval-actions { padding-top: 1; }
 
@@ -87,8 +92,8 @@ HelpScreen, CommandPalette {
     height: auto;
     max-height: 80%;
     padding: 1 2;
-    border: round #8be9fd;
-    background: #282a36;
+    border: round $accent;
+    background: $surface;
 }
 
 #palette-input { margin-bottom: 1; }

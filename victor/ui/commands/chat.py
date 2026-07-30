@@ -1578,6 +1578,7 @@ async def _run_tui_app(
     *,
     mode: Optional[str] = None,
     tool_budget: Optional[int] = None,
+    theme: str = "dark",
 ) -> None:
     """Launch the interactive Textual TUI over an already-initialized session."""
     from victor.ui.tui.app import VictorTUIApp
@@ -1588,6 +1589,7 @@ async def _run_tui_app(
         settings=settings,
         mode=mode,
         tool_budget=tool_budget,
+        theme=theme,
     )
     await app.run_async()
 
@@ -1596,6 +1598,7 @@ def run_tui_entry(
     profile: str = "default",
     mode: Optional[str] = None,
     resume_session_id: Optional[str] = None,
+    theme: str = "dark",
 ) -> None:
     """Entry point for the ``victor tui`` command — the opt-in interactive TUI."""
     setup_logging(command="tui")
@@ -1610,6 +1613,7 @@ def run_tui_entry(
             mode=mode,
             resume_session_id=resume_session_id,
             surface="tui",
+            tui_theme=theme,
         )
     )
 
@@ -2102,6 +2106,7 @@ async def run_interactive(
     min_agents_for_bayesian: int = 2,
     session_config: Optional[SessionConfig] = None,
     surface: str = "repl",
+    tui_theme: str = "dark",
 ) -> None:
     """Run interactive CLI mode.
 
@@ -2346,6 +2351,7 @@ async def run_interactive(
                     settings,
                     mode=mode,
                     tool_budget=tool_budget,
+                    theme=tui_theme,
                 )
                 return
             console.print(

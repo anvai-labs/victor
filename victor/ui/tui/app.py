@@ -46,6 +46,7 @@ from victor.ui.tui.palette import CommandPalette, HelpScreen
 from victor.ui.tui.phase import PhaseTracker
 from victor.ui.tui.sidebar import AgentState, AgentStatePanel
 from victor.ui.tui.status_bar import StatusBar
+from victor.ui.tui.themes import DEFAULT_THEME, next_theme, register_all, resolve_theme
 from victor.ui.tui.watchdog import with_stall_watchdog
 
 #: Seconds of model silence before the status bar shows a "waiting…" indicator.
@@ -85,6 +86,7 @@ class VictorTUIApp(App[None]):
         settings: Any,
         mode: Optional[str] = None,
         tool_budget: Optional[int] = None,
+        theme: str = DEFAULT_THEME,
     ) -> None:
         super().__init__()
         self._client = client
@@ -92,6 +94,7 @@ class VictorTUIApp(App[None]):
         self._settings = settings
         self._mode = mode or "—"
         self._tool_budget = tool_budget
+        self._initial_theme = resolve_theme(theme)
 
         self._phase = PhaseTracker()
         self._turn_worker: Optional[Worker[None]] = None
@@ -124,6 +127,9 @@ class VictorTUIApp(App[None]):
         yield Footer()
 
     def on_mount(self) -> None:
+        # Register + apply the TUI themes (styles.tcss references their variables).
+        register_all(self)
+        self.theme = self._initial_theme
         self.sub_title = self._model_label()
         # Terminal-native HITL: register before the first turn (late-registration safe).
         try:
@@ -301,6 +307,9 @@ class VictorTUIApp(App[None]):
 
     def action_diff_next(self) -> None:
         self.query_one("#diff-pane", DiffPane).cycle()
+
+    def action_cycle_theme(self) -> None:
+        self.theme = next_theme(self.theme)
 
     def action_clear(self) -> None:
         self.query_one("#conversation", ConversationLog).clear()
