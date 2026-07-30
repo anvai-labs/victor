@@ -41,8 +41,8 @@ Status is the governance state of the *decision*. Implementation is the observed
 | [ADR-017](017-rl-budget-calibration.md) | RL-Driven Tool-Budget Calibration | Proposed | Partial (3 modules shipped; wiring gated on FEP-0002 review) | 2026-07-08 |
 | [ADR-018](018-adopt-sandhi-usage-gateway.md) | Adopt the `sandhi` OSS usage gateway (per-user/team attribution + shared-key metering) | Proposed | Not started (decision doc; see FEP-0020, AnvaiOps ADR-0047) | 2026-07-18 |
 | [ADR-019](019-orchestrator-service-runtime-decomposition.md) | Orchestrator & service-runtime target decomposition | Proposed | Not started (records the target for TD-14/TD-15) | 2026-07-29 |
-| [ADR-020](020-interactive-terminal-tui.md) | Interactive terminal TUI (Textual) as a first-class surface | Proposed | Not started (TD-22) | 2026-07-29 |
-| [ADR-021](021-terminal-native-hitl-and-loop-transparency.md) | Terminal-native HITL & agent-loop transparency | Proposed | Not started (TD-23) | 2026-07-29 |
+| [ADR-020](020-interactive-terminal-tui.md) | Interactive terminal TUI (Textual) as a first-class surface | Accepted | Partial — v1 shipped 2026-07-30 (`victor tui`, opt-in; TD-22); diff pane pending | 2026-07-29 |
+| [ADR-021](021-terminal-native-hitl-and-loop-transparency.md) | Terminal-native HITL & agent-loop transparency | Accepted | Partial — v1 shipped 2026-07-30 in the TUI (TD-23); exact phase-events + REPL parity pending | 2026-07-29 |
 | [ADR-022](022-provider-gateway-feature-layer.md) | Provider gateway feature layer & routing performance | Proposed | Not started (TD-24; depends TD-21) | 2026-07-29 |
 | [ADR-023](023-multi-agent-team-durability.md) | Multi-agent team durability (checkpoint/interrupt/per-member stream) | Proposed | Not started (TD-25; FEP-gated) | 2026-07-29 |
 | [ADR-024](024-abstraction-canonicalization-and-import-guard.md) | Abstraction canonicalization + import-time boundary guard | Proposed | Not started (TD-26) | 2026-07-29 |

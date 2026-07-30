@@ -1,0 +1,86 @@
+/* Victor interactive TUI — dark theme (ADR-020).
+   Palette mirrors victor/ui/theme.py (Dracula-family) so the TUI matches the
+   REPL's per-tool colouring. Light/high-contrast variants are a follow-up. */
+
+Screen {
+    background: #282a36;
+    color: #f8f8f2;
+}
+
+#body {
+    height: 1fr;
+}
+
+#agent-sidebar {
+    width: 28;
+    min-width: 22;
+    padding: 1 1;
+    border-right: solid #44475a;
+    background: #21222c;
+    color: #f8f8f2;
+}
+
+#main {
+    width: 1fr;
+}
+
+#conversation {
+    height: 1fr;
+    padding: 0 1;
+    background: #282a36;
+}
+
+#status-bar {
+    height: 1;
+    padding: 0 1;
+    background: #21222c;
+    color: #6272a4;
+}
+
+#prompt {
+    height: 3;
+    border: round #44475a;
+    background: #21222c;
+}
+
+#prompt:focus {
+    border: round #8be9fd;
+}
+
+/* ── Modal dialogs ─────────────────────────────────────────────── */
+
+ApprovalScreen {
+    align: center middle;
+}
+
+#approval-dialog {
+    width: 80%;
+    max-width: 100;
+    height: auto;
+    max-height: 80%;
+    padding: 1 2;
+    border: thick #ffb86c;
+    background: #282a36;
+}
+
+#approval-title { padding-bottom: 1; }
+#approval-desc { color: #bd93f9; padding-bottom: 1; }
+#approval-preview { height: auto; max-height: 24; }
+#approval-actions { padding-top: 1; }
+
+HelpScreen, CommandPalette {
+    align: center middle;
+}
+
+#help-dialog, #palette-dialog {
+    width: 80%;
+    max-width: 100;
+    height: auto;
+    max-height: 80%;
+    padding: 1 2;
+    border: round #8be9fd;
+    background: #282a36;
+}
+
+#palette-input { margin-bottom: 1; }
+#palette-list { height: auto; max-height: 20; }

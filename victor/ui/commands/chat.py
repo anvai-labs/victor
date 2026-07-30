@@ -758,6 +758,12 @@ def chat(
         "--thinking/--no-thinking",
         help="Enable extended thinking/reasoning mode (Claude models). Shows model's reasoning process.",
     ),
+    tui: bool = typer.Option(
+        False,
+        "--tui/--repl",
+        help="Launch the interactive multi-pane terminal UI (opt-in) instead of the REPL.",
+        rich_help_panel="Advanced Agent Behavior",
+    ),
     headless: bool = typer.Option(
         False,
         "--headless",
@@ -1503,6 +1509,7 @@ victor chat --sessionid abc123            # Resume session
                     resume_session_id=session_id,
                     show_reasoning=show_reasoning,
                     graph_watch=graph_watch,
+                    surface="tui" if tui else "repl",
                     session_config=session_config,
                     **runtime_override_kwargs,
                 )
@@ -1544,6 +1551,67 @@ def _run_default_interactive() -> None:
     settings = load_settings()
     setup_safety_confirmation()
     run_sync(run_interactive(settings, "default", True, False))
+
+
+def _tui_capable() -> bool:
+    """True when the current terminal can host the interactive Textual UI."""
+    try:
+        from victor.ui.rendering.terminal_capabilities import (
+            TerminalCapabilities,
+            TerminalCapability,
+        )
+
+        caps = TerminalCapabilities()
+        return (
+            caps.is_interactive()
+            and not caps.is_ci_environment()
+            and caps.get_capability_level() == TerminalCapability.FULL
+        )
+    except Exception:
+        return False
+
+
+async def _run_tui_app(
+    client: Any,
+    agent: Any,
+    settings: Any,
+    *,
+    mode: Optional[str] = None,
+    tool_budget: Optional[int] = None,
+) -> None:
+    """Launch the interactive Textual TUI over an already-initialized session."""
+    from victor.ui.tui.app import VictorTUIApp
+
+    app = VictorTUIApp(
+        client=client,
+        agent=agent,
+        settings=settings,
+        mode=mode,
+        tool_budget=tool_budget,
+    )
+    await app.run_async()
+
+
+def run_tui_entry(
+    profile: str = "default",
+    mode: Optional[str] = None,
+    resume_session_id: Optional[str] = None,
+) -> None:
+    """Entry point for the ``victor tui`` command — the opt-in interactive TUI."""
+    setup_logging(command="tui")
+    settings = load_settings()
+    setup_safety_confirmation()
+    run_sync(
+        run_interactive(
+            settings,
+            profile,
+            True,
+            False,
+            mode=mode,
+            resume_session_id=resume_session_id,
+            surface="tui",
+        )
+    )
 
 
 async def run_oneshot(
@@ -2033,6 +2101,7 @@ async def run_interactive(
     enable_correlation: bool = True,
     min_agents_for_bayesian: int = 2,
     session_config: Optional[SessionConfig] = None,
+    surface: str = "repl",
 ) -> None:
     """Run interactive CLI mode.
 
@@ -2041,6 +2110,8 @@ async def run_interactive(
 
     Args:
         show_reasoning: If True, show LLM reasoning/thinking content in output.
+        surface: ``"repl"`` (default) for the prompt-toolkit REPL, or ``"tui"`` to
+            launch the interactive Textual UI when the terminal can host it.
     """
     config = session_config or _build_session_config(
         agent_profile=profile,
@@ -2264,6 +2335,23 @@ async def run_interactive(
         from victor.ui.commands import SlashCommandHandler
 
         cmd_handler = SlashCommandHandler(console, settings, agent)
+
+        # Opt-in interactive TUI (ADR-020/021). Falls back to the REPL when the
+        # terminal can't host it; a forced --tui on a bad terminal says so.
+        if surface == "tui":
+            if _tui_capable():
+                await _run_tui_app(
+                    client,
+                    agent,
+                    settings,
+                    mode=mode,
+                    tool_budget=tool_budget,
+                )
+                return
+            console.print(
+                "[yellow]This terminal can't host the interactive TUI; "
+                "using the REPL instead.[/]"
+            )
 
         rl_suggestion = get_rl_profile_suggestion(profile_display.provider, profiles)
         await _run_cli_repl(
