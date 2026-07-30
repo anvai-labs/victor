@@ -55,6 +55,7 @@ from typing import (
 )
 
 from victor.coordination.formations.base import BaseFormationStrategy, TeamContext
+from victor.framework.graph_checkpoint import CheckpointerProtocol, WorkflowCheckpoint
 from victor.coordination.formations import (
     SequentialFormation,
     ParallelFormation,
@@ -218,6 +219,7 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
         worktree_planner: Optional[Any] = None,
         merge_analyzer: Optional[Any] = None,
         worktree_runtime: Optional[Any] = None,
+        checkpointer: Optional["CheckpointerProtocol"] = None,
     ) -> None:
         """Initialize the unified coordinator.
 
@@ -240,6 +242,8 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
 
         # Core state
         self._orchestrator = orchestrator
+        # ADR-023: opt-in member-granular checkpointer. None → no checkpoint/resume.
+        self._checkpointer: Optional["CheckpointerProtocol"] = checkpointer
         self._members: List[ITeamMember] = []
         self._formation = TeamFormation.SEQUENTIAL
         self._manager: Optional[ITeamMember] = None
@@ -538,6 +542,83 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
     # Formation Executors
     # =========================================================================
 
+    def with_checkpointer(
+        self, checkpointer: Optional[CheckpointerProtocol]
+    ) -> "UnifiedTeamCoordinator":
+        """Attach an opt-in member-granular checkpointer (fluent). ADR-023."""
+        self._checkpointer = checkpointer
+        return self
+
+    async def _load_member_resume(
+        self, checkpointer: CheckpointerProtocol, thread_id: str, team_node_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """Build a ``resume_completed`` payload from the latest member checkpoint.
+
+        Returns ``None`` when there is nothing to resume (fresh run).
+        """
+        try:
+            checkpoints = await checkpointer.list(thread_id)
+        except Exception as exc:  # noqa: BLE001 - resume is best-effort
+            logger.debug("Member checkpoint list failed (starting fresh): %s", exc)
+            return None
+        relevant = [c for c in checkpoints if c.metadata.get("team_node_id") == team_node_id]
+        if not relevant:
+            return None
+        latest = max(relevant, key=lambda c: c.timestamp)
+        state = latest.state or {}
+        member_results = [MemberResult.from_dict(r) for r in state.get("member_results") or []]
+        return {
+            "member_ids": state.get("completed_member_ids")
+            or [r.member_id for r in member_results],
+            "member_results": member_results,
+            "shared_state": state.get("shared_state") or {},
+            "last_output": state.get("last_output"),
+            "last_agent_id": state.get("last_agent_id"),
+        }
+
+    def _make_member_checkpoint_hook(
+        self,
+        checkpointer: CheckpointerProtocol,
+        thread_id: str,
+        team_node_id: str,
+        formation: str,
+    ) -> Callable[..., Any]:
+        """Build the per-member checkpoint callback passed to the formation (ADR-023)."""
+
+        async def _hook(
+            index: int,
+            member_result: MemberResult,
+            results: List[MemberResult],
+            shared_state: Dict[str, Any],
+        ) -> None:
+            last_success = next((r for r in reversed(results) if r.success and r.output), None)
+            checkpoint = WorkflowCheckpoint(
+                checkpoint_id=f"{thread_id}:{team_node_id}:member:{index}",
+                thread_id=thread_id,
+                node_id=f"{team_node_id}:member:{member_result.member_id}",
+                state={
+                    "completed_member_ids": [r.member_id for r in results],
+                    "member_results": [r.to_dict() for r in results],
+                    "shared_state": dict(shared_state or {}),
+                    "last_output": last_success.output if last_success else None,
+                    "last_agent_id": last_success.member_id if last_success else None,
+                    "next_member_index": index + 1,
+                },
+                timestamp=time.time(),
+                metadata={
+                    "team_node_id": team_node_id,
+                    "member_id": member_result.member_id,
+                    "member_index": index,
+                    "formation": formation,
+                },
+            )
+            try:
+                await checkpointer.save(checkpoint)
+            except Exception as exc:  # noqa: BLE001 - checkpointing must not break the run
+                logger.warning("Member checkpoint save failed: %s", exc)
+
+        return _hook
+
     async def _execute_formation(
         self,
         task: str,
@@ -668,6 +749,18 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
             shared_state=shared_state_with_supervisor,
             **team_context_metadata,
         )
+
+        # ADR-023: member-granular checkpoint/resume — active only when a
+        # checkpointer and a stable thread_id are both provided (fully opt-in).
+        thread_id = effective_context.get("thread_id") or effective_context.get("__thread_id__")
+        if self._checkpointer is not None and thread_id:
+            team_node_id = str(team_context_id)
+            team_context.resume_completed = await self._load_member_resume(
+                self._checkpointer, str(thread_id), team_node_id
+            )
+            team_context.checkpoint_hook = self._make_member_checkpoint_hook(
+                self._checkpointer, str(thread_id), team_node_id, active_formation.value
+            )
 
         # Create AgentMessage for the task
         agent_task = AgentMessage(

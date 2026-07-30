@@ -33,7 +33,7 @@ following the Open/Closed Principle (OCP) and Strategy pattern.
 
 import threading
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from victor.teams.types import AgentMessage, MemberResult
 
@@ -84,6 +84,15 @@ class TeamContext:
         self.metadata = metadata
         self._state_manager = state_manager
         self._lock = threading.Lock()
+
+        # ADR-023 member durability (opt-in; set by UnifiedTeamCoordinator when a
+        # checkpointer is configured). None → no checkpoint/resume, unchanged behavior.
+        # checkpoint_hook: awaited after each member completes with
+        #   (index, member_result, results_so_far, shared_state).
+        # resume_completed: seeds a resumed run — {member_ids, member_results,
+        #   shared_state, last_output, last_agent_id}.
+        self.checkpoint_hook: Optional[Callable[..., Awaitable[None]]] = None
+        self.resume_completed: Optional[Dict[str, Any]] = None
 
         # Initialize manager with existing shared_state
         if self._state_manager and self.shared_state:

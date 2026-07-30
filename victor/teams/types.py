@@ -864,6 +864,20 @@ class MemberResult:
             "discoveries": self.discoveries,
         }
 
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "MemberResult":
+        """Rebuild from a :meth:`to_dict` payload (ADR-023 checkpoint resume)."""
+        return cls(
+            member_id=data["member_id"],
+            success=data["success"],
+            output=data.get("output", ""),
+            error=data.get("error"),
+            metadata=dict(data.get("metadata") or {}),
+            tool_calls_used=data.get("tool_calls_used", 0),
+            duration_seconds=data.get("duration_seconds", 0.0),
+            discoveries=list(data.get("discoveries") or []),
+        )
+
 
 @dataclass
 class TeamResult:
