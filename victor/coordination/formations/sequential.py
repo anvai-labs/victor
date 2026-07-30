@@ -47,11 +47,30 @@ class SequentialFormation(BaseFormationStrategy):
         task: AgentMessage,
     ) -> List[MemberResult]:
         """Execute agents sequentially with context chaining."""
-        results = []
+        results: List[MemberResult] = []
         previous_output = None
         previous_agent_id = None
 
+        # ADR-023: resume from a prior member checkpoint — pre-seed completed
+        # members and skip them below. Fully opt-in (None → unchanged behavior).
+        completed_ids: set = set()
+        resume = getattr(context, "resume_completed", None)
+        if resume:
+            for raw in resume.get("member_results") or []:
+                results.append(
+                    raw if isinstance(raw, MemberResult) else MemberResult.from_dict(raw)
+                )
+            completed_ids = set(resume.get("member_ids") or [r.member_id for r in results])
+            previous_output = resume.get("last_output")
+            previous_agent_id = resume.get("last_agent_id")
+
+        checkpoint_hook = getattr(context, "checkpoint_hook", None)
+
         for i, agent in enumerate(agents):
+            if agent.id in completed_ids:
+                logger.debug(f"SequentialFormation: skipping completed member {agent.id} (resume)")
+                continue
+
             logger.debug(f"SequentialFormation: executing agent {i+1}/{len(agents)}: {agent.id}")
 
             # Add previous output and agent to context
@@ -89,16 +108,19 @@ class SequentialFormation(BaseFormationStrategy):
 
             except Exception as e:
                 logger.error(f"SequentialFormation: agent {agent.id} failed: {e}")
-                results.append(
-                    MemberResult(
-                        member_id=agent.id,
-                        success=False,
-                        output="",
-                        error=str(e),
-                        metadata={"index": i},
-                    )
+                result = MemberResult(
+                    member_id=agent.id,
+                    success=False,
+                    output="",
+                    error=str(e),
+                    metadata={"index": i},
                 )
+                results.append(result)
                 # Continue with next agent even if one fails
+
+            # ADR-023: checkpoint after each member (success or failure).
+            if checkpoint_hook is not None:
+                await checkpoint_hook(i, result, results, context.shared_state)
 
         return results
 
