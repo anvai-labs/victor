@@ -21,7 +21,9 @@ HOTSPOT_LINE_CAPS = {
     # Calibrated to develop's size when the guard arrived via the main->develop
     # back-merge (the guard was born on main pinned to main's sizes and never saw
     # develop's pre-existing growth). The no-raise ratchet binds from HERE forward.
-    "victor/agent/orchestrator.py": 4690,
+    # Ratcheted 2026-07-30 (ADR-019 increment 1): 4690 -> 4600 after extracting the
+    # pure task-report metadata builders to victor/agent/task_report_metadata.py.
+    "victor/agent/orchestrator.py": 4600,
     "victor/agent/services/planning_runtime.py": 3518,
     "victor/agent/services/tool_service.py": 3079,
     "victor/agent/services/runtime_intelligence.py": 2864,
