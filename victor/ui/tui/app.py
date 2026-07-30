@@ -37,9 +37,10 @@ from textual.containers import Horizontal, Vertical
 from textual.widgets import Footer, Header, Input
 from textual.worker import Worker
 
-from victor.ui.chat_app.event_mapping import map_event
+from victor.ui.chat_app.event_mapping import RenderAction, RenderKind, map_event
 from victor.ui.tui.approval_modal import make_tui_approval_handler
 from victor.ui.tui.conversation import ConversationLog
+from victor.ui.tui.diff_pane import DiffPane, extract_edit_diff
 from victor.ui.tui.keybindings import load_keybindings
 from victor.ui.tui.palette import CommandPalette, HelpScreen
 from victor.ui.tui.phase import PhaseTracker
@@ -117,6 +118,7 @@ class VictorTUIApp(App[None]):
             yield AgentStatePanel(id="agent-sidebar")
             with Vertical(id="main"):
                 yield ConversationLog(id="conversation")
+                yield DiffPane(id="diff-pane")
                 yield StatusBar(id="status-bar")
                 yield Input(placeholder="Message…  (/help for commands)", id="prompt")
         yield Footer()
@@ -137,6 +139,7 @@ class VictorTUIApp(App[None]):
             self._slash = None
         self._refresh_sidebar()
         self._update_status()
+        self.query_one("#diff-pane", DiffPane).display = False
         self.query_one("#prompt", Input).focus()
 
     # ── input handling ────────────────────────────────────────────
@@ -161,6 +164,7 @@ class VictorTUIApp(App[None]):
         convo = self.query_one("#conversation", ConversationLog)
         prompt.disabled = True
         convo.begin_turn(message)
+        self.query_one("#diff-pane", DiffPane).clear_edits()
         self._phase.begin_turn()
         self._update_status()
         try:
@@ -173,6 +177,7 @@ class VictorTUIApp(App[None]):
             async for action in guarded:
                 self._phase.update(action)
                 convo.feed_action(action)
+                self._maybe_capture_diff(action)
                 self._update_status()
         except asyncio.CancelledError:
             convo.write("[yellow]⏹ interrupted[/]")
@@ -194,6 +199,15 @@ class VictorTUIApp(App[None]):
         """Yield mapped ``RenderAction``s from the live client stream."""
         async for event in self._client.stream(message):
             yield map_event(event)
+
+    def _maybe_capture_diff(self, action: RenderAction) -> None:
+        """Reveal a file edit's diff in the diff pane, if this action is one."""
+        if action.kind is not RenderKind.TOOL_END or not action.tool_name:
+            return
+        arguments = (action.metadata or {}).get("arguments", {})
+        edit = extract_edit_diff(action.tool_name, arguments, action.text or "")
+        if edit is not None:
+            self.query_one("#diff-pane", DiffPane).add_edit(edit)
 
     # ── watchdog callbacks ────────────────────────────────────────
 
@@ -279,6 +293,14 @@ class VictorTUIApp(App[None]):
     def action_toggle_sidebar(self) -> None:
         sidebar = self.query_one("#agent-sidebar", AgentStatePanel)
         sidebar.display = not sidebar.display
+
+    def action_toggle_diff(self) -> None:
+        pane = self.query_one("#diff-pane", DiffPane)
+        if pane.has_edits:
+            pane.display = not pane.display
+
+    def action_diff_next(self) -> None:
+        self.query_one("#diff-pane", DiffPane).cycle()
 
     def action_clear(self) -> None:
         self.query_one("#conversation", ConversationLog).clear()

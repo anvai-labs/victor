@@ -30,6 +30,15 @@ Screen {
     background: #282a36;
 }
 
+#diff-pane {
+    height: auto;
+    max-height: 45%;
+    padding: 0 1;
+    border-top: solid #44475a;
+    background: #1b1c26;
+    scrollbar-size: 1 1;
+}
+
 #status-bar {
     height: 1;
     padding: 0 1;
