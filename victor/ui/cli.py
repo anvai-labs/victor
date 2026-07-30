@@ -409,6 +409,9 @@ def tui_command(
     profile: str = typer.Option("default", "-p", "--profile", help="Profile to use"),
     mode: Optional[str] = typer.Option(None, "--mode", help="Agent mode (build, plan, review, …)"),
     session_id: Optional[str] = typer.Option(None, "--resume", help="Resume a session by id"),
+    theme: str = typer.Option(
+        "dark", "--theme", help="Theme: dark, light, or high-contrast (F6 cycles at runtime)"
+    ),
 ) -> None:
     """Launch the interactive Textual TUI (sidebar · conversation · status · prompt).
 
@@ -417,7 +420,7 @@ def tui_command(
     """
     from victor.ui.commands.chat import run_tui_entry
 
-    run_tui_entry(profile=profile, mode=mode, resume_session_id=session_id)
+    run_tui_entry(profile=profile, mode=mode, resume_session_id=session_id, theme=theme)
 
 
 app.add_typer(chat_app)

@@ -43,6 +43,7 @@ DEFAULT_BINDINGS: Tuple[Binding, ...] = (
     ("f2", "toggle_sidebar", "Sidebar"),
     ("f3", "toggle_diff", "Diff"),
     ("f4", "diff_next", "Next edit"),
+    ("f6", "cycle_theme", "Theme"),
     ("ctrl+l", "clear", "Clear"),
 )
 
