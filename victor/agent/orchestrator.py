@@ -113,6 +113,7 @@ from victor.agent.task_report_metadata import (
     build_continuation_metadata,
     resolve_task_type,
 )
+from victor.agent.tool_supply_policy import classify_tool_supply, demote_tools_to_fit
 from victor.agent.control_plane import envelope_if_internal
 from victor.agent.conversation.store import ConversationStore
 from victor.agent.prompt_prefix import apply_turn_prefix
@@ -3414,163 +3415,16 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
     # Tool Necessity Gate (HDPO-inspired Q&A bypass)
     # ------------------------------------------------------------------
 
-    # Keywords that strongly suggest tool usage is required
-    _TOOL_SIGNAL_KEYWORDS = frozenset(
-        {
-            "file",
-            "code",
-            "search",
-            "edit",
-            "write",
-            "read",
-            "create",
-            "delete",
-            "run",
-            "test",
-            "debug",
-            "fix",
-            "build",
-            "deploy",
-            "docker",
-            "git",
-            "commit",
-            "branch",
-            "install",
-            "refactor",
-            "implement",
-            "function",
-            "class",
-            "import",
-            "variable",
-            "error",
-            "bug",
-            "compile",
-            "execute",
-            "database",
-            "query",
-            "api",
-            "endpoint",
-            "config",
-            "log",
-            "trace",
-            "mkdir",
-            "move",
-            "rename",
-            "grep",
-            "find",
-            "ls",
-            "bash",
-            "shell",
-            "pip",
-            "npm",
-            "make",
-            "curl",
-            "fetch",
-            "download",
-            "upload",
-        }
-    )
-
-    # Patterns that indicate pure Q&A (no tools needed)
-    _QA_SIGNAL_PATTERNS = (
-        "what is",
-        "what are",
-        "what does",
-        "what do",
-        "how does",
-        "how do",
-        "how is",
-        "how are",
-        "why does",
-        "why do",
-        "why is",
-        "why are",
-        "can you explain",
-        "explain",
-        "describe",
-        "tell me about",
-        "what's the difference",
-        "thanks",
-        "thank you",
-        "hello",
-        "hi ",
-        "good morning",
-        "good evening",
-    )
-
-    # Bare continuation/affirmation user turns (< 15 chars, no tool keyword) would trip
-    # the length gate below and drop the working tool set; keep the read-only core so
-    # the model can still reason over in-progress work (_tool_skip_mode: read_core).
-    _CONTINUATION_TOKENS = frozenset(
-        {
-            "continue",
-            "proceed",
-            "go",
-            "go on",
-            "keep going",
-            "next",
-            "more",
-            "again",
-            "yes",
-            "y",
-            "ok",
-            "okay",
-            "sure",
-            "do it",
-            "apply",
-            "apply it",
-        }
-    )
+    # Tool-supply policy constants + heuristic moved to
+    # victor/agent/tool_supply_policy.py (ADR-019 increment 2).
 
     def _tool_skip_mode(self, context_msg: str) -> str:
-        """Decide tool supply for a (possibly conversational) turn (tool-supply P3).
+        """Decide tool supply for a turn — delegates to the pure tool-supply policy.
 
-        Uses a fast heuristic first (keyword scan), then optionally consults the edge
-        model via DecisionService for borderline Q&A. Returns one of:
-
-        - ``"skip"``      — trivially-safe conversational turn (short greeting): no tools.
-        - ``"read_core"`` — borderline Q&A: provide ONLY a minimal read-only core so the
-          model can look something up if it turns out it needs to, rather than removing
-          the entire tool set (the old behavior left "how does X work?" unable to read X).
-        - ``"tools"``     — proceed with normal tool selection.
+        Returns ``"skip"`` / ``"read_core"`` / ``"tools"`` (ADR-019 increment 2;
+        heuristic lives in ``victor/agent/tool_supply_policy.py``).
         """
-        msg_lower = context_msg.lower().strip()
-
-        # Bare continuation/affirmation of an in-progress task ("continue",
-        # "proceed", "go", "yes", "apply it", ...). These are short and carry no
-        # tool-signal keyword, so the length gate below would drop the tool set.
-        # Preserve the read-only core instead so the model can keep working the
-        # active task. Checked BEFORE the length short-circuit on purpose.
-        if msg_lower in self._CONTINUATION_TOKENS:
-            return "read_core"
-
-        # Very short messages are almost always greetings/Q&A — the only hard no-tools path.
-        if len(msg_lower) < 15:
-            # Unless they look like commands: "fix it", "run tests", etc.
-            if any(kw in msg_lower for kw in ("fix", "run", "edit", "create", "delete")):
-                return "tools"
-            return "skip"
-
-        # Heuristic: count tool-signal keywords vs Q&A patterns
-        words = set(msg_lower.split())
-        tool_signals = len(words & self._TOOL_SIGNAL_KEYWORDS)
-        qa_match = any(msg_lower.startswith(pat) for pat in self._QA_SIGNAL_PATTERNS)
-
-        # High-confidence heuristic paths
-        if tool_signals >= 2:
-            return "tools"  # Clearly needs tools
-        if qa_match and tool_signals == 0:
-            # Consult edge model for borderline Q&A (might still need tools). Even when it
-            # says "skip", give the read-only core rather than nothing.
-            skip = self._check_tool_necessity_via_edge(context_msg, heuristic_conf=0.85)
-            return "read_core" if skip else "tools"
-
-        # Ambiguous: 0-1 tool signals — default to providing tools
-        if tool_signals == 0 and qa_match:
-            skip = self._check_tool_necessity_via_edge(context_msg, heuristic_conf=0.6)
-            return "read_core" if skip else "tools"
-
-        return "tools"  # Default: provide tools
+        return classify_tool_supply(context_msg, edge_check=self._check_tool_necessity_via_edge)
 
     def _should_skip_tools_for_turn(self, context_msg: str) -> bool:
         """Back-compat shim: True when full tool selection is not needed this turn.
@@ -3824,69 +3678,17 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
     def _demote_tools_to_fit(
         self, tools, max_tokens: int, context_window: int, provider_category: str = None
     ) -> list:
-        """Demote or drop low-priority tools until within budget.
+        """Demote/drop low-priority tools to fit budget — delegates to the pure policy.
 
-        Args:
-            tools: List of tools to filter
-            max_tokens: Maximum tool tokens allowed (25% of context window)
-            context_window: Context window size
-            provider_category: Provider category for tier selection
-
-        Returns:
-            Filtered list of tools that fit within budget
+        See ``victor/agent/tool_supply_policy.py`` (ADR-019 increment 2).
         """
-        from victor.tools.enums import Priority, SchemaLevel
-
-        # Sort by priority (CRITICAL first)
-        sorted_tools = sorted(
+        return demote_tools_to_fit(
             tools,
-            key=lambda t: (t.priority.value if hasattr(t, "priority") else 99, t.name),
+            max_tokens,
+            context_window,
+            estimate_tokens=self._estimate_tool_tokens,
+            provider_category=provider_category,
         )
-
-        result = []
-        current_tokens = 0
-
-        for tool in sorted_tools:
-            # Estimate current token cost using provider-specific tiers
-            tool_cost = self._estimate_tool_tokens(tool, provider_category)
-
-            if current_tokens + tool_cost <= max_tokens:
-                # Tool fits within budget
-                result.append(tool)
-                current_tokens += tool_cost
-            elif hasattr(tool, "priority") and tool.priority == Priority.CRITICAL:
-                # Critical tools MUST fit - demote to STUB
-                try:
-                    # Temporarily override schema level to STUB
-                    original_schema = getattr(tool, "_schema_level", None)
-                    tool._schema_level = SchemaLevel.STUB
-                    stub_cost = self._estimate_tool_tokens(tool)
-                    tool._schema_level = original_schema  # Restore
-
-                    if current_tokens + stub_cost <= max_tokens:
-                        result.append(tool)
-                        current_tokens += stub_cost
-                        logger.debug(f"Demoted critical tool {tool.name} to STUB to fit budget")
-                    else:
-                        logger.warning(
-                            f"Critical tool {tool.name} ({stub_cost} tokens) exceeds budget "
-                            f"even as STUB. Dropping tool."
-                        )
-                except Exception as e:
-                    logger.warning(f"Error demoting tool {tool.name}: {e}")
-            else:
-                # Skip non-critical tool
-                logger.debug(
-                    f"Skipping {tool.name} (priority: {tool.priority if hasattr(tool, 'priority') else 'unknown'}) "
-                    f"to fit within {max_tokens} token budget"
-                )
-
-        logger.info(
-            f"Demoted tools to fit context window: {len(tools)} → {len(result)} tools, "
-            f"{current_tokens} tokens (budget: {max_tokens}, context: {context_window})"
-        )
-
-        return result
 
     def _semantic_select_tools(self, tools, max_tokens: int, provider_category: str = None) -> list:
         """Delegate semantic tool selection to ToolService."""

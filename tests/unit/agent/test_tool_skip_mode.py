@@ -11,11 +11,13 @@ from victor.agent.orchestrator import AgentOrchestrator
 
 
 class _Gate:
-    """Minimal stand-in carrying the real gate logic (avoids full orchestrator build)."""
+    """Minimal stand-in carrying the real gate logic (avoids full orchestrator build).
 
-    _TOOL_SIGNAL_KEYWORDS = AgentOrchestrator._TOOL_SIGNAL_KEYWORDS
-    _QA_SIGNAL_PATTERNS = AgentOrchestrator._QA_SIGNAL_PATTERNS
-    _CONTINUATION_TOKENS = AgentOrchestrator._CONTINUATION_TOKENS
+    The keyword-set constants now live in ``victor/agent/tool_supply_policy.py``
+    (ADR-019 increment 2); ``_tool_skip_mode`` delegates there, so the stub only
+    needs to supply the edge-check callback.
+    """
+
     _tool_skip_mode = AgentOrchestrator._tool_skip_mode
     _should_skip_tools_for_turn = AgentOrchestrator._should_skip_tools_for_turn
 
