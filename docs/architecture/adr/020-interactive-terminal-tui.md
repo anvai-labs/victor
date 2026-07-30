@@ -2,7 +2,8 @@
 
 ## Metadata
 
-- **Status**: Proposed
+- **Status**: Accepted (2026-07-30 — v1 shipped: `victor tui` / `victor chat --tui`, opt-in,
+  `victor/ui/tui/`; the dedicated diff pane and per-member team lanes remain deferred. Was Proposed.)
 - **Date**: 2026-07-29
 - **Decision Makers**: Vijaykumar Singh
 - **Related ADRs**: 021 (terminal-native HITL & loop transparency — shares the surface), 005 (event

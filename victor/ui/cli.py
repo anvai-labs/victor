@@ -402,7 +402,24 @@ def profile_alias(
 # Register all subcommands with rich_help_panel grouping
 # =============================================================================
 
+
 # --- Core Commands (default panel, shown first) ---
+@app.command("tui", help="Launch the interactive multi-pane terminal UI (opt-in).")
+def tui_command(
+    profile: str = typer.Option("default", "-p", "--profile", help="Profile to use"),
+    mode: Optional[str] = typer.Option(None, "--mode", help="Agent mode (build, plan, review, …)"),
+    session_id: Optional[str] = typer.Option(None, "--resume", help="Resume a session by id"),
+) -> None:
+    """Launch the interactive Textual TUI (sidebar · conversation · status · prompt).
+
+    Opt-in surface; the default ``victor``/``victor chat`` still uses the REPL.
+    Falls back to the REPL automatically on a terminal that can't host it.
+    """
+    from victor.ui.commands.chat import run_tui_entry
+
+    run_tui_entry(profile=profile, mode=mode, resume_session_id=session_id)
+
+
 app.add_typer(chat_app)
 app.add_typer(auth_app, name="auth", help="Manage authentication and provider accounts.")
 app.add_typer(init_app)

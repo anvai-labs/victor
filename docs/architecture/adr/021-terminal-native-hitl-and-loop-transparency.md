@@ -2,7 +2,10 @@
 
 ## Metadata
 
-- **Status**: Proposed
+- **Status**: Accepted (2026-07-30 — v1 shipped in the TUI: terminal-native approval modal, stall
+  watchdog, `/help` + palette, `~/.victor/keybindings.json`, Esc interrupt, and an *inferred* phase
+  indicator. Exact phase-events (framework enhancement, FEP-gated) and REPL-surface approval parity
+  remain deferred. Was Proposed.)
 - **Date**: 2026-07-29
 - **Decision Makers**: Vijaykumar Singh
 - **Related ADRs**: 020 (interactive TUI — the surface these render on), 001 (service-first runtime —
