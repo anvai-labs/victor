@@ -1,10 +1,12 @@
 """ADR-023: durable-pause arming is gated to formations that implement it.
 
 #740 armed `current_member_durable_pause_enabled` for any checkpointer-backed team, but only
-SEQUENTIAL stops-and-checkpoints on an awaiting member. Arming a concurrent formation (which
-can't handle the pause) would make a member ASK silently abort the gated tool. The coordinator
-now arms only when `strategy.supports_durable_pause()` — so concurrent teams keep slice-2a
-inline approval. These tests probe the armed ContextVar during member execution.
+formations that stop-and-checkpoint (or, for concurrent waves, collect-and-checkpoint) on an
+awaiting member can handle the pause. Arming one that can't would make a member ASK silently
+abort the gated tool. The coordinator arms only when `strategy.supports_durable_pause()` — now
+true for SEQUENTIAL, PIPELINE, and PARALLEL (via the concurrent multi-pause aggregate), still
+false for HIERARCHICAL/CONSENSUS/REFLECTION. These tests probe the armed ContextVar during
+member execution and the gating predicate itself.
 """
 
 from __future__ import annotations
@@ -48,10 +50,24 @@ async def test_sequential_arms_durable_pause() -> None:
     assert probe.seen_armed is True  # SEQUENTIAL supports durable pause → armed
 
 
-async def test_parallel_does_not_arm_durable_pause() -> None:
-    # PARALLEL cannot stop-and-checkpoint → must NOT arm, even with a checkpointer.
+async def test_parallel_arms_durable_pause() -> None:
+    # PARALLEL now implements durable pause via the concurrent multi-pause aggregate → armed.
     probe = _ArmingProbe("m0")
     await _coordinator([probe], TeamFormation.PARALLEL, MemoryCheckpointer()).execute_task(
         "do it", {"thread_id": "t1"}
     )
-    assert probe.seen_armed is None
+    assert probe.seen_armed is True
+
+
+def test_gating_predicate_matches_implemented_formations() -> None:
+    # The arming gate reads supports_durable_pause(): true only for formations that can actually
+    # handle an awaiting member (stop/collect + checkpoint). HIERARCHICAL is not there yet.
+    from victor.coordination.formations.hierarchical import HierarchicalFormation
+    from victor.coordination.formations.parallel import ParallelFormation
+    from victor.coordination.formations.pipeline import PipelineFormation
+    from victor.coordination.formations.sequential import SequentialFormation
+
+    assert SequentialFormation().supports_durable_pause() is True
+    assert PipelineFormation().supports_durable_pause() is True
+    assert ParallelFormation().supports_durable_pause() is True
+    assert HierarchicalFormation().supports_durable_pause() is False

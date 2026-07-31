@@ -110,6 +110,14 @@ class TeamContext:
         # and the formation stops. None → the awaiting-approval flag is ignored (unchanged).
         self.pause_hook: Optional[Callable[..., Awaitable[None]]] = None
 
+        # ADR-023 pillar 2b (concurrent): durable *multi-member* pause (opt-in; set alongside
+        # pause_hook by UnifiedTeamCoordinator when a checkpointer is configured). A concurrent
+        # wave (PARALLEL) can have several members awaiting approval at once; this batch hook is
+        # awaited once, after the wave, with (awaiting_results, completed_results, shared_state)
+        # and persists a single pause checkpoint recording all pending approvals. None → the
+        # concurrent runner never collects awaiting members (unchanged).
+        self.batch_pause_hook: Optional[Callable[..., Awaitable[None]]] = None
+
         # Initialize manager with existing shared_state
         if self._state_manager and self.shared_state:
             self._sync_to_manager()
@@ -345,9 +353,16 @@ class BaseFormationStrategy(ABC):
         already in the checkpoint's completed set are skipped and their results pre-seeded; the
         rest re-run. All hooks are read off the original ``context`` (the isolated per-member
         contexts don't carry them). No checkpointer ⇒ this is just a lane-emitting gather.
+
+        ADR-023 concurrent durable pause: when ``batch_pause_hook`` is set (durable team run whose
+        formation ``supports_durable_pause()``), members that come back awaiting approval are
+        *not* recorded as completed — they are collected and, after the wave, a single pause
+        aggregate (``__awaiting_approvals__``) + pause checkpoint records every pending approval,
+        so a resumed run re-runs exactly the awaiting members while completed ones are skipped.
         """
         member_event_hook = getattr(context, "member_event_hook", None)
         checkpoint_hook = getattr(context, "checkpoint_hook", None)
+        batch_pause_hook = getattr(context, "batch_pause_hook", None)
 
         # ADR-023 resume: pre-seed completed members and skip them below.
         seeded: List[MemberResult] = []
@@ -360,7 +375,9 @@ class BaseFormationStrategy(ABC):
 
         lock = asyncio.Lock()
         cumulative: List[MemberResult] = list(seeded)
+        awaiting: List[MemberResult] = []
         _SKIPPED = object()
+        _AWAITING = object()
 
         async def _run(agent: Any, exec_context: "TeamContext", index: int) -> Any:
             if agent.id in completed_ids:
@@ -371,12 +388,24 @@ class BaseFormationStrategy(ABC):
             result = await self._execute_member_with_events(
                 agent, task, exec_context, index, member_event_hook=member_event_hook
             )
-            if checkpoint_hook is not None:
-                # Serialize only the record+checkpoint — execution above stayed concurrent.
+            # A member awaiting approval durably pauses (only when the formation supports it, i.e.
+            # a batch pause hook is wired): it is NOT recorded as completed, so a resumed run
+            # re-runs it. Collect it for the post-wave pause aggregate instead.
+            is_awaiting = batch_pause_hook is not None and bool(
+                (result.metadata or {}).get("awaiting_approval")
+            )
+            if checkpoint_hook is not None or is_awaiting:
+                # Serialize only the record/checkpoint/collect — execution above stayed concurrent.
                 async with lock:
-                    cumulative.append(result)
-                    await checkpoint_hook(index, result, list(cumulative), context.shared_state)
-            return result
+                    if is_awaiting:
+                        awaiting.append(result)
+                    else:
+                        cumulative.append(result)
+                        if checkpoint_hook is not None:
+                            await checkpoint_hook(
+                                index, result, list(cumulative), context.shared_state
+                            )
+            return _AWAITING if is_awaiting else result
 
         gathered = await asyncio.gather(
             *[_run(a, c, i) for i, (a, c) in enumerate(zip(agents, exec_contexts))],
@@ -385,7 +414,7 @@ class BaseFormationStrategy(ABC):
 
         fresh: List[MemberResult] = []
         for i, r in enumerate(gathered):
-            if r is _SKIPPED:
+            if r is _SKIPPED or r is _AWAITING:
                 continue
             if isinstance(r, BaseException):
                 logger.error(f"{type(self).__name__}: member {agents[i].id} failed: {r}")
@@ -400,6 +429,22 @@ class BaseFormationStrategy(ABC):
                 )
             else:
                 fresh.append(r)
+
+        # ADR-023 concurrent durable pause: one or more members awaited approval this wave.
+        # Publish the multi-pause aggregate and persist a single pause checkpoint recording every
+        # pending approval; the coordinator surfaces the paused aggregate. Awaiting members are
+        # absent from the returned results (excluded from the completed set), so a resumed run
+        # re-runs exactly them.
+        if awaiting and batch_pause_hook is not None:
+            context.shared_state["__awaiting_approvals__"] = [
+                {
+                    "member_id": r.member_id,
+                    "approval_request": (r.metadata or {}).get("approval_request"),
+                }
+                for r in awaiting
+            ]
+            await batch_pause_hook(list(awaiting), list(cumulative), context.shared_state)
+
         return seeded + fresh
 
     def consumes_context_agents(self) -> bool:
