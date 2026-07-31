@@ -75,8 +75,11 @@ so it is FEP-gated (below).
   2. member `interrupt` — slice 2a (terminal-native member approval) **done**: a member's policy
      `ASK`-gated tool surfaces to the shared terminal approval modal (ADR-021), tagged with `member_id`,
      via a member-tagging wrapper published on a `ContextVar` during member-orchestrator construction
-     (read by the policy-engine builder); slice 2b (durable pause/resume via the HITL↔graph-`interrupt`
-     bridge) deferred;
+     (read by the policy-engine builder). Slice 2b-infra (durable pause/resume **mechanism**) **done**:
+     a member reporting `metadata["awaiting_approval"]` stops the SEQUENTIAL formation (opt-in
+     `pause_hook`), persists a pause checkpoint (paused member re-runs on resume), and returns a paused
+     aggregate; resume re-runs the paused member via the pillar-1 checkpoint path. The real mid-member
+     ASK→pause trigger and the no-graph chat continuation are deferred;
   3. member-tagged `RenderAction` fan-out for ADR-020's per-member lanes — **done (SEQUENTIAL,
      FEP-0028 increment 4)**: a `MemberEventSink`/`ContextVar` teams→stream bridge in
      `stream_with_events` emits `member_start`/`member_completed`/`member_error` lanes; member
@@ -104,3 +107,4 @@ so it is FEP-gated (below).
 | 2026-07-29 | 1.0 | Initial ADR — team durability contract (checkpoint/interrupt/per-member stream) | Vijaykumar Singh |
 | 2026-07-30 | 1.1 | Increment 1 (member checkpoint/resume) and increment 4 (per-member streaming lanes) landed for SEQUENTIAL via FEP-0028 | Vijaykumar Singh |
 | 2026-07-30 | 1.2 | Increment 3 slice 2a (terminal-native member approval: member ASK → shared modal, member_id-tagged) landed; durable pause/resume (2b) deferred | Vijaykumar Singh |
+| 2026-07-31 | 1.3 | Increment 3 slice 2b-infra (durable member pause checkpoint + resume re-run at the teams layer) landed for SEQUENTIAL; real ASK trigger + chat continuation deferred | Vijaykumar Singh |

@@ -297,6 +297,10 @@ class MemberStatus(str, Enum):
     WAITING = "waiting"
     COMPLETED = "completed"
     FAILED = "failed"
+    # ADR-023 pillar 2b: member paused mid-run awaiting human approval. Signalled on
+    # MemberResult.metadata["awaiting_approval"] (+ ["approval_request"]) so the coordinator
+    # persists a durable pause checkpoint and the team resumes by re-running this member.
+    AWAITING_APPROVAL = "awaiting_approval"
 
 
 @dataclass

@@ -4,7 +4,7 @@ title: "Team-Node Durability Contract"
 type: Standards Track
 status: Draft
 created: 2026-07-30
-modified: 2026-07-30
+modified: 2026-07-31
 authors:
   - name: Vijaykumar Singh
     email: singhvjd@gmail.com
@@ -111,11 +111,24 @@ Split into two slices:
   is asking. In-process pause (the member's tool call blocks on the modal); reject → tool blocked.
   Opt-in via governance (`USE_POLICY_ENGINE` + `governance.enabled`); no member in scope ⇒
   byte-identical.
-- **Slice 2b — durable pause/resume (design; later increment).** A member `ASK` saves a 'paused'
-  member checkpoint and returns control; the run resumes on the same `thread_id` when the approval
-  arrives (terminal-native per ADR-021, or via the HITL API), bridging `workflows/hitl_api.py` to the
-  graph `InterruptHandler`. Also needs a story for the no-graph chat path (teams run inside the chat
-  service, not always a compiled graph). Not implemented.
+- **Slice 2b-infra — durable pause/resume mechanism (implemented, teams-layer).** When a member reports
+  awaiting-approval (`MemberResult.metadata["awaiting_approval"]` + `["approval_request"]`) and a
+  checkpointer is configured, the SEQUENTIAL formation **stops** at that member (via a new opt-in
+  `TeamContext.pause_hook`, not appending the paused member so it re-runs), and the coordinator persists
+  a **pause checkpoint** (`_make_member_pause_hook`: `completed_member_ids` excludes the paused member;
+  carries `paused_member_id` + `approval_request` + `awaiting_approval`) and returns a **paused
+  aggregate** (`status="awaiting_approval"`, `paused_member_id`, `approval_request`, `thread_id`).
+  **Resume** needs no new entry point: re-running `execute_task` on the same `thread_id` (with an
+  `approval_decision` in context, surfaced into `shared_state`) drives the pillar-1 `_load_member_resume`
+  path — completed members are skipped, the paused member **re-runs** (member-granular re-run semantics).
+  Reuses `WorkflowCheckpoint`/`CheckpointerProtocol`; no new engine. Opt-in via a checkpointer; no
+  checkpointer ⇒ the flag is inert (byte-identical).
+- **Slice 2b — deferred pieces.** (a) The **real mid-member ASK → pause trigger**: today a member ASK
+  blocks in-process (slice 2a); making it raise a durable pause requires threading a `MemberApprovalPause`
+  up policy middleware → tool pipeline → orchestrator → SubAgent → formation (invasive runtime-core).
+  (b) The **no-graph chat path**: teams run inside the chat service (one awaited turn); durable pause
+  there needs a continuation-token system (`paused_runs` table, a `VictorClient` resume API,
+  `chat_service` paused-run detection, an `AWAITING_APPROVAL` event). Not implemented.
 
 ### 3. Per-member streaming contract (implemented — increment 4, SEQUENTIAL)
 
@@ -164,9 +177,11 @@ deferred.
   `resume_completed`; `MemberResult.from_dict`; coordinator opt-in `checkpointer` + per-member save +
   resume-skip; `SequentialFormation` reads the hook/resume. Tests with `MemoryCheckpointer`.
 - **Increment 2:** checkpoint/resume for PARALLEL / HIERARCHICAL / PIPELINE / CONSENSUS / REFLECTION.
-- **Increment 3:** member interrupt. Slice 2a (terminal-native member approval: `approval_handler`
-  override + member-tagging wrapper + modal tag) **implemented**; slice 2b (durable pause/resume via
-  HITL → graph `interrupt`, ADR-021 terminal resume) deferred.
+- **Increment 3:** member interrupt. Slice 2a (terminal-native member approval: member-tagging wrapper
+  on a ContextVar + modal tag) **implemented**; slice 2b-infra (durable pause checkpoint + resume re-run
+  at the teams layer: `MemberStatus.AWAITING_APPROVAL`, `TeamContext.pause_hook`,
+  `_make_member_pause_hook`, paused aggregate) **implemented**; the real mid-member ASK trigger + the
+  no-graph chat continuation deferred.
 - **Increment 4 (implemented, SEQUENTIAL):** `member_id` event contract + `MemberEventSink`/`ContextVar`
   teams→stream bridge + `member_event_hook` producer + `map_event`/wire + TUI `MEMBER_START/END` lanes.
   Member tool/token streaming and concurrent formations deferred.
@@ -216,3 +231,11 @@ lands, existing single-agent consumers ignore the `None` default.
   the wrapper tags + delegates (approve/reject propagate), returns `None` with no handler registered
   (deny fallback unchanged), the member context handler beats container/console resolution, no member in
   scope is byte-identical. Durable pause/resume (2b) deferred.
+- Increment 3 slice 2b-infra merged: opt-in durable member pause/resume — a member reporting
+  `metadata["awaiting_approval"]` stops the SEQUENTIAL formation (opt-in `pause_hook`), the coordinator
+  persists a pause checkpoint (paused member excluded from `completed_member_ids`; carries
+  `approval_request`) and returns a paused aggregate; re-running on the same `thread_id` skips completed
+  members and re-runs the paused one (pillar-1 resume path). Verified green: pauses + checkpoints at the
+  awaiting member (m2 never runs), resume re-runs only the paused member and continues with the decision
+  surfaced in `shared_state`, and no checkpointer is byte-identical. The real ASK trigger + chat
+  continuation deferred.

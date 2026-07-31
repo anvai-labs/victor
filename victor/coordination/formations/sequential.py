@@ -67,6 +67,8 @@ class SequentialFormation(BaseFormationStrategy):
         checkpoint_hook = getattr(context, "checkpoint_hook", None)
         # ADR-023: per-member streaming — emit lifecycle events when a sink is wired.
         member_event_hook = getattr(context, "member_event_hook", None)
+        # ADR-023 pillar 2b: durable pause when a member reports awaiting-approval.
+        pause_hook = getattr(context, "pause_hook", None)
 
         for i, agent in enumerate(agents):
             if agent.id in completed_ids:
@@ -104,6 +106,24 @@ class SequentialFormation(BaseFormationStrategy):
             # Execute agent with task
             try:
                 result = await agent.execute(agent_task, context)
+
+                # ADR-023 pillar 2b: a member awaiting human approval durably pauses the
+                # formation (opt-in on a pause_hook). The paused member is NOT appended, so a
+                # resumed run re-executes it; completed members are checkpointed and skipped.
+                if pause_hook is not None and result.metadata.get("awaiting_approval"):
+                    logger.info(
+                        f"SequentialFormation: member {agent.id} awaiting approval; pausing"
+                    )
+                    if member_event_hook is not None:
+                        await member_event_hook("member_awaiting_approval", agent.id, i)
+                    context.shared_state["__awaiting_approval__"] = {
+                        "member_id": agent.id,
+                        "index": i,
+                        "approval_request": result.metadata.get("approval_request"),
+                    }
+                    await pause_hook(i, result, results, context.shared_state)
+                    return results
+
                 results.append(result)
 
                 # Store output and agent ID for next agent's context
