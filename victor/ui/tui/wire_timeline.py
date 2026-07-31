@@ -69,7 +69,9 @@ class WireTimelineState:
     Content tokens are buffered into a paragraph and flushed on segment
     boundaries (tool activity, errors, stream end) — mirroring the Chainlit
     app's natural text→tools→text turn flow on a line-oriented surface.
-    ``advance``/``flush`` return Rich-markup strings ready for ``RichLog``.
+    ``advance``/``flush`` return items ready for ``RichLog.write`` — Rich-markup strings for
+    structural markers (tool/member/error lines) and a shared markdown renderable for the
+    assistant content paragraph (see :meth:`flush`).
     """
 
     def __init__(self) -> None:
@@ -77,7 +79,7 @@ class WireTimelineState:
         self._in_reasoning = False
         self._pending_args: Dict[str, Dict[str, Any]] = {}
 
-    def advance(self, action: RenderAction) -> List[str]:
+    def advance(self, action: RenderAction) -> List[Any]:
         if action.kind is RenderKind.TOKEN:
             self._in_reasoning = False
             if action.text:
@@ -154,14 +156,29 @@ class WireTimelineState:
 
         return []  # IGNORE: lifecycle / future additive events
 
-    def flush(self) -> List[str]:
-        """Emit the buffered content paragraph, if any."""
+    def flush(self) -> List[Any]:
+        """Emit the buffered assistant paragraph as a Markdown renderable, if any.
+
+        Reuses the shared markdown renderer (``render_markdown_with_hooks`` — the same one
+        the CLI's live renderer uses) so assistant markdown (**bold**, headings, lists,
+        fenced code, tables) is applied on the TUI too, from a single source of truth rather
+        than a TUI-only fork. ``RichLog.write`` accepts the renderable; ``Markdown`` does not
+        interpret Rich ``[tags]``, so raw content stays injection-safe (no escaping needed).
+        Falls back to escaped plain text if markdown rendering is unavailable.
+        """
         self._in_reasoning = False
         if not self._text_buffer:
             return []
         paragraph = "".join(self._text_buffer).strip()
         self._text_buffer = []
-        return [escape(paragraph)] if paragraph else []
+        if not paragraph:
+            return []
+        try:
+            from victor.ui.rendering.markdown import render_markdown_with_hooks
+
+            return [render_markdown_with_hooks(paragraph)]
+        except Exception:  # pragma: no cover - never let rendering break the turn
+            return [escape(paragraph)]
 
 
 try:  # Textual is a core dependency, but keep the pure pieces importable alone
