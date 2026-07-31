@@ -758,10 +758,12 @@ def chat(
         "--thinking/--no-thinking",
         help="Enable extended thinking/reasoning mode (Claude models). Shows model's reasoning process.",
     ),
-    tui: bool = typer.Option(
-        False,
+    tui: Optional[bool] = typer.Option(
+        None,
         "--tui/--repl",
-        help="Launch the interactive multi-pane terminal UI (opt-in) instead of the REPL.",
+        help="Force the interactive multi-pane TUI (--tui) or the line-oriented REPL "
+        "(--repl). Default: the TUI on capable terminals, the REPL on dumb terminals / "
+        "pipes / CI.",
         rich_help_panel="Advanced Agent Behavior",
     ),
     headless: bool = typer.Option(
@@ -1509,7 +1511,7 @@ victor chat --sessionid abc123            # Resume session
                     resume_session_id=session_id,
                     show_reasoning=show_reasoning,
                     graph_watch=graph_watch,
-                    surface="tui" if tui else "repl",
+                    surface=_resolve_surface(tui),
                     session_config=session_config,
                     **runtime_override_kwargs,
                 )
@@ -1551,6 +1553,17 @@ def _run_default_interactive() -> None:
     settings = load_settings()
     setup_safety_confirmation()
     run_sync(run_interactive(settings, "default", True, False))
+
+
+def _resolve_surface(tui: Optional[bool]) -> str:
+    """Map the tri-state ``--tui/--repl`` flag to an interactive surface (ADR-020).
+
+    ``None`` (neither flag) → ``"auto"`` (TUI on capable terminals, REPL otherwise);
+    ``True`` (``--tui``) → forced ``"tui"``; ``False`` (``--repl``) → forced ``"repl"``.
+    """
+    if tui is None:
+        return "auto"
+    return "tui" if tui else "repl"
 
 
 def _tui_capable() -> bool:
@@ -2105,7 +2118,7 @@ async def run_interactive(
     enable_correlation: bool = True,
     min_agents_for_bayesian: int = 2,
     session_config: Optional[SessionConfig] = None,
-    surface: str = "repl",
+    surface: str = "auto",
     tui_theme: str = "dark",
 ) -> None:
     """Run interactive CLI mode.
@@ -2341,9 +2354,11 @@ async def run_interactive(
 
         cmd_handler = SlashCommandHandler(console, settings, agent)
 
-        # Opt-in interactive TUI (ADR-020/021). Falls back to the REPL when the
-        # terminal can't host it; a forced --tui on a bad terminal says so.
-        if surface == "tui":
+        # Interactive TUI (ADR-020/021) is the default on capable terminals; the REPL is
+        # the fallback for dumb terminals / pipes / CI. ``surface="auto"`` (the default)
+        # selects silently by capability; an explicit ``--tui`` on a terminal that can't
+        # host it says so before falling back; ``--repl`` forces the REPL.
+        if surface in ("tui", "auto"):
             if _tui_capable():
                 await _run_tui_app(
                     client,
@@ -2354,10 +2369,11 @@ async def run_interactive(
                     theme=tui_theme,
                 )
                 return
-            console.print(
-                "[yellow]This terminal can't host the interactive TUI; "
-                "using the REPL instead.[/]"
-            )
+            if surface == "tui":
+                console.print(
+                    "[yellow]This terminal can't host the interactive TUI; "
+                    "using the REPL instead.[/]"
+                )
 
         rl_suggestion = get_rl_profile_suggestion(profile_display.provider, profiles)
         await _run_cli_repl(
