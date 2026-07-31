@@ -412,22 +412,29 @@ class SubAgent(IAgent):  # type: ignore[misc]
         )
 
         # Create new orchestrator instance.
-        # Use the actual provider object (not just the name) for proper initialization
-        orchestrator = AgentOrchestrator(
-            settings=settings,
-            provider=provider,
-            model=model,
-            temperature=temperature,
-            provider_name=provider_name,
-            system_prompt_override=self._get_role_prompt(),
-            reasoning_effort=reasoning_effort,
-            # ADR-023 pillar 2: route this member's policy ASK verdicts to the session's
-            # terminal approval handler, tagged with member_id so the shared modal shows
-            # which member is asking. None when no handler is registered (unchanged).
-            approval_handler=self._build_member_approval_handler(),
-            # Note: We'll share the parent's DI container for now
-            # In production, we might want isolated scoped containers
-        )
+        # Use the actual provider object (not just the name) for proper initialization.
+        # ADR-023 pillar 2: publish this member's member-tagging ASK approval handler on a
+        # context var for the duration of construction so the member's policy-engine
+        # middleware (built synchronously in __init__) resolves it — tagging the shared
+        # terminal modal with member_id — without threading a constructor param through the
+        # decomposed orchestrator hotspot. Reset immediately: the middleware has captured it.
+        from victor.agent.member_approval_context import current_member_approval_handler
+
+        _approval_token = current_member_approval_handler.set(self._build_member_approval_handler())
+        try:
+            orchestrator = AgentOrchestrator(
+                settings=settings,
+                provider=provider,
+                model=model,
+                temperature=temperature,
+                provider_name=provider_name,
+                system_prompt_override=self._get_role_prompt(),
+                reasoning_effort=reasoning_effort,
+                # Note: We'll share the parent's DI container for now
+                # In production, we might want isolated scoped containers
+            )
+        finally:
+            current_member_approval_handler.reset(_approval_token)
 
         # Inherit parent's vertical context via flyweight pattern
         parent_vc = self._context.vertical_context

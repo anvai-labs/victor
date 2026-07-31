@@ -102,13 +102,15 @@ Split into two slices:
 - **Slice 2a — terminal-native member approval (implemented).** A team member (SubAgent) shares the
   session's DI container (the global container, set by `bootstrap_container`'s finalize phase, that the
   client registers the ASK approval handler into), so a member's policy `ASK`-gated tool already
-  resolves the session terminal handler. `AgentOrchestrator` gains an optional `approval_handler`
-  override (threaded through `OrchestratorFactory` → `_maybe_add_policy_engine`, winning over container
-  resolution); `SubAgent._build_member_approval_handler` wraps the session handler to stamp
-  `ApprovalRequest.context["member_id"]`/`["member_role"]` so the shared terminal modal
-  (`approval_modal.py`) shows which member is asking. In-process pause (the member's tool call blocks on
-  the modal); reject → tool blocked. Opt-in via governance (`USE_POLICY_ENGINE` + `governance.enabled`);
-  `approval_handler=None` default ⇒ byte-identical.
+  resolves the session terminal handler. `SubAgent._build_member_approval_handler` wraps that session
+  handler to stamp `ApprovalRequest.context["member_id"]`/`["member_role"]`, and publishes it on the
+  `current_member_approval_handler` `ContextVar` (`victor/agent/member_approval_context.py`) for the
+  duration of the member orchestrator's synchronous construction; `_maybe_add_policy_engine` reads that
+  var and prefers it over the container-resolved handler (no constructor param threaded through the
+  decomposed orchestrator hotspot). The shared terminal modal (`approval_modal.py`) shows which member
+  is asking. In-process pause (the member's tool call blocks on the modal); reject → tool blocked.
+  Opt-in via governance (`USE_POLICY_ENGINE` + `governance.enabled`); no member in scope ⇒
+  byte-identical.
 - **Slice 2b — durable pause/resume (design; later increment).** A member `ASK` saves a 'paused'
   member checkpoint and returns control; the run resumes on the same `thread_id` when the approval
   arrives (terminal-native per ADR-021, or via the HITL API), bridging `workflows/hitl_api.py` to the
@@ -208,8 +210,9 @@ lands, existing single-agent consumers ignore the `None` default.
   emitted event sequence is byte-identical (streaming-parity gate). Member tool/token streaming and
   concurrent formations remain deferred.
 - Increment 3 slice 2a merged: opt-in terminal-native member approval — a member's policy `ASK`-gated
-  tool resolves the session approval handler (shared global container) via an `approval_handler`
-  override on the member orchestrator, wrapped to tag `ApprovalRequest.context["member_id"]`; the modal
-  shows the member tag. Verified green: the wrapper tags + delegates (approve/reject propagate), returns
-  `None` with no handler registered (deny fallback unchanged), the explicit override beats container/
-  console resolution, default `None` is byte-identical. Durable pause/resume (2b) deferred.
+  tool resolves the session approval handler (shared global container), wrapped to tag
+  `ApprovalRequest.context["member_id"]` and published on a `ContextVar` during member-orchestrator
+  construction so `_maybe_add_policy_engine` prefers it; the modal shows the member tag. Verified green:
+  the wrapper tags + delegates (approve/reject propagate), returns `None` with no handler registered
+  (deny fallback unchanged), the member context handler beats container/console resolution, no member in
+  scope is byte-identical. Durable pause/resume (2b) deferred.

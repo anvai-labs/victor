@@ -74,8 +74,9 @@ so it is FEP-gated (below).
      FEP-0028 increment 1)**;
   2. member `interrupt` — slice 2a (terminal-native member approval) **done**: a member's policy
      `ASK`-gated tool surfaces to the shared terminal approval modal (ADR-021), tagged with `member_id`,
-     via an `approval_handler` override on the member orchestrator + a member-tagging wrapper; slice 2b
-     (durable pause/resume via the HITL↔graph-`interrupt` bridge) deferred;
+     via a member-tagging wrapper published on a `ContextVar` during member-orchestrator construction
+     (read by the policy-engine builder); slice 2b (durable pause/resume via the HITL↔graph-`interrupt`
+     bridge) deferred;
   3. member-tagged `RenderAction` fan-out for ADR-020's per-member lanes — **done (SEQUENTIAL,
      FEP-0028 increment 4)**: a `MemberEventSink`/`ContextVar` teams→stream bridge in
      `stream_with_events` emits `member_start`/`member_completed`/`member_error` lanes; member

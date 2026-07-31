@@ -186,7 +186,6 @@ class OrchestratorFactory(
         profile_name: Optional[str] = None,
         tool_selection: Optional[Dict[str, Any]] = None,
         thinking: bool = False,
-        approval_handler: Optional[Any] = None,
     ):
         """Initialize the factory with core configuration.
 
@@ -200,9 +199,6 @@ class OrchestratorFactory(
             profile_name: Profile name for session tracking
             tool_selection: Tool selection configuration
             thinking: Enable extended thinking mode
-            approval_handler: Optional explicit policy ASK approval handler that takes
-                precedence over the container-resolved one when building the policy
-                engine middleware (ADR-023 member approval). None → container resolution.
         """
         self.settings = settings
         self.provider = provider
@@ -213,8 +209,6 @@ class OrchestratorFactory(
         self.profile_name = profile_name
         self.tool_selection = tool_selection or {}
         self.thinking = thinking
-        # ADR-023 pillar 2: explicit ASK handler override (wins over container lookup).
-        self._approval_handler_override = approval_handler
 
         # Lazy-initialized container
         self._container = None

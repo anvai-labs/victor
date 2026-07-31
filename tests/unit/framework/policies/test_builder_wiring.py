@@ -208,38 +208,41 @@ def _policy_middleware(chain):
     return next(m for m in chain._middleware if hasattr(m, "_approval_handler"))
 
 
-async def test_explicit_override_wins_over_container_and_console(monkeypatch):
-    """ADR-023: an explicit _approval_handler_override beats container/console resolution."""
+async def test_member_context_handler_wins_over_container_and_console(monkeypatch):
+    """ADR-023: a member handler on the context var beats container/console resolution."""
     import sys
 
+    from victor.agent.member_approval_context import current_member_approval_handler
     from victor.framework.policies import PolicyApprovalHandler
 
     async def container_handler(_request):
         return None
 
-    async def override_handler(_request):
+    async def member_handler(_request):
         return None
 
     mgr = get_feature_flag_manager()
     mgr.enable(FeatureFlag.USE_POLICY_ENGINE)
+    token = current_member_approval_handler.set(member_handler)
     try:
         s = _governed_settings(interactive_approval=True)
         container = _FakeContainer(
             {PolicyApprovalHandler: PolicyApprovalHandler(container_handler)}
         )
         host = _Host(s, container=container)
-        host._approval_handler_override = override_handler
         monkeypatch.setattr(sys.stdin, "isatty", lambda: True, raising=False)
         chain = MiddlewareChain()
         host._maybe_add_policy_engine(chain)
         assert len(chain) == 1
-        assert _policy_middleware(chain)._approval_handler is override_handler
+        assert _policy_middleware(chain)._approval_handler is member_handler
     finally:
+        current_member_approval_handler.reset(token)
         mgr.disable(FeatureFlag.USE_POLICY_ENGINE)
 
 
-async def test_no_override_uses_container_handler():
-    """Without an override, the container-resolved handler is used (default path unchanged)."""
+async def test_no_member_context_uses_container_handler():
+    """Without a member handler on the context var, the container handler is used (unchanged)."""
+    from victor.agent.member_approval_context import current_member_approval_handler
     from victor.framework.policies import PolicyApprovalHandler
 
     async def container_handler(_request):
@@ -248,11 +251,12 @@ async def test_no_override_uses_container_handler():
     mgr = get_feature_flag_manager()
     mgr.enable(FeatureFlag.USE_POLICY_ENGINE)
     try:
+        assert current_member_approval_handler.get() is None  # default: no member in scope
         s = _governed_settings()
         container = _FakeContainer(
             {PolicyApprovalHandler: PolicyApprovalHandler(container_handler)}
         )
-        host = _Host(s, container=container)  # no _approval_handler_override attr
+        host = _Host(s, container=container)
         chain = MiddlewareChain()
         host._maybe_add_policy_engine(chain)
         assert _policy_middleware(chain)._approval_handler is container_handler

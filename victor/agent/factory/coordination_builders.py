@@ -562,11 +562,15 @@ class CoordinationBuildersMixin:
                 return PolicyContext(cost_usd=cost, model=model)
 
             engine = PolicyEngine(policies, event_emitter=self._build_policy_emitter())
-            # ADR-023 pillar 2: an explicit handler (e.g. a team member's member-tagging
-            # wrapper) wins over the container-resolved one; None falls back unchanged.
-            approval_handler = getattr(
-                self, "_approval_handler_override", None
-            ) or self._resolve_policy_approval_handler(governance)
+            # ADR-023 pillar 2: a team member's member-tagging ASK handler (published on
+            # the context var during member-orchestrator construction) wins over the
+            # container-resolved one; None (top-level/single-agent) falls back unchanged.
+            from victor.agent.member_approval_context import current_member_approval_handler
+
+            approval_handler = (
+                current_member_approval_handler.get()
+                or self._resolve_policy_approval_handler(governance)
+            )
             middleware = PolicyEngineMiddleware(
                 engine,
                 context_provider=_context_provider,
