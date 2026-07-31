@@ -20,7 +20,7 @@ high-frequency duplicate events to prevent log bloat and improve performance.
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class EventDebouncingSettings(BaseModel):
@@ -40,6 +40,11 @@ class EventDebouncingSettings(BaseModel):
         tool_intent_window_seconds: Time window for tool intent debouncing.
         tool_intent_max_per_window: Maximum tool intent events per window.
     """
+
+    # The model_request_* fields below collide with Pydantic's protected
+    # "model_" namespace; these are debouncing knobs, not Pydantic model config,
+    # so disable the guard to silence the spurious UserWarning at import time.
+    model_config = ConfigDict(protected_namespaces=())
 
     # Session-start debouncing (CRITICAL: prevents log bloat from duplicate session_start events)
     session_start_enabled: bool = True

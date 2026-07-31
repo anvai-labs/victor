@@ -87,6 +87,49 @@ from typing import Any, Dict, Iterator, List, Optional, Tuple
 logger = logging.getLogger(__name__)
 
 
+# Substrings of sqlite3.OperationalError messages that are expected when a
+# migration statement is applied to a database that already satisfies it (an
+# idempotent re-run, or a cross-scope statement that targets tables owned by the
+# other database). These are benign and logged at DEBUG rather than WARNING.
+_BENIGN_MIGRATION_ERRORS = (
+    "no such table",
+    "duplicate column name",
+    "already exists",
+    "already another table",
+)
+
+
+def _apply_migration_sql(conn: sqlite3.Connection, sql: str) -> None:
+    """Apply a single migration statement (or multi-statement block) idempotently.
+
+    Migration entries may be a single statement or a multi-statement block (e.g.
+    the ``Schema.*_INDEXES`` constants). ``sqlite3.Connection.execute`` rejects
+    the latter ("You can only execute one statement at a time"), so blocks are
+    routed to ``executescript``. Errors that are expected on an already-migrated
+    or cross-scope database are logged at DEBUG; anything else stays a WARNING.
+
+    Args:
+        conn: Target database connection.
+        sql: A SQL statement or ``;``-separated block from ``get_migration_sql``.
+    """
+    # A block still containing ';' after dropping trailing whitespace/semicolons
+    # holds more than one statement and must go through executescript.
+    is_multi = ";" in sql.strip().rstrip(";").rstrip()
+    try:
+        if is_multi:
+            conn.executescript(sql)
+        else:
+            conn.execute(sql)
+    except sqlite3.OperationalError as e:
+        message = str(e).lower()
+        if any(token in message for token in _BENIGN_MIGRATION_ERRORS):
+            logger.debug(f"Migration SQL skipped (already satisfied): {e}")
+        else:
+            logger.warning(f"Migration SQL failed: {e}")
+    except Exception as e:  # pragma: no cover - defensive
+        logger.warning(f"Migration SQL failed: {e}")
+
+
 # =============================================================================
 # DATABASE CONSOLIDATION
 # =============================================================================
@@ -873,7 +916,14 @@ class DatabaseManager(_DatabaseManagerBase):
                 ).fetchall()
             }
             non_meta_tables = existing_tables - {Tables.SYS_METADATA, "sqlite_sequence"}
-            if non_meta_tables:
+            # Only treat as a pre-v2 legacy Victor DB (needing the table-rename
+            # migrations) when the pre-migration sentinel table `_db_metadata` is
+            # present. A modern DB that merely accumulated tables lazily (via the
+            # Schema.* constants) has no version row yet but is already at the
+            # current schema — replaying the rename/ALTER chain against it only
+            # produces "no such table"/"duplicate column" noise. Mirrors the
+            # project-DB guard in ProjectDatabaseManager._run_schema_version_migrations.
+            if non_meta_tables and "_db_metadata" in existing_tables:
                 # Legacy database — run all migrations so missing columns get added
                 current_version = 0
                 logger.info(
@@ -881,7 +931,8 @@ class DatabaseManager(_DatabaseManagerBase):
                     f"running migrations from 0 to {CURRENT_SCHEMA_VERSION}"
                 )
             else:
-                # Truly empty database — initialize at current version
+                # Truly empty DB, or a modern DB pre-populated by lazy table
+                # creation — mark at current version without replaying migrations.
                 conn.execute(
                     f"""
                     INSERT INTO {Tables.SYS_METADATA} (key, value, updated_at)
@@ -902,17 +953,19 @@ class DatabaseManager(_DatabaseManagerBase):
             migration_sqls = get_migration_sql(current_version, CURRENT_SCHEMA_VERSION)
 
             for sql in migration_sqls:
-                try:
-                    conn.execute(sql)
-                except Exception as e:
-                    logger.warning(f"Migration SQL failed (may be idempotent): {e}")
+                _apply_migration_sql(conn, sql)
 
-            # Update schema version
+            # Record the new schema version. Use an upsert: the legacy branch
+            # reaches here with current_version=0 but no schema_version row, so a
+            # plain UPDATE would match nothing and the version would never persist
+            # — forcing a full migration replay on every startup.
             conn.execute(
                 f"""
-                UPDATE {Tables.SYS_METADATA}
-                SET value = ?, updated_at = datetime('now')
-                WHERE key = 'schema_version'
+                INSERT INTO {Tables.SYS_METADATA} (key, value, updated_at)
+                VALUES ('schema_version', ?, datetime('now'))
+                ON CONFLICT(key) DO UPDATE SET
+                    value = excluded.value,
+                    updated_at = excluded.updated_at
                 """,
                 (str(CURRENT_SCHEMA_VERSION),),
             )
@@ -1667,10 +1720,7 @@ class ProjectDatabaseManager(_DatabaseManagerBase):
         if current_version < CURRENT_SCHEMA_VERSION:
             migration_sqls = get_migration_sql(current_version, CURRENT_SCHEMA_VERSION)
             for sql in migration_sqls:
-                try:
-                    conn.execute(sql)
-                except Exception as e:
-                    logger.debug(f"Project DB migration SQL skipped (may be inapplicable): {e}")
+                _apply_migration_sql(conn, sql)
             conn.execute(
                 "INSERT OR REPLACE INTO _project_metadata (key, value, updated_at) "
                 "VALUES ('schema_version', ?, datetime('now'))",
