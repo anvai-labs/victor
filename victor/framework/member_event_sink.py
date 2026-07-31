@@ -44,8 +44,8 @@ from typing import Any, AsyncIterator, Dict, Optional
 MEMBER_START = "member_start"
 MEMBER_COMPLETED = "member_completed"
 MEMBER_ERROR = "member_error"
-#: ADR-023 pillar 2b: member paused mid-run awaiting human approval (durable pause). TUI lane
-#: rendering of this state is deferred; current mappers IGNORE unknown member kinds harmlessly.
+#: ADR-023 pillar 2b: member paused mid-run awaiting human approval (durable pause). Rendered as a
+#: distinct awaiting-approval lane in the TUI (map_event/map_wire_event → RenderKind.MEMBER_AWAITING).
 MEMBER_AWAITING_APPROVAL = "member_awaiting_approval"
 
 #: Default bound on queued-but-undrained member events before drop-oldest kicks in.

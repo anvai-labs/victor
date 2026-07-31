@@ -44,6 +44,14 @@ def test_member_error_maps_to_member_end_failure() -> None:
     assert action.member_id == "m2"
 
 
+def test_member_awaiting_approval_maps_to_awaiting_kind() -> None:
+    # ADR-023 pillar 2b: durable pause → the awaiting-approval lane.
+    action = map_event(_event("member_awaiting_approval", member_id="m1", content="run_command"))
+    assert action.kind is RenderKind.MEMBER_AWAITING
+    assert action.member_id == "m1"
+    assert action.text == "run_command"
+
+
 def test_non_member_custom_event_is_ignored() -> None:
     # A milestone (or any other custom sub-type) still maps to IGNORE, unchanged.
     other = SimpleNamespace(event_type="custom", content="x", metadata={"custom_type": "milestone"})
@@ -59,3 +67,10 @@ def test_wire_member_events_map() -> None:
 
     err = map_wire_event({"v": 1, "event": "member_error", "member_id": "m2", "success": False})
     assert err.kind is RenderKind.MEMBER_END and err.success is False
+
+    paused = map_wire_event(
+        {"v": 1, "event": "member_awaiting_approval", "member_id": "m1", "content": "run_command"}
+    )
+    assert paused.kind is RenderKind.MEMBER_AWAITING
+    assert paused.member_id == "m1"
+    assert paused.text == "run_command"

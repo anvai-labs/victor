@@ -239,3 +239,7 @@ lands, existing single-agent consumers ignore the `None` default.
   awaiting member (m2 never runs), resume re-runs only the paused member and continues with the decision
   surfaced in `shared_state`, and no checkpointer is byte-identical. The real ASK trigger + chat
   continuation deferred.
+- TUI awaiting-approval lane merged: the `member_awaiting_approval` event now renders as a distinct
+  paused lane — a new `RenderKind.MEMBER_AWAITING` mapped by `map_event`/`map_wire_event` and drawn by
+  `WireTimelineState` (`⏸ <member> awaiting approval <tool>`); the formation emits the tool/title from
+  the pending `approval_request` as the lane detail. Verified via mapping + wire-parity + render tests.
