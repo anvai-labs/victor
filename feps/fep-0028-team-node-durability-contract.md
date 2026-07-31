@@ -276,3 +276,11 @@ lands, existing single-agent consumers ignore the `None` default.
   checkpoints each stage + resumes (skips completed), pauses at an awaiting stage + resumes by re-running
   it, stops-on-failure but still checkpoints the failed stage, no checkpointer is byte-identical, and it
   emits per-stage lanes. Concurrent durable checkpoint/pause + CONSENSUS/REFLECTION remain deferred.
+- CONSENSUS + REFLECTION streaming lanes merged — completing per-member lanes across the whole
+  formation taxonomy. CONSENSUS reuses the shared `_execute_member_with_events` helper (its round
+  members use `agent.execute(task, ctx)`; the round is the lane index); REFLECTION emits inline via the
+  same `member_event_hook` around its generator/critic (their `execute(str, shared_state)` signature +
+  single aggregate result don't fit the helper — same emit path, not a fork). Verified: CONSENSUS emits
+  per-member start/completed, REFLECTION emits generator + critic lanes, no hook ⇒ unchanged. Streaming
+  lanes now cover SEQUENTIAL / PIPELINE / PARALLEL / HIERARCHICAL / CONSENSUS / REFLECTION. Concurrent
+  durable checkpoint/pause remains the last deferred pillar item.
