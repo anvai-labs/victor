@@ -84,3 +84,13 @@ class ParallelFormation(BaseFormationStrategy):
     def supports_early_termination(self) -> bool:
         """Parallel formation waits for all agents to complete."""
         return False
+
+    def supports_durable_pause(self) -> bool:
+        """PARALLEL implements ADR-023 durable pause via the concurrent multi-member aggregate.
+
+        Members that hit an ``ASK`` gate come back awaiting-approval; the shared concurrent
+        runner collects every awaiting member after the wave and persists one pause checkpoint
+        (all pending approvals), so a resumed run re-runs exactly them. Arming durable pause here
+        is therefore safe — a member's ASK durably pauses the team instead of aborting the tool.
+        """
+        return True

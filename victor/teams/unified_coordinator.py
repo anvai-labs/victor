@@ -674,6 +674,65 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
 
         return _hook
 
+    def _make_member_batch_pause_hook(
+        self,
+        checkpointer: CheckpointerProtocol,
+        thread_id: str,
+        team_node_id: str,
+        formation: str,
+    ) -> Callable[..., Any]:
+        """Build the concurrent *multi-member* durable pause callback (ADR-023 pillar 2b).
+
+        A concurrent wave (PARALLEL) can have several members awaiting approval at once. Unlike
+        the sequential :meth:`_make_member_pause_hook` (one paused member, called mid-loop), this
+        is invoked once after the wave with the full set of awaiting members. It persists a single
+        pause checkpoint: ``completed_member_ids`` holds only the members that *finished* (awaiting
+        ones are excluded so a resumed run re-runs them), plus an ``awaiting_approvals`` list of
+        every pending approval so the run can durably resume once the human(s) decide.
+        """
+
+        async def _hook(
+            awaiting_results: List[MemberResult],
+            completed_results: List[MemberResult],
+            shared_state: Dict[str, Any],
+        ) -> None:
+            last_success = next(
+                (r for r in reversed(completed_results) if r.success and r.output), None
+            )
+            checkpoint = WorkflowCheckpoint(
+                checkpoint_id=f"{thread_id}:{team_node_id}:pause",
+                thread_id=thread_id,
+                node_id=f"{team_node_id}:pause",
+                state={
+                    "completed_member_ids": [r.member_id for r in completed_results],
+                    "member_results": [r.to_dict() for r in completed_results],
+                    "shared_state": dict(shared_state or {}),
+                    "last_output": last_success.output if last_success else None,
+                    "last_agent_id": last_success.member_id if last_success else None,
+                    "awaiting_approval": True,
+                    "awaiting_approvals": [
+                        {
+                            "member_id": r.member_id,
+                            "approval_request": (r.metadata or {}).get("approval_request"),
+                        }
+                        for r in awaiting_results
+                    ],
+                },
+                timestamp=time.time(),
+                metadata={
+                    "team_node_id": team_node_id,
+                    "formation": formation,
+                    "awaiting_approval": True,
+                    "awaiting_member_ids": [r.member_id for r in awaiting_results],
+                },
+            )
+            try:
+                await checkpointer.save(checkpoint)
+            except Exception as exc:  # noqa: BLE001 - checkpointing must not break the run
+                logger.warning("Member batch pause checkpoint save failed: %s", exc)
+
+        return _hook
+
     def _make_member_event_hook(
         self,
         sink: "MemberEventSink",
@@ -857,6 +916,11 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
             team_context.pause_hook = self._make_member_pause_hook(
                 self._checkpointer, str(thread_id), team_node_id, active_formation.value
             )
+            # ADR-023 pillar 2b (concurrent): multi-member pause for concurrent formations
+            # (PARALLEL) — several members can await approval in one wave.
+            team_context.batch_pause_hook = self._make_member_batch_pause_hook(
+                self._checkpointer, str(thread_id), team_node_id, active_formation.value
+            )
             # On resume, surface the human's decision to the re-run member.
             approval_decision = effective_context.get("approval_decision")
             if approval_decision is not None:
@@ -937,11 +1001,22 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
             # surface a durable paused aggregate. The run is resumable on the same thread_id
             # (with an ``approval_decision`` in context) via the persisted pause checkpoint.
             awaiting = team_context.shared_state.get("__awaiting_approval__")
+            awaiting_many = team_context.shared_state.get("__awaiting_approvals__")
             if awaiting:
                 result_dict["success"] = False  # team did not complete — it is paused
                 result_dict["status"] = "awaiting_approval"
                 result_dict["paused_member_id"] = awaiting.get("member_id")
                 result_dict["approval_request"] = awaiting.get("approval_request")
+                if thread_id:
+                    result_dict["thread_id"] = str(thread_id)
+            elif awaiting_many:
+                # ADR-023 concurrent pause: a PARALLEL wave stopped with one or more members
+                # awaiting approval — surface the multi-pause aggregate. Resumable on the same
+                # thread_id via the persisted pause checkpoint (re-runs exactly the paused set).
+                result_dict["success"] = False  # team did not complete — it is paused
+                result_dict["status"] = "awaiting_approval"
+                result_dict["awaiting_approvals"] = list(awaiting_many)
+                result_dict["paused_member_ids"] = [a.get("member_id") for a in awaiting_many]
                 if thread_id:
                     result_dict["thread_id"] = str(thread_id)
 

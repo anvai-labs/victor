@@ -81,8 +81,11 @@ so it is FEP-gated (below).
      aggregate; resume re-runs the paused member via the pillar-1 checkpoint path. The real mid-member
      ASK→pause trigger is now **done**: a durable team run arms `current_member_durable_pause_enabled`,
      a member's `ASK` raises `MemberApprovalPause` (a `BaseException` that survives the runtime-core
-     `except Exception` path), caught at `SubAgent.execute` and surfaced as the awaiting result. The
-     no-graph chat continuation (non-team single agent) is deferred;
+     `except Exception` path), caught at `SubAgent.execute` and surfaced as the awaiting result.
+     Concurrent durable pause is now **done for PARALLEL**: a wave collects every awaiting member into
+     a multi-pause aggregate (`__awaiting_approvals__` + one batch pause checkpoint) and a resumed run
+     re-runs exactly the paused set. HIERARCHICAL concurrent pause and the no-graph chat continuation
+     (non-team single agent) are deferred;
   3. member-tagged `RenderAction` fan-out for ADR-020's per-member lanes — **done (SEQUENTIAL,
      FEP-0028 increment 4)**: a `MemberEventSink`/`ContextVar` teams→stream bridge in
      `stream_with_events` emits `member_start`/`member_completed`/`member_error` lanes; member
@@ -116,3 +119,4 @@ so it is FEP-gated (below).
 | 2026-07-31 | 1.6 | PIPELINE full durability (checkpoint/resume/pause/lanes) via the shared sequential machinery — it's a sequential formation; CONSENSUS/REFLECTION + concurrent checkpoint/pause remain deferred | Vijaykumar Singh |
 | 2026-07-31 | 1.7 | CONSENSUS + REFLECTION streaming lanes landed — per-member lanes now cover all six formations; concurrent durable checkpoint/pause is the last deferred item | Vijaykumar Singh |
 | 2026-07-31 | 1.8 | Concurrent durable checkpoint/resume for PARALLEL landed (lock-protected cumulative-completed-set checkpoint; execution stays concurrent) — resolves the FEP's concurrent-resume open question; concurrent pause + HIERARCHICAL checkpoint deferred | Vijaykumar Singh |
+| 2026-07-31 | 1.9 | Concurrent durable pause/resume for PARALLEL landed — a wave collects every awaiting member into a multi-pause aggregate (`__awaiting_approvals__` + one batch pause checkpoint); resume re-runs exactly the paused set; `PARALLEL.supports_durable_pause()` now True. HIERARCHICAL concurrent pause + non-team chat continuation deferred | Vijaykumar Singh |

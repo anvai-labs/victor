@@ -180,7 +180,16 @@ deferred.
   coroutines have recorded a result; each records + checkpoints the *cumulative* set under an
   `asyncio.Lock` (member execution stays concurrent — only the completion handler serializes), and
   `_load_member_resume`'s latest checkpoint is the largest completed set. Implemented for PARALLEL;
-  HIERARCHICAL follows. Concurrent durable *pause* (a multi-pause aggregate) is still open.
+  HIERARCHICAL follows.
+- ~~Concurrent durable *pause*: a concurrent wave can have several members awaiting approval at once,
+  so the single `__awaiting_approval__` shape can't express it.~~ **Resolved for PARALLEL:** members
+  that come back awaiting are collected after the wave (not recorded as completed) into a **multi-pause
+  aggregate** (`__awaiting_approvals__` — a list of `{member_id, approval_request}`) + a single pause
+  checkpoint (`_make_member_batch_pause_hook`: `completed_member_ids` excludes the awaiting set; carries
+  an `awaiting_approvals` list); the coordinator surfaces `status="awaiting_approval"` +
+  `paused_member_ids` + `awaiting_approvals`, and a resumed run re-runs exactly the paused set. Arming is
+  now gated true for PARALLEL. HIERARCHICAL concurrent pause + the non-team `victor chat` continuation
+  remain open.
 - Where durable checkpoints live long-term (a `project.db` `team_member_checkpoints` table vs the
   injected checkpointer). Increment 1 uses the injected checkpointer only.
 
@@ -298,3 +307,16 @@ lands, existing single-agent consumers ignore the `None` default.
   execute overlapping in-flight (the lock guards only completion, not execution), and no checkpointer is
   byte-identical. Concurrent durable **pause** (multi-pause aggregate) + HIERARCHICAL checkpoint remain
   deferred.
+- Concurrent durable **pause/resume** for PARALLEL merged: a concurrent wave can have several members
+  await approval at once, so the shared `_execute_members_concurrently` collects every member that comes
+  back `awaiting_approval` (rather than recording it completed) and, after the wave, publishes a
+  **multi-pause aggregate** — `__awaiting_approvals__` (a list of `{member_id, approval_request}`) plus a
+  single pause checkpoint via a new `_make_member_batch_pause_hook` (`completed_member_ids` excludes the
+  awaiting set; state carries an `awaiting_approvals` list). The coordinator surfaces
+  `status="awaiting_approval"` + `paused_member_ids` + `awaiting_approvals`; a resumed run skips the
+  completed members and re-runs **exactly** the paused set. `PARALLEL.supports_durable_pause()` now
+  returns `True`, so the #742 arming gate arms it (a member ASK durably pauses instead of aborting the
+  tool). Verified: a wave with two awaiting + two completed members surfaces both pending approvals and
+  one pause checkpoint, a single awaiting member still uses the plural aggregate, resume re-runs only the
+  paused set, and no checkpointer is byte-identical (awaiting is an inert non-success result). HIERARCHICAL
+  concurrent pause + the non-team `victor chat` continuation remain deferred.
