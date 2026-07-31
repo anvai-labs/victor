@@ -95,11 +95,27 @@ Wiring is **opt-in**: the coordinator is given a `CheckpointerProtocol` (constru
 reading two new `None`-default fields on `TeamContext`: `checkpoint_hook` (awaited after each member)
 and `resume_completed` (seeds a resumed run). With neither set, the formation loop is unchanged.
 
-### 2. Member interrupt contract (design; later increment)
+### 2. Member interrupt contract
 
-A member `ASK`/approval raises the graph `interrupt` at the team node, which saves a checkpoint and
-returns control; the run resumes on the same `thread_id` when the approval arrives (terminal-native
-per ADR-021, or via the HITL API). This bridges `workflows/hitl_api.py` to `InterruptHandler`.
+Split into two slices:
+
+- **Slice 2a — terminal-native member approval (implemented).** A team member (SubAgent) shares the
+  session's DI container (the global container, set by `bootstrap_container`'s finalize phase, that the
+  client registers the ASK approval handler into), so a member's policy `ASK`-gated tool already
+  resolves the session terminal handler. `SubAgent._build_member_approval_handler` wraps that session
+  handler to stamp `ApprovalRequest.context["member_id"]`/`["member_role"]`, and publishes it on the
+  `current_member_approval_handler` `ContextVar` (`victor/agent/member_approval_context.py`) for the
+  duration of the member orchestrator's synchronous construction; `_maybe_add_policy_engine` reads that
+  var and prefers it over the container-resolved handler (no constructor param threaded through the
+  decomposed orchestrator hotspot). The shared terminal modal (`approval_modal.py`) shows which member
+  is asking. In-process pause (the member's tool call blocks on the modal); reject → tool blocked.
+  Opt-in via governance (`USE_POLICY_ENGINE` + `governance.enabled`); no member in scope ⇒
+  byte-identical.
+- **Slice 2b — durable pause/resume (design; later increment).** A member `ASK` saves a 'paused'
+  member checkpoint and returns control; the run resumes on the same `thread_id` when the approval
+  arrives (terminal-native per ADR-021, or via the HITL API), bridging `workflows/hitl_api.py` to the
+  graph `InterruptHandler`. Also needs a story for the no-graph chat path (teams run inside the chat
+  service, not always a compiled graph). Not implemented.
 
 ### 3. Per-member streaming contract (implemented — increment 4, SEQUENTIAL)
 
@@ -148,7 +164,9 @@ deferred.
   `resume_completed`; `MemberResult.from_dict`; coordinator opt-in `checkpointer` + per-member save +
   resume-skip; `SequentialFormation` reads the hook/resume. Tests with `MemoryCheckpointer`.
 - **Increment 2:** checkpoint/resume for PARALLEL / HIERARCHICAL / PIPELINE / CONSENSUS / REFLECTION.
-- **Increment 3:** member interrupt propagation (HITL → graph `interrupt`, ADR-021 terminal resume).
+- **Increment 3:** member interrupt. Slice 2a (terminal-native member approval: `approval_handler`
+  override + member-tagging wrapper + modal tag) **implemented**; slice 2b (durable pause/resume via
+  HITL → graph `interrupt`, ADR-021 terminal resume) deferred.
 - **Increment 4 (implemented, SEQUENTIAL):** `member_id` event contract + `MemberEventSink`/`ContextVar`
   teams→stream bridge + `member_event_hook` producer + `map_event`/wire + TUI `MEMBER_START/END` lanes.
   Member tool/token streaming and concurrent formations deferred.
@@ -191,3 +209,10 @@ lands, existing single-agent consumers ignore the `None` default.
   cleanly, a floods-past-capacity emit does not deadlock (bounded/lossy sink), and with no team the
   emitted event sequence is byte-identical (streaming-parity gate). Member tool/token streaming and
   concurrent formations remain deferred.
+- Increment 3 slice 2a merged: opt-in terminal-native member approval — a member's policy `ASK`-gated
+  tool resolves the session approval handler (shared global container), wrapped to tag
+  `ApprovalRequest.context["member_id"]` and published on a `ContextVar` during member-orchestrator
+  construction so `_maybe_add_policy_engine` prefers it; the modal shows the member tag. Verified green:
+  the wrapper tags + delegates (approve/reject propagate), returns `None` with no handler registered
+  (deny fallback unchanged), the member context handler beats container/console resolution, no member in
+  scope is byte-identical. Durable pause/resume (2b) deferred.

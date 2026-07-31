@@ -73,6 +73,7 @@ if TYPE_CHECKING:
     from victor.agent.orchestrator import AgentOrchestrator
     from victor.agent.services.context_lifecycle_service import ContextLifecycleService
     from victor.core.container import ServiceContainer
+    from victor.framework.hitl import ApprovalHandler, ApprovalRequest
     from victor.providers.base import StreamChunk
     from victor.teams.types import AgentMessage
 
@@ -330,6 +331,40 @@ class SubAgent(IAgent):  # type: ignore[misc]
         """
         return None
 
+    def _build_member_approval_handler(self) -> Optional["ApprovalHandler"]:
+        """Wrap the session's policy ASK approval handler to tag this member (ADR-023).
+
+        Team members share the session's DI container (the global container the client
+        registers the terminal approval handler into), so a member's ASK-gated tool already
+        resolves that handler. This wrapper stamps the member's identity onto each
+        :class:`ApprovalRequest` (``context["member_id"]`` / ``["member_role"]``) so the
+        shared terminal modal can show *which* member is asking (surfaces read the context;
+        the framework policy site stays member-agnostic).
+
+        Returns ``None`` when no session handler is registered — the member then keeps the
+        default ``ask_fallback`` behavior, byte-identical to before.
+        """
+        try:
+            from victor.core import get_container
+            from victor.framework.policies import PolicyApprovalHandler
+
+            holder = get_container().get_optional(PolicyApprovalHandler)
+        except Exception:  # pragma: no cover - defensive; approval is best-effort
+            holder = None
+        inner = getattr(holder, "handler", None) if holder is not None else None
+        if inner is None:
+            return None
+
+        member_id = self.id
+        member_role = self.config.role.value
+
+        async def _tagged_handler(request: "ApprovalRequest") -> Any:
+            request.context.setdefault("member_id", member_id)
+            request.context.setdefault("member_role", member_role)
+            return await inner(request)
+
+        return _tagged_handler
+
     def _create_constrained_orchestrator(self) -> "AgentOrchestrator":
         """Create orchestrator with role-specific constraints.
 
@@ -377,18 +412,29 @@ class SubAgent(IAgent):  # type: ignore[misc]
         )
 
         # Create new orchestrator instance.
-        # Use the actual provider object (not just the name) for proper initialization
-        orchestrator = AgentOrchestrator(
-            settings=settings,
-            provider=provider,
-            model=model,
-            temperature=temperature,
-            provider_name=provider_name,
-            system_prompt_override=self._get_role_prompt(),
-            reasoning_effort=reasoning_effort,
-            # Note: We'll share the parent's DI container for now
-            # In production, we might want isolated scoped containers
-        )
+        # Use the actual provider object (not just the name) for proper initialization.
+        # ADR-023 pillar 2: publish this member's member-tagging ASK approval handler on a
+        # context var for the duration of construction so the member's policy-engine
+        # middleware (built synchronously in __init__) resolves it — tagging the shared
+        # terminal modal with member_id — without threading a constructor param through the
+        # decomposed orchestrator hotspot. Reset immediately: the middleware has captured it.
+        from victor.agent.member_approval_context import current_member_approval_handler
+
+        _approval_token = current_member_approval_handler.set(self._build_member_approval_handler())
+        try:
+            orchestrator = AgentOrchestrator(
+                settings=settings,
+                provider=provider,
+                model=model,
+                temperature=temperature,
+                provider_name=provider_name,
+                system_prompt_override=self._get_role_prompt(),
+                reasoning_effort=reasoning_effort,
+                # Note: We'll share the parent's DI container for now
+                # In production, we might want isolated scoped containers
+            )
+        finally:
+            current_member_approval_handler.reset(_approval_token)
 
         # Inherit parent's vertical context via flyweight pattern
         parent_vc = self._context.vertical_context

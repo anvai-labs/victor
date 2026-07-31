@@ -72,7 +72,11 @@ so it is FEP-gated (below).
   [FEP-0028](../../../feps/fep-0028-team-node-durability-contract.md). Increments:
   1. member-granular checkpoint/resume via the existing StateGraph checkpointer — **done (SEQUENTIAL,
      FEP-0028 increment 1)**;
-  2. member `interrupt` → durable pause → resume, wired to ADR-021's terminal approval — pending;
+  2. member `interrupt` — slice 2a (terminal-native member approval) **done**: a member's policy
+     `ASK`-gated tool surfaces to the shared terminal approval modal (ADR-021), tagged with `member_id`,
+     via a member-tagging wrapper published on a `ContextVar` during member-orchestrator construction
+     (read by the policy-engine builder); slice 2b (durable pause/resume via the HITL↔graph-`interrupt`
+     bridge) deferred;
   3. member-tagged `RenderAction` fan-out for ADR-020's per-member lanes — **done (SEQUENTIAL,
      FEP-0028 increment 4)**: a `MemberEventSink`/`ContextVar` teams→stream bridge in
      `stream_with_events` emits `member_start`/`member_completed`/`member_error` lanes; member
@@ -99,3 +103,4 @@ so it is FEP-gated (below).
 |------|---------|---------|--------|
 | 2026-07-29 | 1.0 | Initial ADR — team durability contract (checkpoint/interrupt/per-member stream) | Vijaykumar Singh |
 | 2026-07-30 | 1.1 | Increment 1 (member checkpoint/resume) and increment 4 (per-member streaming lanes) landed for SEQUENTIAL via FEP-0028 | Vijaykumar Singh |
+| 2026-07-30 | 1.2 | Increment 3 slice 2a (terminal-native member approval: member ASK → shared modal, member_id-tagged) landed; durable pause/resume (2b) deferred | Vijaykumar Singh |
