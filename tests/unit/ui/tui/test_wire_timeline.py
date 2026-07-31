@@ -22,8 +22,12 @@ the third surface (web Chainlit, wire consumers, TUI).
 
 from __future__ import annotations
 
+import io
 import json
 from types import SimpleNamespace
+from typing import Any
+
+from rich.console import Console
 
 from victor.framework.wire_events import to_wire_event
 from victor.ui.chat_app.event_mapping import RenderKind, map_wire_event
@@ -31,6 +35,15 @@ from victor.ui.tui.wire_timeline import (
     WireTimelineState,
     parse_wire_line,
 )
+
+
+def _to_text(item: Any) -> str:
+    """Render a timeline item to plain text (markers are strings; content is a renderable)."""
+    if isinstance(item, str):
+        return item
+    buf = io.StringIO()
+    Console(file=buf, width=100, no_color=True).print(item)
+    return buf.getvalue()
 
 
 def _event(event_type: str, **kwargs) -> SimpleNamespace:
@@ -89,11 +102,11 @@ def _golden_wire_stream() -> list[dict]:
 
 def _render_all(wires: list[dict]) -> list[str]:
     state = WireTimelineState()
-    lines: list[str] = []
+    items: list[Any] = []
     for wire in wires:
-        lines.extend(state.advance(map_wire_event(wire)))
-    lines.extend(state.flush())
-    return lines
+        items.extend(state.advance(map_wire_event(wire)))
+    items.extend(state.flush())
+    return [_to_text(i) for i in items]
 
 
 class TestParseWireLine:
@@ -166,11 +179,15 @@ class TestTimelineRendering:
         assert state.advance(map_wire_event({"v": 1, "event": "stream_end"})) == []
         assert state.advance(map_wire_event(None)) == []
 
-    def test_markup_in_content_is_escaped(self):
+    def test_markup_in_content_is_not_interpreted_as_rich_markup(self):
+        # Assistant content is rendered as Markdown (the shared renderer), which parses
+        # Markdown — not Rich ``[tags]`` — so raw Rich markup in content is never
+        # interpreted (no colour injection); the bracketed text survives literally.
         state = WireTimelineState()
         state.advance(map_wire_event({"v": 1, "event": "content", "content": "[red]not markup[/]"}))
-        lines = state.flush()
-        assert lines and "\\[red]" in lines[0]
+        rendered = _to_text(state.flush()[0])
+        assert "not markup" in rendered
+        assert "[red]" in rendered  # literal brackets, not a colour tag
 
     def test_member_awaiting_approval_renders_paused_lane(self):
         """ADR-023 pillar 2b: a paused member renders a distinct awaiting-approval lane."""
