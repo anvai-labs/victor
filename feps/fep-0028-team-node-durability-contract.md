@@ -269,3 +269,10 @@ lands, existing single-agent consumers ignore the `None` default.
   members emit tagged lanes (order-independent); no hook ⇒ unchanged; PARALLEL does not arm durable pause,
   SEQUENTIAL does. Concurrent durable **checkpoint/pause** (race-unsafe / undefined completed-set) and
   CONSENSUS/REFLECTION/PIPELINE remain deferred.
+- PIPELINE full durability merged: PIPELINE is sequential (stages chain output→input, stop on failure),
+  so it reuses the shared `_execute_member_with_events` helper + the coordinator hooks to get the full
+  SEQUENTIAL contract — checkpoint after each stage, resume by skipping completed stages, durable pause
+  on an awaiting stage (`supports_durable_pause() == True`), and per-stage streaming lanes. Verified:
+  checkpoints each stage + resumes (skips completed), pauses at an awaiting stage + resumes by re-running
+  it, stops-on-failure but still checkpoints the failed stage, no checkpointer is byte-identical, and it
+  emits per-stage lanes. Concurrent durable checkpoint/pause + CONSENSUS/REFLECTION remain deferred.
