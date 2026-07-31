@@ -2,10 +2,12 @@
 
 ## Metadata
 
-- **Status**: Accepted (2026-07-30 — shipped: `victor tui` / `victor chat --tui`, opt-in,
+- **Status**: Accepted (2026-07-30 — shipped: `victor tui` / `victor chat --tui`,
   `victor/ui/tui/`, incl. the unified diff pane (`diff_pane.py`, F3/F4) and dark/light/high-contrast
-  themes (`themes.py`, `--theme`, F6 cycle). Only per-member team lanes (ADR-023) remain deferred.
-  Was Proposed.)
+  themes (`themes.py`, `--theme`, F6 cycle). 2026-07-31 — the TUI became the **capability-gated
+  default** for interactive terminals (`surface="auto"` in `run_interactive`, resolved via
+  `_tui_capable()`); the REPL is the fallback for dumb terminals / pipes / CI, and `--repl` forces it.
+  Only per-member team lanes (ADR-023) remain deferred. Was Proposed.)
 - **Date**: 2026-07-29
 - **Decision Makers**: Vijaykumar Singh
 - **Related ADRs**: 021 (terminal-native HITL & loop transparency — shares the surface), 005 (event
