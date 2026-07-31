@@ -67,11 +67,16 @@ so it is FEP-gated (below).
 
 ## Implementation
 
-- **Companion FEP required** — the team-node durability contract (checkpoint identity, interrupt
-  semantics, member-tagged streaming) is a `victor.framework` public surface. FEP first, then:
-  1. member-granular checkpoint/resume via the existing StateGraph checkpointer;
-  2. member `interrupt` → durable pause → resume, wired to ADR-021's terminal approval;
-  3. member-tagged `RenderAction` fan-out for ADR-020's per-member lanes.
+- **Companion FEP** — the team-node durability contract (checkpoint identity, interrupt semantics,
+  member-tagged streaming) is a `victor.framework` public surface: ratified in
+  [FEP-0028](../../../feps/fep-0028-team-node-durability-contract.md). Increments:
+  1. member-granular checkpoint/resume via the existing StateGraph checkpointer — **done (SEQUENTIAL,
+     FEP-0028 increment 1)**;
+  2. member `interrupt` → durable pause → resume, wired to ADR-021's terminal approval — pending;
+  3. member-tagged `RenderAction` fan-out for ADR-020's per-member lanes — **done (SEQUENTIAL,
+     FEP-0028 increment 4)**: a `MemberEventSink`/`ContextVar` teams→stream bridge in
+     `stream_with_events` emits `member_start`/`member_completed`/`member_error` lanes; member
+     tool/token streaming and concurrent formations deferred.
 
 ## Alternatives Considered
 
@@ -93,3 +98,4 @@ so it is FEP-gated (below).
 | Date | Version | Changes | Author |
 |------|---------|---------|--------|
 | 2026-07-29 | 1.0 | Initial ADR — team durability contract (checkpoint/interrupt/per-member stream) | Vijaykumar Singh |
+| 2026-07-30 | 1.1 | Increment 1 (member checkpoint/resume) and increment 4 (per-member streaming lanes) landed for SEQUENTIAL via FEP-0028 | Vijaykumar Singh |

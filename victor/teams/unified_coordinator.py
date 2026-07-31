@@ -56,6 +56,7 @@ from typing import (
 
 from victor.coordination.formations.base import BaseFormationStrategy, TeamContext
 from victor.framework.graph_checkpoint import CheckpointerProtocol, WorkflowCheckpoint
+from victor.framework.member_event_sink import MemberEvent, MemberEventSink, current_member_sink
 from victor.coordination.formations import (
     SequentialFormation,
     ParallelFormation,
@@ -619,6 +620,43 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
 
         return _hook
 
+    def _make_member_event_hook(
+        self,
+        sink: "MemberEventSink",
+        formation: str,
+    ) -> Callable[..., Any]:
+        """Build the per-member streaming callback passed to the formation (ADR-023).
+
+        The formation awaits this around each member with
+        ``(kind, member_id, index, *, success=True, content="")``; it pushes a
+        :class:`MemberEvent` onto the stream sink. Emission is bounded/lossy, so this
+        never blocks member execution.
+        """
+
+        async def _hook(
+            kind: str,
+            member_id: str,
+            index: int,
+            *,
+            success: bool = True,
+            content: str = "",
+        ) -> None:
+            try:
+                await sink.emit(
+                    MemberEvent(
+                        kind=kind,
+                        member_id=member_id,
+                        formation=formation,
+                        index=index,
+                        content=content,
+                        success=success,
+                    )
+                )
+            except Exception as exc:  # noqa: BLE001 - streaming must not break the run
+                logger.debug("Member event emit failed: %s", exc)
+
+        return _hook
+
     async def _execute_formation(
         self,
         task: str,
@@ -760,6 +798,16 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
             )
             team_context.checkpoint_hook = self._make_member_checkpoint_hook(
                 self._checkpointer, str(thread_id), team_node_id, active_formation.value
+            )
+
+        # ADR-023: per-member streaming — when a member event sink is published on the
+        # stream context var (i.e. this team runs inside a streamed turn), emit member
+        # lifecycle events tagged with member_id so the client can render per-member lanes.
+        # Fully opt-in: no sink → hook stays None → no events, unchanged behavior.
+        member_sink = current_member_sink.get()
+        if member_sink is not None:
+            team_context.member_event_hook = self._make_member_event_hook(
+                member_sink, active_formation.value
             )
 
         # Create AgentMessage for the task

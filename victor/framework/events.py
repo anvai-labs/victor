@@ -185,6 +185,10 @@ class AgentExecutionEvent:
     sequence_id: int = field(default_factory=lambda: next(_event_counter))
     parent_event_id: Optional[str] = None
 
+    # Member identity — set for team member lifecycle events so consumers can
+    # render per-member lanes (ADR-023 / FEP-0028). None for single-agent turns.
+    member_id: Optional[str] = None
+
     # Metadata
     metadata: Dict[str, Any] = field(default_factory=dict)
     timestamp: float = field(default_factory=time.time)
@@ -242,6 +246,7 @@ class AgentExecutionEvent:
             "milestone": self.milestone,
             "sequence_id": self.sequence_id,
             "parent_event_id": self.parent_event_id,
+            "member_id": self.member_id,
             "metadata": self.metadata,
             "timestamp": self.timestamp,
         }
@@ -520,6 +525,52 @@ def custom_event(
     return AgentExecutionEvent(
         type=EventType.CUSTOM,
         content=content,
+        metadata=metadata,
+        **kwargs,
+    )
+
+
+def member_event(
+    kind: str,
+    member_id: str,
+    *,
+    content: str = "",
+    success: bool = True,
+    index: Optional[int] = None,
+    formation: Optional[str] = None,
+    **kwargs: Any,
+) -> AgentExecutionEvent:
+    """Create a team member lifecycle event (ADR-023 / FEP-0028 pillar 3).
+
+    A CUSTOM event whose ``metadata['custom_type']`` is the member lifecycle kind
+    (``member_start`` / ``member_completed`` / ``member_error``), tagged with
+    ``member_id`` so downstream consumers can render per-member lanes. Reuses
+    :func:`custom_event` semantics so no new ``EventType`` members leak into callers'
+    ``match`` statements.
+
+    Args:
+        kind: The lifecycle kind (a ``member_*`` custom sub-type).
+        member_id: The team member's id.
+        content: Optional short payload (e.g. an error message).
+        success: Whether the member step succeeded.
+        index: The member's index in the formation, when known.
+        formation: The active formation name, for context.
+        **kwargs: Additional event attributes.
+
+    Returns:
+        AgentExecutionEvent with type=CUSTOM and member_id set.
+    """
+    metadata = kwargs.pop("metadata", {})
+    metadata["custom_type"] = kind
+    if index is not None:
+        metadata["member_index"] = index
+    if formation is not None:
+        metadata["formation"] = formation
+    return AgentExecutionEvent(
+        type=EventType.CUSTOM,
+        content=content,
+        success=success,
+        member_id=member_id,
         metadata=metadata,
         **kwargs,
     )

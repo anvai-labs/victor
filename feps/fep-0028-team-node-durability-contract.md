@@ -101,12 +101,23 @@ A member `ASK`/approval raises the graph `interrupt` at the team node, which sav
 returns control; the run resumes on the same `thread_id` when the approval arrives (terminal-native
 per ADR-021, or via the HITL API). This bridges `workflows/hitl_api.py` to `InterruptHandler`.
 
-### 3. Per-member streaming contract (design; later increment)
+### 3. Per-member streaming contract (implemented — increment 4, SEQUENTIAL)
 
-An optional `member_id: Optional[str]` is added to `RenderAction` (`event_mapping.py`), `_StreamEvent`
-(`client.py`), and the v1 wire event (`wire_events.py`) — additive, defaulting `None` (single-agent
-unchanged). Member agents' events are fanned out tagged with `member_id`; the TUI (`ConversationLog`)
-renders per-member lanes.
+An optional `member_id: Optional[str]` is added to `AgentExecutionEvent` (`events.py`), `_StreamEvent`
+(`client.py`), `RenderAction` (`event_mapping.py`), and the v1 wire event (`wire_events.py`) —
+additive, defaulting `None` (single-agent unchanged). Member lifecycle events (`member_start`,
+`member_completed`, `member_error`) ride on `EventType.CUSTOM` with `metadata["custom_type"]` and are
+fanned into the client stream by a **teams→stream bridge**: a per-turn `MemberEventSink`
+(`victor/framework/member_event_sink.py`) is published on a `current_member_sink` `ContextVar` by the
+stream funnel (`_internal.stream_with_events`); a running team reads it (via
+`TeamContext.member_event_hook`, set by `UnifiedTeamCoordinator._execute_formation`) and emits, and the
+funnel interleaves those events with the orchestrator's own chunks (`_merge_orchestrator_and_members`,
+an `asyncio.wait(FIRST_COMPLETED)` race whose termination is orchestrator-driven; the sink is bounded
+and lossy so a team emit never blocks). `map_event`/`map_wire_event` translate the member CUSTOM events
+to new `RenderKind.MEMBER_START/MEMBER_END` actions; the TUI (`WireTimelineState`/`ConversationLog`)
+renders per-member lane markers. Scope of this increment is **SEQUENTIAL** lifecycle events; per-member
+**tool** and **token** streaming (needs wiring `SubAgent.stream_execute`) and concurrent formations are
+deferred.
 
 ## Benefits
 
@@ -138,7 +149,9 @@ renders per-member lanes.
   resume-skip; `SequentialFormation` reads the hook/resume. Tests with `MemoryCheckpointer`.
 - **Increment 2:** checkpoint/resume for PARALLEL / HIERARCHICAL / PIPELINE / CONSENSUS / REFLECTION.
 - **Increment 3:** member interrupt propagation (HITL → graph `interrupt`, ADR-021 terminal resume).
-- **Increment 4:** `member_id` event contract + fan-out + TUI per-member lanes.
+- **Increment 4 (implemented, SEQUENTIAL):** `member_id` event contract + `MemberEventSink`/`ContextVar`
+  teams→stream bridge + `member_event_hook` producer + `map_event`/wire + TUI `MEMBER_START/END` lanes.
+  Member tool/token streaming and concurrent formations deferred.
 - **Increment 5:** durable `project.db` checkpointer.
 
 ## Migration Path
@@ -170,3 +183,11 @@ lands, existing single-agent consumers ignore the `None` default.
   test gate green, no behavior change without a checkpointer.
 - The contract (checkpoint identity/state, interrupt semantics, `member_id` field) is ratified here
   before the later increments implement pillars 2–3.
+- Increment 4 merged: opt-in per-member streaming for SEQUENTIAL — a `MemberEventSink`/`ContextVar`
+  teams→stream bridge in `stream_with_events` interleaves `member_start`/`member_completed`/
+  `member_error` events (tagged `member_id`) with orchestrator chunks; `member_id` is additive on
+  `AgentExecutionEvent`/`_StreamEvent`/`RenderAction`/wire (all default `None`); `map_event`/wire
+  translate to `RenderKind.MEMBER_START/END` lanes. Verified green: the seam interleaves and terminates
+  cleanly, a floods-past-capacity emit does not deadlock (bounded/lossy sink), and with no team the
+  emitted event sequence is byte-identical (streaming-parity gate). Member tool/token streaming and
+  concurrent formations remain deferred.

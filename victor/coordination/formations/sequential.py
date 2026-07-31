@@ -65,6 +65,8 @@ class SequentialFormation(BaseFormationStrategy):
             previous_agent_id = resume.get("last_agent_id")
 
         checkpoint_hook = getattr(context, "checkpoint_hook", None)
+        # ADR-023: per-member streaming — emit lifecycle events when a sink is wired.
+        member_event_hook = getattr(context, "member_event_hook", None)
 
         for i, agent in enumerate(agents):
             if agent.id in completed_ids:
@@ -72,6 +74,9 @@ class SequentialFormation(BaseFormationStrategy):
                 continue
 
             logger.debug(f"SequentialFormation: executing agent {i+1}/{len(agents)}: {agent.id}")
+
+            if member_event_hook is not None:
+                await member_event_hook("member_start", agent.id, i)
 
             # Add previous output and agent to context
             if previous_output:
@@ -117,6 +122,16 @@ class SequentialFormation(BaseFormationStrategy):
                 )
                 results.append(result)
                 # Continue with next agent even if one fails
+
+            # ADR-023: per-member streaming — completed/error lifecycle event.
+            if member_event_hook is not None:
+                await member_event_hook(
+                    "member_completed" if result.success else "member_error",
+                    agent.id,
+                    i,
+                    success=result.success,
+                    content="" if result.success else (result.error or ""),
+                )
 
             # ADR-023: checkpoint after each member (success or failure).
             if checkpoint_hook is not None:
