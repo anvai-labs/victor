@@ -18,10 +18,9 @@ Agents execute simultaneously with independent contexts.
 All agents receive the same task and work independently.
 """
 
-import asyncio
 import copy
 import logging
-from typing import Any, Dict, List
+from typing import Any, List
 
 from victor.coordination.formations.base import BaseFormationStrategy, TeamContext
 from victor.teams.types import AgentMessage, MemberResult
@@ -65,53 +64,18 @@ class ParallelFormation(BaseFormationStrategy):
             for _ in agents
         ]
 
-        # ADR-023: per-member streaming lanes. The isolated per-agent contexts don't carry the
-        # coordinator's hook, so read it from the original team_context and pass it down.
-        member_event_hook = getattr(context, "member_event_hook", None)
-
-        tasks = [
-            self._execute_agent(agent, task, ctx, i, member_event_hook)
-            for i, (agent, ctx) in enumerate(zip(agents, agent_contexts))
-        ]
-
-        # Execute all tasks concurrently
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        # ADR-023: run members concurrently with per-member streaming lanes + durable
+        # checkpoint/resume (a resumed wave skips completed members). The shared runner handles
+        # the gather, lane hooks, exception normalization, and the lock-protected cumulative
+        # checkpoint; hooks are read off the original team_context (the isolated contexts don't
+        # carry them). Member execution stays fully concurrent.
+        results = await self._execute_members_concurrently(agents, task, context, agent_contexts)
 
         # Merge agent contexts back into parent (last-writer-wins per key)
         for agent_ctx in agent_contexts:
             context.update(agent_ctx.shared_state)
 
-        # Process results, handling any exceptions
-        processed_results = []
-        for i, result in enumerate(results):
-            if isinstance(result, Exception):
-                logger.error(f"ParallelFormation: agent {agents[i].id} failed: {result}")
-                processed_results.append(
-                    MemberResult(
-                        member_id=agents[i].id,
-                        success=False,
-                        error=str(result),
-                        metadata={"index": i},
-                    )
-                )
-            else:
-                processed_results.append(result)
-
-        return processed_results
-
-    async def _execute_agent(
-        self,
-        agent: Any,
-        task: AgentMessage,
-        context: TeamContext,
-        index: int,
-        member_event_hook: Any = None,
-    ) -> MemberResult:
-        """Execute a single agent, emitting per-member lane events (ADR-023)."""
-        logger.debug(f"ParallelFormation: executing agent {index+1}: {agent.id}")
-        return await self._execute_member_with_events(
-            agent, task, context, index, member_event_hook=member_event_hook
-        )
+        return results
 
     def validate_context(self, context: TeamContext) -> bool:
         """Parallel formation requires minimal context."""
