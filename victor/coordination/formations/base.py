@@ -31,6 +31,7 @@ This module defines the abstract base for all formation strategies,
 following the Open/Closed Principle (OCP) and Strategy pattern.
 """
 
+import asyncio
 import logging
 import threading
 from abc import ABC, abstractmethod
@@ -327,6 +328,79 @@ class BaseFormationStrategy(ABC):
                     content="" if result.success else (result.error or ""),
                 )
         return result
+
+    async def _execute_members_concurrently(
+        self,
+        agents: List[Any],
+        task: "AgentMessage",
+        context: "TeamContext",
+        exec_contexts: List["TeamContext"],
+    ) -> List[MemberResult]:
+        """Run members concurrently with ADR-023 durable checkpoint/resume + streaming lanes.
+
+        Reused by the concurrent formations (PARALLEL; HIERARCHICAL follows). Members execute
+        concurrently via ``asyncio.gather`` (each in its own ``exec_context``); only the brief
+        completion handler — record the result + checkpoint the cumulative completed set — is
+        serialized under an ``asyncio.Lock``, so parallelism is preserved. On resume, members
+        already in the checkpoint's completed set are skipped and their results pre-seeded; the
+        rest re-run. All hooks are read off the original ``context`` (the isolated per-member
+        contexts don't carry them). No checkpointer ⇒ this is just a lane-emitting gather.
+        """
+        member_event_hook = getattr(context, "member_event_hook", None)
+        checkpoint_hook = getattr(context, "checkpoint_hook", None)
+
+        # ADR-023 resume: pre-seed completed members and skip them below.
+        seeded: List[MemberResult] = []
+        completed_ids: set = set()
+        resume = getattr(context, "resume_completed", None)
+        if resume:
+            for raw in resume.get("member_results") or []:
+                seeded.append(raw if isinstance(raw, MemberResult) else MemberResult.from_dict(raw))
+            completed_ids = set(resume.get("member_ids") or [r.member_id for r in seeded])
+
+        lock = asyncio.Lock()
+        cumulative: List[MemberResult] = list(seeded)
+        _SKIPPED = object()
+
+        async def _run(agent: Any, exec_context: "TeamContext", index: int) -> Any:
+            if agent.id in completed_ids:
+                logger.debug(
+                    f"{type(self).__name__}: skipping completed member {agent.id} (resume)"
+                )
+                return _SKIPPED
+            result = await self._execute_member_with_events(
+                agent, task, exec_context, index, member_event_hook=member_event_hook
+            )
+            if checkpoint_hook is not None:
+                # Serialize only the record+checkpoint — execution above stayed concurrent.
+                async with lock:
+                    cumulative.append(result)
+                    await checkpoint_hook(index, result, list(cumulative), context.shared_state)
+            return result
+
+        gathered = await asyncio.gather(
+            *[_run(a, c, i) for i, (a, c) in enumerate(zip(agents, exec_contexts))],
+            return_exceptions=True,
+        )
+
+        fresh: List[MemberResult] = []
+        for i, r in enumerate(gathered):
+            if r is _SKIPPED:
+                continue
+            if isinstance(r, BaseException):
+                logger.error(f"{type(self).__name__}: member {agents[i].id} failed: {r}")
+                fresh.append(
+                    MemberResult(
+                        member_id=agents[i].id,
+                        success=False,
+                        output="",
+                        error=str(r),
+                        metadata={"index": i},
+                    )
+                )
+            else:
+                fresh.append(r)
+        return seeded + fresh
 
     def consumes_context_agents(self) -> bool:
         """Whether this formation reads role-named agents from the context.

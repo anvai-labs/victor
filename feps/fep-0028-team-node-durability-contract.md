@@ -175,8 +175,12 @@ deferred.
 
 ## Unresolved Questions
 
-- Concurrent-formation resume (PARALLEL/HIERARCHICAL): partial completion of concurrent members needs
-  a well-defined "completed" set — SEQUENTIAL first, others follow.
+- ~~Concurrent-formation resume (PARALLEL/HIERARCHICAL): partial completion of concurrent members needs
+  a well-defined "completed" set.~~ **Resolved:** the completed set is simply the members whose
+  coroutines have recorded a result; each records + checkpoints the *cumulative* set under an
+  `asyncio.Lock` (member execution stays concurrent — only the completion handler serializes), and
+  `_load_member_resume`'s latest checkpoint is the largest completed set. Implemented for PARALLEL;
+  HIERARCHICAL follows. Concurrent durable *pause* (a multi-pause aggregate) is still open.
 - Where durable checkpoints live long-term (a `project.db` `team_member_checkpoints` table vs the
   injected checkpointer). Increment 1 uses the injected checkpointer only.
 
@@ -284,3 +288,13 @@ lands, existing single-agent consumers ignore the `None` default.
   per-member start/completed, REFLECTION emits generator + critic lanes, no hook ⇒ unchanged. Streaming
   lanes now cover SEQUENTIAL / PIPELINE / PARALLEL / HIERARCHICAL / CONSENSUS / REFLECTION. Concurrent
   durable checkpoint/pause remains the last deferred pillar item.
+- Concurrent durable checkpoint/resume for PARALLEL merged: a shared
+  `BaseFormationStrategy._execute_members_concurrently` runs members via `asyncio.gather` and, as each
+  finishes, records + checkpoints the cumulative completed set under an `asyncio.Lock` (execution stays
+  concurrent — only the completion handler serializes); resume seeds the completed set and re-runs the
+  rest concurrently. Reuses the coordinator checkpoint hook + `_load_member_resume` + the
+  `_execute_member_with_events` helper unchanged. Verified: a PARALLEL wave checkpoints every member (the
+  latest holds the full set), resume skips the completed member and re-runs the rest, two members
+  execute overlapping in-flight (the lock guards only completion, not execution), and no checkpointer is
+  byte-identical. Concurrent durable **pause** (multi-pause aggregate) + HIERARCHICAL checkpoint remain
+  deferred.
