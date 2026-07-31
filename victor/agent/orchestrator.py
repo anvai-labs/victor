@@ -77,6 +77,7 @@ if TYPE_CHECKING:
     from victor.agent.services.task_runtime import TaskCoordinator
     from victor.agent.protocols import ToolAccessContext
     from victor.evaluation.protocol import TokenUsage
+    from victor.framework.hitl import ApprovalHandler
 
     # Factory-created components (type hints only)
     from victor.agent.response_sanitizer import ResponseSanitizer
@@ -885,6 +886,7 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
         profile_name: Optional[str] = None,
         system_prompt_override: Optional[str] = None,
         reasoning_effort: Optional[str] = None,
+        approval_handler: Optional["ApprovalHandler"] = None,
     ):
         """Initialize orchestrator.
 
@@ -904,6 +906,11 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
                 reasoning-capable models. None inherits/omits. Forwarded to the
                 provider only when it reports support (see
                 ``BaseProvider.supports_reasoning_effort``); ignored otherwise.
+            approval_handler: Optional explicit policy ASK approval handler that takes
+                precedence over the container-resolved one. Used by team members
+                (SubAgent) to route ASK verdicts to the session's terminal modal tagged
+                with member_id (ADR-023 / FEP-0028 pillar 2). None → resolve from the
+                container as before (byte-identical default).
         """
         # Store profile name for session tracking
         self._profile_name = profile_name
@@ -925,6 +932,7 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
             profile_name=profile_name,
             tool_selection=tool_selection,
             thinking=thinking,
+            approval_handler=approval_handler,
         )
         self._factory._container = self._container  # Share container
 

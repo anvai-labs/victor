@@ -73,12 +73,15 @@ class ApprovalScreen(ModalScreen[ApprovalStatus]):
         self._expanded = False
         self._decided = False
 
+    def _title_markup(self) -> str:
+        """Build the title line. ADR-023: prefix a member tag when a team member asked."""
+        member = self._request.context.get("member_id")
+        member_tag = f"[cyan]\\[member {escape(str(member))}][/] " if member else ""
+        return f"[bold yellow]⚠ Approval required[/]  {member_tag}{escape(self._request.title)}"
+
     def compose(self) -> ComposeResult:
         with Vertical(id="approval-dialog"):
-            yield Static(
-                f"[bold yellow]⚠ Approval required[/]  {escape(self._request.title)}",
-                id="approval-title",
-            )
+            yield Static(self._title_markup(), id="approval-title")
             if self._request.description:
                 yield Static(escape(self._request.description), id="approval-desc")
             yield Static(self._render_preview(), id="approval-preview")

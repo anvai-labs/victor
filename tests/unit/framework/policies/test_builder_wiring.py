@@ -204,6 +204,62 @@ def test_container_handler_takes_precedence_over_console(monkeypatch):
     assert host._resolve_policy_approval_handler(s.governance) is my_handler
 
 
+def _policy_middleware(chain):
+    return next(m for m in chain._middleware if hasattr(m, "_approval_handler"))
+
+
+async def test_explicit_override_wins_over_container_and_console(monkeypatch):
+    """ADR-023: an explicit _approval_handler_override beats container/console resolution."""
+    import sys
+
+    from victor.framework.policies import PolicyApprovalHandler
+
+    async def container_handler(_request):
+        return None
+
+    async def override_handler(_request):
+        return None
+
+    mgr = get_feature_flag_manager()
+    mgr.enable(FeatureFlag.USE_POLICY_ENGINE)
+    try:
+        s = _governed_settings(interactive_approval=True)
+        container = _FakeContainer(
+            {PolicyApprovalHandler: PolicyApprovalHandler(container_handler)}
+        )
+        host = _Host(s, container=container)
+        host._approval_handler_override = override_handler
+        monkeypatch.setattr(sys.stdin, "isatty", lambda: True, raising=False)
+        chain = MiddlewareChain()
+        host._maybe_add_policy_engine(chain)
+        assert len(chain) == 1
+        assert _policy_middleware(chain)._approval_handler is override_handler
+    finally:
+        mgr.disable(FeatureFlag.USE_POLICY_ENGINE)
+
+
+async def test_no_override_uses_container_handler():
+    """Without an override, the container-resolved handler is used (default path unchanged)."""
+    from victor.framework.policies import PolicyApprovalHandler
+
+    async def container_handler(_request):
+        return None
+
+    mgr = get_feature_flag_manager()
+    mgr.enable(FeatureFlag.USE_POLICY_ENGINE)
+    try:
+        s = _governed_settings()
+        container = _FakeContainer(
+            {PolicyApprovalHandler: PolicyApprovalHandler(container_handler)}
+        )
+        host = _Host(s, container=container)  # no _approval_handler_override attr
+        chain = MiddlewareChain()
+        host._maybe_add_policy_engine(chain)
+        assert _policy_middleware(chain)._approval_handler is container_handler
+    finally:
+        mgr.disable(FeatureFlag.USE_POLICY_ENGINE)
+
+
 # ---------------------------------------------------------------------------
 # Message policy gate builder (REQUEST/RESPONSE phases)
 # ---------------------------------------------------------------------------

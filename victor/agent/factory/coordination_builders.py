@@ -562,10 +562,15 @@ class CoordinationBuildersMixin:
                 return PolicyContext(cost_usd=cost, model=model)
 
             engine = PolicyEngine(policies, event_emitter=self._build_policy_emitter())
+            # ADR-023 pillar 2: an explicit handler (e.g. a team member's member-tagging
+            # wrapper) wins over the container-resolved one; None falls back unchanged.
+            approval_handler = getattr(
+                self, "_approval_handler_override", None
+            ) or self._resolve_policy_approval_handler(governance)
             middleware = PolicyEngineMiddleware(
                 engine,
                 context_provider=_context_provider,
-                approval_handler=self._resolve_policy_approval_handler(governance),
+                approval_handler=approval_handler,
                 ask_fallback=getattr(governance, "ask_fallback", "deny"),
             )
             middleware_chain.add(middleware)
