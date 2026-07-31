@@ -142,9 +142,17 @@ class ConsensusFormation(BaseFormationStrategy):
         context: TeamContext,
         round_num: int,
     ) -> MemberResult:
-        """Execute a single agent."""
+        """Execute a single agent, emitting per-member lane events (ADR-023).
+
+        Members gather concurrently per round; reusing the shared helper gives per-member
+        lanes (the index is the round, so multi-round runs read clearly). The sink ContextVar
+        propagates into the gather tasks.
+        """
         logger.debug(f"ConsensusFormation: round {round_num + 1}, agent {agent.id}")
-        return await agent.execute(task, context)
+        member_event_hook = getattr(context, "member_event_hook", None)
+        return await self._execute_member_with_events(
+            agent, task, context, round_num, member_event_hook=member_event_hook
+        )
 
     def _check_consensus(self, results: List[MemberResult]) -> bool:
         """Check if results indicate consensus.

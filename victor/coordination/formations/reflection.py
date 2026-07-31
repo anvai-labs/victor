@@ -171,11 +171,18 @@ class ReflectionFormation(BaseFormationStrategy):
         # stateless and concurrency-safe. Falls back to the instance default.
         max_iterations = context.get("reflection_max_iterations") or self.max_iterations
 
+        # ADR-023 per-member streaming lanes. Reflection's generator/critic use a different
+        # execute signature (str + shared_state) and produce one aggregate result, so the
+        # shared helper doesn't fit — emit via the same coordinator hook inline instead.
+        member_event_hook = getattr(context, "member_event_hook", None)
+
         # Reflection loop
         for iteration in range(max_iterations):
             logger.info(f"Reflection iteration {iteration + 1}/{max_iterations}")
 
             # Generate solution
+            if member_event_hook is not None:
+                await member_event_hook("member_start", generator.id, iteration)
             try:
                 generator_response = await generator.execute(
                     task.content, context=context.shared_state
@@ -183,6 +190,10 @@ class ReflectionFormation(BaseFormationStrategy):
                 result = generator_response
             except Exception as e:
                 logger.error(f"Generator failed in iteration {iteration + 1}: {e}")
+                if member_event_hook is not None:
+                    await member_event_hook(
+                        "member_error", generator.id, iteration, success=False, content=str(e)
+                    )
                 return [
                     MemberResult(
                         member_id=generator.id,
@@ -191,17 +202,27 @@ class ReflectionFormation(BaseFormationStrategy):
                         error=f"Generator failed: {str(e)}",
                     )
                 ]
+            if member_event_hook is not None:
+                await member_event_hook("member_completed", generator.id, iteration, success=True)
 
             # Critique the solution against the original task.
             critique_prompt = self._build_critique_prompt(original_task, result)
+            if member_event_hook is not None:
+                await member_event_hook("member_start", critic.id, iteration)
             try:
                 critique_response = await critic.execute(
                     critique_prompt, context=context.shared_state
                 )
                 feedback = critique_response
+                if member_event_hook is not None:
+                    await member_event_hook("member_completed", critic.id, iteration, success=True)
             except Exception as e:
                 logger.warning(f"Critic failed in iteration {iteration + 1}: {e}")
                 feedback = f"Critique unavailable: {str(e)}"
+                if member_event_hook is not None:
+                    await member_event_hook(
+                        "member_error", critic.id, iteration, success=False, content=str(e)
+                    )
 
             # Check if satisfied (critic verdict preferred; keyword fallback)
             if self._is_satisfied(feedback):
