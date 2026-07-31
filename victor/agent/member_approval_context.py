@@ -30,10 +30,39 @@ Absent a value (every top-level agent, every non-team build) behavior is byte-id
 from __future__ import annotations
 
 import contextvars
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
+
+if TYPE_CHECKING:
+    from victor.framework.hitl import ApprovalRequest
 
 #: The member-tagging ASK approval handler in effect while a member orchestrator is being
 #: constructed. ``None`` everywhere else (zero overhead on the top-level/single-agent path).
 current_member_approval_handler: "contextvars.ContextVar[Optional[Any]]" = contextvars.ContextVar(
     "current_member_approval_handler", default=None
 )
+
+
+#: ADR-023 pillar 2b: durable pause is armed (a checkpointer + thread_id are configured, i.e. the
+#: coordinator set ``TeamContext.pause_hook``) while a team member executes. When set, a member's
+#: policy ``ASK`` raises :class:`MemberApprovalPause` — durably pausing the team — instead of blocking
+#: on the terminal modal (slice 2a). ``None`` everywhere else: non-team single-agent runs, and team
+#: runs without a checkpointer, keep slice-2a inline approval (byte-identical).
+current_member_durable_pause_enabled: "contextvars.ContextVar[Optional[bool]]" = (
+    contextvars.ContextVar("current_member_durable_pause_enabled", default=None)
+)
+
+
+class MemberApprovalPause(BaseException):
+    """Control-flow signal: a durable team member paused awaiting human approval (ADR-023 2b).
+
+    Deliberately a :class:`BaseException` (not :class:`Exception`) so it rides *through* every
+    ``except Exception:`` on the policy-ASK → tool-pipeline → orchestrator → AgenticLoop →
+    ``SubAgent._execute_with_retry`` path untouched (audited: no ``except BaseException`` on that
+    path), and is caught only at :meth:`SubAgent.execute`, which converts it into an
+    ``awaiting_approval`` member result. Distinct from :class:`asyncio.CancelledError`.
+    """
+
+    def __init__(self, request: "ApprovalRequest") -> None:
+        self.request = request
+        title = getattr(request, "title", "")
+        super().__init__(f"Member paused awaiting approval: {title}")

@@ -881,9 +881,24 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
         )
 
         result_dict: Optional[Dict[str, Any]] = None
+        # ADR-023 pillar 2b: arm durable member pause for the duration of member execution when a
+        # checkpointer + thread_id are configured (exactly when pause_hook is set). A member's ASK
+        # then raises MemberApprovalPause (durable) instead of blocking on the modal; without it,
+        # members keep slice-2a inline approval.
+        from victor.agent.member_approval_context import current_member_durable_pause_enabled
+
+        _durable_pause_token = (
+            current_member_durable_pause_enabled.set(True)
+            if team_context.pause_hook is not None
+            else None
+        )
         try:
-            # Execute using formation strategy
-            member_results_list = await strategy.execute(participants, team_context, agent_task)
+            # Execute using formation strategy (durable-pause arming reset immediately after).
+            try:
+                member_results_list = await strategy.execute(participants, team_context, agent_task)
+            finally:
+                if _durable_pause_token is not None:
+                    current_member_durable_pause_enabled.reset(_durable_pause_token)
 
             # Convert list of MemberResults to dict
             member_results: Dict[str, MemberResult] = {r.member_id: r for r in member_results_list}

@@ -63,6 +63,7 @@ from typing import (
     Union,
 )
 
+from victor.agent.member_approval_context import MemberApprovalPause
 from victor.agent.subagents.protocols import SubAgentContext, SubAgentContextAdapter
 from victor.agent.runtime.naming import build_display_name, generate_agent_id
 from victor.core.retry import compute_backoff_delay
@@ -304,7 +305,7 @@ class SubAgent(IAgent):  # type: ignore[misc]
         """Persona of this agent (None for SubAgent)."""
         return None
 
-    async def execute_task(self, task: str, context: Dict[str, Any]) -> str:
+    async def execute_task(self, task: str, context: Dict[str, Any]) -> Any:
         """Execute a task using this sub-agent.
 
         Note: The SubAgent is configured with a specific task at creation.
@@ -313,10 +314,22 @@ class SubAgent(IAgent):  # type: ignore[misc]
         its own isolated context.
 
         Returns:
-            String summary of execution outcome.
+            The string summary of execution outcome, or — when the member durably paused
+            awaiting approval (ADR-023 pillar 2b) — an ``awaiting_approval`` result dict.
         """
         # Execute the configured task (ignore passed task parameter)
         result = await self.execute()
+        # ADR-023 pillar 2b: a member that durably paused surfaces an awaiting-approval dict so the
+        # SEQUENTIAL formation pauses + checkpoints (the normalizer reads metadata from a dict).
+        if result.details.get("awaiting_approval"):
+            return {
+                "success": False,
+                "output": "",
+                "metadata": {
+                    "awaiting_approval": True,
+                    "approval_request": result.details.get("approval_request"),
+                },
+            }
         return result.summary if result.summary else ""
 
     async def receive_message(self, message: AgentMessage) -> Optional[AgentMessage]:
@@ -341,9 +354,16 @@ class SubAgent(IAgent):  # type: ignore[misc]
         shared terminal modal can show *which* member is asking (surfaces read the context;
         the framework policy site stays member-agnostic).
 
-        Returns ``None`` when no session handler is registered — the member then keeps the
-        default ``ask_fallback`` behavior, byte-identical to before.
+        In durable mode (ADR-023 pillar 2b — a checkpointer-backed team run, signalled by
+        ``current_member_durable_pause_enabled``), the wrapper raises :class:`MemberApprovalPause`
+        instead of prompting, so the team *durably pauses* on the member's ASK rather than blocking
+        on the modal.
+
+        Returns ``None`` when no session handler is registered *and* durable pause is not armed — the
+        member then keeps the default ``ask_fallback`` behavior, byte-identical to before.
         """
+        from victor.agent.member_approval_context import current_member_durable_pause_enabled
+
         try:
             from victor.core import get_container
             from victor.framework.policies import PolicyApprovalHandler
@@ -352,7 +372,9 @@ class SubAgent(IAgent):  # type: ignore[misc]
         except Exception:  # pragma: no cover - defensive; approval is best-effort
             holder = None
         inner = getattr(holder, "handler", None) if holder is not None else None
-        if inner is None:
+        # Build a wrapper when there's a handler to tag OR durable pause may fire; otherwise the
+        # member keeps today's container/ask_fallback resolution.
+        if inner is None and not current_member_durable_pause_enabled.get():
             return None
 
         member_id = self.id
@@ -361,7 +383,15 @@ class SubAgent(IAgent):  # type: ignore[misc]
         async def _tagged_handler(request: "ApprovalRequest") -> Any:
             request.context.setdefault("member_id", member_id)
             request.context.setdefault("member_role", member_role)
-            return await inner(request)
+            # ADR-023 pillar 2b: durable team run → pause instead of blocking on the modal.
+            if current_member_durable_pause_enabled.get():
+                raise MemberApprovalPause(request)
+            if inner is not None:
+                return await inner(request)
+            # No handler and not durable at call time: fall safe to a rejection.
+            from victor.framework.hitl import ApprovalStatus
+
+            return (ApprovalStatus.REJECTED, None, "no-handler")
 
         return _tagged_handler
 
@@ -673,6 +703,27 @@ class SubAgent(IAgent):  # type: ignore[misc]
             )
 
             return result
+
+        except MemberApprovalPause as pause:
+            # ADR-023 pillar 2b: the member durably paused awaiting human approval. Surface it as an
+            # awaiting result (not an error) so execute_task returns the awaiting dict and the
+            # SEQUENTIAL formation pauses + checkpoints (resumed by re-running the member).
+            logger.info(
+                f"{self.config.role.value} sub-agent paused awaiting approval: {pause.request.title}"
+            )
+            return SubAgentResult(
+                success=False,
+                summary="Awaiting approval",
+                details={
+                    "awaiting_approval": True,
+                    "approval_request": pause.request.to_dict(),
+                    **self._identity_metadata(),
+                },
+                tool_calls_used=getattr(self.orchestrator, "tool_calls_used", 0),
+                context_size=0,
+                duration_seconds=time.time() - start_time,
+                error=None,
+            )
 
         except Exception as e:
             # Create error result
