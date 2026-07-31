@@ -260,3 +260,12 @@ lands, existing single-agent consumers ignore the `None` default.
   with a checkpointer + thread_id (reset after), the wrapper raises instead of blocking (delegates when
   disarmed — slice-2a unchanged), and `execute`/`execute_task` convert the pause to the awaiting result.
   Non-team single-agent + no-checkpointer keep inline approval. Chat-path (non-team) continuation deferred.
+- Concurrent-formation streaming lanes + pause gating merged: PARALLEL and HIERARCHICAL route each
+  member through a shared `BaseFormationStrategy._execute_member_with_events` helper (reusing the
+  coordinator's single `member_event_hook`; the sink `ContextVar` propagates into the `gather` tasks), so
+  per-member start/completed/error/awaiting lanes render for concurrent teams. Durable-pause arming is
+  now gated on `strategy.supports_durable_pause()` (SEQUENTIAL only) — fixing a latent #740 bug where a
+  concurrent team with a checkpointer would silently abort an ASK-gated tool. Verified: concurrent
+  members emit tagged lanes (order-independent); no hook ⇒ unchanged; PARALLEL does not arm durable pause,
+  SEQUENTIAL does. Concurrent durable **checkpoint/pause** (race-unsafe / undefined completed-set) and
+  CONSENSUS/REFLECTION/PIPELINE remain deferred.

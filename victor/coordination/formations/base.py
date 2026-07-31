@@ -31,11 +31,14 @@ This module defines the abstract base for all formation strategies,
 following the Open/Closed Principle (OCP) and Strategy pattern.
 """
 
+import logging
 import threading
 from abc import ABC, abstractmethod
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from victor.teams.types import AgentMessage, MemberResult
+
+logger = logging.getLogger(__name__)
 
 
 class TeamContext:
@@ -262,6 +265,68 @@ class BaseFormationStrategy(ABC):
             True if formation can terminate before all agents complete
         """
         return False
+
+    def supports_durable_pause(self) -> bool:
+        """Whether this formation implements ADR-023 durable member pause/resume.
+
+        Only formations that stop-and-checkpoint on an ``awaiting_approval`` member (today
+        just SEQUENTIAL) may arm durable pause; otherwise a member ``ASK`` under a
+        checkpointer would raise ``MemberApprovalPause`` with no handler to stop the run,
+        silently aborting the gated tool. Non-supporting formations keep slice-2a inline
+        approval. Returns ``False`` by default.
+        """
+        return False
+
+    async def _execute_member_with_events(
+        self,
+        agent: Any,
+        agent_task: "AgentMessage",
+        exec_context: "TeamContext",
+        index: int,
+        *,
+        member_event_hook: Optional[Callable[..., Awaitable[None]]] = None,
+    ) -> MemberResult:
+        """Run one member, emitting ADR-023 per-member lane events around it.
+
+        Shared by the concurrent formations (PARALLEL / HIERARCHICAL) so per-member streaming
+        lanes work without each reimplementing the emit logic — the sink ``ContextVar`` and the
+        coordinator's single ``member_event_hook`` propagate into ``gather``-spawned tasks. Emits
+        ``member_start`` before execution and, by outcome, ``member_awaiting_approval`` /
+        ``member_completed`` / ``member_error`` after (mirroring SEQUENTIAL), so the same lanes
+        render. Never raises: a member exception becomes a failed ``MemberResult`` (so
+        ``gather(return_exceptions=True)`` post-processing stays a harmless safety net). With no
+        hook, this is just ``await agent.execute(...)`` — byte-identical.
+        """
+        if member_event_hook is not None:
+            await member_event_hook("member_start", agent.id, index)
+        try:
+            result = await agent.execute(agent_task, exec_context)
+        except Exception as e:  # noqa: BLE001 - normalized to a failed member result
+            logger.error(f"{type(self).__name__}: member {agent.id} failed: {e}")
+            result = MemberResult(
+                member_id=agent.id,
+                success=False,
+                output="",
+                error=str(e),
+                metadata={"index": index},
+            )
+        if member_event_hook is not None:
+            metadata = result.metadata or {}
+            if metadata.get("awaiting_approval"):
+                approval_request = metadata.get("approval_request") or {}
+                detail = str(
+                    approval_request.get("title") or approval_request.get("tool_name") or ""
+                )
+                await member_event_hook("member_awaiting_approval", agent.id, index, content=detail)
+            else:
+                await member_event_hook(
+                    "member_completed" if result.success else "member_error",
+                    agent.id,
+                    index,
+                    success=result.success,
+                    content="" if result.success else (result.error or ""),
+                )
+        return result
 
     def consumes_context_agents(self) -> bool:
         """Whether this formation reads role-named agents from the context.

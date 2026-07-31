@@ -259,9 +259,16 @@ class HierarchicalFormation(BaseFormationStrategy):
         context: TeamContext,
         index: int,
     ) -> MemberResult:
-        """Execute a single specialist."""
+        """Execute a single specialist, emitting per-member lane events (ADR-023).
+
+        Specialists gather concurrently; the sink ContextVar propagates into the tasks, so
+        reusing the shared helper gives per-member lanes without touching the gather flow.
+        """
         logger.debug(f"HierarchicalFormation: executing specialist {index + 1}: {specialist.id}")
-        return await specialist.execute(task, context)
+        member_event_hook = getattr(context, "member_event_hook", None)
+        return await self._execute_member_with_events(
+            specialist, task, context, index + 1, member_event_hook=member_event_hook
+        )
 
     def validate_context(self, context: TeamContext) -> bool:
         """Hierarchical formation requires delegation support."""

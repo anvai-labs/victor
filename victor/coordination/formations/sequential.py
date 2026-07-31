@@ -172,3 +172,7 @@ class SequentialFormation(BaseFormationStrategy):
     def supports_early_termination(self) -> bool:
         """Sequential formation can terminate on first failure."""
         return True
+
+    def supports_durable_pause(self) -> bool:
+        """SEQUENTIAL implements ADR-023 durable pause (stop + checkpoint on awaiting-approval)."""
+        return True
