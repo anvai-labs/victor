@@ -44,6 +44,9 @@ from typing import Any, AsyncIterator, Dict, Optional
 MEMBER_START = "member_start"
 MEMBER_COMPLETED = "member_completed"
 MEMBER_ERROR = "member_error"
+#: ADR-023 pillar 2b: member paused mid-run awaiting human approval (durable pause). TUI lane
+#: rendering of this state is deferred; current mappers IGNORE unknown member kinds harmlessly.
+MEMBER_AWAITING_APPROVAL = "member_awaiting_approval"
 
 #: Default bound on queued-but-undrained member events before drop-oldest kicks in.
 DEFAULT_SINK_MAXSIZE = 256

@@ -620,6 +620,60 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
 
         return _hook
 
+    def _make_member_pause_hook(
+        self,
+        checkpointer: CheckpointerProtocol,
+        thread_id: str,
+        team_node_id: str,
+        formation: str,
+    ) -> Callable[..., Any]:
+        """Build the durable pause callback passed to the formation (ADR-023 pillar 2b).
+
+        Invoked when a member reports awaiting-approval. Persists a checkpoint marking the
+        pause: ``completed_member_ids`` holds only members finished *before* this one (the
+        paused member is excluded so a resumed run re-executes it), plus the pending
+        ``approval_request`` so the team can durably resume once the human decides.
+        """
+
+        async def _hook(
+            index: int,
+            member_result: MemberResult,
+            results: List[MemberResult],
+            shared_state: Dict[str, Any],
+        ) -> None:
+            # ``results`` holds only the members completed BEFORE the paused one.
+            last_success = next((r for r in reversed(results) if r.success and r.output), None)
+            checkpoint = WorkflowCheckpoint(
+                checkpoint_id=f"{thread_id}:{team_node_id}:member:{index}:pause",
+                thread_id=thread_id,
+                node_id=f"{team_node_id}:member:{member_result.member_id}",
+                state={
+                    "completed_member_ids": [r.member_id for r in results],
+                    "member_results": [r.to_dict() for r in results],
+                    "shared_state": dict(shared_state or {}),
+                    "last_output": last_success.output if last_success else None,
+                    "last_agent_id": last_success.member_id if last_success else None,
+                    "next_member_index": index,
+                    "awaiting_approval": True,
+                    "paused_member_id": member_result.member_id,
+                    "approval_request": (member_result.metadata or {}).get("approval_request"),
+                },
+                timestamp=time.time(),
+                metadata={
+                    "team_node_id": team_node_id,
+                    "member_id": member_result.member_id,
+                    "member_index": index,
+                    "formation": formation,
+                    "awaiting_approval": True,
+                },
+            )
+            try:
+                await checkpointer.save(checkpoint)
+            except Exception as exc:  # noqa: BLE001 - checkpointing must not break the run
+                logger.warning("Member pause checkpoint save failed: %s", exc)
+
+        return _hook
+
     def _make_member_event_hook(
         self,
         sink: "MemberEventSink",
@@ -799,6 +853,14 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
             team_context.checkpoint_hook = self._make_member_checkpoint_hook(
                 self._checkpointer, str(thread_id), team_node_id, active_formation.value
             )
+            # ADR-023 pillar 2b: durable pause when a member awaits approval.
+            team_context.pause_hook = self._make_member_pause_hook(
+                self._checkpointer, str(thread_id), team_node_id, active_formation.value
+            )
+            # On resume, surface the human's decision to the re-run member.
+            approval_decision = effective_context.get("approval_decision")
+            if approval_decision is not None:
+                team_context.shared_state["approval_decision"] = approval_decision
 
         # ADR-023: per-member streaming — when a member event sink is published on the
         # stream context var (i.e. this team runs inside a streamed turn), emit member
@@ -853,6 +915,18 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
                 "communication_log": list(self._active_message_history()),
                 "shared_context": dict(shared_state_with_supervisor),
             }
+
+            # ADR-023 pillar 2b: the formation stopped at a member awaiting approval —
+            # surface a durable paused aggregate. The run is resumable on the same thread_id
+            # (with an ``approval_decision`` in context) via the persisted pause checkpoint.
+            awaiting = team_context.shared_state.get("__awaiting_approval__")
+            if awaiting:
+                result_dict["success"] = False  # team did not complete — it is paused
+                result_dict["status"] = "awaiting_approval"
+                result_dict["paused_member_id"] = awaiting.get("member_id")
+                result_dict["approval_request"] = awaiting.get("approval_request")
+                if thread_id:
+                    result_dict["thread_id"] = str(thread_id)
 
             # Add consensus metadata if any member result has it
             if member_results_list:

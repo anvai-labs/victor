@@ -100,6 +100,12 @@ class TeamContext:
         # no member events emitted, unchanged behavior.
         self.member_event_hook: Optional[Callable[..., Awaitable[None]]] = None
 
+        # ADR-023 pillar 2b: durable member pause (opt-in; set by UnifiedTeamCoordinator when a
+        # checkpointer is configured). Awaited when a member reports awaiting-approval, with
+        # (index, member_result, completed_results, shared_state); persists a pause checkpoint
+        # and the formation stops. None → the awaiting-approval flag is ignored (unchanged).
+        self.pause_hook: Optional[Callable[..., Awaitable[None]]] = None
+
         # Initialize manager with existing shared_state
         if self._state_manager and self.shared_state:
             self._sync_to_manager()
