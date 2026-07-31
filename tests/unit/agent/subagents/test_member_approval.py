@@ -113,3 +113,68 @@ def test_no_registered_handler_returns_none(monkeypatch) -> None:
     # Empty container → no session handler → wrapper is None → member keeps ask_fallback.
     monkeypatch.setattr("victor.core.get_container", lambda: ServiceContainer())
     assert _make_member("m3")._build_member_approval_handler() is None
+
+
+# ── ADR-023 pillar 2b: durable-pause trigger ──────────────────────
+
+import pytest  # noqa: E402
+
+from victor.agent.member_approval_context import (  # noqa: E402
+    MemberApprovalPause,
+    current_member_durable_pause_enabled,
+)
+
+
+async def test_durable_mode_raises_pause_instead_of_delegating(monkeypatch) -> None:
+    called = {"inner": False}
+
+    async def recording_handler(request: ApprovalRequest):
+        called["inner"] = True
+        return (ApprovalStatus.APPROVED, None, "tui_user")
+
+    container = ServiceContainer()
+    register_policy_approval_handler(recording_handler, container=container)
+    monkeypatch.setattr("victor.core.get_container", lambda: container)
+
+    token = current_member_durable_pause_enabled.set(True)
+    try:
+        handler = _make_member("m1")._build_member_approval_handler()
+        assert handler is not None
+        req = _request()
+        with pytest.raises(MemberApprovalPause) as exc:
+            await handler(req)
+    finally:
+        current_member_durable_pause_enabled.reset(token)
+
+    assert exc.value.request is req  # carries the ApprovalRequest for the checkpoint
+    assert called["inner"] is False  # durable pause did NOT block on the modal
+    # member tagging still applied before pausing
+    assert req.context["member_id"] == "m1"
+
+
+async def test_disarmed_delegates_as_slice_2a(monkeypatch) -> None:
+    # Not armed → unchanged slice-2a behavior (delegates to the session handler).
+    async def recording_handler(request: ApprovalRequest):
+        return (ApprovalStatus.APPROVED, None, "tui_user")
+
+    container = ServiceContainer()
+    register_policy_approval_handler(recording_handler, container=container)
+    monkeypatch.setattr("victor.core.get_container", lambda: container)
+
+    assert current_member_durable_pause_enabled.get() is None
+    handler = _make_member("m1")._build_member_approval_handler()
+    status, _, _ = await handler(_request())
+    assert status is ApprovalStatus.APPROVED
+
+
+async def test_durable_mode_arms_wrapper_without_session_handler(monkeypatch) -> None:
+    # No modal handler, but durable pause armed → still build a wrapper that raises the pause.
+    monkeypatch.setattr("victor.core.get_container", lambda: ServiceContainer())
+    token = current_member_durable_pause_enabled.set(True)
+    try:
+        handler = _make_member("m4")._build_member_approval_handler()
+        assert handler is not None
+        with pytest.raises(MemberApprovalPause):
+            await handler(_request())
+    finally:
+        current_member_durable_pause_enabled.reset(token)

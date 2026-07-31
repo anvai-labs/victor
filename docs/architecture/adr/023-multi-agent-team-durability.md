@@ -79,7 +79,10 @@ so it is FEP-gated (below).
      a member reporting `metadata["awaiting_approval"]` stops the SEQUENTIAL formation (opt-in
      `pause_hook`), persists a pause checkpoint (paused member re-runs on resume), and returns a paused
      aggregate; resume re-runs the paused member via the pillar-1 checkpoint path. The real mid-member
-     ASK→pause trigger and the no-graph chat continuation are deferred;
+     ASK→pause trigger is now **done**: a durable team run arms `current_member_durable_pause_enabled`,
+     a member's `ASK` raises `MemberApprovalPause` (a `BaseException` that survives the runtime-core
+     `except Exception` path), caught at `SubAgent.execute` and surfaced as the awaiting result. The
+     no-graph chat continuation (non-team single agent) is deferred;
   3. member-tagged `RenderAction` fan-out for ADR-020's per-member lanes — **done (SEQUENTIAL,
      FEP-0028 increment 4)**: a `MemberEventSink`/`ContextVar` teams→stream bridge in
      `stream_with_events` emits `member_start`/`member_completed`/`member_error` lanes; member
@@ -108,3 +111,4 @@ so it is FEP-gated (below).
 | 2026-07-30 | 1.1 | Increment 1 (member checkpoint/resume) and increment 4 (per-member streaming lanes) landed for SEQUENTIAL via FEP-0028 | Vijaykumar Singh |
 | 2026-07-30 | 1.2 | Increment 3 slice 2a (terminal-native member approval: member ASK → shared modal, member_id-tagged) landed; durable pause/resume (2b) deferred | Vijaykumar Singh |
 | 2026-07-31 | 1.3 | Increment 3 slice 2b-infra (durable member pause checkpoint + resume re-run at the teams layer) landed for SEQUENTIAL; real ASK trigger + chat continuation deferred | Vijaykumar Singh |
+| 2026-07-31 | 1.4 | Increment 3 real mid-member ASK→durable-pause trigger landed (MemberApprovalPause BaseException, armed for durable team runs); non-team chat continuation still deferred | Vijaykumar Singh |

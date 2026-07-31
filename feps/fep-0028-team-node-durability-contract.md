@@ -123,12 +123,21 @@ Split into two slices:
   path — completed members are skipped, the paused member **re-runs** (member-granular re-run semantics).
   Reuses `WorkflowCheckpoint`/`CheckpointerProtocol`; no new engine. Opt-in via a checkpointer; no
   checkpointer ⇒ the flag is inert (byte-identical).
-- **Slice 2b — deferred pieces.** (a) The **real mid-member ASK → pause trigger**: today a member ASK
-  blocks in-process (slice 2a); making it raise a durable pause requires threading a `MemberApprovalPause`
-  up policy middleware → tool pipeline → orchestrator → SubAgent → formation (invasive runtime-core).
-  (b) The **no-graph chat path**: teams run inside the chat service (one awaited turn); durable pause
-  there needs a continuation-token system (`paused_runs` table, a `VictorClient` resume API,
-  `chat_service` paused-run detection, an `AWAITING_APPROVAL` event). Not implemented.
+- **Slice 2b — real ASK trigger (implemented).** A durable team run (a checkpointer + thread_id, i.e.
+  `TeamContext.pause_hook` set) arms `current_member_durable_pause_enabled` (a ContextVar,
+  `member_approval_context.py`) around member execution. A member's policy `ASK` then raises
+  `MemberApprovalPause` — deliberately a **`BaseException` subclass** so it rides *through* every
+  `except Exception:` on the policy-ASK → tool-pipeline → orchestrator → `AgenticLoop` →
+  `SubAgent._execute_with_retry` path untouched (audited: no `except BaseException` there) — caught only
+  at `SubAgent.execute`, which returns an awaiting result; `execute_task` returns the awaiting **dict**
+  that drives the shipped 2b-infra pause/checkpoint/resume. Without arming (no checkpointer, or non-team
+  single-agent), a member ASK keeps slice-2a inline-modal approval (byte-identical). Nested
+  sub-agents-within-a-member inherit the armed var → a nested ASK surfaces as the member's pause
+  (member re-runs on resume) — a documented limitation.
+- **Slice 2b — deferred pieces.** The **no-graph chat path** for a *non-team single agent*: a plain
+  `victor chat` ASK still blocks inline (2a); durable pause there needs a continuation-token system
+  (`paused_runs` table, a `VictorClient` resume API, `chat_service` paused-run detection, an
+  `AWAITING_APPROVAL` event). Concurrent-formation arming (PARALLEL/…) also deferred. Not implemented.
 
 ### 3. Per-member streaming contract (implemented — increment 4, SEQUENTIAL)
 
@@ -180,8 +189,9 @@ deferred.
 - **Increment 3:** member interrupt. Slice 2a (terminal-native member approval: member-tagging wrapper
   on a ContextVar + modal tag) **implemented**; slice 2b-infra (durable pause checkpoint + resume re-run
   at the teams layer: `MemberStatus.AWAITING_APPROVAL`, `TeamContext.pause_hook`,
-  `_make_member_pause_hook`, paused aggregate) **implemented**; the real mid-member ASK trigger + the
-  no-graph chat continuation deferred.
+  `_make_member_pause_hook`, paused aggregate) **implemented**; the real mid-member ASK trigger
+  (`MemberApprovalPause` BaseException armed by `current_member_durable_pause_enabled`) **implemented**;
+  the no-graph chat continuation for a non-team single agent deferred.
 - **Increment 4 (implemented, SEQUENTIAL):** `member_id` event contract + `MemberEventSink`/`ContextVar`
   teams→stream bridge + `member_event_hook` producer + `map_event`/wire + TUI `MEMBER_START/END` lanes.
   Member tool/token streaming and concurrent formations deferred.
@@ -243,3 +253,10 @@ lands, existing single-agent consumers ignore the `None` default.
   paused lane — a new `RenderKind.MEMBER_AWAITING` mapped by `map_event`/`map_wire_event` and drawn by
   `WireTimelineState` (`⏸ <member> awaiting approval <tool>`); the formation emits the tool/title from
   the pending `approval_request` as the lane detail. Verified via mapping + wire-parity + render tests.
+- Increment 3 real ASK trigger merged: a durable team run arms `current_member_durable_pause_enabled`
+  around member execution; a member's policy `ASK` raises `MemberApprovalPause` (a `BaseException`, so it
+  survives the runtime-core `except Exception` path — audited), caught at `SubAgent.execute` and returned
+  by `execute_task` as the awaiting dict that the shipped 2b-infra pauses on. Verified green: armed only
+  with a checkpointer + thread_id (reset after), the wrapper raises instead of blocking (delegates when
+  disarmed — slice-2a unchanged), and `execute`/`execute_task` convert the pause to the awaiting result.
+  Non-team single-agent + no-checkpointer keep inline approval. Chat-path (non-team) continuation deferred.

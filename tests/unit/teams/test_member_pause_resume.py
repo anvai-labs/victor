@@ -52,6 +52,46 @@ def _coordinator(members: List[_FakeMember], checkpointer: Any = None) -> Unifie
     return coord
 
 
+# ── durable-pause arming (ADR-023 pillar 2b trigger) ───────────────
+
+
+class _ArmingProbeMember:
+    """Records whether durable pause is armed while it executes."""
+
+    def __init__(self, member_id: str) -> None:
+        self.id = member_id
+        self.seen_armed: Any = "unset"
+
+    async def execute_task(self, *args: Any, **kwargs: Any) -> dict:
+        from victor.agent.member_approval_context import current_member_durable_pause_enabled
+
+        self.seen_armed = current_member_durable_pause_enabled.get()
+        return {"output": "ok", "success": True}
+
+    async def receive_message(self, *args: Any, **kwargs: Any) -> None:
+        return None
+
+
+async def test_durable_pause_armed_only_with_checkpointer_and_thread_id() -> None:
+    from victor.agent.member_approval_context import current_member_durable_pause_enabled
+
+    # With a checkpointer + thread_id: armed during member execution, reset after.
+    m = _ArmingProbeMember("m0")
+    await _coordinator([m], MemoryCheckpointer()).execute_task("do it", {"thread_id": "t1"})
+    assert m.seen_armed is True
+    assert current_member_durable_pause_enabled.get() is None  # reset after the run
+
+    # Without a checkpointer: never armed (slice-2a inline approval).
+    m2 = _ArmingProbeMember("m0")
+    await _coordinator([m2]).execute_task("do it", {"thread_id": "t1"})
+    assert m2.seen_armed is None
+
+    # Checkpointer but no thread_id: not armed (pause_hook not set).
+    m3 = _ArmingProbeMember("m0")
+    await _coordinator([m3], MemoryCheckpointer()).execute_task("do it", {})
+    assert m3.seen_armed is None
+
+
 # ── pause / save ──────────────────────────────────────────────────
 
 
