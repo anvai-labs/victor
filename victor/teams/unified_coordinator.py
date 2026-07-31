@@ -882,14 +882,16 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
 
         result_dict: Optional[Dict[str, Any]] = None
         # ADR-023 pillar 2b: arm durable member pause for the duration of member execution when a
-        # checkpointer + thread_id are configured (exactly when pause_hook is set). A member's ASK
-        # then raises MemberApprovalPause (durable) instead of blocking on the modal; without it,
-        # members keep slice-2a inline approval.
+        # checkpointer + thread_id are configured (pause_hook set) AND the formation actually
+        # implements durable pause. A member's ASK then raises MemberApprovalPause (durable) instead
+        # of blocking on the modal. Gating on supports_durable_pause() is essential: arming a
+        # formation that can't stop-and-checkpoint (e.g. PARALLEL) would silently abort the gated
+        # tool. Non-supporting formations keep slice-2a inline approval.
         from victor.agent.member_approval_context import current_member_durable_pause_enabled
 
         _durable_pause_token = (
             current_member_durable_pause_enabled.set(True)
-            if team_context.pause_hook is not None
+            if team_context.pause_hook is not None and strategy.supports_durable_pause()
             else None
         )
         try:

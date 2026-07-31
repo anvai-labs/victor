@@ -65,8 +65,12 @@ class ParallelFormation(BaseFormationStrategy):
             for _ in agents
         ]
 
+        # ADR-023: per-member streaming lanes. The isolated per-agent contexts don't carry the
+        # coordinator's hook, so read it from the original team_context and pass it down.
+        member_event_hook = getattr(context, "member_event_hook", None)
+
         tasks = [
-            self._execute_agent(agent, task, ctx, i)
+            self._execute_agent(agent, task, ctx, i, member_event_hook)
             for i, (agent, ctx) in enumerate(zip(agents, agent_contexts))
         ]
 
@@ -101,10 +105,13 @@ class ParallelFormation(BaseFormationStrategy):
         task: AgentMessage,
         context: TeamContext,
         index: int,
+        member_event_hook: Any = None,
     ) -> MemberResult:
-        """Execute a single agent."""
+        """Execute a single agent, emitting per-member lane events (ADR-023)."""
         logger.debug(f"ParallelFormation: executing agent {index+1}: {agent.id}")
-        return await agent.execute(task, context)
+        return await self._execute_member_with_events(
+            agent, task, context, index, member_event_hook=member_event_hook
+        )
 
     def validate_context(self, context: TeamContext) -> bool:
         """Parallel formation requires minimal context."""
