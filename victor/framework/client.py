@@ -70,6 +70,7 @@ class _StreamEvent:
         result: Optional[Any] = None,
         success: bool = True,
         metadata: Optional[Dict[str, Any]] = None,
+        member_id: Optional[str] = None,
     ) -> None:
         self._type = event_type
         self._content = content
@@ -78,6 +79,7 @@ class _StreamEvent:
         self._result = result
         self._success = success
         self._metadata = metadata or {}
+        self._member_id = member_id
 
     @property
     def event_type(self) -> str:
@@ -110,6 +112,11 @@ class _StreamEvent:
     @property
     def metadata(self) -> Dict[str, Any]:
         return self._metadata
+
+    @property
+    def member_id(self) -> Optional[str]:
+        """Team member id for member lifecycle events (ADR-023); None otherwise."""
+        return self._member_id
 
 
 @dataclass
@@ -201,6 +208,19 @@ def _to_stream_event(event: Any) -> _StreamEvent:
                 "recoverable": getattr(event, "recoverable", None),
             },
         )
+    if event.type == EventType.CUSTOM:
+        event_metadata = getattr(event, "metadata", {}) or {}
+        custom_type = str(event_metadata.get("custom_type", ""))
+        if custom_type.startswith("member_"):
+            # Team member lifecycle event (ADR-023): carry the member id + custom_type
+            # so the mapping/wire layers can render per-member lanes.
+            return _StreamEvent(
+                EventType.CUSTOM,
+                content=getattr(event, "content", None),
+                success=getattr(event, "success", True),
+                metadata=dict(event_metadata),
+                member_id=getattr(event, "member_id", None),
+            )
     return _StreamEvent(
         event.type,
         content=getattr(event, "content", None),

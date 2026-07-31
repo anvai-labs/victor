@@ -94,6 +94,12 @@ class TeamContext:
         self.checkpoint_hook: Optional[Callable[..., Awaitable[None]]] = None
         self.resume_completed: Optional[Dict[str, Any]] = None
 
+        # ADR-023 per-member streaming (opt-in; set by UnifiedTeamCoordinator when a
+        # member event sink is present on the stream context var). Awaited by a formation
+        # around each member with (kind, member_id, index, *, success=, content=). None →
+        # no member events emitted, unchanged behavior.
+        self.member_event_hook: Optional[Callable[..., Awaitable[None]]] = None
+
         # Initialize manager with existing shared_state
         if self._state_manager and self.shared_state:
             self._sync_to_manager()

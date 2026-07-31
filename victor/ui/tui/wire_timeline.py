@@ -126,6 +126,20 @@ class WireTimelineState:
             lines.append(f"[red]⚠ {escape(action.text)}[/]")
             return lines
 
+        if action.kind is RenderKind.MEMBER_START:
+            lines = self.flush()
+            member = action.member_id or "member"
+            lines.append(f"[magenta]▸[/] [bold]{escape(member)}[/] [dim]started[/]")
+            return lines
+
+        if action.kind is RenderKind.MEMBER_END:
+            lines = self.flush()
+            member = action.member_id or "member"
+            mark = "[green]✓[/]" if action.success else "[red]✗[/]"
+            status = "done" if action.success else "failed"
+            lines.append(f"{mark} [bold]{escape(member)}[/] [dim]{status}[/]")
+            return lines
+
         return []  # IGNORE: lifecycle / future additive events
 
     def flush(self) -> List[str]:
