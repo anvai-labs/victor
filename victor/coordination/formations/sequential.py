@@ -114,8 +114,14 @@ class SequentialFormation(BaseFormationStrategy):
                     logger.info(
                         f"SequentialFormation: member {agent.id} awaiting approval; pausing"
                     )
+                    approval_request = result.metadata.get("approval_request") or {}
+                    detail = str(
+                        approval_request.get("title") or approval_request.get("tool_name") or ""
+                    )
                     if member_event_hook is not None:
-                        await member_event_hook("member_awaiting_approval", agent.id, i)
+                        await member_event_hook(
+                            "member_awaiting_approval", agent.id, i, content=detail
+                        )
                     context.shared_state["__awaiting_approval__"] = {
                         "member_id": agent.id,
                         "index": i,

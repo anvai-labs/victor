@@ -48,6 +48,7 @@ class RenderKind(str, Enum):
     TOOL_END = "tool_end"  # a tool produced a result -> render a tool step
     MEMBER_START = "member_start"  # a team member began (carries member_id) -> lane marker
     MEMBER_END = "member_end"  # a team member finished (member_id + success) -> lane marker
+    MEMBER_AWAITING = "member_awaiting"  # a team member paused awaiting approval (ADR-023 2b)
     ERROR = "error"  # surface an error to the user
     IGNORE = "ignore"  # lifecycle/no-op events (stream_start, stream_end, ...)
 
@@ -182,6 +183,14 @@ def map_event(event: Any) -> RenderAction:
                 member_id=getattr(event, "member_id", None) or metadata.get("member_id"),
                 metadata=dict(metadata),
             )
+        if custom_type == "member_awaiting_approval":
+            # ADR-023 pillar 2b: the member durably paused awaiting human approval.
+            return RenderAction(
+                RenderKind.MEMBER_AWAITING,
+                text=content,
+                member_id=getattr(event, "member_id", None) or metadata.get("member_id"),
+                metadata=dict(metadata),
+            )
 
     return RenderAction(RenderKind.IGNORE)
 
@@ -249,6 +258,13 @@ def map_wire_event(wire: Any) -> RenderAction:
             RenderKind.MEMBER_END,
             text=str(wire.get("content", "") or ""),
             success=event != "member_error",
+            member_id=wire.get("member_id"),
+        )
+
+    if event == "member_awaiting_approval":
+        return RenderAction(
+            RenderKind.MEMBER_AWAITING,
+            text=str(wire.get("content", "") or ""),
             member_id=wire.get("member_id"),
         )
 

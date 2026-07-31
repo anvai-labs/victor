@@ -7,7 +7,8 @@
   themes (`themes.py`, `--theme`, F6 cycle). 2026-07-31 — the TUI became the **capability-gated
   default** for interactive terminals (`surface="auto"` in `run_interactive`, resolved via
   `_tui_capable()`); the REPL is the fallback for dumb terminals / pipes / CI, and `--repl` forces it.
-  Only per-member team lanes (ADR-023) remain deferred. Was Proposed.)
+  Per-member team lanes (ADR-023) landed — start/completed/error (FEP-0028 increment 4) and the
+  awaiting-approval lane (pillar 2b) all render via `RenderKind.MEMBER_*`. Was Proposed.)
 - **Date**: 2026-07-29
 - **Decision Makers**: Vijaykumar Singh
 - **Related ADRs**: 021 (terminal-native HITL & loop transparency — shares the surface), 005 (event

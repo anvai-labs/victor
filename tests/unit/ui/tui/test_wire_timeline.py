@@ -172,6 +172,22 @@ class TestTimelineRendering:
         lines = state.flush()
         assert lines and "\\[red]" in lines[0]
 
+    def test_member_awaiting_approval_renders_paused_lane(self):
+        """ADR-023 pillar 2b: a paused member renders a distinct awaiting-approval lane."""
+        wire = {
+            "v": 1,
+            "event": "member_awaiting_approval",
+            "member_id": "m1",
+            "content": "run_command",
+        }
+        lines = WireTimelineState().advance(map_wire_event(wire))
+        assert lines
+        rendered = lines[0]
+        assert "m1" in rendered
+        assert "awaiting approval" in rendered
+        assert "run_command" in rendered
+        assert "⏸" in rendered
+
     def test_every_render_kind_is_handled(self):
         """Contract: the timeline must consume the full RenderAction vocabulary."""
         from victor.ui.chat_app.event_mapping import RenderAction

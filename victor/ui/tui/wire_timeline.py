@@ -140,6 +140,18 @@ class WireTimelineState:
             lines.append(f"{mark} [bold]{escape(member)}[/] [dim]{status}[/]")
             return lines
 
+        if action.kind is RenderKind.MEMBER_AWAITING:
+            # ADR-023 pillar 2b: durable pause — the member is waiting on human approval.
+            lines = self.flush()
+            member = action.member_id or "member"
+            detail = (action.text or "").strip()
+            suffix = f" [yellow]{escape(detail)}[/]" if detail else ""
+            lines.append(
+                f"[yellow]⏸[/] [bold]{escape(member)}[/] "
+                f"[yellow bold]awaiting approval[/]{suffix}"
+            )
+            return lines
+
         return []  # IGNORE: lifecycle / future additive events
 
     def flush(self) -> List[str]:
