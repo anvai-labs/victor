@@ -113,3 +113,4 @@ so it is FEP-gated (below).
 | 2026-07-31 | 1.3 | Increment 3 slice 2b-infra (durable member pause checkpoint + resume re-run at the teams layer) landed for SEQUENTIAL; real ASK trigger + chat continuation deferred | Vijaykumar Singh |
 | 2026-07-31 | 1.4 | Increment 3 real mid-member ASK→durable-pause trigger landed (MemberApprovalPause BaseException, armed for durable team runs); non-team chat continuation still deferred | Vijaykumar Singh |
 | 2026-07-31 | 1.5 | Concurrent-formation per-member streaming lanes (PARALLEL/HIERARCHICAL via a shared helper) + durable-pause arming gated to supports_durable_pause() (fixes a latent #740 abort); concurrent checkpoint/pause still deferred | Vijaykumar Singh |
+| 2026-07-31 | 1.6 | PIPELINE full durability (checkpoint/resume/pause/lanes) via the shared sequential machinery — it's a sequential formation; CONSENSUS/REFLECTION + concurrent checkpoint/pause remain deferred | Vijaykumar Singh |
