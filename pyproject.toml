@@ -717,6 +717,7 @@ victor = [
     "config/*.yml",
     "config/*.json",
     "models/*.npz",
+    "ui/tui/*.tcss",
     "verticals/contrib/*/*.yaml",
     "verticals/contrib/*/*.toml",
     "verticals/contrib/*/*.svg",
