@@ -310,9 +310,12 @@ Phased, each phase independently shippable and tested (mirroring how FEP-0028 la
   executor, bypassing the ASK middleware since the human decided); reject → a tool-error result —
   appends the linked `role=tool` result, and drives `execute_turn` continuations (no spurious user
   message) to a final answer. Scope: **single gated tool** per paused turn.
-- **Phase 3b (deferred) — surfaces + batches.** CLI `--durable-approval` + `victor chat --resume`;
-  API `awaiting_approval` response + resume route; TUI paused lane; multi-tool batch partiality;
-  streaming resume.
+- **Phase 3b — surfaces + batches (in progress).** API surface **✅ landed**: `/chat` returns a
+  `202` with `status="awaiting_approval"` + `run_id` + `approval_request` when a turn parks, and a new
+  `/chat/resume` route calls `VictorClient.resume(run_id, decision)` (404 unknown/already-resumed, 501
+  if the client can't resume) — the headless case durable pause was built for. Still deferred: CLI
+  `--durable-approval` + `victor chat --resume`; TUI paused lane; multi-tool batch partiality;
+  streaming resume; chained pauses.
 - **Phase 4 — hardening.** Reject/timeout/expiry, chained pauses, GC, docs, and a
   `victor chat --resume <run_id>` ergonomic.
 
@@ -370,6 +373,7 @@ Status **Draft** — submitted for review. Open questions above are the decision
 | 2026-08-01 | 0.2 | Phase 1 landed (#777): pause signal + arming + turn-boundary catch + AWAITING_APPROVAL + in-memory store. Records that `ApprovalPause` lives in `victor/framework/` (not `victor/agent/`) — the catch is at the framework turn boundary | Vijaykumar Singh |
 | 2026-08-01 | 0.3 | Phase 2 landed: `ProjectDbPausedRunStore` — self-managing `project.db` `paused_run` table (mirrors ConversationStore; no schema.py migration); pauses survive a restart. `PausedRunStoreProtocol` with in-memory + project-db backends | Vijaykumar Singh |
 | 2026-08-01 | 0.4 | Phase 3a landed: `VictorClient.resume(run_id, decision)` + `ApprovalDecision`; `resume_paused_run` faithfully replays the persisted gated call (approve → raw `execute_tool`, bypassing re-ASK; reject → tool-error) and drives `execute_turn` continuations without re-sampling or a spurious user message. Single gated tool per turn; batches/surfaces/streaming → Phase 3b | Vijaykumar Singh |
+| 2026-08-01 | 0.5 | Phase 3b (API surface) landed: `/chat` returns 202 `awaiting_approval` + `run_id` + `approval_request` on a pause; new `/chat/resume` route calls `VictorClient.resume` (404 unknown/resumed, 501 unsupported). CLI/TUI surfaces + batches/streaming still deferred | Vijaykumar Singh |
 
 ## Acceptance Criteria
 

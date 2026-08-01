@@ -116,11 +116,27 @@ class ChatRequest(BaseModel):
 
 
 class ChatResponse(BaseModel):
-    """Chat response payload."""
+    """Chat response payload.
+
+    FEP-0029: when a turn durably pauses on a policy ASK, ``status`` is ``"awaiting_approval"`` and
+    ``run_id`` + ``approval_request`` are set so the caller can approve later via ``/chat/resume``.
+    """
 
     role: str = "assistant"
     content: str
     tool_calls: Optional[List[Dict[str, Any]]] = None
+    status: str = "ok"
+    run_id: Optional[str] = None
+    approval_request: Optional[Dict[str, Any]] = None
+
+
+class ResumeRequest(BaseModel):
+    """Resume a durably-paused chat turn with a human approval decision (FEP-0029)."""
+
+    run_id: str
+    approved: bool
+    response: Optional[str] = None
+    responder: Optional[str] = None
 
 
 def _new_chat_request_id() -> str:
