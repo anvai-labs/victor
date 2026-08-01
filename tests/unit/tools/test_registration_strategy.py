@@ -21,6 +21,7 @@ from victor.tools.registration.strategies import (
     ToolRegistrationStrategy,
     FunctionDecoratorStrategy,
     BaseToolSubclassStrategy,
+    DuckTypedToolStrategy,
     MCPDictStrategy,
 )
 from victor.tools.registration.registry import ToolRegistrationStrategyRegistry
@@ -159,6 +160,86 @@ class TestMCPDictStrategy:
         assert strategy.priority == 10
 
 
+class _DuckTypedTool:
+    """Plugin-style tool with no BaseTool inheritance or @tool decorator."""
+
+    @property
+    def name(self):
+        return "duck_tool"
+
+    @property
+    def description(self):
+        return "A duck-typed plugin tool"
+
+    @property
+    def parameters(self):
+        return {"type": "object", "properties": {}}
+
+    async def execute(self, **kwargs):
+        return {"success": True}
+
+
+class TestDuckTypedToolStrategy:
+    """Tests for DuckTypedToolStrategy (contract-only plugin tools)."""
+
+    def test_can_handle_duck_typed_instance(self):
+        """Test identifying duck-typed tool instances."""
+        strategy = DuckTypedToolStrategy()
+
+        assert strategy.can_handle(_DuckTypedTool()) is True
+
+    def test_cannot_handle_dicts_strings_or_plain_functions(self):
+        """Test rejecting shapes owned by other strategies or invalid tools."""
+        strategy = DuckTypedToolStrategy()
+
+        assert strategy.can_handle({"name": "tool"}) is False
+        assert strategy.can_handle("not_a_tool") is False
+
+        def plain_function():
+            pass
+
+        assert strategy.can_handle(plain_function) is False
+
+    def test_register_duck_typed_tool(self):
+        """Test registering a duck-typed tool instance."""
+        strategy = DuckTypedToolStrategy()
+        registry = mock.Mock()
+        tool = _DuckTypedTool()
+
+        strategy.register(registry, tool)
+
+        registry._register_direct.assert_called_once_with("duck_tool", tool, True)
+
+    def test_priority_below_basetool_above_mcp_dict(self):
+        """Test strategy priority ordering."""
+        strategy = DuckTypedToolStrategy()
+
+        assert MCPDictStrategy().priority < strategy.priority < BaseToolSubclassStrategy().priority
+
+    def test_registry_selects_duck_typed_strategy(self):
+        """Test the strategy registry routes duck-typed instances correctly."""
+        registry = ToolRegistrationStrategyRegistry()
+
+        strategy = registry.get_strategy_for(_DuckTypedTool())
+
+        assert isinstance(strategy, DuckTypedToolStrategy)
+
+    def test_tool_registry_registers_duck_typed_tool_with_strategy_flag(self):
+        """Duck-typed plugin tools must register when the strategy flag is on."""
+        from victor.tools.registry import ToolRegistry
+        from victor.core.feature_flags import FeatureFlag, get_feature_flag_manager
+
+        manager = get_feature_flag_manager()
+        manager.enable(FeatureFlag.USE_STRATEGY_BASED_TOOL_REGISTRATION)
+        try:
+            registry = ToolRegistry()
+            registry.register(_DuckTypedTool())
+
+            assert registry.get("duck_tool") is not None
+        finally:
+            manager.clear_runtime_override(FeatureFlag.USE_STRATEGY_BASED_TOOL_REGISTRATION)
+
+
 class TestToolRegistrationStrategyRegistry:
     """Tests for ToolRegistrationStrategyRegistry."""
 
@@ -180,6 +261,7 @@ class TestToolRegistrationStrategyRegistry:
 
         assert "FunctionDecoratorStrategy" in strategies
         assert "BaseToolSubclassStrategy" in strategies
+        assert "DuckTypedToolStrategy" in strategies
         assert "MCPDictStrategy" in strategies
 
     def test_register_custom_strategy(self):

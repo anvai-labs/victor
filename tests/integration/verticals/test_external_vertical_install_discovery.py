@@ -308,3 +308,96 @@ def test_external_vertical_runtime_install_is_discoverable_by_vertical_loader(
     ]
     assert payload["team_specs"] == ["security_review_team"]
     assert payload["default_team"] == "security_review_team"
+
+
+@pytest.mark.slow
+def test_external_vertical_runtime_load_registers_tool_and_mode_config(
+    tmp_path: Path,
+) -> None:
+    """Framework-path loading should surface the custom tool and mode config."""
+
+    env = _subprocess_env(tmp_path)
+    venv_dir = _create_validation_venv(tmp_path, env)
+    wheel_path = _build_wheel(
+        venv_dir,
+        env,
+        EXTERNAL_EXAMPLE_DIR,
+        tmp_path / "dist" / "external-runtime-extensions",
+    )
+    _pip_install_editable(venv_dir, env, VICTOR_SDK_DIR, REPO_ROOT)
+    _pip_install(venv_dir, env, wheel_path)
+
+    entry_point_cache_dir = tmp_path / "victor-cache"
+    completed = _run_python(
+        venv_dir,
+        env,
+        textwrap.dedent(f"""
+            import asyncio
+            import json
+            from importlib.metadata import entry_points
+            from pathlib import Path
+
+            from victor.agent.protocols import ToolRegistryProtocol
+            from victor.core.container import ServiceContainer
+            from victor.core.plugins.context import HostPluginContext
+            from victor.core.verticals.base import VerticalRegistry
+            from victor.core.verticals.vertical_loader import VerticalLoader
+            from victor.framework.module_loader import EntryPointCache
+            from victor.tools.registry import ToolRegistry
+
+            EntryPointCache.reset_instance()
+            EntryPointCache.get_instance(cache_dir=Path(r"{entry_point_cache_dir}"))
+            VerticalRegistry.reset_discovery()
+
+            # Plugin registration through the host PluginContext routes the
+            # duck-typed custom tool into the framework ToolRegistry.
+            tool_registry = ToolRegistry()
+            container = ServiceContainer()
+            container.register_instance(ToolRegistryProtocol, tool_registry)
+            plugin = {{ep.name: ep for ep in entry_points(group="victor.plugins")}}[
+                "security"
+            ].load()
+            plugin.register(HostPluginContext(container))
+
+            tool = tool_registry.get("secret_pattern_scan")
+            assert tool is not None, "custom tool was not registered"
+            scan = asyncio.run(
+                tool.execute(text='api_key = "abcdef0123456789"')
+            )
+
+            # Framework-path vertical load + mode config discovery via the
+            # victor.mode_configs entry point.
+            loader = VerticalLoader()
+            discovered = loader.discover_verticals(force_refresh=True)
+            vertical = loader.load("security")
+            provider = vertical.get_mode_config_provider()
+            assert provider is not None, "mode config provider not discovered"
+
+            print(
+                json.dumps(
+                    {{
+                        "discovered": sorted(discovered),
+                        "tool_name": tool.name,
+                        "scan_success": scan["success"],
+                        "scan_patterns": sorted(
+                            {{finding["pattern"] for finding in scan["findings"]}}
+                        ),
+                        "mode_names": sorted(provider.get_mode_configs()),
+                        "default_mode": provider.get_default_mode(),
+                        "vulnerability_scan_budget": provider.get_tool_budget_for_task(
+                            "vulnerability_scan"
+                        ),
+                    }}
+                )
+            )
+            """).strip(),
+    )
+
+    payload = _json_from_stdout(completed.stdout)
+    assert "security" in payload["discovered"]
+    assert payload["tool_name"] == "secret_pattern_scan"
+    assert payload["scan_success"] is True
+    assert payload["scan_patterns"] == ["hardcoded_credential"]
+    assert payload["mode_names"] == ["deep", "quick"]
+    assert payload["default_mode"] == "quick"
+    assert payload["vulnerability_scan_budget"] == 18

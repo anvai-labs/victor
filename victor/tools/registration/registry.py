@@ -63,11 +63,13 @@ class ToolRegistrationStrategyRegistry:
         from victor.tools.registration.strategies import (
             FunctionDecoratorStrategy,
             BaseToolSubclassStrategy,
+            DuckTypedToolStrategy,
             MCPDictStrategy,
         )
 
         self.register_strategy(FunctionDecoratorStrategy())
         self.register_strategy(BaseToolSubclassStrategy())
+        self.register_strategy(DuckTypedToolStrategy())
         self.register_strategy(MCPDictStrategy())
 
         logger.debug("Registered default tool registration strategies")

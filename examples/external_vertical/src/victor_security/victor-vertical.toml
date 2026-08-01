@@ -3,7 +3,7 @@
 [vertical]
 name = "security"
 description = "Security auditing, vulnerability analysis, and compliance review"
-version = "0.2.0"
+version = "0.3.0"
 category = "security"
 tags = ["security", "audit", "compliance", "vulnerability"]
 requires_victor = ">=0.6.0"
@@ -15,7 +15,7 @@ repository = "https://github.com/anvai-labs/victor"
 [vertical.class]
 module = "victor_security.assistant"
 class_name = "SecurityAssistant"
-provides_tools = ["read", "ls", "code_search", "shell", "web_search", "write"]
+provides_tools = ["secret_pattern_scan", "read", "ls", "code_search", "shell", "web_search", "write"]
 provides_workflows = ["vulnerability_scan", "dependency_audit", "incident_review"]
 provides_capabilities = ["file_ops", "git", "web_access"]
 

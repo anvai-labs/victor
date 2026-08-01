@@ -221,9 +221,68 @@ class MCPDictStrategy:
         return 10
 
 
+class DuckTypedToolStrategy:
+    """Strategy for duck-typed tool instances from plugins.
+
+    Contract-only packages (authored against ``victor_contracts``) cannot
+    subclass the runtime ``BaseTool`` or use the ``@tool`` decorator, so they
+    ship tool instances that expose ``name``, ``description``, ``parameters``,
+    and an async ``execute(**kwargs)``:
+
+        class MyPluginTool:
+            @property
+            def name(self) -> str: ...
+            async def execute(self, **kwargs): ...
+
+        context.register_tool(MyPluginTool())
+
+    The legacy (non-strategy) registration path in ``ToolRegistry.register``
+    already accepts this shape ("duck-typed tool with name + execute"); this
+    strategy provides parity when strategy-based registration is enabled.
+
+    Priority: 20 (after BaseTool subclasses, before MCP dicts)
+    """
+
+    def can_handle(self, tool: Any) -> bool:
+        """Check if tool is a duck-typed tool instance.
+
+        Args:
+            tool: Tool object to check
+
+        Returns:
+            True if tool exposes a string ``name`` and callable ``execute``
+        """
+        if isinstance(tool, dict):
+            return False
+        name = getattr(tool, "name", None)
+        return isinstance(name, str) and bool(name) and callable(getattr(tool, "execute", None))
+
+    def register(
+        self,
+        registry: Any,
+        tool: Any,
+        enabled: bool = True,
+    ) -> None:
+        """Register a duck-typed tool instance.
+
+        Args:
+            registry: Tool registry to register with
+            tool: Duck-typed tool instance
+            enabled: Whether tool is enabled
+        """
+        registry._register_direct(tool.name, tool, enabled)
+        logger.debug(f"Registered duck-typed tool: {tool.name}")
+
+    @property
+    def priority(self) -> int:
+        """Low-medium priority - after BaseTool subclasses."""
+        return 20
+
+
 __all__ = [
     "ToolRegistrationStrategy",
     "FunctionDecoratorStrategy",
     "BaseToolSubclassStrategy",
+    "DuckTypedToolStrategy",
     "MCPDictStrategy",
 ]

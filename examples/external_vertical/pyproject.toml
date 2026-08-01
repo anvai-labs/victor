@@ -18,7 +18,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "victor-security"
-version = "0.2.0"
+version = "0.3.0"
 description = "Security auditing vertical for Victor ecosystem"
 readme = "README.md"
 authors = [{ name = "Victor Community", email = "community@victor.dev" }]
@@ -35,9 +35,16 @@ dependencies = [
 runtime = [
     "victor-ai>=0.3.0",
 ]
+test = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.23",
+]
 
 [project.entry-points."victor.plugins"]
 security = "victor_security:plugin"
+
+[project.entry-points."victor.mode_configs"]
+security = "victor_security.mode_config:SecurityModeConfigProvider"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
