@@ -144,6 +144,7 @@ class ProximaGraphStore(GraphStoreProtocol):
         # natively (relational Tier-C work lands with TD-127). Idempotent and
         # safe to rebuild.
         self._file_mtimes: Dict[str, float] = {}
+        self._file_hashes: Dict[str, str] = {}
         self._subgraph_cache: Dict[str, Subgraph] = {}
 
     @property
@@ -448,8 +449,17 @@ class ProximaGraphStore(GraphStoreProtocol):
     # ------------------------------------------------------------------
     # File mtime / staleness (in-memory sidecar until Tier-C relational facts)
     # ------------------------------------------------------------------
-    async def update_file_mtime(self, file: str, mtime: float) -> None:
+    async def update_file_mtime(
+        self, file: str, mtime: float, content_hash: str | None = None
+    ) -> None:
         self._file_mtimes[str(file)] = mtime
+        if content_hash is None:
+            self._file_hashes.pop(str(file), None)
+        else:
+            self._file_hashes[str(file)] = content_hash
+
+    async def get_file_hashes(self, files: List[str]) -> Dict[str, str]:
+        return {f: self._file_hashes[str(f)] for f in files if str(f) in self._file_hashes}
 
     async def get_stale_files(self, file_mtimes: Dict[str, float]) -> List[str]:
         return [
@@ -470,6 +480,7 @@ class ProximaGraphStore(GraphStoreProtocol):
         for node in nodes:
             await self._delete_node(node.node_id)
         self._file_mtimes.pop(str(file), None)
+        self._file_hashes.pop(str(file), None)
         # Invalidate any cached subgraphs anchored on deleted nodes.
         deleted_ids = {n.node_id for n in nodes}
         for sg_id in [

@@ -75,11 +75,14 @@ CREATE TABLE IF NOT EXISTS {_EDGE_TABLE} (
     PRIMARY KEY (src, dst, type)
 );
 
--- File modification times for staleness tracking
+-- File modification times for staleness tracking. content_hash follows the
+-- victor-codegraph manifest contract (sha-256 of decoded source text) so an
+-- mtime bump without a content change can be verified as not-stale.
 CREATE TABLE IF NOT EXISTS {_MTIME_TABLE} (
     file TEXT PRIMARY KEY,
     mtime REAL NOT NULL,
-    indexed_at REAL NOT NULL
+    indexed_at REAL NOT NULL,
+    content_hash TEXT
 );
 
 -- Indexes for fast lookups
@@ -296,6 +299,17 @@ class SqliteGraphStore(GraphStoreProtocol):
                 except sqlite3.OperationalError:
                     pass  # Column already exists
 
+        # Manifest-contract migration: content_hash on the mtime table lets the
+        # pipeline verify that an mtime-changed file actually changed content.
+        mtime_columns = {
+            row[1] for row in conn.execute(f"PRAGMA table_info({_MTIME_TABLE})").fetchall()
+        }
+        if mtime_columns and "content_hash" not in mtime_columns:
+            try:
+                conn.execute(f"ALTER TABLE {_MTIME_TABLE} ADD COLUMN content_hash TEXT")
+            except sqlite3.OperationalError:
+                pass
+
         # v5+ edge migration - add file column for direct file-aware deletes
         if "file" not in edge_columns:
             try:
@@ -454,19 +468,30 @@ class SqliteGraphStore(GraphStoreProtocol):
             rows,
         )
 
-    def _update_file_mtime_conn(self, conn: sqlite3.Connection, file: str, mtime: float) -> None:
-        """Record file modification time using the provided connection."""
+    def _update_file_mtime_conn(
+        self,
+        conn: sqlite3.Connection,
+        file: str,
+        mtime: float,
+        content_hash: str | None = None,
+    ) -> None:
+        """Record file modification time (and content hash) using the connection.
+
+        A ``None`` hash overwrites any stored one: an unknown hash must never
+        pass a later verified-unchanged check.
+        """
         import time
 
         conn.execute(
             f"""
-            INSERT INTO {_MTIME_TABLE}(file, mtime, indexed_at)
-            VALUES (?, ?, ?)
+            INSERT INTO {_MTIME_TABLE}(file, mtime, indexed_at, content_hash)
+            VALUES (?, ?, ?, ?)
             ON CONFLICT(file) DO UPDATE SET
                 mtime=excluded.mtime,
-                indexed_at=excluded.indexed_at
+                indexed_at=excluded.indexed_at,
+                content_hash=excluded.content_hash
             """,
-            (file, mtime, time.time()),
+            (file, mtime, time.time(), content_hash),
         )
 
     def _delete_by_file_conn(self, conn: sqlite3.Connection, file: str) -> None:
@@ -1021,17 +1046,40 @@ class SqliteGraphStore(GraphStoreProtocol):
             _apply(conn)
             conn.commit()
 
-    async def update_file_mtime(self, file: str, mtime: float) -> None:
-        """Record file modification time for staleness tracking."""
+    async def update_file_mtime(
+        self, file: str, mtime: float, content_hash: str | None = None
+    ) -> None:
+        """Record file modification time (and content hash) for staleness tracking."""
         file = self._canonical_file_path(file)
         batch_conn = self._get_active_write_batch_connection()
         if batch_conn is not None:
-            self._update_file_mtime_conn(batch_conn, file, mtime)
+            self._update_file_mtime_conn(batch_conn, file, mtime, content_hash)
             return
         async with self._lock:
             conn = self._connect()
-            self._update_file_mtime_conn(conn, file, mtime)
+            self._update_file_mtime_conn(conn, file, mtime, content_hash)
             conn.commit()
+
+    async def get_file_hashes(self, files: List[str]) -> Dict[str, str]:
+        """Stored content hashes for the given files (files without a hash omitted)."""
+        hashes: Dict[str, str] = {}
+        async with self._lock:
+            conn = self._connect()
+            for file in files:
+                file_variants = self._file_path_variants(file)
+                placeholders = ",".join("?" for _ in file_variants)
+                cur = conn.execute(
+                    f"""
+                    SELECT content_hash FROM {_MTIME_TABLE}
+                    WHERE file IN ({placeholders}) AND content_hash IS NOT NULL
+                    LIMIT 1
+                    """,
+                    file_variants,
+                )
+                row = cur.fetchone()
+                if row is not None and row[0]:
+                    hashes[file] = str(row[0])
+        return hashes
 
     async def get_stale_files(self, file_mtimes: Dict[str, float]) -> List[str]:
         """Get files that have changed since last index."""
