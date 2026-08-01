@@ -103,3 +103,57 @@ class TestPrefPOStrategy:
         assert reflection
         assert "winner" in json.loads(reflection)
         assert "Verify file paths with ls()" in new_text
+
+
+def _verbosity_only_traces(count: int = 5):
+    return [
+        ExecutionTrace(
+            session_id=f"v{i}",
+            task_type="action",
+            provider="ollama",
+            model="qwen",
+            tool_calls=2,
+            tool_failures={"verbosity": 3},
+            success=False,
+            completion_score=0.4,
+            tokens_used=1500,
+        )
+        for i in range(count)
+    ]
+
+
+class TestPrefPOSectionScope:
+    def test_tool_discipline_failures_do_not_leak_into_output_style_section(self):
+        # _failure_traces() carries file_not_found + edit_mismatch, both
+        # tool-discipline concerns. CONCISE_MODE_GUIDANCE is an output-style
+        # section, so PrefPO must propose nothing rather than append
+        # "Verify file paths with ls()" there.
+        strategy = PrefPOStrategy()
+
+        reflection = strategy.reflect(
+            _failure_traces(), "CONCISE_MODE_GUIDANCE", "Keep answers short."
+        )
+
+        assert reflection == ""
+
+    def test_on_topic_failures_still_drive_the_relevant_section(self):
+        strategy = PrefPOStrategy()
+
+        current = "Keep answers short."
+        reflection = strategy.reflect(_verbosity_only_traces(), "CONCISE_MODE_GUIDANCE", current)
+        new_text = strategy.mutate(current, reflection, "CONCISE_MODE_GUIDANCE")
+
+        assert reflection
+        payload = json.loads(reflection)
+        assert payload["winner"] == "challenger"
+        # An on-topic (verbosity) hint is appended, so the section grows.
+        assert new_text != current
+        assert new_text.startswith(current)
+
+    def test_grounding_section_still_receives_tool_discipline_guidance(self):
+        strategy = PrefPOStrategy()
+
+        reflection = strategy.reflect(_failure_traces(), "GROUNDING_RULES", "Base on tool output.")
+
+        assert reflection
+        assert json.loads(reflection)["winner"] == "challenger"

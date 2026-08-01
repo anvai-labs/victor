@@ -6,23 +6,67 @@
 """Chain-of-Thought transfer strategy for prompt optimization.
 
 This is a prompt-layer adaptation of CoT distillation, not student-model
-training. The strategy mines strong execution traces from better-performing
-providers and converts them into a compact reasoning scaffold that can be
-injected into weaker target-provider prompts.
+training. It mines a strong execution trace from a better-performing provider
+and converts it into a compact reasoning scaffold that can be injected into a
+weaker target-provider prompt.
+
+Faithfulness note: the scaffold is derived from the *actual observed
+trajectory* of the source trace — the real ordered sequence of successful tool
+calls and the reasoning the model recorded before each — whenever ASI
+tool-call detail is present (``tool_call_details``). It only falls back to a
+generic discover/read/plan/edit/verify scaffold for older traces captured
+before detail collection existed. A previous version emitted that generic
+scaffold unconditionally and never read the trace, so "distilled from a
+94%-scoring trace" was decoration; this version makes the claim true.
 """
 
 import logging
-from typing import Any, List
+from typing import Any, Dict, List
 
 from victor.core.completion_markers import TASK_DONE_MARKER
 
 logger = logging.getLogger(__name__)
 
 
-class CoTDistillationStrategy:
-    """Distill reasoning from strong model traces into prompt guidance.
+# Verb by tool family, used to phrase a distilled step. Matched by substring so
+# grouped/aliased names ("semantic_code_search", "run_tests") still resolve.
+# Ordered: the first needle found in the (lowercased) tool name wins.
+_TOOL_VERBS = (
+    ("search", "DISCOVER"),
+    ("grep", "DISCOVER"),
+    ("find", "DISCOVER"),
+    ("overview", "DISCOVER"),
+    ("graph", "ANALYZE"),
+    ("architecture", "ANALYZE"),
+    ("read", "READ"),
+    ("ls", "READ"),
+    ("cat", "READ"),
+    ("edit", "EDIT"),
+    ("write", "EDIT"),
+    ("apply", "EDIT"),
+    ("patch", "EDIT"),
+    ("test", "VERIFY"),
+    ("shell", "RUN"),
+    ("bash", "RUN"),
+    ("git", "RUN"),
+)
 
-    Implements the PromptOptimizationStrategy protocol.
+
+def _verb_for_tool(tool_name: str) -> str:
+    """Map a tool name to a phase verb for the reasoning scaffold."""
+    lowered = tool_name.lower()
+    for needle, verb in _TOOL_VERBS:
+        if needle in lowered:
+            return verb
+    return "ACT"
+
+
+class CoTDistillationStrategy:
+    """Distill a reasoning scaffold from a strong trace into prompt guidance.
+
+    Implements the PromptOptimizationStrategy protocol. The scaffold reflects
+    the source trace's real tool trajectory (see the module docstring); it is
+    not a fixed template.
     """
 
     def __init__(
@@ -117,37 +161,89 @@ class CoTDistillationStrategy:
         source_provider: str = "",
         target_provider: str = "",
     ) -> str:
-        """Convert a successful trace into a step-by-step reasoning template.
+        """Convert a successful trace into a step-by-step reasoning scaffold.
 
-        Extracts the tool-call sequence and generalizes it into a
-        reusable reasoning pattern.
+        Prefers the trace's real tool trajectory (``tool_call_details``);
+        falls back to a generic scaffold only when a trace predates ASI
+        detail capture.
+        """
+        score = getattr(trace, "completion_score", 0.0)
+        failures = getattr(trace, "tool_failures", {}) or {}
+        details = getattr(trace, "tool_call_details", None) or []
+
+        if details:
+            steps = self._steps_from_trace(details, failures)
+            basis = "an observed trace"
+        else:
+            steps = self._generic_scaffold(trace, failures)
+            basis = "the success profile"
+
+        steps = steps[: self._max_steps]
+        if not steps:
+            return ""
+
+        scope = ""
+        if source_provider and target_provider:
+            scope = f" from {source_provider} to {target_provider}"
+        header = f"STEP-BY-STEP APPROACH{scope} (distilled from {basis}, score {score:.0%}):"
+        return f"{header}\n" + "\n".join(steps)
+
+    def _steps_from_trace(
+        self,
+        details: List[Any],
+        failures: Dict[str, int],
+    ) -> List[str]:
+        """Build a scaffold from the real ordered sequence of successful calls.
+
+        Consecutive calls to the same tool (e.g. several reads in a row) are
+        collapsed into one step so the scaffold reads as a plan rather than a
+        transcript. A recovery step is appended only for failures the trace
+        actually hit — the guidance is grounded in what went wrong, not a
+        blanket warning.
+        """
+        phrases: List[str] = []
+        prev_tool = None
+        for detail in details:
+            tool = (getattr(detail, "tool_name", "") or "").strip()
+            if not tool or not getattr(detail, "success", True):
+                continue
+            if tool == prev_tool:
+                continue
+            prev_tool = tool
+            verb = _verb_for_tool(tool)
+            reason = (getattr(detail, "reasoning_before", "") or "").strip()
+            if reason:
+                clause = reason.split(". ")[0].strip().rstrip(".")
+                clause = clause[:120].rstrip()
+                phrases.append(f"{verb} with {tool}: {clause}.")
+            else:
+                phrases.append(f"{verb} with {tool}.")
+            if len(phrases) >= self._max_steps:
+                break
+
+        if "edit_mismatch" in failures and len(phrases) < self._max_steps:
+            phrases.append(
+                "If an edit fails to apply, re-read the file and copy old_str "
+                "exactly — do not guess the surrounding context."
+            )
+
+        return [f"{i}. {phrase}" for i, phrase in enumerate(phrases, 1)]
+
+    def _generic_scaffold(self, trace: Any, failures: Dict[str, int]) -> List[str]:
+        """Fallback scaffold for traces captured before ASI detail existed.
+
+        Behaviour-preserving copy of the original template. Used only when a
+        trace carries no ``tool_call_details`` to distil from.
         """
         tools = getattr(trace, "tool_calls", 0)
-        score = getattr(trace, "completion_score", 0)
-        failures = getattr(trace, "tool_failures", {})
-
-        # Build reasoning chain from trace profile
-        steps = []
-
-        # Step 1: Always start with discovery
-        steps.append(
+        steps = [
             "1. DISCOVER: Use code_search(query='relevant term') to find the "
-            "file(s) related to the issue. Do NOT guess file paths."
-        )
-
-        # Step 2: Read and understand
-        steps.append(
+            "file(s) related to the issue. Do NOT guess file paths.",
             "2. READ: Read the identified file(s) to understand the current "
-            "implementation. Use search= parameter for large files."
-        )
-
-        # Step 3: Plan the fix
-        steps.append(
+            "implementation. Use search= parameter for large files.",
             "3. PLAN: Before editing, identify exactly which lines need to "
-            "change and what the fix should be. State your plan."
-        )
-
-        # Step 4: Execute with precision
+            "change and what the fix should be. State your plan.",
+        ]
         if failures and "edit_mismatch" in failures:
             steps.append(
                 "4. EDIT: Copy old_str EXACTLY from the file (use 3+ lines of "
@@ -159,19 +255,9 @@ class CoTDistillationStrategy:
                 "4. EDIT: Apply the fix using edit() with exact old_str "
                 "copied from the file. Include sufficient context for uniqueness."
             )
-
-        # Step 5: Verify (if tools permit)
-        if tools > 5:
+        if isinstance(tools, int) and tools > 5:
             steps.append(
                 "5. VERIFY: Read the modified file to confirm the edit was "
                 f"applied correctly. Signal {TASK_DONE_MARKER} when verified."
             )
-
-        # Limit to max_steps
-        steps = steps[: self._max_steps]
-
-        scope = ""
-        if source_provider and target_provider:
-            scope = f" from {source_provider} to {target_provider}"
-        header = f"STEP-BY-STEP APPROACH{scope} (distilled from {score:.0%} success rate):"
-        return f"{header}\n" + "\n".join(steps)
+        return steps
