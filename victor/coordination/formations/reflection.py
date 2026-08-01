@@ -51,7 +51,7 @@ import re
 from typing import Any, Dict, List, Optional
 
 from victor.coordination.formations.base import BaseFormationStrategy, TeamContext
-from victor.teams.types import AgentMessage, MemberResult
+from victor.teams.types import AgentMessage, MemberResult, MessageType
 
 logger = logging.getLogger(__name__)
 
@@ -171,11 +171,73 @@ class ReflectionFormation(BaseFormationStrategy):
         # stateless and concurrency-safe. Falls back to the instance default.
         max_iterations = context.get("reflection_max_iterations") or self.max_iterations
 
+        # ADR-023 per-member streaming lanes. Reflection's generator/critic use a different
+        # execute signature (str + shared_state) and produce one aggregate result, so the
+        # shared helper doesn't fit — emit via the same coordinator hook inline instead.
+        member_event_hook = getattr(context, "member_event_hook", None)
+
+        # ADR-023 iteration-granular durable checkpoint/resume (opt-in). Iterations are sequential
+        # (each refines from the previous critique), so after each the loop state — completed
+        # iterations, the refined generator input, and the last result/feedback — is snapshotted
+        # into shared_state["__reflection__"] (persisted by the existing member checkpoint hook).
+        # A crash resumes at the next unfinished iteration; completed iterations are not re-run.
+        checkpoint_hook = getattr(context, "checkpoint_hook", None)
+        resume = getattr(context, "resume_completed", None)
+        saved: Dict[str, Any] = dict(
+            ((resume or {}).get("shared_state") or {}).get("__reflection__") or {}
+        )
+
+        if saved.get("done"):
+            # Terminal resume: the loop already finished — rebuild the final aggregate result.
+            return [
+                self._final_result(
+                    saved.get("result"), saved.get("feedback"), int(saved["iter_done"])
+                )
+            ]
+
+        iter_start = int(saved.get("iter_done", 0))
+        if iter_start > 0:
+            result = saved.get("result")
+            feedback = saved.get("feedback")
+            if saved.get("task_content") is not None:
+                task = AgentMessage(
+                    sender_id="reflection_formation",
+                    content=saved["task_content"],
+                    message_type=MessageType.TASK,
+                )
+            logger.info(
+                "ReflectionFormation: resume — continuing from iteration %d/%d",
+                iter_start + 1,
+                max_iterations,
+            )
+
+        async def _checkpoint(iter_done: int, task_content: Optional[str], done: bool) -> None:
+            """Snapshot the iteration loop into shared_state and persist via the member hook."""
+            if checkpoint_hook is None:
+                return
+            context.shared_state["__reflection__"] = {
+                "iter_done": iter_done,
+                "task_content": task_content,
+                "result": str(result) if result is not None else None,
+                "feedback": feedback,
+                "done": done,
+            }
+            marker = MemberResult(
+                member_id="reflection_formation",
+                success=True,
+                output=str(result) if result else "",
+                metadata={"iterations": iter_done},
+            )
+            await checkpoint_hook(iter_done - 1, marker, [marker], context.shared_state)
+
         # Reflection loop
-        for iteration in range(max_iterations):
+        iteration = iter_start - 1
+        for iteration in range(iter_start, max_iterations):
             logger.info(f"Reflection iteration {iteration + 1}/{max_iterations}")
 
             # Generate solution
+            if member_event_hook is not None:
+                await member_event_hook("member_start", generator.id, iteration)
             try:
                 generator_response = await generator.execute(
                     task.content, context=context.shared_state
@@ -183,6 +245,10 @@ class ReflectionFormation(BaseFormationStrategy):
                 result = generator_response
             except Exception as e:
                 logger.error(f"Generator failed in iteration {iteration + 1}: {e}")
+                if member_event_hook is not None:
+                    await member_event_hook(
+                        "member_error", generator.id, iteration, success=False, content=str(e)
+                    )
                 return [
                     MemberResult(
                         member_id=generator.id,
@@ -191,17 +257,27 @@ class ReflectionFormation(BaseFormationStrategy):
                         error=f"Generator failed: {str(e)}",
                     )
                 ]
+            if member_event_hook is not None:
+                await member_event_hook("member_completed", generator.id, iteration, success=True)
 
             # Critique the solution against the original task.
             critique_prompt = self._build_critique_prompt(original_task, result)
+            if member_event_hook is not None:
+                await member_event_hook("member_start", critic.id, iteration)
             try:
                 critique_response = await critic.execute(
                     critique_prompt, context=context.shared_state
                 )
                 feedback = critique_response
+                if member_event_hook is not None:
+                    await member_event_hook("member_completed", critic.id, iteration, success=True)
             except Exception as e:
                 logger.warning(f"Critic failed in iteration {iteration + 1}: {e}")
                 feedback = f"Critique unavailable: {str(e)}"
+                if member_event_hook is not None:
+                    await member_event_hook(
+                        "member_error", critic.id, iteration, success=False, content=str(e)
+                    )
 
             # Check if satisfied (critic verdict preferred; keyword fallback)
             if self._is_satisfied(feedback):
@@ -209,28 +285,33 @@ class ReflectionFormation(BaseFormationStrategy):
                 break
 
             # Refine with feedback for next iteration
-            from victor.teams.types import MessageType
-
             task = AgentMessage(
                 sender_id="reflection_formation",
                 content=self._build_refine_prompt(original_task, result, feedback),
                 message_type=MessageType.TASK,
             )
+            # ADR-023: checkpoint the completed (unsatisfied) iteration + the refined input.
+            await _checkpoint(iteration + 1, task.content, done=False)
+
+        # ADR-023: terminal checkpoint so a resume after completion returns without re-running.
+        await _checkpoint(iteration + 1, None, done=True)
 
         # Return final result with metadata
-        return [
-            MemberResult(
-                member_id="reflection_formation",
-                success=True,
-                output=str(result) if result else "",
-                metadata={
-                    "iterations": iteration + 1,
-                    "final_feedback": feedback,
-                    "satisfied": self._is_satisfied(feedback),
-                    "formation": "reflection",
-                },
-            )
-        ]
+        return [self._final_result(result, feedback, iteration + 1)]
+
+    def _final_result(self, result: Any, feedback: Optional[str], iterations: int) -> MemberResult:
+        """Build the reflection formation's single aggregate result (shared by resume)."""
+        return MemberResult(
+            member_id="reflection_formation",
+            success=True,
+            output=str(result) if result else "",
+            metadata={
+                "iterations": iterations,
+                "final_feedback": feedback,
+                "satisfied": self._is_satisfied(feedback),
+                "formation": "reflection",
+            },
+        )
 
     def validate_context(self, context: TeamContext) -> bool:
         """Validate that context has required generator and critic.

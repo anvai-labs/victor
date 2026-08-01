@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "victor-coding"
-version = "0.8.0"
+version = "0.8.2"
 description = "Coding vertical for Victor AI - Software development, debugging, and code generation"
 readme = "README.md"
 requires-python = ">=3.11"

@@ -758,6 +758,14 @@ def chat(
         "--thinking/--no-thinking",
         help="Enable extended thinking/reasoning mode (Claude models). Shows model's reasoning process.",
     ),
+    tui: Optional[bool] = typer.Option(
+        None,
+        "--tui/--repl",
+        help="Force the interactive multi-pane TUI (--tui) or the line-oriented REPL "
+        "(--repl). Default: the TUI on capable terminals, the REPL on dumb terminals / "
+        "pipes / CI.",
+        rich_help_panel="Advanced Agent Behavior",
+    ),
     headless: bool = typer.Option(
         False,
         "--headless",
@@ -1503,6 +1511,7 @@ victor chat --sessionid abc123            # Resume session
                     resume_session_id=session_id,
                     show_reasoning=show_reasoning,
                     graph_watch=graph_watch,
+                    surface=_resolve_surface(tui),
                     session_config=session_config,
                     **runtime_override_kwargs,
                 )
@@ -1544,6 +1553,82 @@ def _run_default_interactive() -> None:
     settings = load_settings()
     setup_safety_confirmation()
     run_sync(run_interactive(settings, "default", True, False))
+
+
+def _resolve_surface(tui: Optional[bool]) -> str:
+    """Map the tri-state ``--tui/--repl`` flag to an interactive surface (ADR-020).
+
+    ``None`` (neither flag) → ``"auto"`` (TUI on capable terminals, REPL otherwise);
+    ``True`` (``--tui``) → forced ``"tui"``; ``False`` (``--repl``) → forced ``"repl"``.
+    """
+    if tui is None:
+        return "auto"
+    return "tui" if tui else "repl"
+
+
+def _tui_capable() -> bool:
+    """True when the current terminal can host the interactive Textual UI."""
+    try:
+        from victor.ui.rendering.terminal_capabilities import (
+            TerminalCapabilities,
+            TerminalCapability,
+        )
+
+        caps = TerminalCapabilities()
+        return (
+            caps.is_interactive()
+            and not caps.is_ci_environment()
+            and caps.get_capability_level() == TerminalCapability.FULL
+        )
+    except Exception:
+        return False
+
+
+async def _run_tui_app(
+    client: Any,
+    agent: Any,
+    settings: Any,
+    *,
+    mode: Optional[str] = None,
+    tool_budget: Optional[int] = None,
+    theme: str = "dark",
+) -> None:
+    """Launch the interactive Textual TUI over an already-initialized session."""
+    from victor.ui.tui.app import VictorTUIApp
+
+    app = VictorTUIApp(
+        client=client,
+        agent=agent,
+        settings=settings,
+        mode=mode,
+        tool_budget=tool_budget,
+        theme=theme,
+    )
+    await app.run_async()
+
+
+def run_tui_entry(
+    profile: str = "default",
+    mode: Optional[str] = None,
+    resume_session_id: Optional[str] = None,
+    theme: str = "dark",
+) -> None:
+    """Entry point for the ``victor tui`` command — the opt-in interactive TUI."""
+    setup_logging(command="tui")
+    settings = load_settings()
+    setup_safety_confirmation()
+    run_sync(
+        run_interactive(
+            settings,
+            profile,
+            True,
+            False,
+            mode=mode,
+            resume_session_id=resume_session_id,
+            surface="tui",
+            tui_theme=theme,
+        )
+    )
 
 
 async def run_oneshot(
@@ -1900,7 +1985,12 @@ async def run_oneshot(
                 if renderer_choice in {"rich-text", "text"}:
                     use_live = False
                 renderer = (
-                    LiveDisplayRenderer(console)
+                    LiveDisplayRenderer(
+                        console,
+                        tool_budget_source=lambda: _coerce_cli_int(
+                            getattr(agent, "tool_budget", None)
+                        ),
+                    )
                     if use_live
                     else FormatterRenderer(formatter, console)
                 )
@@ -2028,6 +2118,8 @@ async def run_interactive(
     enable_correlation: bool = True,
     min_agents_for_bayesian: int = 2,
     session_config: Optional[SessionConfig] = None,
+    surface: str = "auto",
+    tui_theme: str = "dark",
 ) -> None:
     """Run interactive CLI mode.
 
@@ -2036,6 +2128,8 @@ async def run_interactive(
 
     Args:
         show_reasoning: If True, show LLM reasoning/thinking content in output.
+        surface: ``"repl"`` (default) for the prompt-toolkit REPL, or ``"tui"`` to
+            launch the interactive Textual UI when the terminal can host it.
     """
     config = session_config or _build_session_config(
         agent_profile=profile,
@@ -2259,6 +2353,27 @@ async def run_interactive(
         from victor.ui.commands import SlashCommandHandler
 
         cmd_handler = SlashCommandHandler(console, settings, agent)
+
+        # Interactive TUI (ADR-020/021) is the default on capable terminals; the REPL is
+        # the fallback for dumb terminals / pipes / CI. ``surface="auto"`` (the default)
+        # selects silently by capability; an explicit ``--tui`` on a terminal that can't
+        # host it says so before falling back; ``--repl`` forces the REPL.
+        if surface in ("tui", "auto"):
+            if _tui_capable():
+                await _run_tui_app(
+                    client,
+                    agent,
+                    settings,
+                    mode=mode,
+                    tool_budget=tool_budget,
+                    theme=tui_theme,
+                )
+                return
+            if surface == "tui":
+                console.print(
+                    "[yellow]This terminal can't host the interactive TUI; "
+                    "using the REPL instead.[/]"
+                )
 
         rl_suggestion = get_rl_profile_suggestion(profile_display.provider, profiles)
         await _run_cli_repl(
@@ -2553,11 +2668,10 @@ def _build_cli_runtime_segment(
 
     parts: list[str] = []
     tool_calls_used = _coerce_cli_int(getattr(agent, "tool_calls_used", None))
+    # No settings fallback: settings.tools.tool_call_budget is the whole-session cap
+    # (BUDGET_LIMITS.max_session_budget = 2000), not the per-turn budget this counter
+    # is measured against. Pairing them showed "Tools 16/2000" while 20 was enforced.
     tool_budget = _coerce_cli_int(getattr(agent, "tool_budget", None))
-    if tool_budget is None:
-        tool_budget = _coerce_cli_int(
-            getattr(getattr(settings, "tools", None), "tool_call_budget", None)
-        )
     if tool_calls_used is not None and tool_budget is not None:
         label = "t" if compact else "Tools"
         parts.append(f"{label} {tool_calls_used}/{tool_budget}")
@@ -3342,7 +3456,12 @@ async def _run_cli_repl(
 
                 use_live = renderer_choice in {"rich", "auto"}
                 if use_live:
-                    renderer = LiveDisplayRenderer(console)
+                    renderer = LiveDisplayRenderer(
+                        console,
+                        tool_budget_source=lambda: _coerce_cli_int(
+                            getattr(agent, "tool_budget", None)
+                        ),
+                    )
                 else:
                     formatter = create_formatter()
                     renderer = FormatterRenderer(formatter, console)

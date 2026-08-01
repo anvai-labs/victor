@@ -13,6 +13,11 @@ from victor.agent.conversation.history_metadata import (
 )
 
 _INTERNAL_HISTORY_PREFIXES = {
+    # FEP-0026 envelope. Hiding normally works off the message's metadata; this is
+    # the fallback for rows that reach the store without it, which is not
+    # hypothetical — two rebuild paths were found dropping metadata (#715).
+    "<system-reminder": "system_reminder",
+    # Legacy prefix, retained for conversations stored before the envelope.
     "[SYSTEM-REMINDER:": "system_reminder",
     "[GROUNDING-FEEDBACK:": "grounding_feedback",
     "[SYSTEM:": "system_message",

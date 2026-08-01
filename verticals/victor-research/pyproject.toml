@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "victor-research"
-version = "0.8.0"
+version = "0.8.2"
 description = "Research vertical for Victor AI - Web research, information gathering, and knowledge synthesis"
 readme = "README.md"
 requires-python = ">=3.11"

@@ -21,6 +21,7 @@ from victor.tools.registration.strategies.strategies import (
     ToolRegistrationStrategy,
     FunctionDecoratorStrategy,
     BaseToolSubclassStrategy,
+    DuckTypedToolStrategy,
     MCPDictStrategy,
 )
 
@@ -28,5 +29,6 @@ __all__ = [
     "ToolRegistrationStrategy",
     "FunctionDecoratorStrategy",
     "BaseToolSubclassStrategy",
+    "DuckTypedToolStrategy",
     "MCPDictStrategy",
 ]

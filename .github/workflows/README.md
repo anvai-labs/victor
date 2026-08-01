@@ -17,10 +17,36 @@ To keep the runner queue free and feature work merging fast, CI is split by the 
 > On the **develop → main** promotion PR the changed-file unit job is **skipped** (`ci-fast.yml` → `quick-tests` `if: base_ref != 'main'`): there the diff spans the whole release delta and would map to the entire mirror-test set, blowing the job's timeout every time. Coverage isn't lost — the full sharded suite runs on that same PR via `ci-test`.
 
 This is enforced by the `branches:` filter on each workflow's `push`/`pull_request`
-triggers: heavy workflows target `[main]`; `ci-fast` targets `[main, develop]`. `main`
-remains the strict, protected branch (required checks + admin enforcement), so the extensive
-suite always gates a release-bound merge. To run a heavy workflow against a `develop` PR on
-demand, use its **workflow_dispatch** entry.
+triggers: heavy workflows target `[main]`. `main` remains the strict, protected branch
+(required checks + admin enforcement), so the extensive suite always gates a release-bound
+merge. To run a heavy workflow against a `develop` PR on demand, use its
+**workflow_dispatch** entry.
+
+`ci-fast` deliberately has **no `branches:` filter on `pull_request`** — it runs
+on every PR whatever its base. Restricting it to `[main, develop]` left stacked
+PRs (base = another feature branch) with *no gate at all*: no Black, Ruff,
+strict MyPy, guards, or `CI Success`. PRs #700–#702 showed 1–2 reported checks
+instead of 24 and read as green while being essentially ungated, only getting a
+real signal once retargeted to `develop` — after review had already happened.
+`CI Success` is only *required* on `develop`/`main`, so reporting it on a
+feature-base PR is informational and blocks nothing.
+
+### Two things the develop gate does not do
+
+**It does not prove your branch works against current `develop`.** Branch
+protection has `strict_up_to_date: false`, so a PR can merge with CI that ran
+against an older `develop`. GitHub's `CLEAN`/`MERGEABLE` means "no merge
+conflict", *not* "tested against the tip". Before merging anything non-trivial,
+merge `develop` in and let CI re-run — especially if another PR touching the
+same modules landed meanwhile.
+
+**It does not run merged PRs against each other.** Each PR is verified against
+the `develop` of its moment and nothing re-runs afterwards, so a set of
+individually green PRs is first executed as a unit at `develop` → `main`.
+`ci-develop-nightly.yml` runs the sharded unit suite against `develop` every
+night to move that discovery from "at promotion, across a release delta" to
+"within a day, across one day's merges". It is intentionally **not** a required
+check — it is a signal, not a block.
 
 ## Validation Workflows
 

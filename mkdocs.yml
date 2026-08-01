@@ -154,6 +154,7 @@ nav:
       - getting-started/index.md
       - Installation: getting-started/installation.md
       - Quick Start: getting-started/quickstart.md
+      - Your First Agent (Python): getting-started/first-agent.md
       - Configuration: getting-started/configuration.md
       - First Run: getting-started/first-run.md
       - Basic Usage: getting-started/basic-usage.md

@@ -28,6 +28,10 @@ Wire shape (``v`` is the contract version; additive-only within a version):
     {"v": 1, "event": "content",     "content": "..."}
     {"v": 1, "event": "error",       "message": "..."}
     {"v": 1, "event": "stream_end"}
+    {"v": 1, "event": "member_start","member_id": "m1", "index": 0,
+             "formation": "sequential"}                          # ADR-023 team lanes
+    {"v": 1, "event": "member_completed", "member_id": "m1", "success": true,
+             "content": "..."}                # also member_error (success:false); index/content optional
 
 Design notes:
 - ``to_wire_event`` returns ``None`` for event types outside the v1 contract
@@ -50,10 +54,15 @@ from typing import Any, AsyncIterator, Dict, Optional
 
 WIRE_VERSION = 1
 
-# The v1 contract: exactly these event types cross the wire.
+# The v1 contract core: these event types cross the wire on every surface.
 WIRE_EVENT_TYPES = frozenset(
     {"thinking", "tool_call", "tool_result", "content", "error", "stream_end"}
 )
+
+# Additive team-member lifecycle events (ADR-023 / FEP-0028 pillar 3). Emitted only during
+# multi-agent team turns; consumers that don't render lanes ignore them. Kept separate from
+# the core set so the base single-agent contract stays exactly six types.
+MEMBER_WIRE_EVENT_TYPES = frozenset({"member_start", "member_completed", "member_error"})
 
 # Tool results larger than this are truncated on the wire (UIs show previews;
 # the full result lives in the conversation, not the event stream).
@@ -148,6 +157,30 @@ def to_wire_event(event: Any) -> Optional[Dict[str, Any]]:
 
     if event_type == "stream_end":
         return {"v": WIRE_VERSION, "event": "stream_end"}
+
+    if event_type == "custom":
+        # Team member lifecycle events (ADR-023) are the only CUSTOM sub-types admitted
+        # to the wire; every other custom event stays outside the v1 contract (None).
+        metadata = getattr(event, "metadata", None) or {}
+        custom_type = str(metadata.get("custom_type", ""))
+        if custom_type.startswith("member_"):
+            member_wire: Dict[str, Any] = {
+                "v": WIRE_VERSION,
+                "event": custom_type,
+                "member_id": getattr(event, "member_id", None) or metadata.get("member_id"),
+            }
+            content = getattr(event, "content", None)
+            if content:
+                member_wire["content"] = _json_safe(content, max_chars=2_048)
+            index = metadata.get("member_index")
+            if index is not None:
+                member_wire["index"] = index
+            formation = metadata.get("formation")
+            if formation:
+                member_wire["formation"] = formation
+            if custom_type in ("member_completed", "member_error"):
+                member_wire["success"] = bool(getattr(event, "success", True))
+            return member_wire
 
     return None  # outside the v1 contract (tool_progress, stage_change, ...)
 

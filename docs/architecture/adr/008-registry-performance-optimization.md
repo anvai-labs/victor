@@ -1,9 +1,11 @@
-# ADR 008: Tool Registry Performance Optimization
+# ADR-008: Tool Registry Performance Optimization
 
-**Status**: Accepted
-**Date**: 2025-04-19
-**Decision Makers**: Vijaykumar Singh
-**Related ADRs**: ADR 004 (Tool System), ADR 002 (State Management)
+## Metadata
+
+- **Status**: Accepted
+- **Date**: 2025-04-19
+- **Decision Makers**: Vijaykumar Singh
+- **Related ADRs**: 004 (Tool System), 002 (State Management)
 
 ## Context
 

@@ -18,7 +18,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "victor-ai"
-version = "0.8.1"
+version = "0.8.2"
 description = "Open-source agentic AI framework with multi-provider support, workflow orchestration, and extensible tool system"
 readme = "README.md"
 license = {text = "Apache-2.0"}
@@ -717,6 +717,9 @@ victor = [
     "config/*.yml",
     "config/*.json",
     "models/*.npz",
+    # TUI stylesheet: App.CSS_PATH loads this at startup; a wheel without it
+    # crashes the TUI with StylesheetError (see test_packaging_asset_contracts).
+    "ui/tui/*.tcss",
     "verticals/contrib/*/*.yaml",
     "verticals/contrib/*/*.toml",
     "verticals/contrib/*/*.svg",

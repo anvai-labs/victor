@@ -56,6 +56,10 @@ from typing import Any, Dict, List, Optional, Union
 
 from pydantic import BaseModel, Field, field_validator, ValidationError
 
+from victor.agent.recovery.empty_response import (
+    diagnose_empty_response,
+    next_retry_parameters,
+)
 from victor.agent.planning.base import (
     ExecutionPlan,
     PlanStep,
@@ -2104,6 +2108,81 @@ class TaskPlannerContext:
 # Helper functions for workflow integration
 
 
+#: Plan generation used to send a bare user message with no system prompt. Naming
+#: the job and the required output shape up front costs a few tokens and makes the
+#: JSON-shaped response substantially more likely.
+_PLAN_GENERATION_SYSTEM_PROMPT = (
+    "You are a planning assistant. Produce a task plan as a single JSON object "
+    "matching the schema in the user message. Respond with JSON only — no prose, "
+    "no markdown fences, no commentary before or after."
+)
+
+
+class _EmptyPlanResponse(ValueError):
+    """The model returned no content at all for a plan request.
+
+    Distinct from "returned content we could not parse as a plan": an empty
+    response is deterministic and reproduces on an identical retry, so it calls
+    for parameter escalation rather than another identical attempt. Subclasses
+    ValueError so existing callers catching ValueError are unaffected.
+    """
+
+
+def _empty_response_diagnostics(plan_response: Any) -> Dict[str, Any]:
+    """Best-effort extraction of empty-response signals from a provider reply.
+
+    Providers differ in shape (dict vs object) and in where they report reasoning
+    output, so every lookup is defensive: a missing signal yields an undiagnosed
+    result rather than an exception.
+    """
+    diagnostics: Dict[str, Any] = {}
+    if plan_response is None:
+        return diagnostics
+
+    def _get(source: Any, key: str) -> Any:
+        if isinstance(source, dict):
+            return source.get(key)
+        return getattr(source, key, None)
+
+    for key in ("reasoning_content", "reasoning", "thinking"):
+        value = _get(plan_response, key)
+        if isinstance(value, str) and value:
+            diagnostics["reasoning_chars"] = len(value)
+            break
+
+    if "reasoning_chars" not in diagnostics:
+        usage = _get(plan_response, "usage") or {}
+        reasoning_tokens = _get(usage, "reasoning_tokens")
+        if isinstance(reasoning_tokens, int) and reasoning_tokens > 0:
+            # Approximate chars from tokens purely to signal "reasoning happened";
+            # only the truthiness of this value drives the diagnosis.
+            diagnostics["reasoning_chars"] = reasoning_tokens * 4
+
+    for key in ("stop_reason", "finish_reason"):
+        value = _get(plan_response, key)
+        if value:
+            diagnostics["stop_reason"] = value
+            break
+
+    return diagnostics
+
+
+def _provider_supports_reasoning_effort(provider: Any, model: Optional[str]) -> bool:
+    """Whether ``reasoning_effort`` may be forwarded for this provider/model.
+
+    Sending it where it is not accepted converts a recoverable empty response
+    into a hard 400, so this defaults to False whenever it cannot be confirmed.
+    """
+    checker = getattr(provider, "supports_reasoning_effort", None)
+    if not callable(checker):
+        return False
+    try:
+        return bool(checker(model))
+    except Exception:
+        logger.debug("supports_reasoning_effort check failed", exc_info=True)
+        return False
+
+
 async def generate_task_plan(
     provider,
     user_request: str,
@@ -2187,21 +2266,36 @@ async def generate_task_plan(
     logger.debug(f"Planning prompt length: {len(plan_prompt)} chars")
     logger.debug(f"Planning prompt preview: {plan_prompt[:500]}...")
 
+    # Base parameters for the first attempt. Retries escalate from here — see
+    # victor.agent.recovery.empty_response. Retrying an empty response with
+    # identical parameters reproduces it deterministically, which is how session
+    # sandhi-cdfbc589 spent ~100s on three identical 35s failures.
+    # Some models (like qwen2.5-coder) need room to generate structured JSON.
+    base_plan_max_tokens = 3000
+    plan_max_tokens = base_plan_max_tokens
+    plan_temperature = 0.2  # Lower temp for consistent structure
+    plan_reasoning_effort: Optional[str] = None
+    supports_reasoning_effort = _provider_supports_reasoning_effort(provider, model)
+
     last_error = None
     for attempt in range(max_retries + 1):
         try:
             if attempt > 0:
                 logger.info(f"Retry {attempt}/{max_retries} for plan generation")
 
-            # Increase max_tokens for complex models
-            # Some models (like qwen2.5-coder) need more tokens to generate structured JSON
-            plan_max_tokens = 3000  # Increased from 1500
+            request_kwargs: Dict[str, Any] = {}
+            if plan_reasoning_effort is not None:
+                request_kwargs["reasoning_effort"] = plan_reasoning_effort
 
             plan_response = await provider.chat(
-                messages=[Message(role="user", content=plan_prompt)],
+                messages=[
+                    Message(role="system", content=_PLAN_GENERATION_SYSTEM_PROMPT),
+                    Message(role="user", content=plan_prompt),
+                ],
                 model=model,
-                temperature=0.2,  # Lower temp for consistent structure
+                temperature=plan_temperature,
                 max_tokens=plan_max_tokens,
+                **request_kwargs,
             )
 
             # Log raw response for debugging
@@ -2226,12 +2320,19 @@ async def generate_task_plan(
                 f"response_preview={response_content[:200] if response_content else 'empty'}..."
             )
 
-            # Extract JSON using framework utilities
+            # Extract JSON using framework utilities. Distinguish "the model
+            # returned nothing" from "the model returned prose we could not
+            # parse" — they have different causes and different remedies, but
+            # both used to surface as `Response: empty`.
             plan_json = extract_json_from_llm_response(plan_response)
             if not plan_json:
+                if not response_content:
+                    raise _EmptyPlanResponse(
+                        "Model returned no content for the plan request "
+                        f"(max_tokens={plan_max_tokens}, temperature={plan_temperature})"
+                    )
                 raise ValueError(
-                    f"No valid JSON found in plan response. "
-                    f"Response: {response_content[:500] if response_content else 'empty'}"
+                    f"No valid JSON found in plan response. " f"Response: {response_content[:500]}"
                 )
 
             logger.debug(f"Extracted JSON: {plan_json[:200]}...")
@@ -2255,7 +2356,30 @@ async def generate_task_plan(
                 e,
                 response_content if response_content else "empty",
             )
-            # Continue to retry
+
+            # An empty response is deterministic: repeating the same request
+            # reproduces it. Escalate the parameters before the next attempt.
+            if isinstance(e, _EmptyPlanResponse) and attempt < max_retries:
+                diagnosis = diagnose_empty_response(_empty_response_diagnostics(plan_response))
+                retry = next_retry_parameters(
+                    attempt=attempt,
+                    base_max_tokens=plan_max_tokens,
+                    diagnosis=diagnosis,
+                    supports_reasoning_effort=supports_reasoning_effort,
+                )
+                if retry.escalated:
+                    logger.info("Plan generation: %s", retry.reason)
+                    plan_max_tokens = retry.max_tokens
+                    if retry.temperature is not None:
+                        plan_temperature = retry.temperature
+                    plan_reasoning_effort = retry.reasoning_effort
+                else:
+                    logger.warning(
+                        "Plan generation: %s — further retries would repeat the "
+                        "same request, stopping early",
+                        retry.reason,
+                    )
+                    break
 
     # All retries exhausted
     raise ValueError(

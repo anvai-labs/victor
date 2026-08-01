@@ -47,12 +47,38 @@ class SequentialFormation(BaseFormationStrategy):
         task: AgentMessage,
     ) -> List[MemberResult]:
         """Execute agents sequentially with context chaining."""
-        results = []
+        results: List[MemberResult] = []
         previous_output = None
         previous_agent_id = None
 
+        # ADR-023: resume from a prior member checkpoint — pre-seed completed
+        # members and skip them below. Fully opt-in (None → unchanged behavior).
+        completed_ids: set = set()
+        resume = getattr(context, "resume_completed", None)
+        if resume:
+            for raw in resume.get("member_results") or []:
+                results.append(
+                    raw if isinstance(raw, MemberResult) else MemberResult.from_dict(raw)
+                )
+            completed_ids = set(resume.get("member_ids") or [r.member_id for r in results])
+            previous_output = resume.get("last_output")
+            previous_agent_id = resume.get("last_agent_id")
+
+        checkpoint_hook = getattr(context, "checkpoint_hook", None)
+        # ADR-023: per-member streaming — emit lifecycle events when a sink is wired.
+        member_event_hook = getattr(context, "member_event_hook", None)
+        # ADR-023 pillar 2b: durable pause when a member reports awaiting-approval.
+        pause_hook = getattr(context, "pause_hook", None)
+
         for i, agent in enumerate(agents):
+            if agent.id in completed_ids:
+                logger.debug(f"SequentialFormation: skipping completed member {agent.id} (resume)")
+                continue
+
             logger.debug(f"SequentialFormation: executing agent {i+1}/{len(agents)}: {agent.id}")
+
+            if member_event_hook is not None:
+                await member_event_hook("member_start", agent.id, i)
 
             # Add previous output and agent to context
             if previous_output:
@@ -80,6 +106,30 @@ class SequentialFormation(BaseFormationStrategy):
             # Execute agent with task
             try:
                 result = await agent.execute(agent_task, context)
+
+                # ADR-023 pillar 2b: a member awaiting human approval durably pauses the
+                # formation (opt-in on a pause_hook). The paused member is NOT appended, so a
+                # resumed run re-executes it; completed members are checkpointed and skipped.
+                if pause_hook is not None and result.metadata.get("awaiting_approval"):
+                    logger.info(
+                        f"SequentialFormation: member {agent.id} awaiting approval; pausing"
+                    )
+                    approval_request = result.metadata.get("approval_request") or {}
+                    detail = str(
+                        approval_request.get("title") or approval_request.get("tool_name") or ""
+                    )
+                    if member_event_hook is not None:
+                        await member_event_hook(
+                            "member_awaiting_approval", agent.id, i, content=detail
+                        )
+                    context.shared_state["__awaiting_approval__"] = {
+                        "member_id": agent.id,
+                        "index": i,
+                        "approval_request": result.metadata.get("approval_request"),
+                    }
+                    await pause_hook(i, result, results, context.shared_state)
+                    return results
+
                 results.append(result)
 
                 # Store output and agent ID for next agent's context
@@ -89,16 +139,29 @@ class SequentialFormation(BaseFormationStrategy):
 
             except Exception as e:
                 logger.error(f"SequentialFormation: agent {agent.id} failed: {e}")
-                results.append(
-                    MemberResult(
-                        member_id=agent.id,
-                        success=False,
-                        output="",
-                        error=str(e),
-                        metadata={"index": i},
-                    )
+                result = MemberResult(
+                    member_id=agent.id,
+                    success=False,
+                    output="",
+                    error=str(e),
+                    metadata={"index": i},
                 )
+                results.append(result)
                 # Continue with next agent even if one fails
+
+            # ADR-023: per-member streaming — completed/error lifecycle event.
+            if member_event_hook is not None:
+                await member_event_hook(
+                    "member_completed" if result.success else "member_error",
+                    agent.id,
+                    i,
+                    success=result.success,
+                    content="" if result.success else (result.error or ""),
+                )
+
+            # ADR-023: checkpoint after each member (success or failure).
+            if checkpoint_hook is not None:
+                await checkpoint_hook(i, result, results, context.shared_state)
 
         return results
 
@@ -108,4 +171,8 @@ class SequentialFormation(BaseFormationStrategy):
 
     def supports_early_termination(self) -> bool:
         """Sequential formation can terminate on first failure."""
+        return True
+
+    def supports_durable_pause(self) -> bool:
+        """SEQUENTIAL implements ADR-023 durable pause (stop + checkpoint on awaiting-approval)."""
         return True

@@ -415,7 +415,11 @@ class ChatStreamHelperMixin:
 
                 orch.add_message(
                     "user",
-                    f"[SYSTEM-REMINDER: {intelligent_context['system_prompt_addition']}]",
+                    # No "[SYSTEM-REMINDER:" prefix: the authenticated envelope
+                    # (FEP-0026) already marks this as runtime guidance, and it is
+                    # the only marker the model can verify. An inner unkeyed label
+                    # would teach it that unverifiable provenance markers are normal.
+                    intelligent_context["system_prompt_addition"],
                     metadata=build_internal_history_metadata(
                         "system_reminder", source=MessageSource.AGENT_GUIDANCE
                     ),
@@ -1855,26 +1859,30 @@ class ChatStreamHelperMixin:
         # two consecutive ~112s reasoning-only streams, session
         # modality-doc-review-fixes-b4e87728) — raise max_tokens for the retry
         # so the model has budget left after reasoning.
-        recovery_max_tokens = orch.max_tokens
-        diagnostics = getattr(stream_ctx, "empty_stream_diagnostics", None) or {}
-        if (
-            diagnostics.get("reasoning_chars")
-            and isinstance(recovery_max_tokens, int)
-            and recovery_max_tokens > 0
-        ):
-            recovery_max_tokens = min(recovery_max_tokens * 4, 32768)
-            if recovery_max_tokens > orch.max_tokens:
-                logger.info(
-                    "Empty stream diagnosed as reasoning-token exhaustion "
-                    "(reasoning_chars=%s, stop_reason=%s) — retrying with max_tokens=%s "
-                    "(was %s)",
-                    diagnostics.get("reasoning_chars"),
-                    diagnostics.get("stop_reason"),
-                    recovery_max_tokens,
-                    orch.max_tokens,
-                )
+        #
+        # The escalation rule itself lives in victor.agent.recovery.empty_response
+        # so the planning path (which calls provider.chat directly and never
+        # reaches this streaming-only method) applies the same policy.
+        from victor.agent.recovery.empty_response import (
+            DEFAULT_TEMPERATURE_LADDER,
+            diagnose_empty_response,
+            next_retry_parameters,
+        )
 
-        recovery_temps = [0.7, 0.9]
+        diagnostics = getattr(stream_ctx, "empty_stream_diagnostics", None) or {}
+        diagnosis = diagnose_empty_response(diagnostics)
+        escalation = next_retry_parameters(
+            attempt=0,
+            base_max_tokens=orch.max_tokens,
+            diagnosis=diagnosis,
+            # The streaming retry walks the temperature ladder itself below.
+            temperature_ladder=(),
+        )
+        recovery_max_tokens = escalation.max_tokens
+        if recovery_max_tokens != orch.max_tokens:
+            logger.info("Empty stream: %s (was max_tokens=%s)", escalation.reason, orch.max_tokens)
+
+        recovery_temps = list(DEFAULT_TEMPERATURE_LADDER)
         for temp in recovery_temps:
             try:
                 from victor.agent.conversation.types import (

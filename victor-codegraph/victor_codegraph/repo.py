@@ -75,14 +75,51 @@ def iter_source_files(
             yield p
 
 
+def read_source_text(
+    path: str | os.PathLike[str],
+    *,
+    encoding: str = "utf-8",
+    encoding_fallback: bool = True,
+) -> str | None:
+    """Read a source file, degrading through encodings instead of skipping it.
+
+    Decode order: BOM-aware UTF-8 (``utf-8-sig`` when a BOM is present), then
+    ``encoding``, then ``latin-1`` (a total decode — cannot fail) when
+    ``encoding_fallback`` is enabled. This matches the package's "a parse never
+    hard-fails" posture: the extension allowlist already keeps binaries out, and
+    a legacy-encoded file is far more useful mojibake-free-enough than absent.
+
+    Every hashing/parsing entry point in this package MUST read through this
+    function so ``content_hash`` stays consistent across them.
+
+    Returns ``None`` only when the file cannot be read at all (``OSError``) or
+    decoding fails with ``encoding_fallback`` disabled.
+    """
+    p = Path(path)
+    try:
+        data = p.read_bytes()
+    except OSError:
+        return None
+    if data.startswith(b"\xef\xbb\xbf"):
+        return data.decode("utf-8-sig", errors="replace")
+    try:
+        return data.decode(encoding)
+    except (UnicodeDecodeError, LookupError):
+        if not encoding_fallback:
+            return None
+        return data.decode("latin-1")
+
+
 def parse_path(
-    path: str | os.PathLike[str], *, encoding: str = "utf-8"
+    path: str | os.PathLike[str],
+    *,
+    encoding: str = "utf-8",
+    encoding_fallback: bool = True,
 ) -> ParsedCode | None:
     """Parse a single file into symbols + relations. Returns ``None`` if unreadable."""
     p = Path(path)
-    try:
-        content = p.read_text(encoding=encoding)
-    except (OSError, UnicodeDecodeError):
+    content = read_source_text(p, encoding=encoding, encoding_fallback=encoding_fallback)
+    if content is None:
         return None
     return _parse(content, file_path=str(p))
 
@@ -92,12 +129,12 @@ def chunk_path(
     config: ChunkConfig | None = None,
     *,
     encoding: str = "utf-8",
+    encoding_fallback: bool = True,
 ) -> list[CodeChunk]:
     """Read + chunk a single file. Returns an empty list if it can't be read."""
     p = Path(path)
-    try:
-        content = p.read_text(encoding=encoding)
-    except (OSError, UnicodeDecodeError):
+    content = read_source_text(p, encoding=encoding, encoding_fallback=encoding_fallback)
+    if content is None:
         return []
     return _chunk(content, file_path=str(p), config=config)
 

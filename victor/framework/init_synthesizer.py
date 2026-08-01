@@ -1284,7 +1284,17 @@ class InitSynthesizer:
         max_tokens = int(getattr(profile, "max_tokens", 4096) or 4096)
         profile_extras = dict(getattr(profile, "__pydantic_extra__", {}) or {})
 
-        provider_kwargs = dict(settings.get_provider_settings(effective_provider, profile_extras))
+        # Thread the profile's credential-identity account so init resolves the
+        # profile's OWN key/endpoint (account-scoped), matching the chat/
+        # orchestrator path (orchestrator_creation). Mirrors #703's account
+        # threading for the profile-backed bootstrap.
+        provider_kwargs = dict(
+            settings.get_provider_settings(
+                effective_provider,
+                profile_extras,
+                account_name=getattr(profile, "account", None),
+            )
+        )
         provider_kwargs["timeout"] = _init_provider_timeout(
             str(effective_provider), provider_kwargs.get("timeout")
         )

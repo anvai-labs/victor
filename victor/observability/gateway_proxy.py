@@ -299,27 +299,35 @@ def build_gateway_app(config: GatewayConfig) -> Any:
                     if parsed:
                         usage_seen.update(parsed)
 
-            async with httpx.AsyncClient(timeout=httpx.Timeout(300.0)) as client:
-                async with client.stream(
-                    "POST", upstream_url, content=body, headers=headers
-                ) as resp:
-                    async for chunk in resp.aiter_bytes():
-                        yield chunk  # byte-exact pass-through
-                        _scan(chunk)
-                    tail = _usage_from_data_line(bytes(pending).decode("utf-8", "ignore"))
-                    if tail:
-                        usage_seen.update(tail)
-
-            if usage_seen:
-                runtime.meter_tokens(
-                    vk,
-                    model,
-                    usage_seen.get("prompt_tokens", 0),
-                    usage_seen.get("completion_tokens", 0),
-                    usage_seen.get("cache_creation_input_tokens", 0),
-                    usage_seen.get("cache_read_input_tokens", 0),
-                    session_id,
-                )
+            try:
+                async with httpx.AsyncClient(timeout=httpx.Timeout(300.0)) as client:
+                    async with client.stream(
+                        "POST", upstream_url, content=body, headers=headers
+                    ) as resp:
+                        async for chunk in resp.aiter_bytes():
+                            yield chunk  # byte-exact pass-through
+                            _scan(chunk)
+                        tail = _usage_from_data_line(bytes(pending).decode("utf-8", "ignore"))
+                        if tail:
+                            usage_seen.update(tail)
+            finally:
+                # A client disconnect raises at ``yield chunk`` (GeneratorExit / the
+                # StreamingResponse closing its iterator); a torn upstream raises inside
+                # ``aiter_bytes``. Either path used to skip the metering, so a call that
+                # streamed real tokens settled zero — the same class of metering hole
+                # ADR-0005 D1 closed in sandhi. Settling here, in a finally, captures
+                # whatever the tee already parsed. ``meter_tokens`` never raises, so this
+                # is safe to run during generator teardown.
+                if usage_seen:
+                    runtime.meter_tokens(
+                        vk,
+                        model,
+                        usage_seen.get("prompt_tokens", 0),
+                        usage_seen.get("completion_tokens", 0),
+                        usage_seen.get("cache_creation_input_tokens", 0),
+                        usage_seen.get("cache_read_input_tokens", 0),
+                        session_id,
+                    )
 
         return StreamingResponse(stream_body(), media_type="text/event-stream")
 

@@ -274,7 +274,7 @@ async def test_create_init_agent_uses_lightweight_profile_provider():
         default_model=None,
         provider=SimpleNamespace(default_provider=None, default_model=None),
         load_profiles=lambda: {"zai-coding": profile},
-        get_provider_settings=lambda provider_name, overrides: {
+        get_provider_settings=lambda provider_name, overrides, account_name=None: {
             "base_url": "https://api.z.ai/api/coding/paas/v4/",
             "coding_plan": overrides.get("coding_plan", False),
             "timeout": 120,

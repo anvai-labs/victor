@@ -306,7 +306,7 @@ class StaticEmbeddingCollection:
             items: List of collection items
         """
         if not items:
-            logger.warning(f"Collection '{self.name}': initialized with empty items")
+            logger.debug(f"Collection '{self.name}': initialized with empty items")
             self._items = {}
             self._embeddings = np.empty((0, self.embedding_service.dimension), dtype=np.float32)
             self._item_ids = []
@@ -343,7 +343,7 @@ class StaticEmbeddingCollection:
             items: List of collection items
         """
         if not items:
-            logger.warning(f"Collection '{self.name}': initialized with empty items")
+            logger.debug(f"Collection '{self.name}': initialized with empty items")
             self._items = {}
             self._embeddings = np.empty((0, self.embedding_service.dimension), dtype=np.float32)
             self._item_ids = []

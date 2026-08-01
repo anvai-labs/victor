@@ -36,6 +36,10 @@ For external packages, the supported contract is contract-first:
 - leave runtime concerns such as agent creation and capability injection to
   `victor-ai`
 
+Which import surfaces are stable, which require an installed `victor-ai` host,
+and how deprecations are handled is defined in
+[CONTRACT_STABILITY.md](CONTRACT_STABILITY.md).
+
 ### Example Verticals
 
 - **victor-coding**: Software development assistant
@@ -741,7 +745,8 @@ pytest tests/ --cov=my_vertical --cov-report=html
 ## Getting Help
 
 - **SDK README**: See `README.md`
-- **Migration Guide**: See `MIGRATION_GUIDE.md`
+- **Contract Stability Policy**: See [CONTRACT_STABILITY.md](CONTRACT_STABILITY.md)
+- **Migration Guide**: See `MIGRATION.md`
 - **Examples**: Check `victor-contracts/examples/`
 - **Repository external package example**: See `../examples/external_vertical/README.md`
 - **Issues**: https://github.com/anvai-labs/victor/issues

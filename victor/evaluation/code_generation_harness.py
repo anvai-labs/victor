@@ -383,7 +383,12 @@ def create_code_gen_runner(
 
     profile_config = profiles[profile]
     model_name = model_override or profile_config.model
-    provider_settings = settings.get_provider_settings(profile_config.provider)
+    # Thread the profile's credential-identity account so the eval harness
+    # resolves the profile's OWN key/endpoint (account-scoped), matching the
+    # chat/orchestrator path. Mirrors #703's account threading.
+    provider_settings = settings.get_provider_settings(
+        profile_config.provider, account_name=getattr(profile_config, "account", None)
+    )
 
     if base_url:
         provider_settings["base_url"] = base_url

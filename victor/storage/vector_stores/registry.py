@@ -58,7 +58,7 @@ class EmbeddingRegistry:
         """Register an embedding provider.
 
         Args:
-            name: Provider name (e.g., "chromadb", "lancedb")
+            name: Provider name (e.g., "lancedb", "proximadb")
             provider_class: Provider class (must inherit from BaseEmbeddingProvider)
         """
         if not issubclass(provider_class, BaseEmbeddingProvider):

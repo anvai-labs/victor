@@ -1,11 +1,11 @@
-# ADR 006: Provider Integration Improvements for Non-Interactive Environments
+# ADR-006: Provider Integration Improvements for Non-Interactive Environments
 
-## Status
+## Metadata
 
-**Status**: Proposed
-**Date**: 2026-02-28
-**Deciders**: Vijaykumar Singh
-**Related**: ADR 001 (Agent Orchestration), ADR 002 (State Management)
+- **Status**: Proposed
+- **Date**: 2026-02-28
+- **Decision Makers**: Vijaykumar Singh
+- **Related ADRs**: 001 (Agent Orchestration), 002 (State Management)
 
 ## Context
 

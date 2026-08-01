@@ -142,7 +142,10 @@ def test_evaluator_scores_all_default_dimensions():
     ev = TrajectoryEvaluator()
     score = ev.score_trajectory(_trace(tools=[True, True]))
     dims = {d.dimension for d in score.dimensions}
-    assert dims == set(TrajectoryDimension)
+    # EFFECT_GROUNDING (ADR-010 / EVR-4) is intentionally NOT in default_scorers() so existing
+    # battery aggregates are unchanged; it is composed explicitly (see
+    # test_trajectory_effect_grounding.py).
+    assert dims == set(TrajectoryDimension) - {TrajectoryDimension.EFFECT_GROUNDING}
 
 
 # --- Confidence intervals --------------------------------------------------------------------------

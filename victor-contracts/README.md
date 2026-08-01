@@ -198,7 +198,9 @@ verticals = registry.get_verticals()
 ## Guides And Examples
 
 - [Vertical Development Guide](VERTICAL_DEVELOPMENT.md)
-- [Migration Guide](MIGRATION_GUIDE.md)
+- [Contract Stability Policy](CONTRACT_STABILITY.md)
+- [Changelog](CHANGELOG.md)
+- [Migration Guide](MIGRATION.md)
 - [Minimal contract-only example](examples/minimal_vertical/README.md)
 - [Repository external package example](../examples/external_vertical/README.md)
 
@@ -222,6 +224,11 @@ The package follows semantic versioning, and the manifest contract is versioned
 separately via `VerticalDefinition.definition_version`. External verticals
 should treat the contracts package as the source of truth for supported identifiers
 and manifest fields.
+
+Per-surface stability tiers and the deprecation policy (warn at least one minor
+release before removal; removals only in minor bumps) are defined in
+[CONTRACT_STABILITY.md](CONTRACT_STABILITY.md). Releases are recorded in
+[CHANGELOG.md](CHANGELOG.md).
 
 ## Links
 

@@ -22,9 +22,11 @@ Phase 4 - Agent Creation Unification:
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import logging
 import os
-from typing import TYPE_CHECKING, Any, AsyncIterator, Dict, List, Optional, Type, Union
+from typing import TYPE_CHECKING, Any, AsyncIterator, Dict, List, Optional, Tuple, Type, Union
 
 from victor.agent.config import FrameworkCompatibleAgentConfig, normalize_agent_config
 from victor.core.completion_markers import strip_active_completion_markers
@@ -34,9 +36,16 @@ from victor.framework.events import (
     AgentExecutionEvent,
     EventType,
     error_event,
+    member_event,
     milestone_event,
     stream_end_event,
     stream_start_event,
+)
+from victor.framework.member_event_sink import (
+    MemberEvent,
+    MemberEventSink,
+    current_member_sink,
+    is_close_sentinel,
 )
 from victor.framework.task import DirectResponseOutputState
 from victor.framework.tools import ToolSet
@@ -359,6 +368,61 @@ def configure_tools(
         configurator.configure(orchestrator, set(tools), ToolConfigMode.REPLACE)
 
 
+async def _merge_orchestrator_and_members(
+    chunk_aiter: Any,
+    sink: MemberEventSink,
+) -> AsyncIterator[Tuple[str, Any]]:
+    """Interleave orchestrator stream chunks with team member lifecycle events.
+
+    Yields ``("chunk", chunk)`` for each orchestrator chunk and ``("member", MemberEvent)``
+    for each team member event pushed onto ``sink`` (ADR-023). The orchestrator stream is the
+    sole termination driver: when it is exhausted we close the sink, flush any member events
+    still queued, and stop. Member emits are bounded/lossy (they never block the team), and on
+    any error both pending waits are cancelled — so this can neither deadlock nor reorder the
+    chunk sequence (a new chunk is requested only after the previous one is yielded).
+    """
+    ci = chunk_aiter.__aiter__()
+    chunk_task: Optional["asyncio.Future[Any]"] = asyncio.ensure_future(ci.__anext__())
+    member_task: Optional["asyncio.Future[Any]"] = asyncio.ensure_future(sink.get())
+    try:
+        while chunk_task is not None or member_task is not None:
+            pending = {t for t in (chunk_task, member_task) if t is not None}
+            done, _ = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+
+            if member_task is not None and member_task in done:
+                item = member_task.result()
+                if not is_close_sentinel(item):
+                    yield ("member", item)
+                # Keep listening for more member events while the primary is live.
+                member_task = asyncio.ensure_future(sink.get()) if chunk_task is not None else None
+
+            if chunk_task is not None and chunk_task in done:
+                try:
+                    chunk = chunk_task.result()
+                except StopAsyncIteration:
+                    # Primary ended: close the sink, drain remaining member events, stop.
+                    chunk_task = None
+                    await sink.close()
+                    while True:
+                        if member_task is None:
+                            member_task = asyncio.ensure_future(sink.get())
+                        item = await member_task
+                        member_task = None
+                        if is_close_sentinel(item):
+                            break
+                        yield ("member", item)
+                    break
+                else:
+                    yield ("chunk", chunk)
+                    chunk_task = asyncio.ensure_future(ci.__anext__())
+    finally:
+        for task in (chunk_task, member_task):
+            if task is not None and not task.done():
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await task
+
+
 async def stream_with_events(
     orchestrator: Any,
     prompt: str,
@@ -369,6 +433,12 @@ async def stream_with_events(
 
     This function wraps the orchestrator's stream_chat method
     and converts internal stream chunks to framework AgentExecutionEvents.
+
+    A per-turn :class:`MemberEventSink` is published on ``current_member_sink`` for the
+    duration of the stream so a team running deep inside the turn can push member lifecycle
+    events (ADR-023 / FEP-0028); they are interleaved with the orchestrator's own chunks by
+    :func:`_merge_orchestrator_and_members`. With no team running, the sink stays empty and
+    the emitted event sequence is byte-identical to the single-agent path.
 
     Args:
         orchestrator: AgentOrchestrator instance
@@ -382,11 +452,29 @@ async def stream_with_events(
     output_state = DirectResponseOutputState(response_prompt or prompt)
     saw_content_event = False
 
+    sink = MemberEventSink()
+    sink_token = current_member_sink.set(sink)
+
     # Emit stream start
     yield stream_start_event()
 
     try:
-        async for chunk in orchestrator.stream_chat(prompt):
+        async for tag, item in _merge_orchestrator_and_members(
+            orchestrator.stream_chat(prompt), sink
+        ):
+            if tag == "member":
+                member_ev: MemberEvent = item
+                yield member_event(
+                    member_ev.kind,
+                    member_ev.member_id,
+                    content=member_ev.content,
+                    success=member_ev.success,
+                    index=member_ev.index,
+                    formation=member_ev.formation,
+                )
+                continue
+
+            chunk = item
             metadata = getattr(chunk, "metadata", None)
             chunk_metadata = metadata if isinstance(metadata, dict) else {}
 
@@ -489,6 +577,8 @@ async def stream_with_events(
         logger.exception("stream_with_events failed: %s", error_message)
         yield error_event(error_message, recoverable=False)
         yield stream_end_event(success=False, error=error_message)
+    finally:
+        current_member_sink.reset(sink_token)
 
 
 def format_context_message(context: Dict[str, Any]) -> Optional[str]:

@@ -478,8 +478,14 @@ class AccountManager:
 
         Resolution order:
         1. Account name (if provided)
-        2. Provider + model match
-        3. Default account from config
+        2. Provider + model match (most specific)
+        3. Provider-only match (first account for that provider)
+        4. Default account from config — ONLY when no provider was requested
+
+        Provider invariant: a provider-scoped lookup never returns an account
+        of a different provider. If a provider is requested but has no account,
+        None is returned so callers degrade to provider-scoped env/keyring
+        resolution rather than silently using another provider's credentials.
 
         Args:
             name: Account name to lookup
@@ -499,14 +505,28 @@ class AccountManager:
             logger.debug(f"Account not found: {name}")
             return None
 
-        # 2. Match by provider + model
+        # 2. Match by provider + model (most specific)
         if provider and model:
             for account in config.list_accounts():
                 if account.provider == provider and account.model == model:
                     return account
             logger.debug(f"No account found for {provider}/{model}")
 
-        # 3. Return default account
+        # 3. Match by provider only — NEVER cross providers. A provider-scoped
+        # request must resolve to an account of THAT provider (the first one),
+        # or None. Returning a different provider's global default here is what
+        # previously made ``account: null`` profiles on keyring/OAuth-only
+        # providers silently resolve the wrong credential: ``get_account(
+        # provider="anthropic")`` returned the ollama ``default`` account.
+        if provider:
+            for account in config.list_accounts():
+                if account.provider == provider:
+                    return account
+            logger.debug(f"No account found for provider '{provider}'")
+            return None
+
+        # 4. Return the global default account — only when no provider was
+        # requested (e.g. ``auth test`` with no flags wants the default account).
         default_name = config.defaults.account
         return config.get_account(default_name)
 
@@ -574,16 +594,27 @@ class AccountManager:
             api_key = kwargs.get("api_key")
 
             if not api_key:
-                # Check environment variable first
-                api_key = self._get_api_key_from_env(account.provider)
+                # Account-scoped key FIRST: an explicitly-configured per-account key
+                # (auth.value) is authoritative for THAT account. Provider-scoped env
+                # vars and keyring are shared across every account of a provider, so
+                # for multiple accounts under one provider (e.g. several anthropic-
+                # dialect upstreams: kimi/deepseek/zai via /anthropic endpoints) the
+                # shared slot would otherwise shadow — or be clobbered by — the
+                # account's own key. auth.value also resolves non-interactively
+                # (config file, not keyring), so `victor run` resolves it too.
+                #
+                # sentinelpass stores a lookup DOMAIN (not a key) in auth.value, so it
+                # is excluded here and resolved via its own source path.
+                if account.auth.value and account.auth.source != "sentinelpass":
+                    api_key = account.auth.value
 
-                # Check keyring second
+                # Provider-scoped environment variable.
+                if not api_key:
+                    api_key = self._get_api_key_from_env(account.provider)
+
+                # Provider-scoped keyring.
                 if not api_key and account.auth.source == "keyring":
                     api_key = self._get_api_key_from_keyring(account.provider)
-
-                # Check explicit value last
-                if not api_key and account.auth.value:
-                    api_key = account.auth.value
 
             if api_key:
                 config["api_key"] = api_key

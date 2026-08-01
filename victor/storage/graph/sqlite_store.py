@@ -75,11 +75,14 @@ CREATE TABLE IF NOT EXISTS {_EDGE_TABLE} (
     PRIMARY KEY (src, dst, type)
 );
 
--- File modification times for staleness tracking
+-- File modification times for staleness tracking. content_hash follows the
+-- victor-codegraph manifest contract (sha-256 of decoded source text) so an
+-- mtime bump without a content change can be verified as not-stale.
 CREATE TABLE IF NOT EXISTS {_MTIME_TABLE} (
     file TEXT PRIMARY KEY,
     mtime REAL NOT NULL,
-    indexed_at REAL NOT NULL
+    indexed_at REAL NOT NULL,
+    content_hash TEXT
 );
 
 -- Indexes for fast lookups
@@ -156,6 +159,11 @@ class SqliteGraphStore(GraphStoreProtocol):
         Test isolation and process shutdown already clean up the shared manager.
         """
         logger.debug("SqliteGraphStore close skipped shared project database shutdown")
+
+    @property
+    def repo_root(self) -> Path:
+        """Resolved project root this store indexes (used for cache scoping)."""
+        return self._project_root
 
     def _connect(self) -> sqlite3.Connection:
         """Get database connection."""
@@ -290,6 +298,17 @@ class SqliteGraphStore(GraphStoreProtocol):
                     conn.execute(f"ALTER TABLE {_NODE_TABLE} ADD COLUMN {col_name} {col_type}")
                 except sqlite3.OperationalError:
                     pass  # Column already exists
+
+        # Manifest-contract migration: content_hash on the mtime table lets the
+        # pipeline verify that an mtime-changed file actually changed content.
+        mtime_columns = {
+            row[1] for row in conn.execute(f"PRAGMA table_info({_MTIME_TABLE})").fetchall()
+        }
+        if mtime_columns and "content_hash" not in mtime_columns:
+            try:
+                conn.execute(f"ALTER TABLE {_MTIME_TABLE} ADD COLUMN content_hash TEXT")
+            except sqlite3.OperationalError:
+                pass
 
         # v5+ edge migration - add file column for direct file-aware deletes
         if "file" not in edge_columns:
@@ -449,19 +468,30 @@ class SqliteGraphStore(GraphStoreProtocol):
             rows,
         )
 
-    def _update_file_mtime_conn(self, conn: sqlite3.Connection, file: str, mtime: float) -> None:
-        """Record file modification time using the provided connection."""
+    def _update_file_mtime_conn(
+        self,
+        conn: sqlite3.Connection,
+        file: str,
+        mtime: float,
+        content_hash: str | None = None,
+    ) -> None:
+        """Record file modification time (and content hash) using the connection.
+
+        A ``None`` hash overwrites any stored one: an unknown hash must never
+        pass a later verified-unchanged check.
+        """
         import time
 
         conn.execute(
             f"""
-            INSERT INTO {_MTIME_TABLE}(file, mtime, indexed_at)
-            VALUES (?, ?, ?)
+            INSERT INTO {_MTIME_TABLE}(file, mtime, indexed_at, content_hash)
+            VALUES (?, ?, ?, ?)
             ON CONFLICT(file) DO UPDATE SET
                 mtime=excluded.mtime,
-                indexed_at=excluded.indexed_at
+                indexed_at=excluded.indexed_at,
+                content_hash=excluded.content_hash
             """,
-            (file, mtime, time.time()),
+            (file, mtime, time.time(), content_hash),
         )
 
     def _delete_by_file_conn(self, conn: sqlite3.Connection, file: str) -> None:
@@ -530,6 +560,30 @@ class SqliteGraphStore(GraphStoreProtocol):
         # (e.g. ast_kind added in v5). _migrate_schema() adds them idempotently.
         self._migrate_schema(conn)
 
+    def _build_embedding_config(self) -> Any:
+        """Build vector-store config from settings, falling back to defaults."""
+        from victor.storage.vector_stores.base import EmbeddingConfig
+
+        kwargs: Dict[str, Any] = {}
+        try:
+            from victor.config.settings import get_project_paths, load_settings
+
+            settings = load_settings()
+            paths = get_project_paths(self._project_root)
+            kwargs = {
+                "vector_store": getattr(settings, "codebase_vector_store", "lancedb"),
+                "embedding_model_type": getattr(
+                    settings, "codebase_embedding_provider", "sentence-transformers"
+                ),
+                "embedding_model_name": getattr(
+                    settings, "codebase_embedding_model", "BAAI/bge-small-en-v1.5"
+                ),
+                "persist_directory": str(paths.embeddings_dir),
+            }
+        except Exception as e:
+            logger.debug(f"Settings unavailable for embedding config, using defaults: {e}")
+        return EmbeddingConfig(**kwargs)
+
     async def _delete_embeddings_for_file(self, file: str, node_ids: List[str]) -> None:
         """Delete embeddings for nodes from vector store.
 
@@ -542,17 +596,16 @@ class SqliteGraphStore(GraphStoreProtocol):
             node_ids: List of node IDs being deleted (for potential per-node cleanup)
         """
         try:
-            from victor.storage.vector_stores.base import EmbeddingConfig
             from victor.storage.vector_stores.registry import EmbeddingRegistry
 
-            # Create vector store provider with default config
-            # In production, this should use settings but we use defaults for robustness
-            config = EmbeddingConfig(vector_store="lancedb")
-            provider = EmbeddingRegistry.create(config)
+            provider = EmbeddingRegistry.create(self._build_embedding_config())
 
-            # Delete all embeddings for this file
-            deleted_count = await provider.delete_by_file(file)
-            logger.debug(f"Deleted {deleted_count} embeddings for {file}")
+            # Vector stores index repo-relative paths; use the canonical form so
+            # the delete predicate matches what was stored at index time.
+            canonical = self._canonical_file_path(file)
+            deleted_count = await provider.delete_by_file(canonical)
+            if deleted_count:
+                logger.info(f"Deleted {deleted_count} embeddings for {canonical}")
 
         except ImportError:
             logger.debug("Vector store not available, skipping embedding cleanup")
@@ -834,9 +887,8 @@ class SqliteGraphStore(GraphStoreProtocol):
         """
         try:
             from victor.storage.vector_stores.registry import EmbeddingRegistry
-            from victor.storage.embeddings.service import EmbeddingConfig
 
-            provider = EmbeddingRegistry.create(EmbeddingConfig())
+            provider = EmbeddingRegistry.create(self._build_embedding_config())
             await provider.clear_index()
             logger.info("Cleared all embeddings from vector store")
         except ImportError:
@@ -957,17 +1009,77 @@ class SqliteGraphStore(GraphStoreProtocol):
             )
             return [self._row_to_node(row) for row in cur.fetchall()]
 
-    async def update_file_mtime(self, file: str, mtime: float) -> None:
-        """Record file modification time for staleness tracking."""
-        file = self._canonical_file_path(file)
+    async def update_node_metadata(self, node_id: str, metadata: Dict[str, Any]) -> None:
+        """Merge ``metadata`` into a node's metadata JSON (read-modify-write).
+
+        ``embedding_ref`` in the patch lands in its dedicated column. No-op for
+        unknown node ids. Signature mirrors ProximaGraphStore.update_node_metadata.
+        """
+
+        def _apply(conn: sqlite3.Connection) -> None:
+            row = conn.execute(
+                f"SELECT metadata FROM {_NODE_TABLE} WHERE node_id = ?", (node_id,)
+            ).fetchone()
+            if row is None:
+                return
+            merged = json.loads(row[0]) if row[0] else {}
+            patch = dict(metadata or {})
+            embedding_ref = patch.pop("embedding_ref", None)
+            merged.update(patch)
+            if embedding_ref is not None:
+                conn.execute(
+                    f"UPDATE {_NODE_TABLE} SET metadata = ?, embedding_ref = ? WHERE node_id = ?",
+                    (json.dumps(merged), embedding_ref, node_id),
+                )
+            else:
+                conn.execute(
+                    f"UPDATE {_NODE_TABLE} SET metadata = ? WHERE node_id = ?",
+                    (json.dumps(merged), node_id),
+                )
+
         batch_conn = self._get_active_write_batch_connection()
         if batch_conn is not None:
-            self._update_file_mtime_conn(batch_conn, file, mtime)
+            _apply(batch_conn)
             return
         async with self._lock:
             conn = self._connect()
-            self._update_file_mtime_conn(conn, file, mtime)
+            _apply(conn)
             conn.commit()
+
+    async def update_file_mtime(
+        self, file: str, mtime: float, content_hash: str | None = None
+    ) -> None:
+        """Record file modification time (and content hash) for staleness tracking."""
+        file = self._canonical_file_path(file)
+        batch_conn = self._get_active_write_batch_connection()
+        if batch_conn is not None:
+            self._update_file_mtime_conn(batch_conn, file, mtime, content_hash)
+            return
+        async with self._lock:
+            conn = self._connect()
+            self._update_file_mtime_conn(conn, file, mtime, content_hash)
+            conn.commit()
+
+    async def get_file_hashes(self, files: List[str]) -> Dict[str, str]:
+        """Stored content hashes for the given files (files without a hash omitted)."""
+        hashes: Dict[str, str] = {}
+        async with self._lock:
+            conn = self._connect()
+            for file in files:
+                file_variants = self._file_path_variants(file)
+                placeholders = ",".join("?" for _ in file_variants)
+                cur = conn.execute(
+                    f"""
+                    SELECT content_hash FROM {_MTIME_TABLE}
+                    WHERE file IN ({placeholders}) AND content_hash IS NOT NULL
+                    LIMIT 1
+                    """,
+                    file_variants,
+                )
+                row = cur.fetchone()
+                if row is not None and row[0]:
+                    hashes[file] = str(row[0])
+        return hashes
 
     async def get_stale_files(self, file_mtimes: Dict[str, float]) -> List[str]:
         """Get files that have changed since last index."""

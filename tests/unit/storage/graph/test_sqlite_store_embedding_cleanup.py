@@ -204,6 +204,57 @@ async def test_delete_by_file_handles_vector_store_error(graph_store, caplog):
 
 
 @pytest.mark.asyncio
+async def test_clear_all_embeddings_reaches_provider(graph_store):
+    """Regression: _clear_all_embeddings must not die on a bad EmbeddingConfig import.
+
+    It previously imported EmbeddingConfig from victor.storage.embeddings.service
+    (which does not export it), so the swallowed ImportError meant clear_index()
+    was never called during force rebuilds.
+    """
+    mock_provider = AsyncMock()
+
+    with patch("victor.storage.vector_stores.registry.EmbeddingRegistry") as mock_registry:
+        mock_registry.create.return_value = mock_provider
+        await graph_store._clear_all_embeddings()
+
+    mock_registry.create.assert_called_once()
+    mock_provider.clear_index.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_delete_embeddings_uses_canonical_path(graph_store):
+    """delete_by_file must pass the repo-relative canonical path to the vector store."""
+    absolute = str(graph_store._project_root / "pkg" / "mod.py")
+    nodes = [
+        GraphNode(
+            node_id="pkg:mod:func1",
+            type="function",
+            name="func1",
+            file=absolute,
+            line=3,
+        )
+    ]
+    await graph_store.upsert_nodes(nodes)
+
+    mock_provider = AsyncMock()
+    mock_provider.delete_by_file.return_value = 1
+
+    with patch("victor.storage.vector_stores.registry.EmbeddingRegistry") as mock_registry:
+        mock_registry.create.return_value = mock_provider
+        await graph_store.delete_by_file(absolute)
+
+    mock_provider.delete_by_file.assert_called_once_with("pkg/mod.py")
+
+
+@pytest.mark.asyncio
+async def test_build_embedding_config_defaults(graph_store):
+    """_build_embedding_config returns a usable config even without settings."""
+    config = graph_store._build_embedding_config()
+    assert config.vector_store  # non-empty provider name
+    assert config.embedding_model_name
+
+
+@pytest.mark.asyncio
 async def test_delete_by_file_nonexistent_file(graph_store):
     """Test that delete_by_file handles nonexistent files gracefully."""
     # Should not raise exception

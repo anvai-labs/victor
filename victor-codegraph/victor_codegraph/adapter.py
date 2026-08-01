@@ -15,6 +15,7 @@ from typing import Any, Callable
 from .model import CodeRelation, CodeSymbol, ParsedCode, stable_symbol_oid
 
 Embedder = Callable[[str], list[float]]
+BatchEmbedder = Callable[[list[str]], list[list[float]]]
 
 # ADR-044 mixed-read gate. **P2 cutover (2026-06-28): default ON** — the record `oid` is
 # the line-independent canonical form, gated behind the parity ratchet
@@ -161,6 +162,9 @@ def to_proxima_records(
     branch_id: str = "main",
     embedder: Embedder | None = None,
     *,
+    batch_embedder: BatchEmbedder | None = None,
+    model_id: str = "bge-small-en-v1.5",
+    dim: int = 384,
     stable_oid: bool | None = None,
 ) -> list[dict[str, Any]]:
     """Project an entire parsed file to node + edge records (shapes only).
@@ -168,13 +172,40 @@ def to_proxima_records(
     Builds the legacy-id → canonical-oid map once so edges resolve to the same key the
     nodes use under the gate (ADR-044). Pass ``stable_oid=True`` (or set
     ``VICTOR_CODEGRAPH_STABLE_OID``) to emit canonical oids as primary.
+
+    ``batch_embedder`` embeds every symbol's source in ONE call (preferred: real
+    embedding services batch far more efficiently than a per-symbol ``embedder``
+    callback). When both are supplied, ``batch_embedder`` wins.
+
+    Staleness contract: consumers MUST compare ``props.content_version`` against
+    their stored value before re-embedding a record — the oid is line-independent
+    identity and does NOT change on body edits, so it cannot signal staleness.
     """
 
     id_map = {s.id: _canonical_symbol_oid(repo_graph_id, s) for s in parsed.symbols}
     records = [
-        symbol_to_record(s, repo_graph_id, branch_id, embedder, stable_oid=stable_oid)
+        symbol_to_record(
+            s,
+            repo_graph_id,
+            branch_id,
+            embedder if batch_embedder is None else None,
+            model_id=model_id,
+            dim=dim,
+            stable_oid=stable_oid,
+        )
         for s in parsed.symbols
     ]
+    if batch_embedder is not None and parsed.symbols:
+        vectors = batch_embedder([s.source_code for s in parsed.symbols])
+        for record, values in zip(records, vectors):
+            record["embeddings"].append(
+                {
+                    "model_id": model_id,
+                    "modality": "code",
+                    "dim": dim,
+                    "values": list(values),
+                }
+            )
     records.extend(
         relation_to_record(r, repo_graph_id, branch_id, id_map=id_map, stable_oid=stable_oid)
         for r in parsed.relations

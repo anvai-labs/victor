@@ -349,6 +349,10 @@ class GraphIndexingPipeline:
         self.config = config
         self._ccg_builder = None
         self._files_to_process: Set[str] = set()
+        # Content hashes computed during incremental planning (manifest
+        # contract), persisted alongside mtimes after each file is written so
+        # the next run can verify mtime-only churn as not-stale.
+        self._pending_file_hashes: Dict[str, str] = {}
         # Raw call records captured during per-file parsing, resolved against
         # a project-wide name index in _resolve_cross_file_calls() after all
         # nodes have been persisted.
@@ -1001,14 +1005,111 @@ class GraphIndexingPipeline:
             )
         ]
 
+    @staticmethod
+    def _compute_file_hash(file_path: Path) -> Optional[str]:
+        """Content hash of a source file per the victor-codegraph manifest contract.
+
+        Prefers the shared implementation (identical decode + hash across every
+        consumer of the code graph); falls back to sha-256 of the raw bytes,
+        which equals the contract hash for valid UTF-8 files (decode→encode is
+        the identity there).
+        """
+        try:
+            from victor_codegraph import content_hash, read_source_text
+
+            text = read_source_text(file_path)
+            return content_hash(text) if text is not None else None
+        except ImportError:
+            pass
+        except Exception:
+            return None
+        try:
+            import hashlib
+
+            return hashlib.sha256(file_path.read_bytes()).hexdigest()
+        except OSError:
+            return None
+
+    async def _verify_stale_by_content(
+        self,
+        stale_files: Set[str],
+        current_files: Dict[str, Path],
+        file_mtimes: Dict[str, float],
+    ) -> Set[str]:
+        """Drop mtime-stale files whose content hash is unchanged (manifest contract).
+
+        touch, branch flip-flops, and checkouts bump mtimes without changing
+        content; reparsing those is pure waste. Files verified unchanged get
+        their stored mtime refreshed (so the fast path skips them next run) and
+        are removed from the stale set. Hashes for genuinely changed files are
+        buffered in ``_pending_file_hashes`` for persistence after processing.
+        """
+        if not stale_files:
+            return stale_files
+
+        get_hashes = getattr(self.graph_store, "get_file_hashes", None)
+        stored_hashes: Dict[str, str] = {}
+        if callable(get_hashes):
+            try:
+                stored_hashes = await get_hashes(sorted(stale_files))
+            except Exception as exc:
+                logger.debug("get_file_hashes unavailable, mtime-only staleness: %s", exc)
+
+        verified_unchanged: Set[str] = set()
+        for file_key in sorted(stale_files):
+            file_path = current_files.get(file_key)
+            if file_path is None:
+                continue
+            digest = self._compute_file_hash(file_path)
+            if digest is None:
+                continue
+            self._pending_file_hashes[file_key] = digest
+            if stored_hashes.get(file_key) == digest:
+                verified_unchanged.add(file_key)
+                await self._update_store_mtime(file_key, file_mtimes.get(file_key, 0.0), digest)
+
+        if verified_unchanged:
+            logger.info(
+                "Content-hash verification: %d mtime-changed files are content-identical, skipped",
+                len(verified_unchanged),
+            )
+        return stale_files - verified_unchanged
+
+    async def _update_store_mtime(
+        self, file: str, mtime: float, content_hash: Optional[str]
+    ) -> None:
+        """Persist mtime + content hash, tolerating stores without the hash kwarg."""
+        try:
+            await self.graph_store.update_file_mtime(file, mtime, content_hash=content_hash)
+        except TypeError:
+            await self.graph_store.update_file_mtime(file, mtime)
+
+    def _file_hash_for(self, file_path: Path) -> Optional[str]:
+        """Hash to persist with a processed file's mtime.
+
+        Incremental runs computed it during planning; force/full runs compute
+        it here so the NEXT incremental run has hashes to verify against.
+        """
+        key = self._graph_file_key(file_path, self.config.root_path.resolve())
+        digest = self._pending_file_hashes.get(key)
+        if digest is None:
+            digest = self._compute_file_hash(file_path)
+        return digest
+
     async def _prepare_incremental_work(
         self,
         files: List[Path],
         root_path: Optional[Path] = None,
     ) -> GraphIndexStats:
-        """Prepare an incremental indexing plan based on file mtimes and deletions."""
+        """Prepare an incremental indexing plan based on file mtimes and deletions.
+
+        Two-layer staleness: the mtime fast path (no reads for unchanged
+        mtimes), then content-hash verification of mtime-changed files via the
+        victor-codegraph manifest contract, so mtime-only churn never reparses.
+        """
         root = (root_path or self.config.root_path).resolve()
         self._files_to_process = {self._graph_file_key(file_path, root) for file_path in files}
+        self._pending_file_hashes = {}
         if not self.config.incremental:
             return GraphIndexStats()
 
@@ -1026,6 +1127,7 @@ class GraphIndexingPipeline:
                 await self._handle_vanished_file(file_path)
 
         stale_files = set(await self.graph_store.get_stale_files(file_mtimes))
+        stale_files = await self._verify_stale_by_content(stale_files, current_files, file_mtimes)
         indexed_files = await self._get_indexed_files()
         deleted_files = sorted(indexed_files - set(current_files))
 
@@ -1522,8 +1624,10 @@ class GraphIndexingPipeline:
             if result.ccg_edges:
                 await self.graph_store.upsert_edges(result.ccg_edges)
             if result.file_path.is_file():
-                await self.graph_store.update_file_mtime(
-                    str(result.file_path), result.file_path.stat().st_mtime
+                await self._update_store_mtime(
+                    str(result.file_path),
+                    result.file_path.stat().st_mtime,
+                    self._file_hash_for(result.file_path),
                 )
 
         stats.files_processed += 1
@@ -1618,9 +1722,11 @@ class GraphIndexingPipeline:
                 if ccg_edges:
                     await self.graph_store.upsert_edges(ccg_edges)
 
-                # Update file mtime for staleness tracking
+                # Update file mtime + content hash for staleness tracking
                 mtime = file_path.stat().st_mtime
-                await self.graph_store.update_file_mtime(str(file_path), mtime)
+                await self._update_store_mtime(
+                    str(file_path), mtime, self._file_hash_for(file_path)
+                )
         except FileNotFoundError:
             await self._handle_vanished_file(file_path)
             stats.files_deleted += 1
@@ -2205,8 +2311,11 @@ class GraphIndexingPipeline:
         except ImportError:
             logger.debug("Language handler system not available, using legacy")
 
-        # FALLBACK: Legacy implementation for unsupported languages
-        # TODO: Remove once all languages have handlers
+        # FALLBACK: load-bearing, not legacy debt. Edge handlers are supplied by
+        # the victor-coding plugin via CapabilityRegistry/TreeSitterAnalysisProtocol;
+        # a core-only install has NO handlers for any language, so this path is the
+        # only CALLS detection there. Removal requires core bundling a default
+        # handler provider first.
         logger.debug(f"Using legacy CALLS edge detection for: {language}")
         return await self._build_calls_edges_legacy(nodes, file_path, name_to_ids)
 
@@ -2297,13 +2406,14 @@ class GraphIndexingPipeline:
         file_path: Path,
         name_to_ids: Dict[str, List[str]],
     ) -> List[Any]:
-        """Legacy CALLS edge detection (to be removed).
+        """Fallback CALLS edge detection for installs without edge handlers.
 
-        DEPRECATED: This method exists as a fallback for languages
-        without dedicated edge handlers. Once all languages have
-        handlers, this method should be removed.
-
-        TODO: Remove after all languages migrate to handler pattern (target: 2026-Q2)
+        NOT removable on a schedule: edge handlers come from the victor-coding
+        plugin (CapabilityRegistry / TreeSitterAnalysisProtocol), so a core-only
+        install has no handler for ANY language and this is its only CALLS
+        detection. The former "remove by 2026-Q2 once all languages migrate"
+        TODO was wrong — removal is conditional on core shipping a default
+        handler provider, not on language coverage.
 
         Args:
             nodes: Symbol nodes from the file
@@ -2491,11 +2601,45 @@ class GraphIndexingPipeline:
 
         return None
 
-    async def _generate_embeddings(self) -> GraphIndexStats:
-        """Generate embeddings for all nodes in the graph.
+    def _get_vector_provider(self) -> Any:
+        """Vector store for persisting node embeddings, or None.
 
-        Uses GraphAwareEmbedder to generate structure-aware embeddings
-        that capture both semantic content and graph neighborhood.
+        Proxima-style stores co-locate vectors with graph nodes via
+        ``set_node_embedding`` — they need no external provider. For the
+        default sqlite store, build a provider from the store's settings-driven
+        config (falls back to defaults).
+        """
+        if hasattr(self.graph_store, "set_node_embedding"):
+            return None
+        try:
+            from victor.storage.vector_stores.registry import EmbeddingRegistry
+
+            build = getattr(self.graph_store, "_build_embedding_config", None)
+            if build is not None:
+                config = build()
+            else:
+                from victor.storage.vector_stores.base import EmbeddingConfig
+
+                config = EmbeddingConfig()
+            return EmbeddingRegistry.create(config)
+        except Exception as e:
+            logger.debug("Vector store unavailable for graph embeddings: %s", e)
+            return None
+
+    async def _generate_embeddings(self) -> GraphIndexStats:
+        """Generate embeddings for graph nodes — batched and staleness-aware.
+
+        - Incremental runs consider only nodes from files parsed this run;
+          force/full runs consider every node.
+        - A node is skipped when its stored ``content_version`` (blake2b-8 of
+          the embedded text: name + signature + docstring) matches and it
+          already has an embedding — bodies aren't embedded, so body-only edits
+          don't force re-embeds.
+        - Text vectors come from ONE ``EmbeddingService.embed_batch`` call per
+          batch (see ``GraphAwareEmbedder.embed_batch``).
+        - Persistence: ``index_embedded_documents`` on the vector store keyed
+          by node_id (default sqlite path), or the graph store's own
+          ``set_node_embedding`` (proxima co-located vectors).
 
         Returns:
             Stats for embedding generation
@@ -2504,66 +2648,120 @@ class GraphIndexingPipeline:
         start_time = time.time()
 
         try:
+            import hashlib
+
             from victor.processing.graph_embeddings import (
                 GraphAwareEmbedder,
                 GraphEmbeddingConfig,
             )
-            from victor.storage.graph.protocol import GraphNode
             from victor.storage.embeddings.service import get_embedding_service
 
-            # Initialize embedder
             config = GraphEmbeddingConfig(
                 neighborhood_radius=self.config.embedding_neighborhood_radius or 2,
                 include_edge_types=True,
-                structural_weight=0.3,
-                semantic_weight=0.7,
+                structural_weight=self.config.embedding_structural_weight,
+                semantic_weight=1.0 - self.config.embedding_structural_weight,
                 max_neighbors=self.config.embedding_max_neighbors or 50,
             )
             embedder = GraphAwareEmbedder(config=config)
 
-            # Get embedding service for direct text embeddings
             embedding_service = get_embedding_service()
             if embedding_service is None:
                 logger.warning("EmbeddingService not available, skipping embedding generation")
                 return stats
 
-            # Get all nodes from graph store
-            nodes = await self.graph_store.get_all_nodes()
-            logger.info(f"Generating embeddings for {len(nodes)} nodes")
+            # Candidate nodes: changed files only on incremental runs.
+            if self.config.incremental and self._files_to_process:
+                nodes = []
+                for file_key in sorted(self._files_to_process):
+                    nodes.extend(await self.graph_store.get_nodes_by_file(file_key))
+            else:
+                nodes = await self.graph_store.get_all_nodes()
 
-            # Process nodes in batches for efficiency
-            batch_size = self.config.embedding_batch_size or 100
-            all_embeddings: Dict[str, List[float]] = {}
+            # Staleness filter: fingerprint of the text that would be embedded.
+            candidates = []
+            versions: Dict[str, str] = {}
+            for node in nodes:
+                text = GraphAwareEmbedder.node_text(node)
+                if not text:
+                    continue
+                cv = hashlib.blake2b(text.encode("utf-8"), digest_size=8).hexdigest()
+                meta = node.metadata or {}
+                if meta.get("content_version") == cv and meta.get("has_embedding"):
+                    continue
+                versions[node.node_id] = cv
+                candidates.append(node)
 
-            for i in range(0, len(nodes), batch_size):
-                batch = nodes[i : i + batch_size]
-
-                # Generate embeddings with graph context
-                embeddings = await embedder.embed_batch(batch, self.graph_store)
-                all_embeddings.update(embeddings)
-
-                logger.debug(f"Generated embeddings for batch {i // batch_size + 1}")
-
-            # Store embeddings and update nodes
-            for node_id, embedding in all_embeddings.items():
-                try:
-                    # Store embedding in vector store (if available)
-                    await self.graph_store.set_node_embedding(node_id, embedding)
-
-                    # Update node metadata
-                    await self.graph_store.update_node_metadata(
-                        node_id,
-                        {"embedding_ref": f"emb:{node_id}", "has_embedding": True},
-                    )
-                except Exception as e:
-                    logger.warning(f"Failed to store embedding for {node_id}: {e}")
-                    stats.error_count += 1
-                    stats.errors.append(f"Embedding storage failed for {node_id}: {e}")
-
-            stats.embeddings_generated = len(all_embeddings)
             logger.info(
-                f"Generated {len(all_embeddings)} embeddings in {time.time() - start_time:.2f}s"
+                "Generating embeddings for %d nodes (%d unchanged skipped)",
+                len(candidates),
+                len(nodes) - len(candidates),
             )
+            if not candidates:
+                return stats
+
+            vector_provider = self._get_vector_provider()
+            node_by_id = {n.node_id: n for n in candidates}
+            batch_size = self.config.embedding_batch_size or 100
+            embedded_total = 0
+
+            for i in range(0, len(candidates), batch_size):
+                batch = candidates[i : i + batch_size]
+                embeddings = await embedder.embed_batch(batch, self.graph_store)
+                if not embeddings:
+                    continue
+
+                try:
+                    if vector_provider is not None and hasattr(
+                        vector_provider, "index_embedded_documents"
+                    ):
+                        docs = []
+                        for node_id, vector in embeddings.items():
+                            node = node_by_id[node_id]
+                            docs.append(
+                                {
+                                    "id": node_id,
+                                    "content": GraphAwareEmbedder.node_text(node),
+                                    "vector": vector,
+                                    "metadata": {
+                                        "node_id": node_id,
+                                        "file_path": node.file,
+                                        "symbol_name": node.name,
+                                        "line_number": node.line or 0,
+                                        "content_version": versions[node_id],
+                                    },
+                                }
+                            )
+                        await vector_provider.index_embedded_documents(docs)
+                    elif hasattr(self.graph_store, "set_node_embedding"):
+                        for node_id, vector in embeddings.items():
+                            await self.graph_store.set_node_embedding(node_id, vector)
+                except Exception as e:
+                    logger.warning(f"Vector persistence failed for batch: {e}")
+                    stats.error_count += 1
+                    stats.errors.append(f"Vector persistence: {e}")
+                    continue  # don't mark nodes embedded if vectors didn't persist
+
+                for node_id in embeddings:
+                    try:
+                        await self.graph_store.update_node_metadata(
+                            node_id,
+                            {
+                                "embedding_ref": f"emb:{node_id}",
+                                "has_embedding": True,
+                                "content_version": versions[node_id],
+                            },
+                        )
+                    except Exception as e:
+                        logger.warning(f"Failed to mark embedding for {node_id}: {e}")
+                        stats.error_count += 1
+                        stats.errors.append(f"Embedding metadata failed for {node_id}: {e}")
+
+                embedded_total += len(embeddings)
+                logger.debug(f"Embedded batch {i // batch_size + 1}")
+
+            stats.embeddings_generated = embedded_total
+            logger.info(f"Generated {embedded_total} embeddings in {time.time() - start_time:.2f}s")
 
         except ImportError as e:
             logger.warning(f"Graph embedding components not available: {e}")
@@ -2810,8 +3008,10 @@ class _IndexingStreamPipeline:
                     await self._pipeline.graph_store.upsert_edges(all_ccg_edges)
                 for result in batch:
                     if result.file_path.is_file():
-                        await self._pipeline.graph_store.update_file_mtime(
-                            str(result.file_path), result.file_path.stat().st_mtime
+                        await self._pipeline._update_store_mtime(
+                            str(result.file_path),
+                            result.file_path.stat().st_mtime,
+                            self._pipeline._file_hash_for(result.file_path),
                         )
             stats.files_processed += len(batch)
             stats.provider_fallbacks += sum(

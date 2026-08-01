@@ -2289,6 +2289,7 @@ class TestBenchmarkSyncBridge:
                 apply_rollout_decision=False,
                 rollout_decision_dry_run=False,
                 min_approval_pass_rate=0.5,
+                ci_gate=False,
             )
 
         mock_async.assert_called_once()
@@ -2784,6 +2785,7 @@ class TestChatSyncBridge:
             resume_session_id="session-1",
             show_reasoning=False,
             graph_watch=True,
+            surface="tui",
             session_config=ANY,
         )
         session_config = mock_async.call_args.kwargs["session_config"]

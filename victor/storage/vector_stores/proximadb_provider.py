@@ -94,7 +94,7 @@ class ProximaDBProvider(BaseEmbeddingProvider):
         if not is_proxima_available():
             raise ImportError(
                 "proximadb_sdk is not installed. Install it (pip install proximadb) "
-                "or use a different vector_store (lancedb/chromadb)."
+                "or use a different vector_store (lancedb)."
             )
         if self._server_url:
             # Multi-tenant service path is not yet wired for the embedding

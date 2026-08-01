@@ -75,7 +75,7 @@ class LanceDBProvider(BaseEmbeddingProvider):
     - Support for multiple embedding models (Ollama, OpenAI, Sentence-transformers, Cohere)
     - Zero-copy reads via Apache Arrow
 
-    Advantages over ChromaDB:
+    Advantages:
     - Better performance for large datasets (>100k docs)
     - Lower memory footprint (disk-based)
     - Faster search with ANN indices
@@ -249,6 +249,48 @@ class LanceDBProvider(BaseEmbeddingProvider):
             self.table = self.db.create_table(table_name, data=lance_docs)
         else:
             self.table.add(lance_docs)
+
+    async def index_embedded_documents(self, documents: List[Dict[str, Any]]) -> None:
+        """Index documents that already carry their vectors (upsert by id).
+
+        Like :meth:`index_documents` but without the embedding step — used by
+        the graph indexing pipeline, which batch-embeds through the shared
+        EmbeddingService and re-embeds only stale symbols. Existing rows with
+        the same ids are replaced so re-indexing never duplicates.
+
+        Args:
+            documents: Dicts with ``id``, ``content``, ``vector`` and optional
+                ``metadata`` (flattened into columns, e.g. node_id, file_path,
+                symbol_name, line_number, content_version).
+        """
+        if not self._initialized:
+            await self.initialize()
+
+        if not documents:
+            return
+
+        lance_docs = []
+        for doc in documents:
+            lance_docs.append(
+                {
+                    "id": doc["id"],
+                    "vector": list(doc["vector"]),
+                    "content": doc.get("content", ""),
+                    **doc.get("metadata", {}),
+                }
+            )
+
+        table_name = self.config.extra_config.get("table_name", "embeddings")
+        if self.table is None:
+            self.table = self.db.create_table(table_name, data=lance_docs)
+            return
+        # Upsert: drop stale rows for these ids, then add the fresh ones.
+        ids = ", ".join("'" + str(d["id"]).replace("'", "''") + "'" for d in lance_docs)
+        try:
+            self.table.delete(f"id IN ({ids})")
+        except (RuntimeError, ValueError) as e:
+            logger.debug(f"Pre-upsert delete skipped: {e}")
+        self.table.add(lance_docs)
 
     async def search_similar(
         self,

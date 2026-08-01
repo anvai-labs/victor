@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import importlib
+import warnings
 from typing import TYPE_CHECKING, Any
+
+from victor_contracts._deprecation import deprecated_bridge_message
 
 if TYPE_CHECKING:
     from victor.workflows.definition import ComputeNode
@@ -39,6 +42,11 @@ _LAZY_IMPORTS = {
 
 def __getattr__(name: str) -> Any:
     """Resolve workflow executor helpers lazily from the Victor host runtime."""
+    warnings.warn(
+        deprecated_bridge_message("workflow_executor_runtime"),
+        DeprecationWarning,
+        stacklevel=2,
+    )
     module_name = _LAZY_IMPORTS.get(name)
     if module_name is None:
         raise AttributeError(

@@ -175,12 +175,23 @@ class GraphStoreProtocol(Protocol):
         """Get all symbols in a specific file."""
         ...
 
-    async def update_file_mtime(self, file: str, mtime: float) -> None:
-        """Record file modification time for staleness tracking."""
+    async def update_file_mtime(
+        self, file: str, mtime: float, content_hash: str | None = None
+    ) -> None:
+        """Record file modification time (and optional content hash) for staleness.
+
+        ``content_hash`` follows the victor-codegraph manifest contract
+        (sha-256 of the decoded source text). ``None`` clears any stored hash —
+        an unknown hash must never masquerade as a verified one.
+        """
         ...
 
     async def get_stale_files(self, file_mtimes: Dict[str, float]) -> List[str]:
         """Get files that have changed since last index."""
+        ...
+
+    async def get_file_hashes(self, files: List[str]) -> Dict[str, str]:
+        """Stored content hashes for the given files (missing/None entries omitted)."""
         ...
 
     async def delete_by_file(self, file: str) -> None:

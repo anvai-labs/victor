@@ -24,6 +24,7 @@ ALLOWED_GET_CONTAINER_PREFIXES = (
     "victor/core/events/",  # Event backend factory functions
     "victor/framework/service_provider.py",  # Service provider (framework init)
     "victor/framework/policies/handlers.py",  # Approval-handler registration into the container
+    "victor/agent/subagents/base.py",  # Member ASK handler resolution (FEP-0028 slice 2a, #740)
     # Singleton accessor functions (DI migration compatibility shims)
     "victor/agent/task_analyzer.py",  # get_task_analyzer() singleton accessor
     "victor/agent/mode_controller.py",  # get_mode_controller() singleton accessor

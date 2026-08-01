@@ -527,6 +527,34 @@ class TestToolCallBudget:
         assert isinstance(budget, int)
         assert budget > 0
 
+    def test_get_tool_budget_does_not_raise(self, orchestrator):
+        """get_tool_budget() used to dereference a non-existent tracker attribute.
+
+        ``UnifiedTaskTracker`` exposes its budget as ``progress.tool_budget``; there
+        is no ``tool_budget`` attribute, so ``self.unified_tracker.tool_budget``
+        raised AttributeError on every call once a tracker was present (always).
+        """
+        assert orchestrator.get_tool_budget() == orchestrator.tool_budget
+
+    def test_get_tool_calls_count_does_not_raise(self, orchestrator):
+        """Same defect for the counter: the tracker has no ``tool_calls_used``."""
+        orchestrator.tool_calls_used = 3
+
+        assert orchestrator.get_tool_calls_count() == 3
+
+    def test_budget_pair_comes_from_the_enforcing_cell(self, orchestrator):
+        """Numerator and denominator must be the pair the loop enforces against.
+
+        ``streaming/coordinator.py`` halts on ``orchestrator.tool_calls_used`` vs
+        ``orchestrator.tool_budget``; the protocol accessors must report the same
+        pair rather than the tracker's advisory budget or the session-wide cap.
+        """
+        orchestrator.tool_budget = 20
+        orchestrator.tool_calls_used = 7
+
+        assert orchestrator.get_tool_budget() == 20
+        assert orchestrator.get_tool_calls_count() == 7
+
 
 class TestToolCacheIntegration:
     """Tests for tool cache integration."""

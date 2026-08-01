@@ -18,10 +18,9 @@ Agents execute simultaneously with independent contexts.
 All agents receive the same task and work independently.
 """
 
-import asyncio
 import copy
 import logging
-from typing import Any, Dict, List
+from typing import Any, List
 
 from victor.coordination.formations.base import BaseFormationStrategy, TeamContext
 from victor.teams.types import AgentMessage, MemberResult
@@ -65,46 +64,18 @@ class ParallelFormation(BaseFormationStrategy):
             for _ in agents
         ]
 
-        tasks = [
-            self._execute_agent(agent, task, ctx, i)
-            for i, (agent, ctx) in enumerate(zip(agents, agent_contexts))
-        ]
-
-        # Execute all tasks concurrently
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        # ADR-023: run members concurrently with per-member streaming lanes + durable
+        # checkpoint/resume (a resumed wave skips completed members). The shared runner handles
+        # the gather, lane hooks, exception normalization, and the lock-protected cumulative
+        # checkpoint; hooks are read off the original team_context (the isolated contexts don't
+        # carry them). Member execution stays fully concurrent.
+        results = await self._execute_members_concurrently(agents, task, context, agent_contexts)
 
         # Merge agent contexts back into parent (last-writer-wins per key)
         for agent_ctx in agent_contexts:
             context.update(agent_ctx.shared_state)
 
-        # Process results, handling any exceptions
-        processed_results = []
-        for i, result in enumerate(results):
-            if isinstance(result, Exception):
-                logger.error(f"ParallelFormation: agent {agents[i].id} failed: {result}")
-                processed_results.append(
-                    MemberResult(
-                        member_id=agents[i].id,
-                        success=False,
-                        error=str(result),
-                        metadata={"index": i},
-                    )
-                )
-            else:
-                processed_results.append(result)
-
-        return processed_results
-
-    async def _execute_agent(
-        self,
-        agent: Any,
-        task: AgentMessage,
-        context: TeamContext,
-        index: int,
-    ) -> MemberResult:
-        """Execute a single agent."""
-        logger.debug(f"ParallelFormation: executing agent {index+1}: {agent.id}")
-        return await agent.execute(task, context)
+        return results
 
     def validate_context(self, context: TeamContext) -> bool:
         """Parallel formation requires minimal context."""
@@ -113,3 +84,13 @@ class ParallelFormation(BaseFormationStrategy):
     def supports_early_termination(self) -> bool:
         """Parallel formation waits for all agents to complete."""
         return False
+
+    def supports_durable_pause(self) -> bool:
+        """PARALLEL implements ADR-023 durable pause via the concurrent multi-member aggregate.
+
+        Members that hit an ``ASK`` gate come back awaiting-approval; the shared concurrent
+        runner collects every awaiting member after the wave and persists one pause checkpoint
+        (all pending approvals), so a resumed run re-runs exactly them. Arming durable pause here
+        is therefore safe — a member's ASK durably pauses the team instead of aborting the tool.
+        """
+        return True

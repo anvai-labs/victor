@@ -67,21 +67,33 @@ def _body_split(symbol: CodeSymbol, config: ChunkConfig) -> list[CodeChunk]:
     max_chars = config.max_chunk_chars
     overlap_chars = config.chunk_overlap_chars
 
-    windows: list[tuple[int, str]] = []  # (start_line_offset, text)
+    windows: list[tuple[int, str, bool]] = []  # (start_line_offset, text, is_line_split)
     cur: list[str] = []
     cur_len = 0
     cur_start = 0
     i = 0
     while i < len(lines):
         ln = lines[i]
-        # A single line longer than the budget is hard-cut (degenerate minified case).
-        if not cur and len(ln) > max_chars:
-            windows.append((i, ln[:max_chars]))
+        # A single line longer than the budget (degenerate minified case) is split
+        # into overlapping char windows — every char lands in some chunk, none are
+        # silently dropped (the old code truncated to ``ln[:max_chars]``), and it
+        # never rides inside a line window where it would blow the budget.
+        # ChunkConfig guarantees overlap < max, so step >= 1.
+        if len(ln) > max_chars:
+            if cur:
+                windows.append((cur_start, "".join(cur), False))
+                cur = []
+                cur_len = 0
+            step = max(1, max_chars - overlap_chars)
+            for off in range(0, len(ln), step):
+                windows.append((i, ln[off : off + max_chars], True))
+                if off + max_chars >= len(ln):
+                    break
             i += 1
             cur_start = i
             continue
         if cur_len + len(ln) > max_chars and cur:
-            windows.append((cur_start, "".join(cur)))
+            windows.append((cur_start, "".join(cur), False))
             # Build overlap tail by walking back from the end of the current window.
             tail: list[str] = []
             tail_len = 0
@@ -97,17 +109,22 @@ def _body_split(symbol: CodeSymbol, config: ChunkConfig) -> list[CodeChunk]:
         cur_len += len(ln)
         i += 1
     if cur:
-        windows.append((cur_start, "".join(cur)))
+        windows.append((cur_start, "".join(cur), False))
 
     total = len(windows)
     out: list[CodeChunk] = []
     base_line = symbol.location.start_line
-    for idx, (line_off, text) in enumerate(windows):
+    for idx, (line_off, text, is_line_split) in enumerate(windows):
         meta = _base_metadata(symbol)
         meta["chunk_index"] = idx
         meta["chunk_total"] = total
         meta["is_body_split"] = True
         meta["start_line"] = base_line + line_off
+        # The last line of THIS window, not the whole symbol's end_line.
+        spanned = text.count("\n") + (0 if text.endswith("\n") else 1)
+        meta["end_line"] = base_line + line_off + max(spanned - 1, 0)
+        if is_line_split:
+            meta["is_line_split"] = True
         out.append(
             CodeChunk(
                 chunk_id=f"{symbol.id}#body#{idx}",

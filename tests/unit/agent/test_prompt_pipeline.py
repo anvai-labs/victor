@@ -458,14 +458,47 @@ class TestComposeTurnPrefix:
         assert prefix == ""
 
     def test_system_reminder_tags(self):
-        """Dynamic content wrapped in <system-reminder> tags."""
+        """Dynamic content wrapped in an authenticated <system-reminder> envelope.
+
+        The tag now carries the session key so the model can distinguish runtime
+        guidance from look-alike text arriving via tool output or the user turn.
+        """
         optimizer = _make_optimizer(evolved_sections=["Be concise."])
         pipeline = _make_pipeline(optimizer=optimizer)
         ctx = self._make_turn_context()
 
         prefix = pipeline.compose_turn_prefix("Help", ctx)
-        assert "<system-reminder>" in prefix
+        assert f'<system-reminder key="{pipeline._channel_nonce}">' in prefix
         assert "</system-reminder>" in prefix
+
+    def test_turn_prefix_key_matches_the_declared_session_key(self):
+        """The envelope is only meaningful if the system prompt declares the key."""
+        pipeline = _make_pipeline(optimizer=_make_optimizer(evolved_sections=["Be concise."]))
+
+        system_prompt = pipeline.build_system_prompt()
+        prefix = pipeline.compose_turn_prefix("Help", self._make_turn_context())
+
+        nonce = pipeline._channel_nonce
+        assert nonce, "a session key must be minted"
+        assert nonce in system_prompt, "the key must be declared in the system prompt"
+        assert f'key="{nonce}"' in prefix
+
+    def test_session_key_is_stable_across_turns(self):
+        """Re-minting mid-session would invalidate the declaration already sent."""
+        pipeline = _make_pipeline(optimizer=_make_optimizer(evolved_sections=["Be concise."]))
+
+        first = pipeline.compose_turn_prefix("Help", self._make_turn_context())
+        second = pipeline.compose_turn_prefix("Help again", self._make_turn_context())
+
+        assert f'key="{pipeline._channel_nonce}"' in first
+        assert f'key="{pipeline._channel_nonce}"' in second
+
+    def test_distinct_sessions_get_distinct_keys(self):
+        """A key reused across sessions would be guessable from an earlier one."""
+        a = _make_pipeline(optimizer=_make_optimizer(evolved_sections=["x"]))
+        b = _make_pipeline(optimizer=_make_optimizer(evolved_sections=["x"]))
+
+        assert a._channel_nonce != b._channel_nonce
 
     def test_repeated_boilerplate_is_dictionary_compressed(self):
         """Repeated long guidance blocks should be aliased once in the reminder body."""
@@ -763,3 +796,84 @@ class TestBackwardCompat:
         builder = _make_builder()
         pipeline = _make_pipeline(builder=builder)
         assert pipeline.builder is builder
+
+
+# =============================================================================
+# CHANNEL DECLARATION PLACEMENT (FEP-0026 / #707)
+# =============================================================================
+
+
+class TestChannelDeclarationPlacement:
+    """The session nonce must not truncate the cross-session cacheable prefix.
+
+    The declaration embeds a per-session random nonce, so every byte after it
+    differs between sessions. Placed mid-prompt it left only ~21% of the system
+    prompt as a shared prefix and pushed the entire project context past the
+    divergence point, costing cross-session prompt-cache reuse (#707).
+
+    These assert the property instead of assuming it — otherwise the next thing
+    appended to the prompt silently reintroduces the regression.
+    """
+
+    @staticmethod
+    def _shared_prefix_len(a: str, b: str) -> int:
+        n = 0
+        for x, y in zip(a, b):
+            if x != y:
+                break
+            n += 1
+        return n
+
+    def test_declaration_is_the_final_block(self):
+        pipeline = _make_pipeline()
+
+        prompt = pipeline.build_system_prompt(project_context="PROJECT CONTEXT BODY")
+
+        nonce = pipeline._channel_nonce
+        assert nonce in prompt
+        tail = prompt[prompt.index("SYSTEM GUIDANCE CHANNEL") :]
+        assert "PROJECT CONTEXT BODY" not in tail, (
+            "project context appears after the nonce, so it is not cacheable across "
+            "sessions — the declaration must be appended last"
+        )
+
+    def test_project_context_stays_in_the_shared_prefix(self):
+        """Two sessions must agree byte-for-byte up to the declaration."""
+        a = _make_pipeline().build_system_prompt(project_context="PROJECT CONTEXT BODY")
+        b = _make_pipeline().build_system_prompt(project_context="PROJECT CONTEXT BODY")
+
+        shared = self._shared_prefix_len(a, b)
+
+        assert (
+            "PROJECT CONTEXT BODY" in a[:shared]
+        ), "project context falls outside the shared cross-session prefix"
+
+    def test_only_the_declaration_varies_between_sessions(self):
+        """Nothing but the declaration block may fall outside the shared prefix.
+
+        Bounded against the declaration's own length rather than a fixed number,
+        so the assertion stays exact as the wording evolves while still failing if
+        anything *else* gets pushed after the nonce.
+        """
+        from victor.agent.control_plane import channel_declaration
+
+        pa, pb = _make_pipeline(), _make_pipeline()
+        a = pa.build_system_prompt(project_context="PROJECT CONTEXT BODY")
+        b = pb.build_system_prompt(project_context="PROJECT CONTEXT BODY")
+
+        shared = self._shared_prefix_len(a, b)
+        varying = len(a) - shared
+        budget = len(channel_declaration(pa._channel_nonce)) + len("\n\n")
+
+        assert varying <= budget, (
+            f"{varying} bytes vary between sessions but the declaration is only "
+            f"{budget}; something stable was pushed after the nonce"
+        )
+
+    def test_two_sessions_still_get_distinct_keys(self):
+        """Placement must not accidentally make the nonce constant."""
+        a, b = _make_pipeline(), _make_pipeline()
+
+        assert a._channel_nonce != b._channel_nonce
+        assert a._channel_nonce in a.build_system_prompt()
+        assert b._channel_nonce in b.build_system_prompt()

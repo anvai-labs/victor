@@ -108,7 +108,16 @@ if TYPE_CHECKING:
 # Runtime imports - used for instantiation, enums, constants, or function calls
 from victor.agent.argument_normalizer import ArgumentNormalizer, NormalizationStrategy
 from victor.agent.message_history import MessageHistory
+from victor.agent.task_report_metadata import (
+    build_compaction_metadata,
+    build_continuation_metadata,
+    resolve_task_type,
+)
+from victor.agent.tool_supply_policy import classify_tool_supply, demote_tools_to_fit
+from victor.agent.control_plane import envelope_if_internal
 from victor.agent.conversation.store import ConversationStore
+from victor.agent.prompt_prefix import apply_turn_prefix
+from victor.agent.system_nudges import log_dropped_system_nudge
 
 # DI container bootstrap
 from victor.core.bootstrap import ensure_bootstrapped, get_service_optional
@@ -2142,10 +2151,9 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
                     runtime_context_overrides.get("prompt_overlays")
                 )
 
-            # Get context reminders
-            reminder_mgr = getattr(self, "_reminder_manager", None)
+            reminder_mgr = getattr(self, "reminder_manager", None)
             if reminder_mgr:
-                turn_ctx.reminder_text = reminder_mgr.get_user_message_prefix()
+                turn_ctx.reminder_text = reminder_mgr.get_consolidated_reminder()
 
             # Get last user message text for KNN few-shot matching
             last_user_msg = ""
@@ -2170,18 +2178,7 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
                 injector._last_failure_category = None
                 injector._last_failure_error = None
 
-        if prefix:
-            from victor.providers.base import Message as Msg
-
-            for i in range(len(messages) - 1, -1, -1):
-                if messages[i].role == "user":
-                    messages[i] = Msg(
-                        role="user",
-                        content=prefix + messages[i].content,
-                    )
-                    break
-
-        return messages
+        return apply_turn_prefix(messages, prefix)
 
     def _check_context_overflow(self, max_context_chars: int = 200000) -> bool:
         """Check if context is at risk of overflow.
@@ -2344,7 +2341,9 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
         }
         if response is not None and hasattr(response, "stop_reason"):
             report_metadata["stop_reason"] = getattr(response, "stop_reason", None)
-        report_metadata.update(self._build_task_report_continuation_metadata())
+        report_metadata.update(
+            build_continuation_metadata(getattr(self, "_current_stream_context", None))
+        )
         if metadata:
             report_metadata.update(metadata)
 
@@ -2355,116 +2354,19 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
             metadata=report_metadata,
             error=str(error) if error else None,
             tool_schema_tokens=int(last_tool_event.get("tool_tokens", 0) or 0),
-            compaction=self._build_task_report_compaction_metadata(),
+            compaction=build_compaction_metadata(
+                getattr(self, "_current_stream_context", None),
+                getattr(self, "_context_service", None),
+            ),
         )
 
     def _resolve_task_report_task_type(self) -> str:
-        """Resolve the most specific available task type for task-level metrics."""
-        stream_ctx = getattr(self, "_current_stream_context", None)
-        if stream_ctx is not None:
-            unified_task_type = getattr(
-                getattr(stream_ctx, "unified_task_type", None), "value", None
-            )
-            if unified_task_type:
-                return str(unified_task_type)
-            coarse_task_type = getattr(stream_ctx, "coarse_task_type", None)
-            if coarse_task_type:
-                return str(coarse_task_type)
-
-        unified_tracker = getattr(self, "unified_tracker", None)
-        tracker_task_type = getattr(unified_tracker, "task_type", None)
-        if tracker_task_type:
-            return str(tracker_task_type)
-
-        for attr_name in ("_current_task_type", "_task_type"):
-            value = getattr(self, attr_name, None)
-            if value:
-                return str(value)
-
-        return "default"
-
-    def _build_task_report_compaction_metadata(self) -> Dict[str, Any]:
-        """Collect compaction continuity signals for the current task report."""
-        stream_ctx = getattr(self, "_current_stream_context", None)
-        perf_metrics: Dict[str, Any] = {}
-        context_service = getattr(self, "_context_service", None)
-        if context_service is not None and hasattr(context_service, "get_performance_metrics"):
-            try:
-                perf_metrics = context_service.get_performance_metrics() or {}
-            except Exception as exc:
-                logger.debug(
-                    "Failed to read context performance metrics for task report: %s",
-                    exc,
-                )
-
-        summary = ""
-        occurred = False
-        messages_removed = 0
-        if stream_ctx is not None:
-            summary = str(getattr(stream_ctx, "compaction_summary", "") or "")
-            occurred = bool(
-                getattr(stream_ctx, "compaction_occurred", False)
-                or getattr(stream_ctx, "last_compaction_turn", -1) >= 0
-            )
-            messages_removed = int(getattr(stream_ctx, "compaction_message_removed_count", 0) or 0)
-
-        saved_tokens = int(perf_metrics.get("last_compaction_saved_tokens", 0) or 0)
-        return {
-            "occurred": occurred or bool(summary) or messages_removed > 0 or saved_tokens > 0,
-            "summary": summary,
-            "messages_removed": messages_removed,
-            "saved_tokens": saved_tokens,
-            "strategy": str(getattr(stream_ctx, "last_compaction_strategy", "") or ""),
-            "reason": str(getattr(stream_ctx, "last_compaction_reason", "") or ""),
-            "policy_reason": str(getattr(stream_ctx, "last_compaction_policy_reason", "") or ""),
-        }
-
-    def _build_task_report_continuation_metadata(self) -> Dict[str, Any]:
-        """Collect bounded continuation-ledger state for reporting/export paths."""
-        stream_ctx = getattr(self, "_current_stream_context", None)
-        if stream_ctx is None:
-            return {}
-
-        metadata: Dict[str, Any] = {}
-        task_intent = str(getattr(stream_ctx, "task_intent", "") or "").strip()
-        if task_intent:
-            metadata["task_intent"] = task_intent
-
-        plan_steps = [
-            str(item).strip()
-            for item in (getattr(stream_ctx, "plan_steps", []) or [])
-            if str(item).strip()
-        ][:6]
-        if plan_steps:
-            metadata["plan_steps"] = plan_steps
-
-        intent_log = [
-            dict(item)
-            for item in (getattr(stream_ctx, "intent_log", []) or [])
-            if isinstance(item, dict)
-        ][-6:]
-        if intent_log:
-            metadata["intent_log"] = intent_log
-
-        resume_summary = str(getattr(stream_ctx, "resume_summary", "") or "").strip()
-        if resume_summary:
-            metadata["resume_summary"] = resume_summary
-
-        if bool(getattr(stream_ctx, "degraded_resume_state", False)):
-            metadata["degraded_resume_state"] = True
-
-        build_ledger = getattr(stream_ctx, "build_continuation_ledger", None)
-        if callable(build_ledger):
-            try:
-                continuation_ledger = str(
-                    build_ledger(max_events=4, max_plan_steps=4, max_chars=500) or ""
-                ).strip()
-            except TypeError:
-                continuation_ledger = str(build_ledger() or "").strip()
-            if continuation_ledger:
-                metadata["continuation_ledger"] = continuation_ledger
-
-        return metadata
+        """Resolve task type via the pure task-report metadata helper (ADR-019)."""
+        return resolve_task_type(
+            getattr(self, "_current_stream_context", None),
+            getattr(self, "unified_tracker", None),
+            (getattr(self, "_current_task_type", None), getattr(self, "_task_type", None)),
+        )
 
     async def _preload_embeddings(self) -> None:
         """Preload tool embeddings in background to avoid blocking first query.
@@ -3193,17 +3095,15 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
             self.conversation.add_preview_message(role, content, preview_metadata)
             return
 
+        _nonce = getattr(getattr(self, "_prompt_pipeline", None), "_channel_nonce", "")
+        content = envelope_if_internal(role, content, kwargs.get("metadata"), _nonce)
         # Intercept dynamic system nudges for cache-friendly injection
         if role == "system" and getattr(self, "_cache_optimization_enabled", False):
             # Check if history already contains a system message (the root prompt)
             has_root_system = any(m.role == "system" for m in self.conversation._messages)
             if has_root_system and hasattr(self, "reminder_manager") and self.reminder_manager:
-                # If content looks like a nudge (e.g. "[FILES: ...]" or budget warning),
-                # update reminder_manager state instead of appending.
                 if content.startswith("[") and content.endswith("]"):
-                    logger.debug("[cache] Intercepted system nudge for reminder_manager injection")
-                    # Note: Caller usually updates manager state before this;
-                    # if not, we simply skip appending to keep prefix stable.
+                    log_dropped_system_nudge(content)
                     return
 
         max_history = getattr(self.settings, "max_conversation_history", 100)
@@ -3515,163 +3415,16 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
     # Tool Necessity Gate (HDPO-inspired Q&A bypass)
     # ------------------------------------------------------------------
 
-    # Keywords that strongly suggest tool usage is required
-    _TOOL_SIGNAL_KEYWORDS = frozenset(
-        {
-            "file",
-            "code",
-            "search",
-            "edit",
-            "write",
-            "read",
-            "create",
-            "delete",
-            "run",
-            "test",
-            "debug",
-            "fix",
-            "build",
-            "deploy",
-            "docker",
-            "git",
-            "commit",
-            "branch",
-            "install",
-            "refactor",
-            "implement",
-            "function",
-            "class",
-            "import",
-            "variable",
-            "error",
-            "bug",
-            "compile",
-            "execute",
-            "database",
-            "query",
-            "api",
-            "endpoint",
-            "config",
-            "log",
-            "trace",
-            "mkdir",
-            "move",
-            "rename",
-            "grep",
-            "find",
-            "ls",
-            "bash",
-            "shell",
-            "pip",
-            "npm",
-            "make",
-            "curl",
-            "fetch",
-            "download",
-            "upload",
-        }
-    )
-
-    # Patterns that indicate pure Q&A (no tools needed)
-    _QA_SIGNAL_PATTERNS = (
-        "what is",
-        "what are",
-        "what does",
-        "what do",
-        "how does",
-        "how do",
-        "how is",
-        "how are",
-        "why does",
-        "why do",
-        "why is",
-        "why are",
-        "can you explain",
-        "explain",
-        "describe",
-        "tell me about",
-        "what's the difference",
-        "thanks",
-        "thank you",
-        "hello",
-        "hi ",
-        "good morning",
-        "good evening",
-    )
-
-    # Bare continuation/affirmation user turns (< 15 chars, no tool keyword) would trip
-    # the length gate below and drop the working tool set; keep the read-only core so
-    # the model can still reason over in-progress work (_tool_skip_mode: read_core).
-    _CONTINUATION_TOKENS = frozenset(
-        {
-            "continue",
-            "proceed",
-            "go",
-            "go on",
-            "keep going",
-            "next",
-            "more",
-            "again",
-            "yes",
-            "y",
-            "ok",
-            "okay",
-            "sure",
-            "do it",
-            "apply",
-            "apply it",
-        }
-    )
+    # Tool-supply policy constants + heuristic moved to
+    # victor/agent/tool_supply_policy.py (ADR-019 increment 2).
 
     def _tool_skip_mode(self, context_msg: str) -> str:
-        """Decide tool supply for a (possibly conversational) turn (tool-supply P3).
+        """Decide tool supply for a turn — delegates to the pure tool-supply policy.
 
-        Uses a fast heuristic first (keyword scan), then optionally consults the edge
-        model via DecisionService for borderline Q&A. Returns one of:
-
-        - ``"skip"``      — trivially-safe conversational turn (short greeting): no tools.
-        - ``"read_core"`` — borderline Q&A: provide ONLY a minimal read-only core so the
-          model can look something up if it turns out it needs to, rather than removing
-          the entire tool set (the old behavior left "how does X work?" unable to read X).
-        - ``"tools"``     — proceed with normal tool selection.
+        Returns ``"skip"`` / ``"read_core"`` / ``"tools"`` (ADR-019 increment 2;
+        heuristic lives in ``victor/agent/tool_supply_policy.py``).
         """
-        msg_lower = context_msg.lower().strip()
-
-        # Bare continuation/affirmation of an in-progress task ("continue",
-        # "proceed", "go", "yes", "apply it", ...). These are short and carry no
-        # tool-signal keyword, so the length gate below would drop the tool set.
-        # Preserve the read-only core instead so the model can keep working the
-        # active task. Checked BEFORE the length short-circuit on purpose.
-        if msg_lower in self._CONTINUATION_TOKENS:
-            return "read_core"
-
-        # Very short messages are almost always greetings/Q&A — the only hard no-tools path.
-        if len(msg_lower) < 15:
-            # Unless they look like commands: "fix it", "run tests", etc.
-            if any(kw in msg_lower for kw in ("fix", "run", "edit", "create", "delete")):
-                return "tools"
-            return "skip"
-
-        # Heuristic: count tool-signal keywords vs Q&A patterns
-        words = set(msg_lower.split())
-        tool_signals = len(words & self._TOOL_SIGNAL_KEYWORDS)
-        qa_match = any(msg_lower.startswith(pat) for pat in self._QA_SIGNAL_PATTERNS)
-
-        # High-confidence heuristic paths
-        if tool_signals >= 2:
-            return "tools"  # Clearly needs tools
-        if qa_match and tool_signals == 0:
-            # Consult edge model for borderline Q&A (might still need tools). Even when it
-            # says "skip", give the read-only core rather than nothing.
-            skip = self._check_tool_necessity_via_edge(context_msg, heuristic_conf=0.85)
-            return "read_core" if skip else "tools"
-
-        # Ambiguous: 0-1 tool signals — default to providing tools
-        if tool_signals == 0 and qa_match:
-            skip = self._check_tool_necessity_via_edge(context_msg, heuristic_conf=0.6)
-            return "read_core" if skip else "tools"
-
-        return "tools"  # Default: provide tools
+        return classify_tool_supply(context_msg, edge_check=self._check_tool_necessity_via_edge)
 
     def _should_skip_tools_for_turn(self, context_msg: str) -> bool:
         """Back-compat shim: True when full tool selection is not needed this turn.
@@ -3925,69 +3678,17 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
     def _demote_tools_to_fit(
         self, tools, max_tokens: int, context_window: int, provider_category: str = None
     ) -> list:
-        """Demote or drop low-priority tools until within budget.
+        """Demote/drop low-priority tools to fit budget — delegates to the pure policy.
 
-        Args:
-            tools: List of tools to filter
-            max_tokens: Maximum tool tokens allowed (25% of context window)
-            context_window: Context window size
-            provider_category: Provider category for tier selection
-
-        Returns:
-            Filtered list of tools that fit within budget
+        See ``victor/agent/tool_supply_policy.py`` (ADR-019 increment 2).
         """
-        from victor.tools.enums import Priority, SchemaLevel
-
-        # Sort by priority (CRITICAL first)
-        sorted_tools = sorted(
+        return demote_tools_to_fit(
             tools,
-            key=lambda t: (t.priority.value if hasattr(t, "priority") else 99, t.name),
+            max_tokens,
+            context_window,
+            estimate_tokens=self._estimate_tool_tokens,
+            provider_category=provider_category,
         )
-
-        result = []
-        current_tokens = 0
-
-        for tool in sorted_tools:
-            # Estimate current token cost using provider-specific tiers
-            tool_cost = self._estimate_tool_tokens(tool, provider_category)
-
-            if current_tokens + tool_cost <= max_tokens:
-                # Tool fits within budget
-                result.append(tool)
-                current_tokens += tool_cost
-            elif hasattr(tool, "priority") and tool.priority == Priority.CRITICAL:
-                # Critical tools MUST fit - demote to STUB
-                try:
-                    # Temporarily override schema level to STUB
-                    original_schema = getattr(tool, "_schema_level", None)
-                    tool._schema_level = SchemaLevel.STUB
-                    stub_cost = self._estimate_tool_tokens(tool)
-                    tool._schema_level = original_schema  # Restore
-
-                    if current_tokens + stub_cost <= max_tokens:
-                        result.append(tool)
-                        current_tokens += stub_cost
-                        logger.debug(f"Demoted critical tool {tool.name} to STUB to fit budget")
-                    else:
-                        logger.warning(
-                            f"Critical tool {tool.name} ({stub_cost} tokens) exceeds budget "
-                            f"even as STUB. Dropping tool."
-                        )
-                except Exception as e:
-                    logger.warning(f"Error demoting tool {tool.name}: {e}")
-            else:
-                # Skip non-critical tool
-                logger.debug(
-                    f"Skipping {tool.name} (priority: {tool.priority if hasattr(tool, 'priority') else 'unknown'}) "
-                    f"to fit within {max_tokens} token budget"
-                )
-
-        logger.info(
-            f"Demoted tools to fit context window: {len(tools)} → {len(result)} tools, "
-            f"{current_tokens} tokens (budget: {max_tokens}, context: {context_window})"
-        )
-
-        return result
 
     def _semantic_select_tools(self, tools, max_tokens: int, provider_category: str = None) -> list:
         """Delegate semantic tool selection to ToolService."""
@@ -4433,24 +4134,23 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
         return ConversationStage.INITIAL
 
     def get_tool_calls_count(self) -> int:
-        """Get total tool calls made (protocol method).
+        """Get total tool calls made (protocol method), matching get_tool_budget().
 
         Returns:
             Non-negative count of tool calls in this session
         """
-        if self.unified_tracker:
-            return self.unified_tracker.tool_calls_used
-        return getattr(self, "tool_calls_used", 0)
+        return int(getattr(self, "tool_calls_used", 0) or 0)
 
     def get_tool_budget(self) -> int:
-        """Get tool call budget (protocol method).
+        """Get the *enforcing* tool budget (protocol method).
+
+        ``self.tool_budget`` seeds ``StreamingChatContext`` and halts the loop;
+        ``UnifiedTaskTracker`` is advisory by design and must not be quoted here.
 
         Returns:
             Maximum allowed tool calls
         """
-        if self.unified_tracker:
-            return self.unified_tracker.tool_budget
-        return getattr(self, "tool_budget", 50)
+        return int(getattr(self, "tool_budget", 50) or 50)
 
     def get_observed_files(self) -> Set[str]:
         """Get files observed/read during conversation (protocol method).

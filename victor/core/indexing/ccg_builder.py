@@ -566,7 +566,12 @@ class CodeContextGraphBuilder:
                 return StatementType.SWITCH
             if node_type in {"switch_case", "switch_default"}:
                 return StatementType.CASE
-            if node_type in {"variable_declaration", "assignment_expression"}:
+            if node_type in {
+                "variable_declaration",
+                "lexical_declaration",
+                "assignment_expression",
+                "augmented_assignment_expression",
+            }:
                 return StatementType.ASSIGNMENT
             if node_type == "call_expression":
                 return StatementType.CALL
@@ -581,6 +586,10 @@ class CodeContextGraphBuilder:
                 return StatementType.FUNCTION_DEF
             if node_type == "class_declaration":
                 return StatementType.CLASS_DEF
+            if node_type == "expression_statement":
+                # Parity with the Python classifier: without this, statements
+                # like `x -= 1;` anchor nothing (no loop back-edges in JS/TS).
+                return StatementType.EXPRESSION
 
         # Go mappings
         elif self.language == "go":
@@ -696,10 +705,168 @@ class CodeContextGraphBuilder:
                 )
                 edges.append(edge)
 
-        # TODO: Add more sophisticated CFG construction for:
-        # - Conditional branches (if/else)
-        # - Loop back-edges
-        # - Exception flow
+        # Structural edges from the AST (closes the old TODO): false branches,
+        # loop back-edges, exception/catch/finally flow, switch/match dispatch.
+        seen = {(e.src, e.dst, e.type) for e in edges}
+        for edge in self._build_structural_cfg_edges(sorted_nodes, ast_root):
+            key = (edge.src, edge.dst, edge.type)
+            if key not in seen:
+                seen.add(key)
+                edges.append(edge)
+
+        return edges
+
+    # AST node types per construct. Node types are grammar-specific, so union
+    # sets are safe to apply across every CCG language (a Go tree simply has no
+    # `except_clause` nodes, a Python tree no `switch_statement`).
+    _IF_NODES = frozenset({"if_statement", "if_expression"})
+    _ELSE_NODES = frozenset({"elif_clause", "else_clause", "else_statement"})
+    _LOOP_NODES = frozenset(
+        {
+            "for_statement",
+            "while_statement",
+            "do_statement",
+            "for_in_statement",
+            "for_of_statement",
+            "enhanced_for_statement",
+            "for_range_loop",
+            "loop_expression",
+            "while_expression",
+            "for_expression",
+        }
+    )
+    _TRY_NODES = frozenset({"try_statement", "try_expression"})
+    _CATCH_NODES = frozenset({"except_clause", "except_group_clause", "catch_clause"})
+    _FINALLY_NODES = frozenset({"finally_clause"})
+    _SWITCH_NODES = frozenset(
+        {"switch_statement", "switch_expression", "match_statement", "match_expression"}
+    )
+    _CASE_NODES = frozenset(
+        {
+            "case_clause",
+            "switch_case",
+            "case_statement",
+            "match_arm",
+            "switch_block_statement_group",
+            "switch_rule",
+        }
+    )
+    _DEFAULT_CASE_NODES = frozenset({"switch_default", "default_case"})
+
+    def _statement_id_at_line(self, nodes: List[Any], line: int) -> Optional[str]:
+        """Statement node id for a line: exact start match, else narrowest span.
+
+        Compound statements span their whole body, so plain containment would
+        resolve an inner line to the outermost construct; preferring the exact
+        start line and then the narrowest containing span picks the innermost
+        statement instead.
+        """
+        best_id: Optional[str] = None
+        best_span = float("inf")
+        for node in nodes:
+            if not node.line:
+                continue
+            if node.line == line:
+                return node.node_id
+            if node.line <= line <= (node.end_line or node.line):
+                span = (node.end_line or node.line) - node.line
+                if span < best_span:
+                    best_span = span
+                    best_id = node.node_id
+        return best_id
+
+    def _build_structural_cfg_edges(self, nodes: List[Any], ast_root: Any) -> List[Any]:
+        """CFG edges derived from AST structure rather than line adjacency.
+
+        Emits, per construct:
+        - if/elif/else:  condition -> alternative head   (CFG_FALSE_BRANCH)
+        - loops:         last body statement -> header   (CFG_LOOP_BACK)
+        - try:           try head -> each handler        (CFG_CATCH / CFG_FINALLY)
+        - switch/match:  dispatch head -> each case head (CFG_CASE / CFG_DEFAULT)
+
+        Best-effort: an edge is only emitted when both endpoints resolve to
+        extracted statement nodes.
+        """
+        _, GraphEdge, EdgeType = _get_graph_types()
+        edges: List[Any] = []
+
+        def _first_statement_in_span(start: int, end: int) -> Optional[str]:
+            """First exact statement start within [start, end] (line order)."""
+            best_id: Optional[str] = None
+            best_line = end + 1
+            for node in nodes:
+                if node.line and start <= node.line <= end and node.line < best_line:
+                    best_line = node.line
+                    best_id = node.node_id
+            return best_id
+
+        def _last_statement_in_span(start: int, end: int) -> Optional[str]:
+            """Last statement starting within (start, end] — brace languages end
+            constructs on a bare ``}`` line where no statement starts."""
+            best_id: Optional[str] = None
+            best_line = start
+            for node in nodes:
+                if node.line and start < node.line <= end and node.line > best_line:
+                    best_line = node.line
+                    best_id = node.node_id
+            return best_id
+
+        def _emit(src_line: int, dst_node: Any, edge_type: str) -> None:
+            """Edge from the statement at src_line to the head of dst_node.
+
+            The destination construct (else_clause, catch, case) may not itself
+            be an extracted statement — resolve to the first statement inside
+            its span instead.
+            """
+            dst_head = dst_node.start_point[0] + 1
+            dst_end = dst_node.end_point[0] + 1
+            src = self._statement_id_at_line(nodes, src_line)
+            dst = _first_statement_in_span(dst_head, dst_end)
+            if src and dst and src != dst:
+                edges.append(GraphEdge(src=src, dst=dst, type=edge_type, weight=1.0))
+
+        stack = [ast_root]
+        while stack:
+            n = stack.pop()
+            t = getattr(n, "type", None)
+            children = list(getattr(n, "children", []) or [])
+            if t is not None:
+                line = n.start_point[0] + 1
+                if t in self._IF_NODES:
+                    seen_alt_lines: Set[int] = set()
+                    alts = [n.child_by_field_name("alternative")]
+                    alts.extend(ch for ch in children if ch.type in self._ELSE_NODES)
+                    for alt in alts:
+                        if alt is None:
+                            continue
+                        alt_line = alt.start_point[0] + 1
+                        if alt_line in seen_alt_lines:
+                            continue
+                        seen_alt_lines.add(alt_line)
+                        _emit(line, alt, EdgeType.CFG_FALSE_BRANCH)
+                elif t in self._LOOP_NODES:
+                    last_line = n.end_point[0] + 1
+                    if last_line > line:
+                        src = _last_statement_in_span(line, last_line)
+                        dst = self._statement_id_at_line(nodes, line)
+                        if src and dst and src != dst:
+                            edges.append(
+                                GraphEdge(src=src, dst=dst, type=EdgeType.CFG_LOOP_BACK, weight=1.0)
+                            )
+                elif t in self._TRY_NODES:
+                    for ch in children:
+                        if ch.type in self._CATCH_NODES:
+                            _emit(line, ch, EdgeType.CFG_CATCH)
+                        elif ch.type in self._FINALLY_NODES:
+                            _emit(line, ch, EdgeType.CFG_FINALLY)
+                elif t in self._SWITCH_NODES:
+                    body = n.child_by_field_name("body") or n
+                    for ch in getattr(body, "children", []) or []:
+                        if ch.type in self._CASE_NODES:
+                            _emit(line, ch, EdgeType.CFG_CASE)
+                        elif ch.type in self._DEFAULT_CASE_NODES:
+                            _emit(line, ch, EdgeType.CFG_DEFAULT)
+            stack.extend(children)
 
         return edges
 

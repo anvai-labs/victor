@@ -86,6 +86,10 @@ class GraphIndexConfig:
     embedding_neighborhood_radius: int = 2
     embedding_max_neighbors: int = 50
     embedding_batch_size: int = 100
+    # Structural mixing weight for PERSISTED vectors. Keep 0.0 so stored vectors
+    # stay comparable to plain-text query embeddings at search time; structural
+    # signals belong in ranking (hop-distance decay), not in the stored vector.
+    embedding_structural_weight: float = 0.0
     respect_gitignore: bool = True
     detect_languages: bool = True
     enable_module_metrics: bool = True
@@ -125,6 +129,8 @@ class RetrievalConfig:
         semantic_threshold: Minimum semantic similarity for seed nodes
         enable_reranking: Whether to re-rank results after traversal
         max_context_tokens: Maximum tokens in retrieved context
+        mode: Seed strategy this retrieval ran under (semantic/structural/
+            hybrid) — part of the query-cache key so mode results don't collide
     """
 
     seed_count: int = 5
@@ -136,6 +142,7 @@ class RetrievalConfig:
     semantic_threshold: float = 0.3
     enable_reranking: bool = True
     max_context_tokens: int = 8000
+    mode: str = "semantic"
 
 
 @dataclass

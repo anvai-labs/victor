@@ -201,3 +201,35 @@ def test_sanitize_prompt_toolkit_history_file_trims_by_entries_not_lines(
         "two line a\ntwo line b",
         "three line a\nthree line b\nthree line c",
     ]
+
+
+class TestEnvelopedGuidanceStaysOutOfInputHistory:
+    """Enveloped runtime guidance must not surface when the user presses ↑.
+
+    Hiding normally works off ``build_internal_history_metadata``. But metadata is
+    not guaranteed to survive: two rebuild paths were found silently dropping it
+    (fixed in #715), and the content-prefix table exists precisely as the fallback
+    for rows that reach the store without it.
+
+    That table knew the legacy ``[SYSTEM-REMINDER:`` prefix. Once FEP-0026 replaced
+    that prefix with the authenticated envelope, the fallback stopped matching, so
+    a metadata-less row would have leaked runtime guidance into the user's history.
+    """
+
+    def test_enveloped_guidance_is_classified_as_internal(self):
+        from victor.agent.control_plane import mint_channel_nonce, wrap_guidance
+        from victor.ui.history_utils import classify_internal_history_entry
+
+        enveloped = wrap_guidance("You are an expert coding assistant.", mint_channel_nonce())
+
+        assert classify_internal_history_entry(enveloped) == "system_reminder"
+
+    def test_legacy_prefix_still_classified_for_stored_conversations(self):
+        from victor.ui.history_utils import classify_internal_history_entry
+
+        assert classify_internal_history_entry("[SYSTEM-REMINDER: old row]") == "system_reminder"
+
+    def test_ordinary_user_text_is_not_hidden(self):
+        from victor.ui.history_utils import classify_internal_history_entry
+
+        assert classify_internal_history_entry("implement the metrics registry") is None

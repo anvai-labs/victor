@@ -324,3 +324,34 @@ source_roots = ["victor_missing_root", "nonexistent"]
     assert report.passed is True
     assert report.warning_count == 1
     assert any(issue.code == "missing_contract_audit_source_root" for issue in report.issues)
+
+
+def test_runtime_import_replacements_target_non_deprecated_contract_modules() -> None:
+    """Audit remediation pointers must never recommend a deprecated bridge.
+
+    The six bridges in ``victor_contracts._deprecation`` warn since SDK 0.9.0
+    and are removed no earlier than 0.10.0 (see CONTRACT_STABILITY.md), so the
+    contract auditor must steer extracted verticals elsewhere.
+    """
+    import importlib.util
+    import re
+
+    from victor_contracts._deprecation import DEPRECATED_BRIDGE_REPLACEMENTS
+
+    from victor.core.verticals.contract_audit import _RUNTIME_IMPORT_REPLACEMENTS
+
+    deprecated = set(DEPRECATED_BRIDGE_REPLACEMENTS)
+    assert deprecated, "deprecated bridge registry should not be empty"
+
+    for forbidden_prefix, replacement in _RUNTIME_IMPORT_REPLACEMENTS.items():
+        targets = re.findall(r"victor_contracts\.(\w+)", replacement)
+        assert targets, f"replacement for {forbidden_prefix!r} names no victor_contracts module"
+        for target in targets:
+            assert target not in deprecated, (
+                f"replacement for {forbidden_prefix!r} points at deprecated "
+                f"victor_contracts.{target}"
+            )
+            assert importlib.util.find_spec(f"victor_contracts.{target}") is not None, (
+                f"replacement for {forbidden_prefix!r} points at nonexistent "
+                f"victor_contracts.{target}"
+            )

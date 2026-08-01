@@ -4,7 +4,7 @@
 >
 > A flag's **code default** is OFF iff it is in `is_opt_in_by_default()` (assuming no YAML/env override). This table is the single source of truth for flag defaults — cite it instead of restating defaults in prose, which drifts (see F-016 / TD-17).
 
-Total flags: 25 · Opt-in (default OFF): 11 · Default ON: 14
+Total flags: 26 · Opt-in (default OFF): 12 · Default ON: 14
 
 | Flag | Code default | Opt-in |
 |------|--------------|--------|
@@ -14,6 +14,7 @@ Total flags: 25 · Opt-in (default OFF): 11 · Default ON: 14
 | `use_composition_over_inheritance` | ON | no |
 | `use_e3_tir_exploration` | OFF | yes |
 | `use_edge_model` | ON | no |
+| `use_graph_embeddings` | OFF | yes |
 | `use_graph_enhanced_context` | ON | no |
 | `use_graph_query_tool` | ON | no |
 | `use_graph_rag` | ON | no |

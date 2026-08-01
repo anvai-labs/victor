@@ -1098,6 +1098,9 @@ class TurnExecutor:
             getattr(_settings, "agent", None), "completion_strategy", "enhanced"
         )
         _rubric_fn = self._build_rubric_complete_fn() if _strategy in ("rubric", "hybrid") else None
+        from victor.framework.effect_gate import resolve_effect_gate_enabled
+
+        _effect_gate = resolve_effect_gate_enabled(_settings)
         loop = AgenticLoop(
             orchestrator=None,
             turn_executor=self,
@@ -1105,7 +1108,7 @@ class TurnExecutor:
             enable_fulfillment_check=True,
             enable_adaptive_iterations=True,
             exploration_settings=getattr(self._chat_context.settings, "exploration", None),
-            config={"completion_strategy": _strategy},
+            config={"completion_strategy": _strategy, "enable_effect_gate": _effect_gate},
             rubric_complete_fn=_rubric_fn,
             verifier=getattr(self, "_verifier", None),
             max_verify_retries=getattr(self, "_max_verify_retries", 0),

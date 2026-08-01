@@ -1578,6 +1578,9 @@ class StreamingChatExecutor:
             if (_strategy in ("rubric", "hybrid") and _te is not None)
             else None
         )
+        from victor.framework.effect_gate import resolve_effect_gate_enabled
+
+        _effect_gate = resolve_effect_gate_enabled(getattr(orch, "settings", None))
         loop = AgenticLoop(
             orchestrator=None,
             turn_executor=_te,
@@ -1587,7 +1590,7 @@ class StreamingChatExecutor:
             enable_adaptive_iterations=True,
             exploration_settings=getattr(getattr(orch, "settings", None), "exploration", None),
             streaming_act_port=adapter,
-            config={"completion_strategy": _strategy},
+            config={"completion_strategy": _strategy, "enable_effect_gate": _effect_gate},
             rubric_complete_fn=_rubric_fn,
             verifier=getattr(_te, "_verifier", None),
             max_verify_retries=getattr(_te, "_max_verify_retries", 0),

@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from victor.framework.enrichment import (
+        ANALYSIS_TYPES,
+        DATA_PATTERNS,
         DEVOPS_PATTERNS,
         INFRA_TYPES,
         ContextEnrichment,
@@ -21,7 +23,9 @@ if TYPE_CHECKING:
     from victor.framework.enrichment.file_patterns import CODE_PATTERNS
 
 __all__ = [
+    "ANALYSIS_TYPES",
     "ContextEnrichment",
+    "DATA_PATTERNS",
     "DEVOPS_PATTERNS",
     "EnrichmentContext",
     "EnrichmentPriority",
@@ -35,8 +39,10 @@ __all__ = [
 ]
 
 _LAZY_IMPORTS = {
+    "ANALYSIS_TYPES": "victor.framework.enrichment",
     "CODE_PATTERNS": "victor.framework.enrichment.file_patterns",
     "ContextEnrichment": "victor.framework.enrichment",
+    "DATA_PATTERNS": "victor.framework.enrichment",
     "DEVOPS_PATTERNS": "victor.framework.enrichment",
     "EnrichmentContext": "victor.framework.enrichment",
     "EnrichmentPriority": "victor.framework.enrichment",

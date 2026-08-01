@@ -27,10 +27,12 @@ from .model import (
     deterministic_symbol_id,
     stable_symbol_oid,
 )
+from .manifest import ManifestDiff, build_manifest, diff_manifest, iter_changed_files
 from .parser import chunk, parse
-from .repo import chunk_path, chunk_repo, iter_source_files, parse_path
+from .repo import chunk_path, chunk_repo, iter_source_files, parse_path, read_source_text
+from .resolution import resolve_relations
 
-__version__ = "0.1.2"
+__version__ = "0.9.0"
 
 __all__ = [
     "__version__",
@@ -40,6 +42,11 @@ __all__ = [
     "chunk_path",
     "parse_path",
     "iter_source_files",
+    "read_source_text",
+    "build_manifest",
+    "diff_manifest",
+    "iter_changed_files",
+    "ManifestDiff",
     "ChunkConfig",
     "LINE_BASE",
     "detect_language",
@@ -55,4 +62,5 @@ __all__ = [
     "SourceLocation",
     "stable_symbol_oid",
     "deterministic_symbol_id",
+    "resolve_relations",
 ]

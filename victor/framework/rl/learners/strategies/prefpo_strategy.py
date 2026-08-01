@@ -39,6 +39,52 @@ class PrefPOStrategy:
     }
     requires_benchmark_gate = True
 
+    # Which failure categories each target section may legitimately address.
+    #
+    # Without this, PrefPO ranked failures globally and appended the hint for
+    # whatever failed most — so an output-style section such as
+    # CONCISE_MODE_GUIDANCE could receive tool-discipline guidance
+    # ("copy old_str exactly") for an ``edit_mismatch`` that has nothing to do
+    # with verbosity. The 2026-07-27 FEP-0025 checkpoint recorded exactly this
+    # cross-section contamination ("tool-discipline guidance landed in the
+    # output-style section"). Scoping additions to the section's own concern
+    # keeps a section on-topic and stops it accreting unrelated rules.
+    #
+    # A section absent from this map is left unscoped (all categories eligible),
+    # so custom sections keep the prior behaviour; the three TARGET_SECTIONS
+    # that actually reach these helpers are all mapped.
+    SECTION_RELEVANT_FAILURES: Dict[str, frozenset] = {
+        "GROUNDING_RULES": frozenset(
+            {
+                "file_not_found",
+                "read_directory",
+                "permission_denied",
+                "edit_mismatch",
+                "edit_ambiguous",
+                "edit_syntax",
+                "tool_not_found",
+                "tool_error",
+                "search_no_results",
+                "shell_error",
+                "other",
+            }
+        ),
+        "COMPLETION_GUIDANCE": frozenset(
+            {
+                "timeout",
+                "test_failure",
+                "tool_error",
+                "shell_error",
+                "other",
+            }
+        ),
+        "CONCISE_MODE_GUIDANCE": frozenset({"verbosity"}),
+    }
+
+    def _relevant_categories(self, section_name: str) -> Optional[frozenset]:
+        """Categories eligible for ``section_name``; None means unscoped."""
+        return self.SECTION_RELEVANT_FAILURES.get(section_name)
+
     def __init__(
         self,
         *,
@@ -83,7 +129,7 @@ class PrefPOStrategy:
         report = evaluate_prompt_candidate(
             current_text,
             candidate_text,
-            allowed_additions=self._dominant_guidance_lines(traces),
+            allowed_additions=self._dominant_guidance_lines(traces, section_name),
             max_growth_chars=self._max_prompt_growth_chars,
         )
         if not report.accepted:
@@ -121,8 +167,7 @@ class PrefPOStrategy:
 
     def _build_challenger(self, current_text: str, traces: List[Any], section_name: str) -> str:
         """Propose a minimally edited challenger from dominant failures."""
-        del section_name
-        guidance_lines = self._guidance_lines(traces, current_text)
+        guidance_lines = self._guidance_lines(traces, current_text, section_name)
         if not guidance_lines:
             return current_text
         base = current_text.rstrip()
@@ -137,9 +182,8 @@ class PrefPOStrategy:
         section_name: str,
     ) -> Tuple[str, str]:
         """Prefer the prompt that better covers dominant failures with less bloat."""
-        del section_name
         failure_counts = self._failure_counts(traces)
-        dominant_lines = self._dominant_guidance_lines(traces)
+        dominant_lines = self._dominant_guidance_lines(traces, section_name)
         current_lines = dominant_lines
         challenger_lines = dominant_lines
 
@@ -179,20 +223,20 @@ class PrefPOStrategy:
             merged = f"{merged}\n{addition}" if merged else addition
         return merged
 
-    def _guidance_lines(self, traces: List[Any], current_text: str) -> List[str]:
+    def _guidance_lines(self, traces: List[Any], current_text: str, section_name: str) -> List[str]:
         """Return the top missing guidance lines for the dominant failures."""
         current_lower = current_text.lower()
         guidance_lines = [
             line
-            for line in self._dominant_guidance_lines(traces)
+            for line in self._dominant_guidance_lines(traces, section_name)
             if line[2:].strip().lower() not in current_lower
         ]
         return guidance_lines[: self._max_guidance_items]
 
-    def _dominant_guidance_lines(self, traces: List[Any]) -> List[str]:
+    def _dominant_guidance_lines(self, traces: List[Any], section_name: str) -> List[str]:
         """Return guidance lines for the highest-pressure failures."""
         guidance_lines = []
-        for category, _count in self._dominant_failures(traces):
+        for category, _count in self._dominant_failures(traces, section_name):
             hint = get_failure_hint(category).strip()
             if not hint:
                 continue
@@ -202,9 +246,17 @@ class PrefPOStrategy:
             guidance_lines.append(f"- {first_sentence}")
         return guidance_lines[: self._max_guidance_items]
 
-    def _dominant_failures(self, traces: List[Any]) -> List[Tuple[str, int]]:
-        """Return the highest-pressure failure categories from traces."""
+    def _dominant_failures(self, traces: List[Any], section_name: str) -> List[Tuple[str, int]]:
+        """Return the highest-pressure failure categories relevant to the section.
+
+        Categories outside the section's concern are dropped before ranking, so
+        a section only ever accretes guidance about the failures it can address
+        (see ``SECTION_RELEVANT_FAILURES``).
+        """
         counts = self._failure_counts(traces)
+        relevant = self._relevant_categories(section_name)
+        if relevant is not None:
+            counts = {cat: n for cat, n in counts.items() if cat in relevant}
         ranked = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
         return [item for item in ranked if item[1] >= self._min_failure_count][
             : self._max_guidance_items

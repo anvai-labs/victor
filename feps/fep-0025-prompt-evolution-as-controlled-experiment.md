@@ -4,7 +4,7 @@ title: "Prompt evolution as a controlled experiment — seeding, evidence, and p
 type: Standards Track
 status: Draft
 created: 2026-07-26
-modified: 2026-07-26
+modified: 2026-08-01
 authors:
   - name: Vijaykumar Singh
     email: singhvjd@gmail.com
@@ -53,6 +53,43 @@ FEP restructures it around the experiment, not the candidate:
   counts against a prompt it can only partly read;
 - **promotion into `prompt_section_texts.py`** becomes a reviewed, gated step,
   so improvements reach other installs instead of dying in one laptop's SQLite.
+
+## Implementation status (updated 2026-08-01)
+
+This section tracks what has landed against the gaps below; the analysis in the
+rest of the FEP is preserved as the historical record and is **partly stale** —
+read it with this addendum.
+
+- **G3 (reflection reads a truncated prompt) — largely closed.** The 1000-char
+  cap is gone: `GEPAService.reflect()` now receives the section **in full**
+  (`victor/framework/rl/gepa_service.py`), and failing exemplars reach the
+  mutator via `format_failing_exemplars` and the ASI trace formatter
+  (`gepa_strategy_adapter.py`). The "reflection is a histogram" framing no
+  longer describes the GEPA v2 path.
+- **G1/G2 (no control arm; non-comparative reward) — closed on the benchmark
+  path.** The suite path carries a baseline arm, paired contrast
+  (`_paired_contrast`), a beat-noise floor, and throttle-aware evidence; the
+  harness verdict wins over the `completion_score` proxy where a graded session
+  exists. Not yet unified with the interactive epsilon-serve path — that
+  remains Phase 3.
+- **G5 (circular seeding) — narrowed** via per-task `observed_prompt_identities`
+  (all real evals now feed selection). The pre-execution assignment of Phase 3
+  is still the clean fix.
+- **G4 (keying is decoration) — open.** Still `(section, provider)`;
+  `task_type` still defaults for most traces. Phase 4 remains.
+- **G6 (nothing reaches other users) — open.** Still `scripts/prompt_candidates.py`
+  only; `victor prompts promote` (Phase 5) is not built.
+- **Strategy-layer fidelity — closed (ADR-027, 2026-08-01).** Independent of the
+  experiment restructuring, the heuristic strategies were made honest and
+  faithful: CoT distillation now derives its scaffold from a source trace's real
+  tool trajectory instead of a fixed template, and PrefPO is section-scoped so
+  it stops appending off-topic guidance (the "tool-discipline guidance landed in
+  the output-style section" defect from the 2026-07-27 checkpoint). See
+  `docs/architecture/adr/027-prompt-optimization-strategy-fidelity.md`.
+
+Net: Phases 1–2 are substantially realized on the benchmark path; the remaining
+work is Phase 3 (unify interactive + experimental evidence), Phase 4
+(population keying + `task_classification`), and Phase 5 (promotion to source).
 
 ## Motivation
 

@@ -194,6 +194,25 @@ class OrchestratorIntegration:
 
         return cls(orchestrator, pipeline, config)
 
+    def _resolve_operating_mode(self) -> str:
+        """Return the agent's operating mode (build/plan/review/delegate/explore).
+
+        This is deliberately *not* the ``ConversationStage``. The two are different
+        axes: a stage says where the turn is (INITIAL, READING, COMPLETION), while
+        the operating mode says what the agent is permitted to do. Feeding a stage
+        name in here meant ``IntelligentPromptBuilder._get_mode_hint`` never matched
+        a known mode, silently dropped the mode hint, and generated a read-only
+        "code analyst" prompt for a session running in BUILD mode.
+
+        ``ModeAwareMixin`` already exposes the real value; use it.
+        """
+        mode_name = getattr(self._orchestrator, "current_mode_name", None)
+        if isinstance(mode_name, str) and mode_name.strip():
+            return mode_name.strip().lower()
+
+        logger.debug("Operating mode unavailable on orchestrator; defaulting to 'explore'")
+        return "explore"
+
     async def prepare_request(
         self,
         task: str,
@@ -228,12 +247,8 @@ class OrchestratorIntegration:
                 should_continue=True,
             )
 
-        # Get mode from conversation state if not provided
-        # Note: ConversationStage uses auto() which returns int values,
-        # so we use stage.name.lower() to get a string mode name
         if current_mode is None:
-            stage = self._orchestrator.conversation_state.get_current_stage()
-            current_mode = stage.name.lower() if stage else "explore"
+            current_mode = self._resolve_operating_mode()
 
         # Prepare context using pipeline
         context = await self._pipeline.prepare_request(
@@ -484,11 +499,7 @@ class OrchestratorIntegration:
             Dictionary with recommendations, or None if pipeline disabled
         """
         try:
-            # Get current mode from conversation state
-            # Note: ConversationStage uses auto() which returns int values,
-            # so we use stage.name.lower() to get a string mode name
-            stage = conversation_state.get_current_stage()
-            current_mode = stage.name.lower() if stage else "explore"
+            current_mode = self._resolve_operating_mode()
 
             # Prepare request context (async call to pipeline)
             context = await self.prepare_request(

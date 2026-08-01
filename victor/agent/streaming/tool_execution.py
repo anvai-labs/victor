@@ -699,10 +699,12 @@ class ToolExecutionHandler:
         result.tool_results.extend(tool_results)
         result.tool_calls_executed = len(tool_calls)
         result.last_tool_name = last_tool_name
+        executed_tool_names: List[str] = []
         for tool_call in tool_calls:
             tool_name = tool_call.get("name", "")
             canonical_name = canonicalize_core_tool_name(resolve_tool_name(tool_name))
             stream_ctx.record_executed_tool_name(canonical_name)
+            executed_tool_names.append(canonical_name)
 
         # Generate result chunks
         for tool_result in tool_results:
@@ -727,21 +729,26 @@ class ToolExecutionHandler:
         # 2. Providers like z.ai/Anthropic yield their own reasoning/thinking content.
         # 3. Adding it here often causes duplication in the UI (see handler.py:278).
 
-        # Update reminder manager
+        # Update reminder manager. Pass every tool executed in this batch, not just the
+        # last one: the reminder reports len(executed_tools) as "N tools used" while
+        # ``tool_calls`` counts each call, so appending one name per batch made the
+        # progress line understate a parallel batch (e.g. "3 tools used" after 8 calls).
         self._reminder_manager.update_state(
             observed_files=self._observed_files,
-            executed_tool=last_tool_name,
+            executed_tools=executed_tool_names or None,
             tool_calls=stream_ctx.tool_calls_used + len(tool_calls),
         )
 
-        # Get and inject consolidated reminder
-        reminder = self._reminder_manager.get_consolidated_reminder()
-        if reminder:
-            self._message_adder.add_message(
-                "user",
-                f"[SYSTEM-REMINDER: {reminder}]",
-                metadata=build_internal_history_metadata("system_reminder"),
-            )
+        # The consolidated reminder is NOT injected here as a bare role="user"
+        # message any more. It is delivered by the turn prefix
+        # (UnifiedPromptPipeline.compose_turn_prefix), inside the authenticated
+        # <system-reminder key="..."> envelope, where the model can tell it apart
+        # from something the user said.
+        #
+        # This must stay a single consumer: get_consolidated_reminder() is stateful
+        # and consuming — it suppresses unchanged content via reminder_history and
+        # advances last_reminder_at — so two live call sites would starve each
+        # other, each seeing only the reminders the other had not already taken.
 
     @staticmethod
     def _should_force_completion_after_terminal_skips(
@@ -798,6 +805,22 @@ async def _default_budget_exhausted_generator(stream_ctx: StreamingChatContext):
     )
 
 
+def _tracker_budget(unified_tracker: Any, fallback: int) -> int:
+    """Read ``UnifiedTaskTracker``'s advisory budget, or ``fallback`` if unavailable.
+
+    The tracker stores its budget on ``progress.tool_budget``; it has no top-level
+    ``tool_budget`` attribute. Callers used to reach for the latter through
+    ``getattr(..., default)``, which meant they always silently took the default.
+    """
+    if unified_tracker is None:
+        return int(fallback)
+    progress = getattr(unified_tracker, "progress", None)
+    budget = getattr(progress, "tool_budget", None)
+    if budget is None:
+        return int(fallback)
+    return int(budget)
+
+
 def create_tool_execution_handler(
     orchestrator: "AgentOrchestrator",
 ) -> ToolExecutionHandler:
@@ -815,19 +838,16 @@ def create_tool_execution_handler(
 
     def _set_budget_limit(budget: int) -> int:
         unified_tracker = getattr(orchestrator, "unified_tracker", None)
+        # UnifiedTaskTracker exposes its budget as ``progress.tool_budget``; it has no
+        # ``tool_budget`` attribute. Reading one silently fell through to the default,
+        # so a sticky user override was never actually honoured here.
         if getattr(unified_tracker, "_sticky_user_budget", False):
-            return int(
-                getattr(
-                    unified_tracker,
-                    "tool_budget",
-                    getattr(orchestrator, "tool_budget", budget),
-                )
-            )
+            return _tracker_budget(unified_tracker, getattr(orchestrator, "tool_budget", budget))
 
         effective_budget = int(budget)
         if unified_tracker is not None and hasattr(unified_tracker, "set_tool_budget"):
             unified_tracker.set_tool_budget(effective_budget)
-            effective_budget = int(getattr(unified_tracker, "tool_budget", effective_budget))
+            effective_budget = _tracker_budget(unified_tracker, effective_budget)
 
         orchestrator.tool_budget = effective_budget
 

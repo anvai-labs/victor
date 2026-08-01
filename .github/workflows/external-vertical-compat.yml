@@ -7,6 +7,7 @@ on:
       - '.github/workflows/external-vertical-compat.yml'
       - 'victor/**'
       - 'victor-contracts/**'
+      - 'examples/external_vertical/**'
       - 'pyproject.toml'
       - 'requirements*.txt'
       - 'VERSION'
@@ -20,6 +21,144 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # In-repo, self-contained proof that the contract-first external vertical
+  # example (examples/external_vertical) actually works: authorable and
+  # testable against victor-contracts alone (phase 1), and loadable through
+  # the victor-ai framework runtime (phase 2). Requires NO secrets, so it
+  # provides real signal on every run — unlike the dispatch jobs below,
+  # which stay informational until EXTERNAL_VERTICAL_PAT is configured.
+  example-vertical-proof:
+    name: Example Vertical Proof (Py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-example-proof-${{ matrix.python-version }}-${{ hashFiles('**/pyproject.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-example-proof-${{ matrix.python-version }}-
+            ${{ runner.os }}-pip-
+
+      # ---- Phase 1: contracts-only proof ------------------------------
+      # The example must install, test, and validate with ONLY the
+      # victor-contracts SDK present (no victor-ai runtime installed).
+      - name: "Phase 1: install SDK + example into a fresh venv"
+        run: |
+          python -m venv "$RUNNER_TEMP/contracts-venv"
+          "$RUNNER_TEMP/contracts-venv/bin/pip" install --upgrade pip
+          "$RUNNER_TEMP/contracts-venv/bin/pip" install \
+            ./victor-contracts \
+            "./examples/external_vertical[test]"
+
+      - name: "Phase 1: run the example's contract-only test suite"
+        run: |
+          "$RUNNER_TEMP/contracts-venv/bin/python" -m pytest \
+            examples/external_vertical/tests -q
+
+      - name: "Phase 1: validate package metadata (victor-contracts check)"
+        run: |
+          "$RUNNER_TEMP/contracts-venv/bin/victor-contracts" check victor-security
+
+      - name: "Phase 1: assert entry-point discovery via victor_contracts.discovery"
+        run: |
+          "$RUNNER_TEMP/contracts-venv/bin/python" - <<'PY'
+          from importlib.metadata import entry_points
+
+          from victor_contracts.discovery import collect_verticals_from_candidate
+
+          eps = {ep.name: ep for ep in entry_points(group="victor.plugins")}
+          assert "security" in eps, sorted(eps)
+          discovered = collect_verticals_from_candidate(eps["security"].load())
+          assert list(discovered) == ["security"], dict(discovered)
+          definition = discovered["security"].get_definition()
+          assert definition.name == "security"
+          print(f"Entry-point discovery OK: {definition.name}")
+          PY
+
+      # ---- Phase 2: runtime proof -------------------------------------
+      # The same example package must load through the victor-ai framework
+      # loader, land its custom tool in the ToolRegistry, and resolve its
+      # quick/deep mode configs.
+      - name: "Phase 2: install victor-ai runtime + example"
+        run: |
+          pip install --upgrade pip
+          # CPU-only torch for faster CI (mirrors ci-integration.yml).
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -e ./victor-contracts
+          pip install -e .
+          pip install ./examples/external_vertical
+
+      - name: "Phase 2: framework loader smoke (ToolRegistry + mode configs)"
+        run: |
+          python - <<'PY'
+          import asyncio
+          import tempfile
+          from importlib.metadata import entry_points
+          from pathlib import Path
+
+          from victor.agent.protocols import ToolRegistryProtocol
+          from victor.core.container import ServiceContainer
+          from victor.core.plugins.context import HostPluginContext
+          from victor.core.verticals.base import VerticalRegistry
+          from victor.core.verticals.vertical_loader import VerticalLoader
+          from victor.framework.module_loader import EntryPointCache
+          from victor.tools.registry import ToolRegistry
+
+          EntryPointCache.reset_instance()
+          EntryPointCache.get_instance(cache_dir=Path(tempfile.mkdtemp()))
+          VerticalRegistry.reset_discovery()
+
+          # Plugin registration through the host PluginContext routes the
+          # duck-typed custom tool into the framework ToolRegistry.
+          tool_registry = ToolRegistry()
+          container = ServiceContainer()
+          container.register_instance(ToolRegistryProtocol, tool_registry)
+          plugin = {ep.name: ep for ep in entry_points(group="victor.plugins")}[
+              "security"
+          ].load()
+          plugin.register(HostPluginContext(container))
+
+          tool = tool_registry.get("secret_pattern_scan")
+          assert tool is not None, "custom tool was not registered in ToolRegistry"
+          scan = asyncio.run(tool.execute(text='api_key = "abcdef0123456789"'))
+          assert scan["success"] is True, scan
+          patterns = sorted({finding["pattern"] for finding in scan["findings"]})
+          assert patterns == ["hardcoded_credential"], patterns
+
+          # Framework-path vertical load + mode config discovery via the
+          # victor.mode_configs entry point.
+          loader = VerticalLoader()
+          discovered = loader.discover_verticals(force_refresh=True)
+          assert "security" in discovered, sorted(discovered)
+          vertical = loader.load("security")
+          provider = vertical.get_mode_config_provider()
+          assert provider is not None, "mode config provider not discovered"
+          modes = sorted(provider.get_mode_configs())
+          assert modes == ["deep", "quick"], modes
+          assert provider.get_default_mode() == "quick"
+          assert provider.get_tool_budget_for_task("vulnerability_scan") == 18
+          print(f"Runtime proof OK: tool={tool.name}, modes={modes}")
+          PY
+
+  # NOTE: the jobs below dispatch compatibility checks to the (archived)
+  # standalone vertical repos and are INFORMATIONAL until the
+  # EXTERNAL_VERTICAL_PAT secret exists — without it they only log a skip.
+  # The example-vertical-proof job above is the in-repo proof and does not
+  # depend on that secret.
   dispatch-compat-checks:
     name: Dispatch Compatibility Checks
     runs-on: ubuntu-latest

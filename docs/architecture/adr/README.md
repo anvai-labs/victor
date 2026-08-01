@@ -18,7 +18,7 @@ entry — the ADR itself never tracks tasks.
 ## ADR Index
 
 Status is the governance state of the *decision*. Implementation is the observed state of the
-*code* (verified 2026-07-02).
+*code* (verified 2026-07-29).
 
 | ADR | Title | Status | Implementation | Date |
 |-----|-------|--------|----------------|------|
@@ -31,7 +31,7 @@ Status is the governance state of the *decision*. Implementation is the observed
 | [ADR-007](007-vertical-distribution-and-sdk-boundary.md) | Vertical Distribution Model and Contracts Boundary | Accepted | Shipped (CI-guarded boundary; verticals folded into monorepo) | 2026-03-10 |
 | [ADR-008](008-registry-performance-optimization.md) | Tool Registry Performance Optimization | Accepted | Shipped | 2025-04-19 |
 | [ADR-009](009-rubric-based-completion-evaluation.md) | Rubric-Based Completion Evaluation | Accepted | Shipped, opt-in (`completion_strategy=rubric`; default remains `enhanced` pending ADR-011 gate) | 2026-06-21 |
-| [ADR-010](010-effect-grounded-completion.md) | Effect-Grounded Completion | Proposed | Not implemented (backlog EVR-4, P0) | 2026-06-21 |
+| [ADR-010](010-effect-grounded-completion.md) | Effect-Grounded Completion | Accepted | Shipped, opt-in (`victor/framework/effect_gate.py`; `effect_gated_completion` / `VICTOR_EFFECT_GATED_COMPLETION`, default off pending flag-graduation gate) | 2026-06-21 |
 | [ADR-011](011-llm-judge-reliability-gating.md) | LLM-Judge Reliability Gating | Accepted | Shipped (`victor/evaluation/judge_calibration.py`, `trajectory_eval.py`); κ/α gate not yet run against human labels | 2026-06-21 |
 | [ADR-012](012-regression-gated-harness-acceptance.md) | Regression-Gated Harness Acceptance | Proposed | Partial (parity/characterization batteries exist; formal acceptance oracle is EVR-5, P0) | 2026-06-21 |
 | [ADR-013](013-unified-temperature-policy.md) | Unified, Intent-Based Temperature Policy with Spin Ratchet | Accepted | Shipped (`victor/framework/temperature/`, default flip 0.7→0.6, scatter-guard test) | 2026-06-22 |
@@ -40,6 +40,16 @@ Status is the governance state of the *decision*. Implementation is the observed
 | [ADR-016](016-distribution-packaging-strategy.md) | Distribution & Packaging: Docker image primary, pip dev; reject native single-binary | Proposed | Not started | 2026-07-02 |
 | [ADR-017](017-rl-budget-calibration.md) | RL-Driven Tool-Budget Calibration | Proposed | Partial (3 modules shipped; wiring gated on FEP-0002 review) | 2026-07-08 |
 | [ADR-018](018-adopt-sandhi-usage-gateway.md) | Adopt the `sandhi` OSS usage gateway (per-user/team attribution + shared-key metering) | Proposed | Not started (decision doc; see FEP-0020, AnvaiOps ADR-0047) | 2026-07-18 |
+| [ADR-019](019-orchestrator-service-runtime-decomposition.md) | Orchestrator & service-runtime target decomposition | Proposed | Not started (records the target for TD-14/TD-15) | 2026-07-29 |
+| [ADR-020](020-interactive-terminal-tui.md) | Interactive terminal TUI (Textual) as a first-class surface | Accepted | Shipped 2026-07-30 (`victor tui`, opt-in; TD-22) incl. diff pane + dark/light/high-contrast themes; per-member lanes via ADR-023 | 2026-07-29 |
+| [ADR-021](021-terminal-native-hitl-and-loop-transparency.md) | Terminal-native HITL & agent-loop transparency | Accepted | Partial — v1 shipped 2026-07-30 in the TUI (TD-23); exact phase-events + REPL parity pending | 2026-07-29 |
+| [ADR-022](022-provider-gateway-feature-layer.md) | Provider gateway feature layer & routing performance | Proposed | Not started (TD-24; depends TD-21) | 2026-07-29 |
+| [ADR-023](023-multi-agent-team-durability.md) | Multi-agent team durability (checkpoint/interrupt/per-member stream) | Accepted | Shipped 2026-07-30→08-01 (revisions 1.1–1.13): member/phase/round/iteration-granular checkpoint+resume and per-member streaming lanes across all six formations; durable pause for SEQUENTIAL/PIPELINE/PARALLEL/HIERARCHICAL; FEP-0028 Accepted 2026-08-01; TD-25 Done (iterative-formation pause + non-team chat continuation deferred as FEP Non-Goals/Follow-ups) | 2026-07-29 |
+| [ADR-024](024-abstraction-canonicalization-and-import-guard.md) | Abstraction canonicalization + import-time boundary guard | Proposed | Not started (TD-26) | 2026-07-29 |
+| [ADR-025](025-ratify-evaluation-centric-p0-decisions.md) | Ratify the evaluation-centric P0 decisions | Proposed | In progress via EVR-2/3/4/5 (ratifies ADR-009/010/011/012) | 2026-07-29 |
+| [ADR-026](026-durable-code-memory-ga.md) | Durable code memory GA (one `oid`, correlated graph+vector, tiered) | Proposed | Partial (records GA target for TD-11/12/13 + ADR-015 later phases) | 2026-07-29 |
+| [ADR-027](027-prompt-optimization-strategy-fidelity.md) | Prompt-optimization strategy fidelity and honest naming | Accepted | Shipped (faithful CoT distillation; section-scoped PrefPO; honest docs; keys unchanged) | 2026-08-01 |
+| [ADR-028](028-single-agent-durable-chat-continuation.md) | Single-agent durable chat continuation (pause/resume on approval) | Proposed | Not started (FEP-0029 Draft; generalizes ADR-023 pause to non-team single-agent runs) | 2026-08-01 |
 
 ## External ADR series (cross-repo)
 
@@ -78,12 +88,13 @@ When making a significant architectural decision:
 
 1. Copy the [template](000-template.md)
 2. Fill in all sections
-3. Use the next sequential number (next free: **ADR-019**)
+3. Use the next sequential number (next free: **ADR-029**)
 4. Update this index (both tables if cross-repo)
 5. Submit for review
 
-Heading convention: `# ADR-0NN: Title` (hyphenated) with a `## Metadata` list — ADRs 006/007/008/014/015
-predate this and drift cosmetically; new ADRs must follow it.
+Heading convention: `# ADR-0NN: Title` (hyphenated) with a `## Metadata` list. ADRs 006/007/008/014/015
+predated this and were normalized to it on 2026-07-29 (heading hyphenation + `## Metadata` blocks on
+006/008/016); new ADRs must follow it.
 
 ## ADR Lifecycle
 

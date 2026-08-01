@@ -508,6 +508,11 @@ class AgenticLoopConfig:
     # A strategy setting, not a feature flag. Default "enhanced" → zero behavior change until the
     # rubric path is proven to match-or-beat on the A/B + judge-α gate.
     completion_strategy: str = "enhanced"
+    # Effect-grounded completion gate (ADR-010 / EVR-4): COMPLETE requires a verifiable effect
+    # (workspace delta, verified check, or grounded claim) or is downgraded to RETRY. Opt-in,
+    # default off per the flag-graduation policy; a strict no-op when disabled.
+    enable_effect_gate: bool = False
+    effect_gate_max_downgrades: int = 2
     enable_planning_gate: bool = True
     enable_paradigm_router: bool = True
     enable_topology_routing: bool = True
@@ -721,6 +726,19 @@ class AgenticLoop:
             self.config.completion_strategy, rubric_complete_fn
         )
 
+        # Effect-grounded completion gate (ADR-010 / EVR-4) — opt-in via enable_effect_gate,
+        # default off. Wraps the EVALUATE seam (record → _evaluate_core → apply) so every
+        # completion strategy shares the same effect precondition; strict no-op when disabled.
+        from victor.framework.effect_gate import EffectGate, EffectGateConfig
+
+        self.effect_gate = EffectGate(
+            EffectGateConfig(
+                enabled=self.config.enable_effect_gate,
+                max_downgrades=self.config.effect_gate_max_downgrades,
+            ),
+            workspace_resolver=self._resolve_workspace,
+        )
+
         # Initialize planning gate for fast-slow architecture
         self.planning_gate = PlanningGate(enabled=self.config.enable_planning_gate)
 
@@ -799,6 +817,11 @@ class AgenticLoop:
         self._last_lsp_signature = None  # FEP-0019 Phase 3: reset per run
         self.turn_evaluation_controller.reset()  # resets spin_detector + content-repetition + plateau
         self.criteria_builder.reset()
+        # ADR-010: session-scoped effect ledger + downgrade budget (getattr: tests build
+        # partial loops via __new__ without the gate; a missing gate means no gating).
+        _effect_gate = getattr(self, "effect_gate", None)
+        if _effect_gate is not None:
+            _effect_gate.reset()
         effective_max = self.max_iterations
 
         # Semantic response cache check (arXiv:2508.07675)
@@ -1493,6 +1516,23 @@ class AgenticLoop:
                 ),
             )
 
+        # ADR-010: the effect gate downgraded a COMPLETE to RETRY — tell the model why, so the
+        # retry turn produces a verifiable effect (or grounds its claim) instead of restating.
+        if evaluation.metadata.get("completion_without_effect"):
+            expected = evaluation.metadata.get("expected_effect_class", "effect")
+            chat_ctx.add_message(
+                "user",
+                (
+                    "Your completion claim has no verifiable effect on record "
+                    f"(expected: {expected}). Use tools to actually perform the work "
+                    "(e.g. write/edit files, run the relevant checks) or ground your answer "
+                    "in tool evidence before finishing."
+                ),
+                metadata=build_internal_history_metadata(
+                    "effect_gate_nudge", source=MessageSource.AGENT_NUDGE
+                ),
+            )
+
     async def _run_verification(self, state: Dict[str, Any]) -> "VerificationResult":
         """Run the framework verification hook (FEP-0018).
 
@@ -1705,6 +1745,11 @@ class AgenticLoop:
         # Resets the shared spin detector + content-repetition + plateau (same as run()).
         self.turn_evaluation_controller.reset()
         self.criteria_builder.reset()
+        # ADR-010: session-scoped effect ledger + downgrade budget (getattr: tests build
+        # partial loops via __new__ without the gate; a missing gate means no gating).
+        _effect_gate = getattr(self, "effect_gate", None)
+        if _effect_gate is not None:
+            _effect_gate.reset()
         effective_max = self.max_iterations
         evaluation: Optional[EvaluationResult] = None  # bound per turn; None if loop never runs
 
@@ -1871,6 +1916,11 @@ class AgenticLoop:
         # Reset spin detector for this conversation turn
         self.turn_evaluation_controller.reset()  # resets spin_detector + content-repetition + plateau
         self.criteria_builder.reset()
+        # ADR-010: session-scoped effect ledger + downgrade budget (getattr: tests build
+        # partial loops via __new__ without the gate; a missing gate means no gating).
+        _effect_gate = getattr(self, "effect_gate", None)
+        if _effect_gate is not None:
+            _effect_gate.reset()
 
         # PERCEIVE (before streaming — understands task before LLM call)
         perception = await self._analyze_turn(query, context)
@@ -3087,6 +3137,27 @@ class AgenticLoop:
         return any(marker in lowered for marker in self._REFUSAL_MARKERS)
 
     async def _evaluate(
+        self,
+        perception: Perception,
+        action_result: Any,
+        state: Dict[str, Any],
+    ) -> EvaluationResult:
+        """EVALUATE seam wrapper: record effects, run the core cascade, gate COMPLETE.
+
+        The effect gate (ADR-010 / EVR-4) wraps the whole completion cascade as a post-filter —
+        the core has ~10 COMPLETE return points across strategies, and the gate must apply to
+        all of them as a precondition. With the gate disabled (the default) both calls are
+        strict no-ops and the core's result is returned unchanged (ADR-012 parity guarantee).
+        """
+        gate = getattr(self, "effect_gate", None)
+        if gate is not None:
+            gate.record(action_result, state)
+        evaluation = await self._evaluate_core(perception, action_result, state)
+        if gate is not None:
+            evaluation = await gate.apply(evaluation, action_result, state)
+        return evaluation
+
+    async def _evaluate_core(
         self,
         perception: Perception,
         action_result: Any,

@@ -46,6 +46,9 @@ class RenderKind(str, Enum):
     THINKING = "thinking"  # reasoning text -> render as a collapsed step
     TOOL_START = "tool_start"  # a tool call began (carries arguments)
     TOOL_END = "tool_end"  # a tool produced a result -> render a tool step
+    MEMBER_START = "member_start"  # a team member began (carries member_id) -> lane marker
+    MEMBER_END = "member_end"  # a team member finished (member_id + success) -> lane marker
+    MEMBER_AWAITING = "member_awaiting"  # a team member paused awaiting approval (ADR-023 2b)
     ERROR = "error"  # surface an error to the user
     IGNORE = "ignore"  # lifecycle/no-op events (stream_start, stream_end, ...)
 
@@ -62,6 +65,7 @@ class RenderAction:
     elapsed: float = 0.0
     was_pruned: bool = False
     follow_up_suggestions: Optional[list[dict[str, Any]]] = None
+    member_id: Optional[str] = None  # set for MEMBER_START/MEMBER_END lane markers (ADR-023)
     metadata: Dict[str, Any] = field(default_factory=dict)
 
 
@@ -160,6 +164,34 @@ def map_event(event: Any) -> RenderAction:
             text=content or str(metadata.get("error", "Unknown streaming error")),
         )
 
+    if event_type == "custom":
+        # Team member lifecycle events (ADR-023) ride on CUSTOM with a member_* sub-type.
+        # Every other custom event (milestones, etc.) falls through to IGNORE unchanged.
+        custom_type = str(metadata.get("custom_type", ""))
+        if custom_type == "member_start":
+            return RenderAction(
+                RenderKind.MEMBER_START,
+                text=content,
+                member_id=getattr(event, "member_id", None) or metadata.get("member_id"),
+                metadata=dict(metadata),
+            )
+        if custom_type in ("member_completed", "member_error"):
+            return RenderAction(
+                RenderKind.MEMBER_END,
+                text=content,
+                success=custom_type != "member_error",
+                member_id=getattr(event, "member_id", None) or metadata.get("member_id"),
+                metadata=dict(metadata),
+            )
+        if custom_type == "member_awaiting_approval":
+            # ADR-023 pillar 2b: the member durably paused awaiting human approval.
+            return RenderAction(
+                RenderKind.MEMBER_AWAITING,
+                text=content,
+                member_id=getattr(event, "member_id", None) or metadata.get("member_id"),
+                metadata=dict(metadata),
+            )
+
     return RenderAction(RenderKind.IGNORE)
 
 
@@ -212,6 +244,28 @@ def map_wire_event(wire: Any) -> RenderAction:
         return RenderAction(
             RenderKind.ERROR,
             text=str(wire.get("message", "") or "Unknown streaming error"),
+        )
+
+    if event == "member_start":
+        return RenderAction(
+            RenderKind.MEMBER_START,
+            text=str(wire.get("content", "") or ""),
+            member_id=wire.get("member_id"),
+        )
+
+    if event in ("member_completed", "member_error"):
+        return RenderAction(
+            RenderKind.MEMBER_END,
+            text=str(wire.get("content", "") or ""),
+            success=event != "member_error",
+            member_id=wire.get("member_id"),
+        )
+
+    if event == "member_awaiting_approval":
+        return RenderAction(
+            RenderKind.MEMBER_AWAITING,
+            text=str(wire.get("content", "") or ""),
+            member_id=wire.get("member_id"),
         )
 
     return RenderAction(RenderKind.IGNORE)  # stream_end + future additive types

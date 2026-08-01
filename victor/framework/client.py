@@ -43,6 +43,7 @@ from victor.framework.message_execution import (
 from victor.framework.task import TaskResult
 
 if TYPE_CHECKING:
+    from victor.framework.approval_pause import ApprovalDecision
     from victor.framework.session_config import SessionConfig
     from victor.framework.agent import Agent
     from victor.framework.agent_components import AgentSession
@@ -70,6 +71,7 @@ class _StreamEvent:
         result: Optional[Any] = None,
         success: bool = True,
         metadata: Optional[Dict[str, Any]] = None,
+        member_id: Optional[str] = None,
     ) -> None:
         self._type = event_type
         self._content = content
@@ -78,6 +80,7 @@ class _StreamEvent:
         self._result = result
         self._success = success
         self._metadata = metadata or {}
+        self._member_id = member_id
 
     @property
     def event_type(self) -> str:
@@ -110,6 +113,11 @@ class _StreamEvent:
     @property
     def metadata(self) -> Dict[str, Any]:
         return self._metadata
+
+    @property
+    def member_id(self) -> Optional[str]:
+        """Team member id for member lifecycle events (ADR-023); None otherwise."""
+        return self._member_id
 
 
 @dataclass
@@ -201,6 +209,19 @@ def _to_stream_event(event: Any) -> _StreamEvent:
                 "recoverable": getattr(event, "recoverable", None),
             },
         )
+    if event.type == EventType.CUSTOM:
+        event_metadata = getattr(event, "metadata", {}) or {}
+        custom_type = str(event_metadata.get("custom_type", ""))
+        if custom_type.startswith("member_"):
+            # Team member lifecycle event (ADR-023): carry the member id + custom_type
+            # so the mapping/wire layers can render per-member lanes.
+            return _StreamEvent(
+                EventType.CUSTOM,
+                content=getattr(event, "content", None),
+                success=getattr(event, "success", True),
+                metadata=dict(event_metadata),
+                member_id=getattr(event, "member_id", None),
+            )
     return _StreamEvent(
         event.type,
         content=getattr(event, "content", None),
@@ -795,6 +816,64 @@ class VictorClient:
                 except Exception as exc:
                     logger.debug("Could not restore conversation state: %s", exc)
         return metadata
+
+    async def resume(self, run_id: str, decision: "ApprovalDecision") -> "TaskResult":
+        """Resume a durably-paused turn with a human approval decision (FEP-0029).
+
+        When a turn paused on a policy ASK (``chat``/``stream`` returned a ``TaskResult`` with
+        ``status="awaiting_approval"`` + a ``run_id``), this replays the **exact** persisted gated
+        tool call — it does not re-sample the model — and continues the turn:
+
+        - ``decision.approved`` → executes the gated call (bypassing the ASK, since the human
+          approved), appends its result, and drives the model to a final answer.
+        - not approved → skips the call with a tool-error result and continues.
+
+        Single-use: a second ``resume`` on the same ``run_id`` raises. Returns the continued turn's
+        :class:`TaskResult`.
+
+        Args:
+            run_id: The resume token from the paused ``TaskResult``.
+            decision: The human's :class:`ApprovalDecision`.
+
+        Raises:
+            RuntimeError: If the client is not initialized.
+            ValueError: If ``run_id`` is unknown or already resumed.
+        """
+        if not self._initialized or not self._context:
+            raise RuntimeError("VictorClient not initialized. Call initialize() first.")
+
+        from victor.agent.durable_resume import resume_paused_run
+        from victor.agent.paused_run_store import get_paused_run_store
+
+        store = get_paused_run_store()
+        paused = store.get(run_id)
+        if paused is None:
+            raise ValueError(f"Unknown paused run: {run_id}")
+        # Atomically claim the run (single-use); False ⇒ already resumed or gone.
+        if not store.mark_resumed(run_id):
+            raise ValueError(f"Paused run already resumed or not pending: {run_id}")
+
+        if paused.session_id:
+            await self.resume_session(paused.session_id)
+
+        agent = self._agent
+        orchestrator = getattr(agent, "_orchestrator", None) if agent is not None else None
+        if orchestrator is None:
+            raise RuntimeError("No orchestrator available to resume the paused run")
+
+        outcome = await resume_paused_run(orchestrator, paused, decision)
+        return TaskResult(
+            content=outcome.final_content,
+            tool_calls=outcome.tool_calls,
+            success=True,
+            status="ok",
+            metadata={
+                "resumed_run_id": run_id,
+                "approved": outcome.approved,
+                "gated_tool": outcome.gated_tool,
+                "continuation_turns": outcome.continuation_turns,
+            },
+        )
 
     # ─────────────────────────────────────────────────────────────────────────
     # Lifecycle Management

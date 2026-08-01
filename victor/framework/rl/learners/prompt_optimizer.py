@@ -749,8 +749,13 @@ class GEPAStrategy:
                 )
                 if llm_reflection.source != "timeout_fallback":
                     reflection += f"\n\nLLM Reflection:\n{llm_reflection.result}"
-            except Exception:
-                pass  # LLM reflection is best-effort
+            except Exception as exc:
+                # Best-effort: the heuristic reflection above already stands on
+                # its own, so a failed LLM augmentation must not abort. But
+                # swallowing it silently made an offline decision service or a
+                # throttled provider look like "the strategy had nothing to
+                # add" — log it so the two are distinguishable.
+                logger.debug("GEPA LLM reflection augmentation failed (best-effort): %s", exc)
 
         return reflection
 
@@ -829,6 +834,12 @@ class GEPAStrategy:
 
 # Minimum traces required before evolution
 MIN_TRACES_FOR_EVOLUTION = 5
+
+# Share of an arm's tasks that may be rate-limited before the arm counts as
+# aborted rather than measured. Set low: a handful of throttled tasks already
+# drop out of the paired contrast, so this only has to catch the case where a
+# provider quit partway and the remainder is not a sample of anything.
+MAX_THROTTLED_TASK_SHARE = 0.25
 # Evaluation artifacts number in the thousands while trace collection only
 # looks at the last ~50 sessions, so the verdict scan is bounded by mtime.
 MAX_EVAL_ARTIFACTS_SCANNED = 400
@@ -1216,6 +1227,11 @@ class PromptOptimizerLearner(BaseLearner):
                 if on_phase:
                     on_phase(section_name, "mutate", strat_name)
                 new_text = strat.mutate(new_text, reflection, section_name)
+            else:
+                # An empty reflection is indistinguishable from a skipped or
+                # internally-failed strategy unless it says so. This is the
+                # common "nothing to propose" path, so debug, not info.
+                logger.debug("%s proposed no change for '%s'", strat_name, section_name)
         return new_text
 
     def get_query_aware_few_shots(self, query: str) -> Optional[str]:
@@ -1981,6 +1997,18 @@ class PromptOptimizerLearner(BaseLearner):
         """
         candidate = self._find_candidate(section_name, provider, text_hash)
         if candidate is None:
+            # A candidate served cross-provider — evolved under one provider,
+            # measured under another — must still be recordable. Serving resolves
+            # it via ``find_candidate_any_provider`` (optimization_injector), so
+            # the candidate's text is injected correctly; recording has to agree
+            # or the measurement is silently discarded. ``recorded=False`` forces
+            # ``decision.passed`` false however strongly the candidate won, so
+            # every cross-provider benchmark (all of them, in practice) reported
+            # "no candidate met the threshold" on results that cleared the gate.
+            candidate = self.find_candidate_any_provider(
+                section_name=section_name, text_hash=text_hash
+            )
+        if candidate is None:
             return None
 
         previous_runs = candidate.benchmark_runs
@@ -1990,6 +2018,14 @@ class PromptOptimizerLearner(BaseLearner):
         candidate.benchmark_passed = candidate.benchmark_passed or bool(passed)
         self._save_candidate(candidate)
         return candidate
+
+    @staticmethod
+    def _throttled_task_share(result: Any) -> tuple[int, int]:
+        """(throttled, total) tasks for one arm."""
+        from victor.evaluation.harness import was_throttled
+
+        tasks = list(getattr(result, "task_results", []) or [])
+        return sum(1 for task in tasks if was_throttled(task)), len(tasks)
 
     @staticmethod
     def _baseline_run(runs: List[Any]) -> Optional[Any]:
@@ -2115,17 +2151,46 @@ class PromptOptimizerLearner(BaseLearner):
                 or ""
             )
             score = float(getattr(result, "pass_rate", 0.0) or 0.0)
+
+            # An arm the provider throttled was never evaluated. Recording it is
+            # worse than recording nothing: a candidate nobody tested acquires a
+            # "failed benchmark (0.00 over 1 runs)" that every later audit,
+            # promotion check, and Thompson draw treats as real. Observed live —
+            # three arms back to back exhausted one provider and the last one
+            # posted 0/24 in 128 seconds against a prompt that never ran.
+            throttled, total = self._throttled_task_share(result)
+            if total and throttled / total > MAX_THROTTLED_TASK_SHARE:
+                logger.warning(
+                    "Skipping %s: %d of %d tasks were rate-limited, so this arm was "
+                    "never evaluated. Re-run it with fresh quota — recording it would "
+                    "mark an untested candidate as failed.",
+                    prompt_candidate_hash[:12] or "an arm",
+                    throttled,
+                    total,
+                )
+                continue
+
             contrast = self._paired_contrast(baseline_run, run)
             is_winner = prompt_candidate_hash == best_hash
             if contrast is not None:
-                passed = is_winner and contrast.effect > 0 and contrast.discordant >= min_discordant
+                # Enough disagreements *and* a lead bigger than chance would
+                # produce on that many. The first condition alone approved a
+                # candidate at 8 versus 6 — 14 disagreements is plenty of
+                # evidence, and an effect of 2 against a 3.7 noise floor is
+                # still a coin flip (the exact test said p=0.79). Volume of
+                # disagreement is not the same question as asymmetry of it.
+                passed = (
+                    is_winner and contrast.discordant >= min_discordant and contrast.beats_noise()
+                )
                 if is_winner and not passed:
                     logger.info(
                         "Candidate %s did not clear the comparative gate: %s "
-                        "(needs a positive effect over at least %d discordant tasks).",
+                        "(needs %d+ discordant tasks and an effect above the "
+                        "%.1f noise floor).",
                         prompt_candidate_hash[:12],
                         contrast.summary(),
                         min_discordant,
+                        contrast.noise_floor,
                     )
             else:
                 passed = is_winner and score > 0.0 and score >= min_pass_rate
@@ -3505,8 +3570,13 @@ class PromptOptimizerLearner(BaseLearner):
                     trace.credit_signals = credit_data
                 if agent_guidance:
                     trace.agent_guidance = agent_guidance
-        except Exception:
-            pass  # Credit enrichment is best-effort
+        except Exception as exc:
+            # Best-effort: traces stay usable without credit signals. The broad
+            # catch, however, also hid a missing DI container / unimported
+            # credit service — failures that degrade every reflection but look
+            # like healthy-but-uninformative traces. Log at debug so the cause
+            # is recoverable without spamming the common no-signals case.
+            logger.debug("Credit-signal enrichment skipped (best-effort): %s", exc)
 
     def _compute_reward(self, outcome: RLOutcome) -> float:
         """Compute reward from outcome."""

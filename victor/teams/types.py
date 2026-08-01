@@ -297,6 +297,10 @@ class MemberStatus(str, Enum):
     WAITING = "waiting"
     COMPLETED = "completed"
     FAILED = "failed"
+    # ADR-023 pillar 2b: member paused mid-run awaiting human approval. Signalled on
+    # MemberResult.metadata["awaiting_approval"] (+ ["approval_request"]) so the coordinator
+    # persists a durable pause checkpoint and the team resumes by re-running this member.
+    AWAITING_APPROVAL = "awaiting_approval"
 
 
 @dataclass
@@ -863,6 +867,20 @@ class MemberResult:
             "duration_seconds": self.duration_seconds,
             "discoveries": self.discoveries,
         }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "MemberResult":
+        """Rebuild from a :meth:`to_dict` payload (ADR-023 checkpoint resume)."""
+        return cls(
+            member_id=data["member_id"],
+            success=data["success"],
+            output=data.get("output", ""),
+            error=data.get("error"),
+            metadata=dict(data.get("metadata") or {}),
+            tool_calls_used=data.get("tool_calls_used", 0),
+            duration_seconds=data.get("duration_seconds", 0.0),
+            discoveries=list(data.get("discoveries") or []),
+        )
 
 
 @dataclass
