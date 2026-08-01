@@ -1,4 +1,4 @@
-# Copyright 2025 Vijaykumar Singh <singhvjd@gmail.com>
+# Copyright 2026 Vijaykumar Singh <singhvjd@gmail.com>
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,23 +12,4 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tool registration strategies.
-
-Exports all strategy classes for convenience.
-"""
-
-from victor.tools.registration.strategies.strategies import (
-    ToolRegistrationStrategy,
-    FunctionDecoratorStrategy,
-    BaseToolSubclassStrategy,
-    DuckTypedToolStrategy,
-    MCPDictStrategy,
-)
-
-__all__ = [
-    "ToolRegistrationStrategy",
-    "FunctionDecoratorStrategy",
-    "BaseToolSubclassStrategy",
-    "DuckTypedToolStrategy",
-    "MCPDictStrategy",
-]
+"""Contract-only tests for the victor-security example package."""

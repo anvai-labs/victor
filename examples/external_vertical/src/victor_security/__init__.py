@@ -17,8 +17,10 @@
 from victor_contracts import PluginContext, VictorPlugin
 
 from victor_security.assistant import SecurityAssistant
+from victor_security.mode_config import SecurityModeConfigProvider
+from victor_security.tools import SecretPatternScanTool
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 
 class SecurityPlugin(VictorPlugin):
@@ -30,6 +32,7 @@ class SecurityPlugin(VictorPlugin):
 
     def register(self, context: PluginContext) -> None:
         context.register_vertical(SecurityAssistant)
+        context.register_tool(SecretPatternScanTool())
 
     def get_cli_app(self):
         return None
@@ -52,4 +55,10 @@ class SecurityPlugin(VictorPlugin):
 
 plugin = SecurityPlugin()
 
-__all__ = ["SecurityAssistant", "SecurityPlugin", "plugin"]
+__all__ = [
+    "SecretPatternScanTool",
+    "SecurityAssistant",
+    "SecurityModeConfigProvider",
+    "SecurityPlugin",
+    "plugin",
+]

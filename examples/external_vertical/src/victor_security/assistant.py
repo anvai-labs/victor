@@ -21,15 +21,17 @@ from victor_contracts import (
     ToolNames,
     ToolRequirement,
     VerticalBase,
+    register_vertical,
 )
 
 
+@register_vertical("security", version="0.3.0")
 class SecurityAssistant(VerticalBase):
     """Security analysis vertical authored against `victor_contracts` only."""
 
     name = "security"
     description = "Security auditing, vulnerability analysis, and compliance review"
-    version = "0.2.0"
+    version = "0.3.0"
     VERTICAL_API_VERSION = 1
 
     @classmethod
@@ -43,7 +45,9 @@ class SecurityAssistant(VerticalBase):
     @classmethod
     def get_tool_requirements(cls) -> list[ToolRequirement]:
         return [
-            ToolRequirement(ToolNames.READ, purpose="inspect source and configuration files"),
+            ToolRequirement(
+                ToolNames.READ, purpose="inspect source and configuration files"
+            ),
             ToolRequirement(ToolNames.LS, purpose="map project structure"),
             ToolRequirement(
                 ToolNames.CODE_SEARCH,
@@ -115,7 +119,8 @@ Priorities:
                 "concrete evidence."
             ),
             "dependency_audit": (
-                "Identify vulnerable dependencies, affected packages, and " "remediation options."
+                "Identify vulnerable dependencies, affected packages, and "
+                "remediation options."
             ),
             "incident_review": (
                 "Review the repository for indicators of compromise and summarize "
@@ -140,7 +145,8 @@ Priorities:
             },
             "dependency_audit": {
                 "hint": (
-                    "Inspect package manifests first, then confirm with dependency " "scanners."
+                    "Inspect package manifests first, then confirm with dependency "
+                    "scanners."
                 ),
                 "tool_budget": 14,
                 "priority_tools": [
@@ -174,7 +180,9 @@ Priorities:
             ),
             "analysis": StageDefinition(
                 name="analysis",
-                description=("Perform focused security review and scanner-assisted analysis."),
+                description=(
+                    "Perform focused security review and scanner-assisted analysis."
+                ),
                 required_tools=[ToolNames.READ, ToolNames.CODE_SEARCH],
                 optional_tools=[ToolNames.SHELL, ToolNames.WEB_SEARCH],
             ),
@@ -199,12 +207,16 @@ Priorities:
         return {
             "security_review_team": {
                 "name": "Security Review Team",
-                "description": ("Two-stage security review with analysis and validation."),
+                "description": (
+                    "Two-stage security review with analysis and validation."
+                ),
                 "formation": "pipeline",
                 "members": [
                     {
                         "role": "researcher",
-                        "goal": ("Inspect the repository and identify likely security risks."),
+                        "goal": (
+                            "Inspect the repository and identify likely security risks."
+                        ),
                         "name": "Security Analyst",
                         "tool_budget": 18,
                         "backstory": (
@@ -225,7 +237,8 @@ Priorities:
                         "name": "Validation Reviewer",
                         "tool_budget": 12,
                         "backstory": (
-                            "You verify findings before they are escalated to " "developers."
+                            "You verify findings before they are escalated to "
+                            "developers."
                         ),
                         "expertise": ["severity calibration", "secure remediation"],
                         "personality": "skeptical and precise",
