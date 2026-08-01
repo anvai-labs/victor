@@ -66,6 +66,11 @@ include = ["victor_codegraph*"]
 line-length = 100
 target-version = "py310"
 
+# Pin the rule set explicitly: the CI workflow installs the latest ruff, whose
+# evolving defaults must not be able to red a path-filtered pipeline overnight.
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]
+
 # Self-contained pytest config so running `pytest` from this package directory uses
 # THIS file as the rootdir/inifile and does NOT inherit the victor monorepo root's
 # `addopts = --cov=victor` (pytest-cov isn't a dep here -> "unrecognized arguments").
