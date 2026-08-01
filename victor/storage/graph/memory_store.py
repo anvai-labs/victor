@@ -19,6 +19,7 @@ class MemoryGraphStore(GraphStoreProtocol):
         self._nodes: Dict[str, GraphNode] = {}
         self._edges: Dict[tuple[str, str, str], GraphEdge] = {}
         self._file_mtimes: Dict[str, float] = {}
+        self._file_hashes: Dict[str, str] = {}
 
     async def initialize(self) -> None:
         return None
@@ -148,8 +149,24 @@ class MemoryGraphStore(GraphStoreProtocol):
             key=lambda node: (node.line or 0, node.name),
         )
 
-    async def update_file_mtime(self, file: str, mtime: float) -> None:
-        self._file_mtimes[self._canonical_file_path(file)] = mtime
+    async def update_file_mtime(
+        self, file: str, mtime: float, content_hash: str | None = None
+    ) -> None:
+        key = self._canonical_file_path(file)
+        self._file_mtimes[key] = mtime
+        if content_hash is None:
+            self._file_hashes.pop(key, None)
+        else:
+            self._file_hashes[key] = content_hash
+
+    async def get_file_hashes(self, files: list[str]) -> dict[str, str]:
+        hashes: dict[str, str] = {}
+        for file in files:
+            for variant in self._file_path_variants(file):
+                if variant in self._file_hashes:
+                    hashes[file] = self._file_hashes[variant]
+                    break
+        return hashes
 
     async def get_stale_files(self, file_mtimes: Dict[str, float]) -> List[str]:
         return [
@@ -181,6 +198,7 @@ class MemoryGraphStore(GraphStoreProtocol):
         }
         for file_variant in file_variants:
             self._file_mtimes.pop(file_variant, None)
+            self._file_hashes.pop(file_variant, None)
 
     async def delete_by_repo(self) -> None:
         self._nodes.clear()

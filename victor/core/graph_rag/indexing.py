@@ -349,6 +349,10 @@ class GraphIndexingPipeline:
         self.config = config
         self._ccg_builder = None
         self._files_to_process: Set[str] = set()
+        # Content hashes computed during incremental planning (manifest
+        # contract), persisted alongside mtimes after each file is written so
+        # the next run can verify mtime-only churn as not-stale.
+        self._pending_file_hashes: Dict[str, str] = {}
         # Raw call records captured during per-file parsing, resolved against
         # a project-wide name index in _resolve_cross_file_calls() after all
         # nodes have been persisted.
@@ -1001,14 +1005,111 @@ class GraphIndexingPipeline:
             )
         ]
 
+    @staticmethod
+    def _compute_file_hash(file_path: Path) -> Optional[str]:
+        """Content hash of a source file per the victor-codegraph manifest contract.
+
+        Prefers the shared implementation (identical decode + hash across every
+        consumer of the code graph); falls back to sha-256 of the raw bytes,
+        which equals the contract hash for valid UTF-8 files (decode→encode is
+        the identity there).
+        """
+        try:
+            from victor_codegraph import content_hash, read_source_text
+
+            text = read_source_text(file_path)
+            return content_hash(text) if text is not None else None
+        except ImportError:
+            pass
+        except Exception:
+            return None
+        try:
+            import hashlib
+
+            return hashlib.sha256(file_path.read_bytes()).hexdigest()
+        except OSError:
+            return None
+
+    async def _verify_stale_by_content(
+        self,
+        stale_files: Set[str],
+        current_files: Dict[str, Path],
+        file_mtimes: Dict[str, float],
+    ) -> Set[str]:
+        """Drop mtime-stale files whose content hash is unchanged (manifest contract).
+
+        touch, branch flip-flops, and checkouts bump mtimes without changing
+        content; reparsing those is pure waste. Files verified unchanged get
+        their stored mtime refreshed (so the fast path skips them next run) and
+        are removed from the stale set. Hashes for genuinely changed files are
+        buffered in ``_pending_file_hashes`` for persistence after processing.
+        """
+        if not stale_files:
+            return stale_files
+
+        get_hashes = getattr(self.graph_store, "get_file_hashes", None)
+        stored_hashes: Dict[str, str] = {}
+        if callable(get_hashes):
+            try:
+                stored_hashes = await get_hashes(sorted(stale_files))
+            except Exception as exc:
+                logger.debug("get_file_hashes unavailable, mtime-only staleness: %s", exc)
+
+        verified_unchanged: Set[str] = set()
+        for file_key in sorted(stale_files):
+            file_path = current_files.get(file_key)
+            if file_path is None:
+                continue
+            digest = self._compute_file_hash(file_path)
+            if digest is None:
+                continue
+            self._pending_file_hashes[file_key] = digest
+            if stored_hashes.get(file_key) == digest:
+                verified_unchanged.add(file_key)
+                await self._update_store_mtime(file_key, file_mtimes.get(file_key, 0.0), digest)
+
+        if verified_unchanged:
+            logger.info(
+                "Content-hash verification: %d mtime-changed files are content-identical, skipped",
+                len(verified_unchanged),
+            )
+        return stale_files - verified_unchanged
+
+    async def _update_store_mtime(
+        self, file: str, mtime: float, content_hash: Optional[str]
+    ) -> None:
+        """Persist mtime + content hash, tolerating stores without the hash kwarg."""
+        try:
+            await self.graph_store.update_file_mtime(file, mtime, content_hash=content_hash)
+        except TypeError:
+            await self.graph_store.update_file_mtime(file, mtime)
+
+    def _file_hash_for(self, file_path: Path) -> Optional[str]:
+        """Hash to persist with a processed file's mtime.
+
+        Incremental runs computed it during planning; force/full runs compute
+        it here so the NEXT incremental run has hashes to verify against.
+        """
+        key = self._graph_file_key(file_path, self.config.root_path.resolve())
+        digest = self._pending_file_hashes.get(key)
+        if digest is None:
+            digest = self._compute_file_hash(file_path)
+        return digest
+
     async def _prepare_incremental_work(
         self,
         files: List[Path],
         root_path: Optional[Path] = None,
     ) -> GraphIndexStats:
-        """Prepare an incremental indexing plan based on file mtimes and deletions."""
+        """Prepare an incremental indexing plan based on file mtimes and deletions.
+
+        Two-layer staleness: the mtime fast path (no reads for unchanged
+        mtimes), then content-hash verification of mtime-changed files via the
+        victor-codegraph manifest contract, so mtime-only churn never reparses.
+        """
         root = (root_path or self.config.root_path).resolve()
         self._files_to_process = {self._graph_file_key(file_path, root) for file_path in files}
+        self._pending_file_hashes = {}
         if not self.config.incremental:
             return GraphIndexStats()
 
@@ -1026,6 +1127,7 @@ class GraphIndexingPipeline:
                 await self._handle_vanished_file(file_path)
 
         stale_files = set(await self.graph_store.get_stale_files(file_mtimes))
+        stale_files = await self._verify_stale_by_content(stale_files, current_files, file_mtimes)
         indexed_files = await self._get_indexed_files()
         deleted_files = sorted(indexed_files - set(current_files))
 
@@ -1522,8 +1624,10 @@ class GraphIndexingPipeline:
             if result.ccg_edges:
                 await self.graph_store.upsert_edges(result.ccg_edges)
             if result.file_path.is_file():
-                await self.graph_store.update_file_mtime(
-                    str(result.file_path), result.file_path.stat().st_mtime
+                await self._update_store_mtime(
+                    str(result.file_path),
+                    result.file_path.stat().st_mtime,
+                    self._file_hash_for(result.file_path),
                 )
 
         stats.files_processed += 1
@@ -1618,9 +1722,11 @@ class GraphIndexingPipeline:
                 if ccg_edges:
                     await self.graph_store.upsert_edges(ccg_edges)
 
-                # Update file mtime for staleness tracking
+                # Update file mtime + content hash for staleness tracking
                 mtime = file_path.stat().st_mtime
-                await self.graph_store.update_file_mtime(str(file_path), mtime)
+                await self._update_store_mtime(
+                    str(file_path), mtime, self._file_hash_for(file_path)
+                )
         except FileNotFoundError:
             await self._handle_vanished_file(file_path)
             stats.files_deleted += 1
@@ -2902,8 +3008,10 @@ class _IndexingStreamPipeline:
                     await self._pipeline.graph_store.upsert_edges(all_ccg_edges)
                 for result in batch:
                     if result.file_path.is_file():
-                        await self._pipeline.graph_store.update_file_mtime(
-                            str(result.file_path), result.file_path.stat().st_mtime
+                        await self._pipeline._update_store_mtime(
+                            str(result.file_path),
+                            result.file_path.stat().st_mtime,
+                            self._pipeline._file_hash_for(result.file_path),
                         )
             stats.files_processed += len(batch)
             stats.provider_fallbacks += sum(
