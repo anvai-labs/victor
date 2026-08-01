@@ -94,10 +94,8 @@ release, and removal happens **no earlier than 0.10.0**:
 | `tool_runtime` | `victor.framework.tools` (`RuntimeToolSet`) |
 | `workflow_executor_runtime` | `victor_contracts.workflow_runtime` (same surface, resolved against the current host workflow modules) |
 
-> **Status note:** this document records the policy and classification. The
-> `DeprecationWarning` emission for these six modules lands in a follow-up
-> change targeting the 0.9.0 release; until then the modules resolve without
-> warning.
+> **Status note:** as of 0.9.0 these six modules emit `DeprecationWarning` on
+> attribute access while continuing to resolve host symbols as before.
 
 ### Internal
 
