@@ -179,8 +179,15 @@ deferred.
   a well-defined "completed" set.~~ **Resolved:** the completed set is simply the members whose
   coroutines have recorded a result; each records + checkpoints the *cumulative* set under an
   `asyncio.Lock` (member execution stays concurrent — only the completion handler serializes), and
-  `_load_member_resume`'s latest checkpoint is the largest completed set. Implemented for PARALLEL;
-  HIERARCHICAL follows.
+  `_load_member_resume`'s latest checkpoint is the largest completed set. Implemented for PARALLEL.
+- ~~HIERARCHICAL resume: the supervisor runs twice (plan + synthesize) and the plan drives the
+  specialist wave, so member-granular completion doesn't map cleanly ("which phase resumes").~~
+  **Resolved:** resume is **phase-granular** — supervisor *plan* → concurrent *specialists* →
+  supervisor *synthesis* are each snapshotted into `shared_state["__hier__"]` (persisted by the
+  existing member checkpoint hook, no coordinator change), so a crash restores up to the last
+  completed phase (a completed plan is restored, not re-run, and its `delegated_tasks` drive phase 2)
+  and only the unreached phase(s) run. A crash *mid* specialist wave replans (per-specialist partial
+  resume is the concurrent-checkpoint refinement, deferred). HIERARCHICAL durable *pause* follows.
 - ~~Concurrent durable *pause*: a concurrent wave can have several members awaiting approval at once,
   so the single `__awaiting_approval__` shape can't express it.~~ **Resolved for PARALLEL:** members
   that come back awaiting are collected after the wave (not recorded as completed) into a **multi-pause
@@ -320,3 +327,17 @@ lands, existing single-agent consumers ignore the `None` default.
   one pause checkpoint, a single awaiting member still uses the plural aggregate, resume re-runs only the
   paused set, and no checkpointer is byte-identical (awaiting is an inert non-success result). HIERARCHICAL
   concurrent pause + the non-team `victor chat` continuation remain deferred.
+- HIERARCHICAL phase-granular checkpoint/resume merged: the supervisor runs twice (plan + synthesize) and
+  the plan's `delegated_tasks` drive the specialist wave, so resume is **phase-granular**, not
+  member-granular. Each phase — supervisor *plan*, concurrent *specialists*, supervisor *synthesis* — is
+  snapshotted into `shared_state["__hier__"]` as it completes; because the existing member checkpoint hook
+  already persists `shared_state`, this is a **pure formation-layer change** (no coordinator/PARALLEL
+  edit). On resume, a completed plan is **restored, not re-run** (its `delegated_tasks` drive phase 2),
+  completed specialists are restored, and only the unreached phase(s) execute; the no-delegation fallback
+  path ends at phase 2 (no synthesis). `execute()` was refactored into `_resolve_supervisor` +
+  `_run_specialists` (a pure extraction; specialist lanes via `_execute_specialist` unchanged). Verified: a
+  full run snapshots phases 1/2/3, resume after a full run re-runs nothing, resume after a plan-only
+  snapshot re-runs the specialist wave then synthesizes, the fallback path snapshots phases 1/2 and
+  resumes, and no checkpointer is byte-identical. A crash *mid* specialist wave replans (per-specialist
+  partial resume) and HIERARCHICAL durable **pause** remain deferred; `supports_durable_pause()` stays
+  `False`.
