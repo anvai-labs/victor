@@ -178,6 +178,12 @@ test-cov:
 test-quick:
 	pytest tests/unit -v --tb=short -m "not slow" $(PYTEST_XDIST_ARG)
 
+# EVR-5 / ADR-012: the FEP-0007 run≡stream + characterization batteries that the
+# harness-acceptance oracle gates on. The characterization transcripts ARE the
+# regression gate — any loop/prompt/completion edit must keep them byte-stable-or-justified.
+test-battery:
+	pytest tests/integration/streaming -v --tb=short
+
 test-split:
 	pytest tests/unit --splits=4 --group=1 -v --tb=short
 
