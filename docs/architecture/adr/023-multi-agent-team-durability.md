@@ -70,10 +70,12 @@ so it is FEP-gated (below).
 - **Companion FEP** — the team-node durability contract (checkpoint identity, interrupt semantics,
   member-tagged streaming) is a `victor.framework` public surface: ratified in
   [FEP-0028](../../../feps/fep-0028-team-node-durability-contract.md). Increments:
-  1. member-granular checkpoint/resume via the existing StateGraph checkpointer — **done**: SEQUENTIAL
-     and PIPELINE (per-member), PARALLEL (lock-protected concurrent completed-set), and HIERARCHICAL
-     (phase-granular — plan/specialists/synthesis snapshotted into `shared_state["__hier__"]`, resume
-     restores up to the last completed phase). Concurrent mid-wave partial resume deferred;
+  1. member-granular checkpoint/resume via the existing StateGraph checkpointer — **done across all six
+     formations**: SEQUENTIAL and PIPELINE (per-member), PARALLEL (lock-protected concurrent
+     completed-set), HIERARCHICAL (phase-granular — plan/specialists/synthesis in
+     `shared_state["__hier__"]`), and CONSENSUS/REFLECTION (round/iteration-granular — the loop state in
+     `shared_state["__consensus__"]`/`["__reflection__"]`, resume continues at the next unfinished
+     round/iteration). Concurrent/iterative mid-loop *partial* resume deferred;
   2. member `interrupt` — slice 2a (terminal-native member approval) **done**: a member's policy
      `ASK`-gated tool surfaces to the shared terminal approval modal (ADR-021), tagged with `member_id`,
      via a member-tagging wrapper published on a `ContextVar` during member-orchestrator construction
@@ -123,3 +125,4 @@ so it is FEP-gated (below).
 | 2026-07-31 | 1.8 | Concurrent durable checkpoint/resume for PARALLEL landed (lock-protected cumulative-completed-set checkpoint; execution stays concurrent) — resolves the FEP's concurrent-resume open question; concurrent pause + HIERARCHICAL checkpoint deferred | Vijaykumar Singh |
 | 2026-07-31 | 1.9 | Concurrent durable pause/resume for PARALLEL landed — a wave collects every awaiting member into a multi-pause aggregate (`__awaiting_approvals__` + one batch pause checkpoint); resume re-runs exactly the paused set; `PARALLEL.supports_durable_pause()` now True. HIERARCHICAL concurrent pause + non-team chat continuation deferred | Vijaykumar Singh |
 | 2026-08-01 | 1.10 | HIERARCHICAL phase-granular checkpoint/resume landed — plan/specialists/synthesis each snapshotted into `shared_state["__hier__"]` (persisted by the existing member hook; pure formation-layer change); resume restores up to the last completed phase (completed plan restored not re-run, drives phase 2), fallback path ends at phase 2. Mid-wave partial resume + HIERARCHICAL pause deferred | Vijaykumar Singh |
+| 2026-08-01 | 1.11 | CONSENSUS + REFLECTION round/iteration-granular checkpoint/resume landed — loop state snapshotted into `shared_state["__consensus__"]`/`["__reflection__"]` after each round/iteration (pure formation-layer change); resume continues at the next unfinished round/iteration, completed ones restored. Checkpoint/resume now covers all six formations. Iterative-formation durable pause + mid-loop partial resume + non-team chat continuation deferred | Vijaykumar Singh |

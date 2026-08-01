@@ -56,11 +56,67 @@ class ConsensusFormation(BaseFormationStrategy):
         context: TeamContext,
         task: AgentMessage,
     ) -> List[MemberResult]:
-        """Execute agents until consensus reached."""
-        all_results = []
-        current_task = task
+        """Execute agents until consensus reached.
 
-        for round_num in range(self.max_rounds):
+        ADR-023 round-granular durable checkpoint/resume (opt-in — active only when the
+        coordinator wired ``checkpoint_hook``/``resume_completed``, i.e. a checkpointer +
+        thread_id). Rounds are sequential (each builds its task from the previous round's
+        results), so after each round the loop state — completed round count, accumulated
+        results, and the next round's rebuilt task — is snapshotted into
+        ``shared_state["__consensus__"]`` (persisted by the existing member checkpoint hook). A
+        crash resumes at the next unfinished round: completed rounds are restored, not re-run.
+        No checkpointer ⇒ byte-identical.
+        """
+        checkpoint_hook = getattr(context, "checkpoint_hook", None)
+        resume = getattr(context, "resume_completed", None)
+        saved: Dict[str, Any] = dict(
+            ((resume or {}).get("shared_state") or {}).get("__consensus__") or {}
+        )
+
+        # Terminal resume: the run already finished — return the persisted final results.
+        if saved.get("done"):
+            return [MemberResult.from_dict(r) for r in saved.get("final") or []]
+
+        round_start = int(saved.get("round_done", 0))
+        all_results: List[MemberResult] = [
+            MemberResult.from_dict(r) for r in saved.get("all_results") or []
+        ]
+        current_task = task
+        if round_start > 0 and saved.get("next_task_content") is not None:
+            current_task = AgentMessage(
+                message_type=MessageType.TASK,
+                sender_id="system",
+                content=saved["next_task_content"],
+                data={"consensus_round": round_start},
+            )
+            logger.info(
+                "ConsensusFormation: resume — continuing from round %d/%d",
+                round_start + 1,
+                self.max_rounds,
+            )
+
+        async def _checkpoint(
+            round_done: int,
+            next_task_content: Optional[str],
+            done: bool,
+            final: Optional[List[MemberResult]],
+        ) -> None:
+            """Snapshot the round loop into shared_state and persist via the member hook."""
+            if checkpoint_hook is None:
+                return
+            context.shared_state["__consensus__"] = {
+                "round_done": round_done,
+                "all_results": [r.to_dict() for r in all_results],
+                "next_task_content": next_task_content,
+                "done": done,
+                "final": [r.to_dict() for r in final] if final is not None else None,
+            }
+            marker = (final or all_results or [MemberResult(member_id="consensus", success=True)])[
+                -1
+            ]
+            await checkpoint_hook(round_done - 1, marker, list(all_results), context.shared_state)
+
+        for round_num in range(round_start, self.max_rounds):
             logger.info(f"ConsensusFormation: round {round_num + 1}/{self.max_rounds}")
 
             # Execute all agents in parallel for this round
@@ -97,6 +153,7 @@ class ConsensusFormation(BaseFormationStrategy):
                 for r in processed_results:
                     r.metadata["consensus_achieved"] = True
                     r.metadata["consensus_rounds"] = round_num + 1
+                await _checkpoint(round_num + 1, None, True, processed_results)
                 # Return results from final consensus round
                 return processed_results
 
@@ -121,6 +178,7 @@ class ConsensusFormation(BaseFormationStrategy):
                 ),
                 data={"consensus_round": round_num + 1},
             )
+            await _checkpoint(round_num + 1, current_task.content, False, None)
 
         # Max rounds reached without consensus
         logger.warning(f"ConsensusFormation: no consensus after {self.max_rounds} rounds")
@@ -133,6 +191,7 @@ class ConsensusFormation(BaseFormationStrategy):
         for r in final_round_results:
             r.metadata["consensus_achieved"] = False
             r.metadata["consensus_rounds"] = self.max_rounds
+        await _checkpoint(self.max_rounds, None, True, final_round_results)
         return final_round_results
 
     async def _execute_agent(

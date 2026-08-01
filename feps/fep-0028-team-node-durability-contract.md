@@ -205,7 +205,9 @@ deferred.
 - **Increment 1 (this FEP's first code, SEQUENTIAL):** `TeamContext.checkpoint_hook` +
   `resume_completed`; `MemberResult.from_dict`; coordinator opt-in `checkpointer` + per-member save +
   resume-skip; `SequentialFormation` reads the hook/resume. Tests with `MemoryCheckpointer`.
-- **Increment 2:** checkpoint/resume for PARALLEL / HIERARCHICAL / PIPELINE / CONSENSUS / REFLECTION.
+- **Increment 2:** checkpoint/resume for PARALLEL / HIERARCHICAL / PIPELINE / CONSENSUS / REFLECTION —
+  **complete** (PARALLEL concurrent completed-set; PIPELINE per-stage; HIERARCHICAL per-phase; CONSENSUS
+  per-round; REFLECTION per-iteration). Concurrent/iterative mid-loop *partial* resume deferred.
 - **Increment 3:** member interrupt. Slice 2a (terminal-native member approval: member-tagging wrapper
   on a ContextVar + modal tag) **implemented**; slice 2b-infra (durable pause checkpoint + resume re-run
   at the teams layer: `MemberStatus.AWAITING_APPROVAL`, `TeamContext.pause_hook`,
@@ -341,3 +343,17 @@ lands, existing single-agent consumers ignore the `None` default.
   resumes, and no checkpointer is byte-identical. A crash *mid* specialist wave replans (per-specialist
   partial resume) and HIERARCHICAL durable **pause** remain deferred; `supports_durable_pause()` stays
   `False`.
+- CONSENSUS + REFLECTION round/iteration-granular checkpoint/resume merged — completing checkpoint/resume
+  across the whole formation taxonomy. Both are sequential *iterative* loops (each round/iteration builds
+  its input from the previous one's output), so resume is **round/iteration-granular**: after each
+  round/iteration the loop state is snapshotted into `shared_state["__consensus__"]` /
+  `["__reflection__"]` (persisted by the existing member checkpoint hook — a **pure formation-layer
+  change**), so a crash resumes at the next unfinished round/iteration and completed ones are restored,
+  not re-run. CONSENSUS persists `{round_done, all_results, next_task_content, done, final}` and rebuilds
+  the next round's task from `next_task_content`; REFLECTION persists `{iter_done, task_content, result,
+  feedback, done}` and rebuilds the refined generator input, with a terminal snapshot so a resume after
+  completion returns the aggregate without re-running (the final result build was factored into
+  `_final_result`, shared by resume). Verified: each snapshots per round/iteration, resume skips completed
+  rounds/iterations and re-runs only the rest, REFLECTION terminal resume re-runs nothing, and no
+  checkpointer is byte-identical. Both keep `supports_durable_pause()` `False` (iterative-formation
+  durable pause + the non-team `victor chat` continuation remain the deferred items).
