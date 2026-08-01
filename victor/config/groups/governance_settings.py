@@ -76,6 +76,12 @@ class GovernanceSettings(BaseModel):
     # deterministic.
     interactive_approval: bool = False
 
+    # FEP-0029: durable pause. When True, an ASK verdict on a single-agent turn
+    # raises ApprovalPause (parking the turn as a resumable ``awaiting_approval``
+    # result) instead of blocking the inline modal. Off by default; intended on
+    # for headless/API surfaces so they can defer approval rather than hang.
+    durable: bool = False
+
     @field_validator("cost_budget_usd")
     @classmethod
     def validate_cost_budget(cls, v: float) -> float:

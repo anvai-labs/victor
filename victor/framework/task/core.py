@@ -117,6 +117,11 @@ class TaskResult:
         success: Whether the task completed successfully
         error: Error message if task failed
         metadata: Additional execution metadata
+        status: Outcome status — "ok" (completed) or "awaiting_approval" (durably
+            paused on a policy ASK, FEP-0029). Defaults to "ok".
+        run_id: Resume token, present only when ``status == "awaiting_approval"``.
+        approval_request: The pending ApprovalRequest (as a dict), present only when
+            ``status == "awaiting_approval"``.
 
     Example:
         result = await agent.run("Create a new module")
@@ -131,6 +136,11 @@ class TaskResult:
     success: bool = True
     error: Optional[str] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
+    # FEP-0029: durable pause outcome. "ok" for a normal turn; "awaiting_approval" when the turn
+    # parked on a policy ASK, with run_id + approval_request set for resume.
+    status: str = "ok"
+    run_id: Optional[str] = None
+    approval_request: Optional[Dict[str, Any]] = None
 
     @property
     def files_modified(self) -> List[str]:

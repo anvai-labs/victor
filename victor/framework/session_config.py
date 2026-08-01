@@ -228,11 +228,15 @@ class ToolApprovalConfig:
         enabled: Gate ASK-based tool approval for this session.
         ask_on_tools: Tool names that must be approved before executing.
         ask_fallback: Decision when no handler answers ("deny" | "allow").
+        durable: Arm durable pause (FEP-0029): on ASK, park the turn as
+            ``awaiting_approval`` (resumable) instead of blocking the inline modal.
+            Opt-in (default False); intended on for headless/API surfaces.
     """
 
     enabled: bool = False
     ask_on_tools: tuple = ()
     ask_fallback: str = "deny"
+    durable: bool = False
 
 
 @dataclass(frozen=True)
@@ -689,6 +693,9 @@ class SessionConfig:
                         t for t in self.tool_approval.ask_on_tools if t not in existing
                     ]
                     object.__setattr__(governance, "ask_on_tools", merged)
+                # FEP-0029: durable pause opt-in — park ASK as awaiting_approval instead of blocking.
+                if hasattr(governance, "durable"):
+                    object.__setattr__(governance, "durable", self.tool_approval.durable)
                 # The policy engine is feature-flag gated; requesting approval implies it.
                 try:
                     from victor.core.feature_flags import FeatureFlag, enable_feature

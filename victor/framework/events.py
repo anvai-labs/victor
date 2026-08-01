@@ -90,6 +90,10 @@ class EventType(str, Enum):
     MILESTONE = "milestone"
     """Task milestone has been reached."""
 
+    # Durable pause (FEP-0029)
+    AWAITING_APPROVAL = "awaiting_approval"
+    """The run durably paused on a policy ASK; metadata carries run_id + approval_request."""
+
     # Custom events
     CUSTOM = "custom"
     """User-defined custom event. Use metadata['custom_type'] for sub-typing."""
