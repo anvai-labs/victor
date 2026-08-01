@@ -414,7 +414,7 @@ context:
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `codebase_vector_store` | `lancedb` | Vector store: `lancedb`, `chromadb` |
+| `codebase_vector_store` | `lancedb` | Vector store: `lancedb`, `proximadb` |
 | `codebase_embedding_provider` | `sentence-transformers` | Embedding provider |
 | `codebase_embedding_model` | `BAAI/bge-small-en-v1.5` | Embedding model |
 | `codebase_persist_directory` | `None` | Custom persistence path |

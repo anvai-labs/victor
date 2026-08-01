@@ -302,7 +302,7 @@ def enable_structural_codebase_embeddings(
     2. victor-coding is installed, AND
     3. The user has NOT explicitly opted out via VICTOR_DISABLE_STRUCTURAL_BRIDGE env var
 
-    By default, victor-coding uses its own providers (lancedb, chromadb, proximadb) directly
+    By default, victor-coding uses its own providers (lancedb, proximadb) directly
     without needing this bridge. The bridge is only useful for advanced use cases where
     victor's structural chunking capabilities are needed.
     """

@@ -75,7 +75,7 @@ class LanceDBProvider(BaseEmbeddingProvider):
     - Support for multiple embedding models (Ollama, OpenAI, Sentence-transformers, Cohere)
     - Zero-copy reads via Apache Arrow
 
-    Advantages over ChromaDB:
+    Advantages:
     - Better performance for large datasets (>100k docs)
     - Lower memory footprint (disk-based)
     - Faster search with ANN indices

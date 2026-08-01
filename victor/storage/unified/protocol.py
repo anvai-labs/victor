@@ -243,7 +243,6 @@ class VectorStoreProtocol(Protocol):
 
     Implementations:
     - LanceDB: Default, disk-based, scales to billions
-    - ChromaDB: In-memory or disk
     - pgvector: PostgreSQL extension
     - FAISS: Meta's vector library
     """

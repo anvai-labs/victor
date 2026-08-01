@@ -15,12 +15,12 @@
 """Embedding model providers (separate from vector stores).
 
 This module handles GENERATING embeddings (converting text to vectors).
-The vector stores (ChromaDB, LanceDB, etc.) handle STORING and SEARCHING.
+The vector stores (LanceDB, ProximaDB, etc.) handle STORING and SEARCHING.
 
 This separation allows mixing and matching:
 - OpenAI embeddings + FAISS storage
 - Sentence-transformers + LanceDB storage
-- Cohere embeddings + ChromaDB storage
+- Cohere embeddings + LanceDB storage
 """
 
 import asyncio

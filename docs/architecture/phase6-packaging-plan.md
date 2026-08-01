@@ -30,7 +30,7 @@ Long-tail dependencies (1-5 files each): ~100+ packages including:
 - Auth: ldap3, gssapi, spnego, pyotp, cryptography
 - Observability: opentelemetry, prometheus_client
 - ML: sentence_transformers, scipy, sklearn, statsmodels, faiss
-- Vector stores: lancedb, chromadb, proximadb_sdk
+- Vector stores: lancedb, proximadb_sdk
 | Issue | Severity | Description |
 |-------|----------|-------------|
 | Monolithic core | High | All 1,900 files ship in one wheel; no lazy-load boundaries |
