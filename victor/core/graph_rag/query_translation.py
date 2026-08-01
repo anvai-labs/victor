@@ -46,7 +46,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional, Set, Tuple, Union, TYPE_CHECKING
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Set, Tuple, Union, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from victor.storage.graph.protocol import GraphStoreProtocol
@@ -821,8 +821,15 @@ class TranslationResult:
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     def is_successful(self) -> bool:
-        """Check if translation was successful."""
-        return len(self.errors) == 0 and (self.fallback or self.matched_template is not None)
+        """Check if translation was successful.
+
+        Successful means: no errors AND one of a matched template, an explicit
+        keyword-search fallback, or a non-empty query from another translation
+        path (e.g. LLM translation, which has no template).
+        """
+        return len(self.errors) == 0 and (
+            self.fallback or self.matched_template is not None or bool(self.graph_query)
+        )
 
 
 class QueryTranslator(abc.ABC):
@@ -967,23 +974,42 @@ class TemplateBasedTranslator(QueryTranslator):
 # =============================================================================
 
 
-class LLMBasedTranslator(QueryTranslator):
-    """Translator that uses LLM to translate queries (PH3-006).
+# Async completion function: prompt in, raw model text out. Injected by the
+# consumer (tool, vertical, service) — core stays provider-agnostic.
+LLMCompletionFn = Callable[[str], Awaitable[str]]
 
-    Falls back to template-based translation if LLM is unavailable.
+
+class LLMBasedTranslator(QueryTranslator):
+    """Translator that uses an injected LLM completion to translate queries (PH3-006).
+
+    The LLM is supplied as an async ``prompt -> text`` callable so this module
+    never imports provider machinery; without one (the default), every call
+    routes through the template-based fallback. Any LLM failure — call error,
+    unparseable response, unknown query type — also falls back rather than
+    surfacing on the query path.
     """
+
+    #: Query types the prompt advertises; anything else in a response is rejected.
+    _VALID_QUERY_TYPES = frozenset(
+        {"neighbors", "path", "impact", "semantic_search", "callers", "callees"}
+    )
 
     def __init__(
         self,
         fallback_translator: Optional[QueryTranslator] = None,
+        llm: Optional[LLMCompletionFn] = None,
     ) -> None:
         """Initialize the LLM-based translator.
 
         Args:
             fallback_translator: Fallback if LLM unavailable
+            llm: Async completion function (prompt -> raw response text).
+                None (the default) means template-only operation — the old
+                ``_llm_available = True`` stub claimed availability it never had.
         """
         self._fallback = fallback_translator or TemplateBasedTranslator()
-        self._llm_available = True  # Will detect actual availability
+        self._llm = llm
+        self._llm_available = llm is not None
 
     async def translate(
         self,
@@ -991,7 +1017,7 @@ class LLMBasedTranslator(QueryTranslator):
         graph_store: "GraphStoreProtocol",
         context: Optional[Dict[str, Any]] = None,
     ) -> TranslationResult:
-        """Translate using LLM.
+        """Translate using the injected LLM, falling back to templates.
 
         Args:
             query: Natural language query
@@ -1001,24 +1027,82 @@ class LLMBasedTranslator(QueryTranslator):
         Returns:
             TranslationResult with translated query
         """
-        # Check if LLM is available
-        if not self._llm_available:
-            return await self._fallback.translate(query, graph_store, context)
+        if not self._llm_available or self._llm is None:
+            result = await self._fallback.translate(query, graph_store, context)
+            result.metadata["llm_used"] = False
+            return result
 
-        # Get graph statistics for context
-        # try:
-        #     stats = await graph_store.stats()
-        # except Exception:
-        #     stats = {}
+        try:
+            stats = await graph_store.stats()
+        except Exception:
+            stats = {}
 
-        # Build prompt for LLM
-        # TODO: Call LLM for translation
-        # prompt = self._build_translation_prompt(query, stats, context)
-        # For now, fall back to template-based
+        prompt = self._build_translation_prompt(query, stats, context)
+        try:
+            raw = await self._llm(prompt)
+            translated = self._parse_llm_response(raw)
+        except Exception as e:
+            logger.debug(f"LLM translation failed, using template fallback: {e}")
+            return await self._fallback_with_reason(query, graph_store, context, str(e))
+
+        if translated is None:
+            return await self._fallback_with_reason(
+                query, graph_store, context, "unparseable LLM response"
+            )
+
+        query_type, params = translated
+        rendered_params = ", ".join(f"{k}={v!r}" for k, v in sorted(params.items()))
+        result = TranslationResult(
+            original_query=query,
+            graph_query=f"{query_type}({rendered_params})",
+            parameters=params,
+            confidence=0.9,
+        )
+        result.metadata["llm_used"] = True
+        result.metadata["query_type"] = query_type
+        return result
+
+    async def _fallback_with_reason(
+        self,
+        query: str,
+        graph_store: "GraphStoreProtocol",
+        context: Optional[Dict[str, Any]],
+        reason: str,
+    ) -> TranslationResult:
         result = await self._fallback.translate(query, graph_store, context)
         result.metadata["llm_used"] = False
-
+        result.metadata["llm_error"] = reason
         return result
+
+    def _parse_llm_response(self, raw: str) -> Optional[Tuple[str, Dict[str, Any]]]:
+        """Extract ``(query_type, params)`` from a model response.
+
+        Accepts bare JSON, fenced JSON, or JSON embedded in prose. Returns
+        None for anything that doesn't yield a known query type with a dict of
+        params — the caller falls back rather than guessing.
+        """
+        import json
+
+        candidates = [raw.strip()]
+        fenced = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", raw, re.DOTALL)
+        if fenced:
+            candidates.append(fenced.group(1))
+        embedded = re.search(r"\{.*\}", raw, re.DOTALL)
+        if embedded:
+            candidates.append(embedded.group(0))
+
+        for candidate in candidates:
+            try:
+                data = json.loads(candidate)
+            except (json.JSONDecodeError, TypeError):
+                continue
+            if not isinstance(data, dict):
+                continue
+            query_type = data.get("type")
+            params = data.get("params", {})
+            if query_type in self._VALID_QUERY_TYPES and isinstance(params, dict):
+                return str(query_type), params
+        return None
 
     def _build_translation_prompt(
         self,
