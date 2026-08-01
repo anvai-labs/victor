@@ -184,6 +184,13 @@ test-quick:
 test-battery:
 	pytest tests/integration/streaming -v --tb=short
 
+# EVR-5 / ADR-012: run the harness-acceptance oracle promotion gate — drives the scripted battery
+# through the real loop, scores trajectories, and gates against acceptance_baseline.json at
+# (model, harness-config) granularity. Re-record after an *intended* behavior change with:
+#   EVR5_RECORD_BASELINE=1 make eval-accept   # then review + commit acceptance_baseline.json
+eval-accept:
+	pytest tests/integration/streaming/test_acceptance_oracle_gate.py -v --tb=short
+
 test-split:
 	pytest tests/unit --splits=4 --group=1 -v --tb=short
 
