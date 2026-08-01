@@ -1762,3 +1762,28 @@ class TestPromptRewardLoop:
         from victor.framework.rl.hooks import EVENT_TO_LEARNER, RLEventType
 
         assert EVENT_TO_LEARNER[RLEventType.PROMPT_CANDIDATE_USED] == ["prompt_optimizer"]
+
+
+class TestStrategyCompositionObservability:
+    """A strategy that proposes nothing must be visible, not silent."""
+
+    def test_empty_reflection_leaves_text_unchanged_and_is_logged(self, learner, caplog):
+        import logging as _logging
+
+        class _SilentStrategy:
+            def reflect(self, *args, **kwargs):
+                return ""
+
+            def mutate(self, current_text, reflection, section_name):
+                # Must never run when reflection is empty.
+                return current_text + " MUTATED"
+
+        learner._strategies_for_section = lambda section_name: [_SilentStrategy()]
+
+        with caplog.at_level(
+            _logging.DEBUG, logger="victor.framework.rl.learners.prompt_optimizer"
+        ):
+            out = learner._apply_section_strategies("GROUNDING_RULES", "base text", [])
+
+        assert out == "base text"
+        assert any("proposed no change" in record.message for record in caplog.records)

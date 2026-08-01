@@ -749,8 +749,13 @@ class GEPAStrategy:
                 )
                 if llm_reflection.source != "timeout_fallback":
                     reflection += f"\n\nLLM Reflection:\n{llm_reflection.result}"
-            except Exception:
-                pass  # LLM reflection is best-effort
+            except Exception as exc:
+                # Best-effort: the heuristic reflection above already stands on
+                # its own, so a failed LLM augmentation must not abort. But
+                # swallowing it silently made an offline decision service or a
+                # throttled provider look like "the strategy had nothing to
+                # add" — log it so the two are distinguishable.
+                logger.debug("GEPA LLM reflection augmentation failed (best-effort): %s", exc)
 
         return reflection
 
@@ -1222,6 +1227,11 @@ class PromptOptimizerLearner(BaseLearner):
                 if on_phase:
                     on_phase(section_name, "mutate", strat_name)
                 new_text = strat.mutate(new_text, reflection, section_name)
+            else:
+                # An empty reflection is indistinguishable from a skipped or
+                # internally-failed strategy unless it says so. This is the
+                # common "nothing to propose" path, so debug, not info.
+                logger.debug("%s proposed no change for '%s'", strat_name, section_name)
         return new_text
 
     def get_query_aware_few_shots(self, query: str) -> Optional[str]:
@@ -3560,8 +3570,13 @@ class PromptOptimizerLearner(BaseLearner):
                     trace.credit_signals = credit_data
                 if agent_guidance:
                     trace.agent_guidance = agent_guidance
-        except Exception:
-            pass  # Credit enrichment is best-effort
+        except Exception as exc:
+            # Best-effort: traces stay usable without credit signals. The broad
+            # catch, however, also hid a missing DI container / unimported
+            # credit service — failures that degrade every reflection but look
+            # like healthy-but-uninformative traces. Log at debug so the cause
+            # is recoverable without spamming the common no-signals case.
+            logger.debug("Credit-signal enrichment skipped (best-effort): %s", exc)
 
     def _compute_reward(self, outcome: RLOutcome) -> float:
         """Compute reward from outcome."""
