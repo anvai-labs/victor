@@ -593,6 +593,17 @@ class MultiHopRetriever:
 
         return edges
 
+    def _cache_repo_path(self) -> Optional[str]:
+        """Resolve the repo path used to scope cache entries.
+
+        Prefers the public ``repo_root`` property exposed by graph stores;
+        falls back to the legacy ``_root_path`` attribute for third-party stores.
+        """
+        root = getattr(self.graph_store, "repo_root", None)
+        if root is None:
+            root = getattr(self.graph_store, "_root_path", None)
+        return str(root) if root is not None else None
+
     async def _try_cache(
         self,
         query: str,
@@ -611,13 +622,7 @@ class MultiHopRetriever:
             from victor.core.graph_rag.query_cache import get_graph_query_cache
 
             cache = get_graph_query_cache()
-
-            # Get repo path from graph store if available
-            repo_path = None
-            if hasattr(self.graph_store, "_root_path"):
-                repo_path = str(self.graph_store._root_path)
-
-            return cache.get(query, config, repo_path)
+            return cache.get(query, config, self._cache_repo_path())
         except ImportError:
             # Cache module not available
             return None
@@ -642,13 +647,7 @@ class MultiHopRetriever:
             from victor.core.graph_rag.query_cache import get_graph_query_cache
 
             cache = get_graph_query_cache()
-
-            # Get repo path from graph store if available
-            repo_path = None
-            if hasattr(self.graph_store, "_root_path"):
-                repo_path = str(self.graph_store._root_path)
-
-            cache.put(query, config, result, repo_path)
+            cache.put(query, config, result, self._cache_repo_path())
         except ImportError:
             # Cache module not available
             pass

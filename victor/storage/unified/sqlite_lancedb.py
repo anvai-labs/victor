@@ -816,6 +816,14 @@ class SqliteLanceDBStore:
             or stats.ccg_edges_created
         )
 
+        if indexed:
+            try:
+                from victor.core.graph_rag.query_cache import get_graph_query_cache
+
+                get_graph_query_cache().invalidate_repo(str(self.repo_root))
+            except Exception:  # noqa: BLE001 - cache invalidation is best-effort
+                pass
+
         return {
             "indexed": indexed,
             "reason": "indexed" if indexed else "graph_up_to_date",

@@ -594,6 +594,7 @@ class GraphManager:
                 stats.files_unchanged,
                 total_time,
             )
+            self._invalidate_query_cache(root_str)
         else:
             logger.debug(
                 "[GraphManager] Graph already current for %s (check took %.2fs)",
@@ -610,6 +611,18 @@ class GraphManager:
         self._last_refresh_completed_at[root_str] = datetime.now().timestamp()
         self._last_refresh_source_mtime[root_str] = repo_mtime
         return stats
+
+    @staticmethod
+    def _invalidate_query_cache(root_str: str) -> None:
+        """Drop cached graph query results for a root after its graph changed."""
+        try:
+            from victor.core.graph_rag.query_cache import get_graph_query_cache
+
+            get_graph_query_cache().invalidate_repo(root_str)
+        except ImportError:
+            pass
+        except Exception as e:
+            logger.debug("[GraphManager] Query cache invalidation failed for %s: %s", root_str, e)
 
     async def wait_for_refresh(self, root: Path, timeout: float = 5.0) -> bool:
         """Wait for an active background refresh to complete for a root."""

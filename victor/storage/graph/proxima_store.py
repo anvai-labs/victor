@@ -146,6 +146,11 @@ class ProximaGraphStore(GraphStoreProtocol):
         self._file_mtimes: Dict[str, float] = {}
         self._subgraph_cache: Dict[str, Subgraph] = {}
 
+    @property
+    def repo_root(self) -> Optional[Path]:
+        """Resolved project root this store indexes (used for cache scoping)."""
+        return self._project_path
+
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------

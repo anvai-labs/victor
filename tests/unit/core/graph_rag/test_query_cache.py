@@ -466,6 +466,57 @@ class TestGlobalCacheSingleton:
         assert cache1 is not cache2
 
 
+class TestRepoScoping:
+    """Tests for full-path repo scoping of cache keys and invalidation."""
+
+    def test_key_same_basename_different_repos_differ(self):
+        """Repos sharing a basename must produce distinct cache keys."""
+        config = MockConfig()
+        key_a = _create_query_cache_key("find auth", config, "/home/a/project")
+        key_b = _create_query_cache_key("find auth", config, "/home/b/project")
+        assert key_a != key_b
+
+    def test_invalidate_repo_scoped_to_full_path(self):
+        """Invalidating one repo must not evict a same-named sibling repo."""
+        cache = GraphQueryCache()
+        config = MockConfig()
+        result = MockRetrievalResult(nodes=[], edges=[], subgraphs=[], query="test")
+
+        cache.put("q", config, result, "/home/a/project")
+        cache.put("q", config, result, "/home/b/project")
+
+        count = cache.invalidate_repo("/home/a/project")
+        assert count == 1
+        assert cache.get("q", config, "/home/a/project") is None
+        assert cache.get("q", config, "/home/b/project") is not None
+
+    def test_retriever_repo_path_prefers_repo_root(self):
+        """MultiHopRetriever should scope the cache via the public repo_root."""
+        from victor.core.graph_rag.retrieval import MultiHopRetriever
+
+        graph_store = MagicMock()
+        graph_store.repo_root = Path("/test/repo")
+        retriever = MultiHopRetriever(graph_store, MockConfig())
+        assert retriever._cache_repo_path() == str(Path("/test/repo"))
+
+    def test_retriever_repo_path_falls_back_to_root_path(self):
+        """Stores without repo_root fall back to the legacy _root_path attribute."""
+        from victor.core.graph_rag.retrieval import MultiHopRetriever
+
+        graph_store = MagicMock(spec=[])
+        graph_store._root_path = Path("/legacy/repo")
+        retriever = MultiHopRetriever(graph_store, MockConfig())
+        assert retriever._cache_repo_path() == str(Path("/legacy/repo"))
+
+    def test_retriever_repo_path_none_when_unavailable(self):
+        """No scoping attribute at all yields None (unscoped cache entries)."""
+        from victor.core.graph_rag.retrieval import MultiHopRetriever
+
+        graph_store = MagicMock(spec=[])
+        retriever = MultiHopRetriever(graph_store, MockConfig())
+        assert retriever._cache_repo_path() is None
+
+
 class TestCacheIntegration:
     """Integration tests for cache with MultiHopRetriever."""
 
