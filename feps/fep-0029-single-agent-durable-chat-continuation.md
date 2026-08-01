@@ -110,7 +110,9 @@ Five pieces, four of them small and reuse-first; the load-bearing one is the res
 semantics.
 
 1. **Generalized pause signal.** Introduce `ApprovalPause(BaseException)` in
-   `victor/agent/approval_pause.py` (moving the idea out of `member_approval_context.py`).
+   `victor/framework/approval_pause.py` (moving the idea out of `member_approval_context.py`; it lives
+   in the *framework* layer — not `victor/agent/` as first sketched — because the catch point is the
+   framework turn boundary, so every import is a clean agent→framework or same-layer one).
    `MemberApprovalPause` becomes a subclass, so team behavior is unchanged. A single-agent run raises
    `ApprovalPause(request)` from the policy `ASK` handler when durable pause is armed — exactly as a
    member does — but there is no `SubAgent` wrapper to catch it, so it rides through the
@@ -287,13 +289,19 @@ opted in.
 
 Phased, each phase independently shippable and tested (mirroring how FEP-0028 landed):
 
-- **Phase 1 — pause mechanism (in-memory).** `ApprovalPause` base + `MemberApprovalPause` subclass;
-  `current_durable_pause_enabled` ContextVar; policy handler raises when armed; `AgenticLoop` catches
-  at the turn boundary and returns an `awaiting_approval` `LoopResult`; `EventType.AWAITING_APPROVAL`;
-  `TaskResult.status/run_id/approval_request`. In-memory `PausedRunStore` (resume within the same
-  process). *No public `resume` yet* — validates the mechanism.
-- **Phase 2 — durable persistence.** `paused_run` table + migration; `PausedRunStore` sqlite repo;
-  pause writes/reads survive process restart, rehydrating via `resume_session`.
+- **Phase 1 — pause mechanism (in-memory). ✅ landed (#777).** `ApprovalPause` base +
+  `MemberApprovalPause` subclass; `current_durable_pause_enabled` ContextVar; policy handler raises
+  when armed (`resolve_policy_approval_handler` wraps only when `governance.durable`); the turn
+  boundary (`execute_message`) arms + catches → an `awaiting_approval` `TaskResult`;
+  `EventType.AWAITING_APPROVAL`; `TaskResult.status/run_id/approval_request`. In-memory
+  `InMemoryPausedRunStore`. *No public `resume` yet* — validates the mechanism.
+- **Phase 2 — durable persistence. ✅ landed.** `ProjectDbPausedRunStore` — a self-managing
+  `paused_run` table in `project.db` (idempotent `CREATE TABLE IF NOT EXISTS`, thread-local
+  connection, JSON columns), mirroring `ConversationStore` (no `schema.py` migration needed since the
+  project DB self-creates its tables). Both backends implement `PausedRunStoreProtocol`; the process
+  store defaults to the durable one (falling back to in-memory when no project DB is resolvable). A
+  pause now survives a restart — a fresh store instance reads it back. (Full rehydration via
+  `resume_session` is exercised in Phase 3.)
 - **Phase 3 — public resume API + surfaces.** `VictorClient.resume(run_id, decision)`;
   `ApprovalDecision`; CLI `--durable-approval` + resume command; API `awaiting_approval` response +
   resume route; TUI paused lane + resume affordance.
@@ -351,6 +359,8 @@ Status **Draft** — submitted for review. Open questions above are the decision
 | Date | Version | Changes | Author |
 |------|---------|---------|--------|
 | 2026-08-01 | 0.1 | Initial draft — single-agent durable chat continuation | Vijaykumar Singh |
+| 2026-08-01 | 0.2 | Phase 1 landed (#777): pause signal + arming + turn-boundary catch + AWAITING_APPROVAL + in-memory store. Records that `ApprovalPause` lives in `victor/framework/` (not `victor/agent/`) — the catch is at the framework turn boundary | Vijaykumar Singh |
+| 2026-08-01 | 0.3 | Phase 2 landed: `ProjectDbPausedRunStore` — self-managing `project.db` `paused_run` table (mirrors ConversationStore; no schema.py migration); pauses survive a restart. `PausedRunStoreProtocol` with in-memory + project-db backends | Vijaykumar Singh |
 
 ## Acceptance Criteria
 
