@@ -53,7 +53,9 @@ async def test_resume_unknown_run_raises() -> None:
         await _client().resume("does-not-exist", ApprovalDecision(approved=True))
 
 
-async def test_resume_returns_ok_taskresult_and_is_single_use(monkeypatch: Any, _store: Any) -> None:
+async def test_resume_returns_ok_taskresult_and_is_single_use(
+    monkeypatch: Any, _store: Any
+) -> None:
     from victor.agent import durable_resume
 
     async def _stub(orchestrator: Any, paused: Any, decision: Any) -> Any:
