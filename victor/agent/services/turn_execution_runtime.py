@@ -1098,13 +1098,9 @@ class TurnExecutor:
             getattr(_settings, "agent", None), "completion_strategy", "enhanced"
         )
         _rubric_fn = self._build_rubric_complete_fn() if _strategy in ("rubric", "hybrid") else None
-        # Effect-grounded completion gate (ADR-010): env override, then AgentSettings; default off.
-        _eg_env = _os.environ.get("VICTOR_EFFECT_GATED_COMPLETION")
-        _effect_gate = (
-            _eg_env.strip().lower() in ("1", "true", "yes", "on")
-            if _eg_env is not None
-            else bool(getattr(getattr(_settings, "agent", None), "effect_gated_completion", False))
-        )
+        from victor.framework.effect_gate import resolve_effect_gate_enabled
+
+        _effect_gate = resolve_effect_gate_enabled(_settings)
         loop = AgenticLoop(
             orchestrator=None,
             turn_executor=self,

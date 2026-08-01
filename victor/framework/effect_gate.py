@@ -44,6 +44,7 @@ in the framework layer, wired as a post-filter around the single EVALUATE seam s
 from __future__ import annotations
 
 import logging
+import os
 import re
 from dataclasses import dataclass, field
 from enum import Enum
@@ -59,6 +60,7 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     "EffectClass",
+    "resolve_effect_gate_enabled",
     "EffectEvidence",
     "EffectLedger",
     "EffectGate",
@@ -66,6 +68,18 @@ __all__ = [
     "GroundedClaimChecker",
     "classify_tool_result",
 ]
+
+
+def resolve_effect_gate_enabled(settings: Any) -> bool:
+    """Resolve the ADR-010 effect-gate flag: env override, then AgentSettings; default off.
+
+    Shared by the buffered and streaming executors so both modes gate completion
+    identically (ADR-012 parity).
+    """
+    env = os.environ.get("VICTOR_EFFECT_GATED_COMPLETION")
+    if env is not None:
+        return env.strip().lower() in ("1", "true", "yes", "on")
+    return bool(getattr(getattr(settings, "agent", None), "effect_gated_completion", False))
 
 
 class EffectClass(str, Enum):
