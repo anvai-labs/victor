@@ -324,20 +324,23 @@ Switched to ollama/qwen2.5-coder:7b. Context preserved.
 
 Now that you have Victor running:
 
-1. **Configure profiles** - Create shortcuts for your favorite providers
+1. **Use Victor from Python** - Build your first agent in 5 minutes
+   - [Your First Agent](first-agent.md)
+
+2. **Configure profiles** - Create shortcuts for your favorite providers
    - [Configuration Guide](configuration.md)
 
-2. **Learn the tools** - Explore Victor's 34 tool modules
+3. **Learn the tools** - Explore Victor's 34 tool modules
    - [Tool Catalog](../reference/tools/catalog.md)
 
-3. **Set up project context** - Teach Victor about your codebase
+4. **Set up project context** - Teach Victor about your codebase
    - [Configuration - Project Context](configuration.md#project-context-files)
 
-4. **Explore workflows** - Automate repetitive tasks
+5. **Explore workflows** - Automate repetitive tasks
    - [Workflow Guide](../guides/workflow-development/)
 
-5. **Try different providers** - Find the best model for your needs
-   - [Provider Reference](../reference/providers/)
+6. **Try different providers** - Find the best model for your needs
+   - [Provider decision matrix](../user-guide/providers.md#provider-decision-matrix)
 
 ---
 

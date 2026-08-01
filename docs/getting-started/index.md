@@ -22,6 +22,7 @@ Select the guide that matches your situation:
 | Your Goal | Guide | Time |
 |-----------|-------|------|
 | **Quick start** | [Quickstart](quickstart.md) | 5 min |
+| **First agent from Python** | [Your First Agent](first-agent.md) | 5 min |
 | **Full installation options** | [Installation](installation.md) | 10 min |
 | **Configure Victor** | [Configuration](configuration.md) | 10 min |
 | **Troubleshoot issues** | [Troubleshooting](../user-guide/troubleshooting.md) | As needed |

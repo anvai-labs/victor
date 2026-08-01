@@ -22,6 +22,36 @@ This abstraction enables Victor's signature feature: **switching providers mid-c
 | **Enterprise** | Azure OpenAI, AWS Bedrock, Vertex AI | Compliance, security, enterprise integrations |
 | **Platforms** | Hugging Face, Replicate | Model variety, research models |
 
+## Provider Decision Matrix
+
+A quick decision view of the most-used providers. Capability columns reflect each
+adapter's own feature detection (`supports_tools()` / `supports_streaming()` /
+`supports_prompt_caching()` / `cache_cost_model()` on `BaseProvider` in
+`victor/providers/`), not marketing claims.
+
+| Provider | Local/Cloud | Tool calling | Streaming | Prompt caching | Cost tier |
+|----------|-------------|--------------|-----------|----------------|-----------|
+| **Anthropic** | Cloud | Native | Yes | Yes — 90% read discount, 1.25x write, 5m TTL | $$$ |
+| **OpenAI** | Cloud | Native | Yes | Yes — automatic prefix caching | $$$ |
+| **Google Gemini** | Cloud | Native | Yes | Yes — context caching (32K-token minimum) | $$ (free experimental tier) |
+| **Azure OpenAI** | Cloud | Native | Yes | Yes — prompt caching | $$$ (enterprise) |
+| **AWS Bedrock** | Cloud | Native | Yes | Yes — 90% read discount (Claude models) | $$$ (enterprise) |
+| **DeepSeek** | Cloud | Native (`deepseek-chat` only) | Yes | Per provider spec¹ | $ |
+| **Groq** | Cloud | Native | Yes | Per provider spec¹ | $ (free tier) |
+| **Mistral** | Cloud | Native | Yes | Per provider spec¹ | $$ (free tier) |
+| **Ollama** | Local | Model-dependent (auto-detected) | Yes | Local KV-prefix reuse (nothing billed) | Free (your hardware) |
+| **LM Studio** | Local | Native (llama.cpp) | Yes | Local KV-prefix reuse (nothing billed) | Free (your hardware) |
+| **vLLM** | Local | Native (`--enable-auto-tool-choice`) | Yes | Local KV-prefix reuse (nothing billed) | Free (your hardware) |
+
+¹ OpenAI-compatible adapters (DeepSeek, Groq, Mistral, xAI, Together, …) read their
+capabilities from a validated per-provider spec rather than hard-coding them
+(`victor/providers/sandhi_openai_compat_policy.py`).
+
+Cost tiers are indicative ($ = budget, $$$ = premium); check current provider pricing.
+This is a subset — Victor ships **24 provider adapters**. For the full list run
+`victor providers`, or see the [Provider Reference](../reference/providers/) and the
+detailed per-provider sections below.
+
 ---
 
 ## Quick Start

@@ -47,14 +47,12 @@ core-integrated extension points and remain relevant mainly for bundled
 victor-ai verticals during migration.
 
 For step-by-step migration from the legacy core-coupled pattern to the
-contract-first surface, see [victor-contracts/MIGRATION_GUIDE.md](/Users/vijaysingh/code/codingagent/victor-contracts/MIGRATION_GUIDE.md).
+contract-first surface, see `victor-contracts/MIGRATION.md` in the repository.
 
 For a complete standalone package example that follows the contract-only authoring
-model and runtime entry-point discovery, see
-[examples/external_vertical/README.md](/Users/vijaysingh/code/codingagent/examples/external_vertical/README.md).
-
-For the target definition-vs-runtime package split used by the migration plan, see
-[vertical-package-layout-target-2026-03-10.md](/Users/vijaysingh/code/codingagent/docs/development/vertical-package-layout-target-2026-03-10.md).
+model and runtime entry-point discovery, see `examples/external_vertical/README.md`
+in the repository (the `victor-security` package referenced from
+[CONTRIBUTING.md](https://github.com/anvai-labs/victor/blob/main/CONTRIBUTING.md)).
 
 ## VerticalBase Interface
 
