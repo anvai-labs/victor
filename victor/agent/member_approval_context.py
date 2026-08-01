@@ -32,6 +32,8 @@ from __future__ import annotations
 import contextvars
 from typing import TYPE_CHECKING, Any, Optional
 
+from victor.framework.approval_pause import ApprovalPause
+
 if TYPE_CHECKING:
     from victor.framework.hitl import ApprovalRequest
 
@@ -52,17 +54,21 @@ current_member_durable_pause_enabled: "contextvars.ContextVar[Optional[bool]]" =
 )
 
 
-class MemberApprovalPause(BaseException):
+class MemberApprovalPause(ApprovalPause):
     """Control-flow signal: a durable team member paused awaiting human approval (ADR-023 2b).
 
-    Deliberately a :class:`BaseException` (not :class:`Exception`) so it rides *through* every
-    ``except Exception:`` on the policy-ASK → tool-pipeline → orchestrator → AgenticLoop →
-    ``SubAgent._execute_with_retry`` path untouched (audited: no ``except BaseException`` on that
-    path), and is caught only at :meth:`SubAgent.execute`, which converts it into an
-    ``awaiting_approval`` member result. Distinct from :class:`asyncio.CancelledError`.
+    A subclass of :class:`~victor.agent.approval_pause.ApprovalPause` (FEP-0029) — the shared
+    ``BaseException`` pause signal — so it rides *through* every ``except Exception:`` on the
+    policy-ASK → tool-pipeline → orchestrator → AgenticLoop → ``SubAgent._execute_with_retry`` path
+    untouched (audited: no ``except BaseException`` on that path), and is caught only at
+    :meth:`SubAgent.execute`, which converts it into an ``awaiting_approval`` member result. Team
+    code that catches ``MemberApprovalPause`` still catches exactly the member variant; the
+    single-agent turn boundary catches the base ``ApprovalPause``. Distinct from
+    :class:`asyncio.CancelledError`.
     """
 
     def __init__(self, request: "ApprovalRequest") -> None:
-        self.request = request
+        super().__init__(request)
+        # Preserve the member-specific message for existing logs/tests.
         title = getattr(request, "title", "")
-        super().__init__(f"Member paused awaiting approval: {title}")
+        self.args = (f"Member paused awaiting approval: {title}",)

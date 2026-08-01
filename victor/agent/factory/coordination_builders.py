@@ -109,8 +109,8 @@ def build_policy_emitter(
     return _emit
 
 
-def resolve_policy_approval_handler(governance: Any, container: Any = None) -> Optional[Any]:
-    """Resolve an approval handler for ASK verdicts (tool or message phases).
+def _resolve_inner_approval_handler(governance: Any, container: Any = None) -> Optional[Any]:
+    """Resolve the base ASK approval handler (container → TTY console → None).
 
     Resolution order:
       1. A ``PolicyApprovalHandler`` registered in the DI container — used on any
@@ -145,6 +145,44 @@ def resolve_policy_approval_handler(governance: Any, container: Any = None) -> O
         return console_approval_handler
     except Exception:  # pragma: no cover - defensive
         return None
+
+
+def resolve_policy_approval_handler(governance: Any, container: Any = None) -> Optional[Any]:
+    """Resolve an approval handler for ASK verdicts, wrapping it for durable pause (FEP-0029).
+
+    Resolves the base handler (see :func:`_resolve_inner_approval_handler`), then — when the
+    session opts into durable approval (``governance.durable``) — returns a wrapper that raises
+    :class:`~victor.agent.approval_pause.ApprovalPause` **at call time** whenever durable pause is
+    armed for the current turn (the ``current_durable_pause_enabled`` ContextVar, set by the turn
+    boundary). Disarmed, the wrapper delegates to the base handler — byte-identical to today. When
+    durable is off and there is no base handler, returns ``None`` unchanged (ASK → ``ask_fallback``).
+
+    The wrapper is built once (at orchestrator construction) but checks the ContextVar per call,
+    because a single agent's orchestrator is built before any turn arms the pause. This mirrors the
+    team member wrapper (``SubAgent._build_member_approval_handler``) but keyed on the single-agent
+    var and the static ``durable`` opt-in.
+    """
+    inner = _resolve_inner_approval_handler(governance, container)
+    durable = bool(getattr(governance, "durable", False))
+    if not durable:
+        # Durable pause not opted in → return the base handler unchanged (identity). ASK either
+        # prompts the base handler or, if None, falls back via ask_fallback — byte-identical.
+        return inner
+
+    from victor.framework.approval_pause import ApprovalPause, current_durable_pause_enabled
+
+    async def _durable_pause_handler(request: Any) -> Any:
+        # Armed for this turn → durably pause instead of prompting/blocking.
+        if current_durable_pause_enabled.get():
+            raise ApprovalPause(request)
+        if inner is not None:
+            return await inner(request)
+        # Durable configured but not armed at call time, and no base handler: fail safe.
+        from victor.framework.hitl import ApprovalStatus
+
+        return (ApprovalStatus.REJECTED, None, "no-handler")
+
+    return _durable_pause_handler
 
 
 def build_message_policy_gate(settings: Any, container: Any, model: Optional[str]) -> Optional[Any]:

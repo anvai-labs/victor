@@ -126,6 +126,52 @@ def _resolve_stage_value(orchestrator: Any) -> str:
     return "unknown"
 
 
+def _durable_pause_enabled(orchestrator: Any) -> bool:
+    """Whether durable pause (FEP-0029) is opted in for this run (governance.durable)."""
+    settings = getattr(orchestrator, "settings", None)
+    governance = getattr(settings, "governance", None)
+    return bool(getattr(governance, "durable", False))
+
+
+def _build_awaiting_task_result(orchestrator: Any, pause: Any) -> TaskResult:
+    """Convert an :class:`ApprovalPause` into an ``awaiting_approval`` TaskResult (FEP-0029).
+
+    Records a resumable pause in the process-local paused-run store (Phase 1) and returns the
+    ``run_id`` + pending ``approval_request`` on the result so the caller can resume later.
+    """
+    import time
+
+    from victor.agent.paused_run_store import get_paused_run_store
+
+    request = getattr(pause, "request", None)
+    req_dict = request.to_dict() if hasattr(request, "to_dict") else {}
+    ctx = getattr(request, "context", {}) or {}
+    tool_name = ctx.get("tool_name") or ctx.get("tool")
+    pending_tool = (
+        {"tool_name": tool_name, "arguments": ctx.get("arguments") or ctx.get("args")}
+        if tool_name
+        else None
+    )
+    run_id = get_paused_run_store().save(
+        session_id=getattr(orchestrator, "active_session_id", None),
+        agent_id=getattr(orchestrator, "agent_id", None) or getattr(orchestrator, "model", None),
+        approval_request=req_dict,
+        pending_tool=pending_tool,
+        created_at=time.time(),
+        metadata={"stage": _resolve_stage_value(orchestrator)},
+    )
+    return TaskResult(
+        content="",
+        tool_calls=[],
+        success=False,
+        error=None,
+        metadata={"stage": _resolve_stage_value(orchestrator)},
+        status="awaiting_approval",
+        run_id=run_id,
+        approval_request=req_dict,
+    )
+
+
 def _coalesce_value(*values: Any) -> Any:
     """Return the first value that is not ``None``."""
     for value in values:
@@ -296,9 +342,19 @@ async def execute_message(
     forward_stream_option: bool = False,
     runtime_context_overrides: Optional[Mapping[str, Any]] = None,
 ) -> TaskResult:
-    """Execute a single message turn via the canonical service-backed runtime."""
+    """Execute a single message turn via the canonical service-backed runtime.
+
+    FEP-0029: when the session opts into durable approval (``governance.durable``), durable pause is
+    armed for the turn — a policy ASK raises :class:`ApprovalPause`, which is caught here and
+    converted into an ``awaiting_approval`` :class:`TaskResult` (with a resumable ``run_id``) instead
+    of blocking the inline modal. Disarmed, this is byte-identical to before.
+    """
+    from victor.framework.approval_pause import ApprovalPause, current_durable_pause_enabled
+
     prepared = prepare_message(user_message, context)
 
+    _durable = _durable_pause_enabled(orchestrator)
+    _token = current_durable_pause_enabled.set(True) if _durable else None
     try:
         chat_runtime = _resolve_chat_runtime(orchestrator, execution_context)
         output_state = DirectResponseOutputState(prepared.response_message)
@@ -322,6 +378,9 @@ async def execute_message(
             metadata=_build_task_result_metadata(orchestrator, response),
         )
 
+    except ApprovalPause as pause:
+        # FEP-0029: the turn parked on a policy ASK. Record a resumable pause and surface it.
+        return _build_awaiting_task_result(orchestrator, pause)
     except CancellationError:
         return TaskResult(
             content="",
@@ -338,6 +397,9 @@ async def execute_message(
             error=str(exc),
             metadata={"stage": _resolve_stage_value(orchestrator)},
         )
+    finally:
+        if _token is not None:
+            current_durable_pause_enabled.reset(_token)
 
 
 async def stream_message_events(
