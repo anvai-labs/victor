@@ -2,18 +2,27 @@
 fep: 0028
 title: "Team-Node Durability Contract"
 type: Standards Track
-status: Draft
+status: Accepted
 created: 2026-07-30
-modified: 2026-07-31
+modified: 2026-08-01
 authors:
   - name: Vijaykumar Singh
     email: singhvjd@gmail.com
     github: vijaydsingh
-reviewers: []
+reviewers:
+  - vijaydsingh
 discussion: https://github.com/anvai-labs/victor/discussions/0028
 ---
 
 # FEP-0028: Team-Node Durability Contract
+
+> **Acceptance record (2026-08-01).** Accepted by Vijaykumar Singh (`vijaydsingh`), the project's
+> sole FEP Maintainer — the single-maintainer analogue of FEP-0001's "2+ maintainer approvals"
+> criterion, recorded here and in `reviewers:`. The contract was ratified incrementally as it
+> shipped: every increment landed on `develop` across PRs #733–#752 with its acceptance-criteria
+> bullet added in the same PR, so **Accepted describes merged reality, not intent**. The deferred
+> remainder is recorded as explicit Non-Goals and Follow-ups below — nothing unresolved remains
+> open against the contract.
 
 ## Table of Contents
 
@@ -74,6 +83,16 @@ formation model is arguably cleaner, but lacks the durability contract.
 - Replacing the StateGraph engine or the formation model (teams stay formations-as-nodes; CLAUDE.md).
 - A new checkpoint/interrupt engine — this FEP *propagates* the graph-layer primitives.
 - Distributed/multi-process team execution.
+- **Durable pause for the iterative formations (CONSENSUS/REFLECTION).** Their durable unit is the
+  round/iteration, which is atomic — members race within a round and outputs only mean anything as a
+  complete round — and the generator/critic path runs through `_MemberContextAgent.execute(str) ->
+  str` (`unified_coordinator.py`), which has no awaiting-approval channel to surface a pause on.
+  Both formations keep `supports_durable_pause()` `False`; a member `ASK` there keeps the slice-2a
+  inline terminal modal.
+- **Durable pause/continuation for a non-team single agent** (plain `victor chat`). It needs a
+  continuation-token system (a `paused_runs` table, a `VictorClient` resume API, `chat_service`
+  paused-run detection, an `AWAITING_APPROVAL` event) — a separate proposal outside the team-node
+  contract, tracked independently.
 
 ## Proposed Change
 
@@ -94,6 +113,30 @@ Wiring is **opt-in**: the coordinator is given a `CheckpointerProtocol` (constru
 `with_checkpointer(...)`) and a stable `thread_id` (from the node context/state). Formations opt in by
 reading two new `None`-default fields on `TeamContext`: `checkpoint_hook` (awaited after each member)
 and `resume_completed` (seeds a resumed run). With neither set, the formation loop is unchanged.
+
+The identity/state shape above is the *base* contract, written verbatim by the sequential
+formations; each formation maps it onto its own **durable unit**:
+
+#### Per-formation durability granularity
+
+| Formation | Durable unit | Snapshot / resume semantics |
+|-----------|--------------|-----------------------------|
+| SEQUENTIAL | Member | Checkpoint after each member; resume skips completed members and restores `shared_state` + the chaining cursor. |
+| PIPELINE | Member (stage) | Same sequential machinery; stage output→input chaining restored on resume; stop-on-failure still checkpoints the failed stage. |
+| PARALLEL | Member (concurrent) | Each finishing member records + checkpoints the *cumulative* completed set under an `asyncio.Lock` (execution stays concurrent — only the completion handler serializes); resume seeds the set and re-runs only the rest, concurrently. |
+| HIERARCHICAL | Phase (`plan` → `specialists` → `synthesis`, snapshotted in `shared_state["__hier__"]`) **plus** per-specialist within the wave | A completed plan is restored, not re-run (its `delegated_tasks` drive phase 2); the specialist wave runs through the shared concurrent runner, so mid-wave cumulative checkpoints — which embed the phase-1 snapshot — give per-specialist partial resume under the restored plan (no replan); synthesis is restored last. |
+| CONSENSUS | Round (`shared_state["__consensus__"]`) | One snapshot per completed round; resume rebuilds the next round's task from the persisted loop state and continues at the first unfinished round. Members race *within* a round, so the round is atomic — a mid-round crash re-runs that round (documented contract). |
+| REFLECTION | Iteration (`shared_state["__reflection__"]`) | One snapshot per generator+critic cycle, plus a terminal snapshot; resume rebuilds the refined generator prompt and continues at the first unfinished iteration; a resume after completion returns the aggregate without re-running. |
+
+#### Reserved `shared_state` keys (contract-internal)
+
+The contract reserves the dunder-named `shared_state` keys **`__hier__`**, **`__consensus__`**,
+**`__reflection__`**, **`__awaiting_approval__`**, and **`__awaiting_approvals__`** for the
+formation/coordinator machinery above. They are contract-internal: consumers (team authors, members,
+tools) must **not** write them and must not depend on their internal shape — the public surface is
+the paused/resumed aggregate (`status`, `paused_member_id`/`paused_member_ids`,
+`awaiting_approvals`, `approval_request`, `thread_id`). Unknown or missing keys degrade to a fresh
+(or coarser) resume, never a crash.
 
 ### 2. Member interrupt contract
 
@@ -134,12 +177,18 @@ Split into two slices:
   single-agent), a member ASK keeps slice-2a inline-modal approval (byte-identical). Nested
   sub-agents-within-a-member inherit the armed var → a nested ASK surfaces as the member's pause
   (member re-runs on resume) — a documented limitation.
-- **Slice 2b — deferred pieces.** The **no-graph chat path** for a *non-team single agent*: a plain
-  `victor chat` ASK still blocks inline (2a); durable pause there needs a continuation-token system
-  (`paused_runs` table, a `VictorClient` resume API, `chat_service` paused-run detection, an
-  `AWAITING_APPROVAL` event). Concurrent-formation arming (PARALLEL/…) also deferred. Not implemented.
+- **Slice 2b — pause coverage (final).** Durable-pause arming is gated on
+  `strategy.supports_durable_pause()`, `True` for **SEQUENTIAL / PIPELINE / PARALLEL /
+  HIERARCHICAL**. The sequential formations pause on a single awaiting member via
+  `__awaiting_approval__`; PARALLEL and the HIERARCHICAL specialist wave collect *every* awaiting
+  member of a concurrent wave into the **batch multi-pause aggregate** (`__awaiting_approvals__` +
+  one batch pause checkpoint via `_make_member_batch_pause_hook`; resume re-runs exactly the paused
+  set); HIERARCHICAL additionally pauses on an awaiting supervisor *plan* or *synthesis* via the
+  singular aggregate (the paused phase is not snapshotted, so resume re-executes exactly it).
+  CONSENSUS/REFLECTION durable pause and the non-team `victor chat` continuation are explicit
+  **Non-Goals** (see [Motivation](#non-goals) for the recorded rationales).
 
-### 3. Per-member streaming contract (implemented — increment 4, SEQUENTIAL)
+### 3. Per-member streaming contract (implemented — lanes across all six formations)
 
 An optional `member_id: Optional[str]` is added to `AgentExecutionEvent` (`events.py`), `_StreamEvent`
 (`client.py`), `RenderAction` (`event_mapping.py`), and the v1 wire event (`wire_events.py`) —
@@ -153,9 +202,12 @@ funnel interleaves those events with the orchestrator's own chunks (`_merge_orch
 an `asyncio.wait(FIRST_COMPLETED)` race whose termination is orchestrator-driven; the sink is bounded
 and lossy so a team emit never blocks). `map_event`/`map_wire_event` translate the member CUSTOM events
 to new `RenderKind.MEMBER_START/MEMBER_END` actions; the TUI (`WireTimelineState`/`ConversationLog`)
-renders per-member lane markers. Scope of this increment is **SEQUENTIAL** lifecycle events; per-member
-**tool** and **token** streaming (needs wiring `SubAgent.stream_execute`) and concurrent formations are
-deferred.
+renders per-member lane markers. Lanes cover **all six formations**: SEQUENTIAL/PIPELINE and the
+concurrent formations route members through shared `BaseFormationStrategy` helpers
+(`_execute_member_with_events` / `_execute_members_concurrently`), and CONSENSUS/REFLECTION emit via
+the same `member_event_hook` path (round members through the helper; generator/critic inline).
+Per-member **tool** and **token** streaming (needs wiring `SubAgent.stream_execute`) remains a
+follow-up.
 
 ## Benefits
 
@@ -202,8 +254,23 @@ deferred.
   now gated true for PARALLEL and HIERARCHICAL (whose specialist wave reuses the same runner/aggregate,
   and whose supervisor plan/synthesis pause via the singular `__awaiting_approval__`). The non-team
   `victor chat` continuation remains open.
-- Where durable checkpoints live long-term (a `project.db` `team_member_checkpoints` table vs the
-  injected checkpointer). Increment 1 uses the injected checkpointer only.
+- ~~Where durable checkpoints live long-term (a `project.db` `team_member_checkpoints` table vs the
+  injected checkpointer).~~ **Resolved (at acceptance):** the injected `CheckpointerProtocol` **is**
+  the contract — the formation/coordinator machinery is storage-agnostic by design, and every
+  increment shipped against it. A `project.db`-backed checkpointer (increment 5) is a follow-up
+  *implementation* of that protocol, not a contract change (see Follow-ups below).
+
+All questions raised while the increments landed were resolved before acceptance; nothing
+unresolved remains open against this contract.
+
+### Follow-ups (post-acceptance, non-blocking)
+
+- A durable `project.db`-backed `CheckpointerProtocol` implementation (increment 5) — including
+  `MemberResult.to_dict()` metadata JSON-purity, deferred to that work.
+- Iterative-formation (CONSENSUS/REFLECTION) mid-loop *partial* resume — today a mid-round/iteration
+  crash re-runs that round/iteration, the documented atomic contract.
+- Per-member **tool/token** streaming (wiring `SubAgent.stream_execute` into the member lanes).
+- The non-team single-agent chat continuation (a Non-Goal here; tracked as a separate proposal).
 
 ## Implementation Plan
 
@@ -211,18 +278,23 @@ deferred.
   `resume_completed`; `MemberResult.from_dict`; coordinator opt-in `checkpointer` + per-member save +
   resume-skip; `SequentialFormation` reads the hook/resume. Tests with `MemoryCheckpointer`.
 - **Increment 2:** checkpoint/resume for PARALLEL / HIERARCHICAL / PIPELINE / CONSENSUS / REFLECTION —
-  **complete** (PARALLEL concurrent completed-set; PIPELINE per-stage; HIERARCHICAL per-phase; CONSENSUS
-  per-round; REFLECTION per-iteration). Concurrent/iterative mid-loop *partial* resume deferred.
-- **Increment 3:** member interrupt. Slice 2a (terminal-native member approval: member-tagging wrapper
-  on a ContextVar + modal tag) **implemented**; slice 2b-infra (durable pause checkpoint + resume re-run
-  at the teams layer: `MemberStatus.AWAITING_APPROVAL`, `TeamContext.pause_hook`,
-  `_make_member_pause_hook`, paused aggregate) **implemented**; the real mid-member ASK trigger
-  (`MemberApprovalPause` BaseException armed by `current_member_durable_pause_enabled`) **implemented**;
-  the no-graph chat continuation for a non-team single agent deferred.
-- **Increment 4 (implemented, SEQUENTIAL):** `member_id` event contract + `MemberEventSink`/`ContextVar`
-  teams→stream bridge + `member_event_hook` producer + `map_event`/wire + TUI `MEMBER_START/END` lanes.
-  Member tool/token streaming and concurrent formations deferred.
-- **Increment 5:** durable `project.db` checkpointer.
+  **complete** (PARALLEL concurrent completed-set; PIPELINE per-stage; HIERARCHICAL per-phase **plus**
+  per-specialist partial resume within the wave; CONSENSUS per-round; REFLECTION per-iteration).
+  Iterative mid-loop *partial* resume is a follow-up (rounds/iterations are atomic).
+- **Increment 3:** member interrupt — **complete for the pause-capable formations**. Slice 2a
+  (terminal-native member approval: member-tagging wrapper on a ContextVar + modal tag)
+  **implemented**; slice 2b-infra (durable pause checkpoint + resume re-run at the teams layer:
+  `MemberStatus.AWAITING_APPROVAL`, `TeamContext.pause_hook`, `_make_member_pause_hook`, paused
+  aggregate) **implemented**; the real mid-member ASK trigger (`MemberApprovalPause` BaseException
+  armed by `current_member_durable_pause_enabled`) **implemented**; batch multi-pause for concurrent
+  waves (`__awaiting_approvals__` + `_make_member_batch_pause_hook`) **implemented** for PARALLEL and
+  HIERARCHICAL (whose plan/synthesis pause via the singular aggregate). Iterative-formation pause and
+  the no-graph chat continuation are Non-Goals.
+- **Increment 4 (implemented):** `member_id` event contract + `MemberEventSink`/`ContextVar`
+  teams→stream bridge + `member_event_hook` producer + `map_event`/wire + TUI `MEMBER_START/END`
+  lanes, covering all six formations. Member tool/token streaming is a follow-up.
+- **Increment 5:** durable `project.db` checkpointer — a follow-up implementation of
+  `CheckpointerProtocol` (post-acceptance; no contract change).
 
 ## Migration Path
 
@@ -382,3 +454,11 @@ lands, existing single-agent consumers ignore the `None` default.
   specialist without replanning; PARALLEL checkpoint/pause suites pass unmodified; old phase-only
   checkpoints resume unchanged; and no checkpointer is byte-identical (an awaiting specialist is an inert
   non-success result). The non-team `victor chat` continuation remains deferred.
+- **Closure (2026-08-01):** every criterion above is merged and green on `develop` (PRs #733–#752).
+  Checkpoint/resume and per-member streaming lanes cover **all six formations** at their recorded
+  granularity (member / member-concurrent / phase+per-specialist / round / iteration); durable pause
+  covers **SEQUENTIAL / PIPELINE / PARALLEL / HIERARCHICAL** (`supports_durable_pause()` `True`).
+  The deferred remainder — iterative-formation durable pause, iterative mid-loop partial resume, the
+  non-team chat continuation, member tool/token streaming, and the `project.db` checkpointer — is
+  recorded as Non-Goals/Follow-ups, not open contract questions. FEP status: **Accepted**
+  (acceptance record at the top); ADR-023 **Accepted** (rev 1.13); TD-25 **Done**.
