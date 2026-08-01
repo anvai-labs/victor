@@ -29,10 +29,26 @@ only at the turn boundary (``victor.framework.message_execution``), which conver
 from __future__ import annotations
 
 import contextvars
-from typing import TYPE_CHECKING
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
     from victor.framework.hitl import ApprovalRequest
+
+
+@dataclass
+class ApprovalDecision:
+    """A human's decision on a durably-paused approval request (FEP-0029 resume).
+
+    Passed to ``VictorClient.resume(run_id, decision)``: ``approved=True`` replays the persisted
+    gated tool call; ``approved=False`` skips it with a tool-error result. ``response`` is the
+    human's note and ``responder`` their identity (both surfaced to the model / audit).
+    """
+
+    approved: bool
+    response: Optional[str] = None
+    responder: Optional[str] = None
+
 
 #: ADR-028 / FEP-0029: durable pause is armed for the duration of a single-agent turn (a
 #: checkpointer-free opt-in via ``SessionConfig.tool_approval.durable`` → ``governance.durable``).
