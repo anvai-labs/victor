@@ -50,18 +50,29 @@ class ConversationLog(WireTimeline):
         super().__init__(**kwargs)
         self._pending_args: Dict[str, Dict[str, Any]] = {}
         self._preview = ToolPreviewRenderer()
+        # Plain-text of the current turn's assistant reply, accumulated from
+        # TOKEN actions so the app can copy the whole response to the clipboard
+        # (reasoning and tool output are deliberately excluded).
+        self._response_parts: list[str] = []
 
     def begin_turn(self, user_message: str) -> None:
         """Start a new turn: reset buffers and echo the user's message."""
         self._state = WireTimelineState()
         self._pending_args.clear()
+        self._response_parts = []
         text = user_message.strip()
         if text:
             self.write(f"[bold cyan]›[/] {escape(text)}")
 
+    def last_response_text(self) -> str:
+        """Return the current turn's assistant reply as plain text (may be empty)."""
+        return "".join(self._response_parts).strip()
+
     def feed_action(self, action: RenderAction) -> None:
         """Render one live :class:`RenderAction` into the log."""
         kind = action.kind
+        if kind is RenderKind.TOKEN and action.text:
+            self._response_parts.append(action.text)
         if kind is RenderKind.TOOL_START:
             key = action.call_id or action.tool_name or "tool"
             args = (action.metadata or {}).get("arguments", {})

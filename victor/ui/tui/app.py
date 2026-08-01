@@ -27,6 +27,7 @@ import asyncio
 import io
 import os
 import time
+from pathlib import Path
 from typing import Any, Optional
 
 from rich.console import Console
@@ -71,7 +72,10 @@ def _abbrev_path(path: str, home: Optional[str] = None) -> str:
 class VictorTUIApp(App[None]):
     """Interactive IDE-style TUI: sidebar · conversation · status · prompt."""
 
-    CSS_PATH = "styles.tcss"
+    # Resolve at import: if the stylesheet is missing (e.g. an incomplete wheel
+    # that dropped ui/tui/*.tcss), start unstyled instead of crashing Textual
+    # with StylesheetError. Packaging guards keep the file present in real dists.
+    CSS_PATH = "styles.tcss" if (Path(__file__).with_name("styles.tcss")).exists() else None
     TITLE = "victor"
     # Read once at import; user overrides come from ~/.victor/keybindings.json.
     BINDINGS = [
@@ -313,6 +317,31 @@ class VictorTUIApp(App[None]):
 
     def action_clear(self) -> None:
         self.query_one("#conversation", ConversationLog).clear()
+
+    def action_copy(self) -> None:
+        """Copy the mouse selection, or — with nothing selected — the last reply.
+
+        Highlight any text with the mouse to copy exactly that span across the
+        panes; with no active selection, ``ctrl+c`` copies the whole of the last
+        assistant response. Writes to the terminal clipboard via OSC 52, so it
+        works over SSH and inside tmux.
+        """
+        label = "selection"
+        try:
+            text = self.screen.get_selected_text() or ""
+        except Exception:  # noqa: BLE001 - selection is best-effort, never fatal
+            text = ""
+        if not text:
+            label = "response"
+            try:
+                text = self.query_one("#conversation", ConversationLog).last_response_text()
+            except Exception:  # noqa: BLE001
+                text = ""
+        if not text:
+            self.notify("Nothing to copy yet.", severity="warning", timeout=3)
+            return
+        self.copy_to_clipboard(text)
+        self.notify(f"Copied {label} to clipboard ({len(text)} chars).", timeout=3)
 
     def _on_palette_pick(self, command: Optional[str]) -> None:
         if command:

@@ -717,6 +717,8 @@ victor = [
     "config/*.yml",
     "config/*.json",
     "models/*.npz",
+    # TUI stylesheet: App.CSS_PATH loads this at startup; a wheel without it
+    # crashes the TUI with StylesheetError (see test_packaging_asset_contracts).
     "ui/tui/*.tcss",
     "verticals/contrib/*/*.yaml",
     "verticals/contrib/*/*.toml",

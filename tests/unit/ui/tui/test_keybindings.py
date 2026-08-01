@@ -49,3 +49,15 @@ def test_default_override_path_points_at_dotvictor() -> None:
     path = default_override_path()
     assert path.name == "keybindings.json"
     assert path.parent.name == ".victor"
+
+
+def test_copy_action_bound_to_ctrl_c_by_default(tmp_path: Path) -> None:
+    keys = {action: key for key, action, _ in load_keybindings(tmp_path / "absent.json")}
+    assert keys["copy"] == "ctrl+c"
+
+
+def test_copy_binding_is_reboundable(tmp_path: Path) -> None:
+    path = tmp_path / "kb.json"
+    path.write_text(json.dumps({"copy": "ctrl+y"}), encoding="utf-8")
+    keys = {action: key for key, action, _ in load_keybindings(path)}
+    assert keys["copy"] == "ctrl+y"
