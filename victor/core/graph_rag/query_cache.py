@@ -159,6 +159,15 @@ def _normalize_query(query: str) -> str:
     return normalized.strip()
 
 
+def _repo_key(repo_path: str) -> str:
+    """Normalize a repo path to a stable scoping key.
+
+    Uses the full resolved path (not just the directory name) so two repos
+    that happen to share a basename never collide in the cache.
+    """
+    return str(Path(repo_path).expanduser().resolve(strict=False))
+
+
 def _create_query_cache_key(
     query: str,
     config: Any,
@@ -191,10 +200,10 @@ def _create_query_cache_key(
     key_parts = [query_text]
 
     if repo_path:
-        # Use just the directory name for scoping, not full path
-        # This allows cache to work across different machines
-        repo_name = Path(repo_path).name
-        key_parts.append(repo_name)
+        # Full resolved path: this is an in-process cache, so cross-machine
+        # portability doesn't apply, and basename-only keys collide for
+        # same-named repos.
+        key_parts.append(_repo_key(repo_path))
 
     key_parts.append(json.dumps(config_params, sort_keys=True))
 
@@ -432,8 +441,7 @@ class GraphQueryCache:
 
                 # Update repo index
                 if repo_path:
-                    repo_name = Path(repo_path).name
-                    self._repo_index.setdefault(repo_name, set()).add(cache_key)
+                    self._repo_index.setdefault(_repo_key(repo_path), set()).add(cache_key)
 
                 logger.debug(f"Graph query cached: {query[:50]}...")
                 return True
@@ -489,24 +497,24 @@ class GraphQueryCache:
         if not self._config.enabled or self._cache is None:
             return 0
 
-        repo_name = Path(repo_path).name
+        repo_key = _repo_key(repo_path)
         count = 0
 
         with self._lock:
-            keys_to_remove = self._repo_index.get(repo_name, set()).copy()
+            keys_to_remove = self._repo_index.get(repo_key, set()).copy()
 
             for key in keys_to_remove:
                 if key in self._cache:
                     del self._cache[key]
                     count += 1
 
-            if repo_name in self._repo_index:
-                del self._repo_index[repo_name]
+            if repo_key in self._repo_index:
+                del self._repo_index[repo_key]
 
             self._stats["invalidations"] += count
 
         if count > 0:
-            logger.info(f"Invalidated {count} graph query cache entries for repo: {repo_name}")
+            logger.info(f"Invalidated {count} graph query cache entries for repo: {repo_key}")
 
         return count
 

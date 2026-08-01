@@ -490,3 +490,27 @@ class TestGraphManager:
 
         assert calls == 2
         assert root_str not in manager.get_stats()["refresh_failures"]
+
+
+class TestQueryCacheInvalidation:
+    """Tests for graph query cache invalidation on refresh."""
+
+    def test_invalidate_query_cache_calls_invalidate_repo(self):
+        """_invalidate_query_cache should route to the query cache's invalidate_repo."""
+        with mock.patch(
+            "victor.core.graph_rag.query_cache.get_graph_query_cache"
+        ) as mock_get_cache:
+            mock_cache = mock.MagicMock()
+            mock_get_cache.return_value = mock_cache
+
+            GraphManager._invalidate_query_cache("/some/repo")
+
+            mock_cache.invalidate_repo.assert_called_once_with("/some/repo")
+
+    def test_invalidate_query_cache_swallows_errors(self):
+        """Cache invalidation failures must never break a refresh."""
+        with mock.patch(
+            "victor.core.graph_rag.query_cache.get_graph_query_cache",
+            side_effect=RuntimeError("cache exploded"),
+        ):
+            GraphManager._invalidate_query_cache("/some/repo")  # must not raise

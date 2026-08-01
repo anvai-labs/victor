@@ -157,6 +157,11 @@ class SqliteGraphStore(GraphStoreProtocol):
         """
         logger.debug("SqliteGraphStore close skipped shared project database shutdown")
 
+    @property
+    def repo_root(self) -> Path:
+        """Resolved project root this store indexes (used for cache scoping)."""
+        return self._project_root
+
     def _connect(self) -> sqlite3.Connection:
         """Get database connection."""
         return self._db.get_connection()
@@ -530,6 +535,30 @@ class SqliteGraphStore(GraphStoreProtocol):
         # (e.g. ast_kind added in v5). _migrate_schema() adds them idempotently.
         self._migrate_schema(conn)
 
+    def _build_embedding_config(self) -> Any:
+        """Build vector-store config from settings, falling back to defaults."""
+        from victor.storage.vector_stores.base import EmbeddingConfig
+
+        kwargs: Dict[str, Any] = {}
+        try:
+            from victor.config.settings import get_project_paths, load_settings
+
+            settings = load_settings()
+            paths = get_project_paths(self._project_root)
+            kwargs = {
+                "vector_store": getattr(settings, "codebase_vector_store", "lancedb"),
+                "embedding_model_type": getattr(
+                    settings, "codebase_embedding_provider", "sentence-transformers"
+                ),
+                "embedding_model_name": getattr(
+                    settings, "codebase_embedding_model", "BAAI/bge-small-en-v1.5"
+                ),
+                "persist_directory": str(paths.embeddings_dir),
+            }
+        except Exception as e:
+            logger.debug(f"Settings unavailable for embedding config, using defaults: {e}")
+        return EmbeddingConfig(**kwargs)
+
     async def _delete_embeddings_for_file(self, file: str, node_ids: List[str]) -> None:
         """Delete embeddings for nodes from vector store.
 
@@ -542,17 +571,16 @@ class SqliteGraphStore(GraphStoreProtocol):
             node_ids: List of node IDs being deleted (for potential per-node cleanup)
         """
         try:
-            from victor.storage.vector_stores.base import EmbeddingConfig
             from victor.storage.vector_stores.registry import EmbeddingRegistry
 
-            # Create vector store provider with default config
-            # In production, this should use settings but we use defaults for robustness
-            config = EmbeddingConfig(vector_store="lancedb")
-            provider = EmbeddingRegistry.create(config)
+            provider = EmbeddingRegistry.create(self._build_embedding_config())
 
-            # Delete all embeddings for this file
-            deleted_count = await provider.delete_by_file(file)
-            logger.debug(f"Deleted {deleted_count} embeddings for {file}")
+            # Vector stores index repo-relative paths; use the canonical form so
+            # the delete predicate matches what was stored at index time.
+            canonical = self._canonical_file_path(file)
+            deleted_count = await provider.delete_by_file(canonical)
+            if deleted_count:
+                logger.info(f"Deleted {deleted_count} embeddings for {canonical}")
 
         except ImportError:
             logger.debug("Vector store not available, skipping embedding cleanup")
@@ -834,9 +862,8 @@ class SqliteGraphStore(GraphStoreProtocol):
         """
         try:
             from victor.storage.vector_stores.registry import EmbeddingRegistry
-            from victor.storage.embeddings.service import EmbeddingConfig
 
-            provider = EmbeddingRegistry.create(EmbeddingConfig())
+            provider = EmbeddingRegistry.create(self._build_embedding_config())
             await provider.clear_index()
             logger.info("Cleared all embeddings from vector store")
         except ImportError:

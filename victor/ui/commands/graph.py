@@ -108,6 +108,14 @@ async def _index_async(
     pipeline = GraphIndexingPipeline(graph_store, config)
     stats = await run_indexing_with_lock(root_path, pipeline.index_repository)
 
+    if force or stats.files_processed or stats.files_deleted:
+        try:
+            from victor.core.graph_rag.query_cache import get_graph_query_cache
+
+            get_graph_query_cache().invalidate_repo(str(root_path))
+        except Exception:  # noqa: BLE001 - cache invalidation is best-effort
+            pass
+
     # Print results
     console.print("\n[green]✓ Indexing complete[/green]")
     console.print(f"  Files processed: {stats.files_processed}")
