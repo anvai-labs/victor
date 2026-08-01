@@ -7,14 +7,20 @@ on:
   push:
     branches: [main]
     paths:
+      - '.github/workflows/ci-integration.yml'
       - 'victor/**'
+      - 'victor-contracts/**'
+      - 'examples/external_vertical/**'
       - 'tests/integration/**'
       - 'tests/e2e/**'
       - 'pyproject.toml'
   pull_request:
     branches: [main]
     paths:
+      - '.github/workflows/ci-integration.yml'
       - 'victor/**'
+      - 'victor-contracts/**'
+      - 'examples/external_vertical/**'
       - 'tests/integration/**'
       - 'tests/e2e/**'
       - 'pyproject.toml'
@@ -33,14 +39,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
+      fail-fast: false
       matrix:
         test-suite:
           - name: provider-integration
-            path: tests/integrations/providers
+            path: tests/integration/providers
           - name: workflow-integration
-            path: tests/integrations/workflows
+            path: tests/integration/workflows
           - name: tool-integration
-            path: tests/integrations/tools
+            path: tests/integration/tools
     steps:
       - uses: actions/checkout@v4
 
@@ -68,22 +75,26 @@ jobs:
 
       - name: Run integration tests
         run: |
-          if [ -d "${{ matrix.test-suite.path }}" ]; then
-            pytest ${{ matrix.test-suite.path }} \
-              -v \
-              --tb=short \
-              -m integration \
-              || echo "⚠️ Integration tests for ${{ matrix.test-suite.name }} failed or directory not found"
-          else
-            echo "⚠️ Integration test directory not found: ${{ matrix.test-suite.path }}"
+          rc=0
+          pytest ${{ matrix.test-suite.path }} \
+            -v \
+            --tb=short \
+            -m integration \
+            || rc=$?
+          # pytest exit 5 = no tests matched the marker in this suite
+          # (e.g. tests/integration/tools has no integration-marked tests) —
+          # treat as pass, fail on anything else.
+          if [ "$rc" -eq 5 ]; then
+            echo "No integration-marked tests in ${{ matrix.test-suite.path }} (pytest exit 5) — treating as pass."
+            rc=0
           fi
-        continue-on-error: true
+          exit $rc
 
   # Test with external vertical packages installed
   verticals-integration:
     name: Verticals Integration
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -106,9 +117,10 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install torch --index-url https://download.pytorch.org/whl/cpu
-          # Install the in-repo SDK and core first.
+          # Install the in-repo SDK and core first ([dev] so pytest is
+          # available for the integration suites below).
           pip install -e ./victor-contracts
-          pip install -e .
+          pip install -e ".[dev]"
           # Foundational shared code->CPG parser (verticals delegate to it, ADR-014).
           pip install -e ./victor-codegraph
 
@@ -122,6 +134,14 @@ jobs:
           pip install -e ./verticals/victor-rag
           pip install -e ./verticals/victor-dataanalysis
           pip install -e ./verticals/victor-research
+
+      - name: Install external vertical example (contract-first proof package)
+        run: |
+          # The contract-only example vertical (examples/external_vertical) is
+          # the reference for third-party vertical authoring; installing it here
+          # lets the verticals integration suite exercise its install/discovery
+          # path end-to-end.
+          pip install ./examples/external_vertical
 
       - name: Verify vertical packages are installed
         run: |
@@ -164,15 +184,23 @@ jobs:
                   print(f"✗ {vertical_name}: {e}")
           PY
 
+      - name: Run verticals integration suite (incl. external vertical install/discovery)
+        run: |
+          # -m slow selects the isolated-venv install/discovery proofs
+          # (tests/integration/verticals/test_external_vertical_install_discovery.py
+          # and friends) that were previously never executed in CI.
+          pytest tests/integration/verticals -m slow -q --tb=short
+
       - name: Run framework tests with verticals
         run: |
-          pytest tests/unit/framework/test_vertical_integration.py \
+          # Path fixed 2026-08-01: the old target
+          # tests/unit/framework/test_vertical_integration.py no longer exists
+          # (split into _cache/_metadata), so this step silently ran nothing.
+          pytest tests/unit/framework/test_vertical_integration_cache.py \
+            tests/unit/framework/test_vertical_integration_metadata.py \
             -v \
             --tb=short \
-            -m "not slow" \
-            -k "vertical" \
-          || echo "⚠️ Some vertical integration tests failed"
-        continue-on-error: true
+            -m "not slow"
 
   # VS Code Extension tests
   vscode-extension:

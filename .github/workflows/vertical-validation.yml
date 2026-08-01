@@ -6,7 +6,12 @@ on:
     # stay lightweight (ci-fast only) so the runner queue keeps merging fast.
     branches: [main]
     paths:
+      - '.github/workflows/vertical-validation.yml'
       - 'victor/**'
+      # Vertical packages carry the victor-vertical.toml files this workflow
+      # validates — run when they (or the external example) change.
+      - 'verticals/**'
+      - 'examples/external_vertical/**'
   workflow_dispatch:  # Allow manual triggering
 
 env:
