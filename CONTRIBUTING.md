@@ -210,85 +210,112 @@ All FEPs must include:
 
 ### Vertical Contributions
 
-Verticals are self-contained domain extensions (Coding, DevOps, RAG, DataAnalysis, Research, Benchmark). You can create new verticals without modifying the core framework.
+Verticals are self-contained domain extensions (Coding, DevOps, RAG, DataAnalysis, Research). You can create new verticals without modifying the core framework.
+
+The supported model for new verticals is a **contract-first external package**: depend only on `victor-contracts`, declare tools/capabilities/prompts through the contract surface, and register via the `victor.plugins` entry point. The `victor-ai` runtime discovers and runs the package; your code never imports `victor.*` internals.
+
+Canonical references:
+
+- [`examples/external_vertical/`](examples/external_vertical/) — a working contract-only package (`victor-security`) you can copy as a starting point
+- [`victor-contracts/VERTICAL_DEVELOPMENT.md`](victor-contracts/VERTICAL_DEVELOPMENT.md) — the full authoring guide
+- [`victor-contracts/CONTRACT_STABILITY.md`](victor-contracts/CONTRACT_STABILITY.md) — which contract surfaces are stable, and the deprecation policy
 
 #### Creating a New Vertical
 
-```bash
-# Scaffold a new vertical
-victor vertical create security --description "Security analysis assistant"
+Copy `examples/external_vertical/` as a template, or generate a skeleton with the in-repo scaffolder:
 
-# This creates:
-# victor/security/
-#   ├── __init__.py
-#   ├── security_assistant.py
-#   ├── victor-vertical.toml
-#   ├── tools/
-#   ├── workflows/
-#   └── tests/
+```bash
+python scripts/scaffold_vertical.py my-vertical --output-dir /path/to/workspace
 ```
 
 #### Vertical Package Structure
 
 ```
 victor-security/
-├── victor_security/
-│   ├── __init__.py                 # Exports SecurityAssistant
-│   ├── security_assistant.py       # Main vertical class
-│   ├── tools/                      # Vertical-specific tools
-│   ├── workflows/                  # YAML workflow definitions
-│   └── escape_hatches.py           # Custom handlers
-├── victor-vertical.toml            # Vertical metadata (required)
-├── pyproject.toml                  # Package configuration
+├── pyproject.toml                  # Package configuration + entry point
+├── victor-vertical.toml            # Vertical metadata manifest
 ├── README.md                       # Documentation
+├── src/
+│   └── victor_security/
+│       ├── __init__.py             # Exposes the plugin entry point
+│       └── assistant.py            # Vertical definition (VerticalBase subclass)
 └── tests/
-    ├── __init__.py
-    └── test_security_assistant.py
+    └── test_assistant.py
 ```
 
 #### victor-vertical.toml Requirements
 
-Every vertical must include a `victor-vertical.toml` manifest:
+Every vertical package must include a `victor-vertical.toml` manifest. The schema is `VerticalPackageMetadata` in `victor/core/verticals/package_schema.py`; the required fields are `name`, `version`, `description`, `authors`, `license`, `requires_victor`, and the `[vertical.class]` table with `module` and `class_name`. Everything else is optional.
 
 ```toml
 [vertical]
-name = "security"                          # Required: vertical name
+name = "security"                          # Required: lowercase, alphanumeric/underscore
 version = "0.1.0"                          # Required: semantic version
 description = "Security analysis assistant" # Required: human-readable description
-authors = [{name = "Your Name", email = "you@example.com"}]
-license = "Apache-2.0"
+authors = [{name = "Your Name", email = "you@example.com"}]  # Required
+license = "Apache-2.0"                     # Required: SPDX identifier
 requires_victor = ">=0.5.0"                # Required: minimum Victor version
 
-python_package = "victor-security"         # Required: PyPI package name
-homepage = "https://github.com/user/victor-security"
-repository = "https://github.com/user/victor-security"
-documentation = "https://victor-security.readthedocs.io"
-issues = "https://github.com/user/victor-security/issues"
+python_package = "victor-security"         # Optional: PyPI package name
+homepage = "https://github.com/user/victor-security"          # Optional
+repository = "https://github.com/user/victor-security"        # Optional
+documentation = "https://victor-security.readthedocs.io"      # Optional
+issues = "https://github.com/user/victor-security/issues"     # Optional
 
-category = "development"                    # Required: category
-tags = ["security", "analysis", "scanning"] # Required: search tags
+category = "development"                    # Optional: marketplace category
+tags = ["security", "analysis", "scanning"] # Optional: search tags
 
 [vertical.class]
-module = "victor_security.security_assistant"  # Required: import path
+module = "victor_security.assistant"           # Required: import path
 class_name = "SecurityAssistant"               # Required: class name
-provides_tools = ["scan", "analyze"]           # Required: tool list
-provides_workflows = ["security_scan"]         # Required: workflow list
-provides_capabilities = ["security_analysis"]  # Required: capabilities
+provides_tools = ["scan", "analyze"]           # Optional: tool list
+provides_workflows = ["security_scan"]         # Optional: workflow list
+provides_capabilities = ["security_analysis"]  # Optional: capabilities
 
-[vertical.dependencies]
+[vertical.dependencies]           # Optional
 python = ["requests>=2.28.0"]  # Python dependencies
 verticals = []                 # Dependencies on other verticals
 
-[vertical.compatibility]
+[vertical.compatibility]          # Optional
 requires_tool_calling = true
 preferred_providers = ["anthropic", "openai"]
 min_context_window = 100000
 python_version = ">=3.10"
 
-[vertical.security]
+[vertical.security]               # Optional
 signed = false
 verified_author = false
 permissions = ["network", "filesystem:read"]
+```
+
+#### Vertical Registration
+
+Verticals are discovered through the canonical `victor.plugins` entry-point group:
+
+```toml
+# In your vertical's pyproject.toml
+[project.entry-points."victor.plugins"]
+security = "victor_security:plugin"
+```
+
+See `examples/external_vertical/pyproject.toml` for a complete working configuration.
+
+#### Validating Your Vertical Locally
+
+Two commands prove a vertical package against the contract before you publish (or open a PR against the first-party verticals):
+
+```bash
+# Validate an installed vertical package against the Victor contracts
+# (loads its victor.plugins entry points and validates the vertical
+# definitions they publish)
+victor-contracts check victor-security
+
+# For first-party verticals in this repo: enforce that verticals
+# import only victor_contracts, never victor.* runtime internals
+make check-vertical-boundaries
+
+# And run the package's own tests
+pytest tests/
 ```
 
 #### Publishing Verticals
@@ -302,63 +329,31 @@ python -m build
 twine upload dist/*
 
 # 3. Users can now install it
-victor vertical install victor-security
+pip install victor-security
 
-# 4. Verify installation
-victor vertical list
-```
-
-#### Vertical Registration
-
-Verticals use Python entry points for auto-discovery:
-
-```toml
-# In your vertical's pyproject.toml
-[project.entry-points."victor.verticals"]
-security = "victor_security:SecurityAssistant"
+# 4. Verify discovery
+victor plugin list
 ```
 
 #### Installing Verticals
 
-Users can install verticals from various sources:
+Vertical packages are normal Python packages: installing one into the same environment as `victor-ai` is enough for discovery via the `victor.plugins` entry point. The `victor plugin` commands manage local-path/git installs and enablement (the older `victor vertical` command group still works but is deprecated in favor of `victor plugin`):
 
 ```bash
-# Install from PyPI
-victor vertical install victor-security
+# Install from PyPI (with optional version constraint)
+pip install "victor-security>=1.0.0"
 
-# Install with version constraint
-victor vertical install "victor-security>=1.0.0"
+# Install from a local path or git URL via the plugin manager
+victor plugin install ./path/to/victor-security
 
-# Install from git
-victor vertical install "git+https://github.com/user/victor-security.git"
+# List installed plugins and verticals
+victor plugin list
 
-# Install from local path
-victor vertical install ./path/to/victor-security
+# Search for plugins
+victor plugin search security
 
-# Install with extras
-victor vertical install "victor-security[full]"
-
-# List installed verticals
-victor vertical list
-
-# Search for verticals
-victor vertical search security
-
-# Uninstall a vertical
-victor vertical uninstall victor-security
-```
-
-#### Vertical Testing
-
-```bash
-# Test your vertical
-pytest tests/
-
-# Test with Victor loaded
-pytest tests/ -p victor.testing.plugin
-
-# Integration tests
-pytest tests/integration/
+# Uninstall
+victor plugin uninstall victor-security
 ```
 
 ### Tool Contributions
