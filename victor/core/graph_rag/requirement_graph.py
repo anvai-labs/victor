@@ -43,6 +43,16 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _get_embedding_service() -> Any:
+    """Shared EmbeddingService singleton, or None when unavailable."""
+    try:
+        from victor.storage.embeddings.service import get_embedding_service
+
+        return get_embedding_service()
+    except Exception:  # noqa: BLE001 - embeddings are strictly optional here
+        return None
+
+
 # =============================================================================
 # Requirement Type Enum (PH5-001)
 # =============================================================================
@@ -156,13 +166,15 @@ class RequirementSimilarityCalculator:
     def __init__(
         self,
         graph_store: GraphStoreProtocol,
-        use_embeddings: bool = False,
+        use_embeddings: bool = True,
     ) -> None:
         """Initialize the similarity calculator.
 
         Args:
             graph_store: Graph store for accessing requirements
-            use_embeddings: Whether to use semantic similarity (requires embeddings)
+            use_embeddings: Whether to use semantic similarity. Safe to leave on:
+                when the embedding service is unavailable, semantic scoring
+                falls back to textual similarity.
         """
         self.graph_store = graph_store
         self.use_embeddings = use_embeddings
@@ -360,7 +372,12 @@ class RequirementSimilarityCalculator:
         req_1: GraphNode,
         req_2: GraphNode,
     ) -> float:
-        """Calculate semantic similarity using embeddings.
+        """Calculate semantic similarity via embedding cosine.
+
+        Embeddings come from the shared EmbeddingService (cached, so repeated
+        pairwise comparisons re-embed nothing). Falls back to textual
+        similarity when the service is unavailable. Negative cosine is clamped
+        to 0 to honor the 0-1 score contract.
 
         Args:
             req_1: First requirement
@@ -369,9 +386,21 @@ class RequirementSimilarityCalculator:
         Returns:
             Similarity score (0-1)
         """
-        # TODO: Implement actual semantic similarity using embeddings
-        # For now, fall back to textual similarity
-        return self._textual_similarity(req_1, req_2)
+        service = _get_embedding_service()
+        if service is None:
+            return self._textual_similarity(req_1, req_2)
+        try:
+            import numpy as np
+
+            v1 = await service.embed_text(self._get_requirement_text(req_1), use_cache=True)
+            v2 = await service.embed_text(self._get_requirement_text(req_2), use_cache=True)
+            if not (np.any(v1) and np.any(v2)):
+                # Degraded service (model unavailable emits zero vectors).
+                return self._textual_similarity(req_1, req_2)
+            return max(0.0, min(1.0, service.cosine_similarity(v1, v2)))
+        except Exception as e:
+            logger.debug(f"Semantic similarity fell back to textual: {e}")
+            return self._textual_similarity(req_1, req_2)
 
     def _get_requirement_text(self, req: GraphNode) -> str:
         """Extract text content from a requirement node.
@@ -703,35 +732,76 @@ class RequirementGraphBuilder:
     ) -> List[Any]:
         """Find semantically similar symbols for a requirement.
 
+        FTS candidates are re-scored with real embedding cosine between the
+        requirement text and each symbol's embedded text (name + signature +
+        docstring — the same text the indexing pipeline embeds), replacing the
+        old hardcoded 0.8 confidence. Without an embedding service the FTS
+        candidates keep a flat default confidence.
+
         Args:
             req_id: Requirement ID
             requirement: Requirement text
             max_symbols: Maximum symbols to return
 
         Returns:
-            List of similar symbols with confidence scores
+            List of similar symbols with confidence scores, best first
         """
-        # Use semantic search via graph store
         try:
+            # Over-fetch so semantic re-ranking has candidates to choose from.
             nodes = await self.graph_store.search_symbols(
                 requirement,
-                limit=max_symbols,
+                limit=max(max_symbols * 2, max_symbols),
+            )
+        except Exception as e:
+            logger.warning(f"Symbol search failed: {e}")
+            return []
+        if not nodes:
+            return []
+
+        confidences = await self._score_symbols(requirement, nodes)
+        scored = sorted(zip(nodes, confidences), key=lambda pair: pair[1], reverse=True)
+        return [
+            type(
+                "Symbol",
+                (),
+                {
+                    "symbol_id": n.node_id,
+                    "confidence": confidence,
+                    "node": n,
+                },
+            )()
+            for n, confidence in scored[:max_symbols]
+        ]
+
+    async def _score_symbols(self, requirement: str, nodes: List[Any]) -> List[float]:
+        """Embedding-cosine confidence per candidate symbol (0-1, clamped).
+
+        Falls back to a flat 0.8 (the historical default) when the embedding
+        service is unavailable, so mapping still works air-gapped-without-model.
+        """
+        service = _get_embedding_service()
+        if service is None:
+            return [0.8] * len(nodes)
+        try:
+            import numpy as np
+
+            from victor.processing.graph_embeddings import GraphAwareEmbedder
+
+            req_vector = await service.embed_text(requirement, use_cache=True)
+            if not np.any(req_vector):
+                # Degraded service (model unavailable emits zero vectors) —
+                # cosine would be 0 everywhere and silently drop all mappings.
+                return [0.8] * len(nodes)
+            symbol_vectors = await service.embed_batch(
+                [GraphAwareEmbedder.node_text(n) for n in nodes]
             )
             return [
-                type(
-                    "Symbol",
-                    (),
-                    {
-                        "symbol_id": n.node_id,
-                        "confidence": 0.8,  # Placeholder for semantic similarity
-                        "node": n,
-                    },
-                )()
-                for n in nodes
+                max(0.0, min(1.0, service.cosine_similarity(req_vector, vec)))
+                for vec in symbol_vectors
             ]
         except Exception as e:
-            logger.warning(f"Semantic search failed: {e}")
-            return []
+            logger.debug(f"Semantic symbol scoring fell back to default confidence: {e}")
+            return [0.8] * len(nodes)
 
     async def _create_requirement_edges(
         self,
