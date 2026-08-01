@@ -75,9 +75,7 @@ def iter_source_files(
             yield p
 
 
-def parse_path(
-    path: str | os.PathLike[str], *, encoding: str = "utf-8"
-) -> ParsedCode | None:
+def parse_path(path: str | os.PathLike[str], *, encoding: str = "utf-8") -> ParsedCode | None:
     """Parse a single file into symbols + relations. Returns ``None`` if unreadable."""
     p = Path(path)
     try:

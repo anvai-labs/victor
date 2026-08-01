@@ -19,6 +19,7 @@ from .model import (
     content_hash,
     deterministic_symbol_id,
 )
+from .resolution import resolve_relations
 
 _BRANCH_NODES = (
     ast.If,
@@ -239,32 +240,14 @@ def parse_python(content: str, file_path: str) -> ParsedCode:
     tree = ast.parse(content)
     v = _Visitor(file_path, content)
     v.run(tree)
-    # Resolve CALLS/EXTENDS targets to real in-file symbol ids when possible.
-    # Unresolved targets (external / cross-file callees and bases) are RETAINED with
-    # ``to_symbol_id`` = the textual name and ``confidence`` < 1.0, so consumers that
-    # need outgoing-call coverage (e.g. a CPG's blast radius) are not silently lossy.
-    # Only self-references (recursive calls) are dropped.
-    by_name: dict[str, str] = {s.simple_name: s.id for s in v.symbols}
-    resolved: list[CodeRelation] = []
-    for r in v.relations:
-        target_id = by_name.get(r.to_symbol_id)
-        if target_id == r.from_symbol_id:
-            continue  # self-reference (recursive call) — emit no self-edge
-        resolved.append(
-            CodeRelation(
-                from_symbol_id=r.from_symbol_id,
-                to_symbol_id=target_id if target_id is not None else r.to_symbol_id,
-                relation_type=r.relation_type,
-                context=r.context,
-                call_site=r.call_site,
-                confidence=1.0 if target_id is not None else 0.5,
-            )
-        )
+    # Resolve CALLS/EXTENDS targets to real in-file symbol ids when possible
+    # (shared with the tree-sitter path — see ``resolution`` for the semantics:
+    # unresolved external targets are RETAINED at confidence 0.5, self-edges drop).
     return ParsedCode(
         file_path=file_path,
         language="python",
         symbols=v.symbols,
-        relations=resolved,
+        relations=resolve_relations(v.symbols, v.relations),
         imports=v.imports,
         content_hash=content_hash(content),
     )

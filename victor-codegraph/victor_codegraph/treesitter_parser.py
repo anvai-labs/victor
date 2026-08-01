@@ -3,7 +3,8 @@
 Includes a *real* JavaScript/TypeScript extractor — the donor ProximaDB ``code.py``
 shipped a JS/TS stub that returned no symbols (CLAUDE-mandate "plausible-but-wrong"
 failure). Here JS/TS, plus a language-agnostic node-walk for common grammars, produce
-functions, classes, methods, and imports.
+functions, classes, methods, imports, and CALLS / EXTENDS / IMPLEMENTS / CONTAINS
+relations (mirroring the Python path's extraction; see ``resolution``).
 
 Requires the ``treesitter`` extra (``tree-sitter`` + ``tree-sitter-language-pack``).
 If the grammar is unavailable, :func:`parse_treesitter` raises :class:`GrammarUnavailable`
@@ -22,6 +23,15 @@ from .model import (
     SourceLocation,
     content_hash,
     deterministic_symbol_id,
+)
+from .resolution import resolve_relations
+from .treesitter_tables import (
+    CALL_NODES,
+    CALLEE_FIELDS,
+    HERITAGE_CLAUSES,
+    HERITAGE_SKIP_NODES,
+    IDENTIFIER_NODES,
+    NAME_FIELDS,
 )
 
 
@@ -46,7 +56,11 @@ _CLASS_NODES = {
     "struct_item",  # rust
     "struct_specifier",
     "interface_declaration",
-    "impl_item",  # rust
+    "impl_item",  # rust (special-cased: named after the TYPE, not the trait)
+    "trait_item",  # rust
+    "enum_item",  # rust
+    "enum_declaration",  # java / ts / c#
+    "enum_specifier",  # c / cpp
 }
 _IMPORT_NODES = {
     "import_statement",
@@ -55,6 +69,24 @@ _IMPORT_NODES = {
     "use_declaration",  # rust
     "preproc_include",  # c/cpp
 }
+
+# c/cpp *_specifier nodes also appear in type positions (``struct Foo x;``).
+# Only ones WITH a body are definitions worth a symbol.
+_BODY_REQUIRED_NODES = {"struct_specifier", "class_specifier", "enum_specifier"}
+
+# Symbol types that can contain other symbols (for CONTAINS resolution).
+_CONTAINER_SYMBOL_TYPES = frozenset(
+    {
+        CodeSymbolType.CLASS,
+        CodeSymbolType.STRUCT,
+        CodeSymbolType.INTERFACE,
+        CodeSymbolType.TRAIT,
+        CodeSymbolType.ENUM,
+        CodeSymbolType.FUNCTION,
+        CodeSymbolType.METHOD,
+        CodeSymbolType.CONSTRUCTOR,
+    }
+)
 
 
 def _get_parser(grammar: str):
@@ -112,9 +144,18 @@ def _children(node):
 def _name_of(node, src: bytes) -> str | None:
     """Find the declared name of a function/class node (grammar-agnostic)."""
 
+    if node.type == "arrow_function":
+        return None  # an arrow never carries its own name (the binding does);
+        # the child scan below would steal an unparenthesized parameter (x => ...)
     field = node.child_by_field_name("name")
     if field is not None:
         return _text(field, src)
+    declarator = node.child_by_field_name("declarator")
+    if declarator is not None:
+        # c/c++: function_definition -> function_declarator -> ... -> identifier
+        name = _rightmost_name(declarator, src)
+        if name:
+            return name
     for child in _children(node):
         if child.type in (
             "identifier",
@@ -126,44 +167,320 @@ def _name_of(node, src: bytes) -> str | None:
     return None
 
 
-def _walk_collect(node, src, file_path, language, scope, symbols, relations):
+def _rightmost_name(node, src: bytes, _depth: int = 0) -> str | None:
+    """Reduce a (possibly composite) reference node to its rightmost simple name.
+
+    ``a.b.c()`` -> ``c``; ``Foo::new`` -> ``new``; ``pkg.Fn`` -> ``Fn``. Best-effort
+    and grammar-agnostic: identifier leaves win, then well-known fields, then the
+    last identifier-ish child.
+    """
+
+    if _depth > 8 or node is None:
+        return None
+    if node.type in IDENTIFIER_NODES:
+        return _text(node, src)
+    for f in NAME_FIELDS:
+        ch = node.child_by_field_name(f)
+        if ch is not None:
+            return _rightmost_name(ch, src, _depth + 1)
+    for ch in reversed(_children(node)):
+        if ch.type in IDENTIFIER_NODES:
+            return _text(ch, src)
+    return None
+
+
+def _collect_calls(node, owner: CodeSymbol, src: bytes, file_path: str, relations) -> None:
+    """Record CALLS relations for every call expression in a symbol's body.
+
+    Stops at nested *named* definitions (they own their calls) but descends into
+    anonymous functions — a callback's calls belong to the enclosing named symbol,
+    matching the Python path's ``ast.walk`` semantics.
+    """
+
+    stack = list(_children(node))
+    while stack:
+        n = stack.pop()
+        t = n.type
+        if t in _CLASS_NODES:
+            continue  # nested type owns its contents
+        if t in _FUNC_NODES and _name_of(n, src) is not None:
+            continue  # nested named function owns its calls
+        if t in CALL_NODES:
+            callee_node = None
+            for f in CALLEE_FIELDS:
+                callee_node = n.child_by_field_name(f)
+                if callee_node is not None:
+                    break
+            callee = _rightmost_name(callee_node, src) if callee_node is not None else None
+            if callee:
+                relations.append(
+                    CodeRelation(
+                        from_symbol_id=owner.id,
+                        to_symbol_id=callee,
+                        relation_type=CodeRelationType.CALLS,
+                        context=callee,
+                        call_site=SourceLocation(
+                            file_path=file_path,
+                            start_line=n.start_point[0] + 1,  # 1-based line contract
+                            start_column=n.start_point[1],
+                        ),
+                    )
+                )
+        stack.extend(_children(n))
+
+
+def _heritage_names(clause, src: bytes) -> list[str]:
+    """Collect base-type names from a heritage clause, skipping generic args."""
+
+    names: list[str] = []
+    stack = list(_children(clause))
+    while stack:
+        n = stack.pop(0)
+        if n.type in HERITAGE_SKIP_NODES:
+            continue
+        if n.type in IDENTIFIER_NODES:
+            text = _text(n, src)
+            if text not in names:
+                names.append(text)
+            continue
+        stack = list(_children(n)) + stack
+    return names
+
+
+def _extract_heritage(class_node, sym: CodeSymbol, src: bytes, relations) -> None:
+    """EXTENDS / IMPLEMENTS edges from a class-like node's heritage clauses.
+
+    Clause nodes are found by walking children only — java's ``superclass`` /
+    ``super_interfaces`` are ALSO exposed as fields, so probing both would emit
+    each edge twice. Deduped per (relation, base) regardless.
+    """
+
+    seen: set[tuple[CodeRelationType, str]] = set()
+
+    def _emit(names: list[str], kind: str) -> None:
+        rel = CodeRelationType.EXTENDS if kind == "extends" else CodeRelationType.IMPLEMENTS
+        for name in names:
+            if name and name != sym.simple_name and (rel, name) not in seen:
+                seen.add((rel, name))
+                relations.append(
+                    CodeRelation(
+                        from_symbol_id=sym.id,
+                        to_symbol_id=name,
+                        relation_type=rel,
+                        context=name,
+                    )
+                )
+
+    for ch in _children(class_node):
+        kind = HERITAGE_CLAUSES.get(ch.type)
+        if kind is None:
+            continue
+        # TS wraps extends/implements clauses inside class_heritage; JS puts the
+        # raw expression there. Prefer the inner clauses when present.
+        inner = [c for c in _children(ch) if c.type in HERITAGE_CLAUSES]
+        if inner:
+            for c in inner:
+                _emit(_heritage_names(c, src), HERITAGE_CLAUSES[c.type])
+        else:
+            _emit(_heritage_names(ch, src), kind)
+
+
+def _class_symbol_type(node_type: str) -> CodeSymbolType:
+    if node_type.startswith("struct"):
+        return CodeSymbolType.STRUCT
+    if "interface" in node_type:
+        return CodeSymbolType.INTERFACE
+    if node_type.startswith("trait"):
+        return CodeSymbolType.TRAIT
+    if node_type.startswith("enum"):
+        return CodeSymbolType.ENUM
+    return CodeSymbolType.CLASS
+
+
+def _scope_names(frames: list[tuple[str, str]]) -> list[str]:
+    return [name for name, _kind in frames]
+
+
+def _handle_impl_item(child, src, file_path, language, frames, symbols, relations, impl_traits):
+    """Rust ``impl Type`` / ``impl Trait for Type``: attribute members to the TYPE.
+
+    No symbol is emitted for the impl block itself — it would share the type's
+    FQN (OID collision with the struct/enum, and with sibling impl blocks). The
+    old generic probe additionally picked the first ``type_identifier``, which
+    for ``impl Trait for Type`` is the *trait* — misnaming everything under it.
+    Instead: members get the TYPE on their scope chain (METHOD + CONTAINS via
+    scope), and ``impl Trait for Type`` is recorded in ``impl_traits`` so an
+    IMPLEMENTS edge can be attached to the type's symbol after the walk.
+    """
+
+    type_node = child.child_by_field_name("type")
+    name = _rightmost_name(type_node, src) if type_node is not None else None
+    name = name or _name_of(child, src) or "<anonymous>"
+
+    trait_node = child.child_by_field_name("trait")
+    trait_name = _rightmost_name(trait_node, src) if trait_node is not None else None
+    if trait_name:
+        impl_traits.append((name, trait_name))
+
+    body = child.child_by_field_name("body")
+    _walk_collect(
+        body if body is not None else child,
+        src,
+        file_path,
+        language,
+        [*frames, (name, "class")],
+        symbols,
+        relations,
+        impl_traits,
+    )
+
+
+def _handle_go_type_spec(child, src, file_path, language, frames, symbols, relations):
+    """Go ``type Foo struct/interface {...}``: STRUCT/INTERFACE symbols + embedding."""
+
+    name_node = child.child_by_field_name("name")
+    type_node = child.child_by_field_name("type")
+    if name_node is None or type_node is None:
+        return
+    tt = type_node.type
+    if tt not in ("struct_type", "interface_type"):
+        return  # plain type aliases stay out (matches prior behavior)
+    name = _text(name_node, src)
+    stype = CodeSymbolType.STRUCT if tt == "struct_type" else CodeSymbolType.INTERFACE
+    sym = _mk(child, src, file_path, language, name, stype, _scope_names(frames))
+    symbols.append(sym)
+
+    # Embedding => EXTENDS (best-effort): a struct field_declaration with a type
+    # but no name, or a bare type in an interface body.
+    embedded: list[str] = []
+    if tt == "struct_type":
+        for lst in _children(type_node):
+            if lst.type != "field_declaration_list":
+                continue
+            for fd in _children(lst):
+                if fd.type != "field_declaration":
+                    continue
+                if fd.child_by_field_name("name") is not None:
+                    continue
+                base = _rightmost_name(fd.child_by_field_name("type"), src)
+                if base:
+                    embedded.append(base)
+    else:
+        for ch in _children(type_node):
+            if ch.type in ("type_identifier", "qualified_type", "type_elem"):
+                base = _rightmost_name(ch, src)
+                if base:
+                    embedded.append(base)
+    for base in embedded:
+        if base != name:
+            relations.append(
+                CodeRelation(
+                    from_symbol_id=sym.id,
+                    to_symbol_id=base,
+                    relation_type=CodeRelationType.EXTENDS,
+                    context=base,
+                )
+            )
+
+
+def _go_receiver_type(node, src: bytes) -> str | None:
+    """The receiver type of a Go method_declaration (``func (s *Svc) Run()`` -> Svc)."""
+
+    receiver = node.child_by_field_name("receiver")
+    if receiver is None:
+        return None
+    for pd in _children(receiver):
+        if pd.type == "parameter_declaration":
+            t = pd.child_by_field_name("type")
+            if t is not None:
+                return _rightmost_name(t, src)
+    return None
+
+
+def _walk_collect(node, src, file_path, language, frames, symbols, relations, impl_traits):
     for child in _children(node):
         t = child.type
-        if t in _CLASS_NODES:
-            name = _name_of(child, src) or "<anonymous>"
-            stype = (
-                CodeSymbolType.STRUCT
-                if t.startswith("struct")
-                else (CodeSymbolType.INTERFACE if "interface" in t else CodeSymbolType.CLASS)
+        if t == "impl_item":
+            _handle_impl_item(
+                child, src, file_path, language, frames, symbols, relations, impl_traits
             )
-            sym = _mk(child, src, file_path, language, name, stype, scope)
+        elif t == "type_spec" and language == "go":
+            _handle_go_type_spec(child, src, file_path, language, frames, symbols, relations)
+        elif t in _CLASS_NODES:
+            if t in _BODY_REQUIRED_NODES and child.child_by_field_name("body") is None:
+                # c/cpp ``struct Foo x;`` — a type *reference*, not a definition.
+                continue
+            name = _name_of(child, src) or "<anonymous>"
+            sym = _mk(
+                child, src, file_path, language, name, _class_symbol_type(t), _scope_names(frames)
+            )
             symbols.append(sym)
-            # Recurse into the class body with the class name on the scope chain.
+            _extract_heritage(child, sym, src, relations)
+            # Recurse into the body with the type name on the scope chain.
             body = child.child_by_field_name("body")
             _walk_collect(
                 body if body is not None else child,
                 src,
                 file_path,
                 language,
-                [*scope, name],
+                [*frames, (name, "class")],
                 symbols,
                 relations,
+                impl_traits,
             )
         elif t in _FUNC_NODES:
             name = _name_of(child, src)
-            if name is None and t == "arrow_function":
-                continue  # anonymous arrow not bound to a name; skip
-            name = name or "<anonymous>"
-            stype = CodeSymbolType.METHOD if scope else CodeSymbolType.FUNCTION
+            if name is None:
+                # Anonymous function/arrow: emit nothing (arrow) or keep legacy
+                # "<anonymous>" for bare function expressions, but STILL recurse so
+                # named definitions inside callbacks/IIFEs are collected.
+                if t != "arrow_function":
+                    symbols.append(
+                        _mk(
+                            child,
+                            src,
+                            file_path,
+                            language,
+                            "<anonymous>",
+                            CodeSymbolType.FUNCTION,
+                            _scope_names(frames),
+                        )
+                    )
+                _walk_collect(
+                    child, src, file_path, language, frames, symbols, relations, impl_traits
+                )
+                continue
+            in_class = bool(frames) and frames[-1][1] == "class"
+            stype = CodeSymbolType.METHOD if in_class else CodeSymbolType.FUNCTION
             if name in ("constructor", "__init__", "new"):
                 stype = CodeSymbolType.CONSTRUCTOR
-            symbols.append(_mk(child, src, file_path, language, name, stype, scope))
-            # Don't recurse into function bodies for nested defs (kept flat, like donors).
+            receiver = None
+            if language == "go" and t == "method_declaration":
+                receiver = _go_receiver_type(child, src)
+                if receiver and stype == CodeSymbolType.FUNCTION:
+                    stype = CodeSymbolType.METHOD  # a receiver makes it a method
+            sym = _mk(child, src, file_path, language, name, stype, _scope_names(frames))
+            if receiver:
+                sym.metadata["receiver"] = receiver
+            symbols.append(sym)
+            _collect_calls(child, sym, src, file_path, relations)
+            # Recurse into the body so nested named functions/classes are collected.
+            body = child.child_by_field_name("body")
+            _walk_collect(
+                body if body is not None else child,
+                src,
+                file_path,
+                language,
+                [*frames, (name, "function")],
+                symbols,
+                relations,
+                impl_traits,
+            )
         else:
-            _walk_collect(child, src, file_path, language, scope, symbols, relations)
+            _walk_collect(child, src, file_path, language, frames, symbols, relations, impl_traits)
 
 
-def _handle_const_arrow(node, src, file_path, language, symbols):
+def _handle_const_arrow(node, src, file_path, language, symbols, relations):
     """JS/TS: ``const foo = (...) => {...}`` / ``export const foo = () => {}``."""
 
     for decl in _children(node):
@@ -173,7 +490,9 @@ def _handle_const_arrow(node, src, file_path, language, symbols):
         value = decl.child_by_field_name("value")
         if name_node is not None and value is not None and value.type == "arrow_function":
             name = _text(name_node, src)
-            symbols.append(_mk(decl, src, file_path, language, name, CodeSymbolType.FUNCTION, []))
+            sym = _mk(decl, src, file_path, language, name, CodeSymbolType.FUNCTION, [])
+            symbols.append(sym)
+            _collect_calls(value, sym, src, file_path, relations)
 
 
 # Parameter-list node types across tree-sitter grammars (Python/JS-TS/Java/Go/Rust/C…).
@@ -228,6 +547,47 @@ def _mk(node, src, file_path, language, name, stype, scope) -> CodeSymbol:
     )
 
 
+def _build_contains(symbols: list[CodeSymbol]) -> list[CodeRelation]:
+    """CONTAINS edges from full scope paths (parent scope -> symbol).
+
+    Keyed on the complete scope path, not the collision-prone simple name, and
+    covering every container type (class/struct/interface/trait/enum/function).
+    Go receiver methods live at top level; their CONTAINS edge comes from the
+    recorded receiver type instead.
+    """
+
+    by_path: dict[tuple[str, ...], str] = {}
+    for s in symbols:
+        if s.symbol_type in _CONTAINER_SYMBOL_TYPES:
+            by_path.setdefault((*s.scope_chain, s.simple_name), s.id)
+
+    contains: list[CodeRelation] = []
+    seen: set[tuple[str, str]] = set()
+
+    def _emit(parent_id: str, child_id: str) -> None:
+        if parent_id != child_id and (parent_id, child_id) not in seen:
+            seen.add((parent_id, child_id))
+            contains.append(
+                CodeRelation(
+                    from_symbol_id=parent_id,
+                    to_symbol_id=child_id,
+                    relation_type=CodeRelationType.CONTAINS,
+                )
+            )
+
+    for s in symbols:
+        if s.scope_chain:
+            parent = by_path.get(tuple(s.scope_chain))
+            if parent is not None:
+                _emit(parent, s.id)
+        receiver = s.metadata.get("receiver")
+        if receiver:
+            parent = by_path.get((*s.scope_chain, receiver))
+            if parent is not None:
+                _emit(parent, s.id)
+    return contains
+
+
 def parse_treesitter(content: str, file_path: str, language: str) -> ParsedCode:
     """Parse non-Python source via tree-sitter. Raises GrammarUnavailable on fallback."""
 
@@ -250,12 +610,13 @@ def parse_treesitter(content: str, file_path: str, language: str) -> ParsedCode:
     symbols: list[CodeSymbol] = []
     relations: list[CodeRelation] = []
     imports: list[str] = []
+    impl_traits: list[tuple[str, str]] = []  # rust: (type name, trait name)
 
     for child in _children(root):
         if child.type in _IMPORT_NODES:
             imports.append(_text(child, src))
 
-    _walk_collect(root, src, file_path, language, [], symbols, relations)
+    _walk_collect(root, src, file_path, language, [], symbols, relations, impl_traits)
 
     # JS/TS arrow-function-as-const: a real surface the stub missed.
     if language in ("javascript", "typescript", "tsx"):
@@ -268,29 +629,38 @@ def parse_treesitter(content: str, file_path: str, language: str) -> ParsedCode:
                         target = c
                         break
             if target.type in ("lexical_declaration", "variable_declaration"):
-                _handle_const_arrow(target, src, file_path, language, symbols)
+                _handle_const_arrow(target, src, file_path, language, symbols, relations)
 
-    # Best-effort CONTAINS edges (class -> its methods) by scope.
-    by_scope: dict[str, str] = {
-        s.simple_name: s.id for s in symbols if s.symbol_type == CodeSymbolType.CLASS
-    }
-    for s in symbols:
-        if s.scope_chain:
-            parent = by_scope.get(s.scope_chain[-1])
-            if parent is not None and parent != s.id:
-                relations.append(
-                    CodeRelation(
-                        from_symbol_id=parent,
-                        to_symbol_id=s.id,
-                        relation_type=CodeRelationType.CONTAINS,
-                    )
+    # rust: attach `impl Trait for Type` to the TYPE's symbol (struct/enum),
+    # now that the whole file is walked (the type may be declared after the impl).
+    if impl_traits:
+        by_top_name = {
+            s.simple_name: s.id
+            for s in symbols
+            if not s.scope_chain and s.symbol_type in _CONTAINER_SYMBOL_TYPES
+        }
+        seen_impl: set[tuple[str, str]] = set()
+        for type_name, trait_name in impl_traits:
+            from_id = by_top_name.get(type_name)
+            if from_id is None or (from_id, trait_name) in seen_impl:
+                continue  # impl for an out-of-file type — best-effort skip
+            seen_impl.add((from_id, trait_name))
+            relations.append(
+                CodeRelation(
+                    from_symbol_id=from_id,
+                    to_symbol_id=trait_name,
+                    relation_type=CodeRelationType.IMPLEMENTS,
+                    context=trait_name,
                 )
+            )
+
+    relations.extend(_build_contains(symbols))
 
     return ParsedCode(
         file_path=file_path,
         language=language,
         symbols=symbols,
-        relations=relations,
+        relations=resolve_relations(symbols, relations),
         imports=imports,
         content_hash=content_hash(content),
     )

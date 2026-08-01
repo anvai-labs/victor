@@ -29,8 +29,9 @@ from .model import (
 )
 from .parser import chunk, parse
 from .repo import chunk_path, chunk_repo, iter_source_files, parse_path
+from .resolution import resolve_relations
 
-__version__ = "0.1.2"
+__version__ = "0.9.0"
 
 __all__ = [
     "__version__",
@@ -55,4 +56,5 @@ __all__ = [
     "SourceLocation",
     "stable_symbol_oid",
     "deterministic_symbol_id",
+    "resolve_relations",
 ]
