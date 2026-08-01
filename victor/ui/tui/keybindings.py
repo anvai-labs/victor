@@ -45,6 +45,7 @@ DEFAULT_BINDINGS: Tuple[Binding, ...] = (
     ("f4", "diff_next", "Next edit"),
     ("f6", "cycle_theme", "Theme"),
     ("ctrl+l", "clear", "Clear"),
+    ("ctrl+c", "copy", "Copy"),
 )
 
 #: Where the user override file lives, relative to the home directory.

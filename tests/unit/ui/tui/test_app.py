@@ -87,6 +87,27 @@ async def test_submitting_a_message_streams_into_the_log() -> None:
         assert len(convo.lines) > 0  # type: ignore[attr-defined]
 
 
+async def test_copy_action_copies_last_response_when_no_selection() -> None:
+    app = _make_app()
+    async with app.run_test() as pilot:
+        app.query_one("#prompt").value = "hi there"  # type: ignore[attr-defined]
+        await pilot.press("enter")
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        app.action_copy()
+        await pilot.pause()
+        # With no active selection, ctrl+c copies the whole assistant reply.
+        assert app.clipboard == "Hello world"
+
+
+async def test_copy_action_is_a_noop_when_nothing_to_copy() -> None:
+    app = _make_app()
+    async with app.run_test() as pilot:
+        app.action_copy()  # no selection, no response yet
+        await pilot.pause()
+        assert app.clipboard == ""
+
+
 async def test_help_action_opens_help_screen() -> None:
     app = _make_app()
     async with app.run_test() as pilot:

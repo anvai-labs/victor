@@ -12,6 +12,9 @@ include requirements.txt
 recursive-include victor/config *.yaml *.yml *.json
 recursive-include victor/verticals/contrib *.yaml *.yml *.toml *.svg
 
+# Include the TUI stylesheet (App.CSS_PATH); without it the TUI crashes on start
+recursive-include victor/ui/tui *.tcss
+
 # Include example configurations
 recursive-include examples *.yaml *.yml *.example *.json *.md
 
