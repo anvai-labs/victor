@@ -81,6 +81,10 @@ class GraphQueryCacheConfig:
     ttl_seconds: int = 3600
     normalize_queries: bool = True
     cache_by_repo: bool = True
+    # Persist entries to the repo's project.db (derived, rebuildable state) so
+    # cache hits survive process restarts — without this, one-shot CLI runs
+    # (`victor graph query ...`) never hit the cache at all.
+    persist: bool = True
 
 
 @dataclass
@@ -100,6 +104,73 @@ class CachedQueryResult:
     created_at: float
     hit_count: int = 0
     repo_path: Optional[str] = None
+
+
+class _SqlitePersistence:
+    """Per-repo L2 cache layer in ``project.db`` (derived, rebuildable state).
+
+    Every operation is best-effort: any sqlite failure degrades the cache to
+    memory-only rather than surfacing on the query path.
+    """
+
+    _TABLE = "graph_query_cache"
+
+    def __init__(self, repo_key: str) -> None:
+        from victor.core.database import get_project_database
+
+        self._repo_key = repo_key
+        self._db = get_project_database(Path(repo_key))
+        conn = self._db.get_connection()
+        conn.execute(f"""
+            CREATE TABLE IF NOT EXISTS {self._TABLE} (
+                query_hash TEXT PRIMARY KEY,
+                result TEXT NOT NULL,
+                created_at REAL NOT NULL,
+                repo_key TEXT NOT NULL
+            )
+            """)
+        conn.commit()
+
+    def get(self, cache_key: str, ttl_seconds: int) -> Optional[Dict[str, Any]]:
+        conn = self._db.get_connection()
+        row = conn.execute(
+            f"SELECT result, created_at FROM {self._TABLE} WHERE query_hash = ?",
+            (cache_key,),
+        ).fetchone()
+        if row is None:
+            return None
+        if time.time() - float(row[1]) > ttl_seconds:
+            conn.execute(f"DELETE FROM {self._TABLE} WHERE query_hash = ?", (cache_key,))
+            conn.commit()
+            return None
+        return json.loads(row[0])
+
+    def put(self, cache_key: str, payload: Dict[str, Any], max_entries: int) -> None:
+        conn = self._db.get_connection()
+        conn.execute(
+            f"""
+            INSERT OR REPLACE INTO {self._TABLE}(query_hash, result, created_at, repo_key)
+            VALUES (?, ?, ?, ?)
+            """,
+            (cache_key, json.dumps(payload), time.time(), self._repo_key),
+        )
+        # Size cap: keep the newest max_entries rows.
+        conn.execute(
+            f"""
+            DELETE FROM {self._TABLE} WHERE query_hash NOT IN (
+                SELECT query_hash FROM {self._TABLE}
+                ORDER BY created_at DESC LIMIT ?
+            )
+            """,
+            (max_entries,),
+        )
+        conn.commit()
+
+    def invalidate_repo(self) -> int:
+        conn = self._db.get_connection()
+        cur = conn.execute(f"DELETE FROM {self._TABLE}")
+        conn.commit()
+        return int(cur.rowcount or 0)
 
 
 def _normalize_query(query: str) -> str:
@@ -255,10 +326,14 @@ class GraphQueryCache:
             "puts": 0,
             "evictions": 0,
             "invalidations": 0,
+            "persistent_hits": 0,
         }
 
         # Track queries by repository for selective invalidation
         self._repo_index: Dict[str, Set[str]] = {}
+
+        # Lazily opened per-repo sqlite L2 layers (False = open failed, don't retry)
+        self._persistence: Dict[str, Any] = {}
 
         # Initialize cache if enabled
         if self._config.enabled:
@@ -273,6 +348,24 @@ class GraphQueryCache:
         else:
             self._cache = None
             logger.debug("Graph query cache disabled")
+
+    def _persistence_for(self, repo_path: Optional[str]) -> Optional[_SqlitePersistence]:
+        """Lazy per-repo L2 layer; a failed open is remembered and not retried."""
+        if not self._config.persist or not repo_path:
+            return None
+        repo_key = _repo_key(repo_path)
+        backend = self._persistence.get(repo_key)
+        if backend is False:
+            return None
+        if backend is None:
+            try:
+                backend = _SqlitePersistence(repo_key)
+                self._persistence[repo_key] = backend
+            except Exception as e:
+                logger.debug(f"Query cache persistence unavailable for {repo_key}: {e}")
+                self._persistence[repo_key] = False
+                return None
+        return backend
 
     def _serialize_result(self, result: "RetrievalResult") -> Dict[str, Any]:
         """Serialize RetrievalResult for caching.
@@ -398,6 +491,29 @@ class GraphQueryCache:
             except KeyError:
                 pass
 
+            # L2: persisted entries survive process restarts (one-shot CLI runs).
+            backend = self._persistence_for(repo_path)
+            if backend is not None:
+                try:
+                    payload = backend.get(cache_key, self._config.ttl_seconds)
+                except Exception as e:
+                    logger.debug(f"Query cache persistence read failed: {e}")
+                    payload = None
+                if payload is not None:
+                    # Promote to L1 for the rest of this process.
+                    self._cache[cache_key] = CachedQueryResult(
+                        query_hash=cache_key,
+                        result=payload,
+                        created_at=float(payload.get("cached_at", time.time())),
+                        repo_path=repo_path,
+                    )
+                    if repo_path:
+                        self._repo_index.setdefault(_repo_key(repo_path), set()).add(cache_key)
+                    self._stats["hits"] += 1
+                    self._stats["persistent_hits"] += 1
+                    logger.debug(f"Graph query cache hit (persisted): {query[:50]}...")
+                    return self._deserialize_result(payload)
+
             self._stats["misses"] += 1
             logger.debug(f"Graph query cache miss: {query[:50]}...")
             return None
@@ -432,9 +548,10 @@ class GraphQueryCache:
 
         with self._lock:
             try:
+                payload = self._serialize_result(result)
                 entry = CachedQueryResult(
                     query_hash=cache_key,
-                    result=self._serialize_result(result),
+                    result=payload,
                     created_at=time.time(),
                     repo_path=repo_path,
                 )
@@ -444,6 +561,14 @@ class GraphQueryCache:
                 # Update repo index
                 if repo_path:
                     self._repo_index.setdefault(_repo_key(repo_path), set()).add(cache_key)
+
+                # L2 write-through so future processes hit too.
+                backend = self._persistence_for(repo_path)
+                if backend is not None:
+                    try:
+                        backend.put(cache_key, payload, self._config.max_entries)
+                    except Exception as e:
+                        logger.debug(f"Query cache persistence write failed: {e}")
 
                 logger.debug(f"Graph query cached: {query[:50]}...")
                 return True
@@ -513,6 +638,15 @@ class GraphQueryCache:
             if repo_key in self._repo_index:
                 del self._repo_index[repo_key]
 
+            # L2: drop persisted rows too — an index refresh in THIS process
+            # must invalidate entries a FUTURE process would otherwise load.
+            backend = self._persistence_for(repo_path)
+            if backend is not None:
+                try:
+                    count += backend.invalidate_repo()
+                except Exception as e:
+                    logger.debug(f"Query cache persistence invalidation failed: {e}")
+
             self._stats["invalidations"] += count
 
         if count > 0:
@@ -533,6 +667,13 @@ class GraphQueryCache:
             count = len(self._cache)
             self._cache.clear()
             self._repo_index.clear()
+            # Clear every L2 layer this process has opened.
+            for backend in self._persistence.values():
+                if backend:
+                    try:
+                        count += backend.invalidate_repo()
+                    except Exception as e:
+                        logger.debug(f"Query cache persistence clear failed: {e}")
             logger.info(f"Cleared {count} graph query cache entries")
             self._stats["invalidations"] += count
             return count
