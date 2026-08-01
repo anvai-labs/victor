@@ -152,16 +152,32 @@ async def graph_semantic_search(
         graph_store = create_graph_store(name="auto", project_path=project_path)
         await graph_store.initialize()
 
+        effective_mode = mode if mode in ("semantic", "structural", "hybrid") else "semantic"
+        mode_note: Optional[str] = None
+
         # Create retriever with config
         config = RetrievalConfig(
             seed_count=max_results,
             max_hops=max_hops,
             top_k=max_results,
+            mode=effective_mode,
         )
         retriever = MultiHopRetriever(graph_store, config)
 
-        # Execute retrieval
-        result = await retriever.retrieve(query, config)
+        # Execute retrieval per mode:
+        # - semantic: the retriever's own seed strategy (store semantic search
+        #   with FTS/keyword fallback) -> expansion.
+        # - structural: pure FTS5 symbol seeds -> expansion, no vector leg.
+        # - hybrid: FTS5 + vector legs fused via RRF, fused scores feed the
+        #   hop-distance decay; degrades to structural when no vectors exist.
+        if effective_mode == "semantic":
+            result = await retriever.retrieve(query, config)
+        elif effective_mode == "structural":
+            seed_scores = await _structural_seed_scores(graph_store, query, max_results)
+            result = await retriever.expand_from_seeds(seed_scores, query, config)
+        else:
+            seed_scores, mode_note = await _hybrid_seed_scores(graph_store, query, max_results)
+            result = await retriever.expand_from_seeds(seed_scores, query, config)
 
         # Format results
         formatted_results = []
@@ -179,15 +195,19 @@ async def graph_semantic_search(
                 }
             )
 
+        metadata: Dict[str, Any] = {
+            "mode": effective_mode,
+            "max_hops": max_hops,
+            "seed_count": len(result.seed_nodes),
+        }
+        if mode_note:
+            metadata["note"] = mode_note
+
         return {
             "results": formatted_results,
             "query": query,
             "execution_time_ms": result.execution_time_ms,
-            "metadata": {
-                "mode": mode,
-                "max_hops": max_hops,
-                "seed_count": len(result.seed_nodes),
-            },
+            "metadata": metadata,
         }
 
     except Exception as e:
@@ -368,6 +388,117 @@ async def impact_analysis(
 # =============================================================================
 # Helper Functions
 # =============================================================================
+
+
+async def _structural_seed_scores(
+    graph_store: Any,
+    query: str,
+    seed_count: int,
+) -> Dict[str, float]:
+    """FTS5 symbol seeds with rank-decayed scores (no vector leg)."""
+    try:
+        nodes = await graph_store.search_symbols(query, limit=seed_count)
+    except Exception as e:
+        logger.warning(f"Structural seed search failed: {e}")
+        return {}
+    return {n.node_id: 1.0 / (1 + rank) for rank, n in enumerate(nodes)}
+
+
+def _vector_provider_for(graph_store: Any) -> Any:
+    """Vector store provider matching the graph store's embedding config."""
+    try:
+        from victor.storage.vector_stores.registry import EmbeddingRegistry
+
+        build = getattr(graph_store, "_build_embedding_config", None)
+        if build is not None:
+            config = build()
+        else:
+            from victor.storage.vector_stores.base import EmbeddingConfig
+
+            config = EmbeddingConfig()
+        return EmbeddingRegistry.create(config)
+    except Exception as e:
+        logger.debug(f"Vector provider unavailable for hybrid search: {e}")
+        return None
+
+
+async def _hybrid_seed_scores(
+    graph_store: Any,
+    query: str,
+    seed_count: int,
+) -> tuple[Dict[str, float], Optional[str]]:
+    """Fuse FTS5 keyword seeds with vector-search seeds via RRF.
+
+    Both legs are keyed by node_id — the hybrid engine's ``file_path`` field is
+    used as an opaque identity key here (it only needs to agree across legs).
+    Fused scores are normalized to [0,1] so they feed the retriever's
+    hop-distance decay proportionately.
+
+    Returns:
+        (seed_scores, note) — note explains a degraded semantic leg, if any.
+    """
+    limit = max(seed_count * 2, seed_count)
+
+    keyword_results: List[Dict[str, Any]] = []
+    try:
+        nodes = await graph_store.search_symbols(query, limit=limit)
+        keyword_results = [
+            {"file_path": n.node_id, "content": n.name, "score": 1.0 / (1 + rank)}
+            for rank, n in enumerate(nodes)
+        ]
+    except Exception as e:
+        logger.warning(f"Keyword seed search failed: {e}")
+
+    semantic_results: List[Dict[str, Any]] = []
+    note: Optional[str] = None
+    try:
+        if hasattr(graph_store, "semantic_search"):
+            # Proxima-style store: co-indexed symbol vectors, query by vector.
+            from victor.storage.embeddings.service import get_embedding_service
+
+            service = get_embedding_service()
+            if service is not None:
+                query_vector = await service.embed_text(query)
+                nodes = await graph_store.semantic_search(
+                    list(query_vector),
+                    top_k=limit,
+                )
+                semantic_results = [
+                    {"file_path": n.node_id, "content": n.name, "score": 1.0 / (1 + rank)}
+                    for rank, n in enumerate(nodes)
+                ]
+        else:
+            # Default sqlite path: node embeddings persisted to the vector store
+            # by the indexing pipeline, keyed by node_id metadata.
+            provider = _vector_provider_for(graph_store)
+            if provider is not None:
+                hits = await provider.search_similar(query, limit=limit)
+                semantic_results = [
+                    {
+                        "file_path": str(hit.metadata.get("node_id")),
+                        "content": hit.content,
+                        "score": hit.score,
+                    }
+                    for hit in hits
+                    if hit.metadata.get("node_id")
+                ]
+    except Exception as e:
+        note = f"semantic leg unavailable: {e}"
+        logger.debug(f"Hybrid semantic leg failed: {e}")
+
+    if not semantic_results:
+        note = note or (
+            "semantic leg empty (no node embeddings indexed — "
+            "run `victor graph index --embeddings`); degraded to structural seeds"
+        )
+        return {r["file_path"]: r["score"] for r in keyword_results[:seed_count]}, note
+
+    from victor.framework.search.hybrid import create_hybrid_search_engine
+
+    engine = create_hybrid_search_engine()
+    fused = engine.combine_results(semantic_results, keyword_results, max_results=seed_count)
+    max_score = max((r.combined_score for r in fused), default=1.0) or 1.0
+    return {r.file_path: r.combined_score / max_score for r in fused}, note
 
 
 async def _resolve_target(

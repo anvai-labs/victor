@@ -194,6 +194,8 @@ def _create_query_cache_key(
         "max_hops": getattr(config, "max_hops", 2),
         "top_k": getattr(config, "top_k", 10),
         "edge_types": sorted(getattr(config, "edge_types", None) or []),
+        # Seed strategy: semantic/structural/hybrid results must not collide.
+        "mode": getattr(config, "mode", "semantic"),
     }
 
     # Build key parts
