@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import importlib
 import time
+import warnings
 from typing import TYPE_CHECKING, Any
+
+from victor_contracts._deprecation import deprecated_bridge_message
 
 if TYPE_CHECKING:
     from victor.framework.handler_registry import (
@@ -37,6 +40,11 @@ _LAZY_IMPORTS = {
 
 def __getattr__(name: str) -> Any:
     """Resolve handler helpers lazily from the Victor host runtime."""
+    warnings.warn(
+        deprecated_bridge_message("handler_runtime"),
+        DeprecationWarning,
+        stacklevel=2,
+    )
     if name == "BaseHandler":
         return _load_base_handler()
     if name == "handler_decorator":

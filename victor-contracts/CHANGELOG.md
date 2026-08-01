@@ -10,16 +10,18 @@ the deprecation policy are defined in
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-08-01
+
 ### Added
 
 - `CONTRACT_STABILITY.md`: contract maturity matrix (Stable / Stable bridge /
   Deprecated / Internal) and the deprecation policy for the package.
 - This changelog.
 
-### Deprecated (planned for 0.9.0)
+### Deprecated
 
-- The six consumer-less runtime bridge modules will start emitting
-  `DeprecationWarning` in 0.9.0 and will be removed no earlier than 0.10.0:
+- The six consumer-less runtime bridge modules now emit `DeprecationWarning`
+  on attribute access and will be removed no earlier than 0.10.0:
   - `agent_spec_runtime` — use `victor.agent.specs.models` in host-runtime code
   - `graph_runtime` — use `victor.framework.graph` (`StateGraph`, `END`)
   - `handler_runtime` — use `victor_contracts.workflow_runtime`
