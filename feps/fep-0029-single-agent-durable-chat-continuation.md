@@ -302,9 +302,17 @@ Phased, each phase independently shippable and tested (mirroring how FEP-0028 la
   store defaults to the durable one (falling back to in-memory when no project DB is resolvable). A
   pause now survives a restart — a fresh store instance reads it back. (Full rehydration via
   `resume_session` is exercised in Phase 3.)
-- **Phase 3 — public resume API + surfaces.** `VictorClient.resume(run_id, decision)`;
-  `ApprovalDecision`; CLI `--durable-approval` + resume command; API `awaiting_approval` response +
-  resume route; TUI paused lane + resume affordance.
+- **Phase 3a — public resume API + faithful replay. ✅ landed.** `VictorClient.resume(run_id,
+  decision)` + `ApprovalDecision`. Loads the `PausedRun`, atomically claims it (`mark_resumed` —
+  single-use), rehydrates via `resume_session`, then (runtime helper `resume_paused_run`) finds the
+  gated `tool_call` in the paused assistant message (the one with no result yet), executes it under
+  the decision **without re-sampling the model** — approve → `ToolService.execute_tool` (the raw
+  executor, bypassing the ASK middleware since the human decided); reject → a tool-error result —
+  appends the linked `role=tool` result, and drives `execute_turn` continuations (no spurious user
+  message) to a final answer. Scope: **single gated tool** per paused turn.
+- **Phase 3b (deferred) — surfaces + batches.** CLI `--durable-approval` + `victor chat --resume`;
+  API `awaiting_approval` response + resume route; TUI paused lane; multi-tool batch partiality;
+  streaming resume.
 - **Phase 4 — hardening.** Reject/timeout/expiry, chained pauses, GC, docs, and a
   `victor chat --resume <run_id>` ergonomic.
 
@@ -361,6 +369,7 @@ Status **Draft** — submitted for review. Open questions above are the decision
 | 2026-08-01 | 0.1 | Initial draft — single-agent durable chat continuation | Vijaykumar Singh |
 | 2026-08-01 | 0.2 | Phase 1 landed (#777): pause signal + arming + turn-boundary catch + AWAITING_APPROVAL + in-memory store. Records that `ApprovalPause` lives in `victor/framework/` (not `victor/agent/`) — the catch is at the framework turn boundary | Vijaykumar Singh |
 | 2026-08-01 | 0.3 | Phase 2 landed: `ProjectDbPausedRunStore` — self-managing `project.db` `paused_run` table (mirrors ConversationStore; no schema.py migration); pauses survive a restart. `PausedRunStoreProtocol` with in-memory + project-db backends | Vijaykumar Singh |
+| 2026-08-01 | 0.4 | Phase 3a landed: `VictorClient.resume(run_id, decision)` + `ApprovalDecision`; `resume_paused_run` faithfully replays the persisted gated call (approve → raw `execute_tool`, bypassing re-ASK; reject → tool-error) and drives `execute_turn` continuations without re-sampling or a spurious user message. Single gated tool per turn; batches/surfaces/streaming → Phase 3b | Vijaykumar Singh |
 
 ## Acceptance Criteria
 
