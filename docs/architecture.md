@@ -297,7 +297,12 @@ bootstraps the DI container, creates the orchestrator, and wires observability.
 ## Provider System
 
 24 LLM provider adapters behind a unified interface with circuit breaker,
-retry, and smart routing.
+retry, and smart routing (multi-provider selection/fallback via
+`victor/providers/smart_router.py`). The consolidated provider gateway
+feature layer — semantic caching, budget guardrails, routing-performance
+work — is **planned**, not shipped
+([ADR-022](architecture/adr/022-provider-gateway-feature-layer.md), TD-24;
+see the [roadmap](roadmap.md)).
 
 ```mermaid
 flowchart TB
@@ -600,11 +605,13 @@ multiple sessions editing the same project record history concurrently. Undo
 history is rebuildable/ephemeral; durable rollback is covered by file backups
 in `.victor/backups/`.
 
-**Direction — correlated graph + vector backend:** the Code Context Graph (SQLite `graph_*`) and the
-LanceDB embedding index are hand-joined today (`graph_node.embedding_ref` is unpopulated). The planned
-direction collapses them into one correlated ProximaDB collection where a code symbol is one entity
-(relational row + graph node + vector) addressed by a single `oid`. See
-[ProximaDB as the CCG Backend](architecture/proximadb-codegraph-backend.md) (TD-11/TD-12/TD-13).
+**Direction — correlated graph + vector backend (roadmap, not shipped):** the Code Context Graph
+(SQLite `graph_*`) and the LanceDB embedding index are hand-joined today
+(`graph_node.embedding_ref` is unpopulated). The planned direction collapses them into one
+correlated ProximaDB collection where a code symbol is one entity (relational row + graph node +
+vector) addressed by a single `oid`. This is tracked as TD-11/TD-12/TD-13 on the
+[roadmap](roadmap.md) — design in
+[ProximaDB as the CCG Backend](architecture/proximadb-codegraph-backend.md).
 
 ---
 

@@ -49,9 +49,11 @@ chunker and get semantic recall ("where do we validate JWTs?") plus call-graph q
 
 **[Quickstart: Durable Code Memory with ProximaDB](docs/quickstart-proximadb-memory.md)** — Docker + two `pip install`s, ~10 minutes.
 
-Victor's embedded ProximaDB backends for project code intelligence are in-tree and
-flag-gated (SQLite/LanceDB remain the defaults); the conversational-memory backend is in
-progress — see [ProximaDB as the CCG Backend](docs/architecture/proximadb-codegraph-backend.md).
+Victor's embedded ProximaDB backends for project code intelligence are experimental,
+flag-gated previews — SQLite/LanceDB remain the defaults. The correlated graph+vector
+code-context backend (one entity = row + graph node + vector, TD-11/12/13) is
+**roadmap, not shipped** — see the [roadmap](docs/roadmap.md) and
+[ProximaDB as the CCG Backend](docs/architecture/proximadb-codegraph-backend.md).
 
 ## Python API
 

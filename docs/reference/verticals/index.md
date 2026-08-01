@@ -169,6 +169,21 @@ config = RAGAssistant.get_config()
 
 See `../examples/README.md` for usage examples.
 
+## Two Ways to Activate a Vertical
+
+There is one vertical system with two entry points — both resolve the same
+registry (verticals discovered via the `victor.plugins` entry point, so the
+vertical package must be installed either way):
+
+| Path | How | When to use |
+|------|-----|-------------|
+| **CLI** | `victor chat --vertical coding "..."` (or `-V coding`) | Interactive/terminal sessions; the flag applies the vertical's tools, prompts, and stages to the chat session |
+| **Python API** | `agent = await Agent.create(vertical="coding")` | Embedding Victor in applications; accepts a vertical name string or a `VerticalBase` class, and applies the identical configuration |
+
+Same name, same configuration, same behavior — `--vertical coding` and
+`Agent.create(vertical="coding")` load the same vertical definition. The
+sections below detail each path.
+
 ## CLI Usage
 
 The `victor chat` command supports verticals via the `--vertical` (or `-V`) flag:
