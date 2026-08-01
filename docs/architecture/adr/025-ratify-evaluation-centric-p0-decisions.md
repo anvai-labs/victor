@@ -82,6 +82,10 @@ No new FEP (FEP-0008 already governs; work is EVR-tracked). This ADR's own lifec
    EVALUATE seam (shipped opt-in, default off per the flag-graduation policy); ADR-010 is
    Accepted and the index row updated.
 4. On EVR-5 → flip ADR-012 to Accepted; enforce the oracle as a merge gate.
+   **Done (2026-08-01)**: EVR-5 landed as `victor/evaluation/acceptance_oracle.py` +
+   `victor/evaluation/htir.py`, enforced by
+   `tests/integration/streaming/test_acceptance_oracle_gate.py` in the develop→main promotion
+   battery; ADR-012 is Accepted and the index row updated.
 5. When all four are done, flip **this** ADR to Accepted (the P0 sequence is ratified-and-shipped).
 
 ## Alternatives Considered
@@ -108,3 +112,4 @@ No new FEP (FEP-0008 already governs; work is EVR-tracked). This ADR's own lifec
 |------|---------|---------|--------|
 | 2026-07-29 | 1.0 | Initial ADR — ratifies the evaluation-centric P0 gates (EVR-2/3/4/5) | Vijaykumar Singh |
 | 2026-08-01 | 1.1 | Lifecycle item 3 done: EVR-4 landed (effect gate, opt-in); ADR-010 flipped to Accepted | Vijaykumar Singh |
+| 2026-08-01 | 1.2 | Lifecycle item 4 done: EVR-5 landed (acceptance oracle + HTIR, promotion-gated); ADR-012 flipped to Accepted | Vijaykumar Singh |

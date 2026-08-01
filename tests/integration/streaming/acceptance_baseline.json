@@ -1,0 +1,63 @@
+{
+  "battery": {
+    "n": 13,
+    "overall": {
+      "mean": 0.7092,
+      "ci_lower": 0.5921,
+      "ci_upper": 0.8263,
+      "n": 13
+    },
+    "per_dimension": [
+      {
+        "dimension": "planning",
+        "mean": 0.5538,
+        "ci_lower": 0.4996,
+        "ci_upper": 0.608,
+        "n": 13
+      },
+      {
+        "dimension": "tool_grounding",
+        "mean": 0.8077,
+        "ci_lower": 0.6067,
+        "ci_upper": 1.0,
+        "n": 13
+      },
+      {
+        "dimension": "recovery",
+        "mean": 0.4615,
+        "ci_lower": 0.3758,
+        "ci_upper": 0.5472,
+        "n": 13
+      },
+      {
+        "dimension": "refusal",
+        "mean": 1.0,
+        "ci_lower": 1.0,
+        "ci_upper": 1.0,
+        "n": 13
+      },
+      {
+        "dimension": "effect_grounding",
+        "mean": 0.6692,
+        "ci_lower": 0.5031,
+        "ci_upper": 0.8354,
+        "n": 13
+      }
+    ]
+  },
+  "signatures": {
+    "S1": "80b6b846c1e38c74",
+    "S2": "4fda37d698030a65",
+    "M1": "6be6e4bf3381fd0d",
+    "M2": "c60b7e518b91611f",
+    "C1": "14232ced4d14ee95",
+    "W1": "9c426df041ff90c8",
+    "W2": "54435c4761b76aa6",
+    "W3": "a56f619cb1f2a6e7",
+    "W4": "f567ce0e9180501c",
+    "U1": "6cad08e202392f33",
+    "E1": "48ac58dd9b6d7ca9",
+    "E2": "7ed5ea8aad1c926e",
+    "E4": "431e54849985928b"
+  }
+}
