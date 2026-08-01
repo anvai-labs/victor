@@ -35,7 +35,7 @@ graduation without measured κ/α against human labels.
 | 1 | EVR-1 trajectory-eval harness | — | Shipped (machinery) |
 | 2 | EVR-2 LLM-judge reliability gate — run the κ/α validation | ADR-011 | Machinery shipped; offline calibration harness available (`victor/evaluation/judge_calibration_harness.py` + `benchmarks/judge_calibration/`); real-judge validation not yet run |
 | 3 | EVR-3 rubric completion evaluator — must match-or-beat `EnhancedCompletionEvaluator` before becoming default | ADR-009 | Shipped opt-in |
-| 4 | EVR-4 effect-grounded completion gate | ADR-010 | Not started |
+| 4 | EVR-4 effect-grounded completion gate | ADR-010 | Shipped opt-in (`victor/framework/effect_gate.py`; `effect_gated_completion` / `VICTOR_EFFECT_GATED_COMPLETION`, default off pending flag-graduation gate) |
 | 5 | EVR-5 regression-gated harness acceptance oracle | ADR-012 | Not started (techdebt, P0) |
 
 In parallel, the high-priority debt band: TD-4 secrets, TD-7 onboarding, TD-1 API decomposition,

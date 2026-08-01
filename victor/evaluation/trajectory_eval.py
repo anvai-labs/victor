@@ -52,6 +52,9 @@ class TrajectoryDimension(str, Enum):
     TOOL_GROUNDING = "tool_grounding"
     RECOVERY = "recovery"
     REFUSAL = "refusal"
+    # ADR-010 / EVR-4: did the trajectory's completion come with a verifiable effect
+    # (workspace delta / verified check) or at least read-grounded tool evidence?
+    EFFECT_GROUNDING = "effect_grounding"
 
 
 # Refusal markers (first-line / phrase level). Conservative — detection only; appropriateness vs the
@@ -371,8 +374,75 @@ class RefusalScorer:
         return DimensionScore(self.dimension, 1.0, 0.2, "no refusal detected")
 
 
+@dataclass
+class EffectGroundingScorer:
+    """Effect-grounded completion measurement (ADR-010 / EVR-4).
+
+    Scores whether the trajectory's outcome is backed by a verifiable effect, using the same
+    classification rules as the runtime :class:`~victor.framework.effect_gate.EffectGate`
+    (:func:`~victor.framework.effect_gate.classify_tool_result`):
+
+    - a workspace delta or verified check (or recorded ``file_edits``) → 1.0
+    - only read-grounded tool evidence (a grounded claim) → 0.7, medium confidence
+    - tools attempted but nothing succeeded → 0.0 (completion-without-effect)
+    - no tool calls at all → 0.5, low confidence (dimension not engaged — pure conversation)
+
+    **Not** part of :func:`default_scorers` — adding it would shift existing EVR-1 battery
+    aggregates. Compose it explicitly (``TrajectoryEvaluator(default_scorers() + (EffectGroundingScorer(),))``);
+    the EVR-5 acceptance oracle adopts it later.
+    """
+
+    dimension: TrajectoryDimension = TrajectoryDimension.EFFECT_GROUNDING
+
+    def score(self, trace: "AgenticExecutionTrace") -> DimensionScore:
+        from victor.framework.effect_gate import classify_tool_result
+
+        calls = list(getattr(trace, "tool_calls", []) or [])
+        effects = 0
+        successes = 0
+        for i, call in enumerate(calls):
+            result = {
+                "tool_name": getattr(call, "name", ""),
+                "args": getattr(call, "arguments", {}) or {},
+                "success": getattr(call, "success", False),
+            }
+            if result["success"]:
+                successes += 1
+            if classify_tool_result(result, i) is not None:
+                effects += 1
+        file_edits = len(getattr(trace, "file_edits", []) or [])
+        if effects or file_edits:
+            n = effects + file_edits
+            return DimensionScore(
+                self.dimension,
+                1.0,
+                clamp(n / 2.0, 0.4, 1.0),
+                f"{n} verifiable effect(s) recorded (deltas/checks/file edits)",
+            )
+        if not calls:
+            return DimensionScore(self.dimension, 0.5, 0.2, "no tool calls (dimension not engaged)")
+        if successes:
+            return DimensionScore(
+                self.dimension,
+                0.7,
+                0.5,
+                f"read-grounded only: {successes} successful tool call(s), no workspace "
+                "delta or verified check",
+            )
+        return DimensionScore(
+            self.dimension,
+            0.0,
+            0.6,
+            f"completion-without-effect: {len(calls)} tool call(s) attempted, none succeeded",
+        )
+
+
 def default_scorers() -> tuple[DimensionScorer, ...]:
-    """The deterministic EVR-1 scorer set (no LLM dependency)."""
+    """The deterministic EVR-1 scorer set (no LLM dependency).
+
+    Intentionally excludes :class:`EffectGroundingScorer` (ADR-010) so existing battery
+    aggregates are unchanged; compose it explicitly where effect grounding is measured.
+    """
     return (PlanningScorer(), ToolGroundingScorer(), RecoveryScorer(), RefusalScorer())
 
 

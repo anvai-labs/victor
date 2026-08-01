@@ -5,6 +5,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased] (develop)
 
+### Added
+- **Effect-grounded completion gate (ADR-010 / EVR-4, opt-in)**: COMPLETE is now
+  conditional on a verifiable effect — a workspace delta or verified check
+  recorded in the session's tool results, or (for Q&A/no-mutation tasks) a
+  grounded claim. An ungrounded COMPLETE downgrades to RETRY (reason
+  `completion-without-effect`; bounded by `max_downgrades=2`, then
+  annotate-and-allow). New `victor/framework/effect_gate.py` wraps the single
+  EVALUATE seam so the gate preconditions every completion strategy. Enable via
+  `AgentSettings.effect_gated_completion` or `VICTOR_EFFECT_GATED_COMPLETION`
+  (default off per the flag-graduation policy; strict no-op when disabled).
+  Measurement: `TrajectoryDimension.EFFECT_GROUNDING` + `EffectGroundingScorer`
+  (excluded from `default_scorers()` to keep battery aggregates stable).
+
 ## [0.7.5] - 2026-07-12
 
 Maintenance + capability release: completes the Graph-RAG cross-language import

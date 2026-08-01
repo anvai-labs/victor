@@ -1098,6 +1098,13 @@ class TurnExecutor:
             getattr(_settings, "agent", None), "completion_strategy", "enhanced"
         )
         _rubric_fn = self._build_rubric_complete_fn() if _strategy in ("rubric", "hybrid") else None
+        # Effect-grounded completion gate (ADR-010): env override, then AgentSettings; default off.
+        _eg_env = _os.environ.get("VICTOR_EFFECT_GATED_COMPLETION")
+        _effect_gate = (
+            _eg_env.strip().lower() in ("1", "true", "yes", "on")
+            if _eg_env is not None
+            else bool(getattr(getattr(_settings, "agent", None), "effect_gated_completion", False))
+        )
         loop = AgenticLoop(
             orchestrator=None,
             turn_executor=self,
@@ -1105,7 +1112,7 @@ class TurnExecutor:
             enable_fulfillment_check=True,
             enable_adaptive_iterations=True,
             exploration_settings=getattr(self._chat_context.settings, "exploration", None),
-            config={"completion_strategy": _strategy},
+            config={"completion_strategy": _strategy, "enable_effect_gate": _effect_gate},
             rubric_complete_fn=_rubric_fn,
             verifier=getattr(self, "_verifier", None),
             max_verify_retries=getattr(self, "_max_verify_retries", 0),

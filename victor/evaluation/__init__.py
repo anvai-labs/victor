@@ -169,6 +169,7 @@ from victor.evaluation.trajectory_eval import (
     IntervalStat,
     BatteryResult,
     DimensionScorer,
+    EffectGroundingScorer,  # ADR-010 / EVR-4 — not in default_scorers() by design
     TrajectoryEvaluator,
     default_scorers,
     mean_confidence_interval,
@@ -446,6 +447,7 @@ __all__ = [
     "IntervalStat",
     "BatteryResult",
     "DimensionScorer",
+    "EffectGroundingScorer",
     "TrajectoryEvaluator",
     "default_scorers",
     "mean_confidence_interval",

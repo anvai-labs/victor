@@ -1578,6 +1578,20 @@ class StreamingChatExecutor:
             if (_strategy in ("rubric", "hybrid") and _te is not None)
             else None
         )
+        # Effect-grounded completion gate (ADR-010): env override, then AgentSettings; default off.
+        # Mirrors the buffered path so both modes gate completion identically (ADR-012 parity).
+        _eg_env = _os.environ.get("VICTOR_EFFECT_GATED_COMPLETION")
+        _effect_gate = (
+            _eg_env.strip().lower() in ("1", "true", "yes", "on")
+            if _eg_env is not None
+            else bool(
+                getattr(
+                    getattr(getattr(orch, "settings", None), "agent", None),
+                    "effect_gated_completion",
+                    False,
+                )
+            )
+        )
         loop = AgenticLoop(
             orchestrator=None,
             turn_executor=_te,
@@ -1587,7 +1601,7 @@ class StreamingChatExecutor:
             enable_adaptive_iterations=True,
             exploration_settings=getattr(getattr(orch, "settings", None), "exploration", None),
             streaming_act_port=adapter,
-            config={"completion_strategy": _strategy},
+            config={"completion_strategy": _strategy, "enable_effect_gate": _effect_gate},
             rubric_complete_fn=_rubric_fn,
             verifier=getattr(_te, "_verifier", None),
             max_verify_retries=getattr(_te, "_max_verify_retries", 0),

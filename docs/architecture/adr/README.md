@@ -31,7 +31,7 @@ Status is the governance state of the *decision*. Implementation is the observed
 | [ADR-007](007-vertical-distribution-and-sdk-boundary.md) | Vertical Distribution Model and Contracts Boundary | Accepted | Shipped (CI-guarded boundary; verticals folded into monorepo) | 2026-03-10 |
 | [ADR-008](008-registry-performance-optimization.md) | Tool Registry Performance Optimization | Accepted | Shipped | 2025-04-19 |
 | [ADR-009](009-rubric-based-completion-evaluation.md) | Rubric-Based Completion Evaluation | Accepted | Shipped, opt-in (`completion_strategy=rubric`; default remains `enhanced` pending ADR-011 gate) | 2026-06-21 |
-| [ADR-010](010-effect-grounded-completion.md) | Effect-Grounded Completion | Proposed | Not implemented (backlog EVR-4, P0) | 2026-06-21 |
+| [ADR-010](010-effect-grounded-completion.md) | Effect-Grounded Completion | Accepted | Shipped, opt-in (`victor/framework/effect_gate.py`; `effect_gated_completion` / `VICTOR_EFFECT_GATED_COMPLETION`, default off pending flag-graduation gate) | 2026-06-21 |
 | [ADR-011](011-llm-judge-reliability-gating.md) | LLM-Judge Reliability Gating | Accepted | Shipped (`victor/evaluation/judge_calibration.py`, `trajectory_eval.py`); κ/α gate not yet run against human labels | 2026-06-21 |
 | [ADR-012](012-regression-gated-harness-acceptance.md) | Regression-Gated Harness Acceptance | Proposed | Partial (parity/characterization batteries exist; formal acceptance oracle is EVR-5, P0) | 2026-06-21 |
 | [ADR-013](013-unified-temperature-policy.md) | Unified, Intent-Based Temperature Policy with Spin Ratchet | Accepted | Shipped (`victor/framework/temperature/`, default flip 0.7→0.6, scatter-guard test) | 2026-06-22 |
