@@ -4,9 +4,9 @@
 formations that stop-and-checkpoint (or, for concurrent waves, collect-and-checkpoint) on an
 awaiting member can handle the pause. Arming one that can't would make a member ASK silently
 abort the gated tool. The coordinator arms only when `strategy.supports_durable_pause()` — now
-true for SEQUENTIAL, PIPELINE, and PARALLEL (via the concurrent multi-pause aggregate), still
-false for HIERARCHICAL/CONSENSUS/REFLECTION. These tests probe the armed ContextVar during
-member execution and the gating predicate itself.
+true for SEQUENTIAL, PIPELINE, PARALLEL (concurrent multi-pause aggregate), and HIERARCHICAL
+(all three phases handle an awaiting result), still false for CONSENSUS/REFLECTION. These tests
+probe the armed ContextVar during member execution and the gating predicate itself.
 """
 
 from __future__ import annotations
@@ -59,9 +59,20 @@ async def test_parallel_arms_durable_pause() -> None:
     assert probe.seen_armed is True
 
 
+async def test_hierarchical_arms_durable_pause() -> None:
+    # HIERARCHICAL now handles an awaiting result in all three phases (plan / specialist wave /
+    # synthesis) → armed. Both the supervisor (first agent fallback) and the specialist see it.
+    probes = [_ArmingProbe("m0"), _ArmingProbe("m1")]
+    await _coordinator(probes, TeamFormation.HIERARCHICAL, MemoryCheckpointer()).execute_task(
+        "do it", {"thread_id": "t1"}
+    )
+    assert all(p.seen_armed is True for p in probes)
+
+
 def test_gating_predicate_matches_implemented_formations() -> None:
     # The arming gate reads supports_durable_pause(): true only for formations that can actually
-    # handle an awaiting member (stop/collect + checkpoint). HIERARCHICAL is not there yet.
+    # handle an awaiting member (stop/collect + checkpoint). CONSENSUS/REFLECTION are not there yet.
+    from victor.coordination.formations.consensus import ConsensusFormation
     from victor.coordination.formations.hierarchical import HierarchicalFormation
     from victor.coordination.formations.parallel import ParallelFormation
     from victor.coordination.formations.pipeline import PipelineFormation
@@ -70,4 +81,5 @@ def test_gating_predicate_matches_implemented_formations() -> None:
     assert SequentialFormation().supports_durable_pause() is True
     assert PipelineFormation().supports_durable_pause() is True
     assert ParallelFormation().supports_durable_pause() is True
-    assert HierarchicalFormation().supports_durable_pause() is False
+    assert HierarchicalFormation().supports_durable_pause() is True
+    assert ConsensusFormation().supports_durable_pause() is False

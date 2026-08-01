@@ -86,8 +86,11 @@ async def test_parallel_without_hook_is_unchanged() -> None:
 
 
 async def test_hierarchical_specialist_emits_lane() -> None:
+    # Specialists run through the shared concurrent runner with 1-based lane indices.
     ctx, events = _context_with_recording_hook()
-    result = await HierarchicalFormation()._execute_specialist(_FakeAgent("s1"), _task(), ctx, 0)
-    assert result.success is True
+    results = await HierarchicalFormation()._run_specialists(
+        [(_FakeAgent("s1"), _task(), 0)], _task(), ctx
+    )
+    assert len(results) == 1 and results[0].success is True
     assert ("member_start", "s1") in events
     assert ("member_completed", "s1") in events
