@@ -175,6 +175,26 @@ from victor.evaluation.trajectory_eval import (
     mean_confidence_interval,
 )
 
+# Regression-gated harness acceptance oracle + HTIR traces (EVR-5, ADR-012)
+from victor.evaluation.htir import (
+    Role,
+    StepStatus,
+    ArtifactEffect,
+    ETCLOVGLayer,
+    HTIRStep,
+    HTIRTrace,
+    normalize,
+)
+from victor.evaluation.acceptance_oracle import (
+    HarnessConfig,
+    AcceptanceVerdict,
+    DimensionDelta,
+    CharacterizationDelta,
+    AcceptanceReport,
+    HarnessAcceptanceOracle,
+    characterization_from_signatures,
+)
+
 # Agent adapter (connects Victor orchestrator to agentic benchmarks)
 from victor.evaluation.agent_adapter import (
     AdapterConfig,
@@ -451,6 +471,21 @@ __all__ = [
     "TrajectoryEvaluator",
     "default_scorers",
     "mean_confidence_interval",
+    # Acceptance oracle + HTIR traces (EVR-5, ADR-012)
+    "Role",
+    "StepStatus",
+    "ArtifactEffect",
+    "ETCLOVGLayer",
+    "HTIRStep",
+    "HTIRTrace",
+    "normalize",
+    "HarnessConfig",
+    "AcceptanceVerdict",
+    "DimensionDelta",
+    "CharacterizationDelta",
+    "AcceptanceReport",
+    "HarnessAcceptanceOracle",
+    "characterization_from_signatures",
     # Judge reliability gating (EVR-2)
     "JudgeReliability",
     "GateDecision",
