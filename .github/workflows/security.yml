@@ -123,6 +123,9 @@ jobs:
         run: |
           pip install -e ./victor-contracts
           pip install -e .
+          # PYSEC-2026-3447: runner-provided setuptools <83 is vulnerable; the fix
+          # exists, so upgrade rather than allowlist.
+          pip install --upgrade "setuptools>=83.0.0"
 
       - name: Run pip-audit (blocking on high+ severity)
         run: |
@@ -154,14 +157,20 @@ jobs:
                   for raw_line in f:
                       line = raw_line.strip()
                       if line and not line.startswith("#"):
-                          cve_id = line.split("|", 1)[0].strip()
-                          if cve_id.startswith("CVE-"):
-                              known_cves.add(cve_id)
+                          adv_id = line.split("|", 1)[0].strip()
+                          if adv_id.startswith(("CVE-", "PYSEC-", "GHSA-")):
+                              known_cves.add(adv_id)
           except FileNotFoundError:
               print("No .pip-audit-known-vulnerabilities file found")
 
           vulnerabilities = report.get("vulnerabilities", [])
-          filtered = [v for v in vulnerabilities if v.get("id") not in known_cves]
+          # An advisory may surface under any of its aliases (CVE-*/PYSEC-*/GHSA-*),
+          # so match the allowlist against the id and all aliases.
+          filtered = [
+              v
+              for v in vulnerabilities
+              if not ({v.get("id"), *v.get("aliases", [])} & known_cves)
+          ]
 
           if filtered:
               print(
