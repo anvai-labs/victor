@@ -73,9 +73,12 @@ so it is FEP-gated (below).
   1. member-granular checkpoint/resume via the existing StateGraph checkpointer — **done across all six
      formations**: SEQUENTIAL and PIPELINE (per-member), PARALLEL (lock-protected concurrent
      completed-set), HIERARCHICAL (phase-granular — plan/specialists/synthesis in
-     `shared_state["__hier__"]`), and CONSENSUS/REFLECTION (round/iteration-granular — the loop state in
-     `shared_state["__consensus__"]`/`["__reflection__"]`, resume continues at the next unfinished
-     round/iteration). Concurrent/iterative mid-loop *partial* resume deferred;
+     `shared_state["__hier__"]`; the specialist wave runs through the shared concurrent runner, so
+     mid-wave cumulative checkpoints give per-specialist partial resume — a mid-wave crash re-runs only
+     the unfinished specialists under the restored plan, no replan), and CONSENSUS/REFLECTION
+     (round/iteration-granular — the loop state in `shared_state["__consensus__"]`/`["__reflection__"]`,
+     resume continues at the next unfinished round/iteration). Iterative mid-loop *partial* resume
+     deferred;
   2. member `interrupt` — slice 2a (terminal-native member approval) **done**: a member's policy
      `ASK`-gated tool surfaces to the shared terminal approval modal (ADR-021), tagged with `member_id`,
      via a member-tagging wrapper published on a `ContextVar` during member-orchestrator construction
@@ -86,10 +89,13 @@ so it is FEP-gated (below).
      ASK→pause trigger is now **done**: a durable team run arms `current_member_durable_pause_enabled`,
      a member's `ASK` raises `MemberApprovalPause` (a `BaseException` that survives the runtime-core
      `except Exception` path), caught at `SubAgent.execute` and surfaced as the awaiting result.
-     Concurrent durable pause is now **done for PARALLEL**: a wave collects every awaiting member into
-     a multi-pause aggregate (`__awaiting_approvals__` + one batch pause checkpoint) and a resumed run
-     re-runs exactly the paused set. HIERARCHICAL concurrent pause and the no-graph chat continuation
-     (non-team single agent) are deferred;
+     Concurrent durable pause is now **done for PARALLEL and HIERARCHICAL**: a wave collects every
+     awaiting member into a multi-pause aggregate (`__awaiting_approvals__` + one batch pause
+     checkpoint) and a resumed run re-runs exactly the paused set; HIERARCHICAL additionally pauses on
+     an awaiting supervisor *plan* or *synthesis* via the singular `__awaiting_approval__` aggregate
+     (the paused phase is not snapshotted, so resume re-executes exactly it — all three phases handle
+     an awaiting result, making `supports_durable_pause()` safe to arm). The no-graph chat continuation
+     (non-team single agent) is deferred;
   3. member-tagged `RenderAction` fan-out for ADR-020's per-member lanes — **done (SEQUENTIAL,
      FEP-0028 increment 4)**: a `MemberEventSink`/`ContextVar` teams→stream bridge in
      `stream_with_events` emits `member_start`/`member_completed`/`member_error` lanes; member
@@ -126,3 +132,4 @@ so it is FEP-gated (below).
 | 2026-07-31 | 1.9 | Concurrent durable pause/resume for PARALLEL landed — a wave collects every awaiting member into a multi-pause aggregate (`__awaiting_approvals__` + one batch pause checkpoint); resume re-runs exactly the paused set; `PARALLEL.supports_durable_pause()` now True. HIERARCHICAL concurrent pause + non-team chat continuation deferred | Vijaykumar Singh |
 | 2026-08-01 | 1.10 | HIERARCHICAL phase-granular checkpoint/resume landed — plan/specialists/synthesis each snapshotted into `shared_state["__hier__"]` (persisted by the existing member hook; pure formation-layer change); resume restores up to the last completed phase (completed plan restored not re-run, drives phase 2), fallback path ends at phase 2. Mid-wave partial resume + HIERARCHICAL pause deferred | Vijaykumar Singh |
 | 2026-08-01 | 1.11 | CONSENSUS + REFLECTION round/iteration-granular checkpoint/resume landed — loop state snapshotted into `shared_state["__consensus__"]`/`["__reflection__"]` after each round/iteration (pure formation-layer change); resume continues at the next unfinished round/iteration, completed ones restored. Checkpoint/resume now covers all six formations. Iterative-formation durable pause + mid-loop partial resume + non-team chat continuation deferred | Vijaykumar Singh |
+| 2026-08-01 | 1.12 | HIERARCHICAL durable pause + per-specialist partial resume landed — the specialist wave now runs through the shared concurrent runner (`_execute_members_concurrently` extended with additive `tasks`/`indices`/`resume_override` params; PARALLEL defaults unchanged), giving mid-wave cumulative checkpoints (crash mid-wave re-runs only unfinished specialists under the restored plan — no replan) and the multi-pause aggregate for awaiting specialists; supervisor plan/synthesis pause via the singular aggregate and re-run on resume; `HIERARCHICAL.supports_durable_pause()` now True (all three phases handle an awaiting result). Non-team chat continuation deferred | Vijaykumar Singh |

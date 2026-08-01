@@ -343,16 +343,32 @@ class BaseFormationStrategy(ABC):
         task: "AgentMessage",
         context: "TeamContext",
         exec_contexts: List["TeamContext"],
+        *,
+        tasks: Optional[List["AgentMessage"]] = None,
+        indices: Optional[List[int]] = None,
+        resume_override: Optional[Dict[str, Any]] = None,
     ) -> List[MemberResult]:
         """Run members concurrently with ADR-023 durable checkpoint/resume + streaming lanes.
 
-        Reused by the concurrent formations (PARALLEL; HIERARCHICAL follows). Members execute
-        concurrently via ``asyncio.gather`` (each in its own ``exec_context``); only the brief
-        completion handler — record the result + checkpoint the cumulative completed set — is
-        serialized under an ``asyncio.Lock``, so parallelism is preserved. On resume, members
-        already in the checkpoint's completed set are skipped and their results pre-seeded; the
-        rest re-run. All hooks are read off the original ``context`` (the isolated per-member
-        contexts don't carry them). No checkpointer ⇒ this is just a lane-emitting gather.
+        Reused by the concurrent formations (PARALLEL and the HIERARCHICAL specialist wave).
+        Members execute concurrently via ``asyncio.gather`` (each in its own ``exec_context``);
+        only the brief completion handler — record the result + checkpoint the cumulative
+        completed set — is serialized under an ``asyncio.Lock``, so parallelism is preserved. On
+        resume, members already in the checkpoint's completed set are skipped and their results
+        pre-seeded; the rest re-run. All hooks are read off the original ``context`` (the
+        isolated per-member contexts don't carry them). No checkpointer ⇒ this is just a
+        lane-emitting gather.
+
+        The keyword extensions are additive with PARALLEL-preserving defaults:
+
+        - ``tasks``: per-member task messages (HIERARCHICAL delegates a *different* task to each
+          specialist). ``None`` → every member receives the shared ``task``.
+        - ``indices``: per-member lane/checkpoint indices (HIERARCHICAL specialists are 1-based —
+          the supervisor is 0). ``None`` → ``enumerate`` order.
+        - ``resume_override``: an explicit ``resume_completed``-shaped payload (HIERARCHICAL
+          filters the coordinator payload down to specialist ids — the supervisor's phase results
+          must not seed the wave). ``None`` → read ``context.resume_completed``; pass ``{}`` to
+          force a fresh wave regardless of the context payload.
 
         ADR-023 concurrent durable pause: when ``batch_pause_hook`` is set (durable team run whose
         formation ``supports_durable_pause()``), members that come back awaiting approval are
@@ -363,11 +379,17 @@ class BaseFormationStrategy(ABC):
         member_event_hook = getattr(context, "member_event_hook", None)
         checkpoint_hook = getattr(context, "checkpoint_hook", None)
         batch_pause_hook = getattr(context, "batch_pause_hook", None)
+        member_tasks = tasks if tasks is not None else [task] * len(agents)
+        member_indices = indices if indices is not None else list(range(len(agents)))
 
         # ADR-023 resume: pre-seed completed members and skip them below.
         seeded: List[MemberResult] = []
         completed_ids: set = set()
-        resume = getattr(context, "resume_completed", None)
+        resume = (
+            resume_override
+            if resume_override is not None
+            else getattr(context, "resume_completed", None)
+        )
         if resume:
             for raw in resume.get("member_results") or []:
                 seeded.append(raw if isinstance(raw, MemberResult) else MemberResult.from_dict(raw))
@@ -379,14 +401,16 @@ class BaseFormationStrategy(ABC):
         _SKIPPED = object()
         _AWAITING = object()
 
-        async def _run(agent: Any, exec_context: "TeamContext", index: int) -> Any:
+        async def _run(
+            agent: Any, exec_context: "TeamContext", index: int, agent_task: "AgentMessage"
+        ) -> Any:
             if agent.id in completed_ids:
                 logger.debug(
                     f"{type(self).__name__}: skipping completed member {agent.id} (resume)"
                 )
                 return _SKIPPED
             result = await self._execute_member_with_events(
-                agent, task, exec_context, index, member_event_hook=member_event_hook
+                agent, agent_task, exec_context, index, member_event_hook=member_event_hook
             )
             # A member awaiting approval durably pauses (only when the formation supports it, i.e.
             # a batch pause hook is wired): it is NOT recorded as completed, so a resumed run
@@ -408,7 +432,10 @@ class BaseFormationStrategy(ABC):
             return _AWAITING if is_awaiting else result
 
         gathered = await asyncio.gather(
-            *[_run(a, c, i) for i, (a, c) in enumerate(zip(agents, exec_contexts))],
+            *[
+                _run(a, c, i, t)
+                for a, c, i, t in zip(agents, exec_contexts, member_indices, member_tasks)
+            ],
             return_exceptions=True,
         )
 
@@ -424,7 +451,7 @@ class BaseFormationStrategy(ABC):
                         success=False,
                         output="",
                         error=str(r),
-                        metadata={"index": i},
+                        metadata={"index": member_indices[i]},
                     )
                 )
             else:

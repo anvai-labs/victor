@@ -179,15 +179,19 @@ deferred.
   a well-defined "completed" set.~~ **Resolved:** the completed set is simply the members whose
   coroutines have recorded a result; each records + checkpoints the *cumulative* set under an
   `asyncio.Lock` (member execution stays concurrent — only the completion handler serializes), and
-  `_load_member_resume`'s latest checkpoint is the largest completed set. Implemented for PARALLEL.
+  `_load_member_resume`'s latest checkpoint is the largest completed set. Implemented for PARALLEL
+  and the HIERARCHICAL specialist wave.
 - ~~HIERARCHICAL resume: the supervisor runs twice (plan + synthesize) and the plan drives the
   specialist wave, so member-granular completion doesn't map cleanly ("which phase resumes").~~
   **Resolved:** resume is **phase-granular** — supervisor *plan* → concurrent *specialists* →
   supervisor *synthesis* are each snapshotted into `shared_state["__hier__"]` (persisted by the
   existing member checkpoint hook, no coordinator change), so a crash restores up to the last
   completed phase (a completed plan is restored, not re-run, and its `delegated_tasks` drive phase 2)
-  and only the unreached phase(s) run. A crash *mid* specialist wave replans (per-specialist partial
-  resume is the concurrent-checkpoint refinement, deferred). HIERARCHICAL durable *pause* follows.
+  and only the unreached phase(s) run. The specialist wave runs through the shared concurrent runner,
+  whose mid-wave cumulative checkpoints embed the phase-1 snapshot — a crash *mid* wave resumes under
+  the restored plan and re-runs only the unfinished specialists (per-specialist partial resume, no
+  replan). HIERARCHICAL durable *pause* covers all three phases (plan/synthesis via the singular
+  aggregate, the wave via the multi-pause aggregate).
 - ~~Concurrent durable *pause*: a concurrent wave can have several members awaiting approval at once,
   so the single `__awaiting_approval__` shape can't express it.~~ **Resolved for PARALLEL:** members
   that come back awaiting are collected after the wave (not recorded as completed) into a **multi-pause
@@ -195,8 +199,9 @@ deferred.
   checkpoint (`_make_member_batch_pause_hook`: `completed_member_ids` excludes the awaiting set; carries
   an `awaiting_approvals` list); the coordinator surfaces `status="awaiting_approval"` +
   `paused_member_ids` + `awaiting_approvals`, and a resumed run re-runs exactly the paused set. Arming is
-  now gated true for PARALLEL. HIERARCHICAL concurrent pause + the non-team `victor chat` continuation
-  remain open.
+  now gated true for PARALLEL and HIERARCHICAL (whose specialist wave reuses the same runner/aggregate,
+  and whose supervisor plan/synthesis pause via the singular `__awaiting_approval__`). The non-team
+  `victor chat` continuation remains open.
 - Where durable checkpoints live long-term (a `project.db` `team_member_checkpoints` table vs the
   injected checkpointer). Increment 1 uses the injected checkpointer only.
 
@@ -357,3 +362,23 @@ lands, existing single-agent consumers ignore the `None` default.
   rounds/iterations and re-runs only the rest, REFLECTION terminal resume re-runs nothing, and no
   checkpointer is byte-identical. Both keep `supports_durable_pause()` `False` (iterative-formation
   durable pause + the non-team `victor chat` continuation remain the deferred items).
+- HIERARCHICAL durable pause + per-specialist partial resume merged: the specialist wave now runs through
+  the shared concurrent runner (`_execute_members_concurrently`, extended with **additive** keyword params
+  whose defaults keep PARALLEL byte-identical — `tasks` for per-specialist delegated tasks, `indices` for
+  the 1-based specialist lane indices (supervisor is 0), and `resume_override` so the formation passes the
+  coordinator payload filtered down to specialist ids). The wave therefore inherits the full concurrent
+  contract: lock-protected mid-wave cumulative checkpoints — which embed the phase-1 `__hier__` snapshot,
+  written into live `shared_state` *before* the wave even on the restored-plan path, so a mid-wave crash
+  resumes under the restored plan and re-runs only the unfinished specialists (**no replan**) — and the
+  multi-pause aggregate: awaiting specialists surface via `__awaiting_approvals__` + one batch pause
+  checkpoint, phase 2 is not snapshotted, and the resumed run re-runs exactly the paused set. The
+  supervisor **plan** and **synthesis** pause via the singular `__awaiting_approval__` aggregate
+  (mirroring SEQUENTIAL): the paused phase is not snapshotted, so resume re-executes exactly it.
+  `HIERARCHICAL.supports_durable_pause()` now returns `True` — safe because **all three phases** handle an
+  awaiting result (the #740 arming hazard). Verified: a wave with two awaiting + one completed specialist
+  surfaces both approvals in one batch pause checkpoint (no synthesis, phase 2 unsaved) and resume re-runs
+  exactly the paused pair then synthesizes; a plan pause re-runs the plan on resume; a synthesis pause
+  restores phases 1–2 and re-runs only the synthesis; a mid-wave crash resume skips the completed
+  specialist without replanning; PARALLEL checkpoint/pause suites pass unmodified; old phase-only
+  checkpoints resume unchanged; and no checkpointer is byte-identical (an awaiting specialist is an inert
+  non-success result). The non-team `victor chat` continuation remains deferred.
