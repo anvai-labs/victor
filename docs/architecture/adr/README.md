@@ -88,7 +88,7 @@ When making a significant architectural decision:
 
 1. Copy the [template](000-template.md)
 2. Fill in all sections
-3. Use the next sequential number (next free: **ADR-027**)
+3. Use the next sequential number (next free: **ADR-029**)
 4. Update this index (both tables if cross-repo)
 5. Submit for review
 
