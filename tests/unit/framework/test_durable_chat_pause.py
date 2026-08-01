@@ -16,10 +16,22 @@ import pytest
 
 from victor.agent.factory.coordination_builders import resolve_policy_approval_handler
 from victor.agent.member_approval_context import MemberApprovalPause
-from victor.agent.paused_run_store import PausedRunStore, get_paused_run_store
+from victor.agent.paused_run_store import (
+    InMemoryPausedRunStore,
+    get_paused_run_store,
+    reset_paused_run_store,
+    set_paused_run_store,
+)
 from victor.framework import message_execution as me
 from victor.framework.approval_pause import ApprovalPause, current_durable_pause_enabled
 from victor.framework.hitl import ApprovalRequest, ApprovalStatus
+
+
+@pytest.fixture(autouse=True)
+def _reset_paused_run_store():
+    """Keep an injected/overridden paused-run store from leaking across tests."""
+    yield
+    reset_paused_run_store()
 
 
 def _request() -> ApprovalRequest:
@@ -118,7 +130,8 @@ def _orchestrator(*, durable: bool) -> Any:
 
 
 async def test_execute_message_pauses_and_surfaces_run_id(monkeypatch: Any) -> None:
-    get_paused_run_store().clear()
+    # Isolate from the real project.db-backed store: inject an in-memory store for this turn.
+    set_paused_run_store(InMemoryPausedRunStore())
     monkeypatch.setattr(me, "_resolve_chat_runtime", lambda *a, **k: object())
 
     async def _raise(*a: Any, **k: Any) -> Any:
@@ -180,7 +193,7 @@ def test_tool_approval_config_threads_durable_to_governance() -> None:
 
 
 def test_paused_run_store_roundtrip() -> None:
-    store = PausedRunStore()
+    store = InMemoryPausedRunStore()
     run_id = store.save(
         session_id="s1",
         agent_id="a1",
