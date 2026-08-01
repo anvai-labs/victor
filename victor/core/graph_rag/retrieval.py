@@ -206,6 +206,50 @@ class MultiHopRetriever:
 
         return result
 
+    async def expand_from_seeds(
+        self,
+        seed_scores: Dict[str, float],
+        query: str,
+        config: Any | None = None,
+    ) -> RetrievalResult:
+        """Multi-hop expansion from externally ranked seeds.
+
+        Used by hybrid/structural search modes that fuse their own seed set
+        (e.g. FTS5 + vector RRF fusion in graph_semantic_search): each seed's
+        score feeds the hop-distance decay so the fused ranking carries into
+        the expansion instead of being flattened to a uniform 1.0.
+
+        Args:
+            seed_scores: node_id -> initial score (ideally normalized to [0,1]
+                so centrality/size adjustments stay proportionate)
+            query: Original query (for ranking context / result metadata)
+            config: Optional config override
+
+        Returns:
+            RetrievalResult with expanded, ranked nodes and their edges
+        """
+        start_time = time.time()
+        cfg = config or self.config
+        seed_ids = list(seed_scores)
+
+        expanded_nodes = await self._multi_hop_expand(seed_ids, cfg, seed_scores=seed_scores)
+        ranked_nodes = self._rank_nodes(expanded_nodes, seed_ids, query, cfg)
+        final_nodes = ranked_nodes[: cfg.top_k]
+
+        node_ids = {n.node.node_id for n in final_nodes}
+        edges = await self._get_edges_between(node_ids, cfg)
+
+        return RetrievalResult(
+            nodes=[n.node for n in final_nodes],
+            edges=edges,
+            subgraphs=[],
+            query=query,
+            seed_nodes=seed_ids,
+            hop_distances={n.node.node_id: n.distance for n in final_nodes},
+            scores={n.node.node_id: n.score for n in final_nodes},
+            execution_time_ms=(time.time() - start_time) * 1000,
+        )
+
     async def _find_seed_nodes(
         self,
         query: str,
@@ -312,12 +356,16 @@ class MultiHopRetriever:
         self,
         seed_ids: List[str],
         config: Any,
+        seed_scores: Optional[Dict[str, float]] = None,
     ) -> List[NodeWithScore]:
         """Expand from seed nodes via multi-hop BFS traversal.
 
         Args:
             seed_ids: Seed node IDs
             config: Retrieval configuration
+            seed_scores: Optional per-seed initial scores (e.g. RRF-fused hybrid
+                scores); a node's score decays from ITS seed's score, not a
+                uniform 1.0, so fused ranking carries through the expansion.
 
         Returns:
             List of nodes with scores and distances
@@ -346,8 +394,9 @@ class MultiHopRetriever:
             except Exception:
                 continue
 
-            # Calculate initial score (decay with distance)
-            score = self._decay_score(1.0, distance, config.max_hops)
+            # Calculate initial score (decay with distance from the seed's score)
+            base = seed_scores.get(path[0], 1.0) if seed_scores else 1.0
+            score = self._decay_score(base, distance, config.max_hops)
 
             # Store result
             results[node_id] = NodeWithScore(
