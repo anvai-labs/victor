@@ -45,10 +45,9 @@ class TestToolNecessityGate:
         orch._check_tool_necessity_via_edge = (
             AgentOrchestrator._check_tool_necessity_via_edge.__get__(orch)
         )
-        # Copy class-level frozensets and tuples
-        orch._TOOL_SIGNAL_KEYWORDS = AgentOrchestrator._TOOL_SIGNAL_KEYWORDS
-        orch._QA_SIGNAL_PATTERNS = AgentOrchestrator._QA_SIGNAL_PATTERNS
-        orch._CONTINUATION_TOKENS = AgentOrchestrator._CONTINUATION_TOKENS
+        # The keyword/pattern tables moved to victor/agent/tool_supply_policy.py
+        # (ADR-019 increment 2, #732); the bound wrappers delegate there, so no
+        # class-level tables need copying onto the mock.
         orch._container = overrides.get("container", None)
         return orch
 
