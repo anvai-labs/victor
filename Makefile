@@ -7,7 +7,7 @@
 #   make build        # Build distribution packages
 #   make release      # Create a release (requires version)
 
-.PHONY: help install install-dev install-standalone install-verticals test-verticals check-vertical-boundaries lint-verticals lint-verticals-ruff lint-verticals-fmt-types test test-definition-boundaries lint check-repo-hygiene check-extracted-vertical-boundaries format clean build build-binary docker release sync-version check-version
+.PHONY: help install install-dev install-standalone install-verticals test-verticals check-vertical-test-floor check-vertical-boundaries lint-verticals lint-verticals-ruff lint-verticals-fmt-types test test-definition-boundaries lint check-repo-hygiene check-extracted-vertical-boundaries format clean build build-binary docker release sync-version check-version
 
 PYTEST_TIMEOUT_ARG := $(shell pytest --help 2>/dev/null | grep -q -- "--timeout" && echo --timeout=120)
 
@@ -110,6 +110,34 @@ test-verticals:
 		echo "== test verticals/victor-$$v =="; \
 		pytest verticals/victor-$$v/tests -q || exit 1; \
 	done
+	@$(MAKE) check-vertical-test-floor
+
+# Vertical test parity floor: minimum collected-test count per vertical.
+# Guards the test baseline (victor-devops/research/dataanalysis were brought to
+# parity with victor-coding's structure) against silent regression — a change
+# that deletes or stops collecting a vertical's tests fails here even if the
+# surviving tests pass. Floors sit ~5-10% below the current collected counts;
+# raise them as suites grow, lower them only deliberately in the same PR that
+# removes tests.
+check-vertical-test-floor:
+	@fail=0; for v in $(VERTICALS); do \
+		case $$v in \
+			coding) floor=1200 ;; \
+			devops) floor=260 ;; \
+			research) floor=240 ;; \
+			rag) floor=75 ;; \
+			dataanalysis) floor=260 ;; \
+			*) floor=1 ;; \
+		esac; \
+		count=$$(pytest verticals/victor-$$v/tests --collect-only -q 2>/dev/null \
+			| grep -oE "[0-9]+ tests? collected" | grep -oE "[0-9]+" | tail -1); \
+		count=$${count:-0}; \
+		echo "verticals/victor-$$v: $$count tests collected (floor: $$floor)"; \
+		if [ "$$count" -lt "$$floor" ]; then \
+			echo "FAIL: victor-$$v collected $$count tests, below floor $$floor"; \
+			fail=1; \
+		fi; \
+	done; exit $$fail
 
 # Vertical lint, each package using its OWN tooling config. Ruff is aligned with
 # the framework's ruff config and clean across all verticals → BLOCKING. Black
