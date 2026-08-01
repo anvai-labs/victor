@@ -2205,8 +2205,11 @@ class GraphIndexingPipeline:
         except ImportError:
             logger.debug("Language handler system not available, using legacy")
 
-        # FALLBACK: Legacy implementation for unsupported languages
-        # TODO: Remove once all languages have handlers
+        # FALLBACK: load-bearing, not legacy debt. Edge handlers are supplied by
+        # the victor-coding plugin via CapabilityRegistry/TreeSitterAnalysisProtocol;
+        # a core-only install has NO handlers for any language, so this path is the
+        # only CALLS detection there. Removal requires core bundling a default
+        # handler provider first.
         logger.debug(f"Using legacy CALLS edge detection for: {language}")
         return await self._build_calls_edges_legacy(nodes, file_path, name_to_ids)
 
@@ -2297,13 +2300,14 @@ class GraphIndexingPipeline:
         file_path: Path,
         name_to_ids: Dict[str, List[str]],
     ) -> List[Any]:
-        """Legacy CALLS edge detection (to be removed).
+        """Fallback CALLS edge detection for installs without edge handlers.
 
-        DEPRECATED: This method exists as a fallback for languages
-        without dedicated edge handlers. Once all languages have
-        handlers, this method should be removed.
-
-        TODO: Remove after all languages migrate to handler pattern (target: 2026-Q2)
+        NOT removable on a schedule: edge handlers come from the victor-coding
+        plugin (CapabilityRegistry / TreeSitterAnalysisProtocol), so a core-only
+        install has no handler for ANY language and this is its only CALLS
+        detection. The former "remove by 2026-Q2 once all languages migrate"
+        TODO was wrong — removal is conditional on core shipping a default
+        handler provider, not on language coverage.
 
         Args:
             nodes: Symbol nodes from the file

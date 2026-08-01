@@ -96,7 +96,7 @@ Manifests can declare dependencies on other extensions:
 ExtensionManifest(
     name="my-vert",
     extension_dependencies=[
-        ExtensionDependency(extension_name="chromadb", min_version=">=0.4"),
+        ExtensionDependency(extension_name="lancedb", min_version=">=0.4"),
         ExtensionDependency(extension_name="victor-coding", optional=True),
     ],
 )

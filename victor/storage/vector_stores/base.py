@@ -16,7 +16,7 @@
 
 This module separates concerns:
 1. **Embedding Model**: Generates vectors from text (sentence-transformers, OpenAI, etc.)
-2. **Vector Store**: Stores and searches vectors (ChromaDB, LanceDB, FAISS, etc.)
+2. **Vector Store**: Stores and searches vectors (LanceDB, ProximaDB, etc.)
 """
 
 from abc import ABC, abstractmethod
@@ -39,7 +39,7 @@ class EmbeddingConfig(BaseModel):
     # Vector Store Configuration
     vector_store: str = Field(
         default="lancedb",
-        description="Vector store provider (lancedb, chromadb) - LanceDB recommended for performance",
+        description="Vector store provider (lancedb, proximadb) - LanceDB recommended for performance",
     )
     persist_directory: Optional[str] = Field(
         default=None,
@@ -102,12 +102,12 @@ class BaseEmbeddingProvider(ABC):
 
     Separation of concerns:
     - Embedding Model: text -> vector (sentence-transformers, OpenAI, etc.)
-    - Vector Store: vector storage/search (ChromaDB, LanceDB, FAISS, etc.)
+    - Vector Store: vector storage/search (LanceDB, ProximaDB, etc.)
 
     This allows mixing and matching:
     - OpenAI embeddings + FAISS storage
     - Sentence-transformers + LanceDB storage
-    - Cohere embeddings + ChromaDB storage
+    - Cohere embeddings + LanceDB storage
     """
 
     def __init__(
