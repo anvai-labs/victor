@@ -74,6 +74,11 @@ class AgentSettings(BaseModel):
     # Threaded into AgenticLoop construction; default leaves behavior unchanged.
     completion_strategy: str = "enhanced"
 
+    # Effect-grounded completion gate (ADR-010 / EVR-4): COMPLETE requires a verifiable effect
+    # or is downgraded to RETRY ("completion-without-effect"). Opt-in, default off per the
+    # flag-graduation policy; env override VICTOR_EFFECT_GATED_COMPLETION.
+    effect_gated_completion: bool = False
+
     @field_validator("planning_min_complexity")
     @classmethod
     def validate_complexity(cls, v: str) -> str:
