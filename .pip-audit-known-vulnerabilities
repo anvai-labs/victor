@@ -16,3 +16,9 @@
 # Victor uses diskcache for local caching only, not shared caches.
 # Waiting for upstream fix or alternative caching library.
 CVE-2025-69872 | diskcache | 5.6.3 | No newer version available. Vulnerability requires attacker write access to cache directory. In Victor's use case, cache directory is owned by application user. Acceptable risk for local caching. Re-evaluate when diskcache 5.7+ is released. | 2025-07-01
+
+# PYSEC-2026-2447 is the OSV/PYSEC alias of the diskcache advisory accepted
+# above as CVE-2025-69872 (pip-audit began reporting the PYSEC id). Same
+# assessment: requires attacker write access to the cache directory; Victor
+# uses diskcache for single-user local caching only. No fixed release yet.
+PYSEC-2026-2447 | diskcache | 5.6.3 | Alias of CVE-2025-69872 (accepted above). No fix released. Local single-user cache; attacker needs cache-dir write access. Re-evaluate when diskcache >5.6.3 is released. | 2026-11-01
