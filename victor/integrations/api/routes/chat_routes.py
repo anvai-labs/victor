@@ -29,6 +29,7 @@ from victor.integrations.api.fastapi_server import (
     ChatResponse,
     CompletionRequest,
     CompletionResponse,
+    ResumeRequest,
     _new_chat_request_id,
 )
 from victor.observability.request_correlation import request_correlation_id
@@ -57,8 +58,61 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
 
         content = getattr(chat_result, "content", None) or ""
         tool_calls = getattr(chat_result, "tool_calls", None) or []
+        status = getattr(chat_result, "status", "ok") or "ok"
+
+        # FEP-0029: the turn durably paused on a policy ASK — surface the resume token so the
+        # caller can approve later via /chat/resume. 202 Accepted signals "not final".
+        if status == "awaiting_approval":
+            response.status_code = 202
+            return ChatResponse(
+                role="assistant",
+                content=content,
+                tool_calls=tool_calls,
+                status=status,
+                run_id=getattr(chat_result, "run_id", None),
+                approval_request=getattr(chat_result, "approval_request", None),
+            )
 
         return ChatResponse(role="assistant", content=content, tool_calls=tool_calls)
+
+    @router.post("/chat/resume", response_model=ChatResponse, tags=["Chat"])
+    async def chat_resume(request: ResumeRequest, response: Response) -> ChatResponse:
+        """Resume a durably-paused chat turn with a human approval decision (FEP-0029)."""
+        from victor.framework.approval_pause import ApprovalDecision
+
+        request_id = _new_chat_request_id()
+        response.headers["X-Victor-Request-Id"] = request_id
+        client = await server._get_victor_client()
+        resume = getattr(client, "resume", None)
+        if resume is None:
+            raise HTTPException(status_code=501, detail="Resume is not supported by this server")
+
+        decision = ApprovalDecision(
+            approved=request.approved,
+            response=request.response,
+            responder=request.responder,
+        )
+        try:
+            with request_correlation_id(request_id):
+                result = await resume(request.run_id, decision)
+        except ValueError as exc:
+            # Unknown or already-resumed run_id.
+            raise HTTPException(status_code=404, detail=str(exc))
+
+        content = getattr(result, "content", None) or ""
+        tool_calls = getattr(result, "tool_calls", None) or []
+        status = getattr(result, "status", "ok") or "ok"
+        if status == "awaiting_approval":
+            # A chained pause (a second ASK during the continuation) — surface the new run_id.
+            response.status_code = 202
+        return ChatResponse(
+            role="assistant",
+            content=content,
+            tool_calls=tool_calls,
+            status=status,
+            run_id=getattr(result, "run_id", None),
+            approval_request=getattr(result, "approval_request", None),
+        )
 
     @router.post("/chat/stream", tags=["Chat"])
     async def chat_stream(request: ChatRequest) -> StreamingResponse:
