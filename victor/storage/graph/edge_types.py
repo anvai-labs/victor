@@ -74,6 +74,7 @@ class EdgeType(str, Enum):
     CFG_DEFAULT = "CFG_DEFAULT"  # Default case in switch
     CFG_LOOP_ENTRY = "CFG_LOOP_ENTRY"  # Entry to loop body
     CFG_LOOP_EXIT = "CFG_LOOP_EXIT"  # Exit from loop
+    CFG_LOOP_BACK = "CFG_LOOP_BACK"  # Back-edge: last body statement -> loop header
     CFG_EXCEPTION = "CFG_EXCEPTION"  # Exception flow
     CFG_CATCH = "CFG_CATCH"  # Catch block entry
     CFG_FINALLY = "CFG_FINALLY"  # Finally block entry
