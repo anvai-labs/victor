@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "victor-devops"
-version = "0.8.0"
+version = "0.8.2"
 description = "DevOps vertical for Victor AI - Infrastructure automation, CI/CD, and cloud operations"
 readme = "README.md"
 requires-python = ">=3.11"

@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "victor-rag"
-version = "0.8.0"
+version = "0.8.2"
 description = "RAG vertical for Victor AI - Document ingestion, vector search, and knowledge management"
 readme = "README.md"
 requires-python = ">=3.11"
