@@ -86,6 +86,10 @@ class GraphIndexConfig:
     embedding_neighborhood_radius: int = 2
     embedding_max_neighbors: int = 50
     embedding_batch_size: int = 100
+    # Structural mixing weight for PERSISTED vectors. Keep 0.0 so stored vectors
+    # stay comparable to plain-text query embeddings at search time; structural
+    # signals belong in ranking (hop-distance decay), not in the stored vector.
+    embedding_structural_weight: float = 0.0
     respect_gitignore: bool = True
     detect_languages: bool = True
     enable_module_metrics: bool = True

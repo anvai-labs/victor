@@ -2491,11 +2491,45 @@ class GraphIndexingPipeline:
 
         return None
 
-    async def _generate_embeddings(self) -> GraphIndexStats:
-        """Generate embeddings for all nodes in the graph.
+    def _get_vector_provider(self) -> Any:
+        """Vector store for persisting node embeddings, or None.
 
-        Uses GraphAwareEmbedder to generate structure-aware embeddings
-        that capture both semantic content and graph neighborhood.
+        Proxima-style stores co-locate vectors with graph nodes via
+        ``set_node_embedding`` — they need no external provider. For the
+        default sqlite store, build a provider from the store's settings-driven
+        config (falls back to defaults).
+        """
+        if hasattr(self.graph_store, "set_node_embedding"):
+            return None
+        try:
+            from victor.storage.vector_stores.registry import EmbeddingRegistry
+
+            build = getattr(self.graph_store, "_build_embedding_config", None)
+            if build is not None:
+                config = build()
+            else:
+                from victor.storage.vector_stores.base import EmbeddingConfig
+
+                config = EmbeddingConfig()
+            return EmbeddingRegistry.create(config)
+        except Exception as e:
+            logger.debug("Vector store unavailable for graph embeddings: %s", e)
+            return None
+
+    async def _generate_embeddings(self) -> GraphIndexStats:
+        """Generate embeddings for graph nodes — batched and staleness-aware.
+
+        - Incremental runs consider only nodes from files parsed this run;
+          force/full runs consider every node.
+        - A node is skipped when its stored ``content_version`` (blake2b-8 of
+          the embedded text: name + signature + docstring) matches and it
+          already has an embedding — bodies aren't embedded, so body-only edits
+          don't force re-embeds.
+        - Text vectors come from ONE ``EmbeddingService.embed_batch`` call per
+          batch (see ``GraphAwareEmbedder.embed_batch``).
+        - Persistence: ``index_embedded_documents`` on the vector store keyed
+          by node_id (default sqlite path), or the graph store's own
+          ``set_node_embedding`` (proxima co-located vectors).
 
         Returns:
             Stats for embedding generation
@@ -2504,66 +2538,120 @@ class GraphIndexingPipeline:
         start_time = time.time()
 
         try:
+            import hashlib
+
             from victor.processing.graph_embeddings import (
                 GraphAwareEmbedder,
                 GraphEmbeddingConfig,
             )
-            from victor.storage.graph.protocol import GraphNode
             from victor.storage.embeddings.service import get_embedding_service
 
-            # Initialize embedder
             config = GraphEmbeddingConfig(
                 neighborhood_radius=self.config.embedding_neighborhood_radius or 2,
                 include_edge_types=True,
-                structural_weight=0.3,
-                semantic_weight=0.7,
+                structural_weight=self.config.embedding_structural_weight,
+                semantic_weight=1.0 - self.config.embedding_structural_weight,
                 max_neighbors=self.config.embedding_max_neighbors or 50,
             )
             embedder = GraphAwareEmbedder(config=config)
 
-            # Get embedding service for direct text embeddings
             embedding_service = get_embedding_service()
             if embedding_service is None:
                 logger.warning("EmbeddingService not available, skipping embedding generation")
                 return stats
 
-            # Get all nodes from graph store
-            nodes = await self.graph_store.get_all_nodes()
-            logger.info(f"Generating embeddings for {len(nodes)} nodes")
+            # Candidate nodes: changed files only on incremental runs.
+            if self.config.incremental and self._files_to_process:
+                nodes = []
+                for file_key in sorted(self._files_to_process):
+                    nodes.extend(await self.graph_store.get_nodes_by_file(file_key))
+            else:
+                nodes = await self.graph_store.get_all_nodes()
 
-            # Process nodes in batches for efficiency
-            batch_size = self.config.embedding_batch_size or 100
-            all_embeddings: Dict[str, List[float]] = {}
+            # Staleness filter: fingerprint of the text that would be embedded.
+            candidates = []
+            versions: Dict[str, str] = {}
+            for node in nodes:
+                text = GraphAwareEmbedder.node_text(node)
+                if not text:
+                    continue
+                cv = hashlib.blake2b(text.encode("utf-8"), digest_size=8).hexdigest()
+                meta = node.metadata or {}
+                if meta.get("content_version") == cv and meta.get("has_embedding"):
+                    continue
+                versions[node.node_id] = cv
+                candidates.append(node)
 
-            for i in range(0, len(nodes), batch_size):
-                batch = nodes[i : i + batch_size]
-
-                # Generate embeddings with graph context
-                embeddings = await embedder.embed_batch(batch, self.graph_store)
-                all_embeddings.update(embeddings)
-
-                logger.debug(f"Generated embeddings for batch {i // batch_size + 1}")
-
-            # Store embeddings and update nodes
-            for node_id, embedding in all_embeddings.items():
-                try:
-                    # Store embedding in vector store (if available)
-                    await self.graph_store.set_node_embedding(node_id, embedding)
-
-                    # Update node metadata
-                    await self.graph_store.update_node_metadata(
-                        node_id,
-                        {"embedding_ref": f"emb:{node_id}", "has_embedding": True},
-                    )
-                except Exception as e:
-                    logger.warning(f"Failed to store embedding for {node_id}: {e}")
-                    stats.error_count += 1
-                    stats.errors.append(f"Embedding storage failed for {node_id}: {e}")
-
-            stats.embeddings_generated = len(all_embeddings)
             logger.info(
-                f"Generated {len(all_embeddings)} embeddings in {time.time() - start_time:.2f}s"
+                "Generating embeddings for %d nodes (%d unchanged skipped)",
+                len(candidates),
+                len(nodes) - len(candidates),
             )
+            if not candidates:
+                return stats
+
+            vector_provider = self._get_vector_provider()
+            node_by_id = {n.node_id: n for n in candidates}
+            batch_size = self.config.embedding_batch_size or 100
+            embedded_total = 0
+
+            for i in range(0, len(candidates), batch_size):
+                batch = candidates[i : i + batch_size]
+                embeddings = await embedder.embed_batch(batch, self.graph_store)
+                if not embeddings:
+                    continue
+
+                try:
+                    if vector_provider is not None and hasattr(
+                        vector_provider, "index_embedded_documents"
+                    ):
+                        docs = []
+                        for node_id, vector in embeddings.items():
+                            node = node_by_id[node_id]
+                            docs.append(
+                                {
+                                    "id": node_id,
+                                    "content": GraphAwareEmbedder.node_text(node),
+                                    "vector": vector,
+                                    "metadata": {
+                                        "node_id": node_id,
+                                        "file_path": node.file,
+                                        "symbol_name": node.name,
+                                        "line_number": node.line or 0,
+                                        "content_version": versions[node_id],
+                                    },
+                                }
+                            )
+                        await vector_provider.index_embedded_documents(docs)
+                    elif hasattr(self.graph_store, "set_node_embedding"):
+                        for node_id, vector in embeddings.items():
+                            await self.graph_store.set_node_embedding(node_id, vector)
+                except Exception as e:
+                    logger.warning(f"Vector persistence failed for batch: {e}")
+                    stats.error_count += 1
+                    stats.errors.append(f"Vector persistence: {e}")
+                    continue  # don't mark nodes embedded if vectors didn't persist
+
+                for node_id in embeddings:
+                    try:
+                        await self.graph_store.update_node_metadata(
+                            node_id,
+                            {
+                                "embedding_ref": f"emb:{node_id}",
+                                "has_embedding": True,
+                                "content_version": versions[node_id],
+                            },
+                        )
+                    except Exception as e:
+                        logger.warning(f"Failed to mark embedding for {node_id}: {e}")
+                        stats.error_count += 1
+                        stats.errors.append(f"Embedding metadata failed for {node_id}: {e}")
+
+                embedded_total += len(embeddings)
+                logger.debug(f"Embedded batch {i // batch_size + 1}")
+
+            stats.embeddings_generated = embedded_total
+            logger.info(f"Generated {embedded_total} embeddings in {time.time() - start_time:.2f}s")
 
         except ImportError as e:
             logger.warning(f"Graph embedding components not available: {e}")

@@ -52,3 +52,39 @@ def test_embedder_populates_embedding_cell():
     assert cell["modality"] == "code"
     assert cell["dim"] == 384
     assert len(cell["values"]) == 384
+
+
+def test_batch_embedder_single_call_populates_all_nodes():
+    parsed = parse(SAMPLE, file_path="m.py")
+    calls: list[list[str]] = []
+
+    def batch(texts: list[str]) -> list[list[float]]:
+        calls.append(texts)
+        return [[0.5] * 8 for _ in texts]
+
+    records = to_proxima_records(parsed, repo_graph_id="repo1", batch_embedder=batch, dim=8)
+    nodes = [r for r in records if "graph_node" in r["labels"]]
+
+    assert len(calls) == 1  # ONE call for the whole file
+    assert len(calls[0]) == len(nodes)
+    for n in nodes:
+        assert len(n["embeddings"]) == 1
+        assert n["embeddings"][0]["dim"] == 8
+        assert n["embeddings"][0]["values"] == [0.5] * 8
+
+
+def test_batch_embedder_wins_over_per_symbol_embedder():
+    parsed = parse(SAMPLE, file_path="m.py")
+    per_symbol_calls: list[str] = []
+
+    records = to_proxima_records(
+        parsed,
+        repo_graph_id="repo1",
+        embedder=lambda text: per_symbol_calls.append(text) or [0.0] * 8,
+        batch_embedder=lambda texts: [[1.0] * 8 for _ in texts],
+        dim=8,
+    )
+    nodes = [r for r in records if "graph_node" in r["labels"]]
+
+    assert per_symbol_calls == []  # per-symbol path not used
+    assert all(n["embeddings"][0]["values"] == [1.0] * 8 for n in nodes)

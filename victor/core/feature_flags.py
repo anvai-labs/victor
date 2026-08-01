@@ -135,6 +135,10 @@ class FeatureFlag(Enum):
     USE_GRAPH_QUERY_TOOL = "use_graph_query_tool"
     USE_MULTI_HOP_RETRIEVAL = "use_multi_hop_retrieval"
     USE_GRAPH_ENHANCED_CONTEXT = "use_graph_enhanced_context"
+    # Gates graph-node embedding generation during BACKGROUND refreshes
+    # (GraphManager); `victor graph index --embeddings` works regardless.
+    # Default off: background embedding costs model inference on every refresh.
+    USE_GRAPH_EMBEDDINGS = "use_graph_embeddings"
 
     # Phase 15 - Architecture Consolidation (Framework Primitives)
     # USE_STATEGRAPH_AGENTIC_LOOP gates the StateGraph executor inside
@@ -247,6 +251,9 @@ class FeatureFlag(Enum):
             FeatureFlag.USE_POLICY_ENGINE,
             # Phase 19: E3-TIR experience-replay tool exploration (opt-in, off by default)
             FeatureFlag.USE_E3_TIR_EXPLORATION,
+            # Background graph-node embedding generation (opt-in: costs model
+            # inference on every background refresh)
+            FeatureFlag.USE_GRAPH_EMBEDDINGS,
         }
 
     def get_default_enabled(self, fallback: bool) -> bool:

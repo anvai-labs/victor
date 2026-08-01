@@ -66,6 +66,7 @@ async def _index_async(
     path: str,
     enable_ccg: bool,
     force: bool,
+    enable_embeddings: bool = False,
 ) -> bool:
     """Index codebase into graph store asynchronously.
 
@@ -73,6 +74,7 @@ async def _index_async(
         path: Path to codebase root
         enable_ccg: Whether to build CCG
         force: Force rebuild
+        enable_embeddings: Whether to generate node embeddings for semantic search
 
     Returns:
         True if successful
@@ -101,7 +103,7 @@ async def _index_async(
     config = GraphIndexConfig(
         root_path=root_path,
         enable_ccg=enable_ccg,
-        enable_embeddings=False,  # TODO: Add embedding support
+        enable_embeddings=enable_embeddings,
     )
 
     # Build index
@@ -124,6 +126,8 @@ async def _index_async(
     if stats.ccg_nodes_created > 0:
         console.print(f"  CCG nodes: {stats.ccg_nodes_created}")
         console.print(f"  CCG edges: {stats.ccg_edges_created}")
+    if stats.embeddings_generated > 0:
+        console.print(f"  Embeddings generated: {stats.embeddings_generated}")
     if stats.error_count > 0:
         console.print(f"[yellow]  Warnings: {stats.error_count}[/yellow]")
 
@@ -455,12 +459,17 @@ def graph_index(
     path: str = typer.Option(".", "--path", "-p", help="Path to codebase root"),
     enable_ccg: bool = typer.Option(True, "--ccg/--no-ccg", help="Build Code Context Graph"),
     force: bool = typer.Option(False, "--force", "-f", help="Force rebuild"),
+    embeddings: bool = typer.Option(
+        False,
+        "--embeddings/--no-embeddings",
+        help="Generate node embeddings for semantic graph search",
+    ),
 ):
     """Index codebase into graph store."""
     cwd = os.path.abspath(path)
 
     start_time = time.time()
-    success = run_sync(_index_async(cwd, enable_ccg, force))
+    success = run_sync(_index_async(cwd, enable_ccg, force, embeddings))
     elapsed = time.time() - start_time
 
     if success:
