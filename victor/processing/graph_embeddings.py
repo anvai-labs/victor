@@ -148,12 +148,27 @@ class GraphAwareEmbedder:
 
         return combined
 
+    @staticmethod
+    def node_text(node: GraphNode) -> str:
+        """The text actually embedded for a node (name + signature + docstring).
+
+        Also the input to the staleness fingerprint (``content_version``) used by
+        the indexing pipeline — keep the two in lockstep.
+        """
+        return " ".join(filter(None, [node.name, node.signature or "", node.docstring or ""]))
+
     async def embed_batch(
         self,
         nodes: List[GraphNode],
         graph_store: Any,
     ) -> Dict[str, List[float]]:
         """Generate embeddings for multiple nodes.
+
+        Text embeddings are generated in ONE ``EmbeddingService.embed_batch``
+        call (the old per-node ``embed_text`` loop defeated the service's
+        adaptive batching). Structural mixing is applied per node only when
+        ``structural_weight > 0`` — leave it at 0 for vectors persisted for
+        search, so stored vectors stay comparable to plain-text query vectors.
 
         Args:
             nodes: Nodes to embed
@@ -162,12 +177,32 @@ class GraphAwareEmbedder:
         Returns:
             Dict mapping node IDs to embeddings
         """
-        embeddings: Dict[str, List[float]] = {}
+        if not nodes:
+            return {}
 
-        for node in nodes:
+        texts = [self.node_text(n) for n in nodes]
+        service = self._explicit_service or _get_embedding_service()
+        text_vectors: List[List[float]]
+        if service is not None:
             try:
-                embedding = await self.embed_with_context(node, graph_store)
-                embeddings[node.node_id] = embedding
+                import numpy as np
+
+                batch = await service.embed_batch(texts)
+                text_vectors = [v.tolist() if isinstance(v, np.ndarray) else list(v) for v in batch]
+            except Exception as e:
+                logger.warning(f"Batch embedding failed, using hash fallback: {e}")
+                text_vectors = [self._hash_encode(t) for t in texts]
+        else:
+            text_vectors = [self._hash_encode(t) for t in texts]
+
+        embeddings: Dict[str, List[float]] = {}
+        for node, vec in zip(nodes, text_vectors):
+            try:
+                if self.config.structural_weight > 0:
+                    context = await self._get_graph_context(node, graph_store)
+                    structural = self._encode_structure(context)
+                    vec = self._combine_embeddings(vec, structural)
+                embeddings[node.node_id] = vec
             except Exception as e:
                 logger.warning(f"Failed to embed {node.node_id}: {e}")
 
@@ -182,13 +217,7 @@ class GraphAwareEmbedder:
         Returns:
             Text embedding vector
         """
-        # Combine text fields
-        text_parts = [
-            node.name,
-            node.signature or "",
-            node.docstring or "",
-        ]
-        text = " ".join(filter(None, text_parts))
+        text = self.node_text(node)
 
         # Use embedding service if available
         service = self._explicit_service or _get_embedding_service()

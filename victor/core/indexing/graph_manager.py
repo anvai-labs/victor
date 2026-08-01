@@ -501,6 +501,21 @@ class GraphManager:
         if inspect.isawaitable(callback_result):
             await callback_result
 
+    @staticmethod
+    def _background_embeddings_enabled() -> bool:
+        """Whether background refreshes should also generate node embeddings.
+
+        Gated by VICTOR_USE_GRAPH_EMBEDDINGS (opt-in: embedding costs model
+        inference on every refresh). ``victor graph index --embeddings``
+        bypasses this gate for explicit one-shot runs.
+        """
+        try:
+            from victor.core.feature_flags import FeatureFlag, get_feature_flag_manager
+
+            return get_feature_flag_manager().is_enabled(FeatureFlag.USE_GRAPH_EMBEDDINGS)
+        except Exception:
+            return False
+
     async def _refresh_graph_index(self, root: Path) -> Any:
         """Incrementally refresh the persisted graph and synthetic edges for a root."""
         from victor.core.graph_rag import (
@@ -548,7 +563,7 @@ class GraphManager:
                 config = GraphIndexConfig(
                     root_path=root,
                     enable_ccg=enable_ccg,
-                    enable_embeddings=False,
+                    enable_embeddings=self._background_embeddings_enabled(),
                     enable_subgraph_cache=False,
                     incremental=True,  # Use incremental updates (default, but explicit for clarity)
                 )

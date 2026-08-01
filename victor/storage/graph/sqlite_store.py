@@ -984,6 +984,43 @@ class SqliteGraphStore(GraphStoreProtocol):
             )
             return [self._row_to_node(row) for row in cur.fetchall()]
 
+    async def update_node_metadata(self, node_id: str, metadata: Dict[str, Any]) -> None:
+        """Merge ``metadata`` into a node's metadata JSON (read-modify-write).
+
+        ``embedding_ref`` in the patch lands in its dedicated column. No-op for
+        unknown node ids. Signature mirrors ProximaGraphStore.update_node_metadata.
+        """
+
+        def _apply(conn: sqlite3.Connection) -> None:
+            row = conn.execute(
+                f"SELECT metadata FROM {_NODE_TABLE} WHERE node_id = ?", (node_id,)
+            ).fetchone()
+            if row is None:
+                return
+            merged = json.loads(row[0]) if row[0] else {}
+            patch = dict(metadata or {})
+            embedding_ref = patch.pop("embedding_ref", None)
+            merged.update(patch)
+            if embedding_ref is not None:
+                conn.execute(
+                    f"UPDATE {_NODE_TABLE} SET metadata = ?, embedding_ref = ? WHERE node_id = ?",
+                    (json.dumps(merged), embedding_ref, node_id),
+                )
+            else:
+                conn.execute(
+                    f"UPDATE {_NODE_TABLE} SET metadata = ? WHERE node_id = ?",
+                    (json.dumps(merged), node_id),
+                )
+
+        batch_conn = self._get_active_write_batch_connection()
+        if batch_conn is not None:
+            _apply(batch_conn)
+            return
+        async with self._lock:
+            conn = self._connect()
+            _apply(conn)
+            conn.commit()
+
     async def update_file_mtime(self, file: str, mtime: float) -> None:
         """Record file modification time for staleness tracking."""
         file = self._canonical_file_path(file)
