@@ -49,6 +49,7 @@ Status is the governance state of the *decision*. Implementation is the observed
 | [ADR-025](025-ratify-evaluation-centric-p0-decisions.md) | Ratify the evaluation-centric P0 decisions | Proposed | In progress via EVR-2/3/4/5 (ratifies ADR-009/010/011/012) | 2026-07-29 |
 | [ADR-026](026-durable-code-memory-ga.md) | Durable code memory GA (one `oid`, correlated graph+vector, tiered) | Proposed | Partial (records GA target for TD-11/12/13 + ADR-015 later phases) | 2026-07-29 |
 | [ADR-027](027-prompt-optimization-strategy-fidelity.md) | Prompt-optimization strategy fidelity and honest naming | Accepted | Shipped (faithful CoT distillation; section-scoped PrefPO; honest docs; keys unchanged) | 2026-08-01 |
+| [ADR-028](028-single-agent-durable-chat-continuation.md) | Single-agent durable chat continuation (pause/resume on approval) | Proposed | Not started (FEP-0029 Draft; generalizes ADR-023 pause to non-team single-agent runs) | 2026-08-01 |
 
 ## External ADR series (cross-repo)
 
