@@ -38,9 +38,7 @@ def _node(node_id: str, name: str) -> GraphNode:
 
 
 def _hit(node_id: str, score: float):
-    return SimpleNamespace(
-        metadata={"node_id": node_id}, content=f"content {node_id}", score=score
-    )
+    return SimpleNamespace(metadata={"node_id": node_id}, content=f"content {node_id}", score=score)
 
 
 # ── seed-score helpers ───────────────────────────────────────────────────────
@@ -64,9 +62,7 @@ async def test_hybrid_fuses_keyword_and_vector_legs():
     provider = MagicMock()
     provider.search_similar = AsyncMock(return_value=[_hit("both", 0.9), _hit("vec1", 0.7)])
 
-    with patch(
-        "victor.tools.graph_query_tool._vector_provider_for", return_value=provider
-    ):
+    with patch("victor.tools.graph_query_tool._vector_provider_for", return_value=provider):
         scores, note = await _hybrid_seed_scores(store, "beta", 4)
 
     assert note is None
@@ -85,9 +81,7 @@ async def test_hybrid_degrades_to_structural_without_vectors():
     provider = MagicMock()
     provider.search_similar = AsyncMock(return_value=[])  # nothing embedded
 
-    with patch(
-        "victor.tools.graph_query_tool._vector_provider_for", return_value=provider
-    ):
+    with patch("victor.tools.graph_query_tool._vector_provider_for", return_value=provider):
         scores, note = await _hybrid_seed_scores(store, "alpha", 4)
 
     assert scores == {"a": 1.0}
@@ -104,9 +98,7 @@ async def test_hybrid_uses_store_semantic_search_when_available():
     service = MagicMock()
     service.embed_text = AsyncMock(return_value=[0.1, 0.2])
 
-    with patch(
-        "victor.storage.embeddings.service.get_embedding_service", return_value=service
-    ):
+    with patch("victor.storage.embeddings.service.get_embedding_service", return_value=service):
         scores, note = await _hybrid_seed_scores(store, "alpha", 4)
 
     store.semantic_search.assert_awaited_once()
@@ -193,9 +185,7 @@ async def test_tool_structural_mode_expands_from_fts_seeds():
 
     retriever.retrieve = AsyncMock()
     retriever.expand_from_seeds = AsyncMock(
-        return_value=RetrievalResult(
-            nodes=[], edges=[], subgraphs=[], query="q", seed_nodes=["a"]
-        )
+        return_value=RetrievalResult(nodes=[], edges=[], subgraphs=[], query="q", seed_nodes=["a"])
     )
 
     with (
@@ -210,7 +200,7 @@ async def test_tool_structural_mode_expands_from_fts_seeds():
 
     retriever.retrieve.assert_not_awaited()
     retriever.expand_from_seeds.assert_awaited_once()
-    (seed_scores, _query, _config) = retriever.expand_from_seeds.await_args.args
+    seed_scores, _query, _config = retriever.expand_from_seeds.await_args.args
     assert seed_scores == {"a": 1.0}
     assert out["metadata"]["mode"] == "structural"
 
@@ -225,9 +215,7 @@ async def test_tool_hybrid_mode_reports_degradation_note():
     from victor.core.graph_rag.retrieval import RetrievalResult
 
     retriever.expand_from_seeds = AsyncMock(
-        return_value=RetrievalResult(
-            nodes=[], edges=[], subgraphs=[], query="q", seed_nodes=["a"]
-        )
+        return_value=RetrievalResult(nodes=[], edges=[], subgraphs=[], query="q", seed_nodes=["a"])
     )
 
     provider = MagicMock()
