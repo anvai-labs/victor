@@ -541,3 +541,76 @@ def sessions_clear(
     except Exception as e:
         console.print(f"[red]Error clearing sessions:[/] {e}")
         sys.exit(1)
+
+
+@sessions_app.command("resume")
+def sessions_resume(
+    run_id: str = typer.Argument(
+        ..., help="The paused run's run_id (from an `awaiting_approval` result)."
+    ),
+    approve: bool = typer.Option(
+        False,
+        "--approve/--reject",
+        help="Approve (execute the gated tool) or reject (skip it). Default: reject.",
+    ),
+    note: Optional[str] = typer.Option(
+        None, "--note", help="Optional note recorded with the decision."
+    ),
+    profile: str = typer.Option("default", "--profile", "-p", help="Profile to use."),
+    provider: Optional[str] = typer.Option(None, "--provider", "-P", help="Override provider."),
+    model: Optional[str] = typer.Option(None, "--model", help="Override model."),
+) -> None:
+    """Resume a durably-paused chat turn (FEP-0029) with an approval decision.
+
+    When durable approval is configured, a turn that hits an ``ASK`` gate parks with a ``run_id``
+    (persisted in the project database) instead of blocking — from any surface (API, TUI). Answer it
+    here: approve executes the exact gated tool call and continues; reject skips it with a tool-error
+    and continues.
+
+    Examples:
+        victor session resume <run_id> --approve
+        victor session resume <run_id> --reject --note "too risky"
+    """
+    import asyncio
+
+    from victor.config.settings import load_settings
+    from victor.framework.approval_pause import ApprovalDecision
+    from victor.framework.session_config import SessionConfig
+    from victor.framework.session_runner import FrameworkSessionRunner
+
+    async def _run() -> None:
+        settings = load_settings()
+        config = SessionConfig.from_cli_flags(
+            agent_profile=None if profile == "default" else profile,
+            provider=provider,
+            model=model,
+        )
+        session_runner = FrameworkSessionRunner(settings, config)
+        client = session_runner.create_client(config)
+        await session_runner.initialize_client(client)
+        try:
+            result = await client.resume(
+                run_id,
+                ApprovalDecision(approved=approve, response=note, responder="cli"),
+            )
+        except ValueError as exc:
+            console.print(f"[bold red]Error:[/] {exc}")
+            raise typer.Exit(1)
+        finally:
+            close = getattr(client, "close", None)
+            if close is not None:
+                await close()
+
+        status = getattr(result, "status", "ok") or "ok"
+        if status == "awaiting_approval":
+            new_run = getattr(result, "run_id", None)
+            console.print(
+                f"[yellow]⏸ Still awaiting approval[/] — a further ASK fired; resume with "
+                f"run_id [bold]{new_run}[/]."
+            )
+        else:
+            verb = "approved" if approve else "rejected"
+            console.print(f"[green]✓[/] Resumed ({verb}).")
+            console.print(getattr(result, "content", "") or "[dim](no further output)[/]")
+
+    asyncio.run(_run())

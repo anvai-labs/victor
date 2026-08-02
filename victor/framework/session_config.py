@@ -427,6 +427,7 @@ class SessionConfig:
         tool_approval_enabled: bool = False,
         ask_on_tools: Optional[List[str]] = None,
         ask_fallback: str = "deny",
+        durable_approval: bool = False,
         # Shell safety policy (FEP-0013)
         shell_safety_profile: Optional[str] = None,
         shell_workspace_root: Optional[str] = None,
@@ -528,6 +529,7 @@ class SessionConfig:
                 enabled=tool_approval_enabled,
                 ask_on_tools=tuple(ask_on_tools or ()),
                 ask_fallback=ask_fallback,
+                durable=durable_approval,
             ),
             shell_safety=ShellSafetyConfig.from_cli(
                 profile=shell_safety_profile,
