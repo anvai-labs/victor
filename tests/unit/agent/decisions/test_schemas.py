@@ -28,7 +28,7 @@ class TestDecisionType:
         assert DecisionType.CONTINUATION_ACTION.value == "continuation_action"
 
     def test_decision_type_count(self):
-        assert len(DecisionType) == 14  # includes COMPACTION added for context management
+        assert len(DecisionType) == 15  # + TURN_AUDIT (EVR-6 per-turn judge)
 
 
 class TestTaskCompletionDecision:

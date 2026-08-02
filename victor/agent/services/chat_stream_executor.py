@@ -1584,6 +1584,14 @@ class StreamingChatExecutor:
         _settings = getattr(orch, "settings", None)
         _effect_gate = resolve_effect_gate_enabled(_settings)
         _auditor = resolve_per_turn_auditor_enabled(_settings)
+        # EVR-6: when the auditor is on, back it with the edge-model prefix judge (Ollama,
+        # token-free). build_edge_turn_judge() returns None when the edge model is unavailable,
+        # so the auditor degrades to its deterministic heuristic.
+        _turn_judge = None
+        if _auditor:
+            from victor.agent.edge_turn_judge import build_edge_turn_judge
+
+            _turn_judge = build_edge_turn_judge()
         loop = AgenticLoop(
             orchestrator=None,
             turn_executor=_te,
@@ -1601,6 +1609,7 @@ class StreamingChatExecutor:
             rubric_complete_fn=_rubric_fn,
             verifier=getattr(_te, "_verifier", None),
             max_verify_retries=getattr(_te, "_max_verify_retries", 0),
+            per_turn_judge=_turn_judge,
         )
 
         conversation_history = self._get_conversation_history(runtime_owner, orch, user_message)

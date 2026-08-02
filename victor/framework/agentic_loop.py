@@ -588,6 +588,7 @@ class AgenticLoop:
         rubric_complete_fn: Optional[Callable[[str], Awaitable[str]]] = None,
         verifier: Optional[Any] = None,
         max_verify_retries: int = 0,
+        per_turn_judge: Optional[Any] = None,
     ):
         """Initialize agentic loop.
 
@@ -752,7 +753,8 @@ class AgenticLoop:
             PerTurnAuditorConfig(
                 enabled=self.config.enable_per_turn_auditor,
                 max_alarms=self.config.per_turn_auditor_max_alarms,
-            )
+            ),
+            judge=per_turn_judge,
         )
 
         # Initialize planning gate for fast-slow architecture

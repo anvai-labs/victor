@@ -27,6 +27,7 @@ from victor.agent.decisions.schemas import (
     TaskTypeDecision,
     ToolNecessityDecision,
     ToolSelectionDecision,
+    TurnAuditDecision,
 )
 
 
@@ -244,5 +245,24 @@ DECISION_PROMPTS: Dict[DecisionType, DecisionPrompt] = {
         ),
         schema=CompactionDecision,
         max_tokens=50,
+    ),
+    DecisionType.TURN_AUDIT: DecisionPrompt(
+        system=(
+            "You are a per-turn auditor for an AI coding agent. Judge whether the agent's latest "
+            "turn is healthy progress or is degenerate/stuck/off-track. "
+            "Respond ONLY with a JSON object, no other text."
+        ),
+        user_template=(
+            "Judge the agent's latest turn.\n\n"
+            "Turn output (tail):\n{turn_tail}\n\n"
+            "Made tool calls: {has_tool_calls}\n"
+            "All tool calls failed: {all_tools_failed}\n\n"
+            "Alarm if the turn is degenerate (claims progress but did nothing), stuck in a loop, "
+            "or clearly off-track; otherwise continue.\n"
+            'Respond with JSON: {{"verdict": "continue"|"alarm", "confidence": 0.0-1.0, '
+            '"reason": "brief reason if alarm"}}'
+        ),
+        schema=TurnAuditDecision,
+        max_tokens=40,
     ),
 }
