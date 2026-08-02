@@ -85,6 +85,11 @@ class AgentSettings(BaseModel):
     # env override VICTOR_RECOVERY_LAYER_ATTRIBUTION.
     recovery_layer_attribution: bool = False
 
+    # Online per-turn auditor (EVR-6 / FEP-0008 Phase C): a continue/alarm check on each turn that
+    # downgrades a degenerate COMPLETE to RETRY. Opt-in, default off per the flag-graduation policy;
+    # env override VICTOR_PER_TURN_AUDITOR. (Wired on the streaming path.)
+    per_turn_auditor: bool = False
+
     @field_validator("planning_min_complexity")
     @classmethod
     def validate_complexity(cls, v: str) -> str:
