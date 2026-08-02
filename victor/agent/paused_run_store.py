@@ -34,10 +34,15 @@ from __future__ import annotations
 import json
 import sqlite3
 import threading
+import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Protocol, Tuple, runtime_checkable
+
+#: FEP-0029: a pending pause older than this (seconds) is considered stale — the resume seam expires
+#: it (opportunistic GC) rather than acting on a day-old approval. Generous by default (24h).
+DEFAULT_PAUSE_TTL_SECONDS: float = 24 * 60 * 60
 
 
 @dataclass
@@ -76,6 +81,10 @@ class PausedRunStoreProtocol(Protocol):
     def mark_resumed(self, run_id: str) -> bool: ...
 
     def list_pending(self) -> List[PausedRun]: ...
+
+    def expire_pending(self, *, max_age_seconds: float, now: Optional[float] = None) -> int: ...
+
+    def purge(self, *, before: float) -> int: ...
 
     def clear(self) -> None: ...
 
@@ -128,6 +137,30 @@ class InMemoryPausedRunStore:
     def list_pending(self) -> List[PausedRun]:
         with self._lock:
             return [r for r in self._runs.values() if r.status == "awaiting_approval"]
+
+    def expire_pending(self, *, max_age_seconds: float, now: Optional[float] = None) -> int:
+        """Mark pending runs older than ``max_age_seconds`` as ``expired``. Returns the count."""
+        cutoff = (time.time() if now is None else now) - max_age_seconds
+        expired = 0
+        with self._lock:
+            for run in self._runs.values():
+                # created_at == 0 means "unset" — never expire on a missing timestamp.
+                if run.status == "awaiting_approval" and 0 < run.created_at < cutoff:
+                    run.status = "expired"
+                    expired += 1
+        return expired
+
+    def purge(self, *, before: float) -> int:
+        """Delete terminal (non-pending) runs created before ``before``. Returns the count."""
+        with self._lock:
+            drop = [
+                rid
+                for rid, r in self._runs.items()
+                if r.status != "awaiting_approval" and r.created_at < before
+            ]
+            for rid in drop:
+                del self._runs[rid]
+        return len(drop)
 
     def clear(self) -> None:
         """Test hook: drop all records."""
@@ -257,6 +290,30 @@ class ProjectDbPausedRunStore:
             .fetchall()
         )
         return [self._row_to_run(r) for r in rows]
+
+    def expire_pending(self, *, max_age_seconds: float, now: Optional[float] = None) -> int:
+        """Mark pending runs older than ``max_age_seconds`` as ``expired``. Returns the count."""
+        cutoff = (time.time() if now is None else now) - max_age_seconds
+        with self._write_lock:
+            conn = self._conn()
+            cur = conn.execute(
+                "UPDATE paused_run SET status = 'expired' "
+                "WHERE status = 'awaiting_approval' AND created_at > 0 AND created_at < ?",
+                (cutoff,),
+            )
+            conn.commit()
+            return cur.rowcount
+
+    def purge(self, *, before: float) -> int:
+        """Delete terminal (non-pending) runs created before ``before``. Returns the count."""
+        with self._write_lock:
+            conn = self._conn()
+            cur = conn.execute(
+                "DELETE FROM paused_run WHERE status != 'awaiting_approval' AND created_at < ?",
+                (before,),
+            )
+            conn.commit()
+            return cur.rowcount
 
     def clear(self) -> None:
         """Test hook: drop all records."""

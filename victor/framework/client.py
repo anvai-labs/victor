@@ -843,12 +843,20 @@ class VictorClient:
             raise RuntimeError("VictorClient not initialized. Call initialize() first.")
 
         from victor.agent.durable_resume import resume_paused_run
-        from victor.agent.paused_run_store import get_paused_run_store
+        from victor.agent.paused_run_store import (
+            DEFAULT_PAUSE_TTL_SECONDS,
+            get_paused_run_store,
+        )
 
         store = get_paused_run_store()
+        # FEP-0029 expiry/GC: opportunistically expire any stale pending pauses (a day-old approval
+        # should not silently execute), so this and other stragglers drop out before we resume.
+        store.expire_pending(max_age_seconds=DEFAULT_PAUSE_TTL_SECONDS)
         paused = store.get(run_id)
         if paused is None:
             raise ValueError(f"Unknown paused run: {run_id}")
+        if getattr(paused, "status", None) == "expired":
+            raise ValueError(f"Paused run expired: {run_id}")
         # Atomically claim the run (single-use); False ⇒ already resumed or gone.
         if not store.mark_resumed(run_id):
             raise ValueError(f"Paused run already resumed or not pending: {run_id}")
