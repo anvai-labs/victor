@@ -175,6 +175,14 @@ ml = [
     "scipy>=1.10",
 ]
 
+# Evaluation-only: training/loading the small ModernBERT completion judge
+# (E2 arm B, benchmarks/judge_training/). NOT a runtime dependency — the
+# framework never imports torch/transformers at run time.
+judge-training = [
+    "torch>=2.2",
+    "transformers>=4.48",  # ModernBERT support landed in 4.48
+]
+
 dev = [
     # Embeddings (required for full test coverage)
     "numpy>=1.24,<2.3",  # Required by victor.storage.embeddings.service; numba-compatible
