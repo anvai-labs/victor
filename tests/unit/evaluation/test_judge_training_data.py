@@ -86,3 +86,17 @@ class TestSplitAndSerialization:
         path = tmp_path / "train.jsonl"
         assert write_jsonl(examples, path) == len(examples)
         assert load_jsonl(path) == examples
+
+
+class TestVariantStartSlicing:
+    """The real-data run drops low variants to stay disjoint from the eval pack."""
+
+    def test_slicing_drops_low_variants(self):
+        from victor.evaluation.calibration_corpus import default_corpus
+
+        full = default_corpus(variants=18)
+        sliced = full[16 * 6 :]  # the generator's slice for --variant-start 16
+        variants = {t.task_id.rsplit("-", 1)[1] for t in sliced}
+        assert variants == {"16", "17"}
+        # None of the eval pack's variants (00-15) survive.
+        assert not any(int(v) < 16 for v in variants)
