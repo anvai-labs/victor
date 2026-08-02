@@ -207,6 +207,16 @@ def main() -> int:
         "(reported, never gating).",
     )
     parser.add_argument(
+        "--replay-pack",
+        type=Path,
+        default=None,
+        metavar="DIR",
+        help="Replay an exported labeling pack instead of running any executor: judges "
+        "score the recorded (prompt, transcript, workspace) views. Use to measure NEW "
+        "judges on a prior run's exact trajectories (e.g. llama3.3:70b on run 12). "
+        "Requires the same --variants as the original run.",
+    )
+    parser.add_argument(
         "--two-phase",
         action="store_true",
         help="Run all trajectories first, then all judging (one model swap instead of one "
@@ -323,7 +333,12 @@ def main() -> int:
     # Executor: real agent trajectories (--agent-profile) or the deterministic scripted
     # stand-in. period=5 is coprime with the 6 task families, so scripted failures rotate
     # across every family instead of always hitting the same ones.
-    if args.agent_profile:
+    if args.replay_pack:
+        from victor.evaluation.labeling_pack import make_pack_replay_executor
+
+        executor = make_pack_replay_executor(args.replay_pack)
+        print(f"executor: pack replay ({args.replay_pack})")
+    elif args.agent_profile:
         from victor.evaluation.agent_adapter import VictorAgentAdapter
         from victor.evaluation.calibration_agent_executor import make_agent_executor
 
