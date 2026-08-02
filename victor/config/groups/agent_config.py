@@ -21,7 +21,7 @@ Note: Tool-level configuration (budget, retry, cache, selection) is already
 extracted in victor/config/tool_settings.py as ToolSettings.
 """
 
-from typing import Dict
+from typing import Dict, List
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -73,6 +73,14 @@ class AgentSettings(BaseModel):
     # Completion strategy (ADR-009): "enhanced" (default) | "rubric" | "hybrid" | "legacy".
     # Threaded into AgenticLoop construction; default leaves behavior unchanged.
     completion_strategy: str = "enhanced"
+
+    # Judge-identity pinning (ADR-011, FINDINGS checklist item 3): rubric/hybrid completion
+    # gating is honored only when the session model (which backs the rubric judge) is in this
+    # calibrated set; otherwise the strategy downgrades to "enhanced" with a warning. Defaults
+    # are the FINDINGS gate-passers (runs 10-11). Matching is case-insensitive exact.
+    rubric_judge_calibrated_models: List[str] = Field(
+        default_factory=lambda: ["gemma4:31b", "llama3.3:70b"]
+    )
 
     # Effect-grounded completion gate (ADR-010 / EVR-4): COMPLETE requires a verifiable effect
     # or is downgraded to RETRY ("completion-without-effect"). Opt-in, default off per the

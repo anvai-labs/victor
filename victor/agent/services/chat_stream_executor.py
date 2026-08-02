@@ -1573,6 +1573,14 @@ class StreamingChatExecutor:
             "completion_strategy",
             "enhanced",
         )
+        # Judge-identity pinning (ADR-011): same gate as the buffered path.
+        from victor.agent.services.judge_calibration_gate import resolve_gated_completion_strategy
+
+        _strategy = resolve_gated_completion_strategy(
+            _strategy,
+            getattr(getattr(_te, "_provider_context", None), "model", None),
+            getattr(orch, "settings", None),
+        )
         _rubric_fn = (
             _te._build_rubric_complete_fn()
             if (_strategy in ("rubric", "hybrid") and _te is not None)
