@@ -50,12 +50,15 @@ Status is the governance state of the *decision*. Implementation is the observed
 | [ADR-026](026-durable-code-memory-ga.md) | Durable code memory GA (one `oid`, correlated graph+vector, tiered) | Proposed | Partial (records GA target for TD-11/12/13 + ADR-015 later phases) | 2026-07-29 |
 | [ADR-027](027-prompt-optimization-strategy-fidelity.md) | Prompt-optimization strategy fidelity and honest naming | Accepted | Shipped (faithful CoT distillation; section-scoped PrefPO; honest docs; keys unchanged) | 2026-08-01 |
 | [ADR-028](028-single-agent-durable-chat-continuation.md) | Single-agent durable chat continuation (pause/resume on approval) | Proposed | Not started (FEP-0029 Draft; generalizes ADR-023 pause to non-team single-agent runs) | 2026-08-01 |
+| [ADR-029](029-provider-support-tiers.md) | Provider support tiers (Tier 1 / Community; docs + constant only, no deletions) | Accepted | Shipped (`TIER_1_PROVIDERS` in `victor/providers/registry.py`, `SUPPORT.md` policy; zero behavioral change) | 2026-08-02 |
 
 ## External ADR series (cross-repo)
 
 Victor's code-memory direction is co-designed with two sibling repositories that keep their own ADR
-series. References like "ADR-029" or "ADR-044" in commits, code comments, and `victor-codegraph/`
-belong to those series — they are **not** missing Victor ADRs.
+series. References like "ADR-044" (and, in pre-2026-08 history, "ADR-029" for the chunker) in
+commits, code comments, and `victor-codegraph/` belong to those series — they are **not** missing
+Victor ADRs. Note the collision: Victor's own [ADR-029](029-provider-support-tiers.md) is provider
+support tiers; the ProximaDB chunker decision must be cited as "ProximaDB ADR-029".
 
 | Series | Repo / path | Numbering style | Referenced decisions |
 |--------|-------------|-----------------|----------------------|
@@ -88,7 +91,7 @@ When making a significant architectural decision:
 
 1. Copy the [template](000-template.md)
 2. Fill in all sections
-3. Use the next sequential number (next free: **ADR-029**)
+3. Use the next sequential number (next free: **ADR-030**)
 4. Update this index (both tables if cross-repo)
 5. Submit for review
 

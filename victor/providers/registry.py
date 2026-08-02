@@ -28,7 +28,16 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Type
 from victor.core.registry import BaseRegistry
 from victor.providers.base import BaseProvider, ProviderNotFoundError
 
-__all__ = ["ProviderRegistry", "ProviderNotFoundError"]
+__all__ = ["ProviderRegistry", "ProviderNotFoundError", "TIER_1_PROVIDERS"]
+
+#: Tier-1 support-tier providers (primary registry keys) per ADR-029
+#: (docs/architecture/adr/029-provider-support-tiers.md): integration-tested,
+#: issues triaged, tracked for upstream API drift. All other registered
+#: providers are Community support tier (unit-tested, best-effort). This is
+#: informational metadata only — it MUST NOT be used for behavioral gating.
+TIER_1_PROVIDERS: frozenset[str] = frozenset(
+    {"anthropic", "openai", "google", "ollama", "vllm", "bedrock"}
+)
 
 
 _TRUE_VALUES = {"1", "true", "yes", "on"}
