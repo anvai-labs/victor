@@ -212,7 +212,10 @@ registry.add_handler(MyCustomStepHandler())
 ### Adding Extension Handlers (Active Path)
 
 ```python
-from victor.framework.step_handlers import ExtensionsStepHandler, StepHandlerRegistry, ExtensionHandler
+# Note: _ExtensionHandler is internal to step_handlers (FEP-0015) — extension
+# registration happens through the public ExtensionHandlerRegistry surface.
+from victor.framework.step_handlers import ExtensionsStepHandler, StepHandlerRegistry
+from victor.framework.step_handlers import _ExtensionHandler
 
 def handle_my_extension(orchestrator, ext_value, extensions, context, result):
     # Handle extension type from vertical.get_extensions()
@@ -222,7 +225,7 @@ registry = StepHandlerRegistry.default()
 extensions = registry.get_handler("extensions")
 assert isinstance(extensions, ExtensionsStepHandler)
 extensions.extension_registry.register(
-    ExtensionHandler("my_extension_provider", handle_my_extension, priority=60)
+    _ExtensionHandler("my_extension_provider", handle_my_extension, priority=60)
 )
 ```
 
