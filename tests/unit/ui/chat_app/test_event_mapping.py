@@ -232,3 +232,40 @@ class _RoleMsg:
     def __init__(self, role, content: str) -> None:
         self.role = role
         self.content = content
+
+
+# ── FEP-0029: single-agent durable pause renders on the shared paused lane ──
+
+
+def test_awaiting_approval_maps_to_member_awaiting_lane() -> None:
+    action = map_event(
+        FakeEvent(
+            event_type="awaiting_approval",
+            metadata={
+                "run_id": "run-xyz",
+                "approval_request": {"title": "Approve tool: run_command"},
+            },
+        )
+    )
+    # Reuses the team paused lane (RenderKind.MEMBER_AWAITING), labelled "agent".
+    assert action.kind is RenderKind.MEMBER_AWAITING
+    assert action.member_id == "agent"
+    # The gated tool + resume run_id are shown so the user can `session resume <id>`.
+    assert "Approve tool: run_command" in action.text
+    assert "run-xyz" in action.text
+
+
+def test_awaiting_approval_renders_paused_lane_via_wire_timeline() -> None:
+    # The action flows through the SAME WireTimelineState the TUI/ConversationLog uses.
+    from victor.ui.tui.wire_timeline import WireTimelineState
+
+    action = map_event(
+        FakeEvent(
+            event_type="awaiting_approval",
+            metadata={"run_id": "r1", "approval_request": {"title": "deploy"}},
+        )
+    )
+    lines = WireTimelineState().advance(action)
+    rendered = " ".join(str(line) for line in lines)
+    assert "awaiting approval" in rendered
+    assert "deploy" in rendered

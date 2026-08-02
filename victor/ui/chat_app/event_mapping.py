@@ -164,6 +164,21 @@ def map_event(event: Any) -> RenderAction:
             text=content or str(metadata.get("error", "Unknown streaming error")),
         )
 
+    if event_type == "awaiting_approval":
+        # FEP-0029: a single-agent turn durably paused on a policy ASK. Render it on the SAME paused
+        # lane as a team member pause (reuse RenderKind.MEMBER_AWAITING) — labelled "agent", with the
+        # gated tool + the resume run_id so the user knows how to continue (`session resume <id>`).
+        req = metadata.get("approval_request") or {}
+        title = str(req.get("title") or req.get("tool_name") or "")
+        run_id = metadata.get("run_id")
+        detail = f"{title} · run {run_id}" if run_id else title
+        return RenderAction(
+            RenderKind.MEMBER_AWAITING,
+            text=detail,
+            member_id="agent",
+            metadata=dict(metadata),
+        )
+
     if event_type == "custom":
         # Team member lifecycle events (ADR-023) ride on CUSTOM with a member_* sub-type.
         # Every other custom event (milestones, etc.) falls through to IGNORE unchanged.
