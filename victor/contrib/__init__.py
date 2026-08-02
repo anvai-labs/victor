@@ -60,8 +60,19 @@ from victor.contrib import (
     vectorstores,  # Vector storage
     workflows,
     mode_config,
-    testing,
 )
+
+
+def __getattr__(name: str):
+    # 'testing' hard-imports pytest (VerticalTestCase et al.), which production
+    # installs don't ship — an eager import here fails the entire capabilities
+    # bootstrap phase. Resolve it lazily so only test-time consumers pay for it.
+    if name == "testing":
+        import importlib
+
+        return importlib.import_module("victor.contrib.testing")
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 __all__ = [
     # Core packages

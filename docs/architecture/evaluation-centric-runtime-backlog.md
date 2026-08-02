@@ -16,7 +16,7 @@ S/M/L. This **integrates** the prior `../arxive` roadmap (see "Integration" belo
 | EVR-2 | LLM-judge reliability gate (Krippendorff α / κ vs human-labeled set; order-swap ensemble) — ADR-011 | feature | **P0** | M | EVR-1 | AgentProp-Bench `2604.16706` |
 | EVR-3 | Rubric-based completion evaluator + DimensionAwareFilter — ADR-009, FEP-0008 Phase A | feature | **P0** | L | EVR-2 | AdaRubric `2603.21362` |
 | EVR-4 | Effect-grounded completion gate (verifiable state delta) — ADR-010 — **Shipped opt-in** (`victor/framework/effect_gate.py`) | feature | **P0** | M | `tools/verification/` | HarnessFix `2606.06324`, Harness-Bench `2605.27922` |
-| EVR-5 | Regression-gated harness acceptance oracle + HTIR/ETCLOVG traces — ADR-012 | techdebt | **P0** | M | FEP-0007 batteries | HarnessFix, Self-Harness `2606.09498` |
+| EVR-5 | Regression-gated harness acceptance oracle + HTIR/ETCLOVG traces — ADR-012 — **Shipped** (`victor/evaluation/{acceptance_oracle,htir}.py`, promotion-gated) | techdebt | **P0** | M | FEP-0007 batteries | HarnessFix, Self-Harness `2606.09498` |
 | EVR-6 | Online per-turn auditor (prefix-only continue/alarm) — FEP-0008 Phase C | feature | P1 | M | edge model | AgentForesight `2605.08715` |
 | EVR-7 | Close credit→learner loop with segment-level process reward | techdebt | P1 | L | `victor/agent/credit_assignment.py` | HISR `2603.18683`, A²TGPO `2605.06200` |
 | EVR-8 | Causal-frontier tool filtering (`requires`/`effects`/`risk` on `BaseTool`) | feature | P1 | M | tool registry | CMTF `2606.06284` |

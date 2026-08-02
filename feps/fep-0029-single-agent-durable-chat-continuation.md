@@ -313,9 +313,17 @@ Phased, each phase independently shippable and tested (mirroring how FEP-0028 la
 - **Phase 3b — surfaces + batches (in progress).** API surface **✅ landed**: `/chat` returns a
   `202` with `status="awaiting_approval"` + `run_id` + `approval_request` when a turn parks, and a new
   `/chat/resume` route calls `VictorClient.resume(run_id, decision)` (404 unknown/already-resumed, 501
-  if the client can't resume) — the headless case durable pause was built for. Still deferred: CLI
-  `--durable-approval` + `victor chat --resume`; TUI paused lane; multi-tool batch partiality;
-  streaming resume; chained pauses.
+  if the client can't resume). CLI surface **✅ landed**: `victor session resume <run_id>
+  [--approve/--reject] [--note]` answers a parked run from the terminal (any surface's pause, since
+  `paused_run` lives in `project.db`), and `SessionConfig.from_cli_flags(durable_approval=...)` arms it.
+  (Homed on the `session` group, not `chat` — the `chat` callback's positional `message` argument
+  structurally blocks `chat`-group subcommands-with-args.)
+  Multi-tool batch partiality **✅ landed** (in the *shared* `resume_paused_run`, so all three
+  surfaces benefit): a parallel-tool pause aborts the whole batch, so resume now resolves **every**
+  unresolved tool_call — the gated one per the human's decision, the sibling calls via the reused
+  `execute_tool_call` pipeline — before continuing, so no tool_call is left dangling.
+  Still deferred: a CLI arming *flag* (needs the CLI to first expose the tool-approval
+  enable/ask-on-tools flags); TUI paused lane; streaming resume; chained pauses.
 - **Phase 4 — hardening.** Reject/timeout/expiry, chained pauses, GC, docs, and a
   `victor chat --resume <run_id>` ergonomic.
 
@@ -374,6 +382,8 @@ Status **Draft** — submitted for review. Open questions above are the decision
 | 2026-08-01 | 0.3 | Phase 2 landed: `ProjectDbPausedRunStore` — self-managing `project.db` `paused_run` table (mirrors ConversationStore; no schema.py migration); pauses survive a restart. `PausedRunStoreProtocol` with in-memory + project-db backends | Vijaykumar Singh |
 | 2026-08-01 | 0.4 | Phase 3a landed: `VictorClient.resume(run_id, decision)` + `ApprovalDecision`; `resume_paused_run` faithfully replays the persisted gated call (approve → raw `execute_tool`, bypassing re-ASK; reject → tool-error) and drives `execute_turn` continuations without re-sampling or a spurious user message. Single gated tool per turn; batches/surfaces/streaming → Phase 3b | Vijaykumar Singh |
 | 2026-08-01 | 0.5 | Phase 3b (API surface) landed: `/chat` returns 202 `awaiting_approval` + `run_id` + `approval_request` on a pause; new `/chat/resume` route calls `VictorClient.resume` (404 unknown/resumed, 501 unsupported). CLI/TUI surfaces + batches/streaming still deferred | Vijaykumar Singh |
+| 2026-08-01 | 0.6 | Phase 3b (CLI surface) landed: `victor session resume <run_id> [--approve/--reject] [--note]` + `from_cli_flags(durable_approval=...)`. Homed on the `session` group (the `chat` callback's positional `message` arg blocks `chat` subcommands-with-args). CLI arming flag + TUI + batches/streaming deferred | Vijaykumar Singh |
+| 2026-08-01 | 0.7 | Multi-tool batch partiality landed in the shared `resume_paused_run` (benefits API/CLI/framework at once): resume resolves every unresolved tool_call — gated one per decision, siblings via the reused `execute_tool_call` pipeline — so none dangles before continuing. TUI + streaming + chained pauses deferred | Vijaykumar Singh |
 
 ## Acceptance Criteria
 

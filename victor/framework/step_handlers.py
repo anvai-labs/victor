@@ -100,7 +100,6 @@ Usage:
 from __future__ import annotations
 
 import logging
-import warnings
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
@@ -2748,28 +2747,3 @@ __all__ = [
     # Tiered config helper (Workstream D)
     "get_tiered_config",
 ]
-
-
-# FEP-0015 deprecation shim: ``ExtensionHandler`` and ``CapabilityConfigStepHandler``
-# were removed from the public API (``__all__``). They remain importable by their old
-# names for one minor release so out-of-tree code relying on the previously-advertised
-# surface gets a clear ``DeprecationWarning`` rather than an immediate ``ImportError``.
-_FEP_0015_DEPRECATED = {
-    "ExtensionHandler": "_ExtensionHandler",
-    "CapabilityConfigStepHandler": "CapabilityConfigStepHandler",
-}
-
-
-def __getattr__(name: str) -> Any:
-    """Emit a deprecation warning for symbols unexported by FEP-0015."""
-    target = _FEP_0015_DEPRECATED.get(name)
-    if target is not None:
-        warnings.warn(
-            f"{name} is internal to step_handlers and no longer part of the "
-            "framework public API (FEP-0015). Depend on the public "
-            "StepHandlerRegistry / ExtensionsStepHandler surface instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return globals()[target]
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

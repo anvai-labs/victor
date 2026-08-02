@@ -265,6 +265,22 @@ def _infer_layer(canonical: str, effect: ArtifactEffect) -> ETCLOVGLayer:
     return ETCLOVGLayer.TOOLING
 
 
+def attribute_failure_layer(tool_name: Optional[str]) -> Optional[ETCLOVGLayer]:
+    """Attribute a single tool failure to its ETCLOVG layer (ADR-012 prong 2).
+
+    The live-recovery counterpart to :meth:`HTIRTrace.failures_by_layer`: given the name of the
+    tool that failed, return the harness layer to attribute the failure to, reusing the *same*
+    inference as full-trace normalization (a failed write/shell is Execution, a failed read is
+    Context-Memory, anything else is Tooling). Returns ``None`` when no tool name is available —
+    e.g. a provider-level error with no tool in flight — so the caller falls back to its
+    exception-type handling.
+    """
+    if not tool_name:
+        return None
+    # A failed tool produced no verifiable effect, so classify by name alone (effect = NONE).
+    return _infer_layer(_canonical(tool_name), ArtifactEffect.NONE)
+
+
 def _final_assistant_message(trace: "AgenticExecutionTrace") -> str:
     for msg in reversed(list(getattr(trace, "messages", []) or [])):
         if isinstance(msg, dict) and msg.get("role") == "assistant" and msg.get("content"):

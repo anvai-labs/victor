@@ -184,6 +184,7 @@ from victor.evaluation.htir import (
     HTIRStep,
     HTIRTrace,
     normalize,
+    attribute_failure_layer,
 )
 from victor.evaluation.acceptance_oracle import (
     HarnessConfig,
@@ -479,6 +480,7 @@ __all__ = [
     "HTIRStep",
     "HTIRTrace",
     "normalize",
+    "attribute_failure_layer",
     "HarnessConfig",
     "AcceptanceVerdict",
     "DimensionDelta",

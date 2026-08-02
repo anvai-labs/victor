@@ -282,6 +282,7 @@ class JudgeCalibrationHarness:
         workspace_root: Optional[Path] = None,
         keep_workspaces: bool = False,
         two_phase: bool = False,
+        record_sink: Optional[Callable[[int, VerifiableTask, Path, Transcript], None]] = None,
     ) -> dict[str, CalibrationReport]:
         """Generate one trajectory + gold per task, then score EVERY judge on the shared
         trajectories; return a per-judge-name :class:`CalibrationReport`.
@@ -310,6 +311,10 @@ class JudgeCalibrationHarness:
 
         When ``workspace_root`` is given the caller owns its lifetime; otherwise a temp dir
         is created and removed on exit (``keep_workspaces=True`` retains it for inspection).
+
+        ``record_sink`` (optional) receives ``(index, task, workspace, transcript)`` for every
+        task during phase 1 — after execution, before judging and verification — the seam the
+        EVR-2 human-labeling pack export uses (:mod:`victor.evaluation.labeling_pack`).
         """
         import shutil
         import tempfile
@@ -328,6 +333,11 @@ class JudgeCalibrationHarness:
                 task.setup(workspace)
                 transcript = executor(task, workspace)
                 records.append((task, workspace, transcript))
+                if record_sink is not None:
+                    # Export hook (e.g. the EVR-2 human-labeling pack): runs BEFORE any
+                    # judging or verification, so the exported view is blinded by
+                    # construction — same contract as the judges' view.
+                    record_sink(index, task, workspace, transcript)
                 if not two_phase:
                     # Judge BEFORE verify so verifier side effects never reach the judge.
                     judged_by_task.append(

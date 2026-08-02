@@ -33,10 +33,11 @@ graduation without measured κ/α against human labels.
 | Order | Item | ADR | State |
 |-------|------|-----|-------|
 | 1 | EVR-1 trajectory-eval harness | — | Shipped (machinery) |
-| 2 | EVR-2 LLM-judge reliability gate — run the κ/α validation | ADR-011 | Machinery shipped; offline calibration harness available (`victor/evaluation/judge_calibration_harness.py` + `benchmarks/judge_calibration/`); real-judge validation not yet run |
-| 3 | EVR-3 rubric completion evaluator — must match-or-beat `EnhancedCompletionEvaluator` before becoming default | ADR-009 | Shipped opt-in |
-| 4 | EVR-4 effect-grounded completion gate | ADR-010 | Shipped opt-in (`victor/framework/effect_gate.py`; `effect_gated_completion` / `VICTOR_EFFECT_GATED_COMPLETION`, default off pending flag-graduation gate) |
-| 5 | EVR-5 regression-gated harness acceptance oracle | ADR-012 | Not started (techdebt, P0) |
+| 2 | EVR-2 LLM-judge reliability gate — run the κ/α validation | ADR-011 | Checklist items 1–2 DONE vs programmatic verifier gold ([FINDINGS](../benchmarks/judge_calibration/FINDINGS.md) runs 10–11: llama3.3:70b α=1.000 at n=96 scripted; gemma4:31b α=0.865 on real agent trajectories, zero false completions). Remaining: human-label overlay validation of verifier gold + judge, and pinning judge identity in the flag wiring (checklist item 3) |
+| 3 | EVR-3 rubric completion evaluator — must match-or-beat `EnhancedCompletionEvaluator` before becoming default | ADR-009 | Shipped opt-in; parity measurement vs `enhanced` not yet run (no harness — `enhanced` has never been scored as a judge on the calibration corpus) |
+| 4 | EVR-4 effect-grounded completion gate | ADR-010 | Shipped opt-in (`victor/framework/effect_gate.py`; `effect_gated_completion` / `VICTOR_EFFECT_GATED_COMPLETION`, default off pending flag-graduation gate; A/B graduation battery not yet built) |
+| 5 | EVR-5 regression-gated harness acceptance oracle | ADR-012 | **Shipped** (ADR-012 Accepted; `victor/evaluation/acceptance_oracle.py` + `htir.py`, promotion-gated via `tests/integration/streaming/test_acceptance_oracle_gate.py`) |
+| 6 | EVR-6 online per-turn auditor (`TurnAuditor`, prefix-only CONTINUE/ALARM) | FEP-0008 Phase C | P1 — next after the P0 chain closes; measure offline against HTIR oracle traces before loop wiring |
 
 In parallel, the high-priority debt band: TD-4 secrets, TD-7 onboarding, TD-1 API decomposition,
 TD-6 SWE-bench publication, TD-14 orchestrator ratchet, TD-17 flag-graduation policy.

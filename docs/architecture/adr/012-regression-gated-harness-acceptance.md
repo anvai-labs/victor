@@ -2,7 +2,7 @@
 
 ## Metadata
 
-- **Status**: Proposed
+- **Status**: Accepted
 - **Date**: 2026-06-21
 - **Decision Makers**: Vijaykumar Singh
 - **Related ADRs**: 009, 010, 011
@@ -56,3 +56,24 @@ failure attribution, tagged by ETCLOVG layer.
 3. Report eval scores with confidence intervals at *(model, harness-config)* granularity; wire into CI
    as the promotion gate. Lays groundwork for a later Self-Harness-style self-improvement loop
    (vision-tier).
+
+**Done (2026-08-01, EVR-5).** Landed as the acceptance-oracle + HTIR decision layer plus a
+promotion-gated battery:
+
+- Prong 1 — `victor/evaluation/acceptance_oracle.py::HarnessAcceptanceOracle` renders one
+  accept/reject verdict at *(model, harness-config)* granularity, gating a candidate against a
+  baseline on the trajectory battery (CI-significance regression test) and the FEP-0007
+  characterization battery (byte-stable-or-justified).
+- Prong 2 — `victor/evaluation/htir.py` normalizes `AgenticExecutionTrace` into Role/Status/
+  artifact-effect steps tagged by ETCLOVG layer (`failures_by_layer()` is the input for
+  layer-targeted recovery; wiring that into `RecoveryService` is a tracked follow-up).
+- Prong 3 — `tests/integration/streaming/test_acceptance_oracle_gate.py` drives the scripted QA
+  battery through the real loop and enforces the oracle in the develop→main promotion battery
+  (`ci-integration.yml`); `make eval-accept` runs it, `EVR5_RECORD_BASELINE=1` re-records.
+
+## Revision History
+
+| Date | Version | Changes | Author |
+|------|---------|---------|--------|
+| 2026-06-21 | 1.0 | Initial ADR — regression-gated harness-edit acceptance oracle (Proposed) | Vijaykumar Singh |
+| 2026-08-01 | 1.1 | EVR-5 landed (acceptance oracle + HTIR + promotion gate); Status Proposed→Accepted | Vijaykumar Singh |

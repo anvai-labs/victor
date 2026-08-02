@@ -83,6 +83,44 @@ def evidence_judge(_prompt: str, transcript: Transcript, _workspace: Path) -> fl
     return 1.0 if transcript.tool_steps() else 0.0
 
 
+def run_human_label_overlay(
+    *, reports_dir: Path, labels_path: Path, secondary_path: Path | None
+) -> int:
+    """Overlay mode: saved reports + human labels -> agreement report. Zero LLM calls."""
+    from victor.evaluation.human_label_overlay import (
+        LabelsError,
+        compute_overlay,
+        load_labels,
+        load_report_samples,
+    )
+
+    report_files = sorted(f for f in reports_dir.glob("*.json") if f.name != "human_overlay.json")
+    if not report_files:
+        print(f"no report JSONs found in {reports_dir}/ — run a calibration first")
+        return 1
+    try:
+        judge_reports = {f.stem: load_report_samples(f) for f in report_files}
+        human = load_labels(labels_path)
+        secondary = load_labels(secondary_path) if secondary_path else None
+        overlay = compute_overlay(judge_reports, human, secondary_labels=secondary)
+    except LabelsError as exc:
+        print(f"overlay VOID: {exc}")
+        return 1
+    out = reports_dir / "human_overlay.json"
+    overlay.save(out)
+    for verdict in overlay.verdicts:
+        mark = "PASS" if verdict.passed else "FAIL"
+        print(f"[{mark}] {verdict.name}: {verdict.detail}")
+    if overlay.stop_the_line:
+        print(
+            "\nSTOP THE LINE: human labels disagree with the programmatic verifier gold "
+            "beyond the pre-registered threshold. FINDINGS runs based on that gold are void "
+            "until the corpus verifiers are fixed and re-validated."
+        )
+    print(f"\nOverlay written to {out}")
+    return 0 if all(v.passed for v in overlay.verdicts) else 1
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -141,6 +179,33 @@ def main() -> int:
         "discrimination test for judges that saturate the easy corpus at α=1.0.",
     )
     parser.add_argument(
+        "--export-labeling-pack",
+        type=Path,
+        default=None,
+        metavar="DIR",
+        help="Export the EVR-2 human-labeling pack (blinded per-task records + labels "
+        "template) to DIR during the run. See "
+        "docs/architecture/evr2-human-validation-protocol.md.",
+    )
+    parser.add_argument(
+        "--human-labels",
+        type=Path,
+        default=None,
+        metavar="JSONL",
+        help="OVERLAY MODE (no executor, no LLM calls): recompute human-vs-verifier and "
+        "human-vs-judge agreement from saved reports in --out plus this labels file, "
+        "write human_overlay.json, and exit. Thresholds are pre-registered in the "
+        "EVR-2 protocol doc.",
+    )
+    parser.add_argument(
+        "--secondary-labels",
+        type=Path,
+        default=None,
+        metavar="JSONL",
+        help="Optional second annotator's labels for the overlay's annotation-QC κ "
+        "(reported, never gating).",
+    )
+    parser.add_argument(
         "--two-phase",
         action="store_true",
         help="Run all trajectories first, then all judging (one model swap instead of one "
@@ -188,6 +253,13 @@ def main() -> int:
     # Silence the framework flood BEFORE any adapter/agent runs (a stuck run wrote ~350 GB
     # to a single redirected log before this existed).
     configure_logging(args.verbose)
+
+    if args.human_labels:
+        return run_human_label_overlay(
+            reports_dir=args.out,
+            labels_path=args.human_labels,
+            secondary_path=args.secondary_labels,
+        )
 
     judges = {
         "credulous": credulous_judge,
@@ -275,8 +347,18 @@ def main() -> int:
     if two_phase:
         print("scheduling: two-phase (all trajectories, then all judging) — one model swap")
     harness = JudgeCalibrationHarness(default_corpus(variants=args.variants))
+    record_sink = None
+    if args.export_labeling_pack:
+        from victor.evaluation.labeling_pack import make_labeling_pack_sink
+
+        record_sink = make_labeling_pack_sink(args.export_labeling_pack)
+        print(f"labeling pack: exporting blinded records to {args.export_labeling_pack}/")
     reports = harness.run_multi_judge(
-        executor, judges, keep_workspaces=args.keep_workspaces, two_phase=two_phase
+        executor,
+        judges,
+        keep_workspaces=args.keep_workspaces,
+        two_phase=two_phase,
+        record_sink=record_sink,
     )
 
     # Gold distribution: agreement (α) is meaningless if every task shares one gold class.
