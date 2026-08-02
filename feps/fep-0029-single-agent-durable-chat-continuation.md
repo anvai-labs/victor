@@ -327,8 +327,12 @@ Phased, each phase independently shippable and tested (mirroring how FEP-0028 la
   (via a new shared `record_pause_from_approval` — now used by *both* the turn boundary and the
   resume continuation, eliminating the duplicated pause-recording) → surfaced as `awaiting_approval`
   + a new `run_id` that the API/CLI already render.
+  Expiry/GC **✅ landed** (both store backends via the Protocol): `expire_pending(max_age_seconds)`
+  marks stale never-resumed pauses `expired` (so they drop out of `list_pending` and error on
+  resume), `purge(before)` deletes old terminal rows; `VictorClient.resume` opportunistically expires
+  stragglers (24h TTL) so a day-old approval never silently executes.
   Still deferred: a CLI arming *flag* (needs the CLI to first expose the tool-approval
-  enable/ask-on-tools flags); TUI paused lane; streaming resume; expiry/GC.
+  enable/ask-on-tools flags); TUI paused lane; streaming resume.
 - **Phase 4 — hardening.** Reject/timeout/expiry, chained pauses, GC, docs, and a
   `victor chat --resume <run_id>` ergonomic.
 
@@ -390,6 +394,7 @@ Status **Draft** — submitted for review. Open questions above are the decision
 | 2026-08-01 | 0.6 | Phase 3b (CLI surface) landed: `victor session resume <run_id> [--approve/--reject] [--note]` + `from_cli_flags(durable_approval=...)`. Homed on the `session` group (the `chat` callback's positional `message` arg blocks `chat` subcommands-with-args). CLI arming flag + TUI + batches/streaming deferred | Vijaykumar Singh |
 | 2026-08-01 | 0.7 | Multi-tool batch partiality landed in the shared `resume_paused_run` (benefits API/CLI/framework at once): resume resolves every unresolved tool_call — gated one per decision, siblings via the reused `execute_tool_call` pipeline — so none dangles before continuing. TUI + streaming + chained pauses deferred | Vijaykumar Singh |
 | 2026-08-02 | 0.8 | Chained pauses landed: the resume continuation re-arms durable pause, so a new ASK parks again (new `paused_run` + `run_id`, surfaced as `awaiting_approval`). Factored the pause-recording into a shared `record_pause_from_approval` used by both the turn boundary and the resume continuation (de-duplicated). TUI + streaming + expiry/GC deferred | Vijaykumar Singh |
+| 2026-08-02 | 0.9 | Expiry/GC landed (both store backends): `expire_pending(max_age_seconds)` marks stale pending runs `expired`, `purge(before)` deletes old terminal rows; `VictorClient.resume` opportunistically expires stragglers (24h TTL) so a stale approval errors instead of executing. TUI + streaming deferred | Vijaykumar Singh |
 
 ## Acceptance Criteria
 
