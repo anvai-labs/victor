@@ -483,6 +483,22 @@ def stream_end_event(
     return AgentExecutionEvent(type=EventType.STREAM_END, success=success, error=error, **kwargs)
 
 
+def awaiting_approval_event(
+    run_id: str, approval_request: Optional[Dict[str, Any]] = None, **kwargs: Any
+) -> AgentExecutionEvent:
+    """Create an awaiting-approval event (FEP-0029): the streamed turn durably paused on a policy ASK.
+
+    Carries the resume ``run_id`` + pending ``approval_request`` in ``metadata`` so a streaming caller
+    (TUI, SSE client) can render a paused lane and resume later.
+    """
+    metadata = dict(kwargs.pop("metadata", None) or {})
+    metadata["run_id"] = run_id
+    metadata["approval_request"] = approval_request
+    return AgentExecutionEvent(
+        type=EventType.AWAITING_APPROVAL, success=False, metadata=metadata, **kwargs
+    )
+
+
 def progress_event(progress: float, **kwargs: Any) -> AgentExecutionEvent:
     """Create a progress event.
 

@@ -399,18 +399,46 @@ async def stream_message_events(
     user_message: str,
     context: Optional[Mapping[str, Any]] = None,
 ) -> AsyncIterator[Any]:
-    """Yield framework stream events for a single message turn."""
+    """Yield framework stream events for a single message turn.
+
+    FEP-0029: when durable approval is armed (``governance.durable``), a policy ASK mid-stream raises
+    :class:`ApprovalPause`, which is caught here — the pause is recorded (shared
+    ``record_pause_from_approval``) and an ``AWAITING_APPROVAL`` event carrying the resume ``run_id`` +
+    ``approval_request`` is yielded before the stream ends, so streaming callers (TUI, SSE) can render
+    a paused lane and resume. Disarmed, this is byte-identical to before.
+    """
+    import time
+
+    from victor.agent.paused_run_store import record_pause_from_approval
     from victor.framework._internal import stream_with_events
+    from victor.framework.approval_pause import ApprovalPause, current_durable_pause_enabled
+    from victor.framework.events import awaiting_approval_event
 
     prepared = prepare_message(user_message, context)
     chat_runtime = _resolve_chat_runtime(orchestrator, execution_context)
 
-    async for event in stream_with_events(
-        chat_runtime,
-        prepared.runtime_message,
-        response_prompt=prepared.response_message,
-    ):
-        yield event
+    _durable = _durable_pause_enabled(orchestrator)
+    _token = current_durable_pause_enabled.set(True) if _durable else None
+    try:
+        async for event in stream_with_events(
+            chat_runtime,
+            prepared.runtime_message,
+            response_prompt=prepared.response_message,
+        ):
+            yield event
+    except ApprovalPause as pause:
+        run_id, req_dict = record_pause_from_approval(
+            getattr(pause, "request", None),
+            session_id=getattr(orchestrator, "active_session_id", None),
+            agent_id=getattr(orchestrator, "agent_id", None)
+            or getattr(orchestrator, "model", None),
+            created_at=time.time(),
+            metadata={"stage": _resolve_stage_value(orchestrator)},
+        )
+        yield awaiting_approval_event(run_id, req_dict)
+    finally:
+        if _token is not None:
+            current_durable_pause_enabled.reset(_token)
 
 
 async def iter_runtime_stream_events(
