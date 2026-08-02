@@ -18,6 +18,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   Measurement: `TrajectoryDimension.EFFECT_GROUNDING` + `EffectGroundingScorer`
   (excluded from `default_scorers()` to keep battery aggregates stable).
 
+### Removed
+- **FEP-0015 Phase 2 — deprecation shim removed**: the `__getattr__` shim in
+  `victor/framework/step_handlers.py` that kept the unexported `ExtensionHandler`
+  and `CapabilityConfigStepHandler` names importable with a `DeprecationWarning`
+  is gone; the one-minor-release deprecation window after Phase 1 has elapsed.
+  `from victor.framework.step_handlers import ExtensionHandler` now raises
+  `ImportError` — depend on the public `StepHandlerRegistry` /
+  `ExtensionsStepHandler` surface instead.
+
 ## [0.7.5] - 2026-07-12
 
 Maintenance + capability release: completes the Graph-RAG cross-language import
