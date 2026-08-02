@@ -28,11 +28,21 @@ from victor.providers.base import (
     ProviderTimeoutError,
     ProviderRateLimitError,
 )
-from victor.providers.registry import ProviderRegistry
+from victor.providers.registry import TIER_1_PROVIDERS, ProviderRegistry
 
 
 class TestProviderRegistry:
     """Tests for ProviderRegistry class."""
+
+    def test_tier_1_providers_are_registered_primary_names(self):
+        """ADR-029: every Tier-1 support-tier name is a real primary registry key."""
+        registered = set(ProviderRegistry.list_providers())
+        assert (
+            TIER_1_PROVIDERS <= registered
+        ), f"TIER_1_PROVIDERS drifted from registry: {sorted(TIER_1_PROVIDERS - registered)}"
+        aliases = ProviderRegistry.get_aliases()
+        for name in TIER_1_PROVIDERS:
+            assert aliases[name] == name, f"{name!r} is an alias, not a primary provider name"
 
     def test_list_providers(self):
         """Test listing available providers."""
