@@ -12,6 +12,10 @@ on:
       - '.github/workflows/release.yml'
       - 'victor/**'
       - 'victor-contracts/**'
+      # victor-codegraph is imported by victor core (editable install) — a
+      # codegraph-only change can break core, and without this filter such PRs
+      # never run the required shards and are unmergeable into main.
+      - 'victor-codegraph/**'
       - 'tests/**'
       # benchmarks/ holds executable code importing victor.* — without this filter,
       # benchmarks-only PRs never run the required checks and are unmergeable.
@@ -27,6 +31,10 @@ on:
       - '.github/workflows/release.yml'
       - 'victor/**'
       - 'victor-contracts/**'
+      # victor-codegraph is imported by victor core (editable install) — a
+      # codegraph-only change can break core, and without this filter such PRs
+      # never run the required shards and are unmergeable into main.
+      - 'victor-codegraph/**'
       - 'tests/**'
       # benchmarks/ holds executable code importing victor.* — without this filter,
       # benchmarks-only PRs never run the required checks and are unmergeable.
