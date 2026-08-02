@@ -31,8 +31,8 @@ evaluator is **anti-correlated** at −0.837. The gap is not marginal — enhanc
 is worse than a coin flip because it reads the agent's live narrative (the
 trailing / self-doubting "I was unable to…" final messages that accompany
 genuinely-complete work), whereas the rubric judge scores the workspace
-evidence. See [judge-independence-experiments.md](judge-independence-experiments.md)
-for the full ladder and [FINDINGS](../../benchmarks/judge_calibration/FINDINGS.md)
+evidence. See `docs/architecture/judge-independence-experiments.md` for the
+full ladder and [FINDINGS](../../benchmarks/judge_calibration/FINDINGS.md)
 runs 11–13.
 
 ## What this unblocks and what it does not
