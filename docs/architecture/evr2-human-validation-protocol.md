@@ -41,6 +41,33 @@ harness scope note: gold labels are binary completion verdicts only).
 - Labels are committed under `benchmarks/judge_calibration/labels/` as JSONL:
   `{"task_id", "label", "annotator", "rationale"}`.
 
+### Amendment 1 (2026-08-02, maintainer-directed, BEFORE any labels collected)
+
+The maintainer delegated the primary-annotator role to an AI annotator
+(Claude, Anthropic) to unblock the validation run. Consequences, recorded
+before labeling began:
+
+- **Primary** = Claude annotator pass A; **Secondary** = an independent Claude
+  pass B run with a skeptical lens and no access to pass A's labels. Both
+  passes label ONLY from the blinded pack. Both are disjoint from every judge
+  candidate (gemma4:31b, llama3.3:70b) and from the agent under test
+  (qwen3-coder-tools:30b) — the disjointness requirement holds.
+- Disagreements between the passes get an audited resolution with written
+  rationale (in place of the maintainer re-audit); the audited label is final.
+- **The resulting gold is AI-annotator gold, not human gold.** Every
+  downstream claim (FINDINGS rows, methodology page, README) must say
+  "validated against independent AI-annotator gold" — never "human-validated"
+  — until the maintainer audits or replaces the labels. A maintainer
+  spot-check audit remains open as the upgrade path to the original protocol.
+- Thresholds, blinding, VOID conditions, and the stop-the-line rule are
+  unchanged.
+- Stratum note: stratum 1 (re-export of the 48 run-11 trajectories) is
+  unavailable — those reports were gitignored and never committed (the exact
+  gap this evidence program exists to close); stratum 3 (SWE-bench smoke
+  trajectories) is deferred to the anchor-run cycle. The validated set is the
+  fresh 96-trajectory stratum, which meets the n ≥ 16/family gating-grade bar
+  on its own.
+
 ## Pre-registered thresholds
 
 Computed by the overlay (`--human-labels`, module
