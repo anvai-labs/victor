@@ -109,9 +109,7 @@ class PerTurnAuditor:
         """
         content = str(getattr(action_result, "content", "") or "").strip()
         tool_results = getattr(action_result, "tool_results", None) or []
-        any_success = any(
-            isinstance(r, Mapping) and r.get("success") for r in tool_results
-        )
+        any_success = any(isinstance(r, Mapping) and r.get("success") for r in tool_results)
         if not content and not any_success:
             return AuditSignal(
                 AuditVerdict.ALARM,
