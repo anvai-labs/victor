@@ -42,7 +42,11 @@ def _maybe_attach_sandhi_meter(tracker: Any, settings: Optional[Any]) -> None:
     Default-off and byte-identical when disabled: with no settings or
     ``usage_gateway.enabled`` False, this returns before importing sandhi or
     constructing anything. Identity (subject/group) is filled only-when-None so
-    the API-server auth seam keeps precedence.
+    the API-server auth seam keeps precedence: the config default lands on the
+    tracker here, and at record time an authenticated identity bound on the
+    execution context (``victor.core.context.bind_attribution``, set from the
+    resolved ``client_id`` at the API auth seam) wins over it
+    (``SessionCostTracker.record_request``).
     """
     ug = getattr(settings, "usage_gateway", None) if settings is not None else None
     if ug is None or not getattr(ug, "enabled", False):

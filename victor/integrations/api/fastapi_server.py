@@ -870,23 +870,31 @@ class VictorFastAPIServer:
 
             client = await self._get_victor_client()
 
+            # FEP-0020 attribution join: the client_id resolved by the WebSocket
+            # `auth` message is bound for this turn so downstream cost/usage
+            # records carry the authenticated subject.
+            from victor.core.context import bind_attribution
+
+            ws_client_id = getattr(getattr(ws, "state", None), "client_id", None)
+
             try:
-                async for chunk in client.stream_chat(messages[-1].get("content", "")):
-                    content = getattr(chunk, "content", "")
-                    metadata = getattr(chunk, "metadata", {}) or {}
-                    if content:
-                        await ws.send_json({"type": "content", "content": content})
-                    elif "tool_start" in metadata:
-                        await ws.send_json(
-                            {"type": "tool_call", "tool_call": metadata["tool_start"]}
-                        )
-                    elif "tool_result" in metadata:
-                        await ws.send_json(
-                            {
-                                "type": "tool_result",
-                                "tool_result": metadata["tool_result"],
-                            }
-                        )
+                with bind_attribution(subject_id=ws_client_id):
+                    async for chunk in client.stream_chat(messages[-1].get("content", "")):
+                        content = getattr(chunk, "content", "")
+                        metadata = getattr(chunk, "metadata", {}) or {}
+                        if content:
+                            await ws.send_json({"type": "content", "content": content})
+                        elif "tool_start" in metadata:
+                            await ws.send_json(
+                                {"type": "tool_call", "tool_call": metadata["tool_start"]}
+                            )
+                        elif "tool_result" in metadata:
+                            await ws.send_json(
+                                {
+                                    "type": "tool_result",
+                                    "tool_result": metadata["tool_result"],
+                                }
+                            )
 
                 await ws.send_json({"type": "done"})
             except Exception as e:

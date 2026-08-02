@@ -39,6 +39,20 @@ turn_id: contextvars.ContextVar[str] = contextvars.ContextVar("turn_id", default
 # Request ID for the current single operation (one tool call / decision) within a turn.
 request_id: contextvars.ContextVar[str] = contextvars.ContextVar("request_id", default="")
 
+# Authenticated attribution identity (FEP-0020). Bound at the API-server auth
+# seam (the resolved ``client_id`` becomes the subject) for the duration of a
+# request so cost/usage records emitted downstream carry the authenticated
+# subject/team. Unbound (None) for CLI/local use, where operator-level config
+# defaults apply instead.
+auth_subject_id: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
+    "auth_subject_id",
+    default=None,
+)
+auth_group_id: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
+    "auth_group_id",
+    default=None,
+)
+
 # Vertical name for the current operation
 active_vertical: contextvars.ContextVar[str] = contextvars.ContextVar("active_vertical", default="")
 
@@ -127,6 +141,43 @@ def get_correlation() -> dict[str, str]:
     if rid:
         out["request_id"] = rid
     return out
+
+
+def get_auth_subject_id() -> Optional[str]:
+    """Get the authenticated subject (user) bound to this execution context."""
+    return auth_subject_id.get()
+
+
+def get_auth_group_id() -> Optional[str]:
+    """Get the authenticated group (team) bound to this execution context."""
+    return auth_group_id.get()
+
+
+@contextmanager
+def bind_attribution(
+    subject_id: Optional[str] = None,
+    group_id: Optional[str] = None,
+) -> Iterator[None]:
+    """Bind an authenticated subject/group identity to the current context.
+
+    FEP-0020 attribution join: called at the API-server auth seam with the
+    ``client_id`` resolved from the presented API key, so every cost/usage
+    record emitted while the request executes can attribute the spend to the
+    authenticated user rather than the operator-level default.
+
+    Only non-None values are bound — passing nothing is a no-op that leaves
+    any outer binding intact. Bindings are restored on exit (including on
+    error), so identity never leaks across requests.
+    """
+    subject_token = auth_subject_id.set(subject_id) if subject_id is not None else None
+    group_token = auth_group_id.set(group_id) if group_id is not None else None
+    try:
+        yield
+    finally:
+        if group_token is not None:
+            auth_group_id.reset(group_token)
+        if subject_token is not None:
+            auth_subject_id.reset(subject_token)
 
 
 def get_active_vertical() -> str:

@@ -301,6 +301,29 @@ def _canonical_content(content: Any) -> Any:
     return parts
 
 
+def _gateway_run_id() -> str:
+    """Stable per-agent-run identifier for the sandhi run cost tree.
+
+    Gateway mode stamps this as the ``x-sandhi-run-id`` wire header (sandhi
+    PR #149) so the proxy can persist a per-run cost tree queryable at
+    ``GET /admin/usage/run/{run_id}``. Reuses victor's session identifier from
+    the execution-context correlation spine (``victor.core.context``) — the
+    same id the orchestrator binds for the whole agent run. Empty when no
+    session is bound (bare provider usage outside an agent run).
+
+    ``x-sandhi-step-id`` is a deliberate follow-up: wire headers are fixed at
+    FFI-handle construction and the handle is cached per run, while a step/turn
+    id changes per agentic-loop turn — attaching it here would force a fresh
+    transport handle (pooling, circuit state) every turn.
+    """
+    try:
+        from victor.core.context import get_session_id
+
+        return str(get_session_id() or "")
+    except Exception:  # pragma: no cover - attribution must never block transport
+        return ""
+
+
 def _include_native_response() -> bool:
     """Whether typed requests ask sandhi for the native-body echo (debug-only)."""
     try:
@@ -602,6 +625,9 @@ class SandhiTypedProviderMixin:
         slug = self._sandhi_slug()
         protocol = str(getattr(self, "_sandhi_protocol", "") or "")
         gateway = self._gateway_overrides()
+        # Run cost tree (sandhi PR #149): only gateway mode stamps the run id —
+        # direct-provider mode must stay byte-identical on the wire.
+        run_id = _gateway_run_id() if gateway is not None else ""
         if gateway is not None:
             # Gateway mode (TD-0003 P3): the FFI handle targets the Sandhi proxy with
             # the virtual key presented as a bearer token. The slug is preserved so the
@@ -639,7 +665,9 @@ class SandhiTypedProviderMixin:
             )
             api_key = str(getattr(self, "_api_key", None) or getattr(self, "api_key", "") or "")
             auth_scheme = str(getattr(self, "_sandhi_auth_scheme", "") or "")
-        cache_key = (slug, model, explicit_base_url, api_key, auth_scheme, protocol)
+        # run_id participates in the cache key so the handle is reused within an
+        # agent run but rebuilt (with a fresh x-sandhi-run-id header) per run.
+        cache_key = (slug, model, explicit_base_url, api_key, auth_scheme, protocol, run_id)
         if cache_key not in self._sandhi_typed_providers:
             kwargs: Dict[str, Any] = {
                 "base_url": explicit_base_url or None,
@@ -647,7 +675,10 @@ class SandhiTypedProviderMixin:
                 "stream_idle_timeout_secs": 90.0,
                 "max_retries": max(0, int(getattr(self, "max_retries", 0) or 0)),
             }
-            wire_headers = getattr(self, "_wire_headers", None)
+            wire_headers = dict(getattr(self, "_wire_headers", None) or {})
+            if run_id:
+                # An explicit caller-set header wins; never clobber it.
+                wire_headers.setdefault("x-sandhi-run-id", run_id)
             if wire_headers:
                 kwargs["headers_json"] = json.dumps(wire_headers)
             if auth_scheme:
