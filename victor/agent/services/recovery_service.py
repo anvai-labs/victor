@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import time
 from datetime import datetime
 from enum import Enum
@@ -35,6 +36,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
 if TYPE_CHECKING:
     from victor.agent.streaming.context import StreamingChatContext
+    from victor.evaluation.htir import ETCLOVGLayer
 
 logger = logging.getLogger(__name__)
 
@@ -96,6 +98,19 @@ class RecoveryStrategy(str, Enum):
     BACKOFF = "backoff"  # Retry with exponential backoff
     FALLBACK = "fallback"  # Use fallback method
     GIVE_UP = "give_up"  # Abort the operation
+
+
+def resolve_recovery_layer_attribution_enabled(settings: Any) -> bool:
+    """Resolve the ADR-012 prong-2 recovery-attribution flag: env → AgentSettings → default off.
+
+    Mirrors :func:`victor.framework.effect_gate.resolve_effect_gate_enabled` so both opt-in gates
+    read consistently. Env override ``VICTOR_RECOVERY_LAYER_ATTRIBUTION`` wins; otherwise
+    ``settings.agent.recovery_layer_attribution`` (default ``False``).
+    """
+    env = os.environ.get("VICTOR_RECOVERY_LAYER_ATTRIBUTION")
+    if env is not None:
+        return env.strip().lower() in ("1", "true", "yes", "on")
+    return bool(getattr(getattr(settings, "agent", None), "recovery_layer_attribution", False))
 
 
 class RecoveryContextImpl:
@@ -164,6 +179,7 @@ class RecoveryService:
             self._unified_tracker = unified_tracker
         if settings is not None:
             self._settings = settings
+            self._layer_attribution_enabled = resolve_recovery_layer_attribution_enabled(settings)
         if event_bus is not None:
             self._event_bus = event_bus
         if presentation is not None:
@@ -211,6 +227,40 @@ class RecoveryService:
     @staticmethod
     def _task_type_value(task_type: Any) -> Any:
         return getattr(task_type, "value", task_type)
+
+    def classify_failure_layer(self, context: RecoveryContextImpl) -> Optional["ETCLOVGLayer"]:
+        """Attribute this failure to an ETCLOVG harness layer (ADR-012 / EVR-5, prong 2).
+
+        Flag-guarded (default off — returns ``None`` immediately). When enabled, reads the failing
+        tool name from the recovery context (``metadata``/``state``) and reuses HTIR's layer
+        inference, so recovery failures become attributable to a harness *layer* (Execution /
+        Tooling / Context-Memory / …) instead of only an exception type. Records a per-layer metric
+        and stamps ``context.metadata['failure_layer']`` for downstream handlers; never changes the
+        selected action (that remains a separate, future opt-in).
+
+        Returns the attributed :class:`ETCLOVGLayer`, or ``None`` when disabled or no tool is in
+        flight (e.g. a provider-level error).
+        """
+        if not self._layer_attribution_enabled:
+            return None
+        from victor.evaluation.htir import attribute_failure_layer
+
+        raw = (
+            context.metadata.get("failing_tool")
+            or context.metadata.get("tool_name")
+            or context.state.get("failing_tool")
+            or context.state.get("tool_name")
+        )
+        layer = attribute_failure_layer(raw if isinstance(raw, str) else None)
+        if layer is None:
+            return None
+        by_layer = self._metrics.setdefault("by_layer", {})
+        by_layer[layer.value] = by_layer.get(layer.value, 0) + 1
+        context.metadata["failure_layer"] = layer.value
+        self._logger.debug(
+            "Recovery failure attributed to ETCLOVG layer '%s' (tool=%s)", layer.value, raw
+        )
+        return layer
 
     async def classify_error(self, error: Exception) -> str:
         """Classify an error for recovery strategy selection.
@@ -271,6 +321,9 @@ class RecoveryService:
             True if recovery succeeded, False otherwise
         """
         self._metrics["total_attempts"] += 1
+
+        # ADR-012 prong 2: attribute the failure to a harness layer (flag-guarded, no-op by default).
+        self.classify_failure_layer(context)
 
         action = await self.select_recovery_action(context)
 
@@ -348,6 +401,7 @@ class RecoveryService:
             "successful_recoveries": 0,
             "failed_recoveries": 0,
             "by_error_type": {},
+            "by_layer": {},
         }
 
     def is_healthy(self) -> bool:
@@ -1175,6 +1229,9 @@ class RecoveryService:
             "failed_recoveries": 0,
             "by_error_type": {},
         }
+        # ADR-012 / EVR-5 prong 2: attribute failures to a harness layer (flag-guarded, default
+        # off; set from bound settings via resolve_recovery_layer_attribution_enabled).
+        self._layer_attribution_enabled = False
         self._logger = logging.getLogger(f"{__name__}.{id(self)}")
         self._recovery_coordinator: Optional[Any] = None
         self._recovery_handler: Optional[Any] = None
@@ -1293,6 +1350,8 @@ class RecoveryService:
             "provider_switches": 0,
             "model_fallbacks": 0,
             "by_error_type": {},
+            # ADR-012 prong 2: recovery attempts attributed per ETCLOVG harness layer.
+            "by_layer": {},
         }
 
         self._logger = logging.getLogger(f"{__name__}.{id(self)}")
