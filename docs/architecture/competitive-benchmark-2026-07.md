@@ -118,7 +118,7 @@ granularity.
 |---|---|---|---|---|
 | Built-in completion evaluator | **Leads** — rubric (opt-in) + enhanced (default) | ~none ship this | default flip gated on parity | ADR-025 (EVR-3) |
 | Effect-grounded completion | **Decided, not built** — ADR-010 Proposed | none | EVR-4 (P0) | ADR-025 |
-| Regression-gated acceptance oracle | **Partial** — parity/characterization batteries exist | none | formalize (EVR-5, P0) | ADR-025 |
+| Regression-gated acceptance oracle | **Done** — named oracle + HTIR traces, promotion-gated (EVR-5) | none | — | ADR-012/025 |
 | Judge reliability (κ/α) | **Shipped, ungated** — `evaluation/judge_calibration.py`; κ/α not yet run vs human labels | none | EVR-2 | ADR-025 |
 | Segment-level process reward | **Computed, unused** — `agent/credit_assignment.py` | none | EVR-7 | — |
 | Prompt evolution (GEPA/MIPROv2) | **Leads** — shipped | rare | — | — |

@@ -32,7 +32,7 @@ from .parser import chunk, parse
 from .repo import chunk_path, chunk_repo, iter_source_files, parse_path, read_source_text
 from .resolution import resolve_relations
 
-__version__ = "0.9.0"
+__version__ = "0.8.1"
 
 __all__ = [
     "__version__",
