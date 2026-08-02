@@ -21,9 +21,10 @@ import logging
 import time
 from typing import TYPE_CHECKING, AsyncIterator
 
-from fastapi import APIRouter, HTTPException, Response
+from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import StreamingResponse
 
+from victor.core.context import bind_attribution
 from victor.integrations.api.fastapi_server import (
     ChatRequest,
     ChatResponse,
@@ -45,15 +46,19 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
     router = APIRouter()
 
     @router.post("/chat", response_model=ChatResponse, tags=["Chat"])
-    async def chat(request: ChatRequest, response: Response) -> ChatResponse:
+    async def chat(request: ChatRequest, response: Response, http_request: Request) -> ChatResponse:
         """Chat endpoint (non-streaming)."""
+        # FEP-0020 attribution join: the client_id resolved at the auth seam is
+        # bound to the execution context so downstream cost/usage records carry
+        # the authenticated subject (None when auth is not configured).
+        client_id = await server._verify_api_key(http_request)
         if not request.messages:
             raise HTTPException(status_code=400, detail="No messages provided")
 
         request_id = _new_chat_request_id()
         response.headers["X-Victor-Request-Id"] = request_id
         client = await server._get_victor_client()
-        with request_correlation_id(request_id):
+        with request_correlation_id(request_id), bind_attribution(subject_id=client_id):
             chat_result = await client.chat(request.messages[-1].content)
 
         content = getattr(chat_result, "content", None) or ""
@@ -76,10 +81,13 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
         return ChatResponse(role="assistant", content=content, tool_calls=tool_calls)
 
     @router.post("/chat/resume", response_model=ChatResponse, tags=["Chat"])
-    async def chat_resume(request: ResumeRequest, response: Response) -> ChatResponse:
+    async def chat_resume(
+        request: ResumeRequest, response: Response, http_request: Request
+    ) -> ChatResponse:
         """Resume a durably-paused chat turn with a human approval decision (FEP-0029)."""
         from victor.framework.approval_pause import ApprovalDecision
 
+        client_id = await server._verify_api_key(http_request)
         request_id = _new_chat_request_id()
         response.headers["X-Victor-Request-Id"] = request_id
         client = await server._get_victor_client()
@@ -93,7 +101,7 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
             responder=request.responder,
         )
         try:
-            with request_correlation_id(request_id):
+            with request_correlation_id(request_id), bind_attribution(subject_id=client_id):
                 result = await resume(request.run_id, decision)
         except ValueError as exc:
             # Unknown or already-resumed run_id.
@@ -115,8 +123,12 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
         )
 
     @router.post("/chat/stream", tags=["Chat"])
-    async def chat_stream(request: ChatRequest) -> StreamingResponse:
+    async def chat_stream(request: ChatRequest, http_request: Request) -> StreamingResponse:
         """Streaming chat endpoint (Server-Sent Events)."""
+        # Authenticate before streaming starts so an invalid key is a plain 401;
+        # the identity is bound inside the generator because the response body
+        # is produced after this handler returns (FEP-0020 attribution join).
+        client_id = await server._verify_api_key(http_request)
         if not request.messages:
             raise HTTPException(status_code=400, detail="No messages provided")
 
@@ -127,7 +139,7 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
                 client = await server._get_victor_client()
                 yield f'data: {json.dumps({"type": "request", "request_id": request_id})}\n\n'
 
-                with request_correlation_id(request_id):
+                with request_correlation_id(request_id), bind_attribution(subject_id=client_id):
                     async for chunk in client.stream_chat(request.messages[-1].content):
                         if hasattr(chunk, "content") or hasattr(chunk, "tool_calls"):
                             content = getattr(chunk, "content", "")
