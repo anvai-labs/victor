@@ -36,7 +36,7 @@ class TestCalibratedJudgePassthrough:
             assert resolve_gated_completion_strategy("rubric", model, _settings()) == "rubric"
 
     def test_match_is_case_insensitive(self):
-        assert resolve_gated_completion_strategy("rubric", "Gemma4:31B", _settings()) == "rubric"
+        assert resolve_gated_completion_strategy("rubric", "Llama3.3:70B", _settings()) == "rubric"
 
     def test_hybrid_passes_for_calibrated_judge(self):
         assert resolve_gated_completion_strategy("hybrid", "llama3.3:70b", _settings()) == "hybrid"
@@ -110,7 +110,7 @@ class TestResolveEffectiveCompletionStrategy:
             resolve_completion_strategy,
         )
 
-        assert resolve_completion_strategy(settings, "gemma4:31b") == "rubric"
+        assert resolve_completion_strategy(settings, "llama3.3:70b") == "rubric"
         assert resolve_completion_strategy(settings, "qwen2.5:0.5b") == "enhanced"
 
     def test_env_override_still_gated(self, monkeypatch):

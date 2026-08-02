@@ -22,7 +22,10 @@ logger = logging.getLogger(__name__)
 
 # FINDINGS runs 10-11: llama3.3:70b (α=1.000, n=96 scripted, gating-grade) and
 # gemma4:31b (α=0.865 on real agent trajectories, zero false completions).
-DEFAULT_CALIBRATED_JUDGE_MODELS: frozenset[str] = frozenset({"gemma4:31b", "llama3.3:70b"})
+# llama3.3:70b: scripted α=1.000 (run 10) + real-trajectory α=0.878 with refactor 1.000
+# (run 13, vs verifier AND annotator gold). gemma4:31b was demoted in run 12 (α=0.694 at
+# n=96, refactor 0.300). See docs/architecture/judge-independence-experiments.md.
+DEFAULT_CALIBRATED_JUDGE_MODELS: frozenset[str] = frozenset({"llama3.3:70b"})
 
 _ALLOW_UNCALIBRATED_ENV = "VICTOR_RUBRIC_JUDGE_ALLOW_UNCALIBRATED"
 

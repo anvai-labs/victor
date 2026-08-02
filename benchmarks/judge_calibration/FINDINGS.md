@@ -91,6 +91,18 @@ but replacement waits for a gate-passing judge; (c) run-12 also surfaced a run-l
 lesson: the first attempt produced 96/96 empty-response trajectories from a dropped profile
 endpoint (fixed in PR #820) and was discarded as degenerate before judging completed.
 
+### Runs 13–14 (2026-08-02) — replay judging: llama graduates; self-judging fails
+
+Via the pack-replay executor on run 12's exact 96 trajectories (integrity clean both runs):
+**run 13, llama3.3:70b: α=0.878 overall, refactor α=1.000 — PASSES** the gate against both
+verifier and AI-annotator gold; combined with run 10 (scripted 1.000, n=96) llama holds every
+graduation gate and is the pinned judge. gemma4:31b is demoted from the default calibrated set
+(run 12: 0.694, refactor 0.300). **Run 14, qwen3-coder-tools:30b judging its OWN trajectories
+fresh-context: α=0.469 (qa −0.033, refactor 0.100) — FAILS**: context isolation recovers 1.3 α
+over in-loop self-assessment (−0.837) but weight-level correlation costs ~0.41 α vs llama on
+identical data. Session-model self-judging cannot enter the calibrated set. Ladder + committed
+reports: docs/architecture/judge-independence-experiments.md.
+
 ## Verdict and open items
 
 **All three graduation gates are now cleared — by two complementary judges.** The scripted
