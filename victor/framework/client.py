@@ -209,6 +209,15 @@ def _to_stream_event(event: Any) -> _StreamEvent:
                 "recoverable": getattr(event, "recoverable", None),
             },
         )
+    if event.type == EventType.AWAITING_APPROVAL:
+        # FEP-0029: the streamed turn durably paused on a policy ASK — surface the resume token +
+        # pending approval so a streaming caller (TUI/SSE) can render a paused lane and resume.
+        event_metadata = getattr(event, "metadata", {}) or {}
+        return _StreamEvent(
+            EventType.AWAITING_APPROVAL,
+            success=False,
+            metadata=dict(event_metadata),
+        )
     if event.type == EventType.CUSTOM:
         event_metadata = getattr(event, "metadata", {}) or {}
         custom_type = str(event_metadata.get("custom_type", ""))
