@@ -3,8 +3,6 @@
 Tests cover:
 - Full predictive workflow from prediction → selection → preloading
 - Phase-aware context management
-- Feature flag behavior
-- Rollback scenarios
 - Performance benchmarks
 - Error handling and recovery
 """
@@ -16,7 +14,6 @@ from victor.agent.conversation.state_machine import ConversationStage
 from victor.agent.planning.cooccurrence_tracker import CooccurrenceTracker
 from victor.agent.planning.tool_preloader import ToolPreloader
 from victor.agent.planning.tool_predictor import ToolPredictor
-from victor.config.feature_flag_settings import FeatureFlagSettings
 from victor.core.shared_types import TaskPhase
 
 
@@ -178,76 +175,6 @@ class TestPhaseAwareContextIntegration:
         assert execution_scores is not None
 
 
-class TestFeatureFlagIntegration:
-    """Test feature flag behavior across components."""
-
-    def test_feature_flags_disable_all_predictive(self):
-        """Test that disabled flags disable all predictive features."""
-        flags = FeatureFlagSettings(
-            enable_predictive_tools=False,
-            enable_tool_predictor=True,
-            enable_tool_preloading=True,
-        )
-
-        effective = flags.get_effective_settings()
-
-        # All should be disabled when master switch is off
-        assert effective["predictive_tools_enabled"] is False
-        assert effective["tool_predictor_enabled"] is False
-        assert effective["tool_preloading_enabled"] is False
-
-    def test_feature_flags_partial_enable(self):
-        """Test partial feature enablement."""
-        flags = FeatureFlagSettings(
-            enable_predictive_tools=True,
-            enable_tool_predictor=True,
-            enable_cooccurrence_tracking=False,  # Disabled
-            enable_tool_preloading=True,
-        )
-
-        effective = flags.get_effective_settings()
-
-        # Predictor should be enabled
-        assert effective["tool_predictor_enabled"] is True
-        # Co-occurrence tracking should be disabled
-        assert effective["cooccurrence_tracking_enabled"] is False
-        # Preloader should be enabled (master is on)
-        assert effective["tool_preloading_enabled"] is True
-
-    def test_rollout_percentage_routing(self):
-        """Test that rollout percentage affects routing."""
-        flags = FeatureFlagSettings(
-            enable_predictive_tools=True,
-            predictive_rollout_percentage=50,
-        )
-
-        # Test with 100 different request hashes
-        count = 0
-        for i in range(100):
-            if flags.should_use_predictive_for_request(request_hash=i):
-                count += 1
-
-        # Should be around 50% (allow 40-60% for variance)
-        assert 40 <= count <= 60
-
-    def test_confidence_threshold_filtering(self):
-        """Test confidence threshold affects predictions."""
-        flags_high = FeatureFlagSettings(
-            enable_predictive_tools=True,
-            predictive_confidence_threshold=0.9,
-        )
-
-        flags_low = FeatureFlagSettings(
-            enable_predictive_tools=True,
-            predictive_confidence_threshold=0.3,
-        )
-
-        # High threshold should filter more predictions
-        assert (
-            flags_high.predictive_confidence_threshold > flags_low.predictive_confidence_threshold
-        )
-
-
 class TestErrorHandlingAndRecovery:
     """Test error handling and recovery scenarios."""
 
@@ -363,61 +290,6 @@ class TestPerformanceBenchmarks:
 
         # Should have 100% cache hit rate
         assert stats["l1_hit_rate"] == 1.0
-
-
-class TestRollbackScenarios:
-    """Test rollback scenarios and procedures."""
-
-    def test_instant_rollback_via_env_var(self, monkeypatch):
-        """Test instant rollback via environment variable."""
-        # Set environment variable
-        monkeypatch.setenv("VICTOR_ENABLE_PREDICTIVE_TOOLS", "false")
-
-        from victor.config.feature_flag_settings import FeatureFlagSettings
-
-        flags = FeatureFlagSettings()
-
-        # Should be disabled
-        assert flags.enable_predictive_tools is False
-
-        # Effective settings should reflect this
-        effective = flags.get_effective_settings()
-        assert effective["predictive_tools_enabled"] is False
-
-    def test_partial_rollback_component_level(self):
-        """Test partial rollback at component level."""
-        flags = FeatureFlagSettings(
-            enable_predictive_tools=True,
-            enable_tool_predictor=True,
-            enable_tool_preloading=False,  # Disable preloading
-        )
-
-        effective = flags.get_effective_settings()
-
-        # Preloading should be disabled
-        assert effective["tool_preloading_enabled"] is False
-
-        # Other components should still work
-        assert effective["tool_predictor_enabled"] is True
-
-    def test_rollback_percentage_reduction(self):
-        """Test rollback by reducing percentage."""
-        flags = FeatureFlagSettings(
-            enable_predictive_tools=True,
-            predictive_rollout_percentage=50,
-        )
-
-        # Simulate reducing from 50% to 10%
-        flags.predictive_rollout_percentage = 10
-
-        # Count requests that would use predictive
-        count = 0
-        for i in range(100):
-            if flags.should_use_predictive_for_request(request_hash=i):
-                count += 1
-
-        # Should be roughly 10% (allow 5-15% for variance)
-        assert 5 <= count <= 15
 
 
 class TestBackwardCompatibility:
@@ -602,10 +474,3 @@ class TestDocumentationCompleteness:
 
         assert ToolPredictor.__doc__ is not None
         assert ToolPredictor.predict_tools.__doc__ is not None
-
-    def test_settings_documentation(self):
-        """Test that feature flags are documented."""
-        from victor.config.feature_flag_settings import FeatureFlagSettings
-
-        assert FeatureFlagSettings.__doc__ is not None
-        assert "Environment Variables" in FeatureFlagSettings.__doc__
