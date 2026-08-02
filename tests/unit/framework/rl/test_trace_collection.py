@@ -135,3 +135,122 @@ class TestScopeAndMerge:
         merged = merge_traces([thin], [rich])
         assert len(merged) == 1
         assert merged[0].tool_call_details  # the richer one won
+
+
+class TestTraceCollector:
+    """Characterize the collectors end-to-end against a temp usage.jsonl."""
+
+    def _write_log(self, tmp_path, monkeypatch, events):
+        import json as _json
+        import types
+
+        logs_dir = tmp_path / "logs"
+        logs_dir.mkdir()
+        with open(logs_dir / "usage.jsonl", "w") as f:
+            for ev in events:
+                f.write(_json.dumps(ev) + "\n")
+
+        # get_project_paths() is imported lazily inside the collectors, so patch
+        # it at the source module.
+        import victor.config.settings as settings
+
+        monkeypatch.setattr(
+            settings,
+            "get_project_paths",
+            lambda: types.SimpleNamespace(global_logs_dir=logs_dir),
+        )
+
+    def test_collect_v1_parses_identity_calls_and_failures(self, tmp_path, monkeypatch):
+        from victor.framework.rl.learners.trace_collection import TraceCollector
+
+        events = [
+            {
+                "session_id": "s1",
+                "event_type": "session_start",
+                "data": {"provider": "MoonshotProvider", "model": "k2"},
+            },
+            {"session_id": "s1", "event_type": "tool_result", "data": {"success": True}},
+            {
+                "session_id": "s1",
+                "event_type": "tool_result",
+                "data": {"success": False, "error": "old_str not found"},
+            },
+        ]
+        self._write_log(tmp_path, monkeypatch, events)
+
+        collector = TraceCollector(harness_verdicts=lambda: {})
+        traces = collector.collect_v1(limit=50)
+
+        assert len(traces) == 1
+        t = traces[0]
+        assert t.session_id == "s1"
+        assert t.provider == "moonshot"  # normalized from MoonshotProvider
+        assert t.model == "k2"
+        assert t.tool_calls == 2
+        assert t.tool_failures == {"edit_mismatch": 1}
+        assert t.score_source == "tool_failure_proxy"
+
+    def test_collect_v1_skips_sessions_with_under_two_calls(self, tmp_path, monkeypatch):
+        from victor.framework.rl.learners.trace_collection import TraceCollector
+
+        events = [
+            {"session_id": "s1", "event_type": "tool_result", "data": {"success": True}},
+        ]
+        self._write_log(tmp_path, monkeypatch, events)
+        collector = TraceCollector(harness_verdicts=lambda: {})
+        assert collector.collect_v1(limit=50) == []
+
+    def test_collect_v2_captures_asi_detail(self, tmp_path, monkeypatch):
+        from victor.framework.rl.learners.trace_collection import TraceCollector
+
+        events = [
+            {
+                "session_id": "s2",
+                "event_type": "session_start",
+                "data": {"provider": "OllamaProvider", "model": "q"},
+            },
+            {
+                "session_id": "s2",
+                "event_type": "tool_call",
+                "data": {"tool_name": "edit", "reasoning_before_call": "fix the bug"},
+            },
+            {
+                "session_id": "s2",
+                "event_type": "tool_result",
+                "data": {
+                    "tool_name": "edit",
+                    "success": False,
+                    "error_detail": "old_str not found",
+                },
+            },
+        ]
+        self._write_log(tmp_path, monkeypatch, events)
+
+        collector = TraceCollector(harness_verdicts=lambda: {})
+        traces = collector.collect_v2(limit=50)
+
+        assert len(traces) == 1
+        t = traces[0]
+        assert t.provider == "ollama"
+        assert t.tool_call_details and t.tool_call_details[0].tool_name == "edit"
+        assert t.tool_call_details[0].reasoning_before == "fix the bug"
+        assert t.tool_failures == {"edit_mismatch": 1}
+
+    def test_harness_verdict_lookup_is_used(self, tmp_path, monkeypatch):
+        from victor.framework.rl.learners.trace_analysis import HarnessVerdict
+        from victor.framework.rl.learners.trace_collection import TraceCollector
+
+        events = [
+            {"session_id": "graded", "event_type": "tool_result", "data": {"success": True}},
+            {"session_id": "graded", "event_type": "tool_result", "data": {"success": True}},
+        ]
+        self._write_log(tmp_path, monkeypatch, events)
+
+        verdict = HarnessVerdict(completion_score=0.33, success=False, task_id="x", benchmark="b")
+        collector = TraceCollector(harness_verdicts=lambda: {"graded": verdict})
+        traces = collector.collect_v1(limit=50)
+
+        assert len(traces) == 1
+        assert traces[0].completion_score == 0.33
+        assert traces[0].success is False
+        assert traces[0].score_source == "harness"

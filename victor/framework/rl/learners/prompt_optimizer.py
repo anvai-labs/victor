@@ -104,6 +104,7 @@ from victor.framework.rl.learners.gepa_strategy import (
     PromptOptimizationStrategy,
 )
 from victor.framework.rl.learners.trace_collection import (
+    TraceCollector,
     absorb_run_kind,
     absorb_session_identity,
     categorize_failure,
@@ -257,6 +258,9 @@ class PromptOptimizerLearner(BaseLearner):
         self._use_pareto = use_pareto
         self._max_prompt_chars = max_prompt_chars
         self._pareto_frontiers: Dict[str, Any] = {}  # section → ParetoFrontier
+        # Trace collection lives in TraceCollector; it only needs the harness
+        # verdict lookup (which caches on this learner), injected as a callable.
+        self._trace_collector = TraceCollector(self._harness_verdicts)
         super().__init__(name, db_connection, learning_rate, provider_adapter)
         self._load_candidates()
         if self._use_pareto:
@@ -2122,103 +2126,8 @@ class PromptOptimizerLearner(BaseLearner):
         return challenging + easy
 
     def _collect_traces(self, limit: int = 50) -> List[ExecutionTrace]:
-        """Collect execution traces from usage.jsonl files."""
-        traces: List[ExecutionTrace] = []
-
-        try:
-            from victor.config.settings import get_project_paths
-
-            logs_dir = get_project_paths().global_logs_dir
-        except Exception:
-            logs_dir = Path.home() / ".victor" / "logs"
-
-        # Read from all usage.jsonl files (current + rotated .gz)
-        jsonl_files = sorted(logs_dir.glob("usage.*.jsonl.gz")) + [logs_dir / "usage.jsonl"]
-
-        sessions: Dict[str, Dict[str, Any]] = {}
-        for jsonl_path in jsonl_files:
-            if not jsonl_path.exists():
-                continue
-            try:
-                opener = gzip.open if jsonl_path.suffix == ".gz" else open
-                mode = "rt" if jsonl_path.suffix == ".gz" else "r"
-                with opener(jsonl_path, mode) as f:
-                    for line in f:
-                        try:
-                            event = json_loads(line.strip())
-                            sid = event.get("session_id", "")
-                            etype = event.get("event_type", "")
-                            data = event.get("data", {})
-
-                            if sid not in sessions:
-                                sessions[sid] = {
-                                    "tool_calls": 0,
-                                    "failures": {},
-                                    "provider": "",
-                                    "model": "",
-                                    "task_type": "default",
-                                    "tokens": 0,
-                                    "run_kind": "",
-                                }
-
-                            self._absorb_session_identity(sessions[sid], data)
-                            self._absorb_run_kind(sessions[sid], event)
-
-                            if etype == "tool_result":
-                                # tool_result is the event actually emitted per
-                                # tool invocation (a paired tool_call event is
-                                # rarely/never logged); count the call here so
-                                # sessions aren't all dropped by the <2-calls filter.
-                                sessions[sid]["tool_calls"] += 1
-                                if not data.get("success", True):
-                                    error = str(
-                                        data.get("error") or data.get("result", {}).get("error", "")
-                                    )
-                                    cat = self._categorize_failure(error)
-                                    sessions[sid]["failures"][cat] = (
-                                        sessions[sid]["failures"].get(cat, 0) + 1
-                                    )
-                            elif etype == "task_classification":
-                                sessions[sid]["task_type"] = data.get("task_type", "default")
-                        except (JSONDecodeError, KeyError):
-                            continue
-            except Exception:
-                continue
-
-        # Convert to ExecutionTrace objects with quality scoring
-        # Quality filter: skip sessions with < 2 tool calls (likely API errors)
-        verdicts = self._harness_verdicts()
-        for sid, data in list(sessions.items())[-limit:]:
-            if data["tool_calls"] < 2:
-                continue  # Skip trivially broken sessions
-
-            total_failures = sum(data["failures"].values())
-            total_calls = data["tool_calls"]
-            failure_rate = total_failures / max(total_calls, 1)
-
-            completion_score, success, score_source = self._score_session(
-                verdicts.get(sid), failure_rate
-            )
-
-            traces.append(
-                ExecutionTrace(
-                    session_id=sid,
-                    task_type=data["task_type"],
-                    provider=data.get("provider") or "unknown",
-                    model=data.get("model") or "unknown",
-                    tool_calls=total_calls,
-                    tool_failures=data["failures"],
-                    success=success,
-                    completion_score=completion_score,
-                    tokens_used=data.get("tokens", 0),
-                    score_source=score_source,
-                    run_kind=data.get("run_kind") or "unknown",
-                )
-            )
-
-        # Sort by quality — high-quality traces first for GEPA reflection
-        traces.sort(key=lambda t: -t.completion_score)
-        return traces
+        """Delegates to :meth:`TraceCollector.collect_v1`."""
+        return self._trace_collector.collect_v1(limit)
 
     @staticmethod
     def _verdict_from_task(task: Dict[str, Any], benchmark: str) -> Optional[HarnessVerdict]:
@@ -2436,258 +2345,12 @@ class PromptOptimizerLearner(BaseLearner):
         return self._pareto_frontiers.get(self._candidate_key(section_name, provider))
 
     def _collect_traces_v2(self, limit: int = 50) -> List[ExecutionTrace]:
-        """Collect enriched execution traces (GEPA v2 with ASI detail).
-
-        Reads the enriched JSONL events which include reasoning_before_call,
-        result_summary, error_detail, and duration_ms per tool call.
-        Falls back to v1 collection if enriched fields are absent.
-        """
-        traces: List[ExecutionTrace] = []
-
-        try:
-            from victor.config.settings import get_project_paths
-
-            logs_dir = get_project_paths().global_logs_dir
-        except Exception:
-            logs_dir = Path.home() / ".victor" / "logs"
-
-        jsonl_files = sorted(logs_dir.glob("usage.*.jsonl.gz")) + [logs_dir / "usage.jsonl"]
-
-        sessions: Dict[str, Dict[str, Any]] = {}
-        for jsonl_path in jsonl_files:
-            if not jsonl_path.exists():
-                continue
-            try:
-                opener = gzip.open if jsonl_path.suffix == ".gz" else open
-                mode = "rt" if jsonl_path.suffix == ".gz" else "r"
-                with opener(jsonl_path, mode) as f:
-                    for line in f:
-                        try:
-                            event = json_loads(line.strip())
-                            sid = event.get("session_id", "")
-                            etype = event.get("event_type", "")
-                            data = event.get("data", {})
-
-                            if sid not in sessions:
-                                sessions[sid] = {
-                                    "tool_calls": 0,
-                                    "failures": {},
-                                    "provider": "",
-                                    "model": "",
-                                    "task_type": "default",
-                                    "tokens": 0,
-                                    "run_kind": "",
-                                    "details": [],  # v2: per-call details
-                                }
-
-                            self._absorb_session_identity(sessions[sid], data)
-                            self._absorb_run_kind(sessions[sid], event)
-
-                            if etype == "tool_call":
-                                # Create a pending detail (reasoning enrichment).
-                                # Counting happens on tool_result (the reliably-
-                                # emitted event) to avoid double-counting.
-                                detail = ToolCallTrace(
-                                    tool_name=data.get("tool_name", ""),
-                                    arguments_summary=str(data.get("arguments_sanitized", ""))[
-                                        :200
-                                    ],
-                                    reasoning_before=str(data.get("reasoning_before_call", ""))[
-                                        :500
-                                    ],
-                                )
-                                sessions[sid]["details"].append(detail)
-
-                            elif etype == "tool_result":
-                                success = data.get("success", True)
-                                sessions[sid]["tool_calls"] += 1
-                                # Fill a pending tool_call detail if one is open;
-                                # otherwise build one from the result (the emitter
-                                # logs tool_result directly, with no paired tool_call).
-                                details = sessions[sid]["details"]
-                                if details and not (
-                                    getattr(details[-1], "result_summary", "")
-                                    or getattr(details[-1], "error_detail", "")
-                                ):
-                                    last = details[-1]
-                                else:
-                                    last = ToolCallTrace(
-                                        tool_name=data.get("tool_name", ""),
-                                        arguments_summary="",
-                                        reasoning_before="",
-                                    )
-                                    details.append(last)
-                                last.success = success
-                                last.duration_ms = data.get("duration_ms", 0)
-                                last.result_summary = str(
-                                    data.get("result_summary") or data.get("result") or ""
-                                )[:500]
-                                last.error_detail = str(
-                                    data.get("error_detail") or data.get("error") or ""
-                                )[:500]
-                                if not last.tool_name and data.get("tool_name"):
-                                    last.tool_name = data.get("tool_name", "")
-
-                                if not success:
-                                    error = str(
-                                        data.get("error_detail")
-                                        or data.get("error")
-                                        or data.get("result", {}).get("error", "")
-                                    )
-                                    cat = self._categorize_failure(error)
-                                    sessions[sid]["failures"][cat] = (
-                                        sessions[sid]["failures"].get(cat, 0) + 1
-                                    )
-
-                            elif etype == "task_classification":
-                                sessions[sid]["task_type"] = data.get("task_type", "default")
-                        except (JSONDecodeError, KeyError):
-                            continue
-            except Exception:
-                continue
-
-        verdicts = self._harness_verdicts()
-        for sid, data in list(sessions.items())[-limit:]:
-            if data["tool_calls"] > 0:
-                # Was a flat 0.5-if-any-failure / 0.8-otherwise, a third scoring
-                # rule alongside v1's and the conversation collector's. All three
-                # now go through _score_session, so a session is graded the same
-                # way regardless of which collector observed it.
-                failure_rate = sum(data["failures"].values()) / max(data["tool_calls"], 1)
-                completion_score, success, score_source = self._score_session(
-                    verdicts.get(sid), failure_rate
-                )
-                traces.append(
-                    ExecutionTrace(
-                        session_id=sid,
-                        task_type=data["task_type"],
-                        provider=data.get("provider") or "unknown",
-                        model=data.get("model") or "unknown",
-                        tool_calls=data["tool_calls"],
-                        tool_failures=data["failures"],
-                        success=success,
-                        completion_score=completion_score,
-                        tokens_used=data.get("tokens", 0),
-                        tool_call_details=data.get("details", []),
-                        score_source=score_source,
-                        run_kind=data.get("run_kind") or "unknown",
-                    )
-                )
-
-        return traces
+        """Delegates to :meth:`TraceCollector.collect_v2`."""
+        return self._trace_collector.collect_v2(limit)
 
     def _collect_traces_from_conversations(self, limit: int = 50) -> List[ExecutionTrace]:
-        """Collect execution traces from ConversationStore SQLite DB.
-
-        Converts normalized session+message data into ExecutionTrace
-        objects that all prompt optimization strategies can consume.
-        This supplements JSONL-based traces with richer historical data
-        (provider metadata, model family, message counts, duration).
-        """
-        traces: List[ExecutionTrace] = []
-        try:
-            from victor.agent.conversation.store import ConversationStore
-            from victor.agent.conversation.types import MessageRole
-        except ImportError:
-            return traces
-
-        try:
-            store = ConversationStore()
-        except Exception:
-            logger.debug("ConversationStore unavailable for trace collection")
-            return traces
-
-        try:
-            # Get sessions with enough messages to be meaningful
-            sessions = store.get_rl_training_data(limit=limit, min_messages=3)
-        except Exception as e:
-            logger.debug("Failed to query RL training data: %s", e)
-            return traces
-
-        verdicts = self._harness_verdicts()
-        for sess in sessions:
-            session_id = sess.get("session_id", "")
-            provider = sess.get("provider") or "unknown"
-            model = sess.get("model") or "unknown"
-            tool_msg_count = sess.get("tool_messages") or 0
-
-            # Skip sessions with no tool usage
-            if tool_msg_count < 2:
-                continue
-
-            # Build tool call details from individual messages
-            details: List[ToolCallTrace] = []
-            failures: Dict[str, int] = {}
-            try:
-                session_obj = store.get_session(session_id)
-                if session_obj:
-                    pending_by_call_id: Dict[str, ToolCallTrace] = {}
-                    pending_without_id: List[ToolCallTrace] = []
-                    for msg in session_obj.messages:
-                        if msg.role == MessageRole.TOOL_CALL:
-                            detail = ToolCallTrace(
-                                tool_name=msg.tool_name or "",
-                                arguments_summary=msg.content[:200],
-                                reasoning_before="",
-                            )
-                            details.append(detail)
-                            if msg.tool_call_id:
-                                pending_by_call_id[msg.tool_call_id] = detail
-                            else:
-                                pending_without_id.append(detail)
-                        elif msg.role == MessageRole.TOOL:
-                            is_error = "error" in msg.content.lower()[:200]
-                            matched = None
-                            if msg.tool_call_id:
-                                matched = pending_by_call_id.pop(msg.tool_call_id, None)
-                            if matched is None and pending_without_id:
-                                matched = pending_without_id.pop(0)
-                            if matched is None:
-                                matched = ToolCallTrace(
-                                    tool_name=msg.tool_name or "",
-                                    arguments_summary="",
-                                    reasoning_before="",
-                                )
-                                details.append(matched)
-
-                            if msg.tool_name and not matched.tool_name:
-                                matched.tool_name = msg.tool_name
-                            matched.success = not is_error
-                            matched.result_summary = msg.content[:500]
-                            if is_error:
-                                matched.error_detail = msg.content[:500]
-                            if is_error:
-                                cat = self._categorize_failure(msg.content[:300])
-                                failures[cat] = failures.get(cat, 0) + 1
-            except Exception:
-                pass  # Fall back to aggregate-only
-
-            total_tool_calls = max(len(details), int(tool_msg_count), 1)
-            total_failures = sum(failures.values())
-            failure_rate = total_failures / max(total_tool_calls, 1)
-
-            completion_score, success, score_source = self._score_session(
-                verdicts.get(session_id), failure_rate
-            )
-
-            traces.append(
-                ExecutionTrace(
-                    session_id=session_id,
-                    task_type="default",
-                    provider=provider,
-                    model=model,
-                    tool_calls=total_tool_calls,
-                    tool_failures=failures,
-                    success=success,
-                    completion_score=completion_score,
-                    tokens_used=0,
-                    tool_call_details=details,
-                    score_source=score_source,
-                )
-            )
-
-        traces.sort(key=lambda t: -t.completion_score)
-        return traces
+        """Delegates to :meth:`TraceCollector.collect_from_conversations`."""
+        return self._trace_collector.collect_from_conversations(limit)
 
     @staticmethod
     def _merge_traces(
