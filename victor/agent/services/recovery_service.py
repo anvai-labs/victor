@@ -257,8 +257,18 @@ class RecoveryService:
         by_layer = self._metrics.setdefault("by_layer", {})
         by_layer[layer.value] = by_layer.get(layer.value, 0) + 1
         context.metadata["failure_layer"] = layer.value
+        # Consecutive same-layer streak drives the escalation policy (reset on a different layer).
+        if layer.value == self._last_failure_layer:
+            self._layer_streak += 1
+        else:
+            self._last_failure_layer = layer.value
+            self._layer_streak = 1
+        context.metadata["failure_layer_streak"] = self._layer_streak
         self._logger.debug(
-            "Recovery failure attributed to ETCLOVG layer '%s' (tool=%s)", layer.value, raw
+            "Recovery failure attributed to ETCLOVG layer '%s' (tool=%s, streak=%d)",
+            layer.value,
+            raw,
+            self._layer_streak,
         )
         return layer
 
@@ -306,7 +316,43 @@ class RecoveryService:
             "unknown": "retry",
         }
 
-        return action_mapping.get(error_type, "fail")
+        base_action = action_mapping.get(error_type, "fail")
+        # ADR-012 prong 2 (opt-in): let the attributed harness layer refine the action.
+        if self._layer_attribution_enabled:
+            return self._refine_action_by_layer(base_action, context)
+        return base_action
+
+    def _refine_action_by_layer(self, base_action: str, context: RecoveryContextImpl) -> str:
+        """Refine a recovery action using the attributed ETCLOVG layer (ADR-012 prong 2, opt-in).
+
+        Two conservative rules, using the layer + consecutive-same-layer streak that
+        :meth:`classify_failure_layer` stamped on the context:
+
+        - a **Governance** failure (policy/refusal) is never retried — escalate straight to
+          fallback;
+        - **repeated** failures in the same harness layer (streak ≥ threshold) escalate a
+          retry/backoff to fallback, so the loop stops hammering a layer that keeps failing.
+
+        Returns ``base_action`` unchanged when no layer is attributed or the streak is short.
+        """
+        from victor.evaluation.htir import ETCLOVGLayer
+
+        layer_val = context.metadata.get("failure_layer")
+        if not layer_val:
+            return base_action
+        if layer_val == ETCLOVGLayer.GOVERNANCE.value:
+            self._logger.debug("Governance-layer failure — not retrying (policy/refusal)")
+            return "fallback"
+        streak = int(context.metadata.get("failure_layer_streak", 0) or 0)
+        if base_action in ("retry", "backoff") and streak >= self._layer_escalation_threshold:
+            self._logger.info(
+                "Escalating recovery %s→fallback: %d consecutive '%s'-layer failures",
+                base_action,
+                streak,
+                layer_val,
+            )
+            return "fallback"
+        return base_action
 
     async def execute_recovery(
         self,
@@ -345,6 +391,8 @@ class RecoveryService:
             success = await self._retry_action(context)
         elif action == "backoff":
             success = await self._backoff_action(context)
+        elif action == "fallback":
+            success = await self._fallback_action(context)
         elif action == "fail":
             success = False
         else:
@@ -354,10 +402,28 @@ class RecoveryService:
         if success:
             self._metrics["successful_recoveries"] += 1
             self._metrics["by_error_type"][error_type]["successes"] += 1
+            # A successful recovery clears the layer streak so the next failure starts fresh.
+            self._last_failure_layer = None
+            self._layer_streak = 0
         else:
             self._metrics["failed_recoveries"] += 1
 
         return success
+
+    async def _fallback_action(self, context: RecoveryContextImpl) -> bool:
+        """Layer-escalation fallback: stop retrying a persistently-failing layer (ADR-012 prong 2).
+
+        There is no automatic alternate execution path yet, so this records the escalation and
+        returns ``False`` (recovery defers to higher-level handling) rather than looping retries on
+        a harness layer that keeps failing. A real fallback executor can replace the body later
+        without changing the policy that routes here.
+        """
+        self._metrics["layer_escalations"] = self._metrics.get("layer_escalations", 0) + 1
+        self._logger.info(
+            "Recovery escalated to fallback (layer=%s) — stopping retries on the failing layer",
+            context.metadata.get("failure_layer"),
+        )
+        return False
 
     def can_retry(
         self,
@@ -402,7 +468,10 @@ class RecoveryService:
             "failed_recoveries": 0,
             "by_error_type": {},
             "by_layer": {},
+            "layer_escalations": 0,
         }
+        self._last_failure_layer = None
+        self._layer_streak = 0
 
     def is_healthy(self) -> bool:
         """Check if the recovery service is healthy.
@@ -1232,6 +1301,12 @@ class RecoveryService:
         # ADR-012 / EVR-5 prong 2: attribute failures to a harness layer (flag-guarded, default
         # off; set from bound settings via resolve_recovery_layer_attribution_enabled).
         self._layer_attribution_enabled = False
+        # Layer-aware recovery policy (opt-in, same flag): stop blindly retrying a harness layer
+        # that keeps failing. Tracks the consecutive same-layer failure streak; at/after the
+        # threshold a retry/backoff is escalated to fallback.
+        self._layer_escalation_threshold = 2
+        self._last_failure_layer: Optional[str] = None
+        self._layer_streak = 0
         self._logger = logging.getLogger(f"{__name__}.{id(self)}")
         self._recovery_coordinator: Optional[Any] = None
         self._recovery_handler: Optional[Any] = None
@@ -1352,6 +1427,8 @@ class RecoveryService:
             "by_error_type": {},
             # ADR-012 prong 2: recovery attempts attributed per ETCLOVG harness layer.
             "by_layer": {},
+            # Times a retry/backoff was escalated to fallback by the layer-aware policy.
+            "layer_escalations": 0,
         }
 
         self._logger = logging.getLogger(f"{__name__}.{id(self)}")
