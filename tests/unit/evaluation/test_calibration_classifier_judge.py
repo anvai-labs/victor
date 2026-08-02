@@ -47,8 +47,11 @@ class TestLoadLinearJudge:
 
         judge = load_linear_judge(artifact)
         expected_z = -1.0 + 2.0 * features[some_hash]
-        expected = 1.0 / (1.0 + math.exp(-expected_z))
-        assert judge("Create a file", text_transcript, tmp_path) == pytest.approx(expected)
+        expected_prob = 1.0 / (1.0 + math.exp(-expected_z))
+        # The judge binarizes at 0.5 (the harness scores α nominally).
+        assert judge("Create a file", text_transcript, tmp_path) == (
+            1.0 if expected_prob >= 0.5 else 0.0
+        )
 
     def test_feature_spec_mismatch_refuses_to_load(self, tmp_path: Path):
         artifact = tmp_path / "m.npz"
@@ -56,10 +59,15 @@ class TestLoadLinearJudge:
         with pytest.raises(ValueError, match="feature spec"):
             load_linear_judge(artifact)
 
-    def test_wrapper_returns_probability_range(self, tmp_path: Path):
-        judge = make_classifier_judge(lambda _text: 0.73)
-        score = judge("p", Transcript(final_message="x"), tmp_path)
-        assert score == 0.73
+    def test_wrapper_binarizes_at_threshold(self, tmp_path: Path):
+        # The verdict must be a binary completion label, not a raw probability,
+        # so the nominal-α gate scores it correctly (see make_classifier_judge).
+        t = Transcript(final_message="x")
+        assert make_classifier_judge(lambda _t: 0.73)("p", t, tmp_path) == 1.0
+        assert make_classifier_judge(lambda _t: 0.49)("p", t, tmp_path) == 0.0
+        assert make_classifier_judge(lambda _t: 0.5)("p", t, tmp_path) == 1.0
+        # Custom threshold.
+        assert make_classifier_judge(lambda _t: 0.6, threshold=0.7)("p", t, tmp_path) == 0.0
 
 
 class TestLoadEncoderJudge:
@@ -112,5 +120,5 @@ class TestLoadEncoderJudge:
         from victor.evaluation.calibration_classifier_judge import load_encoder_judge
 
         judge = load_encoder_judge(tmp_path)
-        expected = math.exp(2.0) / (math.exp(0.0) + math.exp(2.0))
-        assert judge("p", Transcript(final_message="x"), tmp_path) == pytest.approx(expected)
+        # softmax([0,2])[1] ≈ 0.88 ≥ 0.5 → binarized verdict 1.0.
+        assert judge("p", Transcript(final_message="x"), tmp_path) == 1.0

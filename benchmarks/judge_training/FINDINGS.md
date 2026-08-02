@@ -1,5 +1,37 @@
 # Trained Judge Experiments (E2) — Findings
 
+> ## CORRECTION (2026-08-02): the −0.266 results below were a scoring artifact
+>
+> Every "α=−0.266" verdict in the original writeup was produced by a bug, not
+> by the judges. `make_classifier_judge` returned a raw **probability**, and
+> the calibration harness computes Krippendorff α at the **nominal** level — so
+> `0.999` and `1.0` were treated as different categories and counted as
+> disagreement against a `1.0` gold. LLM judges were unaffected (they return
+> clean 0/1 completion verdicts); only the probabilistic trained judges were
+> mis-scored. Fixed by binarizing the classifier verdict at 0.5
+> (`victor/evaluation/calibration_classifier_judge.py`), matching the LLM-judge
+> contract. **Corrected results, through the fixed pipeline on the run-12 pack:**
+>
+> | Training data | Overall α | Per-family | Verdict |
+> |---|---|---|---|
+> | scripted only (arms A/B) | **−0.84** | all negative | FAIL — constant "incomplete" |
+> | real-agent only | **−0.04** | ~0 | FAIL — constant "complete" (real data is 98% positive → no negatives to learn from) |
+> | **real positives + scripted negatives (mix)** | **0.928, trusted** | code-fix/docs/qa/refactor = 1.0; **file-create = 0.644** | **NEAR-PASS** — overall gate passes and beats llama3.3:70b (0.878); one family short of the strict per-family bar |
+>
+> **What actually held from the original diagnosis:** the distribution point is
+> real — scripted-only rejects real completions, real-only accepts everything.
+> The fix is a training set with real-styled positives AND boundary-providing
+> negatives. **What was wrong:** "a 149M model can't do it / capacity isn't the
+> issue and a bigger model won't help." With the scoring fixed and the right
+> data mix, the 149M ModernBERT reaches α=0.928 — the small independent judge
+> essentially works; it is ~one iteration (a cleaner `file-create` negative or
+> a tuned threshold) from a full per-family pass. Committed evidence:
+> `reports-fixed-{mix,real,scripted}/`.
+>
+> The original (mis-scored) analysis is retained below for the record.
+
+---
+
 Small independent completion judges trained on programmatic verifier gold
 (κ=1.0-validated, FINDINGS run 12). Dataset: `generate_dataset.py` (8,400
 scripted examples, 7,200 train / 1,200 dev, split by variant index). The gate

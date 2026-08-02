@@ -41,11 +41,26 @@ from victor.evaluation.calibration_rubric_judge import render_judged_content
 from victor.evaluation.judge_calibration_harness import CalibrationJudge, Transcript
 
 
-def make_classifier_judge(score_fn: Callable[[str], float]) -> CalibrationJudge:
-    """Wrap a ``rendered_text -> p(complete)`` scorer as a CalibrationJudge."""
+def make_classifier_judge(
+    score_fn: Callable[[str], float], *, threshold: float = 0.5
+) -> CalibrationJudge:
+    """Wrap a ``rendered_text -> p(complete)`` scorer as a CalibrationJudge.
+
+    The verdict is BINARIZED at ``threshold`` (default 0.5). This is required,
+    not cosmetic: the calibration harness computes Krippendorff α at the
+    *nominal* level (see ``judge_calibration.krippendorff_alpha``), so a judge
+    that returns a raw probability makes every distinct float its own category
+    — ``0.999`` and ``1.0`` count as a disagreement against a ``1.0`` gold, and
+    α collapses to a meaningless negative even for a near-perfect judge (this
+    silently mis-scored every trained-judge experiment before the fix: a
+    ModernBERT judge at 95/96 agreement reported α=−0.266 instead of its true
+    0.928). LLM judges already return binary completion verdicts (rubric via
+    ``score_mode="complete"``); classifier judges must match that contract.
+    """
 
     def judge(prompt: str, transcript: Transcript, workspace: Path) -> float:
-        return float(score_fn(render_judged_content(prompt, transcript, workspace)))
+        prob = float(score_fn(render_judged_content(prompt, transcript, workspace)))
+        return 1.0 if prob >= threshold else 0.0
 
     return judge
 
