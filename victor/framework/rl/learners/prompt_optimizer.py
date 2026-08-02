@@ -103,6 +103,10 @@ from victor.framework.rl.learners.gepa_strategy import (
     GEPAStrategy,
     PromptOptimizationStrategy,
 )
+from victor.framework.rl.learners.candidate_repository import (
+    CandidateRepository,
+    candidate_key,
+)
 from victor.framework.rl.learners.trace_collection import (
     TraceCollector,
     absorb_run_kind,
@@ -262,6 +266,9 @@ class PromptOptimizerLearner(BaseLearner):
         # verdict lookup (which caches on this learner), injected as a callable.
         self._trace_collector = TraceCollector(self._harness_verdicts)
         super().__init__(name, db_connection, learning_rate, provider_adapter)
+        # Candidate DB I/O lives in CandidateRepository; created after super()
+        # sets up self.db (and after _ensure_tables ran as a BaseLearner hook).
+        self._candidate_repo = CandidateRepository(self.db)
         self._load_candidates()
         if self._use_pareto:
             self._init_pareto_frontiers()
@@ -576,67 +583,19 @@ class PromptOptimizerLearner(BaseLearner):
             logger.warning("Failed to create prompt optimizer tables: %s", e)
 
     def _load_candidates(self) -> None:
-        """Load candidates from DB into memory.
+        """Load candidates from DB into memory (in place).
 
         Candidates are keyed by (section_name, provider) for provider-aware
         prompt evolution. The dict key is "section_name::provider".
         """
-        from victor.core.schema import Tables
-
-        try:
-            cursor = self.db.execute(
-                f"SELECT section_name, provider, text_hash, text, generation, parent_hash, "
-                f"completion_score, token_efficiency, tool_effectiveness, "
-                f"alpha, beta, sample_count, instance_scores, coverage_count, "
-                f"is_on_frontier, char_length, benchmark_score, benchmark_runs, "
-                f"benchmark_passed, is_active, strategy_name, strategy_chain, "
-                f"requires_benchmark "
-                f"FROM {Tables.AGENT_PROMPT_CANDIDATE}"
-            )
-            for row in cursor.fetchall():
-                try:
-                    instance_scores = json_loads(row[12] or "{}")
-                except Exception:
-                    instance_scores = {}
-                candidate = PromptCandidate(
-                    section_name=row[0],
-                    provider=row[1] or "default",
-                    text_hash=row[2],
-                    text=row[3],
-                    generation=row[4],
-                    parent_hash=row[5] or "",
-                    scores={
-                        "completion_score": row[6],
-                        "token_efficiency": row[7],
-                        "tool_effectiveness": row[8],
-                    },
-                    alpha=row[9],
-                    beta_val=row[10],
-                    sample_count=row[11],
-                    instance_scores=instance_scores,
-                    coverage_count=row[13] or 0,
-                    is_on_frontier=bool(row[14]),
-                    char_length=row[15] or 0,
-                    benchmark_score=row[16] or 0.0,
-                    benchmark_runs=row[17] or 0,
-                    benchmark_passed=bool(row[18]),
-                    is_active=bool(row[19]),
-                    strategy_name=row[20] or "gepa",
-                    strategy_chain=row[21] or row[20] or "gepa",
-                    requires_benchmark=bool(row[22]),
-                )
-                key = self._candidate_key(row[0], row[1] or "default")
-                self._candidates.setdefault(key, []).append(candidate)
-            total = sum(len(v) for v in self._candidates.values())
-            if total:
-                logger.info("Loaded %d prompt candidates from database", total)
-        except Exception as e:
-            logger.debug("Failed to load prompt candidates: %s", e)
+        loaded = self._candidate_repo.load_all()
+        self._candidates.clear()
+        self._candidates.update(loaded)
 
     @staticmethod
     def _candidate_key(section_name: str, provider: str = "default") -> str:
-        """Build the dict key for a (section, provider) pair."""
-        return f"{section_name}::{provider}"
+        """Delegates to :func:`candidate_repository.candidate_key`."""
+        return candidate_key(section_name, provider)
 
     @staticmethod
     def _normalize_strategy_class_name(strategy: "PromptOptimizationStrategy") -> str:
@@ -1099,17 +1058,7 @@ class PromptOptimizerLearner(BaseLearner):
             pruned = section_candidates[MAX_CANDIDATES_PER_SECTION:]
             self._candidates[key] = section_candidates[:MAX_CANDIDATES_PER_SECTION]
             # Remove pruned from DB
-            from victor.core.schema import Tables
-
-            for p_candidate in pruned:
-                try:
-                    self.db.execute(
-                        f"DELETE FROM {Tables.AGENT_PROMPT_CANDIDATE} WHERE text_hash = ?",
-                        (p_candidate.text_hash,),
-                    )
-                except Exception:
-                    pass
-            self.db.commit()
+            self._candidate_repo.delete_many([p_candidate.text_hash for p_candidate in pruned])
             logger.info(
                 "Pruned %d candidates from %s (kept top %d)",
                 len(pruned),
@@ -1148,48 +1097,8 @@ class PromptOptimizerLearner(BaseLearner):
         return max(c.generation for c in candidates)
 
     def _save_candidate(self, candidate: PromptCandidate) -> None:
-        """Persist a candidate to the database."""
-        from victor.core.schema import Tables
-
-        try:
-            self.db.execute(
-                f"INSERT OR REPLACE INTO {Tables.AGENT_PROMPT_CANDIDATE} "
-                f"(section_name, provider, text_hash, text, generation, parent_hash, "
-                f"completion_score, token_efficiency, tool_effectiveness, "
-                f"alpha, beta, sample_count, instance_scores, coverage_count, "
-                f"is_on_frontier, char_length, benchmark_score, benchmark_runs, "
-                f"benchmark_passed, is_active, strategy_name, strategy_chain, "
-                f"requires_benchmark) "
-                f"VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    candidate.section_name,
-                    candidate.provider,
-                    candidate.text_hash,
-                    candidate.text,
-                    candidate.generation,
-                    candidate.parent_hash,
-                    candidate.scores.get("completion_score", 0.0),
-                    candidate.scores.get("token_efficiency", 0.0),
-                    candidate.scores.get("tool_effectiveness", 0.0),
-                    candidate.alpha,
-                    candidate.beta_val,
-                    candidate.sample_count,
-                    json_dumps(candidate.instance_scores or {}),
-                    candidate.coverage_count,
-                    int(candidate.is_on_frontier),
-                    candidate.char_length or len(candidate.text),
-                    candidate.benchmark_score,
-                    candidate.benchmark_runs,
-                    int(candidate.benchmark_passed),
-                    int(candidate.is_active),
-                    candidate.strategy_name,
-                    candidate.strategy_chain,
-                    int(candidate.requires_benchmark),
-                ),
-            )
-            self.db.commit()
-        except Exception as e:
-            logger.warning("Failed to save prompt candidate: %s", e)
+        """Delegates to :meth:`CandidateRepository.save`."""
+        self._candidate_repo.save(candidate)
 
     def _find_candidate(
         self,
