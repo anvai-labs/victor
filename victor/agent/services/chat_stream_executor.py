@@ -1565,13 +1565,13 @@ class StreamingChatExecutor:
         # Completion strategy (ADR-009): thread from settings; build the provider-backed rubric judge
         # for rubric/hybrid (default "enhanced" → no rubric, no behavior change). Reuses the buffered
         # path's helper so both modes resolve completion identically.
-        import os as _os
+        from victor.agent.services.judge_calibration_gate import resolve_completion_strategy
 
         _te = getattr(orch, "turn_executor", None)
-        _strategy = _os.environ.get("VICTOR_COMPLETION_STRATEGY") or getattr(
-            getattr(getattr(orch, "settings", None), "agent", None),
-            "completion_strategy",
-            "enhanced",
+        # Env override → settings default → ADR-011 judge pinning; same gate as buffered path.
+        _strategy = resolve_completion_strategy(
+            getattr(orch, "settings", None),
+            getattr(getattr(_te, "_provider_context", None), "model", None),
         )
         _rubric_fn = (
             _te._build_rubric_complete_fn()
