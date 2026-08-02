@@ -1009,6 +1009,18 @@ def run_benchmark(
         swebench_image_source=swebench_image_source,
     )
     _attach_manifest_metadata(config, runner)
+    if benchmark.startswith("swe-bench") and config.eval_backend != "docker":
+        # Host verification cannot reproduce the official harness: it depends on
+        # the ambient environment and skips the per-instance runtime image.
+        # --swebench-image-source only selects WHICH image once the docker
+        # backend is on; it does not enable it.
+        console.print(
+            "[bold yellow]⚠ Host-fallback verification (eval backend: "
+            f"{config.eval_backend}).[/bold yellow] SWE-bench pass rates from this "
+            "mode are NOT comparable to the official harness and must not be "
+            "published — run with [bold]--eval-backend docker[/bold] for "
+            "in-container FAIL_TO_PASS verification."
+        )
     _print_benchmark_header(
         title=f"Running {benchmark} benchmark",
         benchmark=benchmark,

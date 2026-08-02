@@ -316,7 +316,23 @@ class SWEBenchRunner(BaseBenchmarkRunner):
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )
-                await test_proc.communicate()
+                _, test_apply_err = await test_proc.communicate()
+                if test_proc.returncode != 0:
+                    # A silently unapplied gold test patch means the run scores
+                    # the OLD test files — which pass pre-fix, a false-positive
+                    # "resolved". Fail loudly instead of scoring the wrong tests.
+                    result.status = TaskStatus.ERROR
+                    result.error_message = (
+                        "Gold test patch failed to apply: "
+                        f"{test_apply_err.decode(errors='replace')[:200]}"
+                    )
+                    logger.warning(
+                        "Gold test patch failed to apply for %s — refusing to "
+                        "score against unpatched tests: %s",
+                        task.task_id,
+                        test_apply_err.decode(errors="replace")[:200],
+                    )
+                    return result
 
             # Try to apply patch to the installed package in site-packages.
             # Source checkouts of projects like astropy need compiled C extensions
@@ -343,30 +359,57 @@ class SWEBenchRunner(BaseBenchmarkRunner):
 
                 try:
                     spec = __import__(repo_name)
-                    site_pkg_dir = Path(spec.__file__).parent
-                    # Apply patch to site-packages
-                    site_patch_file = cached_repo / ".site_patch.diff"
-                    site_patch_file.write_text(patch)
-                    apply_site = await asyncio.create_subprocess_exec(
-                        "git",
-                        "apply",
-                        "--allow-empty",
-                        "--directory",
-                        str(site_pkg_dir.parent),
-                        str(site_patch_file),
-                        cwd=cached_repo,
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.PIPE,
-                    )
-                    site_out, site_err = await apply_site.communicate()
-                    if apply_site.returncode == 0:
-                        logger.info(
-                            "Patch also applied to installed package at %s",
-                            site_pkg_dir,
-                        )
-                    site_patch_file.unlink(missing_ok=True)
+                    candidate_dir = Path(spec.__file__).parent
                 except Exception as e:
-                    logger.debug("Could not patch installed package: %s", e)
+                    candidate_dir = None
+                    logger.debug("Could not import installed package: %s", e)
+
+                if candidate_dir is not None and not self._module_resolves_to_checkout(
+                    candidate_dir, cached_repo
+                ):
+                    # The import resolved to an AMBIENT install (e.g. the
+                    # environment's own astropy), not the task checkout. Testing
+                    # that package scores the wrong code entirely: a bug fixed
+                    # upstream passes its FAIL_TO_PASS tests with no agent fix
+                    # at all (observed live: anaconda's astropy 6.1.3 scored
+                    # astropy__astropy-12907 15/15 "passed" against a
+                    # repro-script-only patch). Refuse the shadow package; the
+                    # checkout-only run reports honestly (including 0-collected
+                    # when C-extensions are missing).
+                    logger.warning(
+                        "Installed %s resolves to %s, not the task checkout %s — "
+                        "skipping site-packages test path (ambient version would "
+                        "mask the base-commit bug).",
+                        repo_name,
+                        candidate_dir,
+                        cached_repo,
+                    )
+                elif candidate_dir is not None:
+                    try:
+                        site_pkg_dir = candidate_dir
+                        # Apply patch to site-packages
+                        site_patch_file = cached_repo / ".site_patch.diff"
+                        site_patch_file.write_text(patch)
+                        apply_site = await asyncio.create_subprocess_exec(
+                            "git",
+                            "apply",
+                            "--allow-empty",
+                            "--directory",
+                            str(site_pkg_dir.parent),
+                            str(site_patch_file),
+                            cwd=cached_repo,
+                            stdout=asyncio.subprocess.PIPE,
+                            stderr=asyncio.subprocess.PIPE,
+                        )
+                        site_out, site_err = await apply_site.communicate()
+                        if apply_site.returncode == 0:
+                            logger.info(
+                                "Patch also applied to installed package at %s",
+                                site_pkg_dir,
+                            )
+                        site_patch_file.unlink(missing_ok=True)
+                    except Exception as e:
+                        logger.debug("Could not patch installed package: %s", e)
 
             # Run tests using detected test runner
             from victor.context.test_runner import detect_test_runner
@@ -489,6 +532,20 @@ class SWEBenchRunner(BaseBenchmarkRunner):
                 await proc.communicate()
 
         return result
+
+    @staticmethod
+    def _module_resolves_to_checkout(module_dir: Path, cached_repo: Path) -> bool:
+        """True when the imported package lives under the task checkout.
+
+        Host-path verification may only score code that descends from the
+        base-commit checkout (an editable install of it). Anything else — the
+        environment's own copy of the project — is a shadow install whose
+        version post-dates the bug under test.
+        """
+        try:
+            return module_dir.resolve().is_relative_to(cached_repo.resolve())
+        except (OSError, ValueError):
+            return False
 
     @staticmethod
     def _select_backend(config: EvaluationConfig) -> str:

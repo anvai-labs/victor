@@ -696,3 +696,78 @@ class TestBenchmarkConfiguration:
         assert swe_runner.benchmark_type == BenchmarkType.SWE_BENCH
         assert human_runner.benchmark_type == BenchmarkType.HUMAN_EVAL
         assert mbpp_runner.benchmark_type == BenchmarkType.MBPP
+
+
+class TestShadowInstallGuard:
+    """Host-path verification must never score an ambient site-packages install.
+
+    Regression guard for the OP-RUN-3 finding: anaconda's astropy 6.1.3 scored
+    astropy__astropy-12907 15/15 "passed" against a patch that fixed nothing,
+    because the imported package (and its own test files) shadowed the
+    base-commit checkout.
+    """
+
+    def test_checkout_editable_install_is_accepted(self, tmp_path):
+        checkout = tmp_path / "repo"
+        module_dir = checkout / "astropy"
+        module_dir.mkdir(parents=True)
+        assert SWEBenchRunner._module_resolves_to_checkout(module_dir, checkout)
+
+    def test_ambient_site_packages_is_rejected(self, tmp_path):
+        checkout = tmp_path / "repo"
+        checkout.mkdir()
+        ambient = tmp_path / "site-packages" / "astropy"
+        ambient.mkdir(parents=True)
+        assert not SWEBenchRunner._module_resolves_to_checkout(ambient, checkout)
+
+    def test_symlinked_checkout_resolves(self, tmp_path):
+        checkout = tmp_path / "repo"
+        (checkout / "pkg").mkdir(parents=True)
+        link = tmp_path / "link"
+        link.symlink_to(checkout)
+        assert SWEBenchRunner._module_resolves_to_checkout(link / "pkg", checkout)
+
+
+class TestGoldTestPatchApplyGuard:
+    """A gold test patch that fails to apply must ERROR, not score old tests."""
+
+    async def test_failed_test_patch_apply_errors_the_task(self, tmp_path, monkeypatch):
+        import subprocess
+
+        # A real git repo whose HEAD cannot accept the (bogus) test patch.
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+        subprocess.run(["git", "config", "user.email", "t@t"], cwd=repo, check=True)
+        subprocess.run(["git", "config", "user.name", "t"], cwd=repo, check=True)
+        (repo / "a.txt").write_text("hello\n")
+        subprocess.run(["git", "add", "."], cwd=repo, check=True)
+        subprocess.run(["git", "commit", "-qm", "init"], cwd=repo, check=True)
+
+        from victor.evaluation.protocol import (
+            BenchmarkTask,
+            BenchmarkType,
+            EvaluationConfig,
+            TaskStatus,
+        )
+
+        task = BenchmarkTask(
+            task_id="t1",
+            benchmark=BenchmarkType.SWE_BENCH,
+            description="d",
+            test_code=(
+                "diff --git a/missing.py b/missing.py\n"
+                "--- a/missing.py\n"
+                "+++ b/missing.py\n"
+                "@@ -1,1 +1,1 @@\n"
+                "-not the real content\n"
+                "+still not\n"
+            ),
+        )
+        # base_commit=None skips the reset branch; the agent patch is empty-but-valid.
+        runner = SWEBenchRunner()
+        result = TaskResult(task_id="t1", status=TaskStatus.RUNNING)
+        config = EvaluationConfig(benchmark=BenchmarkType.SWE_BENCH, model="m", timeout_per_task=30)
+        out = await runner._run_tests_in_cached_repo(task, result, "", repo, config)
+        assert out.status == TaskStatus.ERROR
+        assert "test patch failed to apply" in (out.error_message or "").lower()
