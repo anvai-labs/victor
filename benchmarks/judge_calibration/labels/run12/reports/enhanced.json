@@ -1,0 +1,625 @@
+{
+  "alpha_threshold": 0.7,
+  "gate": {
+    "reason": "\u03b1=-0.837 < 0.70 \u2014 falling back to algorithmic scoring",
+    "scope": "binary completion verdicts only (gold labels are programmatic verifier outcomes, not interval rubric scores)",
+    "trusted": false
+  },
+  "n": 96,
+  "overall": {
+    "cohens_kappa": 0.0,
+    "krippendorff_alpha": -0.8365,
+    "level": "nominal",
+    "n": 96
+  },
+  "per_family": {
+    "code-fix": {
+      "cohens_kappa": 0.0,
+      "krippendorff_alpha": -0.7222,
+      "level": "nominal",
+      "n": 16
+    },
+    "docs": {
+      "cohens_kappa": 0.0,
+      "krippendorff_alpha": -0.8235,
+      "level": "nominal",
+      "n": 16
+    },
+    "file-create": {
+      "cohens_kappa": 0.0,
+      "krippendorff_alpha": -0.7222,
+      "level": "nominal",
+      "n": 16
+    },
+    "qa": {
+      "cohens_kappa": 0.0,
+      "krippendorff_alpha": -0.8235,
+      "level": "nominal",
+      "n": 16
+    },
+    "refactor": {
+      "cohens_kappa": 0.0,
+      "krippendorff_alpha": -0.8529,
+      "level": "nominal",
+      "n": 32
+    }
+  },
+  "samples": [
+    {
+      "family": "file-create",
+      "gold": 0.0,
+      "judged": 0.0,
+      "task_id": "file-create-00"
+    },
+    {
+      "family": "code-fix",
+      "gold": 0.0,
+      "judged": 0.0,
+      "task_id": "code-fix-00"
+    },
+    {
+      "family": "refactor",
+      "gold": 0.0,
+      "judged": 0.0,
+      "task_id": "refactor-rename-00"
+    },
+    {
+      "family": "docs",
+      "gold": 0.0,
+      "judged": 0.0,
+      "task_id": "docs-link-00"
+    },
+    {
+      "family": "refactor",
+      "gold": 0.0,
+      "judged": 0.0,
+      "task_id": "dead-code-00"
+    },
+    {
+      "family": "qa",
+      "gold": 0.0,
+      "judged": 0.0,
+      "task_id": "qa-config-00"
+    },
+    {
+      "family": "file-create",
+      "gold": 0.0,
+      "judged": 0.0,
+      "task_id": "file-create-01"
+    },
+    {
+      "family": "code-fix",
+      "gold": 0.0,
+      "judged": 0.0,
+      "task_id": "code-fix-01"
+    },
+    {
+      "family": "refactor",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "refactor-rename-01"
+    },
+    {
+      "family": "docs",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "docs-link-01"
+    },
+    {
+      "family": "refactor",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "dead-code-01"
+    },
+    {
+      "family": "qa",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "qa-config-01"
+    },
+    {
+      "family": "file-create",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "file-create-02"
+    },
+    {
+      "family": "code-fix",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "code-fix-02"
+    },
+    {
+      "family": "refactor",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "refactor-rename-02"
+    },
+    {
+      "family": "docs",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "docs-link-02"
+    },
+    {
+      "family": "refactor",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "dead-code-02"
+    },
+    {
+      "family": "qa",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "qa-config-02"
+    },
+    {
+      "family": "file-create",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "file-create-03"
+    },
+    {
+      "family": "code-fix",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "code-fix-03"
+    },
+    {
+      "family": "refactor",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "refactor-rename-03"
+    },
+    {
+      "family": "docs",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "docs-link-03"
+    },
+    {
+      "family": "refactor",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "dead-code-03"
+    },
+    {
+      "family": "qa",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "qa-config-03"
+    },
+    {
+      "family": "file-create",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "file-create-04"
+    },
+    {
+      "family": "code-fix",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "code-fix-04"
+    },
+    {
+      "family": "refactor",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "refactor-rename-04"
+    },
+    {
+      "family": "docs",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "docs-link-04"
+    },
+    {
+      "family": "refactor",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "dead-code-04"
+    },
+    {
+      "family": "qa",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "qa-config-04"
+    },
+    {
+      "family": "file-create",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "file-create-05"
+    },
+    {
+      "family": "code-fix",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "code-fix-05"
+    },
+    {
+      "family": "refactor",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "refactor-rename-05"
+    },
+    {
+      "family": "docs",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "docs-link-05"
+    },
+    {
+      "family": "refactor",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "dead-code-05"
+    },
+    {
+      "family": "qa",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "qa-config-05"
+    },
+    {
+      "family": "file-create",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "file-create-06"
+    },
+    {
+      "family": "code-fix",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "code-fix-06"
+    },
+    {
+      "family": "refactor",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "refactor-rename-06"
+    },
+    {
+      "family": "docs",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "docs-link-06"
+    },
+    {
+      "family": "refactor",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "dead-code-06"
+    },
+    {
+      "family": "qa",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "qa-config-06"
+    },
+    {
+      "family": "file-create",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "file-create-07"
+    },
+    {
+      "family": "code-fix",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "code-fix-07"
+    },
+    {
+      "family": "refactor",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "refactor-rename-07"
+    },
+    {
+      "family": "docs",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "docs-link-07"
+    },
+    {
+      "family": "refactor",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "dead-code-07"
+    },
+    {
+      "family": "qa",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "qa-config-07"
+    },
+    {
+      "family": "file-create",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "file-create-08"
+    },
+    {
+      "family": "code-fix",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "code-fix-08"
+    },
+    {
+      "family": "refactor",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "refactor-rename-08"
+    },
+    {
+      "family": "docs",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "docs-link-08"
+    },
+    {
+      "family": "refactor",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "dead-code-08"
+    },
+    {
+      "family": "qa",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "qa-config-08"
+    },
+    {
+      "family": "file-create",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "file-create-09"
+    },
+    {
+      "family": "code-fix",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "code-fix-09"
+    },
+    {
+      "family": "refactor",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "refactor-rename-09"
+    },
+    {
+      "family": "docs",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "docs-link-09"
+    },
+    {
+      "family": "refactor",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "dead-code-09"
+    },
+    {
+      "family": "qa",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "qa-config-09"
+    },
+    {
+      "family": "file-create",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "file-create-10"
+    },
+    {
+      "family": "code-fix",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "code-fix-10"
+    },
+    {
+      "family": "refactor",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "refactor-rename-10"
+    },
+    {
+      "family": "docs",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "docs-link-10"
+    },
+    {
+      "family": "refactor",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "dead-code-10"
+    },
+    {
+      "family": "qa",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "qa-config-10"
+    },
+    {
+      "family": "file-create",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "file-create-11"
+    },
+    {
+      "family": "code-fix",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "code-fix-11"
+    },
+    {
+      "family": "refactor",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "refactor-rename-11"
+    },
+    {
+      "family": "docs",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "docs-link-11"
+    },
+    {
+      "family": "refactor",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "dead-code-11"
+    },
+    {
+      "family": "qa",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "qa-config-11"
+    },
+    {
+      "family": "file-create",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "file-create-12"
+    },
+    {
+      "family": "code-fix",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "code-fix-12"
+    },
+    {
+      "family": "refactor",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "refactor-rename-12"
+    },
+    {
+      "family": "docs",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "docs-link-12"
+    },
+    {
+      "family": "refactor",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "dead-code-12"
+    },
+    {
+      "family": "qa",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "qa-config-12"
+    },
+    {
+      "family": "file-create",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "file-create-13"
+    },
+    {
+      "family": "code-fix",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "code-fix-13"
+    },
+    {
+      "family": "refactor",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "refactor-rename-13"
+    },
+    {
+      "family": "docs",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "docs-link-13"
+    },
+    {
+      "family": "refactor",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "dead-code-13"
+    },
+    {
+      "family": "qa",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "qa-config-13"
+    },
+    {
+      "family": "file-create",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "file-create-14"
+    },
+    {
+      "family": "code-fix",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "code-fix-14"
+    },
+    {
+      "family": "refactor",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "refactor-rename-14"
+    },
+    {
+      "family": "docs",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "docs-link-14"
+    },
+    {
+      "family": "refactor",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "dead-code-14"
+    },
+    {
+      "family": "qa",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "qa-config-14"
+    },
+    {
+      "family": "file-create",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "file-create-15"
+    },
+    {
+      "family": "code-fix",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "code-fix-15"
+    },
+    {
+      "family": "refactor",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "refactor-rename-15"
+    },
+    {
+      "family": "docs",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "docs-link-15"
+    },
+    {
+      "family": "refactor",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "dead-code-15"
+    },
+    {
+      "family": "qa",
+      "gold": 1.0,
+      "judged": 0.0,
+      "task_id": "qa-config-15"
+    }
+  ]
+}
