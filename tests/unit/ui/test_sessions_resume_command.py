@@ -24,7 +24,6 @@ from typer.testing import CliRunner
 from victor.framework.session_config import SessionConfig
 from victor.ui.commands import sessions as sessions_cmd
 
-
 # ── framework: from_cli_flags arms durable ────────────────────────
 
 
@@ -68,9 +67,7 @@ class _FakeRunner:
 def _patch(monkeypatch: Any, runner_cls: Any = _FakeRunner) -> None:
     # The subcommand imports these locally, so patch them at their source modules.
     monkeypatch.setattr("victor.config.settings.load_settings", lambda: SimpleNamespace())
-    monkeypatch.setattr(
-        "victor.framework.session_runner.FrameworkSessionRunner", runner_cls
-    )
+    monkeypatch.setattr("victor.framework.session_runner.FrameworkSessionRunner", runner_cls)
 
 
 def test_resume_approve_forwards_decision_and_prints_answer(monkeypatch: Any) -> None:
