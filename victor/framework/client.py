@@ -862,17 +862,30 @@ class VictorClient:
             raise RuntimeError("No orchestrator available to resume the paused run")
 
         outcome = await resume_paused_run(orchestrator, paused, decision)
+        metadata = {
+            "resumed_run_id": run_id,
+            "approved": outcome.approved,
+            "gated_tool": outcome.gated_tool,
+            "continuation_turns": outcome.continuation_turns,
+        }
+        # FEP-0029 chained pause: a new ASK fired during the continuation → the run parked again.
+        # Surface it exactly like a first pause (status + fresh run_id) so callers resume once more.
+        if outcome.awaiting_run_id:
+            return TaskResult(
+                content=outcome.final_content,
+                tool_calls=outcome.tool_calls,
+                success=False,
+                status="awaiting_approval",
+                run_id=outcome.awaiting_run_id,
+                approval_request=outcome.awaiting_approval_request,
+                metadata=metadata,
+            )
         return TaskResult(
             content=outcome.final_content,
             tool_calls=outcome.tool_calls,
             success=True,
             status="ok",
-            metadata={
-                "resumed_run_id": run_id,
-                "approved": outcome.approved,
-                "gated_tool": outcome.gated_tool,
-                "continuation_turns": outcome.continuation_turns,
-            },
+            metadata=metadata,
         )
 
     # ─────────────────────────────────────────────────────────────────────────

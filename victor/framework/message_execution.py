@@ -141,22 +141,12 @@ def _build_awaiting_task_result(orchestrator: Any, pause: Any) -> TaskResult:
     """
     import time
 
-    from victor.agent.paused_run_store import get_paused_run_store
+    from victor.agent.paused_run_store import record_pause_from_approval
 
-    request = getattr(pause, "request", None)
-    req_dict = request.to_dict() if hasattr(request, "to_dict") else {}
-    ctx = getattr(request, "context", {}) or {}
-    tool_name = ctx.get("tool_name") or ctx.get("tool")
-    pending_tool = (
-        {"tool_name": tool_name, "arguments": ctx.get("arguments") or ctx.get("args")}
-        if tool_name
-        else None
-    )
-    run_id = get_paused_run_store().save(
+    run_id, req_dict = record_pause_from_approval(
+        getattr(pause, "request", None),
         session_id=getattr(orchestrator, "active_session_id", None),
         agent_id=getattr(orchestrator, "agent_id", None) or getattr(orchestrator, "model", None),
-        approval_request=req_dict,
-        pending_tool=pending_tool,
         created_at=time.time(),
         metadata={"stage": _resolve_stage_value(orchestrator)},
     )
