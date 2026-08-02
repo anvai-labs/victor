@@ -19,15 +19,17 @@ A continue/alarm check applied to each turn at the EVALUATE seam, mirroring the 
 downgrades a ``COMPLETE`` to ``RETRY`` (never ``FAIL``), bounded by ``max_alarms`` then
 annotate-and-allow — so a too-eager auditor can never trap the loop.
 
-**MVP scope.** The signal is a single **deterministic** turn-health heuristic derived from the
-turn's structured result — no LLM, no network, no latency. It flags a *degenerate* completion: a
-turn that claims done while producing neither assistant content nor any successful tool call (the
-"declare success, do nothing" failure mode). The richer AgentForesight-style signal — an edge-model
-(``victor/agent/edge_model.py``) judging a streaming *prefix* mid-turn — plugs into
-:meth:`PerTurnAuditor.audit_turn` as a follow-on without changing this seam or its downgrade policy.
+**Two-tier signal.** A **deterministic** turn-health heuristic runs first and always — it flags a
+*degenerate* completion: a turn that claims done while producing neither assistant content nor any
+successful tool call (the "declare success, do nothing" failure mode), with no LLM/network/latency.
+If the heuristic does not alarm, an optional **edge-model judge** (a :class:`TurnJudge` injected by
+the runtime — see ``victor/agent/edge_turn_judge.py``, backed by the local Ollama edge model) gets
+the final say; it returns ``None`` (no opinion) when the edge model is unavailable, leaving the
+deterministic verdict intact. The framework stays free of any edge-model dependency (the judge is
+injected, not imported).
 
 Opt-in, default off per the flag-graduation policy; a strict no-op when disabled (ADR-012 parity).
-Pure/deterministic and unit-testable standalone.
+The framework side is pure and unit-testable standalone (inject a fake judge).
 """
 
 from __future__ import annotations
@@ -36,11 +38,26 @@ import logging
 import os
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Dict, Mapping, Optional
+from typing import Any, Dict, Mapping, Optional, Protocol, runtime_checkable
 
 from victor.framework.evaluation_nodes import EvaluationDecision, EvaluationResult
 
 logger = logging.getLogger(__name__)
+
+
+@runtime_checkable
+class TurnJudge(Protocol):
+    """A pluggable per-turn judge (EVR-6). Kept abstract so the framework does not depend on the
+    runtime edge-model service — the agent side injects an implementation.
+
+    ``judge`` returns an :class:`AuditSignal` (a continue/alarm opinion) or ``None`` when it has no
+    opinion (e.g. the edge model was unavailable or fell back to a heuristic), in which case the
+    auditor keeps its deterministic verdict.
+    """
+
+    def judge(
+        self, action_result: Any, state: Optional[Dict[str, Any]]
+    ) -> "Optional[AuditSignal]": ...
 
 
 class AuditVerdict(str, Enum):
@@ -87,8 +104,16 @@ def resolve_per_turn_auditor_enabled(settings: Any) -> bool:
 class PerTurnAuditor:
     """Post-filter on the EVALUATE seam that gates COMPLETE on a per-turn continue/alarm check."""
 
-    def __init__(self, config: Optional[PerTurnAuditorConfig] = None) -> None:
+    def __init__(
+        self,
+        config: Optional[PerTurnAuditorConfig] = None,
+        *,
+        judge: Optional[TurnJudge] = None,
+    ) -> None:
         self.config = config or PerTurnAuditorConfig()
+        # Optional pluggable judge (EVR-6): an edge-model prefix judge injected by the runtime.
+        # None → deterministic heuristic only. Runs only when the heuristic did not already alarm.
+        self._judge = judge
         self._alarms = 0
         self._turn_index = 0
 
@@ -104,8 +129,10 @@ class PerTurnAuditor:
     def audit_turn(self, action_result: Any, state: Optional[Dict[str, Any]] = None) -> AuditSignal:
         """Return the continue/alarm signal for one turn's ``TurnResult``-shaped result.
 
-        MVP heuristic — a *degenerate* completion: no assistant content and no successful tool call.
-        This is the seam an edge-model prefix judge (AgentForesight) augments later.
+        Deterministic heuristic — a *degenerate* completion (no assistant content and no successful
+        tool call) — runs first and always. If it does not alarm and an edge-model
+        :class:`TurnJudge` is injected, the judge gets the final say (returning ``None`` leaves the
+        heuristic's CONTINUE verdict intact, e.g. when the edge model is unavailable).
         """
         content = str(getattr(action_result, "content", "") or "").strip()
         tool_results = getattr(action_result, "tool_results", None) or []
@@ -115,6 +142,16 @@ class PerTurnAuditor:
                 AuditVerdict.ALARM,
                 "degenerate turn: COMPLETE with no assistant content and no successful tool call",
             )
+        if self._judge is not None:
+            try:
+                judged = self._judge.judge(action_result, state)
+            except Exception:  # noqa: BLE001 — a judge must never break the loop
+                logger.debug(
+                    "[PerTurnAuditor] judge raised; keeping heuristic verdict", exc_info=True
+                )
+                judged = None
+            if judged is not None:
+                return judged
         return AuditSignal(AuditVerdict.CONTINUE)
 
     def apply(
