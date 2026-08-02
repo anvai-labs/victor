@@ -45,11 +45,16 @@ class _Controller:
 
 class _ToolService:
     def __init__(self) -> None:
-        self.calls: List[tuple] = []
+        self.calls: List[tuple] = []  # raw execute_tool (pre-approved gated call)
+        self.pipeline_calls: List[dict] = []  # execute_tool_call (siblings, via pipeline)
 
     async def execute_tool(self, tool_name: str, arguments: Any) -> Any:
         self.calls.append((tool_name, arguments))
         return SimpleNamespace(success=True, output=f"ran {tool_name}")
+
+    async def execute_tool_call(self, tool_call: dict) -> dict:
+        self.pipeline_calls.append(tool_call)
+        return {"success": True, "result": f"sibling {tool_call.get('name')}"}
 
 
 class _TurnExecutor:
@@ -188,3 +193,66 @@ async def test_missing_runtime_surface_raises() -> None:
     orch = SimpleNamespace(_conversation_controller=None, _tool_service=None, turn_executor=None)
     with pytest.raises(ResumeError):
         await resume_paused_run(orch, _paused(), ApprovalDecision(approved=True))
+
+
+# ── multi-tool batch partiality ───────────────────────────────────
+
+
+def _batch_conversation() -> List[_Msg]:
+    # A parallel-tool pause: the whole batch aborted at the gate, so BOTH are unresolved.
+    return [
+        _Msg("user", "do two things"),
+        _Msg(
+            "assistant",
+            "",
+            tool_calls=[
+                {"id": "gated", "name": "run_command", "arguments": {"cmd": "rm -rf x"}},
+                {"id": "sib", "name": "read_file", "arguments": {"path": "a.txt"}},
+            ],
+        ),
+    ]
+
+
+async def test_batch_approve_gated_and_runs_siblings_via_pipeline() -> None:
+    orch = _orchestrator(_batch_conversation(), script=[("done", [], False)])
+    out = await resume_paused_run(orch, _paused(), ApprovalDecision(approved=True))
+
+    # Gated call ran through the RAW executor (pre-approved, no re-ASK).
+    assert orch._tool_service.calls == [("run_command", {"cmd": "rm -rf x"})]
+    # The sibling ran through the normal pipeline (policy-honoring), not the raw executor.
+    assert [c["id"] for c in orch._tool_service.pipeline_calls] == ["sib"]
+    # BOTH results were appended (so no tool_call is left without a result before continuing).
+    assert {tc_id for tc_id, _ in orch._conversation_controller.appended} == {"gated", "sib"}
+    assert out.executed_siblings == 1
+    assert out.gated_tool == "run_command" and out.final_content == "done"
+
+
+async def test_batch_reject_gated_still_runs_siblings() -> None:
+    orch = _orchestrator(_batch_conversation(), script=[("ok", [], False)])
+    out = await resume_paused_run(orch, _paused(), ApprovalDecision(approved=False, response="no"))
+    assert orch._tool_service.calls == []  # gated tool never executed
+    assert [c["id"] for c in orch._tool_service.pipeline_calls] == ["sib"]  # sibling still ran
+    appended = dict(orch._conversation_controller.appended)
+    assert "rejected by human" in appended["gated"]
+    assert appended["sib"] == "sibling read_file"
+    assert out.executed_siblings == 1
+
+
+async def test_batch_gated_pick_disambiguated_by_pending_tool() -> None:
+    # The gated one is the SECOND call; pending_tool names it, so it (not the first) is decided.
+    messages = [
+        _Msg("user", "go"),
+        _Msg(
+            "assistant",
+            "",
+            tool_calls=[
+                {"id": "first", "name": "read_file", "arguments": {}},
+                {"id": "second", "name": "run_command", "arguments": {"cmd": "x"}},
+            ],
+        ),
+    ]
+    orch = _orchestrator(messages, script=[("done", [], False)])
+    await resume_paused_run(orch, _paused(tool_name="run_command"), ApprovalDecision(approved=True))
+    # run_command (the gated one) went to the raw executor; read_file (sibling) to the pipeline.
+    assert orch._tool_service.calls == [("run_command", {"cmd": "x"})]
+    assert [c["id"] for c in orch._tool_service.pipeline_calls] == ["first"]
