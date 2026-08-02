@@ -135,4 +135,17 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    import os
+    import sys
+
+    _code = main()
+    # Force exit after the JSONL is written. In --agent-profile mode the full
+    # orchestrator runs, leaving non-daemon threads and open event loops alive
+    # (SharedSignalPool, DB connections); a normal SystemExit then HANGS waiting
+    # on them — observed live: a real-agent run finished writing its dataset but
+    # spun a CPU core in the event-dispatch loop for ~90 min afterward. Same
+    # os._exit workaround as run_offline_calibration.py. Flush first (os._exit
+    # skips buffer flushing).
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(_code)
