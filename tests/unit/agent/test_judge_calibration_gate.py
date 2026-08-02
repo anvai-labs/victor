@@ -100,3 +100,32 @@ class TestSettingsDefault:
         assert set(AgentSettings().rubric_judge_calibrated_models) == set(
             DEFAULT_CALIBRATED_JUDGE_MODELS
         )
+
+
+class TestResolveEffectiveCompletionStrategy:
+    def test_settings_default_flows_through_gate(self, monkeypatch):
+        monkeypatch.delenv("VICTOR_COMPLETION_STRATEGY", raising=False)
+        settings = SimpleNamespace(agent=SimpleNamespace(completion_strategy="rubric"))
+        from victor.agent.services.judge_calibration_gate import (
+            resolve_completion_strategy,
+        )
+
+        assert resolve_completion_strategy(settings, "gemma4:31b") == "rubric"
+        assert resolve_completion_strategy(settings, "qwen2.5:0.5b") == "enhanced"
+
+    def test_env_override_still_gated(self, monkeypatch):
+        monkeypatch.setenv("VICTOR_COMPLETION_STRATEGY", "rubric")
+        from victor.agent.services.judge_calibration_gate import (
+            resolve_completion_strategy,
+        )
+
+        assert resolve_completion_strategy(None, "llama3.3:70b") == "rubric"
+        assert resolve_completion_strategy(None, "uncalibrated:1b") == "enhanced"
+
+    def test_missing_settings_defaults_enhanced(self, monkeypatch):
+        monkeypatch.delenv("VICTOR_COMPLETION_STRATEGY", raising=False)
+        from victor.agent.services.judge_calibration_gate import (
+            resolve_completion_strategy,
+        )
+
+        assert resolve_completion_strategy(None, None) == "enhanced"

@@ -37,6 +37,19 @@ def _calibrated_models(settings: Any) -> frozenset[str]:
     return DEFAULT_CALIBRATED_JUDGE_MODELS
 
 
+def resolve_completion_strategy(settings: Any, judge_model: Optional[str]) -> str:
+    """Full strategy resolution: env override → settings default → judge pinning.
+
+    The single entry point both loop-construction sites use; keeps the
+    resolution logic (and its 100-line-budget) out of the capped hotspot
+    ``turn_execution_runtime``.
+    """
+    strategy = os.environ.get("VICTOR_COMPLETION_STRATEGY") or getattr(
+        getattr(settings, "agent", None), "completion_strategy", "enhanced"
+    )
+    return resolve_gated_completion_strategy(strategy, judge_model, settings)
+
+
 def resolve_gated_completion_strategy(
     strategy: str,
     judge_model: Optional[str],

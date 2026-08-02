@@ -1089,20 +1089,13 @@ class TurnExecutor:
         # Create AgenticLoop with self as turn_executor
         # Use a lightweight mock orchestrator since AgenticLoop only needs
         # turn_executor for single-turn execution
-        # Completion strategy (ADR-009): thread from settings into the loop; build a provider-backed
-        # rubric judge when rubric/hybrid is selected (default "enhanced" → no rubric, no change).
-        import os as _os
+        # ADR-009 strategy + ADR-011 judge pinning: env override, settings default, then
+        # downgrade rubric/hybrid unless the session (judge) model passed calibration.
+        from victor.agent.services.judge_calibration_gate import resolve_completion_strategy
 
         _settings = getattr(self._chat_context, "settings", None)
-        _strategy = _os.environ.get("VICTOR_COMPLETION_STRATEGY") or getattr(
-            getattr(_settings, "agent", None), "completion_strategy", "enhanced"
-        )
-        # Judge-identity pinning (ADR-011): rubric/hybrid downgrade to enhanced unless the
-        # session model (which backs the rubric judge) passed calibration.
-        from victor.agent.services.judge_calibration_gate import resolve_gated_completion_strategy
-
-        _strategy = resolve_gated_completion_strategy(
-            _strategy, getattr(self._provider_context, "model", None), _settings
+        _strategy = resolve_completion_strategy(
+            _settings, getattr(self._provider_context, "model", None)
         )
         _rubric_fn = self._build_rubric_complete_fn() if _strategy in ("rubric", "hybrid") else None
         from victor.framework.effect_gate import resolve_effect_gate_enabled
