@@ -215,6 +215,15 @@ def main() -> int:
         "benchmarks/judge_training/train_linear.py) as judge name 'classifier'.",
     )
     parser.add_argument(
+        "--encoder-judge",
+        type=Path,
+        default=None,
+        metavar="DIR",
+        help="Also score a trained ModernBERT encoder judge (E2 arm B artifact from "
+        "benchmarks/judge_training/train_encoder.py) as judge name 'encoder'. "
+        "Requires the [judge-training] extra.",
+    )
+    parser.add_argument(
         "--replay-pack",
         type=Path,
         default=None,
@@ -294,6 +303,10 @@ def main() -> int:
         from victor.evaluation.calibration_classifier_judge import load_linear_judge
 
         judges["classifier"] = load_linear_judge(args.classifier_judge)
+    if args.encoder_judge:
+        from victor.evaluation.calibration_classifier_judge import load_encoder_judge
+
+        judges["encoder"] = load_encoder_judge(args.encoder_judge)
     llm_stats = None
     if args.judge_profile or args.llm_judge_provider:
         from victor.evaluation.calibration_rubric_judge import (

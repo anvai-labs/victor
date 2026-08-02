@@ -1,0 +1,625 @@
+{
+  "alpha_threshold": 0.7,
+  "gate": {
+    "reason": "\u03b1=-0.266 < 0.70 \u2014 falling back to algorithmic scoring",
+    "scope": "binary completion verdicts only (gold labels are programmatic verifier outcomes, not interval rubric scores)",
+    "trusted": false
+  },
+  "n": 96,
+  "overall": {
+    "cohens_kappa": 0.0,
+    "krippendorff_alpha": -0.2663,
+    "level": "nominal",
+    "n": 96
+  },
+  "per_family": {
+    "code-fix": {
+      "cohens_kappa": 0.0,
+      "krippendorff_alpha": -0.2277,
+      "level": "nominal",
+      "n": 16
+    },
+    "docs": {
+      "cohens_kappa": 0.0,
+      "krippendorff_alpha": -0.2685,
+      "level": "nominal",
+      "n": 16
+    },
+    "file-create": {
+      "cohens_kappa": 0.0,
+      "krippendorff_alpha": -0.2277,
+      "level": "nominal",
+      "n": 16
+    },
+    "qa": {
+      "cohens_kappa": 0.0,
+      "krippendorff_alpha": -0.2685,
+      "level": "nominal",
+      "n": 16
+    },
+    "refactor": {
+      "cohens_kappa": 0.0,
+      "krippendorff_alpha": -0.2759,
+      "level": "nominal",
+      "n": 32
+    }
+  },
+  "samples": [
+    {
+      "family": "file-create",
+      "gold": 0.0,
+      "judged": 2.4530467271688394e-05,
+      "task_id": "file-create-00"
+    },
+    {
+      "family": "code-fix",
+      "gold": 0.0,
+      "judged": 0.0003694679180625826,
+      "task_id": "code-fix-00"
+    },
+    {
+      "family": "refactor",
+      "gold": 0.0,
+      "judged": 1.5670219966068544e-07,
+      "task_id": "refactor-rename-00"
+    },
+    {
+      "family": "docs",
+      "gold": 0.0,
+      "judged": 0.00021916895639151335,
+      "task_id": "docs-link-00"
+    },
+    {
+      "family": "refactor",
+      "gold": 0.0,
+      "judged": 0.000570790667552501,
+      "task_id": "dead-code-00"
+    },
+    {
+      "family": "qa",
+      "gold": 0.0,
+      "judged": 4.377479399408912e-06,
+      "task_id": "qa-config-00"
+    },
+    {
+      "family": "file-create",
+      "gold": 0.0,
+      "judged": 7.004214421613142e-05,
+      "task_id": "file-create-01"
+    },
+    {
+      "family": "code-fix",
+      "gold": 0.0,
+      "judged": 0.0011026106076315045,
+      "task_id": "code-fix-01"
+    },
+    {
+      "family": "refactor",
+      "gold": 1.0,
+      "judged": 0.0008960526902228594,
+      "task_id": "refactor-rename-01"
+    },
+    {
+      "family": "docs",
+      "gold": 1.0,
+      "judged": 0.004502400290220976,
+      "task_id": "docs-link-01"
+    },
+    {
+      "family": "refactor",
+      "gold": 1.0,
+      "judged": 0.07329072058200836,
+      "task_id": "dead-code-01"
+    },
+    {
+      "family": "qa",
+      "gold": 1.0,
+      "judged": 0.015012801624834538,
+      "task_id": "qa-config-01"
+    },
+    {
+      "family": "file-create",
+      "gold": 1.0,
+      "judged": 0.007505151908844709,
+      "task_id": "file-create-02"
+    },
+    {
+      "family": "code-fix",
+      "gold": 1.0,
+      "judged": 0.004507066216319799,
+      "task_id": "code-fix-02"
+    },
+    {
+      "family": "refactor",
+      "gold": 1.0,
+      "judged": 0.0015869938069954515,
+      "task_id": "refactor-rename-02"
+    },
+    {
+      "family": "docs",
+      "gold": 1.0,
+      "judged": 0.01432294212281704,
+      "task_id": "docs-link-02"
+    },
+    {
+      "family": "refactor",
+      "gold": 1.0,
+      "judged": 0.015793142840266228,
+      "task_id": "dead-code-02"
+    },
+    {
+      "family": "qa",
+      "gold": 1.0,
+      "judged": 0.027347637340426445,
+      "task_id": "qa-config-02"
+    },
+    {
+      "family": "file-create",
+      "gold": 1.0,
+      "judged": 0.006924766581505537,
+      "task_id": "file-create-03"
+    },
+    {
+      "family": "code-fix",
+      "gold": 1.0,
+      "judged": 0.003309096209704876,
+      "task_id": "code-fix-03"
+    },
+    {
+      "family": "refactor",
+      "gold": 1.0,
+      "judged": 0.00033959918073378503,
+      "task_id": "refactor-rename-03"
+    },
+    {
+      "family": "docs",
+      "gold": 1.0,
+      "judged": 0.014703834429383278,
+      "task_id": "docs-link-03"
+    },
+    {
+      "family": "refactor",
+      "gold": 1.0,
+      "judged": 0.03474796190857887,
+      "task_id": "dead-code-03"
+    },
+    {
+      "family": "qa",
+      "gold": 1.0,
+      "judged": 0.0354170985519886,
+      "task_id": "qa-config-03"
+    },
+    {
+      "family": "file-create",
+      "gold": 1.0,
+      "judged": 0.006550497375428677,
+      "task_id": "file-create-04"
+    },
+    {
+      "family": "code-fix",
+      "gold": 1.0,
+      "judged": 0.003979851957410574,
+      "task_id": "code-fix-04"
+    },
+    {
+      "family": "refactor",
+      "gold": 1.0,
+      "judged": 0.00032299369922839105,
+      "task_id": "refactor-rename-04"
+    },
+    {
+      "family": "docs",
+      "gold": 1.0,
+      "judged": 0.00904800184071064,
+      "task_id": "docs-link-04"
+    },
+    {
+      "family": "refactor",
+      "gold": 1.0,
+      "judged": 0.03281184285879135,
+      "task_id": "dead-code-04"
+    },
+    {
+      "family": "qa",
+      "gold": 1.0,
+      "judged": 0.007044980768114328,
+      "task_id": "qa-config-04"
+    },
+    {
+      "family": "file-create",
+      "gold": 1.0,
+      "judged": 0.0058505539782345295,
+      "task_id": "file-create-05"
+    },
+    {
+      "family": "code-fix",
+      "gold": 1.0,
+      "judged": 0.009699458256363869,
+      "task_id": "code-fix-05"
+    },
+    {
+      "family": "refactor",
+      "gold": 1.0,
+      "judged": 0.00033335728221572936,
+      "task_id": "refactor-rename-05"
+    },
+    {
+      "family": "docs",
+      "gold": 1.0,
+      "judged": 0.016316132619976997,
+      "task_id": "docs-link-05"
+    },
+    {
+      "family": "refactor",
+      "gold": 1.0,
+      "judged": 0.0010194041533395648,
+      "task_id": "dead-code-05"
+    },
+    {
+      "family": "qa",
+      "gold": 1.0,
+      "judged": 0.038227178156375885,
+      "task_id": "qa-config-05"
+    },
+    {
+      "family": "file-create",
+      "gold": 1.0,
+      "judged": 0.11907709389925003,
+      "task_id": "file-create-06"
+    },
+    {
+      "family": "code-fix",
+      "gold": 1.0,
+      "judged": 0.008365700952708721,
+      "task_id": "code-fix-06"
+    },
+    {
+      "family": "refactor",
+      "gold": 1.0,
+      "judged": 0.00045612541725859046,
+      "task_id": "refactor-rename-06"
+    },
+    {
+      "family": "docs",
+      "gold": 1.0,
+      "judged": 0.0015692964661866426,
+      "task_id": "docs-link-06"
+    },
+    {
+      "family": "refactor",
+      "gold": 1.0,
+      "judged": 0.026368513703346252,
+      "task_id": "dead-code-06"
+    },
+    {
+      "family": "qa",
+      "gold": 1.0,
+      "judged": 0.02699151821434498,
+      "task_id": "qa-config-06"
+    },
+    {
+      "family": "file-create",
+      "gold": 1.0,
+      "judged": 0.3106308579444885,
+      "task_id": "file-create-07"
+    },
+    {
+      "family": "code-fix",
+      "gold": 1.0,
+      "judged": 0.001387158059515059,
+      "task_id": "code-fix-07"
+    },
+    {
+      "family": "refactor",
+      "gold": 1.0,
+      "judged": 0.0004406921798363328,
+      "task_id": "refactor-rename-07"
+    },
+    {
+      "family": "docs",
+      "gold": 1.0,
+      "judged": 0.013820504769682884,
+      "task_id": "docs-link-07"
+    },
+    {
+      "family": "refactor",
+      "gold": 1.0,
+      "judged": 0.0046271877363324165,
+      "task_id": "dead-code-07"
+    },
+    {
+      "family": "qa",
+      "gold": 1.0,
+      "judged": 0.40169861912727356,
+      "task_id": "qa-config-07"
+    },
+    {
+      "family": "file-create",
+      "gold": 1.0,
+      "judged": 0.004544797353446484,
+      "task_id": "file-create-08"
+    },
+    {
+      "family": "code-fix",
+      "gold": 1.0,
+      "judged": 0.0036393688060343266,
+      "task_id": "code-fix-08"
+    },
+    {
+      "family": "refactor",
+      "gold": 1.0,
+      "judged": 0.0007295658579096198,
+      "task_id": "refactor-rename-08"
+    },
+    {
+      "family": "docs",
+      "gold": 1.0,
+      "judged": 0.004462292417883873,
+      "task_id": "docs-link-08"
+    },
+    {
+      "family": "refactor",
+      "gold": 1.0,
+      "judged": 0.004619428422302008,
+      "task_id": "dead-code-08"
+    },
+    {
+      "family": "qa",
+      "gold": 1.0,
+      "judged": 0.006671455688774586,
+      "task_id": "qa-config-08"
+    },
+    {
+      "family": "file-create",
+      "gold": 1.0,
+      "judged": 0.006409099791198969,
+      "task_id": "file-create-09"
+    },
+    {
+      "family": "code-fix",
+      "gold": 1.0,
+      "judged": 0.0023308051750063896,
+      "task_id": "code-fix-09"
+    },
+    {
+      "family": "refactor",
+      "gold": 1.0,
+      "judged": 0.001065738033503294,
+      "task_id": "refactor-rename-09"
+    },
+    {
+      "family": "docs",
+      "gold": 1.0,
+      "judged": 0.009930884465575218,
+      "task_id": "docs-link-09"
+    },
+    {
+      "family": "refactor",
+      "gold": 1.0,
+      "judged": 0.02301166206598282,
+      "task_id": "dead-code-09"
+    },
+    {
+      "family": "qa",
+      "gold": 1.0,
+      "judged": 0.029683534055948257,
+      "task_id": "qa-config-09"
+    },
+    {
+      "family": "file-create",
+      "gold": 1.0,
+      "judged": 0.04328025504946709,
+      "task_id": "file-create-10"
+    },
+    {
+      "family": "code-fix",
+      "gold": 1.0,
+      "judged": 0.0025592560414224863,
+      "task_id": "code-fix-10"
+    },
+    {
+      "family": "refactor",
+      "gold": 1.0,
+      "judged": 0.0002465189900249243,
+      "task_id": "refactor-rename-10"
+    },
+    {
+      "family": "docs",
+      "gold": 1.0,
+      "judged": 0.019145138561725616,
+      "task_id": "docs-link-10"
+    },
+    {
+      "family": "refactor",
+      "gold": 1.0,
+      "judged": 0.07560987025499344,
+      "task_id": "dead-code-10"
+    },
+    {
+      "family": "qa",
+      "gold": 1.0,
+      "judged": 0.015316426753997803,
+      "task_id": "qa-config-10"
+    },
+    {
+      "family": "file-create",
+      "gold": 1.0,
+      "judged": 0.003852701745927334,
+      "task_id": "file-create-11"
+    },
+    {
+      "family": "code-fix",
+      "gold": 1.0,
+      "judged": 0.0031501450575888157,
+      "task_id": "code-fix-11"
+    },
+    {
+      "family": "refactor",
+      "gold": 1.0,
+      "judged": 0.0005392500897869468,
+      "task_id": "refactor-rename-11"
+    },
+    {
+      "family": "docs",
+      "gold": 1.0,
+      "judged": 0.006682433187961578,
+      "task_id": "docs-link-11"
+    },
+    {
+      "family": "refactor",
+      "gold": 1.0,
+      "judged": 0.051060620695352554,
+      "task_id": "dead-code-11"
+    },
+    {
+      "family": "qa",
+      "gold": 1.0,
+      "judged": 0.02434883452951908,
+      "task_id": "qa-config-11"
+    },
+    {
+      "family": "file-create",
+      "gold": 1.0,
+      "judged": 0.14586301147937775,
+      "task_id": "file-create-12"
+    },
+    {
+      "family": "code-fix",
+      "gold": 1.0,
+      "judged": 0.018281172960996628,
+      "task_id": "code-fix-12"
+    },
+    {
+      "family": "refactor",
+      "gold": 1.0,
+      "judged": 0.001176343997940421,
+      "task_id": "refactor-rename-12"
+    },
+    {
+      "family": "docs",
+      "gold": 1.0,
+      "judged": 0.004776109009981155,
+      "task_id": "docs-link-12"
+    },
+    {
+      "family": "refactor",
+      "gold": 1.0,
+      "judged": 0.08294150233268738,
+      "task_id": "dead-code-12"
+    },
+    {
+      "family": "qa",
+      "gold": 1.0,
+      "judged": 0.030471153557300568,
+      "task_id": "qa-config-12"
+    },
+    {
+      "family": "file-create",
+      "gold": 1.0,
+      "judged": 0.003152808640152216,
+      "task_id": "file-create-13"
+    },
+    {
+      "family": "code-fix",
+      "gold": 1.0,
+      "judged": 0.02214311808347702,
+      "task_id": "code-fix-13"
+    },
+    {
+      "family": "refactor",
+      "gold": 1.0,
+      "judged": 0.0005771027063019574,
+      "task_id": "refactor-rename-13"
+    },
+    {
+      "family": "docs",
+      "gold": 1.0,
+      "judged": 0.0066042495891451836,
+      "task_id": "docs-link-13"
+    },
+    {
+      "family": "refactor",
+      "gold": 1.0,
+      "judged": 0.09673116356134415,
+      "task_id": "dead-code-13"
+    },
+    {
+      "family": "qa",
+      "gold": 1.0,
+      "judged": 0.01885242760181427,
+      "task_id": "qa-config-13"
+    },
+    {
+      "family": "file-create",
+      "gold": 1.0,
+      "judged": 0.004406064283102751,
+      "task_id": "file-create-14"
+    },
+    {
+      "family": "code-fix",
+      "gold": 1.0,
+      "judged": 0.01016853004693985,
+      "task_id": "code-fix-14"
+    },
+    {
+      "family": "refactor",
+      "gold": 1.0,
+      "judged": 0.002482594456523657,
+      "task_id": "refactor-rename-14"
+    },
+    {
+      "family": "docs",
+      "gold": 1.0,
+      "judged": 0.012514832429587841,
+      "task_id": "docs-link-14"
+    },
+    {
+      "family": "refactor",
+      "gold": 1.0,
+      "judged": 0.015437708236277103,
+      "task_id": "dead-code-14"
+    },
+    {
+      "family": "qa",
+      "gold": 1.0,
+      "judged": 0.006318890023976564,
+      "task_id": "qa-config-14"
+    },
+    {
+      "family": "file-create",
+      "gold": 1.0,
+      "judged": 0.10657873004674911,
+      "task_id": "file-create-15"
+    },
+    {
+      "family": "code-fix",
+      "gold": 1.0,
+      "judged": 0.002302777487784624,
+      "task_id": "code-fix-15"
+    },
+    {
+      "family": "refactor",
+      "gold": 1.0,
+      "judged": 0.00034763332223519683,
+      "task_id": "refactor-rename-15"
+    },
+    {
+      "family": "docs",
+      "gold": 1.0,
+      "judged": 0.011063036508858204,
+      "task_id": "docs-link-15"
+    },
+    {
+      "family": "refactor",
+      "gold": 1.0,
+      "judged": 0.0411672480404377,
+      "task_id": "dead-code-15"
+    },
+    {
+      "family": "qa",
+      "gold": 1.0,
+      "judged": 0.01720677688717842,
+      "task_id": "qa-config-15"
+    }
+  ]
+}

@@ -1,7 +1,10 @@
-"""Tests for the trained-classifier calibration judge (E2 arm A)."""
+"""Tests for the trained-classifier calibration judges (E2 arms A + B)."""
 
 import math
+import sys
+import types
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
@@ -57,3 +60,57 @@ class TestLoadLinearJudge:
         judge = make_classifier_judge(lambda _text: 0.73)
         score = judge("p", Transcript(final_message="x"), tmp_path)
         assert score == 0.73
+
+
+class TestLoadEncoderJudge:
+    """Arm B loader — torch/transformers are dev-only, so stub them here."""
+
+    def test_encoder_judge_softmax_of_logits(self, monkeypatch, tmp_path: Path):
+        # Stub torch: softmax over [0.0, 2.0] → p(label==1) = e^2/(1+e^2).
+        torch_stub = types.ModuleType("torch")
+
+        class _NoGrad:
+            def __enter__(self):
+                return None
+
+            def __exit__(self, *a):
+                return False
+
+        torch_stub.no_grad = _NoGrad
+        torch_stub.softmax = lambda logits, dim: logits  # identity; we control values below
+
+        class _Logits:
+            def __init__(self, vals):
+                self._vals = vals
+
+            def __getitem__(self, i):
+                return self._vals[i]
+
+        # model(**enc).logits[0] → the two-class logits; softmax stub returns them,
+        # and score reads index [1]. Make softmax real via a tiny closure instead.
+        import math as _math
+
+        def _softmax(logits, dim):
+            a, b = logits._vals
+            denom = _math.exp(a) + _math.exp(b)
+            return _Logits([_math.exp(a) / denom, _math.exp(b) / denom])
+
+        torch_stub.softmax = _softmax
+        monkeypatch.setitem(sys.modules, "torch", torch_stub)
+
+        transformers_stub = types.ModuleType("transformers")
+        tok = MagicMock()
+        tok.return_value = {"input_ids": [[1, 2, 3]]}
+        transformers_stub.AutoTokenizer = MagicMock(from_pretrained=MagicMock(return_value=tok))
+        model = MagicMock()
+        model.return_value.logits = _Logits([_Logits([0.0, 2.0])])
+        transformers_stub.AutoModelForSequenceClassification = MagicMock(
+            from_pretrained=MagicMock(return_value=model)
+        )
+        monkeypatch.setitem(sys.modules, "transformers", transformers_stub)
+
+        from victor.evaluation.calibration_classifier_judge import load_encoder_judge
+
+        judge = load_encoder_judge(tmp_path)
+        expected = math.exp(2.0) / (math.exp(0.0) + math.exp(2.0))
+        assert judge("p", Transcript(final_message="x"), tmp_path) == pytest.approx(expected)

@@ -23,6 +23,12 @@ judge — no special pleading for our own models.
 trained by ``benchmarks/judge_training/train_linear.py``) with a pure-numpy
 scorer — no sklearn needed at inference. The npz stores the versioned feature
 spec; a spec mismatch refuses to load rather than silently mis-featurizing.
+
+``load_encoder_judge`` loads the arm-B ModernBERT artifact (a saved
+transformers sequence-classification directory). It needs the dev-only
+``[judge-training]`` deps (torch, transformers); CPU inference is fine for
+the ~100-example gate. Neither loader is a runtime dependency — both are
+evaluation-only.
 """
 
 from __future__ import annotations
@@ -67,5 +73,27 @@ def load_linear_judge(path: Path) -> CalibrationJudge:
             if coef is not None:
                 z += coef * count
         return 1.0 / (1.0 + math.exp(-z))
+
+    return make_classifier_judge(score)
+
+
+def load_encoder_judge(path: Path, *, max_length: int = 1024) -> CalibrationJudge:
+    """Load the arm-B ModernBERT artifact and return a CalibrationJudge.
+
+    Loads once and scores each rendered view as p(label==1) from the softmax.
+    Requires the ``[judge-training]`` extra (torch, transformers).
+    """
+    import torch
+    from transformers import AutoModelForSequenceClassification, AutoTokenizer
+
+    tokenizer = AutoTokenizer.from_pretrained(str(path))
+    model = AutoModelForSequenceClassification.from_pretrained(str(path))
+    model.eval()
+
+    def score(text: str) -> float:
+        enc = tokenizer(text, truncation=True, max_length=max_length, return_tensors="pt")
+        with torch.no_grad():
+            logits = model(**enc).logits[0]
+        return float(torch.softmax(logits, dim=-1)[1])
 
     return make_classifier_judge(score)
