@@ -37,6 +37,7 @@ import logging
 from pathlib import Path
 
 from victor.evaluation.calibration_corpus import default_corpus
+from victor.evaluation.calibration_enhanced_judge import make_enhanced_judge
 from victor.evaluation.calibration_rubric_judge import make_rubric_judge
 from victor.evaluation.judge_calibration_harness import (
     JudgeCalibrationHarness,
@@ -267,6 +268,9 @@ def main() -> int:
         # The real ADR-009 no-LLM fallback path (HeuristicRubricJudge behind the
         # DimensionAwareFilter) — calibrated as shipped, binary completion verdicts.
         "rubric-heuristic": make_rubric_judge(),
+        # The production default completion evaluator (EVR-3 parity, deterministic,
+        # zero LLM calls) — see calibration_enhanced_judge for the fidelity contract.
+        "enhanced": make_enhanced_judge(),
     }
     llm_stats = None
     if args.judge_profile or args.llm_judge_provider:
