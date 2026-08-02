@@ -1,4 +1,4 @@
-# Copyright 2026 Vijaykumar Singh <singhvjd@gmail.com>
+# Copyright 2026 Vijaykumar Singh <vijay@anvaiops.com>
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 """Tests for victor.runtime.reachability (FEP-0022 Phase 1).

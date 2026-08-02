@@ -158,7 +158,7 @@ class VerticalMigrator:
 
         # Generate new safety.py content
         vertical_name = self.vertical_path.name
-        content = f'''# Copyright 2025 Vijaykumar Singh <singhvjd@gmail.com>
+        content = f'''# Copyright 2025 Vijaykumar Singh <vijay@anvaiops.com>
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -373,7 +373,7 @@ __all__ = [
 
         # Generate new mode_config.py content
         vertical_name = self.vertical_path.name
-        content = f'''# Copyright 2025 Vijaykumar Singh <singhvjd@gmail.com>
+        content = f'''# Copyright 2025 Vijaykumar Singh <vijay@anvaiops.com>
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.

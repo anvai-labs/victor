@@ -1,4 +1,4 @@
-# Copyright 2025 Vijaykumar Singh <singhvjd@gmail.com>
+# Copyright 2025 Vijaykumar Singh <vijay@anvaiops.com>
 # SPDX-License-Identifier: Apache-2.0
 
 # Victor MCP Server
@@ -18,7 +18,7 @@
 
 FROM python:3.12-slim
 
-LABEL maintainer="Vijaykumar Singh <singhvjd@gmail.com>"
+LABEL maintainer="Vijaykumar Singh <vijay@anvaiops.com>"
 LABEL description="Victor MCP Server - Exposes Victor's tools via Model Context Protocol"
 LABEL version="1.0.0"
 LABEL org.opencontainers.image.source="https://github.com/anvai-labs/victor"

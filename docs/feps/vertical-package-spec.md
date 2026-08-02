@@ -2,7 +2,7 @@
 
 **Status**: Draft
 **Version**: 1.0.0
-**Author**: Vijaykumar Singh <singhvjd@gmail.com>
+**Author**: Vijaykumar Singh <vijay@anvaiops.com>
 **Created**: 2025-01-09
 
 ## Overview
@@ -203,7 +203,7 @@ name = "security"
 version = "1.0.0"
 description = "Security analysis and vulnerability scanning for codebases"
 authors = [
-    {name = "Vijaykumar Singh", email = "singhvjd@gmail.com"}
+    {name = "Vijaykumar Singh", email = "vijay@anvaiops.com"}
 ]
 license = "Apache-2.0"
 requires_victor = ">=0.5.0"

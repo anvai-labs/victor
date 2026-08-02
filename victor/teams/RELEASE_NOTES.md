@@ -381,7 +381,7 @@ All tests passing. No known issues.
 
 ## Contributors
 
-- Vijaykumar Singh <singhvjd@gmail.com>
+- Vijaykumar Singh <vijay@anvaiops.com>
 
 ## License
 

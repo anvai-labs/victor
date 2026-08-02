@@ -1,4 +1,4 @@
-# Copyright 2025 Vijaykumar Singh <singhvjd@gmail.com>
+# Copyright 2025 Vijaykumar Singh <vijay@anvaiops.com>
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -41,7 +41,7 @@ FROM python:3.12-slim-bookworm AS runtime
 # Labels
 LABEL org.opencontainers.image.title="Victor AI Coding Assistant"
 LABEL org.opencontainers.image.description="Enterprise AI coding assistant with 21 LLM providers"
-LABEL org.opencontainers.image.authors="Vijaykumar Singh <singhvjd@gmail.com>"
+LABEL org.opencontainers.image.authors="Vijaykumar Singh <vijay@anvaiops.com>"
 LABEL org.opencontainers.image.licenses="Apache-2.0"
 LABEL org.opencontainers.image.source="https://github.com/vjsingh/victor"
 
