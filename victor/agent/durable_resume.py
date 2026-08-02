@@ -31,8 +31,10 @@ user message), so there is no spurious user turn.
 This is the single shared replay used by every surface (``VictorClient.resume``, the HTTP
 ``/chat/resume`` route, and the ``victor session resume`` CLI) — hardening here improves all of them.
 
-Deferred: streaming resume; chained pauses (a *new* ASK during continuation follows the inline path
-here, since durable pause is not re-armed).
+Chained pauses: the continuation *re-arms* durable pause, so a **new** ASK mid-continuation raises
+``ApprovalPause`` again — caught here, recorded as a fresh ``paused_run`` (via the shared
+``record_pause_from_approval``), and surfaced as an awaiting outcome with a new ``run_id`` (which the
+API/CLI already render). Deferred: streaming resume.
 """
 
 from __future__ import annotations
@@ -56,6 +58,10 @@ class ResumeResult:
     gated_tool: Optional[str] = None
     continuation_turns: int = 0
     executed_siblings: int = 0
+    # Chained pause (FEP-0029): a *new* ASK fired during the continuation → the run parked again.
+    # ``awaiting_run_id`` is the fresh resume token; ``awaiting_approval_request`` its request dict.
+    awaiting_run_id: Optional[str] = None
+    awaiting_approval_request: Optional[Dict[str, Any]] = None
 
 
 class ResumeError(RuntimeError):
@@ -213,21 +219,46 @@ async def resume_paused_run(orchestrator: Any, paused_run: Any, decision: Any) -
         controller.add_tool_result(tc_id, content)
 
     # Continuation: drive the turn primitive (adds no user message) until the model stops calling
-    # tools. Durable pause is not armed here, so a *new* ASK during continuation follows the normal
-    # inline path (chained durable pauses are deferred to a later phase).
+    # tools. Durable pause is ARMED here (FEP-0029 chained pauses): a *new* ASK during the
+    # continuation raises ApprovalPause (the Phase-1 mechanism), which we catch and record as a fresh
+    # paused_run — the run parks again with a new run_id that the surfaces already render.
+    from victor.framework.approval_pause import ApprovalPause, current_durable_pause_enabled
+
     tool_name = gated_tool or "unknown"
     user_message = _last_user_message(messages)
     final_content = ""
     final_tool_calls: List[Dict[str, Any]] = []
     turns = 0
-    for _ in range(_MAX_CONTINUATION_TURNS):
-        turn = await turn_executor.execute_turn(user_message)
-        turns += 1
-        response = getattr(turn, "response", None)
-        final_content = str(getattr(response, "content", "") or "")
-        final_tool_calls = list(getattr(response, "tool_calls", None) or [])
-        if not getattr(turn, "has_tool_calls", False):
-            break
+    awaiting_run_id: Optional[str] = None
+    awaiting_request: Optional[Dict[str, Any]] = None
+
+    _token = current_durable_pause_enabled.set(True)
+    try:
+        for _ in range(_MAX_CONTINUATION_TURNS):
+            try:
+                turn = await turn_executor.execute_turn(user_message)
+            except ApprovalPause as pause:
+                # Chained pause: a further ASK fired mid-continuation — park again.
+                import time
+
+                from victor.agent.paused_run_store import record_pause_from_approval
+
+                awaiting_run_id, awaiting_request = record_pause_from_approval(
+                    getattr(pause, "request", None),
+                    session_id=getattr(paused_run, "session_id", None),
+                    agent_id=getattr(paused_run, "agent_id", None),
+                    created_at=time.time(),
+                    metadata={"chained_from": getattr(paused_run, "run_id", None)},
+                )
+                break
+            turns += 1
+            response = getattr(turn, "response", None)
+            final_content = str(getattr(response, "content", "") or "")
+            final_tool_calls = list(getattr(response, "tool_calls", None) or [])
+            if not getattr(turn, "has_tool_calls", False):
+                break
+    finally:
+        current_durable_pause_enabled.reset(_token)
 
     return ResumeResult(
         final_content=final_content,
@@ -236,4 +267,6 @@ async def resume_paused_run(orchestrator: Any, paused_run: Any, decision: Any) -
         gated_tool=tool_name,
         continuation_turns=turns,
         executed_siblings=sibling_count,
+        awaiting_run_id=awaiting_run_id,
+        awaiting_approval_request=awaiting_request,
     )

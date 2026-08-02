@@ -37,7 +37,7 @@ import threading
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
+from typing import Any, Dict, List, Optional, Protocol, Tuple, runtime_checkable
 
 
 @dataclass
@@ -299,3 +299,37 @@ def reset_paused_run_store() -> None:
     global _store
     with _store_lock:
         _store = None
+
+
+def record_pause_from_approval(
+    request: Any,
+    *,
+    session_id: Optional[str],
+    agent_id: Optional[str],
+    created_at: float = 0.0,
+    metadata: Optional[Dict[str, Any]] = None,
+) -> Tuple[str, Dict[str, Any]]:
+    """Persist a pause from an :class:`ApprovalPause`'s request (FEP-0029). Shared helper.
+
+    Extracts the pending gated tool (name/args) from the approval request's context and writes a
+    ``paused_run`` via :func:`get_paused_run_store`. Used by BOTH the turn boundary (a fresh ASK,
+    ``message_execution``) and resume continuation (a chained ASK, ``durable_resume``) so the
+    extraction + store write live in one place. Returns ``(run_id, approval_request_dict)``.
+    """
+    req_dict: Dict[str, Any] = request.to_dict() if hasattr(request, "to_dict") else {}
+    ctx = getattr(request, "context", {}) or {}
+    tool_name = ctx.get("tool_name") or ctx.get("tool")
+    pending_tool = (
+        {"tool_name": tool_name, "arguments": ctx.get("arguments") or ctx.get("args")}
+        if tool_name
+        else None
+    )
+    run_id = get_paused_run_store().save(
+        session_id=session_id,
+        agent_id=agent_id,
+        approval_request=req_dict,
+        pending_tool=pending_tool,
+        created_at=created_at,
+        metadata=metadata,
+    )
+    return run_id, req_dict
