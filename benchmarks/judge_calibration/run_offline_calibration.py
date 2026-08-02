@@ -207,6 +207,14 @@ def main() -> int:
         "(reported, never gating).",
     )
     parser.add_argument(
+        "--classifier-judge",
+        type=Path,
+        default=None,
+        metavar="NPZ",
+        help="Also score a trained linear classifier judge (E2 arm A artifact from "
+        "benchmarks/judge_training/train_linear.py) as judge name 'classifier'.",
+    )
+    parser.add_argument(
         "--replay-pack",
         type=Path,
         default=None,
@@ -282,6 +290,10 @@ def main() -> int:
         # zero LLM calls) — see calibration_enhanced_judge for the fidelity contract.
         "enhanced": make_enhanced_judge(),
     }
+    if args.classifier_judge:
+        from victor.evaluation.calibration_classifier_judge import load_linear_judge
+
+        judges["classifier"] = load_linear_judge(args.classifier_judge)
     llm_stats = None
     if args.judge_profile or args.llm_judge_provider:
         from victor.evaluation.calibration_rubric_judge import (
