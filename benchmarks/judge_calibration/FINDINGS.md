@@ -61,6 +61,36 @@ python benchmarks/judge_calibration/run_offline_calibration.py \
 Reports (per-family α, gate decision, every sample) land in
 `benchmarks/judge_calibration/reports/*.json`.
 
+### Run 12 (2026-08-02) — AI-annotator gold overlay + 5-judge real-trajectory sweep
+
+Fresh 96-trajectory real-agent run (qwen3-coder-tools:30b-64K, two-phase, integrity clean:
+calls=96 retries=0 failures=0 ungradable=0; gold 88/8) with the PR #810 labeling-pack export,
+labeled per [protocol Amendment 1](../../docs/architecture/evr2-human-validation-protocol.md)
+(AI-annotator gold — two independent Claude passes, blind pack view, zero disagreements;
+**NOT human gold**). Committed artifacts: `labels/run12/` (labels + all reports + overlay).
+
+| Check | Result |
+|---|---|
+| annotator↔verifier κ | **1.0000 PASS** (≥ 0.8) — programmatic verifier gold fully validated; runs 1–11 foundation stands |
+| annotator↔secondary κ | 1.0000 (QC) |
+| rubric-llm gemma4:31b | **α=0.6936 FAIL** (< 0.7); per-family 1.000 on code-fix/docs/file-create/qa but **refactor α=0.300** — run 11's 0.865 at n=48 did not hold at n=96 |
+| enhanced (production default, via PR #817 adapter) | **α=−0.837** — systematically anti-correlated on real trajectories (scripted run measured −0.679); worse than credulous (0.070) |
+| evidence / rubric-heuristic | −0.038 both — activity-based judging collapse replicated |
+
+Failure anatomy: annotator gold == verifier gold exactly, so every gemma miss is a genuine
+judge error — it under-credits real completions whose final messages trail off mid-verification
+or claim the edit failed (the workspace shows the work done). Same signal drives `enhanced`
+below zero: claim-reading loses to workspace-verification on this distribution.
+
+Consequences: (a) **no default flip** — the pre-registered gate is not met; gemma4:31b is
+demoted from recommended-default pending either judge-prompt improvement for narration-free /
+self-doubting claims or llama3.3:70b measured on these same trajectories (judging-only re-run,
+cheap); (b) EVR-3 parity is directionally decisive on identical data: rubric-llm 0.694 vs
+enhanced −0.837 (Δα=1.53) — `enhanced` should not remain the default evaluator on the merits,
+but replacement waits for a gate-passing judge; (c) run-12 also surfaced a run-level infra
+lesson: the first attempt produced 96/96 empty-response trajectories from a dropped profile
+endpoint (fixed in PR #820) and was discarded as degenerate before judging completed.
+
 ## Verdict and open items
 
 **All three graduation gates are now cleared — by two complementary judges.** The scripted
