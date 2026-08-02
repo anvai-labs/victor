@@ -2785,6 +2785,7 @@ class TestChatSyncBridge:
             resume_session_id="session-1",
             show_reasoning=False,
             graph_watch=True,
+            surface="tui",
             session_config=ANY,
         )
         session_config = mock_async.call_args.kwargs["session_config"]
