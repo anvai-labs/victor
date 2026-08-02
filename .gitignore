@@ -293,3 +293,8 @@ VICTOR_AGENT_GUIDE.html
 VICTOR_AGENT_GUIDE.pdf
 docs/diagrams/**/*.png
 
+
+# Root-level run artifacts (PR D4, surface-reduction program)
+/output/
+/tmp_cache/
+/victor_test/
