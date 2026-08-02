@@ -305,7 +305,9 @@ def main() -> int:
                 api_key = os.environ.get(api_key[2:-1])
             if api_key:
                 provider_kwargs["api_key"] = api_key
-            profile_base_url = getattr(profile, "base_url", None)
+            profile_base_url = getattr(profile, "base_url", None) or getattr(
+                profile, "endpoint", None
+            )
             if profile_base_url and not args.llm_judge_base_url:
                 provider_kwargs["base_url"] = profile_base_url
         provider = ProviderRegistry.create(provider_name, **provider_kwargs)
