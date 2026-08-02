@@ -37,9 +37,7 @@ def store(request: Any, tmp_path: Path) -> Any:
 
 
 def _save(store: Any, created_at: float) -> str:
-    return store.save(
-        session_id="s", agent_id="a", approval_request=_REQ, created_at=created_at
-    )
+    return store.save(session_id="s", agent_id="a", approval_request=_REQ, created_at=created_at)
 
 
 def test_expire_pending_marks_only_stale_timestamped_runs(store: Any) -> None:
