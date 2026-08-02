@@ -79,6 +79,12 @@ class AgentSettings(BaseModel):
     # flag-graduation policy; env override VICTOR_EFFECT_GATED_COMPLETION.
     effect_gated_completion: bool = False
 
+    # Recovery layer-targeted failure attribution (ADR-012 / EVR-5, prong 2): the RecoveryService
+    # attributes each failure to an ETCLOVG harness layer (via HTIR) and records it, instead of
+    # only classifying by exception type. Opt-in, default off per the flag-graduation policy;
+    # env override VICTOR_RECOVERY_LAYER_ATTRIBUTION.
+    recovery_layer_attribution: bool = False
+
     @field_validator("planning_min_complexity")
     @classmethod
     def validate_complexity(cls, v: str) -> str:
