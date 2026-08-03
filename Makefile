@@ -191,6 +191,13 @@ test-battery:
 eval-accept:
 	pytest tests/integration/streaming/test_acceptance_oracle_gate.py -v --tb=short
 
+# Flag graduation: decide whether an opt-in flag is safe to flip default-on by A/B-ing its
+# battery (flag OFF vs ON) through the acceptance oracle. Produce a BatteryResult.to_dict() JSON
+# for each arm (flag off/on over a task set), then:
+#   make eval-graduate FLAG=effect_gated_completion BASELINE=off.json CANDIDATE=on.json
+eval-graduate:
+	python -m victor.evaluation.flag_graduation --flag "$(FLAG)" --baseline "$(BASELINE)" --candidate "$(CANDIDATE)"
+
 test-split:
 	pytest tests/unit --splits=4 --group=1 -v --tb=short
 
