@@ -4,7 +4,7 @@ title: "Decoupled Completion Judge (session-model-independent, calibrated, cheap
 type: Standards Track
 status: Draft
 created: 2026-08-02
-modified: 2026-08-02
+modified: 2026-08-03
 authors:
   - name: Vijaykumar Singh
     email: vijay@anvaiops.com
@@ -28,7 +28,7 @@ falls back to `enhanced` for every other session. This FEP introduces a
 gate completion with a calibrated judge: a cheap resident classifier
 (ModernBERT), a side LLM judge, or the algorithmic `enhanced` fallback.
 
-## Motivation — the evidence
+## Motivation
 
 The judge-independence experiments (2026-08-02,
 [judge-independence-experiments.md](../docs/architecture/judge-independence-experiments.md),
@@ -58,7 +58,7 @@ for non-calibrated sessions) but nearly worthless, because virtually no one runs
 llama3.3:70b *as their agent*. The payoff requires decoupling the judge from the
 session model.
 
-## Design
+## Proposed Change
 
 ### The seam
 
@@ -93,23 +93,52 @@ loudly — the existing `resolve_completion_strategy` contract, retargeted from
 ### Where it wires
 
 `turn_execution_runtime._build_rubric_complete_fn` and `chat_stream_executor`
-stop reading `provider_context.model` and instead resolve the configured
-`CompletionJudgeBackend`. New setting `agent.completion_judge` = `enhanced`
-(default) | `classifier:<path>` | `llm:<model>@<endpoint>`. The
-`completion_strategy=rubric` default-flip (PR-8) then becomes meaningful for
-*every* session, not just llama-as-agent sessions.
+resolve the configured judge backend (`agent.completion_judge`) instead of
+reading `provider_context.model` directly. New setting `agent.completion_judge`
+= `session-model` (default) | `enhanced` | `llm:<model>@<endpoint>` |
+`classifier:<path>`. The `completion_strategy=rubric` default-flip (PR-8) then
+becomes meaningful for *every* session, not just llama-as-agent sessions.
 
-## Phases
+## Benefits
 
-1. **Protocol + config + gate retarget.** Define `CompletionJudgeBackend`,
-   `agent.completion_judge` setting, retarget `resolve_completion_strategy` to
-   the backend. `enhanced` backend only — pure refactor, no behavior change
-   (guard: streaming parity batteries green, default unchanged).
-2. **Classifier + side-LLM backends.** Wire the `classifier` backend (resident
-   ModernBERT/linear) and the `llm` backend (side endpoint). Each gated through
-   the calibration harness before it may be selected.
+- **Rubric completion becomes usable for every session**, not only ones whose
+  chat model is itself a calibrated judge — unlocking the measured Δα≈1.7
+  advantage of rubric over `enhanced` on real trajectories (EVR-3).
+- **Weight-independent verification.** A separate judge does not share the
+  agent's blind spots (the fresh-context self-judge measured only 0.469).
+- **Cheap resident option.** The classifier backend gates completion (and the
+  EVR-6 per-turn auditor) at CPU cost, no network, no per-decision token spend.
+- **One calibration discipline.** Every backend passes the same κ/α gate; the
+  ADR-011 pin generalizes without a parallel mechanism.
+
+## Drawbacks and Alternatives
+
+- **Config surface.** A new `agent.completion_judge` value to reason about;
+  mitigated by a default (`session-model`) that reproduces today's behavior.
+- **Train/serve skew for the classifier.** A classifier calibrated on the
+  synthetic corpus is *not* validated for live completion decisions, which
+  render the actual project workspace (out-of-distribution). This is why the
+  classifier backend is opt-in/bring-your-own until real-distribution
+  calibration exists (the SWE-bench stratum).
+- **Alternative — keep the self-judge and improve its prompt.** Rejected:
+  weight-level correlation is structural (runs 12/14), not a prompting problem.
+- **Alternative — always require a side LLM judge.** Rejected: it forces a
+  second model / endpoint on every session; the resident classifier is the
+  cheap path, and `enhanced` remains the zero-dependency fallback.
+
+## Implementation Plan
+
+1. **Protocol + config + gate retarget** (landed, #844). Define the backend seam,
+   `agent.completion_judge` setting, retarget `resolve_completion_strategy` to the
+   resolved judge. `session-model`/`enhanced` only — no behavior change.
+2. **Side-LLM backend** (landed, #845). `llm:<model>@<endpoint>` builds a judge on
+   a side provider; the pin checks the *judge* model. This is what lets an
+   uncalibrated chat session gate rubric with a calibrated side judge.
+   - **2b. Classifier backend.** `classifier:<path>` (resident ModernBERT/linear)
+     via a direct-verdict loop seam. Gated on real-distribution calibration (the
+     SWE-bench stratum, converter landed #848) before it is validated for live use.
 3. **Default flip (absorbs PR-8).** With a calibrated decoupled judge available,
-   `completion_strategy=rubric` becomes the default; prong-B end-to-end
+   `completion_strategy=rubric` becomes the default; the prong-B end-to-end
    task-success A/B runs against the *decoupled* judge (the meaningful A/B the
    coupled design could not support), with the kill-switch and streaming parity
    guards.
@@ -117,19 +146,44 @@ stop reading `provider_context.model` and instead resolve the configured
    the same classifier backend for prefix-only CONTINUE/ALARM — one cheap
    resident judge serves both completion gating and per-turn auditing.
 
-## Open questions
+## Migration Path
 
-- Model distribution: ship a calibrated ModernBERT judge as a release artifact
-  (like `edge_classifier_v1.npz`), or train-on-first-use? The judge must be
-  calibrated on *real* trajectories, and the current corpus (6 templates) is too
-  narrow — the SWE-bench stratum is the prerequisite for a shippable general
-  judge. Until then the classifier backend is opt-in/bring-your-own.
-- Threshold policy per backend (the ModernBERT judge is probabilistic; the
-  calibration gate scores binarized verdicts — see the
-  `calibration_classifier_judge` binarization contract).
+No migration required. `agent.completion_judge` defaults to `session-model`,
+which reproduces the pre-FEP resolution exactly; `completion_strategy` remains
+`enhanced` by default. Operators adopt a decoupled judge by setting
+`agent.completion_judge=llm:<model>@<endpoint>` (or, once validated,
+`classifier:<path>`). The Phase 3 default flip is itself gated on a passing
+decoupled judge and its own A/B, and ships with an env kill-switch.
 
-## Backwards compatibility
+## Compatibility
 
-Default `agent.completion_judge=enhanced` + default `completion_strategy=enhanced`
-= today's behavior exactly. Every new path is opt-in until Phase 3, which is
-itself gated on a passing decoupled judge and its own A/B.
+Default `agent.completion_judge=session-model` + default
+`completion_strategy=enhanced` = today's behavior exactly. Every new path is
+opt-in until the Phase 3 default flip, which is separately gated. The change is
+internal to the runtime completion path (`victor/agent/services`), not a
+public framework-API break; existing gate tests pass unchanged.
+
+## Unresolved Questions
+
+- **Model distribution.** Ship a calibrated ModernBERT judge as a release
+  artifact (like `edge_classifier_v1.npz`), or train-on-first-use? The judge
+  must be calibrated on *real* trajectories, and the current corpus (6 templates)
+  is too narrow — the SWE-bench stratum is the prerequisite for a shippable
+  general judge. Until then the classifier backend is opt-in/bring-your-own.
+- **Live-input fidelity.** The classifier is calibrated on corpus renders; the
+  live loop renders the real workspace. A live-loop fidelity validation (against
+  the SWE-bench stratum) gates classifier live-wiring.
+- **Threshold policy per backend.** The ModernBERT judge is probabilistic; the
+  calibration gate scores binarized verdicts (the `calibration_classifier_judge`
+  binarization contract) — the operating threshold may warrant per-backend tuning.
+
+## References
+
+- ADR-011 — LLM-judge reliability gating (the calibration pin this FEP generalizes).
+- ADR-009 — Rubric-based completion evaluation.
+- FEP-0008 — Evaluation-centric completion (EVR sequence; Phase C TurnAuditor).
+- `docs/architecture/judge-independence-experiments.md` — the runs 12–14 evidence.
+- `docs/architecture/evr3-parity-results.md` — rubric vs enhanced (Δα≈1.7).
+- `benchmarks/judge_calibration/FINDINGS.md`,
+  `benchmarks/judge_training/FINDINGS.md` — judge and trained-judge findings.
+- PRs #844 (seam), #845 (side-LLM backend), #848 (SWE-bench stratum converter).
