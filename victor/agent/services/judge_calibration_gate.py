@@ -47,42 +47,74 @@ def _calibrated_models(settings: Any) -> frozenset[str]:
     return DEFAULT_CALIBRATED_JUDGE_MODELS
 
 
-# FEP-0030 completion-judge backends recognized in Phase 1. Decoupled backends
-# ("llm:<model>", "classifier:<path>") are defined but not yet resolvable here —
-# Phase 2 wires them; until then they resolve to the session model with a note,
-# so config written ahead of Phase 2 never breaks a session.
+# FEP-0030 completion-judge backends. Phase 1 shipped the seam ("session-model",
+# "enhanced"); Phase 2 wires the decoupled "llm:<model>@<endpoint>" backend (a
+# calibrated LLM judge on a side endpoint, independent of the session model).
+# "classifier:<path>" (resident ModernBERT) is Phase 2b — until then it behaves
+# as "session-model" with a note, so config written ahead never breaks a session.
 _JUDGE_BACKEND_ENV = "VICTOR_COMPLETION_JUDGE"
 _warned_backends: set[str] = set()
 
 
-def resolve_completion_judge_model(settings: Any, session_model: Optional[str]) -> Optional[str]:
-    """Resolve the judge model from ``agent.completion_judge`` (FEP-0030 seam).
-
-    Independent of the session model by design. Returns the model name the
-    calibration pin should check, or ``None`` to force the algorithmic
-    ``enhanced`` path.
-
-    - ``"session-model"`` (default): the session's own model — the historical
-      behavior, preserved exactly.
-    - ``"enhanced"``: ``None`` — rubric/hybrid downgrade to enhanced.
-    - ``"llm:<model>"`` / ``"classifier:<path>"``: Phase 2 backends; for now
-      treated as ``"session-model"`` with a one-time note (forward-compatible).
-    """
+def _configured_backend(settings: Any) -> str:
     backend = os.environ.get(_JUDGE_BACKEND_ENV) or getattr(
         getattr(settings, "agent", None), "completion_judge", "session-model"
     )
-    backend = (backend or "session-model").strip()
+    return (backend or "session-model").strip()
 
-    if backend == "session-model":
+
+def parse_completion_judge(backend: str) -> tuple[str, Optional[str], Optional[str]]:
+    """Parse an ``agent.completion_judge`` value into ``(kind, model, endpoint)``.
+
+    - ``"session-model"`` → ``("session-model", None, None)``
+    - ``"enhanced"`` → ``("enhanced", None, None)``
+    - ``"llm:<model>[@<base_url>]"`` → ``("llm", model, base_url|None)``. The
+      model may itself contain colons (``llama3.3:70b``); the endpoint is
+      everything after the LAST ``@``.
+    - ``"classifier:<path>"`` → ``("classifier", path, None)``
+    - anything else → ``("unknown", None, None)``
+    """
+    if backend in ("session-model", "enhanced"):
+        return backend, None, None
+    if backend.startswith("llm:"):
+        rest = backend[len("llm:") :]
+        model, sep, endpoint = rest.rpartition("@")
+        if not sep:  # no '@' → whole remainder is the model, default endpoint
+            return "llm", rest or None, None
+        return "llm", model or None, endpoint or None
+    if backend.startswith("classifier:"):
+        return "classifier", backend[len("classifier:") :] or None, None
+    return "unknown", None, None
+
+
+def resolve_completion_judge_model(settings: Any, session_model: Optional[str]) -> Optional[str]:
+    """Resolve the judge model the calibration pin should check (FEP-0030 seam).
+
+    Independent of the session model by design. Returns the model name the pin
+    checks, or ``None`` to force the algorithmic ``enhanced`` path.
+
+    - ``"session-model"`` (default): the session's own model (historical behavior).
+    - ``"enhanced"``: ``None`` — rubric/hybrid downgrade to enhanced.
+    - ``"llm:<model>@<endpoint>"``: the decoupled judge *model* — so a session on
+      an uncalibrated chat model can still gate rubric with a calibrated side
+      judge (e.g. ``llm:llama3.3:70b@http://host:11434``).
+    - ``"classifier:<path>"``: Phase 2b; treated as session-model with a note.
+    """
+    backend = _configured_backend(settings)
+    kind, model, _endpoint = parse_completion_judge(backend)
+
+    if kind == "session-model":
         return session_model
-    if backend == "enhanced":
+    if kind == "enhanced":
         return None
-    if backend.startswith(("llm:", "classifier:")):
+    if kind == "llm":
+        return model
+    if kind == "classifier":
         if backend not in _warned_backends:
             _warned_backends.add(backend)
             logger.info(
-                "agent.completion_judge=%r is a FEP-0030 Phase 2 decoupled backend, not yet "
-                "wired; using the session model as the judge for now.",
+                "agent.completion_judge=%r (classifier) is FEP-0030 Phase 2b, not yet wired; "
+                "using the session model as the judge for now.",
                 backend,
             )
         return session_model
@@ -90,10 +122,63 @@ def resolve_completion_judge_model(settings: Any, session_model: Optional[str]) 
         _warned_backends.add(backend)
         logger.warning(
             "agent.completion_judge=%r is not recognized; using the session model as the judge. "
-            "Valid: 'session-model' (default), 'enhanced'.",
+            "Valid: 'session-model' (default), 'enhanced', 'llm:<model>@<endpoint>'.",
             backend,
         )
     return session_model
+
+
+def build_judge_complete_fn(settings: Any, provider_context: Any) -> Optional[Any]:
+    """Build the async ``complete_fn(prompt)->text`` for the resolved LLM judge backend.
+
+    Centralizes judge construction (FEP-0030) so the capped ``turn_execution_runtime``
+    hotspot only delegates. Returns ``None`` when no LLM judge applies (``enhanced``,
+    or no provider) — the loop then uses the heuristic/algorithmic path.
+
+    - ``session-model`` / ``classifier`` (Phase 2b) / unknown: the session provider+model.
+    - ``llm:<model>@<endpoint>``: a side Ollama provider at ``<endpoint>`` (default
+      the provider's own base URL) with ``<model>`` — decoupled from the session.
+    """
+    from victor.providers.base import Message
+
+    backend = _configured_backend(settings)
+    kind, model, endpoint = parse_completion_judge(backend)
+
+    if kind == "enhanced":
+        return None
+
+    if kind == "llm" and model:
+        from victor.providers.registry import ProviderRegistry
+
+        kwargs = {"base_url": endpoint} if endpoint else {}
+        try:
+            provider = ProviderRegistry.create("ollama", **kwargs)
+        except Exception as exc:  # unavailable side endpoint → fall back to heuristic
+            logger.warning(
+                "completion judge backend %r could not create its provider (%s); "
+                "falling back to the heuristic judge.",
+                backend,
+                exc,
+            )
+            return None
+        judge_model = model
+    else:
+        # session-model, classifier (Phase 2b forward-compat), unknown.
+        provider = getattr(provider_context, "provider", None)
+        judge_model = getattr(provider_context, "model", None)
+        if provider is None:
+            return None
+
+    async def complete(prompt: str) -> str:
+        resp = await provider.chat(
+            [Message(role="user", content=prompt)],
+            model=judge_model,
+            temperature=0.0,
+            max_tokens=400,
+        )
+        return getattr(resp, "content", "") or ""
+
+    return complete
 
 
 def resolve_completion_strategy(settings: Any, session_model: Optional[str]) -> str:

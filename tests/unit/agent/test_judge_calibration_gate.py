@@ -185,3 +185,87 @@ class TestCompletionJudgeBackend:
         from victor.config.groups.agent_config import AgentSettings
 
         assert AgentSettings().completion_judge == "session-model"
+
+
+class TestLlmJudgeBackend:
+    """FEP-0030 Phase 2: the decoupled 'llm:<model>@<endpoint>' judge backend."""
+
+    def test_parse_completion_judge_forms(self):
+        from victor.agent.services.judge_calibration_gate import parse_completion_judge
+
+        assert parse_completion_judge("session-model") == ("session-model", None, None)
+        assert parse_completion_judge("enhanced") == ("enhanced", None, None)
+        # model may contain colons; endpoint is after the LAST '@'
+        assert parse_completion_judge("llm:llama3.3:70b@http://h:11434") == (
+            "llm",
+            "llama3.3:70b",
+            "http://h:11434",
+        )
+        assert parse_completion_judge("llm:gemma4:31b") == ("llm", "gemma4:31b", None)
+        assert parse_completion_judge("classifier:/m/j") == ("classifier", "/m/j", None)
+        assert parse_completion_judge("nonsense") == ("unknown", None, None)
+
+    def test_llm_backend_pin_checks_judge_model_not_session(self, monkeypatch):
+        # THE Phase 2 win: an uncalibrated CHAT model still gates rubric because
+        # the decoupled judge (llama3.3:70b) is calibrated.
+        monkeypatch.delenv("VICTOR_COMPLETION_JUDGE", raising=False)
+        monkeypatch.delenv("VICTOR_COMPLETION_STRATEGY", raising=False)
+        from victor.agent.services.judge_calibration_gate import (
+            resolve_completion_judge_model,
+            resolve_completion_strategy,
+        )
+
+        settings = SimpleNamespace(
+            agent=SimpleNamespace(
+                completion_strategy="rubric",
+                completion_judge="llm:llama3.3:70b@http://host:11434",
+            )
+        )
+        # Session model is uncalibrated qwen — but the judge model is the calibrated llama.
+        assert resolve_completion_judge_model(settings, "qwen2.5:0.5b") == "llama3.3:70b"
+        assert resolve_completion_strategy(settings, "qwen2.5:0.5b") == "rubric"
+
+    def test_build_judge_complete_fn_session_model(self):
+        from unittest.mock import MagicMock
+
+        from victor.agent.services.judge_calibration_gate import build_judge_complete_fn
+
+        pctx = SimpleNamespace(provider=MagicMock(), model="qwen2.5:0.5b")
+        fn = build_judge_complete_fn(SimpleNamespace(agent=SimpleNamespace()), pctx)
+        assert fn is not None  # session model → a complete_fn
+
+    def test_build_judge_complete_fn_enhanced_is_none(self):
+        from victor.agent.services.judge_calibration_gate import build_judge_complete_fn
+
+        pctx = SimpleNamespace(provider=object(), model="m")
+        settings = SimpleNamespace(agent=SimpleNamespace(completion_judge="enhanced"))
+        assert build_judge_complete_fn(settings, pctx) is None
+
+    def test_build_judge_complete_fn_llm_creates_side_provider(self, monkeypatch):
+        from unittest.mock import MagicMock, patch
+
+        from victor.agent.services.judge_calibration_gate import build_judge_complete_fn
+
+        settings = SimpleNamespace(
+            agent=SimpleNamespace(completion_judge="llm:llama3.3:70b@http://host:11434")
+        )
+        pctx = SimpleNamespace(provider=MagicMock(), model="qwen2.5:0.5b")
+        with patch(
+            "victor.providers.registry.ProviderRegistry.create", return_value=MagicMock()
+        ) as create:
+            fn = build_judge_complete_fn(settings, pctx)
+        assert fn is not None
+        create.assert_called_once_with("ollama", base_url="http://host:11434")
+
+    def test_build_judge_complete_fn_side_provider_failure_falls_back(self, monkeypatch):
+        from unittest.mock import MagicMock, patch
+
+        from victor.agent.services.judge_calibration_gate import build_judge_complete_fn
+
+        settings = SimpleNamespace(agent=SimpleNamespace(completion_judge="llm:x@http://down"))
+        pctx = SimpleNamespace(provider=MagicMock(), model="m")
+        with patch(
+            "victor.providers.registry.ProviderRegistry.create",
+            side_effect=RuntimeError("unreachable"),
+        ):
+            assert build_judge_complete_fn(settings, pctx) is None
