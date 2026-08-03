@@ -1670,28 +1670,17 @@ class TurnExecutor:
         return tools
 
     def _build_rubric_complete_fn(self) -> Optional[Any]:
-        """A provider-backed async ``complete_fn(prompt)->text`` for the LLM rubric judge (ADR-009).
+        """The LLM rubric judge's ``complete_fn(prompt)->text`` (ADR-009, FEP-0030).
 
-        Returns None when no provider is available (the loop then falls back to the heuristic judge).
+        Delegates to the ``agent.completion_judge`` backend resolver: the judge is
+        the session model by default, or a decoupled side-LLM (``llm:<model>@<url>``).
+        Returns None when no LLM judge applies (the loop then uses the heuristic judge).
         Used only when completion_strategy is rubric/hybrid.
         """
-        provider = getattr(self._provider_context, "provider", None)
-        model = getattr(self._provider_context, "model", None)
-        if provider is None:
-            return None
+        from victor.agent.services.judge_calibration_gate import build_judge_complete_fn
 
-        from victor.providers.base import Message
-
-        async def complete(prompt: str) -> str:
-            resp = await provider.chat(
-                [Message(role="user", content=prompt)],
-                model=model,
-                temperature=0.0,
-                max_tokens=400,
-            )
-            return getattr(resp, "content", "") or ""
-
-        return complete
+        settings = getattr(self._chat_context, "settings", None)
+        return build_judge_complete_fn(settings, self._provider_context)
 
     @staticmethod
     def _derive_task_type(task_classification: Any) -> Optional[str]:
