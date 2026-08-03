@@ -129,3 +129,59 @@ class TestResolveEffectiveCompletionStrategy:
         )
 
         assert resolve_completion_strategy(None, None) == "enhanced"
+
+
+class TestCompletionJudgeBackend:
+    """FEP-0030 Phase 1: the judge model is resolved from agent.completion_judge,
+    independent of the session model. Default 'session-model' = historical behavior."""
+
+    def _resolve(self):
+        from victor.agent.services.judge_calibration_gate import (
+            resolve_completion_judge_model,
+        )
+
+        return resolve_completion_judge_model
+
+    def test_default_backend_is_session_model(self, monkeypatch):
+        monkeypatch.delenv("VICTOR_COMPLETION_JUDGE", raising=False)
+        resolve = self._resolve()
+        # No completion_judge configured → judge is the session model (unchanged behavior).
+        assert resolve(SimpleNamespace(agent=SimpleNamespace()), "llama3.3:70b") == "llama3.3:70b"
+        assert resolve(None, "qwen2.5:0.5b") == "qwen2.5:0.5b"
+
+    def test_enhanced_backend_forces_none(self, monkeypatch):
+        monkeypatch.delenv("VICTOR_COMPLETION_JUDGE", raising=False)
+        resolve = self._resolve()
+        settings = SimpleNamespace(agent=SimpleNamespace(completion_judge="enhanced"))
+        assert resolve(settings, "llama3.3:70b") is None
+
+    def test_enhanced_backend_downgrades_rubric_even_for_calibrated_session(self, monkeypatch):
+        # The whole point: even a calibrated session model gets enhanced when the
+        # backend is explicitly 'enhanced'.
+        monkeypatch.delenv("VICTOR_COMPLETION_JUDGE", raising=False)
+        monkeypatch.delenv("VICTOR_COMPLETION_STRATEGY", raising=False)
+        from victor.agent.services.judge_calibration_gate import resolve_completion_strategy
+
+        settings = SimpleNamespace(
+            agent=SimpleNamespace(completion_strategy="rubric", completion_judge="enhanced")
+        )
+        assert resolve_completion_strategy(settings, "llama3.3:70b") == "enhanced"
+
+    def test_phase2_backends_forward_compat_to_session_model(self, monkeypatch):
+        monkeypatch.delenv("VICTOR_COMPLETION_JUDGE", raising=False)
+        resolve = self._resolve()
+        for backend in ("llm:llama3.3:70b", "classifier:/models/j.npz"):
+            settings = SimpleNamespace(agent=SimpleNamespace(completion_judge=backend))
+            # Not yet wired → falls back to the session model, never breaks the session.
+            assert resolve(settings, "llama3.3:70b") == "llama3.3:70b"
+
+    def test_env_override_beats_settings(self, monkeypatch):
+        monkeypatch.setenv("VICTOR_COMPLETION_JUDGE", "enhanced")
+        resolve = self._resolve()
+        settings = SimpleNamespace(agent=SimpleNamespace(completion_judge="session-model"))
+        assert resolve(settings, "llama3.3:70b") is None
+
+    def test_agent_settings_default(self):
+        from victor.config.groups.agent_config import AgentSettings
+
+        assert AgentSettings().completion_judge == "session-model"
