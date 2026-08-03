@@ -36,6 +36,7 @@ ALLOWED_GET_CONTAINER_PREFIXES = (
     "victor/agent/tool_selection/selector.py",  # decision-service lazy lookup (F-004 move, #484)
     "victor/framework/agentic_loop.py",  # Decision service lookup
     "victor/framework/rl/learners/prompt_optimizer.py",  # Credit tracking service lookup
+    "victor/framework/rl/learners/trace_collection.py",  # Credit tracking lookup (moved here from prompt_optimizer by the RL decomp, #792)
     "victor/storage/embeddings/intent_classifier.py",  # Tiered service lazy lookup
     "victor/storage/embeddings/task_classifier.py",  # Tiered service lazy lookup
     "victor/tools/semantic_selector.py",  # Tiered service lazy lookup
