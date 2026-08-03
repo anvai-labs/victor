@@ -220,6 +220,7 @@ Victor uses a strict PR-based workflow to ensure code quality:
 | Provider Comparison | [Provider Matrix →](../reference/providers-comparison.md) |
 | Tool Reference | [Tool Catalog →](../guides/tool-reference.md) |
 | Multi-Agent Teams | [Team Quickstart →](../guides/multi-agent-quickstart.md) |
+| Prompt Evolution | [Run & Promote Evolved Prompts →](prompt-evolution-workflow.md) |
 
 ---
 

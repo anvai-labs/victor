@@ -311,6 +311,7 @@ victor chat --provider anthropic
 | `/provider <name>` | Switch LLM provider |
 | `/mode <mode>` | Change agent mode |
 | `/profile <name>` | Load profile |
+| `/prompt-optimize` | Run/inspect prompt evolution (`--status`, `--pareto`, `--tier`) — see the [Prompt Evolution Workflow](../development/prompt-evolution-workflow.md) |
 | `/clear` | Clear conversation |
 | `/help` | Show help |
 | `/exit` | Exit session |
