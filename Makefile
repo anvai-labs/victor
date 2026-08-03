@@ -198,6 +198,17 @@ eval-accept:
 eval-graduate:
 	python -m victor.evaluation.flag_graduation --flag "$(FLAG)" --baseline "$(BASELINE)" --candidate "$(CANDIDATE)"
 
+# Flag A/B: run an opt-in flag OFF vs ON over the real agent, emit two battery snapshots + a
+# GRADUATE/HOLD verdict (the run that produces the snapshots eval-graduate consumes). Point
+# BASE_URL at a local Ollama for a token-free run. Example:
+#   make eval-flag-ab FLAG=effect_gated_completion BASE_URL=http://172.31.160.1:11434 \
+#     MODEL=qwen3-coder-tools:30b VARIANTS=2
+eval-flag-ab:
+	python -m victor.evaluation.flag_ab --flag "$(FLAG)" \
+		$(if $(BASE_URL),--base-url "$(BASE_URL)") \
+		$(if $(MODEL),--model "$(MODEL)") \
+		$(if $(VARIANTS),--variants "$(VARIANTS)")
+
 test-split:
 	pytest tests/unit --splits=4 --group=1 -v --tb=short
 
