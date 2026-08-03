@@ -176,6 +176,46 @@ def test_run_flag_ab_uses_given_workdir(tmp_path: Path) -> None:
     assert seen_cwd and all(Path(c).resolve() == workdir.resolve() for c in seen_cwd)
 
 
+def test_drain_and_close_drains_then_closes() -> None:
+    from victor.evaluation.flag_ab import _drain_and_close
+
+    ran: list = []
+    closed: list = []
+
+    class _R:
+        def run(self, coro):
+            ran.append(True)
+            return asyncio.run(coro)  # exercises _stop_background_services on a real loop
+
+        def close(self):
+            closed.append(True)
+
+    _drain_and_close(_R())
+    assert ran == [True]  # the drain coroutine ran
+    assert closed == [True]  # the owned loop was closed
+
+
+def test_injected_runner_is_not_closed() -> None:
+    env_var = _flag_env_var(FLAG)
+    closed: list = []
+
+    class _R:
+        def run(self, coro):
+            return asyncio.run(coro)
+
+        def close(self):
+            closed.append(True)
+
+    run_battery_arm(
+        FLAG,
+        True,
+        adapter_factory=lambda **kw: _FakeAdapter(env_var, []),
+        task_provider=lambda v: _tasks(2),
+        runner=_R(),
+    )
+    assert closed == []  # an injected runner is the caller's to own — never drained/closed
+
+
 def test_max_turns_threaded_to_adapter_factory(tmp_path: Path) -> None:
     env_var = _flag_env_var(FLAG)
     seen_max_turns: list = []
