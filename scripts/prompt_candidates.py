@@ -56,6 +56,17 @@ TABLE = "agent_prompt_candidate"
 # A candidate must beat the shipped baseline on evidence, not just differ from it.
 MIN_BENCHMARK_RUNS = 3
 
+# The promotion codegen (marker re-templatizing + section replacement) lives in
+# the package so it is tested and reusable; these aliases keep the historical
+# ``_helper`` names this script and its tests call.
+from victor.framework.rl.prompt_promotion import (  # noqa: E402
+    build_promoted_source,
+    is_fstring_section as _is_fstring_section,
+    marker_placeholders as _marker_placeholders,
+    replace_section as _replace_section,
+    retemplatize as _retemplatize,
+)
+
 
 @dataclass
 class Candidate:
@@ -241,82 +252,6 @@ def cmd_export(args) -> int:
 SECTION_TEXTS_PATH = REPO_ROOT / "victor" / "agent" / "prompt_section_texts.py"
 
 
-def _marker_placeholders() -> Dict[str, str]:
-    """Rendered marker value -> the name the source interpolates it under.
-
-    Longest first: substituting a value that is a prefix of another would corrupt
-    the longer one.
-    """
-    from victor.core import completion_markers as cm
-
-    names = ("FILE_DONE_MARKER", "TASK_DONE_MARKER", "SUMMARY_MARKER", "BLOCKED_MARKER")
-    pairs = {getattr(cm, name): name for name in names if hasattr(cm, name)}
-    return dict(sorted(pairs.items(), key=lambda kv: len(kv[0]), reverse=True))
-
-
-def _retemplatize(text: str) -> tuple[str, Optional[str]]:
-    """Turn rendered marker values back into ``{PLACEHOLDER}`` interpolations.
-
-    ``COMPLETION_GUIDANCE`` is the only f-string in the section module, and it is
-    also the section evolution targets most. A candidate's stored text is the
-    *rendered* output, so writing it back verbatim would hardcode
-    ``VICTOR_FILE_DONE::`` into the source and silently end
-    ``completion_markers.py``'s role as the single definition of those tokens —
-    renaming a marker would then change the detector and leave the prompt telling
-    the model to emit the old one.
-
-    Returns ``(templatized, error)``; a non-None error means do not write.
-    """
-    placeholders = _marker_placeholders()
-    if not any(value in text for value in placeholders):
-        return text, "candidate contains none of the completion markers"
-
-    # Literal braces would be interpolation sites once this becomes an f-string.
-    stray = [ch for ch in "{}" if ch in text]
-    if stray:
-        return text, (
-            f"candidate contains a literal {stray[0]!r}, which an f-string would read as "
-            "an interpolation; promote this section by hand"
-        )
-
-    templatized = text
-    for value, name in placeholders.items():
-        templatized = templatized.replace(value, "{" + name + "}")
-
-    rendered = templatized.format(**{name: value for value, name in placeholders.items()})
-    # Round trip or refuse. A near-miss here means the substitution was lossy,
-    # and the failure would only surface at runtime as a prompt that no longer
-    # matches the detector.
-    if rendered != text:
-        return text, "re-templatizing did not round-trip; refusing to write"
-    return templatized, None
-
-
-def _replace_section(source: str, section: str, body: str, is_fstring: bool) -> Optional[str]:
-    """Swap one ``SECTION = \"\"\"...\"\"\".strip()`` assignment for a new body."""
-    import re
-
-    pattern = re.compile(
-        rf'^{re.escape(section)} = (f?)"""\n.*?\n""".strip\(\)$',
-        re.DOTALL | re.MULTILINE,
-    )
-    match = pattern.search(source)
-    if match is None:
-        return None
-    prefix = "f" if is_fstring else ""
-    return (
-        source[: match.start()]
-        + f'{section} = {prefix}"""\n{body}\n""".strip()'
-        + source[match.end() :]
-    )
-
-
-def _is_fstring_section(source: str, section: str) -> bool:
-    import re
-
-    return bool(re.search(rf'^{re.escape(section)} = f"""', source, re.MULTILINE))
-
-
 def cmd_promote(args) -> int:
     """Write a candidate's text into the shipped section module."""
     candidates = _load(args.db)
@@ -339,29 +274,16 @@ def cmd_promote(args) -> int:
         return 1
 
     source = SECTION_TEXTS_PATH.read_text()
-    is_fstring = _is_fstring_section(source, cand.section_name)
-
-    body = cand.text
-    if is_fstring:
-        body, error = _retemplatize(cand.text)
-        if error is not None:
-            print(f"Cannot promote {cand.text_hash}: {error}.", file=sys.stderr)
-            return 1
 
     provenance = (
         f"# evolved candidate {cand.text_hash} ({cand.provider}, gen {cand.generation}, "
         f"{cand.created_at}); benchmark {cand.benchmark_score:.2f} over "
         f"{cand.benchmark_runs} run(s), {cand.sample_count} live samples"
     )
-    updated = _replace_section(source, cand.section_name, body, is_fstring)
-    if updated is None:
-        print(
-            f'Could not locate a \'{cand.section_name} = """...""".strip()\' assignment '
-            f"in {SECTION_TEXTS_PATH.name}; promote it by hand.",
-            file=sys.stderr,
-        )
+    updated, error = build_promoted_source(source, cand.section_name, cand.text, provenance)
+    if error is not None:
+        print(f"Cannot promote {cand.text_hash}: {error}.", file=sys.stderr)
         return 1
-    updated = updated.replace(f"{cand.section_name} = ", f"{provenance}\n{cand.section_name} = ", 1)
 
     diff = "\n".join(
         difflib.unified_diff(
