@@ -44,6 +44,7 @@ from typing import Iterable, Optional, Sequence
 from victor.evaluation.calibration_rubric_judge import render_judged_content
 from victor.evaluation.judge_calibration_harness import (
     CalibrationExecutor,
+    Transcript,
     VerifiableTask,
 )
 
@@ -151,3 +152,84 @@ def split_by_variant(
         variant = int(example.task_id.rsplit("-", 1)[1])
         (dev if variant >= dev_variant_start else train).append(example)
     return train, dev
+
+
+# ----------------------------------------------------------------------------------------------------
+# Real-styled negative synthesis (E2 iteration 2)
+# ----------------------------------------------------------------------------------------------------
+#
+# Both scripted-only and real-only training collapse (FINDINGS
+# benchmarks/judge_training/): scripted lacks real-styled positives; real-agent
+# runs on this easy corpus are ~98% positive (no negatives to learn a boundary).
+# The fix is real-styled examples of BOTH classes. Real positives come free from
+# a real-agent run; real-styled negatives are synthesized here by taking a real
+# positive's transcript (its real claim + real tool narration) and re-rendering
+# it against the task's UNSOLVED fixture — "the agent said done, but the
+# workspace has no completing effect", the ADR-010 completion-without-effect
+# case, in real style. No agent re-run, no GPU.
+
+
+def parse_rendered_view(text: str) -> tuple[str, "Transcript"]:
+    """Inverse of ``render_judged_content`` for the (prompt, transcript) parts.
+
+    Recovers the prompt, the tool-step contents, and the final message from a
+    rendered judge view. The workspace section is intentionally dropped — the
+    caller re-renders against a different workspace. Only tool steps and the
+    final message are recovered (they are all ``render_judged_content`` uses);
+    truncation markers (``- ... N more``) and ``(none)`` are skipped.
+    """
+    from victor.evaluation.judge_calibration_harness import Transcript, TranscriptStep
+
+    def section(start: str, end: str | None) -> str:
+        s = text.index(start) + len(start)
+        e = text.index(end, s) if end else len(text)
+        return text[s:e].strip("\n")
+
+    prompt = section("TASK:\n", "\n\nTOOL ACTIVITY:")
+    tools_block = section("TOOL ACTIVITY:\n", "\n\nFINAL RESPONSE:")
+    final = section("FINAL RESPONSE:\n", "\n\nWORKSPACE STATE:")
+
+    steps = []
+    for line in tools_block.splitlines():
+        line = line.strip()
+        if not line.startswith("- ") or line == "- (none)" or line.startswith("- ... "):
+            continue
+        steps.append(TranscriptStep(kind="tool", content=line[2:]))
+    return prompt, Transcript(steps=tuple(steps), final_message=final)
+
+
+def synthesize_effect_removed_negative(
+    task: VerifiableTask, transcript: "Transcript", *, workspace_root: Optional[Path] = None
+) -> TrainingExample:
+    """Render ``transcript`` against ``task``'s UNSOLVED fixture → a label-0 example.
+
+    The fixture is materialized by ``task.setup`` alone (no solve applied), so
+    the workspace shows the original, incomplete state while the transcript
+    still carries the agent's real completion claim. A sanity check asserts the
+    task's own verifier scores this 0 (a real fixture on which the task is
+    genuinely incomplete); tasks whose fixture already verifies complete are
+    skipped by the caller.
+    """
+    import shutil
+    import tempfile
+
+    caller_owned = workspace_root is not None
+    root = workspace_root or Path(tempfile.mkdtemp(prefix="judge_realneg_"))
+    try:
+        ws = root / task.task_id
+        ws.mkdir(parents=True, exist_ok=True)
+        task.setup(ws)
+        text = render_judged_content(task.prompt, transcript, ws)
+        gold = float(task.verify(ws, transcript))
+        if gold >= 0.5:
+            raise ValueError(f"task {task.task_id} verifies complete on its own fixture")
+        return TrainingExample(
+            task_id=task.task_id,
+            family=task.family,
+            source="real-neg",
+            text=text,
+            label=0,
+        )
+    finally:
+        if not caller_owned:
+            shutil.rmtree(root, ignore_errors=True)

@@ -83,3 +83,40 @@ for EVR-6 per-turn auditing, but it must be trained on real-distribution data
 before it can clear the same gate — the reusable pieces (dataset generator,
 `make_classifier_judge` wrapper, `--classifier/encoder-judge` gate hooks,
 pack-replay comparability) are all in place for that next iteration.
+
+---
+
+## Iteration 2 (2026-08-02): real-styled negative synthesis
+
+The mix judge (α=0.928) had one weak family (`file-create` = 0.644). To close
+it we synthesized **real-styled negatives** — a real positive's transcript
+(its real claim + real tool narration) re-rendered against the task's
+*unsolved fixture* = the ADR-010 completion-without-effect case in real style
+(`judge_training_data.synthesize_effect_removed_negative`, no GPU, no re-run).
+
+| Training set | Overall α | Per-family | Note |
+|---|---|---|---|
+| real positives + real-styled negatives (all families) | 0.075 | file-create 1.0, **refactor −0.66**, qa 0.0 | synthesis breaks non-effect families |
+| mix + real-styled negatives (all families) | 0.131 | file-create 1.0, **refactor −0.55** | same |
+| **mix + file-create real-negs only (targeted)** | **0.936** | code-fix/docs/file-create/refactor = 1.0, **qa = 0.644** | best judge; beats llama3.3:70b (0.878) |
+
+**Two findings.** (1) **Effect-removal synthesis is family-specific**: clean for
+*effect-absence* tasks (file-create: no file → unambiguous negative, fixed it to
+1.0), but noisy for *subtle-diff* tasks (refactor/code-fix, where negative vs
+positive differ only by a function name or one line) and inapplicable to
+*answer* tasks (qa — the fixture already verifies complete, so 24 qa negatives
+couldn't be synthesized). Applied only where valid (file-create), it strictly
+improves the judge; applied blindly, it poisons refactor. (2) **The remaining
+per-family gap is eval-pack negative scarcity, not judge quality.** The run-12
+pack has 8 negatives / 96 (~2 per n=16 family), so a *single* misclassification
+drops that family to 0.644 — and every retraining just moves the one miss to a
+different family (file-create 0.644 → qa 0.644 here). The judge is genuinely
+strong (α=0.936 overall, 4/5 families at 1.0, > llama's 0.878); a clean
+simultaneous per-family pass needs a **denser-negative eval pack** (the
+SWE-bench stratum with natural real failures), which is the documented
+prerequisite — not another training iteration.
+
+**Standing verdict for the small-judge track:** viable and strong (α≈0.93,
+CPU-cheap, weight-independent), ready as the FEP-0030 classifier backend. The
+per-family bar is gated on richer real-failure data, tracked with the SWE-bench
+stratum. Committed evidence: `reports-iter2/`.

@@ -100,3 +100,48 @@ class TestVariantStartSlicing:
         assert variants == {"16", "17"}
         # None of the eval pack's variants (00-15) survive.
         assert not any(int(v) < 16 for v in variants)
+
+
+class TestRealNegativeSynthesis:
+    """Parse a rendered view and synthesize an effect-removed real-styled negative."""
+
+    def test_parse_round_trips_prompt_tools_and_final(self):
+        from victor.evaluation.calibration_rubric_judge import render_judged_content
+        from victor.evaluation.judge_calibration_harness import Transcript, TranscriptStep
+        from victor.evaluation.judge_training_data import parse_rendered_view
+
+        tr = Transcript(
+            steps=(
+                TranscriptStep(kind="tool", content="edit settings.toml"),
+                TranscriptStep(kind="message", content="ignored in render"),
+                TranscriptStep(kind="tool", content="write port=8000"),
+            ),
+            final_message="Done — created the file.",
+        )
+        import tempfile
+
+        ws = Path(tempfile.mkdtemp())
+        (ws / "settings.toml").write_text("port = 8000\n")
+        text = render_judged_content("Create settings.toml with port=8000", tr, ws)
+        prompt, parsed = parse_rendered_view(text)
+        assert prompt == "Create settings.toml with port=8000"
+        assert parsed.final_message == "Done — created the file."
+        # Only tool steps survive the render/parse round trip (render drops messages).
+        assert [s.content for s in parsed.tool_steps()] == ["edit settings.toml", "write port=8000"]
+
+    def test_synthesized_negative_shows_unsolved_workspace_and_label_0(self):
+        from victor.evaluation.calibration_corpus import default_corpus
+        from victor.evaluation.judge_calibration_harness import Transcript, TranscriptStep
+        from victor.evaluation.judge_training_data import synthesize_effect_removed_negative
+
+        # A file-create task: the fixture has no created file → verifier scores 0
+        # even though the transcript claims success.
+        task = next(t for t in default_corpus(variants=1) if t.family == "file-create")
+        tr = Transcript(
+            steps=(TranscriptStep(kind="tool", content="wrote the file"),),
+            final_message="Done — created it.",
+        )
+        neg = synthesize_effect_removed_negative(task, tr)
+        assert neg.label == 0
+        assert neg.source == "real-neg"
+        assert "Done — created it." in neg.text  # real claim retained
