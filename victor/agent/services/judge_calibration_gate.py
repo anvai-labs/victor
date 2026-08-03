@@ -60,7 +60,11 @@ def _configured_backend(settings: Any) -> str:
     backend = os.environ.get(_JUDGE_BACKEND_ENV) or getattr(
         getattr(settings, "agent", None), "completion_judge", "session-model"
     )
-    return (backend or "session-model").strip()
+    # Non-string (unset, mocked settings, misconfig) → the safe default. Never
+    # let a stray value reach parse_completion_judge / provider construction.
+    if not isinstance(backend, str) or not backend.strip():
+        return "session-model"
+    return backend.strip()
 
 
 def parse_completion_judge(backend: str) -> tuple[str, Optional[str], Optional[str]]:

@@ -269,3 +269,27 @@ class TestLlmJudgeBackend:
             side_effect=RuntimeError("unreachable"),
         ):
             assert build_judge_complete_fn(settings, pctx) is None
+
+
+class TestBackendRobustness:
+    def test_non_string_completion_judge_defaults_to_session_model(self, monkeypatch):
+        # Mocked/misconfigured settings (e.g. an auto-MagicMock) must not reach
+        # parse_completion_judge — coerce to the safe default.
+        from unittest.mock import MagicMock
+
+        from victor.agent.services.judge_calibration_gate import (
+            resolve_completion_judge_model,
+        )
+
+        monkeypatch.delenv("VICTOR_COMPLETION_JUDGE", raising=False)
+        settings = SimpleNamespace(agent=SimpleNamespace(completion_judge=MagicMock()))
+        assert resolve_completion_judge_model(settings, "llama3.3:70b") == "llama3.3:70b"
+
+    def test_empty_completion_judge_defaults_to_session_model(self, monkeypatch):
+        from victor.agent.services.judge_calibration_gate import (
+            resolve_completion_judge_model,
+        )
+
+        monkeypatch.delenv("VICTOR_COMPLETION_JUDGE", raising=False)
+        settings = SimpleNamespace(agent=SimpleNamespace(completion_judge="   "))
+        assert resolve_completion_judge_model(settings, "qwen") == "qwen"
