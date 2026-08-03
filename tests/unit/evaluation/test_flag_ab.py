@@ -133,3 +133,63 @@ def test_run_flag_ab_emits_graduation_when_decider_available(tmp_path: Path) -> 
     assert result["graduation"] is not None
     assert result["graduation"]["flag"] == FLAG
     assert "verdict" in result["graduation"]
+
+
+def test_run_flag_ab_isolates_and_restores_cwd(tmp_path: Path) -> None:
+    env_var = _flag_env_var(FLAG)
+    original = os.getcwd()
+    seen_cwd: list = []
+
+    def factory(**kw):
+        seen_cwd.append(os.getcwd())
+        return _FakeAdapter(env_var, [])
+
+    run_flag_ab(
+        FLAG,
+        out_dir=str(tmp_path),
+        adapter_factory=factory,
+        task_provider=lambda v: _tasks(2),
+        runner=_Runner(),
+    )
+    # The agent was constructed from an isolated cwd, not the caller's dir; cwd is restored after.
+    assert seen_cwd and all(c != original for c in seen_cwd)
+    assert os.getcwd() == original
+
+
+def test_run_flag_ab_uses_given_workdir(tmp_path: Path) -> None:
+    env_var = _flag_env_var(FLAG)
+    workdir = tmp_path / "wd"
+    seen_cwd: list = []
+
+    def factory(**kw):
+        seen_cwd.append(os.getcwd())
+        return _FakeAdapter(env_var, [])
+
+    run_flag_ab(
+        FLAG,
+        out_dir=str(tmp_path),
+        workdir=str(workdir),
+        adapter_factory=factory,
+        task_provider=lambda v: _tasks(1),
+        runner=_Runner(),
+    )
+    assert seen_cwd and all(Path(c).resolve() == workdir.resolve() for c in seen_cwd)
+
+
+def test_max_turns_threaded_to_adapter_factory(tmp_path: Path) -> None:
+    env_var = _flag_env_var(FLAG)
+    seen_max_turns: list = []
+
+    def factory(*, base_url, model, max_turns):
+        seen_max_turns.append(max_turns)
+        return _FakeAdapter(env_var, [])
+
+    run_flag_ab(
+        FLAG,
+        max_turns=5,
+        out_dir=str(tmp_path),
+        adapter_factory=factory,
+        task_provider=lambda v: _tasks(1),
+        runner=_Runner(),
+    )
+    assert seen_max_turns == [5, 5]  # both arms

@@ -63,11 +63,23 @@ def _default_task_provider(variants: int) -> list[Tuple[Any, Any]]:
     return [(t, verifiable_to_benchmark_task(t)) for t in default_corpus(variants=variants)]
 
 
-def _default_adapter_factory(*, base_url: Optional[str], model: Optional[str]) -> Any:
-    from victor.evaluation.agent_adapter import VictorAgentAdapter
+def _default_adapter_factory(
+    *, base_url: Optional[str], model: Optional[str], max_turns: int = 8
+) -> Any:
+    from victor.evaluation.agent_adapter import AdapterConfig, VictorAgentAdapter
 
+    # Bound per-task cost so a runaway task can't stall the A/B (the default 20 turns / 20-min
+    # budget is far too loose for a battery of tasks over a local model).
     return VictorAgentAdapter.from_profile(
-        profile="default", base_url=base_url, model_override=model
+        profile="default",
+        base_url=base_url,
+        model_override=model,
+        config=AdapterConfig(
+            max_turns=max_turns,
+            tool_budget=max(6, max_turns),
+            total_timeout=600,
+            min_turn_timeout=90,
+        ),
     )
 
 
@@ -96,6 +108,7 @@ def run_battery_arm(
     model: Optional[str] = None,
     base_url: Optional[str] = None,
     variants: int = 2,
+    max_turns: int = 8,
     adapter_factory: Optional[Callable[..., Any]] = None,
     task_provider: Optional[Callable[[int], Sequence[Tuple[Any, Any]]]] = None,
     runner: Optional[Any] = None,
@@ -105,13 +118,15 @@ def run_battery_arm(
 
     The flag's env var is set for the whole arm (the resolvers read it at agent construction) and
     restored afterward. Each task runs in a fresh temp workspace with its fixture set up (when the
-    task provides one). Collaborators are injectable for testing.
+    task provides one). ``max_turns`` bounds per-task cost. Collaborators are injectable for testing.
     """
     env_var = _flag_env_var(flag)
     previous = os.environ.get(env_var)
     os.environ[env_var] = "true" if enabled else "false"
     try:
-        adapter = (adapter_factory or _default_adapter_factory)(base_url=base_url, model=model)
+        adapter = (adapter_factory or _default_adapter_factory)(
+            base_url=base_url, model=model, max_turns=max_turns
+        )
         tasks = (task_provider or _default_task_provider)(variants)
         run = runner or _default_runner()
         traces = []
@@ -141,22 +156,79 @@ def run_flag_ab(
     model: Optional[str] = None,
     base_url: Optional[str] = None,
     variants: int = 2,
+    max_turns: int = 8,
     out_dir: str = ".",
+    workdir: Optional[str] = None,
+    isolate_cwd: bool = True,
     **arm_kwargs: Any,
 ) -> dict:
     """Run both arms (flag OFF then ON), write each snapshot to JSON, and assess graduation.
 
+    Runs in an **isolated working directory** by default (``isolate_cwd``): the agent keys project
+    discovery/indexing off the process CWD, so invoking from a large repo would make every task
+    re-index that tree (huge CPU, no A/B progress). We chdir into ``workdir`` (or a throwaway temp
+    dir) for the run and restore the original CWD afterward. Output paths are resolved absolutely
+    first, so ``out_dir`` still lands where you expect.
+
     Returns a dict with the two snapshot paths, both battery ``to_dict()``s, and — when the
     graduation decider is importable — the GRADUATE/HOLD report.
     """
+    out = Path(out_dir).resolve()
+    out.mkdir(parents=True, exist_ok=True)
+
+    original_cwd = os.getcwd()
+    scratch: Optional[tempfile.TemporaryDirectory] = None
+    if isolate_cwd:
+        if workdir:
+            Path(workdir).mkdir(parents=True, exist_ok=True)
+            os.chdir(workdir)
+        else:
+            scratch = tempfile.TemporaryDirectory(prefix="victor-flagab-cwd-")
+            os.chdir(scratch.name)
+    try:
+        return _run_flag_ab_arms(
+            flag,
+            out,
+            model=model,
+            base_url=base_url,
+            variants=variants,
+            max_turns=max_turns,
+            **arm_kwargs,
+        )
+    finally:
+        os.chdir(original_cwd)
+        if scratch is not None:
+            scratch.cleanup()
+
+
+def _run_flag_ab_arms(
+    flag: str,
+    out: Path,
+    *,
+    model: Optional[str],
+    base_url: Optional[str],
+    variants: int,
+    max_turns: int,
+    **arm_kwargs: Any,
+) -> dict:
     baseline = run_battery_arm(
-        flag, False, model=model, base_url=base_url, variants=variants, **arm_kwargs
+        flag,
+        False,
+        model=model,
+        base_url=base_url,
+        variants=variants,
+        max_turns=max_turns,
+        **arm_kwargs,
     )
     candidate = run_battery_arm(
-        flag, True, model=model, base_url=base_url, variants=variants, **arm_kwargs
+        flag,
+        True,
+        model=model,
+        base_url=base_url,
+        variants=variants,
+        max_turns=max_turns,
+        **arm_kwargs,
     )
-    out = Path(out_dir)
-    out.mkdir(parents=True, exist_ok=True)
     off_path = out / f"{flag}_off.json"
     on_path = out / f"{flag}_on.json"
     off_path.write_text(json.dumps(baseline.to_dict(), indent=2) + "\n", encoding="utf-8")
@@ -194,7 +266,17 @@ def _main(argv: Optional[list[str]] = None) -> int:
         "--base-url", default=None, help="Provider base URL (e.g. http://172.31.160.1:11434)"
     )
     parser.add_argument("--variants", type=int, default=2, help="Task variants per family (6×N)")
+    parser.add_argument(
+        "--max-turns", type=int, default=8, help="Per-task turn budget (bounds cost; default 8)"
+    )
     parser.add_argument("--out-dir", default=".", help="Where to write the two snapshot JSONs")
+    parser.add_argument(
+        "--workdir",
+        default=None,
+        help="Working dir to run the agent from (default: a throwaway temp dir). Keep this OUT of "
+        "a large repo — the agent indexes its CWD, so running inside the source tree re-indexes it "
+        "per task.",
+    )
     args = parser.parse_args(argv)
 
     result = run_flag_ab(
@@ -202,7 +284,9 @@ def _main(argv: Optional[list[str]] = None) -> int:
         model=args.model,
         base_url=args.base_url,
         variants=args.variants,
+        max_turns=args.max_turns,
         out_dir=args.out_dir,
+        workdir=args.workdir,
     )
     graduation = result.get("graduation")
     print(
