@@ -33,6 +33,7 @@ dependency-injected — the unit tests exercise the toggle/score/emit logic with
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -89,6 +90,43 @@ def _default_runner() -> Any:
     return PersistentLoopRunner()
 
 
+async def _stop_background_services() -> None:
+    """Reap the agent's leaked background tasks on the current loop.
+
+    Each eval task starts a per-workspace file watcher (graph indexing) and event-bus loop that
+    nothing shuts down (VictorAgentAdapter has no close()). Left pending, they log "Task was
+    destroyed but it is pending" at teardown and accumulate across the battery. Stop the watchers
+    via their registry, then cancel any remaining pending tasks. Best-effort — never raises.
+    """
+    try:
+        from victor.core.indexing.file_watcher import FileWatcherRegistry
+
+        await FileWatcherRegistry.get_instance().stop_all()
+    except Exception:  # noqa: BLE001 — cleanup must never break the run
+        logger.debug("file-watcher stop_all failed", exc_info=True)
+
+    current = asyncio.current_task()
+    pending = [t for t in asyncio.all_tasks() if t is not current and not t.done()]
+    for task in pending:
+        task.cancel()
+    if pending:
+        await asyncio.gather(*pending, return_exceptions=True)
+
+
+def _drain_and_close(run: Any) -> None:
+    """Drain leaked background tasks on ``run``'s loop, then close it (for a runner we own)."""
+    try:
+        run.run(_stop_background_services())
+    except Exception:  # noqa: BLE001
+        logger.debug("background drain failed", exc_info=True)
+    close = getattr(run, "close", None)
+    if callable(close):
+        try:
+            close()
+        except Exception:  # noqa: BLE001
+            logger.debug("runner close failed", exc_info=True)
+
+
 def _default_evaluator() -> Any:
     # Adopt EffectGroundingScorer so an effect-gate A/B actually measures effect grounding
     # (matches the acceptance-oracle promotion gate).
@@ -123,12 +161,13 @@ def run_battery_arm(
     env_var = _flag_env_var(flag)
     previous = os.environ.get(env_var)
     os.environ[env_var] = "true" if enabled else "false"
+    run = runner if runner is not None else _default_runner()
+    owns_runner = runner is None
     try:
         adapter = (adapter_factory or _default_adapter_factory)(
             base_url=base_url, model=model, max_turns=max_turns
         )
         tasks = (task_provider or _default_task_provider)(variants)
-        run = runner or _default_runner()
         traces = []
         for verifiable, bench in tasks:
             with tempfile.TemporaryDirectory(prefix="victor-flagab-") as tmp:
@@ -144,6 +183,10 @@ def run_battery_arm(
                 traces.append(run.run(adapter.execute_task(bench, workspace)))
         return (evaluator or _default_evaluator()).score_battery(traces)
     finally:
+        # Reap leaked agent background services (file watchers + event loop) before the loop is
+        # torn down — but only for a runner we created; an injected runner is the caller's to own.
+        if owns_runner:
+            _drain_and_close(run)
         if previous is None:
             os.environ.pop(env_var, None)
         else:
