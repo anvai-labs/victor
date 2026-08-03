@@ -190,7 +190,12 @@ async def test_openai_oauth_explicitly_selects_responses_and_refreshes_before_ha
     assert json.loads(kwargs["headers_json"])["ChatGPT-Account-ID"] == "workspace_123"
     request = runtime.handle.requests[0]
     assert "temperature" not in request
-    assert request["extensions"] == {"openai_responses": {"reasoning": {"effort": "high"}}}
+    # At sandhi's >= 0.1.5 floor (contract minor >= 4) reasoning_effort rides the
+    # typed ChatRequestV1 field; sandhi's Responses codec maps it to reasoning.effort
+    # in the native body (openai_responses_typed.rs), so victor no longer dual-writes
+    # it into the extensions bucket.
+    assert request["reasoning_effort"] == "high"
+    assert request["extensions"] == {"openai_responses": {}}
 
 
 def test_resolver_fails_closed_when_binding_is_missing(monkeypatch):
@@ -355,10 +360,9 @@ async def test_gateway_mode_points_ffi_handle_at_proxy_with_virtual_key(monkeypa
     # the virtual key replaces the credential; the proxy URL replaces the endpoint.
     assert args[:3] == ("deepseek", "deepseek-chat", "vk_test_123")
     assert kwargs["base_url"] == "http://localhost:8600"
-    # OpenAI-family handles send Bearer by default and the binding REJECTS an
-    # explicit auth_scheme outside the Anthropic/Gemini protocols — gateway
-    # mode must not pass one (live-proxy dogfood regression).
-    assert "auth_scheme" not in kwargs
+    # sandhi >= 0.1.5 (victor's floor) accepts "bearer" family-wide as a no-op,
+    # so gateway mode presents it unconditionally for the virtual key.
+    assert kwargs["auth_scheme"] == "bearer"
 
 
 @pytest.mark.asyncio
@@ -374,13 +378,14 @@ async def test_gateway_mode_preserves_protocol_alongside_overrides(monkeypatch):
     _, kwargs = runtime.calls[0]
     assert kwargs["protocol"] == "chatgpt_responses"
     assert kwargs["base_url"] == "http://localhost:8600"
-    assert "auth_scheme" not in kwargs
+    assert kwargs["auth_scheme"] == "bearer"
 
 
 @pytest.mark.asyncio
-async def test_gateway_mode_requests_bearer_for_auth_scheme_families(monkeypatch):
-    """Anthropic/Gemini-protocol providers DO pass bearer so the virtual key
-    rides Authorization (the binding accepts auth_scheme only there)."""
+async def test_gateway_mode_requests_bearer_regardless_of_auth_scheme_family(monkeypatch):
+    """sandhi >= 0.1.5 accepts "bearer" family-wide, so gateway mode presents it
+    unconditionally — with or without a per-family _sandhi_auth_scheme marker —
+    and the virtual key rides Authorization."""
     runtime = install_runtime(monkeypatch)
     provider = make_gateway_provider()
     provider._sandhi_auth_scheme = "api_key"  # marks an auth-scheme family
@@ -745,6 +750,41 @@ def test_installed_minor_read_from_binding(monkeypatch):
     monkeypatch.setattr(st, "_wire_contract_checked", False)
     monkeypatch.setattr(st, "_installed_contract_minor", 0)
     assert st.installed_chat_contract_minor() == 3
+
+
+def test_handshake_accepts_current_known_minor(monkeypatch, caplog):
+    """The 0.1.5 floor speaks contract minor 6 (UsageV2.basis + run cost tree);
+    the handshake reads it exactly and does not warn it is 'ahead'."""
+    import types
+
+    assert st.KNOWN_CONTRACT_MINOR == 6
+    fake_sg = types.SimpleNamespace(
+        wire_contract_version=lambda: "1", chat_contract_minor=lambda: 6
+    )
+    monkeypatch.setitem(sys.modules, "sandhi_gateway", fake_sg)
+    monkeypatch.setattr(st, "_wire_contract_checked", False)
+    monkeypatch.setattr(st, "_installed_contract_minor", 0)
+    with caplog.at_level("INFO"):
+        assert st.installed_chat_contract_minor() == 6
+    assert not any("ahead of victor" in r.getMessage() for r in caplog.records)
+
+
+def test_handshake_tolerates_newer_minor_forward_compat(monkeypatch, caplog):
+    """installed_minor > KNOWN stays valid forward-compat: victor reads the
+    newer minor, logs an informational 'ahead' note, and keeps transporting
+    (newer additive fields are simply ignored until victor catches up)."""
+    import types
+
+    fake_sg = types.SimpleNamespace(
+        wire_contract_version=lambda: "1",
+        chat_contract_minor=lambda: st.KNOWN_CONTRACT_MINOR + 1,
+    )
+    monkeypatch.setitem(sys.modules, "sandhi_gateway", fake_sg)
+    monkeypatch.setattr(st, "_wire_contract_checked", False)
+    monkeypatch.setattr(st, "_installed_contract_minor", 0)
+    with caplog.at_level("INFO"):
+        assert st.installed_chat_contract_minor() == st.KNOWN_CONTRACT_MINOR + 1
+    assert any("ahead of victor" in r.getMessage() for r in caplog.records)
 
 
 def test_installed_binding_meets_victor_floor_when_export_exists():
