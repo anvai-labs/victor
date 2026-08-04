@@ -2,7 +2,7 @@
 
 ## Metadata
 
-- **Status**: Accepted (2026-07-02 — Phase 0 done, Phase 1 live as a guarded soft-import in `victor/core/graph_rag/indexing.py`; later phases pending; was Proposed)
+- **Status**: Accepted (2026-08-04 — Phases 0–1 shipped; Phase 2 partial; Phase 3 pending; was Proposed)
 - **Date**: 2026-06-26
 - **Decision Makers**: Vijaykumar Singh
 - **Related ADRs**: ADR 014 (shared victor-codegraph package), ADR 007 (vertical/contracts boundary)
@@ -93,10 +93,12 @@ stubs stay (runtime injection).
 ## Status of work
 
 - Phase 0: shipped (CI install + vertical delegation, ADR 014 PRs).
-- Phase 1: partial/live. Core graph indexing preserves `victor-codegraph` v2 symbol IDs and
-  uses the same v2 identity for synthetic file/module nodes. The coding analysis provider
-  delegates symbols, relations, and imports with a cross-surface conformance fixture. Wiring
-  repository-resolved relations into every older core edge-building path remains.
+- Phase 1: shipped. Core graph indexing preserves `victor-codegraph` v2 symbol IDs and
+  uses the same v2 identity for synthetic file/module nodes. One filtered repository snapshot
+  now supplies import-aware cross-file calls, inheritance/implementation, and module-import
+  edges; semantic sources bypass the older name-only fan-out resolver while mixed/absent package
+  installs retain the existing soft fallback. The coding analysis provider delegates symbols,
+  relations, and imports with a cross-surface conformance fixture.
 - Phase 2: partial/live. Coding-vertical chunkers delegate where the package is installed; the
   remaining core chunk strategies still need convergence on the v2 chunk planner.
 - Phase 3: pending.

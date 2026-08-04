@@ -1290,6 +1290,186 @@ async def test_core_call_edges_preserve_codegraph_v2_ids(tmp_path: Path) -> None
     assert (call.src, call.dst) == (expected.from_symbol_id, expected.to_symbol_id)
 
 
+@pytest.mark.asyncio
+async def test_codegraph_repository_relations_use_import_context_and_suppress_name_fanout(
+    tmp_path: Path,
+) -> None:
+    """Repository resolution must bind a call only to the imported definition.
+
+    The legacy resolver fans a leaf-name call out to every matching symbol.  The
+    v2 repository resolver instead uses the caller's imports and preserves the
+    canonical symbol ids.  Once that semantic result is available, the lossy
+    legacy records for the same source must be discarded.
+    """
+    codegraph = pytest.importorskip("victor_codegraph")
+    caller_path = tmp_path / "caller.py"
+    caller_path.write_text(
+        "from preferred import Base, target\n\n"
+        "class Child(Base):\n    pass\n\n"
+        "def caller():\n    return target()\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "preferred.py").write_text(
+        "class Base:\n    pass\n\ndef target():\n    return 'preferred'\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "other.py").write_text(
+        "class Base:\n    pass\n\ndef target():\n    return 'other'\n",
+        encoding="utf-8",
+    )
+
+    graph_store = _RecordingGraphStore()
+    pipeline = GraphIndexingPipeline(
+        graph_store,
+        GraphIndexConfig(
+            root_path=tmp_path,
+            enable_ccg=False,
+            enable_embeddings=False,
+            enable_subgraph_cache=False,
+        ),
+    )
+    repository = codegraph.parse_repo(tmp_path)
+    pipeline._codegraph_repository = repository
+    caller = next(symbol for symbol in repository.symbols if symbol.simple_name == "caller")
+    preferred = next(
+        symbol
+        for symbol in repository.symbols
+        if symbol.simple_name == "target" and symbol.location.file_path == "preferred.py"
+    )
+    other = next(
+        symbol
+        for symbol in repository.symbols
+        if symbol.simple_name == "target" and symbol.location.file_path == "other.py"
+    )
+    child = next(symbol for symbol in repository.symbols if symbol.simple_name == "Child")
+    preferred_base = next(
+        symbol
+        for symbol in repository.symbols
+        if symbol.simple_name == "Base" and symbol.location.file_path == "preferred.py"
+    )
+    other_base = next(
+        symbol
+        for symbol in repository.symbols
+        if symbol.simple_name == "Base" and symbol.location.file_path == "other.py"
+    )
+    pipeline._codegraph_owned_symbol_ids = {caller.id, child.id}
+    pipeline._codegraph_owned_files = {"caller.py"}
+    pipeline._pending_call_records = [(caller.id, "target", None, False)]
+    pipeline._pending_relationship_records = [(child.id, "Base", "INHERITS")]
+    pipeline._pending_import_records = [
+        (str(caller_path), "from preferred import target", "python")
+    ]
+
+    captured: list[GraphEdge] = []
+
+    async def _capture_edges(edges):
+        captured.extend(edges)
+
+    graph_store.upsert_edges = _capture_edges
+
+    calls, relationships, imports = await pipeline._resolve_codegraph_repository_relations()
+
+    assert (calls, relationships, imports) == (1, 1, 1)
+    call_edges = [edge for edge in captured if edge.type.value == "CALLS"]
+    assert [(edge.src, edge.dst) for edge in call_edges] == [(caller.id, preferred.id)]
+    assert all(edge.dst != other.id for edge in call_edges)
+    relationship_edges = [edge for edge in captured if edge.type.value == "INHERITS"]
+    assert [(edge.src, edge.dst) for edge in relationship_edges] == [(child.id, preferred_base.id)]
+    assert all(edge.dst != other_base.id for edge in relationship_edges)
+    assert pipeline._pending_call_records == []
+    assert pipeline._pending_relationship_records == []
+    assert pipeline._pending_import_records == []
+
+
+@pytest.mark.asyncio
+async def test_codegraph_repository_relation_fallback_preserves_legacy_buffers(
+    tmp_path: Path,
+) -> None:
+    pipeline = GraphIndexingPipeline(
+        _RecordingGraphStore(),
+        GraphIndexConfig(
+            root_path=tmp_path,
+            enable_ccg=False,
+            enable_embeddings=False,
+            enable_subgraph_cache=False,
+        ),
+    )
+    pending_call = ("caller", "target", None, False)
+    pending_relationship = ("child", "Base", "INHERITS")
+    pending_import = (str(tmp_path / "caller.py"), "import target", "python")
+    pipeline._pending_call_records = [pending_call]
+    pipeline._pending_relationship_records = [pending_relationship]
+    pipeline._pending_import_records = [pending_import]
+
+    assert await pipeline._resolve_codegraph_repository_relations() == (0, 0, 0)
+    assert pipeline._pending_call_records == [pending_call]
+    assert pipeline._pending_relationship_records == [pending_relationship]
+    assert pipeline._pending_import_records == [pending_import]
+
+
+@pytest.mark.asyncio
+async def test_core_call_edges_reuse_prepared_repository_snapshot(
+    monkeypatch, tmp_path: Path
+) -> None:
+    codegraph = pytest.importorskip("victor_codegraph")
+    from victor.core.graph_rag.indexing import _get_graph_types
+
+    source = "def caller(): return target()\n\ndef target(): return 1\n"
+    path = tmp_path / "m.py"
+    path.write_text(source, encoding="utf-8")
+    repository = codegraph.parse_repo(tmp_path)
+    pipeline = _make_pipeline(tmp_path)
+    pipeline._codegraph_repository = repository
+    GraphNode, _ = _get_graph_types()
+    nodes = [
+        GraphNode(
+            node_id=symbol.id,
+            type=symbol.symbol_type.name.lower(),
+            name=symbol.simple_name,
+            file="m.py",
+            line=symbol.location.start_line,
+            lang="python",
+        )
+        for symbol in repository.files["m.py"].symbols
+    ]
+    monkeypatch.setattr(
+        codegraph,
+        "parse",
+        lambda *args, **kwargs: pytest.fail("prepared snapshot must avoid a per-file reparse"),
+    )
+
+    edges = await pipeline._build_calls_edges(nodes, path)
+
+    assert len([edge for edge in edges if edge.type.value == "CALLS"]) == 1
+    assert pipeline._codegraph_owned_files == {"m.py"}
+
+
+@pytest.mark.asyncio
+async def test_codegraph_repository_relations_cover_import_only_modules(tmp_path: Path) -> None:
+    codegraph = pytest.importorskip("victor_codegraph")
+    importer = tmp_path / "importer.py"
+    importer.write_text("import target\n", encoding="utf-8")
+    (tmp_path / "target.py").write_text("VALUE = 1\n", encoding="utf-8")
+    graph_store = _RecordingGraphStore()
+    pipeline = GraphIndexingPipeline(
+        graph_store,
+        GraphIndexConfig(
+            root_path=tmp_path,
+            enable_ccg=False,
+            enable_embeddings=False,
+            enable_subgraph_cache=False,
+        ),
+    )
+    pipeline._codegraph_repository = codegraph.parse_repo(tmp_path)
+    module_node = pipeline._make_module_node(importer, "python")
+
+    await pipeline._build_calls_edges([module_node], importer)
+    calls, relationships, imports = await pipeline._resolve_codegraph_repository_relations()
+
+    assert (calls, relationships, imports) == (0, 0, 1)
+    assert pipeline._codegraph_owned_files == {"importer.py"}
+
+
 def test_provider_fallback_increments_stat_in_merge(tmp_path: Path) -> None:
     pipeline = _make_pipeline(tmp_path)
     target = GraphIndexStats()
