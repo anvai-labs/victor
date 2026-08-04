@@ -1011,9 +1011,9 @@ async def test_name_index_excludes_trait_impl_methods(monkeypatch, tmp_path: Pat
         "leaf-name query must exclude trait-impl methods via NOT LIKE on signature; "
         f"got: {leaf_query!r}"
     )
-    assert "for" in leaf_query.lower(), (
-        "leaf-name query must filter on ` for ` substring; " f"got: {leaf_query!r}"
-    )
+    assert (
+        "for" in leaf_query.lower()
+    ), f"leaf-name query must filter on ` for ` substring; got: {leaf_query!r}"
 
 
 @pytest.mark.asyncio
@@ -1124,7 +1124,7 @@ def test_parse_file_sync_uses_enhanced_provider_when_available(monkeypatch, tmp_
 
     result = pipeline._parse_file_sync(file_path)
 
-    assert provider.calls == [str(file_path)]
+    assert provider.calls == ["a.py"]
     # _parse_file_sync prepends a synthetic module node so IMPORTS edges and
     # top-level CONTAINS edges have something to attach to. The extracted
     # symbol follows it.
@@ -1232,6 +1232,62 @@ def test_provider_symbols_to_graph_nodes_maps_dict_fields() -> None:
     assert node.signature == "class Foo(Base):"
     assert node.visibility == "public"
     assert node.ast_kind == "class_definition"
+
+
+def test_provider_symbols_to_graph_nodes_preserves_codegraph_v2_identity() -> None:
+    pipeline = _make_pipeline(Path("/tmp"))
+    symbols = [
+        {
+            "name": "f",
+            "symbol_type": "function",
+            "file_path": "pkg/m.py",
+            "line_start": 9,
+            "line_end": 10,
+            "ast_kind": "function_definition",
+            "symbol_id": "stable-v2-id",
+        }
+    ]
+    node = pipeline._provider_symbols_to_graph_nodes(symbols, Path("pkg/m.py"), "python")[0]
+    assert node.node_id == "stable-v2-id"
+
+
+def test_module_node_id_matches_codegraph_file_identity() -> None:
+    codegraph = pytest.importorskip("victor_codegraph")
+    from victor.core.graph_rag.indexing import _module_node_id
+
+    expected = codegraph.stable_symbol_key(
+        "repository", codegraph.CodeSymbolType.FILE, "pkg/m.py", None, "pkg/m.py"
+    )
+    assert _module_node_id("pkg/m.py") == expected
+
+
+@pytest.mark.asyncio
+async def test_core_call_edges_preserve_codegraph_v2_ids(tmp_path: Path) -> None:
+    codegraph = pytest.importorskip("victor_codegraph")
+    from victor.core.graph_rag.indexing import _get_graph_types
+
+    source = "def caller(): return target()\n\ndef target(): return 1\n"
+    path = tmp_path / "m.py"
+    path.write_text(source)
+    pipeline = _make_pipeline(tmp_path)
+    parsed = codegraph.parse(source, file_path="m.py")
+    GraphNode, _ = _get_graph_types()
+    nodes = [
+        GraphNode(
+            node_id=s.id,
+            type=s.symbol_type.name.lower(),
+            name=s.simple_name,
+            file="m.py",
+            line=s.location.start_line,
+            lang="python",
+        )
+        for s in parsed.symbols
+    ]
+
+    edges = await pipeline._build_calls_edges(nodes, path)
+    call = next(edge for edge in edges if edge.type.value == "CALLS")
+    expected = next(r for r in parsed.relations if r.relation_type.name == "CALLS")
+    assert (call.src, call.dst) == (expected.from_symbol_id, expected.to_symbol_id)
 
 
 def test_provider_fallback_increments_stat_in_merge(tmp_path: Path) -> None:

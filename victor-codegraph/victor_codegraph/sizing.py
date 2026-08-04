@@ -12,6 +12,56 @@ from .config import ChunkConfig
 from .model import CodeChunk, CodeSymbol
 
 
+def split_text_windows(text: str, config: ChunkConfig) -> list[tuple[int, int]]:
+    """Return overlapping, newline-preferred windows satisfying the hard budget."""
+
+    if not text:
+        return []
+    windows: list[tuple[int, int]] = []
+    start = 0
+    size = len(text)
+    while start < size:
+        hard_end = min(size, start + config.max_chunk_chars)
+        end = hard_end
+
+        if (
+            config.token_counter is not None
+            and config.estimate_tokens(text[start:end]) > config.max_chunk_tokens
+        ):
+            lo, hi = start + 1, end
+            best = start
+            while lo <= hi:
+                mid = (lo + hi) // 2
+                if config.estimate_tokens(text[start:mid]) <= config.max_chunk_tokens:
+                    best = mid
+                    lo = mid + 1
+                else:
+                    hi = mid - 1
+            if best == start:
+                raise ValueError("token counter cannot fit even one character in the chunk budget")
+            end = best
+
+        if end < size:
+            newline = text.rfind("\n", start, end)
+            if newline >= start:
+                candidate = newline + 1
+                if candidate > start:
+                    end = candidate
+
+        windows.append((start, end))
+        if end >= size:
+            break
+
+        if config.chunk_overlap_chars:
+            floor = max(start + 1, end - config.chunk_overlap_chars)
+            newline = text.find("\n", floor, end)
+            next_start = newline + 1 if newline >= 0 else floor
+        else:
+            next_start = end
+        start = max(start + 1, min(next_start, end))
+    return windows
+
+
 def _base_metadata(symbol: CodeSymbol) -> dict:
     return {
         "symbol_id": symbol.id,
@@ -36,7 +86,9 @@ def chunks_for_symbol(symbol: CodeSymbol, config: ChunkConfig) -> list[CodeChunk
 
     source = symbol.source_code
     line_count = symbol.location.end_line - symbol.location.start_line + 1
-    fits = len(source) <= config.max_chunk_chars
+    fits = len(source) <= config.max_chunk_chars and (
+        config.token_counter is None or config.estimate_tokens(source) <= config.max_chunk_tokens
+    )
     small = line_count <= config.large_symbol_threshold_lines
 
     if fits or small:
@@ -63,58 +115,18 @@ def chunks_for_symbol(symbol: CodeSymbol, config: ChunkConfig) -> list[CodeChunk
 def _body_split(symbol: CodeSymbol, config: ChunkConfig) -> list[CodeChunk]:
     """Split an oversized symbol body into overlapping, line-aligned sub-chunks."""
 
-    lines = symbol.source_code.splitlines(keepends=True)
-    max_chars = config.max_chunk_chars
-    overlap_chars = config.chunk_overlap_chars
-
-    windows: list[tuple[int, str, bool]] = []  # (start_line_offset, text, is_line_split)
-    cur: list[str] = []
-    cur_len = 0
-    cur_start = 0
-    i = 0
-    while i < len(lines):
-        ln = lines[i]
-        # A single line longer than the budget (degenerate minified case) is split
-        # into overlapping char windows — every char lands in some chunk, none are
-        # silently dropped (the old code truncated to ``ln[:max_chars]``), and it
-        # never rides inside a line window where it would blow the budget.
-        # ChunkConfig guarantees overlap < max, so step >= 1.
-        if len(ln) > max_chars:
-            if cur:
-                windows.append((cur_start, "".join(cur), False))
-                cur = []
-                cur_len = 0
-            step = max(1, max_chars - overlap_chars)
-            for off in range(0, len(ln), step):
-                windows.append((i, ln[off : off + max_chars], True))
-                if off + max_chars >= len(ln):
-                    break
-            i += 1
-            cur_start = i
-            continue
-        if cur_len + len(ln) > max_chars and cur:
-            windows.append((cur_start, "".join(cur), False))
-            # Build overlap tail by walking back from the end of the current window.
-            tail: list[str] = []
-            tail_len = 0
-            j = i - 1
-            while j >= cur_start and tail_len + len(lines[j]) <= overlap_chars:
-                tail.insert(0, lines[j])
-                tail_len += len(lines[j])
-                j -= 1
-            cur = list(tail)
-            cur_len = tail_len
-            cur_start = j + 1
-        cur.append(ln)
-        cur_len += len(ln)
-        i += 1
-    if cur:
-        windows.append((cur_start, "".join(cur), False))
-
+    source = symbol.source_code
+    windows = split_text_windows(source, config)
     total = len(windows)
     out: list[CodeChunk] = []
     base_line = symbol.location.start_line
-    for idx, (line_off, text, is_line_split) in enumerate(windows):
+    for idx, (char_start, char_end) in enumerate(windows):
+        text = source[char_start:char_end]
+        line_off = source.count("\n", 0, char_start)
+        line_start_char = source.rfind("\n", 0, char_start) + 1
+        is_line_split = char_start != line_start_char or (
+            char_end < len(source) and source[char_end - 1 : char_end] != "\n"
+        )
         meta = _base_metadata(symbol)
         meta["chunk_index"] = idx
         meta["chunk_total"] = total
@@ -130,8 +142,8 @@ def _body_split(symbol: CodeSymbol, config: ChunkConfig) -> list[CodeChunk]:
                 chunk_id=f"{symbol.id}#body#{idx}",
                 text=text,
                 symbol_id=symbol.id,
-                start_pos=symbol.location.byte_offset,
-                end_pos=symbol.location.byte_offset + len(symbol.source_code.encode("utf-8")),
+                start_pos=symbol.location.byte_offset + len(source[:char_start].encode("utf-8")),
+                end_pos=symbol.location.byte_offset + len(source[:char_end].encode("utf-8")),
                 metadata=meta,
             )
         )

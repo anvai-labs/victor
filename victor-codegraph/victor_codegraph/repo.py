@@ -56,15 +56,16 @@ def iter_source_files(
     (when its extension is recognized). ``languages`` restricts to those language names.
     """
     root_path = Path(root)
+    allowed = set(languages) if languages else None
     if root_path.is_file():
-        if detect_language(str(root_path)) is not None:
+        language = detect_language(str(root_path))
+        if language is not None and (allowed is None or language in allowed):
             yield root_path
         return
-    allowed = set(languages) if languages else None
     excl = set(exclude_dirs)
     for dirpath, dirnames, filenames in os.walk(root_path, followlinks=follow_symlinks):
         # Prune in place so os.walk does not descend into excluded/hidden dirs.
-        dirnames[:] = [d for d in dirnames if d not in excl and not d.startswith(".")]
+        dirnames[:] = sorted(d for d in dirnames if d not in excl and not d.startswith("."))
         for fn in sorted(filenames):
             p = Path(dirpath) / fn
             lang = detect_language(str(p))
@@ -115,13 +116,14 @@ def parse_path(
     *,
     encoding: str = "utf-8",
     encoding_fallback: bool = True,
+    repo_root: str | os.PathLike[str] | None = None,
 ) -> ParsedCode | None:
     """Parse a single file into symbols + relations. Returns ``None`` if unreadable."""
     p = Path(path)
     content = read_source_text(p, encoding=encoding, encoding_fallback=encoding_fallback)
     if content is None:
         return None
-    return _parse(content, file_path=str(p))
+    return _parse(content, file_path=str(p), repo_root=repo_root)
 
 
 def chunk_path(
@@ -130,13 +132,20 @@ def chunk_path(
     *,
     encoding: str = "utf-8",
     encoding_fallback: bool = True,
+    repo_root: str | os.PathLike[str] | None = None,
 ) -> list[CodeChunk]:
     """Read + chunk a single file. Returns an empty list if it can't be read."""
     p = Path(path)
     content = read_source_text(p, encoding=encoding, encoding_fallback=encoding_fallback)
     if content is None:
         return []
-    return _chunk(content, file_path=str(p), config=config)
+    file_name = str(p)
+    if repo_root is not None:
+        try:
+            file_name = p.resolve().relative_to(Path(repo_root).resolve()).as_posix()
+        except (OSError, ValueError):
+            file_name = Path(os.path.relpath(p, repo_root)).as_posix()
+    return _chunk(content, file_path=file_name, config=config)
 
 
 def chunk_repo(
@@ -147,4 +156,4 @@ def chunk_repo(
 ) -> Iterator[CodeChunk]:
     """Walk ``root`` and yield chunks for every source file (streaming, low-memory)."""
     for p in iter_source_files(root, languages=languages):
-        yield from chunk_path(p, config)
+        yield from chunk_path(p, config, repo_root=root)

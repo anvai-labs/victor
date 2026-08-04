@@ -34,6 +34,7 @@ def test_iter_single_file(tmp_path):
     f = tmp_path / "solo.py"
     f.write_text("def f():\n    return 1\n")
     assert [p.name for p in iter_source_files(f)] == ["solo.py"]
+    assert list(iter_source_files(f, languages=["rust"])) == []
 
 
 def test_chunk_path(tmp_path):

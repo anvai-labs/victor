@@ -41,7 +41,7 @@ def helper2(x, y):
 
 
 def _nodes(records):
-    return [r for r in records if "graph_node" in r["labels"]]
+    return [r for r in records if "code_symbol" in r["labels"]]
 
 
 def _canonical_nodes(src):

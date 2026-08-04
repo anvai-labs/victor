@@ -19,8 +19,12 @@ from .model import (
     CodeRelationType,
     CodeSymbol,
     CodeSymbolType,
+    CapabilityTier,
+    ParseDiagnostic,
+    ParseStatus,
     ParsedCode,
     SourceLocation,
+    SymbolReference,
     content_hash,
     deterministic_symbol_id,
 )
@@ -213,12 +217,21 @@ def _collect_calls(node, owner: CodeSymbol, src: bytes, file_path: str, relation
                     break
             callee = _rightmost_name(callee_node, src) if callee_node is not None else None
             if callee:
+                raw = _text(callee_node, src) if callee_node is not None else callee
+                qualifier = raw.rsplit(".", 1)[0] if "." in raw else None
+                args = n.child_by_field_name("arguments")
+                arity = None
+                if args is not None:
+                    arity = len([c for c in _children(args) if getattr(c, "is_named", True)])
                 relations.append(
                     CodeRelation(
                         from_symbol_id=owner.id,
                         to_symbol_id=callee,
                         relation_type=CodeRelationType.CALLS,
                         context=callee,
+                        target_ref=SymbolReference(
+                            name=callee, qualifier=qualifier, arity=arity, text=raw
+                        ),
                         call_site=SourceLocation(
                             file_path=file_path,
                             start_line=n.start_point[0] + 1,  # 1-based line contract
@@ -268,6 +281,7 @@ def _extract_heritage(class_node, sym: CodeSymbol, src: bytes, relations) -> Non
                         to_symbol_id=name,
                         relation_type=rel,
                         context=name,
+                        target_ref=SymbolReference(name=name, text=name),
                     )
                 )
 
@@ -379,6 +393,7 @@ def _handle_go_type_spec(child, src, file_path, language, frames, symbols, relat
                     to_symbol_id=base,
                     relation_type=CodeRelationType.EXTENDS,
                     context=base,
+                    target_ref=SymbolReference(name=base, text=base),
                 )
             )
 
@@ -431,21 +446,8 @@ def _walk_collect(node, src, file_path, language, frames, symbols, relations, im
         elif t in _FUNC_NODES:
             name = _name_of(child, src)
             if name is None:
-                # Anonymous function/arrow: emit nothing (arrow) or keep legacy
-                # "<anonymous>" for bare function expressions, but STILL recurse so
-                # named definitions inside callbacks/IIFEs are collected.
-                if t != "arrow_function":
-                    symbols.append(
-                        _mk(
-                            child,
-                            src,
-                            file_path,
-                            language,
-                            "<anonymous>",
-                            CodeSymbolType.FUNCTION,
-                            _scope_names(frames),
-                        )
-                    )
+                # Anonymous functions have no durable structural discriminator. Do
+                # not promote them to symbols; recurse to collect named children.
                 _walk_collect(
                     child, src, file_path, language, frames, symbols, relations, impl_traits
                 )
@@ -515,9 +517,13 @@ def _param_signature(node, src) -> str | None:
     Python's AST parser supplies a richer ``signature``; this is the tree-sitter path.
     """
 
-    for ch in _children(node):
-        if _attr(ch, "type") in _PARAM_NODE_TYPES:
-            return _text(ch, src)
+    stack = [(node, 0)]
+    while stack:
+        current, depth = stack.pop(0)
+        if current is not node and _attr(current, "type") in _PARAM_NODE_TYPES:
+            return _text(current, src)
+        if depth < 5:
+            stack.extend((ch, depth + 1) for ch in _children(current))
     return None
 
 
@@ -615,6 +621,11 @@ def parse_treesitter(content: str, file_path: str, language: str) -> ParsedCode:
     for child in _children(root):
         if child.type in _IMPORT_NODES:
             imports.append(_text(child, src))
+        elif child.type == "export_statement":
+            exported = _text(child, src)
+            # Re-exports create a module dependency; plain declarations do not.
+            if " from " in exported:
+                imports.append(exported)
 
     _walk_collect(root, src, file_path, language, [], symbols, relations, impl_traits)
 
@@ -651,11 +662,13 @@ def parse_treesitter(content: str, file_path: str, language: str) -> ParsedCode:
                     to_symbol_id=trait_name,
                     relation_type=CodeRelationType.IMPLEMENTS,
                     context=trait_name,
+                    target_ref=SymbolReference(name=trait_name, text=trait_name),
                 )
             )
 
     relations.extend(_build_contains(symbols))
 
+    has_error = bool(getattr(root, "has_error", False))
     return ParsedCode(
         file_path=file_path,
         language=language,
@@ -663,4 +676,12 @@ def parse_treesitter(content: str, file_path: str, language: str) -> ParsedCode:
         relations=resolve_relations(symbols, relations),
         imports=imports,
         content_hash=content_hash(content),
+        status=ParseStatus.PARTIAL if has_error else ParseStatus.SUCCESS,
+        capability_tier=CapabilityTier.SYMBOLS,
+        diagnostics=(
+            [ParseDiagnostic(code="syntax_error", message="tree-sitter produced an error node")]
+            if has_error
+            else []
+        ),
+        source_code=content,
     )

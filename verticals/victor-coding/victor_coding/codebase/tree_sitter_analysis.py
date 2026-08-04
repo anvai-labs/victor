@@ -30,6 +30,7 @@ Output shapes follow the LLD "Data Contracts" section:
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -175,6 +176,7 @@ class TreeSitterAnalysisProvider:
             return None
         if not parsed.symbols:
             return None
+        by_scope = {(*s.scope_chain, s.simple_name): s.id for s in parsed.symbols}
         out: List[Dict[str, Any]] = []
         for s in parsed.symbols:
             stype = s.symbol_type.name.lower()
@@ -187,6 +189,12 @@ class TreeSitterAnalysisProvider:
                     "line_end": s.location.end_line,
                     "parent_symbol": s.scope_chain[-1] if s.scope_chain else None,
                     "ast_kind": _CODEGRAPH_AST_KIND.get(stype, "function_definition"),
+                    "symbol_id": s.id,
+                    "legacy_symbol_id": getattr(s, "legacy_id", None),
+                    "parent_id": by_scope.get(tuple(s.scope_chain)),
+                    "signature": s.signature,
+                    "docstring": s.documentation,
+                    "visibility": "private" if "private" in s.modifiers else "public",
                 }
             )
         return out
@@ -198,6 +206,61 @@ class TreeSitterAnalysisProvider:
         *,
         file_path: str,
     ) -> List[Dict[str, Any]]:
+        if _codegraph_symbols_enabled():
+            try:
+                src = content.decode("utf-8", errors="replace")
+                codegraph = _victor_codegraph.parse(src, language=language, file_path=file_path)
+                if codegraph.symbols:
+                    names = {s.id: s.simple_name for s in codegraph.symbols}
+                    mapped: List[Dict[str, Any]] = []
+                    for relation in codegraph.relations:
+                        target_ref = getattr(relation, "target_ref", None)
+                        source = names.get(relation.from_symbol_id)
+                        target = names.get(relation.to_symbol_id)
+                        if source is None:
+                            continue
+                        target = target or (
+                            target_ref.name if target_ref is not None else relation.to_symbol_id
+                        )
+                        edge_type = (
+                            "INHERITS"
+                            if relation.relation_type.name == "EXTENDS"
+                            else relation.relation_type.name
+                        )
+                        is_method_call = bool(target_ref and target_ref.qualifier)
+                        call_site = relation.call_site
+                        if not is_method_call and target_ref is None and call_site is not None:
+                            source_lines = src.splitlines()
+                            line_index = call_site.start_line - 1
+                            if 0 <= line_index < len(source_lines):
+                                is_method_call = bool(
+                                    re.search(
+                                        rf"(?:\.|->|::)\s*{re.escape(str(target))}\s*\(",
+                                        source_lines[line_index],
+                                    )
+                                )
+                        mapped.append(
+                            {
+                                "source": source,
+                                "target": target,
+                                "source_id": relation.from_symbol_id,
+                                "target_id": (
+                                    relation.to_symbol_id if target_ref is None else None
+                                ),
+                                "edge_type": edge_type,
+                                "file_path": file_path,
+                                "line_number": (
+                                    relation.call_site.start_line
+                                    if relation.call_site is not None
+                                    else 0
+                                ),
+                                "is_method_call": is_method_call,
+                                "confidence": relation.confidence,
+                            }
+                        )
+                    return mapped
+            except Exception as e:  # noqa: BLE001 - preserve the legacy fallback
+                logger.debug("victor-codegraph edge delegation failed for %s: %s", file_path, e)
         parsed = self.parse(content, language, file_path=file_path)
         if parsed is None:
             return []
@@ -210,6 +273,14 @@ class TreeSitterAnalysisProvider:
         *,
         file_path: Optional[str] = None,
     ) -> List[str]:
+        if _codegraph_symbols_enabled() and file_path is not None:
+            try:
+                src = content.decode("utf-8", errors="replace")
+                codegraph = _victor_codegraph.parse(src, language=language, file_path=file_path)
+                if codegraph.status.value in {"success", "partial"}:
+                    return list(codegraph.imports)
+            except Exception as e:  # noqa: BLE001 - preserve the legacy fallback
+                logger.debug("victor-codegraph import delegation failed for %s: %s", file_path, e)
         parsed = self.parse(content, language, file_path=file_path)
         if parsed is None:
             return []

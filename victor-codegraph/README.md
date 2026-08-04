@@ -1,7 +1,8 @@
 # victor-codegraph
 
-Shared **code → Code-Property-Graph chunker**: tree-sitter symbol + relation extraction,
-size-capped embeddable chunks, and a `ProximaRecord` projection. One chunker, three
+Shared **repository → Code Semantic Graph compiler**: symbol and relation extraction,
+hard-bounded embeddable chunks, repository-wide resolution/deltas, diagnostics, and a
+`ProximaRecord` projection. One compiler, three
 consumers — Victor (owner), the ProximaDB SDK (`[codegraph]` extra), and AnvaiOps (SaaS
 code-graph vertical).
 
@@ -23,9 +24,8 @@ gaps:
 
 ## Install
 
-Published on PyPI as [`victor-codegraph`](https://pypi.org/project/victor-codegraph/)
-(current release **0.1.2**). Consumers pin the PyPI release — the ProximaDB SDK's
-`proximadb[codegraph]` extra and AnvaiOps both require `victor-codegraph>=0.1.2`.
+Published on PyPI as [`victor-codegraph`](https://pypi.org/project/victor-codegraph/).
+This source tree is version **0.9.0**; consumers should use a compatible `<1.0` pin.
 
 ```bash
 # from PyPI
@@ -48,7 +48,7 @@ workflow `release-codegraph.yml`, environments `pypi` / `testpypi`); see the hea
 ## Use
 
 ```python
-from victor_codegraph import chunk, parse, to_proxima_records, ChunkConfig
+from victor_codegraph import chunk, parse, parse_repo, to_proxima_records, ChunkConfig
 
 # Size-capped, embeddable chunks:
 chunks = chunk(source, file_path="app/service.py", config=ChunkConfig(max_chunk_tokens=512))
@@ -59,19 +59,26 @@ parsed = parse(source, file_path="app/service.py")
 # Project to the ProximaDB substrate-keystone record shape (one symbol = row+node+vector):
 records = to_proxima_records(parsed, repo_graph_id="myrepo", branch_id="main",
                              embedder=my_embed_fn)  # embedder optional
+
+# Repository-wide resolution + file/import/containment graph:
+repository = parse_repo(".", repo_id="myrepo")
+records = to_proxima_records(repository, repo_graph_id="myrepo")
 ```
 
 ## Design principles (the "best posture" this encodes)
 
 1. Chunk at **symbol** granularity (not statement, not fixed-size).
-2. **AST-aligned and size-capped** — never split mid-statement, never exceed the budget.
-3. Extract **relations** (CALLS/EXTENDS/CONTAINS/…) and project to a CPG.
-4. **Deterministic IDs + content hash** → idempotent incremental re-index.
-5. **Graceful fallback chain**: python-ast → tree-sitter → sliding-window.
-6. Token budget **matched to the embedding model** (BGE-small 384-d ≈ 512 tokens).
+2. **Newline-preferred and hard-bounded** — forced character splits are explicit; an optional
+   tokenizer callback enforces the real model limit.
+3. Extract a **Code Semantic Graph** (CALLS/EXTENDS/IMPLEMENTS/CONTAINS/IMPORTS). Full
+   intra-procedural CFG/CDG/DDG is a separate optional layer, not implied here.
+4. **One structural v2 ID** across symbols, chunks, relations, and records; line IDs remain aliases.
+5. **Deletion-complete deltas** — incremental output can be checked against a full rebuild.
+6. **Observable fallback** — every parse reports status, capability tier, and diagnostics.
+7. **Explicit uncertainty** — unresolved targets become structured external-reference nodes.
 
 ## Status
 
-`0.1.2` (PyPI). Python (stdlib `ast`) is the primary, fully-offline path.
-Multi-language extraction is best-effort via tree-sitter; deeper per-language relation
-extraction (the donor parsers' Rust/Go/Java specifics) lands incrementally.
+`0.9.0` source version. Python (`ast`) is the full, offline frontend. JS/TS, Go, Rust,
+Java, C, and C++ have conformance fixtures; other mapped tree-sitter languages report
+symbols-tier or fallback status rather than implying full fidelity.

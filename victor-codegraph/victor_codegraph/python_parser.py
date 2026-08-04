@@ -16,6 +16,7 @@ from .model import (
     CodeSymbolType,
     ParsedCode,
     SourceLocation,
+    SymbolReference,
     content_hash,
     deterministic_symbol_id,
 )
@@ -92,13 +93,33 @@ def _modifiers(name: str, decorators: list[ast.expr], is_async: bool) -> list[st
     return mods
 
 
-def _callee_name(call: ast.Call) -> str | None:
+def _callee_ref(call: ast.Call) -> SymbolReference | None:
     f = call.func
     if isinstance(f, ast.Name):
-        return f.id
+        return SymbolReference(name=f.id, arity=len(call.args) + len(call.keywords), text=f.id)
     if isinstance(f, ast.Attribute):
-        return f.attr
+        text = ast.unparse(f)
+        qualifier = text.rsplit(".", 1)[0] if "." in text else None
+        return SymbolReference(
+            name=f.attr,
+            qualifier=qualifier,
+            arity=len(call.args) + len(call.keywords),
+            text=text,
+        )
     return None
+
+
+def _calls_owned_by(node: ast.AST):
+    """Yield calls owned by ``node`` without stealing calls from nested definitions."""
+
+    stack = list(ast.iter_child_nodes(node))
+    while stack:
+        child = stack.pop()
+        if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            continue
+        if isinstance(child, ast.Call):
+            yield child
+        stack.extend(ast.iter_child_nodes(child))
 
 
 class _Visitor:
@@ -109,10 +130,31 @@ class _Visitor:
         self.relations: list[CodeRelation] = []
         self.imports: list[str] = []
         self._fqn_prefix = file_path.replace("/", ".").replace("\\", ".")
+        self._source_bytes = source.encode("utf-8")
+        self._line_byte_starts: list[int] = [0]
+        for line in source.splitlines(keepends=True):
+            self._line_byte_starts.append(self._line_byte_starts[-1] + len(line.encode("utf-8")))
+
+    def _span(self, node: ast.AST) -> tuple[int, int, int, int, int, int]:
+        first = node
+        decorators = getattr(node, "decorator_list", None) or []
+        if decorators:
+            first = min(decorators, key=lambda d: (d.lineno, d.col_offset))
+        start_line = getattr(first, "lineno", 1)
+        start_col = getattr(first, "col_offset", 0)
+        if decorators:
+            # AST decorator nodes begin after the '@'; the semantic symbol span does not.
+            start_col = max(0, start_col - 1)
+        end_line = getattr(node, "end_lineno", start_line) or start_line
+        end_col = getattr(node, "end_col_offset", 0) or 0
+        start = self._line_byte_starts[start_line - 1] + start_col
+        end = self._line_byte_starts[end_line - 1] + end_col
+        return start_line, start_col, end_line, end_col, start, max(0, end - start)
 
     def _src(self, node: ast.AST) -> str:
         try:
-            return ast.get_source_segment(self.source, node) or ""
+            *_coords, start, length = self._span(node)
+            return self._source_bytes[start : start + length].decode("utf-8")
         except Exception:
             return ""
 
@@ -127,9 +169,7 @@ class _Visitor:
         return_type: str | None = None,
         modifiers: list[str] | None = None,
     ) -> CodeSymbol:
-        lineno = getattr(node, "lineno", 1)
-        end = getattr(node, "end_lineno", lineno) or lineno
-        col = getattr(node, "col_offset", 0)
+        lineno, col, end, end_col, byte_offset, byte_length = self._span(node)
         fqn = "::".join([self._fqn_prefix, *scope, name])
         return CodeSymbol(
             id=deterministic_symbol_id(self.file_path, name, lineno, col),
@@ -141,7 +181,9 @@ class _Visitor:
                 start_line=lineno,
                 start_column=col,
                 end_line=end,
-                end_column=getattr(node, "end_col_offset", 0) or 0,
+                end_column=end_col,
+                byte_offset=byte_offset,
+                byte_length=byte_length,
             ),
             source_code=self._src(node),
             language="python",
@@ -159,10 +201,14 @@ class _Visitor:
         )
 
     def visit_function(
-        self, node: ast.FunctionDef | ast.AsyncFunctionDef, scope: list[str]
+        self,
+        node: ast.FunctionDef | ast.AsyncFunctionDef,
+        scope: list[str],
+        *,
+        in_class: bool = False,
     ) -> CodeSymbol:
         name = node.name
-        if scope:
+        if in_class:
             stype = CodeSymbolType.CONSTRUCTOR if name == "__init__" else CodeSymbolType.METHOD
         else:
             stype = CodeSymbolType.FUNCTION
@@ -182,26 +228,41 @@ class _Visitor:
         # and otherwise keeps it as a bare name (so cross-file/external calls — e.g.
         # a CPG's blast radius — are not silently dropped). ``call_site`` records the
         # call line for consumers that need it.
-        for child in ast.walk(node):
-            if isinstance(child, ast.Call):
-                callee = _callee_name(child)
-                if callee:
-                    self.relations.append(
-                        CodeRelation(
-                            from_symbol_id=sym.id,
-                            to_symbol_id=callee,
-                            relation_type=CodeRelationType.CALLS,
-                            context=callee,
-                            call_site=SourceLocation(
-                                file_path=self.file_path,
-                                start_line=getattr(child, "lineno", 0),
-                                start_column=getattr(child, "col_offset", 0),
-                            ),
-                        )
+        for child in _calls_owned_by(node):
+            ref = _callee_ref(child)
+            if ref:
+                self.relations.append(
+                    CodeRelation(
+                        from_symbol_id=sym.id,
+                        to_symbol_id=ref.name,
+                        relation_type=CodeRelationType.CALLS,
+                        context=ref.text,
+                        target_ref=ref,
+                        call_site=SourceLocation(
+                            file_path=self.file_path,
+                            start_line=getattr(child, "lineno", 0),
+                            start_column=getattr(child, "col_offset", 0),
+                        ),
                     )
+                )
+        inner = [*scope, name]
+        for child in node.body:
+            nested: CodeSymbol | None = None
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                nested = self.visit_function(child, inner, in_class=False)
+            elif isinstance(child, ast.ClassDef):
+                nested = self.visit_class(child, inner)
+            if nested is not None:
+                self.relations.append(
+                    CodeRelation(
+                        from_symbol_id=sym.id,
+                        to_symbol_id=nested.id,
+                        relation_type=CodeRelationType.CONTAINS,
+                    )
+                )
         return sym
 
-    def visit_class(self, node: ast.ClassDef, scope: list[str]) -> None:
+    def visit_class(self, node: ast.ClassDef, scope: list[str]) -> CodeSymbol:
         bases = [ast.unparse(b) for b in node.bases]
         mods = [f"@{ast.unparse(d)}" for d in node.decorator_list]
         if bases:
@@ -215,14 +276,25 @@ class _Visitor:
                     to_symbol_id=base,
                     relation_type=CodeRelationType.EXTENDS,
                     context=base,
+                    target_ref=SymbolReference(name=base.split(".")[-1], text=base),
                 )
             )
         inner = [*scope, node.name]
         for child in node.body:
+            nested: CodeSymbol | None = None
             if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                self.visit_function(child, inner)
+                nested = self.visit_function(child, inner, in_class=True)
             elif isinstance(child, ast.ClassDef):
-                self.visit_class(child, inner)
+                nested = self.visit_class(child, inner)
+            if nested is not None:
+                self.relations.append(
+                    CodeRelation(
+                        from_symbol_id=cls.id,
+                        to_symbol_id=nested.id,
+                        relation_type=CodeRelationType.CONTAINS,
+                    )
+                )
+        return cls
 
     def run(self, tree: ast.Module) -> None:
         for node in tree.body:

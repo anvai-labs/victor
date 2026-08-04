@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "victor-codegraph"
-version = "0.8.1"
-description = "Code->CPG chunker: tree-sitter symbol + relation extraction, size-capped chunks, ProximaRecord projection. Shared by Victor, ProximaDB SDK, and AnvaiOps."
+version = "0.9.0"
+description = "Repository-to-Code-Semantic-Graph compiler with stable identity, bounded chunks, incremental deltas, and ProximaRecord projection."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "Apache-2.0" }
@@ -15,6 +15,7 @@ authors = [
 keywords = [
     "code-graph",
     "cpg",
+    "semantic-graph",
     "chunking",
     "tree-sitter",
     "ast",

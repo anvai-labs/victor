@@ -85,10 +85,11 @@ def test_unresolved_callee_is_retained():
     assert r.call_site.start_line == 2  # the verify() call line (1-based)
 
 
-def test_recursive_self_call_is_dropped():
-    """A recursive call to the enclosing symbol emits no self-edge."""
+def test_recursive_self_call_is_retained():
+    """Recursion is graph evidence and remains a self-edge."""
     parsed = parse("def f():\n    return f()\n", file_path="m.py")
-    assert [r for r in parsed.relations] == []
+    assert len(parsed.relations) == 1
+    assert parsed.relations[0].from_symbol_id == parsed.relations[0].to_symbol_id
 
 
 def test_extends_relation():
