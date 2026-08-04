@@ -872,8 +872,20 @@ class AgenticLoop:
                 logger.debug(f"Semantic cache check skipped: {_ce}")
                 _sem_cache = None
 
+        # Spin telemetry (loop guards): per-run counters + timers, threaded to the
+        # shared perception seam via a contextvar so both loop paths are covered.
+        # Log-only here; the terminating deadline/backstop reuse these counters.
+        from victor.framework.loop.guards import (
+            LoopGuards,
+            reset_current_guards,
+            set_current_guards,
+        )
+
+        _loop_guards = LoopGuards()
+        _loop_guards_token = set_current_guards(_loop_guards)
         try:
             for i in range(1, effective_max + 1):
+                _loop_guards.note_iteration()
                 # FAST-SLOW PLANNING GATE (arXiv:2604.01681)
                 # Check if LLM planning is needed or if rule-based fast-path suffices
                 # This gate runs BEFORE PERCEIVE to potentially skip the planning stage
@@ -1419,6 +1431,8 @@ class AgenticLoop:
                     "degradation_events": list(state.get("degradation_events", [])),
                 },
             )
+        finally:
+            reset_current_guards(_loop_guards_token)
 
     @staticmethod
     def _extract_turn_content(action_result: Any) -> str:

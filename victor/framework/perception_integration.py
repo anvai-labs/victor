@@ -251,6 +251,14 @@ class PerceptionIntegration:
         """
         logger.debug(f"Perceiving: {query[:100]}...")
 
+        # Spin telemetry (loop guards): perception is called exactly once per loop
+        # iteration in healthy runs, so counting here — the single seam both the
+        # legacy and StateGraph loops share — surfaces a perception/restart spin
+        # the iteration counter and post-ACT SpinDetector cannot see.
+        from victor.framework.loop.guards import note_perception
+
+        note_perception()
+
         # REUSE: Detect intent using existing ActionIntent detector
         intent_result = detect_intent(query)
         intent = intent_result.intent
