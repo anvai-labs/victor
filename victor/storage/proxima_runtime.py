@@ -18,8 +18,11 @@ This module is the single place that knows how to:
 
 - detect whether the ``proximadb_sdk`` package is importable (optional dep),
 - start an **embedded** ProximaDB (local single-repo) instance, and
-- build the canonical ``oid`` that correlates a code symbol's relational row,
-  its ORION graph node, and its HNSW vector into **one** entity.
+- derive repository and graph names used by the storage adapters.
+
+Symbol identity and the correlated record ``oid`` are owned exclusively by
+``victor-codegraph``. Storage adapters persist that emitted ``oid`` unchanged;
+they do not derive an alternative identity from file, name, type, or position.
 
 See ``docs/architecture/proximadb-codegraph-backend.md`` (TD-11/12/13) for the
 design. The embedded path uses ProximaDB's in-RAM vector engine — the
@@ -37,7 +40,6 @@ from __future__ import annotations
 
 import asyncio
 import enum
-import hashlib
 import logging
 import re
 from pathlib import Path
@@ -103,7 +105,7 @@ class ProximaEmbeddingMode(str, enum.Enum):
 
 
 # ---------------------------------------------------------------------------
-# oid correlation — one identity for relational row + graph node + vector
+# Repository naming (symbol identity belongs to victor-codegraph)
 # ---------------------------------------------------------------------------
 _REPO_SANITIZE = re.compile(r"[^A-Za-z0-9_]+")
 
@@ -119,27 +121,6 @@ def repo_id_from_path(project_path: Optional[Path | str]) -> str:
     name = Path(project_path).expanduser().resolve(strict=False).name or "repo"
     sanitized = _REPO_SANITIZE.sub("_", name).strip("_").lower()
     return sanitized or "repo"
-
-
-def symbol_oid(file: str, name: str, symbol_type: Optional[str] = None) -> str:
-    """Compute the stable per-symbol id used inside an :func:`node_oid`.
-
-    Correlation is by ``(symbol_type, file, name)`` — the same implicit key the
-    SQLite/Lance pair correlate on today (``symbol:{file}:{name}``), made
-    explicit and collision-resistant via a short blake2b digest.
-    """
-    raw = f"{symbol_type or ''}:{file}:{name}"
-    return hashlib.blake2b(raw.encode("utf-8"), digest_size=12).hexdigest()
-
-
-def node_oid(repo: str, symbol: str) -> str:
-    """Build the canonical correlated id: ``graph/{repo}/node/{symbol_oid}``.
-
-    The same string is used as the ProximaDB graph node id **and** the vector
-    record id, so a vector hit maps to its graph node by identity (no join) and
-    the always-empty ``graph_node.embedding_ref`` bridge is retired.
-    """
-    return f"graph/{repo}/node/{symbol}"
 
 
 def graph_id_for_repo(repo: str) -> str:

@@ -60,9 +60,13 @@ def test_parse_code_normalizes_identity_against_repository_root(tmp_path: Path) 
     assert {symbol.location.file_path for symbol in parsed.symbols} == {"pkg/worker.py"}
 
 
-def test_changed_file_ci_installs_foundational_codegraph_package() -> None:
+def test_ci_test_jobs_install_foundational_codegraph_package() -> None:
     root = Path(__file__).parents[3]
     workflow = (root / ".github" / "workflows" / "ci-fast.yml").read_text()
     quick_tests = workflow.split("\n  quick-tests:", 1)[1].split("\n  collect-check:", 1)[0]
+    collect_check = workflow.split("\n  collect-check:", 1)[1].split("\n  hotspot-size-guard:", 1)[
+        0
+    ]
 
     assert "pip install -e ./victor-codegraph" in quick_tests
+    assert "pip install -e ./victor-codegraph" in collect_check

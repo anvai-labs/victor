@@ -553,8 +553,10 @@ jobs:
       - name: Install dependencies
         run: |
           pip install --upgrade pip
-          # victor-contracts first (provides constants), then victor-ai with dev extras
+          # Foundational local packages first, then victor-ai with dev extras. Collection
+          # imports their contract tests even though they are not root dependencies.
           pip install -e ./victor-contracts
+          pip install -e ./victor-codegraph
           pip install -e ".[dev]"
 
       - name: Collect full test suite (no execution)

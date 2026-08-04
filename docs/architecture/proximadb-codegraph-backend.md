@@ -9,10 +9,11 @@ Date: 2026-06-22
 The embedded ProximaDB backend is implemented and parity-verified at the adapter
 level; SQLite stays the default and nothing flips automatically.
 
-- `victor/storage/proxima_runtime.py` — shared helpers: optional-dependency
-  detection, the canonical `node_oid(repo, symbol_oid)` =
-  `graph/{repo}/node/{symbol_oid}` correlation key, the `ProximaEmbeddingMode`
-  (`memory`/`cold`) encoding of the Rust `EmbeddingMode`, and embedded bootstrap.
+- `victor-codegraph` exclusively owns stable symbol identity and emits the full
+  correlated `graph/{repo}/node/{symbol_oid}` record `oid`; storage persists it
+  unchanged. `victor/storage/proxima_runtime.py` provides optional-dependency
+  detection, repository/graph naming, the `ProximaEmbeddingMode` (`memory`/`cold`)
+  encoding of the Rust `EmbeddingMode`, and embedded bootstrap.
 - `victor/storage/vector_stores/proximadb_provider.py` — now a real
   `EmbeddingProvider` over `proximadb_sdk`'s embedded API with an in-process
   embedding model (in-RAM fp32 = `EmbeddingMode::Memory`). Documents are keyed by
@@ -86,7 +87,8 @@ record makes embedding optional-per-node (NF² props), removing the always-empty
 
 ## Design — three tiers, one `oid` per symbol
 
-A code symbol becomes **one ProximaDB record** with `oid = graph/{repo}/node/{symbol_oid}`, carrying its
+A code symbol becomes **one ProximaDB record** with the `victor-codegraph`-emitted
+`oid = graph/{repo}/node/{symbol_oid}`, carrying its
 relational columns (props), its embedding (`EmbeddingCell`), its branch (`branch_id`), and a ref to its
 intra-procedural detail. The same `oid` is what the vector index (HNSW) and graph engine (ORION CSR) both
 key on, so vector hit → graph node is identity, not a join.
