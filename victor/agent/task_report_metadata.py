@@ -27,7 +27,7 @@ matches the original orchestrator methods.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Iterable
+from typing import Any, Dict, Iterable, Mapping, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -141,3 +141,46 @@ def build_continuation_metadata(stream_ctx: Any) -> Dict[str, Any]:
             metadata["continuation_ledger"] = continuation_ledger
 
     return metadata
+
+
+def build_task_report_start_metadata(
+    *,
+    stream: bool,
+    provider_name: str,
+    model: str,
+    metadata: Optional[Mapping[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Build the stable metadata attached when a task report begins."""
+    report_metadata: Dict[str, Any] = {
+        "stream": stream,
+        "provider": provider_name,
+        "model": model,
+    }
+    if metadata:
+        report_metadata.update(metadata)
+    return report_metadata
+
+
+def build_task_report_finish_metadata(
+    *,
+    stream: bool,
+    provider_name: str,
+    model: str,
+    user_message: str,
+    response: Any,
+    stream_ctx: Any,
+    metadata: Optional[Mapping[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Build the stable metadata attached when a task report finishes."""
+    report_metadata: Dict[str, Any] = {
+        "stream": stream,
+        "provider": provider_name,
+        "model": model,
+        "task_preview": user_message[:200],
+    }
+    if response is not None and hasattr(response, "stop_reason"):
+        report_metadata["stop_reason"] = getattr(response, "stop_reason", None)
+    report_metadata.update(build_continuation_metadata(stream_ctx))
+    if metadata:
+        report_metadata.update(metadata)
+    return report_metadata

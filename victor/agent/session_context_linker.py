@@ -70,38 +70,21 @@ class SessionContextLinker:
         # If conversation_store is provided, use it (new canonical path)
 
         if conversation_store is not None:
-            # New canonical path
             self._persistence = conversation_store
-            self._persistence_type = "ConversationStore"
             self._conversation_store = conversation_store
         elif session_persistence is not None:
-            # Check type
-            if isinstance(session_persistence, str):
-                # Type check failed - might be a string representation
-                self._persistence = session_persistence
-                self._persistence_type = "unknown"
-            elif hasattr(session_persistence, "__class__"):
-                class_name = session_persistence.__class__.__name__
-                if class_name == "ConversationStore":
-                    self._persistence = session_persistence
-                    self._persistence_type = "ConversationStore"
-                    self._conversation_store = session_persistence
-                elif class_name == "SQLiteSessionPersistence":
-                    self._persistence = session_persistence
-                    self._persistence_type = "SQLiteSessionPersistence"
-                    warnings.warn(
-                        "SQLiteSessionPersistence is deprecated and will be removed in v0.10.0. "
-                        "Use ConversationStore instead. "
-                        "Pass ConversationStore as conversation_store parameter.",
-                        DeprecationWarning,
-                        stacklevel=2,
-                    )
-                else:
-                    self._persistence = session_persistence
-                    self._persistence_type = class_name
-            else:
-                self._persistence = session_persistence
-                self._persistence_type = "unknown"
+            self._persistence = session_persistence
+            class_name = session_persistence.__class__.__name__
+            if class_name == "ConversationStore":
+                self._conversation_store = session_persistence
+            elif class_name == "SQLiteSessionPersistence":
+                warnings.warn(
+                    "SQLiteSessionPersistence is deprecated and will be removed in v0.10.0. "
+                    "Use ConversationStore instead. "
+                    "Pass ConversationStore as conversation_store parameter.",
+                    DeprecationWarning,
+                    stacklevel=2,
+                )
         else:
             raise ValueError("Either session_persistence or conversation_store must be provided")
 
@@ -117,13 +100,7 @@ class SessionContextLinker:
             SessionResumeContext with restored state and summary
         """
         try:
-            # Handle both persistence types
-            if self._persistence_type == "ConversationStore":
-                # Use ConversationStore.load_session()
-                session_data = self._persistence.load_session(session_id)
-            else:
-                # Use SQLiteSessionPersistence.load_session()
-                session_data = self._persistence.load_session(session_id)
+            session_data = self._persistence.load_session(session_id)
         except Exception as e:
             logger.warning(f"Failed to load session {session_id}: {e}")
             return SessionResumeContext(resume_summary="[Session data unavailable]")

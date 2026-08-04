@@ -8,6 +8,8 @@ from typing import Any, Dict
 from victor.agent.task_report_metadata import (
     build_compaction_metadata,
     build_continuation_metadata,
+    build_task_report_finish_metadata,
+    build_task_report_start_metadata,
     resolve_task_type,
 )
 
@@ -103,3 +105,37 @@ def test_continuation_ledger_falls_back_to_noarg_call() -> None:
     stream_ctx = SimpleNamespace(build_continuation_ledger=_ledger_no_kwargs)
     meta = build_continuation_metadata(stream_ctx)
     assert meta["continuation_ledger"] == "NOARG"
+
+
+def test_task_report_start_metadata_preserves_custom_values() -> None:
+    assert build_task_report_start_metadata(
+        stream=True,
+        provider_name="anthropic",
+        model="claude-sonnet",
+        metadata={"source": "test"},
+    ) == {
+        "stream": True,
+        "provider": "anthropic",
+        "model": "claude-sonnet",
+        "source": "test",
+    }
+
+
+def test_task_report_finish_metadata_includes_response_and_continuation() -> None:
+    response = SimpleNamespace(stop_reason="end_turn")
+    stream_ctx = SimpleNamespace(task_intent="ship it")
+
+    metadata = build_task_report_finish_metadata(
+        stream=False,
+        provider_name="openai",
+        model="gpt-5",
+        user_message="x" * 250,
+        response=response,
+        stream_ctx=stream_ctx,
+        metadata={"source": "test"},
+    )
+
+    assert metadata["task_preview"] == "x" * 200
+    assert metadata["stop_reason"] == "end_turn"
+    assert metadata["task_intent"] == "ship it"
+    assert metadata["source"] == "test"

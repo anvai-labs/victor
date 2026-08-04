@@ -7,6 +7,7 @@ from victor.agent.services.orchestrator_protocol_adapter import (
     OrchestratorProtocolAdapter,
 )
 from victor.agent.services.tool_selection_runtime import ToolSelectionRuntime
+from victor.agent.services.tool_strategy_runtime import ToolStrategyRuntime
 from victor.agent.action_authorizer import ActionIntent
 
 
@@ -17,6 +18,105 @@ class _Message:
 
     def model_dump(self) -> dict[str, str]:
         return {"role": self.role, "content": self.content}
+
+
+def test_tool_strategy_runtime_defaults_to_context_aware() -> None:
+    runtime = ToolStrategyRuntime(SimpleNamespace(settings=None))
+    assert runtime.resolve_kv_strategy_setting() == "context_aware"
+
+
+def test_tool_strategy_runtime_fails_open_when_profile_cannot_resolve() -> None:
+    runtime = ToolStrategyRuntime(SimpleNamespace(settings=None))
+    assert runtime.context_aware_profile_session_locked() is False
+
+
+def test_tool_strategy_runtime_delegates_tool_service_operations() -> None:
+    tool_service = MagicMock()
+    tool_service.estimate_tool_tokens.return_value = 12
+    tool_service.semantic_select_tools.return_value = ["read"]
+    runtime = ToolStrategyRuntime(SimpleNamespace(_tool_service=tool_service))
+
+    assert runtime.estimate_tool_tokens("read", "large") == 12
+    assert runtime.semantic_select_tools(["read"], 200, "large") == ["read"]
+
+
+def test_tool_strategy_runtime_applies_context_aware_strategy_and_emits_event() -> None:
+    tool_service = MagicMock()
+    tools = [SimpleNamespace(name="read"), SimpleNamespace(name="search")]
+    tool_service.apply_context_aware_strategy.return_value = tools
+    host = SimpleNamespace(
+        _tool_service=tool_service,
+        provider=MagicMock(),
+        model="gpt-4.1",
+        _get_context_window=MagicMock(return_value=200_000),
+        _estimate_tool_tokens=MagicMock(return_value=12),
+        _emit_tool_strategy_event=MagicMock(),
+    )
+
+    result = ToolStrategyRuntime(host).apply_context_aware_strategy(tools)
+
+    assert result == tools
+    tool_service.apply_context_aware_strategy.assert_called_once_with(
+        tools,
+        provider=host.provider,
+        model="gpt-4.1",
+    )
+    host._emit_tool_strategy_event.assert_called_once()
+    assert host._emit_tool_strategy_event.call_args.kwargs["tool_tokens"] == 24
+
+
+def test_tool_strategy_runtime_emits_metrics_event() -> None:
+    metrics = MagicMock()
+    host = SimpleNamespace(
+        _metrics_coordinator=metrics,
+        _is_tool_strategy_v2_enabled=MagicMock(return_value=True),
+        model="gpt-4.1",
+    )
+
+    ToolStrategyRuntime(host).emit_tool_strategy_event(
+        "context_aware",
+        2,
+        24,
+        200_000,
+        "openai",
+        "test",
+        ["read", "search"],
+    )
+
+    metrics.emit_tool_strategy_event.assert_called_once_with(
+        strategy="context_aware",
+        tool_count=2,
+        tool_tokens=24,
+        context_window=200_000,
+        provider="openai",
+        model="gpt-4.1",
+        reason="test",
+        tools=["read", "search"],
+        v2_enabled=True,
+    )
+
+
+def test_tool_strategy_runtime_caches_legacy_session_stable_selection() -> None:
+    tool_service = MagicMock()
+    tools = [SimpleNamespace(name="read")]
+    tool_service.apply_kv_tool_strategy.return_value = tools
+    host = SimpleNamespace(
+        _tool_service=tool_service,
+        _kv_optimization_enabled=True,
+        _session_semantic_tools=None,
+        provider="openai",
+        model="gpt-4.1",
+        settings=SimpleNamespace(context=SimpleNamespace(kv_tool_strategy="session_stable")),
+        _is_tool_strategy_v2_enabled=MagicMock(return_value=False),
+        _resolve_kv_strategy_setting=MagicMock(return_value="session_stable"),
+        _context_aware_profile_session_locked=MagicMock(return_value=True),
+    )
+
+    assert ToolStrategyRuntime(host).apply_kv_tool_strategy(tools) == tools
+    assert host._session_semantic_tools == tools
+    assert tool_service.apply_kv_tool_strategy.call_args.kwargs["kv_tool_strategy"] == (
+        "session_stable"
+    )
 
 
 @pytest.mark.asyncio

@@ -165,12 +165,16 @@ class ConversationStoreSession:
         if hasattr(conversation, "to_dict"):
             conversation_data = conversation.to_dict()
             messages = conversation_data.get("messages", [])
+            preview_messages = conversation_data.get("preview_messages", [])
         elif isinstance(conversation, dict):
             messages = conversation.get("messages", [])
+            preview_messages = conversation.get("preview_messages", [])
         elif isinstance(conversation, list):
             messages = conversation
+            preview_messages = []
         else:
             messages = []
+            preview_messages = []
 
         if not session_id:
             session_id = self.store._generate_session_id()
@@ -247,6 +251,31 @@ class ConversationStoreSession:
             if conversation_msg not in session.messages:
                 session.messages.append(conversation_msg)
 
+        session.preview_messages.clear()
+        for preview in preview_messages:
+            if not isinstance(preview, dict):
+                continue
+
+            metadata = dict(preview.get("metadata") or {})
+            after_message_index = preview.get("after_message_index")
+            if after_message_index is not None:
+                metadata["_victor_preview_after_message_index"] = after_message_index
+            timestamp_str = preview.get("timestamp")
+            timestamp = datetime.fromisoformat(timestamp_str) if timestamp_str else datetime.now()
+
+            session.preview_messages.append(
+                ConversationMessage(
+                    role=MessageRole(preview.get("role", "system")),
+                    content=preview.get("content", ""),
+                    token_count=preview.get("token_count", 0),
+                    priority=MessagePriority(preview.get("priority", 50)),
+                    tool_name=preview.get("tool_name"),
+                    tool_call_id=preview.get("tool_call_id"),
+                    metadata=metadata,
+                    timestamp=timestamp,
+                )
+            )
+
         self.store._persist_session(session)
         logger.info(f"Saved session {session_id} with title: {title}")
         return session_id
@@ -281,6 +310,8 @@ class ConversationStoreSession:
 
         for msg in session.preview_messages:
             if isinstance(msg, ConversationMessage):
+                metadata = dict(msg.metadata or {})
+                after_message_index = metadata.pop("_victor_preview_after_message_index", None)
                 msg_dict = {
                     "role": msg.role.value,
                     "content": msg.content,
@@ -289,8 +320,10 @@ class ConversationStoreSession:
                     "priority": msg.priority.value if msg.priority else None,
                     "tool_name": msg.tool_name,
                     "tool_call_id": msg.tool_call_id,
-                    "metadata": msg.metadata if msg.metadata else {},
+                    "metadata": metadata,
                 }
+                if after_message_index is not None:
+                    msg_dict["after_message_index"] = after_message_index
                 preview_messages.append(msg_dict)
 
         title = session.title
@@ -356,11 +389,14 @@ class ConversationStoreSession:
                         FROM sessions s
                         LEFT JOIN providers p ON s.provider_id = p.id
                         WHERE s.project_path = ?
-                          AND LOWER(json_extract(s.metadata, '$.title')) LIKE LOWER(?)
+                          AND (
+                              LOWER(json_extract(s.metadata, '$.title')) LIKE LOWER(?)
+                              OR LOWER(s.metadata) LIKE LOWER(?)
+                          )
                         ORDER BY s.last_activity DESC
                         LIMIT ?
                         """,
-                        (project_path, lowered_query, limit),
+                        (project_path, lowered_query, lowered_query, limit),
                     ).fetchall()
                 else:
                     rows = conn.execute(
@@ -376,11 +412,14 @@ class ConversationStoreSession:
                             NULL as message_count
                         FROM sessions s
                         LEFT JOIN providers p ON s.provider_id = p.id
-                        WHERE LOWER(json_extract(s.metadata, '$.title')) LIKE LOWER(?)
+                        WHERE (
+                            LOWER(json_extract(s.metadata, '$.title')) LIKE LOWER(?)
+                            OR LOWER(s.metadata) LIKE LOWER(?)
+                        )
                         ORDER BY s.last_activity DESC
                         LIMIT ?
                         """,
-                        (lowered_query, limit),
+                        (lowered_query, lowered_query, limit),
                     ).fetchall()
 
                 for row in rows:
@@ -394,7 +433,9 @@ class ConversationStoreSession:
                 if len(results) >= limit:
                     return results[:limit]
 
-                fts_query = query.replace('"', '""')
+                # FTS5's query parser interprets punctuation such as `/` as
+                # syntax. Treat user input as a literal phrase instead.
+                fts_query = f'"{query.replace(chr(34), chr(34) * 2)}"'
                 found_ids = {r["session_id"] for r in results} if results else set()
 
                 if project_path:
