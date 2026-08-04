@@ -30,6 +30,7 @@ Output shapes follow the LLD "Data Contracts" section:
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -189,7 +190,7 @@ class TreeSitterAnalysisProvider:
                     "parent_symbol": s.scope_chain[-1] if s.scope_chain else None,
                     "ast_kind": _CODEGRAPH_AST_KIND.get(stype, "function_definition"),
                     "symbol_id": s.id,
-                    "legacy_symbol_id": s.legacy_id,
+                    "legacy_symbol_id": getattr(s, "legacy_id", None),
                     "parent_id": by_scope.get(tuple(s.scope_chain)),
                     "signature": s.signature,
                     "docstring": s.documentation,
@@ -213,27 +214,38 @@ class TreeSitterAnalysisProvider:
                     names = {s.id: s.simple_name for s in codegraph.symbols}
                     mapped: List[Dict[str, Any]] = []
                     for relation in codegraph.relations:
+                        target_ref = getattr(relation, "target_ref", None)
                         source = names.get(relation.from_symbol_id)
                         target = names.get(relation.to_symbol_id)
                         if source is None:
                             continue
                         target = target or (
-                            relation.target_ref.name
-                            if relation.target_ref is not None
-                            else relation.to_symbol_id
+                            target_ref.name if target_ref is not None else relation.to_symbol_id
                         )
                         edge_type = (
                             "INHERITS"
                             if relation.relation_type.name == "EXTENDS"
                             else relation.relation_type.name
                         )
+                        is_method_call = bool(target_ref and target_ref.qualifier)
+                        call_site = relation.call_site
+                        if not is_method_call and target_ref is None and call_site is not None:
+                            source_lines = src.splitlines()
+                            line_index = call_site.start_line - 1
+                            if 0 <= line_index < len(source_lines):
+                                is_method_call = bool(
+                                    re.search(
+                                        rf"(?:\.|->|::)\s*{re.escape(str(target))}\s*\(",
+                                        source_lines[line_index],
+                                    )
+                                )
                         mapped.append(
                             {
                                 "source": source,
                                 "target": target,
                                 "source_id": relation.from_symbol_id,
                                 "target_id": (
-                                    relation.to_symbol_id if relation.target_ref is None else None
+                                    relation.to_symbol_id if target_ref is None else None
                                 ),
                                 "edge_type": edge_type,
                                 "file_path": file_path,
@@ -242,9 +254,7 @@ class TreeSitterAnalysisProvider:
                                     if relation.call_site is not None
                                     else 0
                                 ),
-                                "is_method_call": bool(
-                                    relation.target_ref and relation.target_ref.qualifier
-                                ),
+                                "is_method_call": is_method_call,
                                 "confidence": relation.confidence,
                             }
                         )

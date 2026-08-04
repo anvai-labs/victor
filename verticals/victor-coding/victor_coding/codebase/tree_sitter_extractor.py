@@ -184,7 +184,7 @@ class TreeSitterExtractor:
                 end_line=s.location.end_line or None,
                 parent_symbol=s.scope_chain[-1] if s.scope_chain else None,
                 symbol_id=s.id,
-                legacy_symbol_id=s.legacy_id,
+                legacy_symbol_id=getattr(s, "legacy_id", None),
             )
             for s in parsed.symbols
         ]
