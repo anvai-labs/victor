@@ -329,6 +329,19 @@ class TestVictorAgentAdapter:
         assert "-old" in patch
         assert "+new" in patch
 
+    def test_conversation_trace_carries_generated_patch(self, adapter):
+        """The ground-truth patch is surfaced (bounded) in the manifest trace."""
+        # Default: empty until execute_task computes the git diff.
+        assert adapter.get_conversation_trace()["generated_patch"] == ""
+
+        adapter._generated_patch = "diff --git a/x.py b/x.py\n@@ -1 +1 @@\n-a\n+b"
+        trace = adapter.get_conversation_trace()
+        assert trace["generated_patch"] == adapter._generated_patch
+
+        # Bounded so an enormous diff can't bloat the manifest line.
+        adapter._generated_patch = "x" * 50000
+        assert len(adapter.get_conversation_trace()["generated_patch"]) == 20000
+
     @pytest.mark.asyncio
     async def test_execute_task_basic(self, adapter, mock_orchestrator):
         """Test basic task execution."""

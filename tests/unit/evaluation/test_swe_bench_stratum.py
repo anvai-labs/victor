@@ -47,6 +47,21 @@ class TestRender:
         assert "(no file edits)" in text
         assert "(none)" in text
 
+    def test_render_prefers_generated_patch_over_file_edits(self):
+        # The ground-truth combined diff (git diff) is the completing effect; it
+        # must win over the per-edit capture, which is often empty even when the
+        # run modified files. Here file_edits is empty but a patch was applied.
+        inst = _instance("astropy__2", "passed")
+        inst["trace"]["file_edits"] = []
+        inst["trace"][
+            "generated_patch"
+        ] = "diff --git a/mod.py b/mod.py\n@@ -1 +1 @@\n-return None\n+return handle(x)"
+        text = render_swe_bench_view(inst)
+        assert "PATCH:" in text
+        assert "diff --git a/mod.py" in text
+        assert "+return handle(x)" in text
+        assert "(no file edits)" not in text
+
 
 class TestManifestToStratum:
     def test_labels_from_verifier_status(self, tmp_path: Path):
