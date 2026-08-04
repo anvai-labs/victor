@@ -87,13 +87,19 @@ def render_swe_bench_view(instance: dict[str, Any]) -> str:
         f"- {t.get('name', '?')} {str(t.get('arguments', ''))[:120]}"
         for t in (trace.get("tool_calls") or [])[:_MAX_TOOLS]
     ]
-    edits = trace.get("file_edits") or []
+    # Prefer the ground-truth combined patch (git diff of the workspace) — the
+    # actual applied diff — falling back to the per-edit capture, which is often
+    # empty even when the run modified files (and thus resolved the instance).
     patch_lines: list[str] = []
-    for e in edits[:_MAX_EDITS]:
-        patch_lines.append(f"--- {e.get('path', '?')}")
-        diff = str(e.get("diff", ""))[:_MAX_DIFF_CHARS]
-        if diff:
-            patch_lines.append(diff)
+    generated = str(trace.get("generated_patch", "") or "")
+    if generated.strip():
+        patch_lines.append(generated[: _MAX_EDITS * _MAX_DIFF_CHARS])
+    else:
+        for e in (trace.get("file_edits") or [])[:_MAX_EDITS]:
+            patch_lines.append(f"--- {e.get('path', '?')}")
+            diff = str(e.get("diff", ""))[:_MAX_DIFF_CHARS]
+            if diff:
+                patch_lines.append(diff)
 
     return "\n".join(
         [
