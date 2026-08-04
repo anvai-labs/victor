@@ -74,3 +74,37 @@ class TestContextVarSeam:
         # No guard installed → no crash, no-op.
         assert current_guards() is None
         note_perception()  # must not raise
+
+
+class TestEnforce:
+    def test_no_config_never_raises(self):
+        g = LoopGuards()
+        g.note_iteration()
+        g.enforce(total_timeout=None, effective_max=10)  # off → no raise
+
+    def test_wall_clock_deadline_raises(self):
+        import pytest
+
+        from victor.framework.loop.guards import LoopSpinError
+
+        g = LoopGuards()
+        g.run_started_monotonic -= 100  # pretend 100s elapsed
+        with pytest.raises(LoopSpinError, match="wall-clock deadline"):
+            g.enforce(total_timeout=10, effective_max=10)
+
+    def test_perception_backstop_raises(self):
+        import pytest
+
+        from victor.framework.loop.guards import LoopSpinError
+
+        g = LoopGuards()
+        g.iteration_count = 3
+        g.perception_calls = 3 * 8 + 1  # > effective_max * backstop_factor
+        with pytest.raises(LoopSpinError, match="perception backstop"):
+            g.enforce(total_timeout=None, effective_max=3, backstop_factor=8)
+
+    def test_backstop_healthy_does_not_raise(self):
+        g = LoopGuards()
+        g.iteration_count = 20
+        g.perception_calls = 20  # once per iteration
+        g.enforce(total_timeout=None, effective_max=20, backstop_factor=8)

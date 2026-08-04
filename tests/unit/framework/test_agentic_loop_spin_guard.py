@@ -119,3 +119,29 @@ class TestPerceptionDoesNotBlockEventLoop:
         # With C1 (to_thread) the 0.5s sync analyze runs off-thread, so the
         # heartbeat kept ticking (~25). WITHOUT C1 it blocks the loop → ~0-1 ticks.
         assert ticks["n"] >= 5, f"event loop was blocked during perception (ticks={ticks['n']})"
+
+
+@pytest.mark.timeout(30)
+class TestSpinGuardTerminatesLoop:
+    async def test_loop_spin_error_produces_fail_result(self, monkeypatch):
+        # When a guard raises LoopSpinError, the loop must terminate with a FAIL
+        # result tagged terminated_by="loop_spin_guard" (not spin, not a raw crash).
+        from victor.framework.loop.guards import LoopGuards, LoopSpinError
+
+        def _raise(self, **kwargs):
+            raise LoopSpinError("test: wall-clock deadline exceeded")
+
+        monkeypatch.setattr(LoopGuards, "enforce", _raise)
+
+        loop = AgenticLoop(
+            orchestrator=MagicMock(spec=[]),
+            max_iterations=50,
+            enable_fulfillment_check=False,
+            enable_adaptive_iterations=False,
+        )
+        result = await loop.run("a task the guard cuts short")
+        assert result.success is False
+        assert result.metadata.get("terminated_by") == "loop_spin_guard"
+        assert "wall-clock deadline exceeded" in result.metadata.get("error", "")
+        # Terminated at the very first iteration's guard — nowhere near 50.
+        assert len(result.iterations) < 50

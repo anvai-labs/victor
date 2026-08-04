@@ -521,6 +521,12 @@ class AgenticLoopConfig:
     enable_paradigm_router: bool = True
     enable_topology_routing: bool = True
     planning_gate: "PlanningGateConfig" = field(default_factory=lambda: PlanningGateConfig())
+    # Loop spin guards (per-run). total_timeout: hard wall-clock deadline for a
+    # single loop.run in seconds; None (default) = off/unchanged. On breach the
+    # run terminates with a FAIL result instead of spinning. perception_backstop_factor:
+    # terminate a within-run runaway (perception >> iterations).
+    total_timeout: Optional[float] = None
+    perception_backstop_factor: int = 8
     extra_config: Dict[str, Any] = field(default_factory=dict)
 
     @classmethod
@@ -877,6 +883,7 @@ class AgenticLoop:
         # Log-only here; the terminating deadline/backstop reuse these counters.
         from victor.framework.loop.guards import (
             LoopGuards,
+            LoopSpinError,
             reset_current_guards,
             set_current_guards,
         )
@@ -886,6 +893,14 @@ class AgenticLoop:
         try:
             for i in range(1, effective_max + 1):
                 _loop_guards.note_iteration()
+                # Spin guards (C2/C3): hard wall-clock deadline + within-run
+                # perception backstop. Raises LoopSpinError → caught below → FAIL.
+                # Default total_timeout=None = off (no behavior change).
+                _loop_guards.enforce(
+                    total_timeout=self.config.total_timeout,
+                    effective_max=effective_max,
+                    backstop_factor=self.config.perception_backstop_factor,
+                )
                 # FAST-SLOW PLANNING GATE (arXiv:2604.01681)
                 # Check if LLM planning is needed or if rule-based fast-path suffices
                 # This gate runs BEFORE PERCEIVE to potentially skip the planning stage
@@ -1408,6 +1423,23 @@ class AgenticLoop:
                 },
             )
 
+        except LoopSpinError as spin:
+            # A guard terminated the run (wall-clock deadline / perception backstop).
+            # Return a FAIL result with the diagnostic reason instead of spinning.
+            logger.warning("[AgenticLoop] terminated by spin guard: %s", spin)
+            return LoopResult(
+                success=False,
+                iterations=iterations,
+                final_state=state,
+                total_duration=time.time() - start_time,
+                metadata={
+                    "error": str(spin),
+                    "terminated_by": "loop_spin_guard",
+                    "iterations_completed": len(iterations),
+                    "perception_calls": _loop_guards.perception_calls,
+                    "progress_scores": list(self._progress_scores),
+                },
+            )
         except Exception as e:
             logger.error(f"Agentic loop error: {e}", exc_info=True)
             duration = time.time() - start_time
