@@ -169,9 +169,9 @@ def test_extract_name_from_node_uses_type_field_for_impl_blocks():
     for src, expected in cases:
         tree = parser.parse(src)
         impl_node = next(c for c in tree.root_node.children if c.type == "impl_item")
-        assert pipeline._extract_name_from_node(impl_node) == expected, (
-            f"src={src!r} expected={expected!r}"
-        )
+        assert (
+            pipeline._extract_name_from_node(impl_node) == expected
+        ), f"src={src!r} expected={expected!r}"
 
 
 def test_extract_name_from_node_prefers_direct_name_field(tmp_path: Path):
@@ -1011,9 +1011,9 @@ async def test_name_index_excludes_trait_impl_methods(monkeypatch, tmp_path: Pat
         "leaf-name query must exclude trait-impl methods via NOT LIKE on signature; "
         f"got: {leaf_query!r}"
     )
-    assert "for" in leaf_query.lower(), (
-        f"leaf-name query must filter on ` for ` substring; got: {leaf_query!r}"
-    )
+    assert (
+        "for" in leaf_query.lower()
+    ), f"leaf-name query must filter on ` for ` substring; got: {leaf_query!r}"
 
 
 @pytest.mark.asyncio
