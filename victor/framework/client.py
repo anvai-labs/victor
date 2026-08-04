@@ -209,6 +209,15 @@ def _to_stream_event(event: Any) -> _StreamEvent:
                 "recoverable": getattr(event, "recoverable", None),
             },
         )
+    if event.type == EventType.AWAITING_APPROVAL:
+        # FEP-0029: the streamed turn durably paused on a policy ASK — surface the resume token +
+        # pending approval so a streaming caller (TUI/SSE) can render a paused lane and resume.
+        event_metadata = getattr(event, "metadata", {}) or {}
+        return _StreamEvent(
+            EventType.AWAITING_APPROVAL,
+            success=False,
+            metadata=dict(event_metadata),
+        )
     if event.type == EventType.CUSTOM:
         event_metadata = getattr(event, "metadata", {}) or {}
         custom_type = str(event_metadata.get("custom_type", ""))
@@ -843,12 +852,20 @@ class VictorClient:
             raise RuntimeError("VictorClient not initialized. Call initialize() first.")
 
         from victor.agent.durable_resume import resume_paused_run
-        from victor.agent.paused_run_store import get_paused_run_store
+        from victor.agent.paused_run_store import (
+            DEFAULT_PAUSE_TTL_SECONDS,
+            get_paused_run_store,
+        )
 
         store = get_paused_run_store()
+        # FEP-0029 expiry/GC: opportunistically expire any stale pending pauses (a day-old approval
+        # should not silently execute), so this and other stragglers drop out before we resume.
+        store.expire_pending(max_age_seconds=DEFAULT_PAUSE_TTL_SECONDS)
         paused = store.get(run_id)
         if paused is None:
             raise ValueError(f"Unknown paused run: {run_id}")
+        if getattr(paused, "status", None) == "expired":
+            raise ValueError(f"Paused run expired: {run_id}")
         # Atomically claim the run (single-use); False ⇒ already resumed or gone.
         if not store.mark_resumed(run_id):
             raise ValueError(f"Paused run already resumed or not pending: {run_id}")
@@ -862,17 +879,30 @@ class VictorClient:
             raise RuntimeError("No orchestrator available to resume the paused run")
 
         outcome = await resume_paused_run(orchestrator, paused, decision)
+        metadata = {
+            "resumed_run_id": run_id,
+            "approved": outcome.approved,
+            "gated_tool": outcome.gated_tool,
+            "continuation_turns": outcome.continuation_turns,
+        }
+        # FEP-0029 chained pause: a new ASK fired during the continuation → the run parked again.
+        # Surface it exactly like a first pause (status + fresh run_id) so callers resume once more.
+        if outcome.awaiting_run_id:
+            return TaskResult(
+                content=outcome.final_content,
+                tool_calls=outcome.tool_calls,
+                success=False,
+                status="awaiting_approval",
+                run_id=outcome.awaiting_run_id,
+                approval_request=outcome.awaiting_approval_request,
+                metadata=metadata,
+            )
         return TaskResult(
             content=outcome.final_content,
             tool_calls=outcome.tool_calls,
             success=True,
             status="ok",
-            metadata={
-                "resumed_run_id": run_id,
-                "approved": outcome.approved,
-                "gated_tool": outcome.gated_tool,
-                "continuation_turns": outcome.continuation_turns,
-            },
+            metadata=metadata,
         )
 
     # ─────────────────────────────────────────────────────────────────────────

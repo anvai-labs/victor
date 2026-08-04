@@ -81,3 +81,42 @@ async def test_resume_returns_ok_taskresult_and_is_single_use(
     assert _store.get(run_id).status == "resumed"
     with pytest.raises(ValueError):
         await _client().resume(run_id, ApprovalDecision(approved=True))
+
+
+async def test_resume_surfaces_a_chained_pause(monkeypatch: Any, _store: Any) -> None:
+    from victor.agent import durable_resume
+
+    async def _stub(orchestrator: Any, paused: Any, decision: Any) -> Any:
+        return durable_resume.ResumeResult(
+            final_content="",
+            approved=True,
+            gated_tool="run_command",
+            continuation_turns=1,
+            awaiting_run_id="chained-run-2",
+            awaiting_approval_request={"id": "r2", "title": "Approve tool: deploy"},
+        )
+
+    monkeypatch.setattr(durable_resume, "resume_paused_run", _stub)
+
+    run_id = _save(_store)
+    result = await _client().resume(run_id, ApprovalDecision(approved=True))
+
+    # A chained pause is surfaced exactly like a first pause: awaiting + a fresh run_id.
+    assert result.status == "awaiting_approval" and result.success is False
+    assert result.run_id == "chained-run-2"
+    assert result.approval_request["title"] == "Approve tool: deploy"
+    assert result.metadata["resumed_run_id"] == run_id
+
+
+async def test_resume_of_a_stale_pause_is_expired(_store: Any) -> None:
+    # A pause with an ancient created_at is expired by the resume seam's opportunistic GC.
+    run_id = _store.save(
+        session_id=None,
+        agent_id="a",
+        approval_request={"id": "r", "title": "t"},
+        created_at=1.0,  # ancient → older than the TTL
+    )
+    with pytest.raises(ValueError, match="expired"):
+        await _client().resume(run_id, ApprovalDecision(approved=True))
+    # It was retired (not left pending) so a retry keeps failing cleanly.
+    assert _store.get(run_id).status == "expired"

@@ -195,6 +195,12 @@ from victor.evaluation.acceptance_oracle import (
     HarnessAcceptanceOracle,
     characterization_from_signatures,
 )
+from victor.evaluation.flag_graduation import (
+    GraduationVerdict,
+    GraduationReport,
+    assess_graduation,
+    battery_from_dict,
+)
 
 # Agent adapter (connects Victor orchestrator to agentic benchmarks)
 from victor.evaluation.agent_adapter import (
@@ -488,6 +494,11 @@ __all__ = [
     "AcceptanceReport",
     "HarnessAcceptanceOracle",
     "characterization_from_signatures",
+    # Flag graduation (flag-graduation policy × acceptance oracle)
+    "GraduationVerdict",
+    "GraduationReport",
+    "assess_graduation",
+    "battery_from_dict",
     # Judge reliability gating (EVR-2)
     "JudgeReliability",
     "GateDecision",

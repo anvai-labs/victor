@@ -1,0 +1,252 @@
+{
+  "human_vs_judge": {
+    "credulous": {
+      "cohens_kappa": 0.2015,
+      "krippendorff_alpha": 0.0704,
+      "level": "nominal",
+      "n": 96
+    },
+    "enhanced": {
+      "cohens_kappa": 0.0,
+      "krippendorff_alpha": -0.8365,
+      "level": "nominal",
+      "n": 96
+    },
+    "evidence": {
+      "cohens_kappa": 0.0,
+      "krippendorff_alpha": -0.038,
+      "level": "nominal",
+      "n": 96
+    },
+    "rubric-heuristic": {
+      "cohens_kappa": 0.0,
+      "krippendorff_alpha": -0.038,
+      "level": "nominal",
+      "n": 96
+    },
+    "rubric-llm": {
+      "cohens_kappa": 0.6949,
+      "krippendorff_alpha": 0.6936,
+      "level": "nominal",
+      "n": 96
+    }
+  },
+  "human_vs_judge_per_family": {
+    "credulous": {
+      "code-fix": {
+        "cohens_kappa": 0.3103,
+        "krippendorff_alpha": 0.2512,
+        "level": "nominal",
+        "n": 16
+      },
+      "docs": {
+        "cohens_kappa": 0.4483,
+        "krippendorff_alpha": 0.4464,
+        "level": "nominal",
+        "n": 16
+      },
+      "file-create": {
+        "cohens_kappa": 1.0,
+        "krippendorff_alpha": 1.0,
+        "level": "nominal",
+        "n": 16
+      },
+      "qa": {
+        "cohens_kappa": 0.4483,
+        "krippendorff_alpha": 0.4464,
+        "level": "nominal",
+        "n": 16
+      },
+      "refactor": {
+        "cohens_kappa": 0.0189,
+        "krippendorff_alpha": -0.6059,
+        "level": "nominal",
+        "n": 32
+      }
+    },
+    "enhanced": {
+      "code-fix": {
+        "cohens_kappa": 0.0,
+        "krippendorff_alpha": -0.7222,
+        "level": "nominal",
+        "n": 16
+      },
+      "docs": {
+        "cohens_kappa": 0.0,
+        "krippendorff_alpha": -0.8235,
+        "level": "nominal",
+        "n": 16
+      },
+      "file-create": {
+        "cohens_kappa": 0.0,
+        "krippendorff_alpha": -0.7222,
+        "level": "nominal",
+        "n": 16
+      },
+      "qa": {
+        "cohens_kappa": 0.0,
+        "krippendorff_alpha": -0.8235,
+        "level": "nominal",
+        "n": 16
+      },
+      "refactor": {
+        "cohens_kappa": 0.0,
+        "krippendorff_alpha": -0.8529,
+        "level": "nominal",
+        "n": 32
+      }
+    },
+    "evidence": {
+      "code-fix": {
+        "cohens_kappa": 0.0,
+        "krippendorff_alpha": -0.0333,
+        "level": "nominal",
+        "n": 16
+      },
+      "docs": {
+        "cohens_kappa": 0.0,
+        "krippendorff_alpha": 0.0,
+        "level": "nominal",
+        "n": 16
+      },
+      "file-create": {
+        "cohens_kappa": 0.0,
+        "krippendorff_alpha": -0.0333,
+        "level": "nominal",
+        "n": 16
+      },
+      "qa": {
+        "cohens_kappa": 0.0,
+        "krippendorff_alpha": 0.0,
+        "level": "nominal",
+        "n": 16
+      },
+      "refactor": {
+        "cohens_kappa": 0.0,
+        "krippendorff_alpha": -0.0161,
+        "level": "nominal",
+        "n": 32
+      }
+    },
+    "rubric-heuristic": {
+      "code-fix": {
+        "cohens_kappa": 0.0,
+        "krippendorff_alpha": -0.0333,
+        "level": "nominal",
+        "n": 16
+      },
+      "docs": {
+        "cohens_kappa": 0.0,
+        "krippendorff_alpha": 0.0,
+        "level": "nominal",
+        "n": 16
+      },
+      "file-create": {
+        "cohens_kappa": 0.0,
+        "krippendorff_alpha": -0.0333,
+        "level": "nominal",
+        "n": 16
+      },
+      "qa": {
+        "cohens_kappa": 0.0,
+        "krippendorff_alpha": 0.0,
+        "level": "nominal",
+        "n": 16
+      },
+      "refactor": {
+        "cohens_kappa": 0.0,
+        "krippendorff_alpha": -0.0161,
+        "level": "nominal",
+        "n": 32
+      }
+    },
+    "rubric-llm": {
+      "code-fix": {
+        "cohens_kappa": 1.0,
+        "krippendorff_alpha": 1.0,
+        "level": "nominal",
+        "n": 16
+      },
+      "docs": {
+        "cohens_kappa": 1.0,
+        "krippendorff_alpha": 1.0,
+        "level": "nominal",
+        "n": 16
+      },
+      "file-create": {
+        "cohens_kappa": 1.0,
+        "krippendorff_alpha": 1.0,
+        "level": "nominal",
+        "n": 16
+      },
+      "qa": {
+        "cohens_kappa": 1.0,
+        "krippendorff_alpha": 1.0,
+        "level": "nominal",
+        "n": 16
+      },
+      "refactor": {
+        "cohens_kappa": 0.3333,
+        "krippendorff_alpha": 0.3,
+        "level": "nominal",
+        "n": 32
+      }
+    }
+  },
+  "human_vs_secondary": {
+    "cohens_kappa": 1.0,
+    "krippendorff_alpha": 1.0,
+    "level": "nominal",
+    "n": 96
+  },
+  "human_vs_verifier": {
+    "cohens_kappa": 1.0,
+    "krippendorff_alpha": 1.0,
+    "level": "nominal",
+    "n": 96
+  },
+  "n": 96,
+  "stop_the_line": false,
+  "thresholds": {
+    "human_judge_alpha": 0.7,
+    "human_verifier_kappa": 0.8,
+    "min_family_n": 16
+  },
+  "verdicts": [
+    {
+      "detail": "\u03ba=1.0000 vs \u2265 0.8 on n=96",
+      "name": "human_vs_verifier_kappa",
+      "passed": true
+    },
+    {
+      "detail": "overall \u03b1=0.0704 vs \u2265 0.7 on n=96; failing families: code-fix(\u03b1=0.2512), docs(\u03b1=0.4464), qa(\u03b1=0.4464), refactor(\u03b1=-0.6059)",
+      "name": "human_vs_judge_alpha[credulous]",
+      "passed": false
+    },
+    {
+      "detail": "overall \u03b1=-0.8365 vs \u2265 0.7 on n=96; failing families: code-fix(\u03b1=-0.7222), docs(\u03b1=-0.8235), file-create(\u03b1=-0.7222), qa(\u03b1=-0.8235), refactor(\u03b1=-0.8529)",
+      "name": "human_vs_judge_alpha[enhanced]",
+      "passed": false
+    },
+    {
+      "detail": "overall \u03b1=-0.0380 vs \u2265 0.7 on n=96; failing families: code-fix(\u03b1=-0.0333), docs(\u03b1=0.0000), file-create(\u03b1=-0.0333), qa(\u03b1=0.0000), refactor(\u03b1=-0.0161)",
+      "name": "human_vs_judge_alpha[evidence]",
+      "passed": false
+    },
+    {
+      "detail": "overall \u03b1=-0.0380 vs \u2265 0.7 on n=96; failing families: code-fix(\u03b1=-0.0333), docs(\u03b1=0.0000), file-create(\u03b1=-0.0333), qa(\u03b1=0.0000), refactor(\u03b1=-0.0161)",
+      "name": "human_vs_judge_alpha[rubric-heuristic]",
+      "passed": false
+    },
+    {
+      "detail": "overall \u03b1=0.6936 vs \u2265 0.7 on n=96; failing families: refactor(\u03b1=0.3000)",
+      "name": "human_vs_judge_alpha[rubric-llm]",
+      "passed": false
+    },
+    {
+      "detail": "\u03ba=1.0000 on n=96 (annotation quality control; audit disagreements per protocol)",
+      "name": "human_vs_secondary_kappa",
+      "passed": true
+    }
+  ]
+}

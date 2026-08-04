@@ -1661,7 +1661,16 @@ class VictorAgentAdapter:
         if api_key:
             provider_kwargs["api_key"] = api_key
 
-        effective_base_url = base_url or getattr(profile_config, "base_url", None)
+        # Profiles.yaml commonly uses `endpoint:` (ProfileConfig keeps it as an
+        # extra field); honor it as the base-URL synonym — without this the
+        # provider silently falls back to its localhost default (observed live:
+        # a 96-task calibration run produced 96 empty-response failures because
+        # the agent called localhost instead of the profile's Ollama host).
+        effective_base_url = (
+            base_url
+            or getattr(profile_config, "base_url", None)
+            or getattr(profile_config, "endpoint", None)
+        )
         if effective_base_url:
             provider_kwargs["base_url"] = effective_base_url
 

@@ -45,6 +45,7 @@ from victor.ui.tui.diff_pane import DiffPane, extract_edit_diff
 from victor.ui.tui.keybindings import load_keybindings
 from victor.ui.tui.palette import CommandPalette, HelpScreen
 from victor.ui.tui.phase import PhaseTracker
+from victor.ui.tui.prompt_input import PromptInput
 from victor.ui.tui.sidebar import AgentState, AgentStatePanel
 from victor.ui.tui.status_bar import StatusBar
 from victor.ui.tui.themes import DEFAULT_THEME, next_theme, register_all, resolve_theme
@@ -127,7 +128,7 @@ class VictorTUIApp(App[None]):
                 yield ConversationLog(id="conversation")
                 yield DiffPane(id="diff-pane")
                 yield StatusBar(id="status-bar")
-                yield Input(placeholder="Message…  (/help for commands)", id="prompt")
+                yield PromptInput(placeholder="Message…  (/help for commands)", id="prompt")
         yield Footer()
 
     def on_mount(self) -> None:

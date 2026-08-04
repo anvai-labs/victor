@@ -513,6 +513,10 @@ class AgenticLoopConfig:
     # default off per the flag-graduation policy; a strict no-op when disabled.
     enable_effect_gate: bool = False
     effect_gate_max_downgrades: int = 2
+    # Online per-turn auditor (EVR-6 / FEP-0008 Phase C): a continue/alarm check that downgrades a
+    # degenerate COMPLETE to RETRY. Opt-in, default off; a strict no-op when disabled.
+    enable_per_turn_auditor: bool = False
+    per_turn_auditor_max_alarms: int = 2
     enable_planning_gate: bool = True
     enable_paradigm_router: bool = True
     enable_topology_routing: bool = True
@@ -584,6 +588,7 @@ class AgenticLoop:
         rubric_complete_fn: Optional[Callable[[str], Awaitable[str]]] = None,
         verifier: Optional[Any] = None,
         max_verify_retries: int = 0,
+        per_turn_judge: Optional[Any] = None,
     ):
         """Initialize agentic loop.
 
@@ -739,6 +744,19 @@ class AgenticLoop:
             workspace_resolver=self._resolve_workspace,
         )
 
+        # Online per-turn auditor (EVR-6 / FEP-0008 Phase C) — opt-in via enable_per_turn_auditor,
+        # default off. A second post-filter on the same EVALUATE seam that downgrades a degenerate
+        # COMPLETE to RETRY; strict no-op when disabled.
+        from victor.framework.per_turn_auditor import PerTurnAuditor, PerTurnAuditorConfig
+
+        self.per_turn_auditor = PerTurnAuditor(
+            PerTurnAuditorConfig(
+                enabled=self.config.enable_per_turn_auditor,
+                max_alarms=self.config.per_turn_auditor_max_alarms,
+            ),
+            judge=per_turn_judge,
+        )
+
         # Initialize planning gate for fast-slow architecture
         self.planning_gate = PlanningGate(enabled=self.config.enable_planning_gate)
 
@@ -822,6 +840,9 @@ class AgenticLoop:
         _effect_gate = getattr(self, "effect_gate", None)
         if _effect_gate is not None:
             _effect_gate.reset()
+        _auditor = getattr(self, "per_turn_auditor", None)
+        if _auditor is not None:
+            _auditor.reset()
         effective_max = self.max_iterations
 
         # Semantic response cache check (arXiv:2508.07675)
@@ -1750,6 +1771,9 @@ class AgenticLoop:
         _effect_gate = getattr(self, "effect_gate", None)
         if _effect_gate is not None:
             _effect_gate.reset()
+        _auditor = getattr(self, "per_turn_auditor", None)
+        if _auditor is not None:
+            _auditor.reset()
         effective_max = self.max_iterations
         evaluation: Optional[EvaluationResult] = None  # bound per turn; None if loop never runs
 
@@ -1921,6 +1945,9 @@ class AgenticLoop:
         _effect_gate = getattr(self, "effect_gate", None)
         if _effect_gate is not None:
             _effect_gate.reset()
+        _auditor = getattr(self, "per_turn_auditor", None)
+        if _auditor is not None:
+            _auditor.reset()
 
         # PERCEIVE (before streaming — understands task before LLM call)
         perception = await self._analyze_turn(query, context)
@@ -3155,6 +3182,10 @@ class AgenticLoop:
         evaluation = await self._evaluate_core(perception, action_result, state)
         if gate is not None:
             evaluation = await gate.apply(evaluation, action_result, state)
+        # EVR-6: online per-turn auditor — a second post-filter on the same seam (no-op when off).
+        auditor = getattr(self, "per_turn_auditor", None)
+        if auditor is not None:
+            evaluation = auditor.apply(evaluation, action_result, state)
         return evaluation
 
     async def _evaluate_core(

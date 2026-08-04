@@ -34,6 +34,7 @@ class DecisionType(str, Enum):
     MULTI_SKILL_DECOMPOSITION = "multi_skill_decomposition"
     TOOL_NECESSITY = "tool_necessity"
     COMPACTION = "compaction"
+    TURN_AUDIT = "turn_audit"  # EVR-6: per-turn continue/alarm judgment
 
 
 class ErrorType(str, Enum):
@@ -232,6 +233,16 @@ class TaskCompletionDecision(BaseModel):
     phase: TaskPhase = Field(
         default=TaskPhase.WORKING, description="Current phase of task execution"
     )
+
+
+class TurnAuditDecision(BaseModel):
+    """EVR-6: is this agent turn healthy, or should the loop be alarmed?"""
+
+    verdict: Literal["continue", "alarm"] = Field(
+        description="continue = healthy turn; alarm = degenerate/stuck/off-track turn"
+    )
+    confidence: float = Field(ge=0.0, le=1.0, description="Confidence in the verdict")
+    reason: str = Field(default="", description="Brief reason when the verdict is alarm")
 
 
 class IntentDecision(BaseModel):

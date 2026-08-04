@@ -18,7 +18,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "victor-ai"
-version = "0.8.3"
+version = "0.8.4"
 description = "Open-source agentic AI framework with multi-provider support, workflow orchestration, and extensible tool system"
 readme = "README.md"
 license = {text = "Apache-2.0"}
@@ -59,7 +59,7 @@ dependencies = [
     "typing-extensions>=4.9",  # For typing.Self on Python 3.10
     "orjson>=3.9.0",  # Fast JSON serialization (Rust-backed, 5-10x faster than stdlib)
     # Typed provider runtime and wire transport; Sandhi is a core boundary, not an extra.
-    "sandhi-gateway==0.1.4",
+    "sandhi-gateway==0.1.5",
     # Imported on the `import victor` path (core.verticals.version_matrix) and for
     # vertical version gating. Previously satisfied only transitively via dev tools —
     # a bare `pip install victor-ai` could land in an env without it.
@@ -173,6 +173,14 @@ chat-ui = [
 ml = [
     "scikit-learn>=1.4",
     "scipy>=1.10",
+]
+
+# Evaluation-only: training/loading the small ModernBERT completion judge
+# (E2 arm B, benchmarks/judge_training/). NOT a runtime dependency — the
+# framework never imports torch/transformers at run time.
+judge-training = [
+    "torch>=2.2",
+    "transformers>=4.48",  # ModernBERT support landed in 4.48
 ]
 
 dev = [

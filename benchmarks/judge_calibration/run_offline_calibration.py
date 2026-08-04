@@ -37,6 +37,7 @@ import logging
 from pathlib import Path
 
 from victor.evaluation.calibration_corpus import default_corpus
+from victor.evaluation.calibration_enhanced_judge import make_enhanced_judge
 from victor.evaluation.calibration_rubric_judge import make_rubric_judge
 from victor.evaluation.judge_calibration_harness import (
     JudgeCalibrationHarness,
@@ -206,6 +207,33 @@ def main() -> int:
         "(reported, never gating).",
     )
     parser.add_argument(
+        "--classifier-judge",
+        type=Path,
+        default=None,
+        metavar="NPZ",
+        help="Also score a trained linear classifier judge (E2 arm A artifact from "
+        "benchmarks/judge_training/train_linear.py) as judge name 'classifier'.",
+    )
+    parser.add_argument(
+        "--encoder-judge",
+        type=Path,
+        default=None,
+        metavar="DIR",
+        help="Also score a trained ModernBERT encoder judge (E2 arm B artifact from "
+        "benchmarks/judge_training/train_encoder.py) as judge name 'encoder'. "
+        "Requires the [judge-training] extra.",
+    )
+    parser.add_argument(
+        "--replay-pack",
+        type=Path,
+        default=None,
+        metavar="DIR",
+        help="Replay an exported labeling pack instead of running any executor: judges "
+        "score the recorded (prompt, transcript, workspace) views. Use to measure NEW "
+        "judges on a prior run's exact trajectories (e.g. llama3.3:70b on run 12). "
+        "Requires the same --variants as the original run.",
+    )
+    parser.add_argument(
         "--two-phase",
         action="store_true",
         help="Run all trajectories first, then all judging (one model swap instead of one "
@@ -267,7 +295,18 @@ def main() -> int:
         # The real ADR-009 no-LLM fallback path (HeuristicRubricJudge behind the
         # DimensionAwareFilter) — calibrated as shipped, binary completion verdicts.
         "rubric-heuristic": make_rubric_judge(),
+        # The production default completion evaluator (EVR-3 parity, deterministic,
+        # zero LLM calls) — see calibration_enhanced_judge for the fidelity contract.
+        "enhanced": make_enhanced_judge(),
     }
+    if args.classifier_judge:
+        from victor.evaluation.calibration_classifier_judge import load_linear_judge
+
+        judges["classifier"] = load_linear_judge(args.classifier_judge)
+    if args.encoder_judge:
+        from victor.evaluation.calibration_classifier_judge import load_encoder_judge
+
+        judges["encoder"] = load_encoder_judge(args.encoder_judge)
     llm_stats = None
     if args.judge_profile or args.llm_judge_provider:
         from victor.evaluation.calibration_rubric_judge import (
@@ -301,7 +340,9 @@ def main() -> int:
                 api_key = os.environ.get(api_key[2:-1])
             if api_key:
                 provider_kwargs["api_key"] = api_key
-            profile_base_url = getattr(profile, "base_url", None)
+            profile_base_url = getattr(profile, "base_url", None) or getattr(
+                profile, "endpoint", None
+            )
             if profile_base_url and not args.llm_judge_base_url:
                 provider_kwargs["base_url"] = profile_base_url
         provider = ProviderRegistry.create(provider_name, **provider_kwargs)
@@ -319,7 +360,12 @@ def main() -> int:
     # Executor: real agent trajectories (--agent-profile) or the deterministic scripted
     # stand-in. period=5 is coprime with the 6 task families, so scripted failures rotate
     # across every family instead of always hitting the same ones.
-    if args.agent_profile:
+    if args.replay_pack:
+        from victor.evaluation.labeling_pack import make_pack_replay_executor
+
+        executor = make_pack_replay_executor(args.replay_pack)
+        print(f"executor: pack replay ({args.replay_pack})")
+    elif args.agent_profile:
         from victor.evaluation.agent_adapter import VictorAgentAdapter
         from victor.evaluation.calibration_agent_executor import make_agent_executor
 

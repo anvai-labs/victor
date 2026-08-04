@@ -61,3 +61,47 @@ def test_get_correlation_empty_when_unset():
         ctx.session_id.reset(s)
         ctx.turn_id.reset(t)
         ctx.request_id.reset(r)
+
+
+# ---------------------------------------------------------------------------
+# FEP-0020 attribution context (authenticated subject/group identity)
+# ---------------------------------------------------------------------------
+
+
+def test_attribution_defaults_to_none():
+    assert ctx.get_auth_subject_id() is None
+    assert ctx.get_auth_group_id() is None
+
+
+def test_bind_attribution_sets_and_restores():
+    with ctx.bind_attribution(subject_id="alice", group_id="team-a"):
+        assert ctx.get_auth_subject_id() == "alice"
+        assert ctx.get_auth_group_id() == "team-a"
+    assert ctx.get_auth_subject_id() is None
+    assert ctx.get_auth_group_id() is None
+
+
+def test_bind_attribution_none_is_noop():
+    """Binding no identity leaves any outer binding untouched."""
+    with ctx.bind_attribution(subject_id="alice"):
+        with ctx.bind_attribution():
+            assert ctx.get_auth_subject_id() == "alice"
+        assert ctx.get_auth_subject_id() == "alice"
+
+
+def test_bind_attribution_nested_inner_wins_and_restores():
+    with ctx.bind_attribution(subject_id="alice", group_id="team-a"):
+        with ctx.bind_attribution(subject_id="bob"):
+            assert ctx.get_auth_subject_id() == "bob"
+            # group untouched by inner bind
+            assert ctx.get_auth_group_id() == "team-a"
+        assert ctx.get_auth_subject_id() == "alice"
+
+
+def test_bind_attribution_restores_on_error():
+    try:
+        with ctx.bind_attribution(subject_id="alice"):
+            raise RuntimeError("boom")
+    except RuntimeError:
+        pass
+    assert ctx.get_auth_subject_id() is None

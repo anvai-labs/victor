@@ -256,3 +256,57 @@ async def test_batch_gated_pick_disambiguated_by_pending_tool() -> None:
     # run_command (the gated one) went to the raw executor; read_file (sibling) to the pipeline.
     assert orch._tool_service.calls == [("run_command", {"cmd": "x"})]
     assert [c["id"] for c in orch._tool_service.pipeline_calls] == ["first"]
+
+
+# ── chained pauses ────────────────────────────────────────────────
+
+
+async def test_chained_pause_during_continuation_parks_again() -> None:
+    from victor.agent.paused_run_store import (
+        InMemoryPausedRunStore,
+        reset_paused_run_store,
+        set_paused_run_store,
+    )
+    from victor.framework.approval_pause import ApprovalPause
+    from victor.framework.hitl import ApprovalRequest
+
+    store = InMemoryPausedRunStore()
+    set_paused_run_store(store)
+    try:
+        req = ApprovalRequest(
+            id="r2",
+            title="Approve tool: deploy",
+            description="",
+            context={"tool_name": "deploy", "arguments": {"env": "prod"}},
+        )
+
+        class _PausingTurns:
+            async def execute_turn(self, user_message: str, *a: Any, **k: Any) -> Any:
+                raise ApprovalPause(req)
+
+        orch = SimpleNamespace(
+            _conversation_controller=_Controller(_gated_conversation()),
+            _tool_service=_ToolService(),
+            turn_executor=_PausingTurns(),
+        )
+        paused = SimpleNamespace(
+            pending_tool={"tool_name": "run_command", "arguments": {}},
+            session_id="s1",
+            agent_id="a1",
+            run_id="orig",
+        )
+        out = await resume_paused_run(orch, paused, ApprovalDecision(approved=True))
+
+        # The gated call still ran (approved); then the continuation hit a NEW ASK → parked again.
+        assert orch._tool_service.calls == [("run_command", {"cmd": "rm -rf x"})]
+        assert out.awaiting_run_id is not None
+        assert out.awaiting_approval_request["title"] == "Approve tool: deploy"
+
+        # A fresh paused_run was recorded, carrying the chained tool + a link to the original run.
+        rec = store.get(out.awaiting_run_id)
+        assert rec is not None
+        assert rec.session_id == "s1"
+        assert rec.pending_tool == {"tool_name": "deploy", "arguments": {"env": "prod"}}
+        assert rec.metadata.get("chained_from") == "orig"
+    finally:
+        reset_paused_run_store()

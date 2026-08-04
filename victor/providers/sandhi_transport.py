@@ -102,7 +102,7 @@ def resolve_transport_class(
         return native_cls
     if not sandhi_transport_available():
         raise ProviderConnectionError(
-            "sandhi-gateway 0.1.4 is required for provider transport",
+            "sandhi-gateway 0.1.5 is required for provider transport",
             provider=name,
         )
     return variant
@@ -122,11 +122,13 @@ EXPECTED_WIRE_CONTRACT = "1"
 
 # Additive rounds of the v1 contract Victor knows how to consume (W3c):
 # 3 = wire-truth latency on UsageV2 (sandhi#97); 4 = reasoning_effort +
-# thinking typed request fields (W3d/G7). The installed runtime's minor is
-# read once by the handshake below; bindings predating chat_contract_minor()
-# report 0 — their documents simply never carry the newer fields, which every
-# consumer tolerates by construction.
-KNOWN_CONTRACT_MINOR = 4
+# thinking typed request fields (W3d/G7); 5 = UsageV2.basis measured-vs-estimated
+# (TD-0013 D5); 6 = RunCostTreeV1 server-side run cost tree (ADR-0005 D7,
+# sandhi PR #149). The installed runtime's minor is read once by the handshake
+# below; bindings predating chat_contract_minor() report 0 — their documents
+# simply never carry the newer fields, which every consumer tolerates by
+# construction. installed_minor > KNOWN stays valid forward-compat.
+KNOWN_CONTRACT_MINOR = 6
 
 # The typed request fields land at minor 4 (W3d/G7). Below it, the runtime has
 # no such fields, so Victor dual-writes into extensions and only drops the
@@ -301,6 +303,29 @@ def _canonical_content(content: Any) -> Any:
     return parts
 
 
+def _gateway_run_id() -> str:
+    """Stable per-agent-run identifier for the sandhi run cost tree.
+
+    Gateway mode stamps this as the ``x-sandhi-run-id`` wire header (sandhi
+    PR #149) so the proxy can persist a per-run cost tree queryable at
+    ``GET /admin/usage/run/{run_id}``. Reuses victor's session identifier from
+    the execution-context correlation spine (``victor.core.context``) — the
+    same id the orchestrator binds for the whole agent run. Empty when no
+    session is bound (bare provider usage outside an agent run).
+
+    ``x-sandhi-step-id`` is a deliberate follow-up: wire headers are fixed at
+    FFI-handle construction and the handle is cached per run, while a step/turn
+    id changes per agentic-loop turn — attaching it here would force a fresh
+    transport handle (pooling, circuit state) every turn.
+    """
+    try:
+        from victor.core.context import get_session_id
+
+        return str(get_session_id() or "")
+    except Exception:  # pragma: no cover - attribution must never block transport
+        return ""
+
+
 def _include_native_response() -> bool:
     """Whether typed requests ask sandhi for the native-body echo (debug-only)."""
     try:
@@ -465,9 +490,10 @@ def _native_only_usage(raw_usage: Any) -> Dict[str, int]:
 def _latency_fields(usage: Any) -> Dict[str, int]:
     """Wire-truth latency measured at sandhi's typed boundary (W3b).
 
-    Present from sandhi-gateway > 0.1.4; tolerant-absent before that. Carried
-    on every run (unlike the non-routine diagnostics) so stream metrics can
-    prefer wire truth over client wall-clock.
+    Present from contract minor 3, so guaranteed at victor's >= 0.1.5 floor;
+    the field-shape checks below stay tolerant-absent defensively. Carried on
+    every run (unlike the non-routine diagnostics) so stream metrics can prefer
+    wire truth over client wall-clock.
     """
     if not isinstance(usage, dict):
         return {}
@@ -591,7 +617,7 @@ class SandhiTypedProviderMixin:
     def _typed_provider(self, model: str) -> Any:
         if not sandhi_transport_available():
             raise ProviderConnectionError(
-                "sandhi-gateway 0.1.4 typed runtime is unavailable",
+                "sandhi-gateway 0.1.5 typed runtime is unavailable",
                 provider=self._sandhi_slug(),
             )
         _verify_wire_contract()
@@ -602,6 +628,9 @@ class SandhiTypedProviderMixin:
         slug = self._sandhi_slug()
         protocol = str(getattr(self, "_sandhi_protocol", "") or "")
         gateway = self._gateway_overrides()
+        # Run cost tree (sandhi PR #149): only gateway mode stamps the run id —
+        # direct-provider mode must stay byte-identical on the wire.
+        run_id = _gateway_run_id() if gateway is not None else ""
         if gateway is not None:
             # Gateway mode (TD-0003 P3): the FFI handle targets the Sandhi proxy with
             # the virtual key presented as a bearer token. The slug is preserved so the
@@ -616,14 +645,15 @@ class SandhiTypedProviderMixin:
                 )
             base_url = proxy_url
             api_key = virtual_key
-            # Compat guard for sandhi <= 0.1.4: those bindings REJECT an
-            # explicit auth_scheme outside the Anthropic/Gemini protocols
-            # (victor#678). sandhi >= 0.1.5 accepts "bearer" family-wide as a
-            # no-op (TD-0008 rule 5: reject contradictions, accept redundancy),
-            # so once the pin passes 0.1.4 this conditional can collapse to an
-            # unconditional "bearer". The real-binding construction conformance
-            # suite (test_sandhi_binding_construction.py) holds either way.
-            auth_scheme = "bearer" if getattr(self, "_sandhi_auth_scheme", "") else ""
+            # sandhi >= 0.1.5 (victor's floor) accepts "bearer" family-wide as a
+            # no-op for the gateway virtual key (TD-0008 rule 5: reject
+            # contradictions, accept redundancy), so gateway mode presents it
+            # unconditionally. Earlier bindings that REJECTED an explicit
+            # auth_scheme outside the Anthropic/Gemini protocols (victor#678) are
+            # below the pin and no longer reachable. The real-binding
+            # construction conformance suite (test_sandhi_binding_construction.py)
+            # covers this.
+            auth_scheme = "bearer"
             explicit_base_url = proxy_url
         else:
             base_url = str(getattr(self, "base_url", "") or "")
@@ -639,7 +669,9 @@ class SandhiTypedProviderMixin:
             )
             api_key = str(getattr(self, "_api_key", None) or getattr(self, "api_key", "") or "")
             auth_scheme = str(getattr(self, "_sandhi_auth_scheme", "") or "")
-        cache_key = (slug, model, explicit_base_url, api_key, auth_scheme, protocol)
+        # run_id participates in the cache key so the handle is reused within an
+        # agent run but rebuilt (with a fresh x-sandhi-run-id header) per run.
+        cache_key = (slug, model, explicit_base_url, api_key, auth_scheme, protocol, run_id)
         if cache_key not in self._sandhi_typed_providers:
             kwargs: Dict[str, Any] = {
                 "base_url": explicit_base_url or None,
@@ -647,7 +679,10 @@ class SandhiTypedProviderMixin:
                 "stream_idle_timeout_secs": 90.0,
                 "max_retries": max(0, int(getattr(self, "max_retries", 0) or 0)),
             }
-            wire_headers = getattr(self, "_wire_headers", None)
+            wire_headers = dict(getattr(self, "_wire_headers", None) or {})
+            if run_id:
+                # An explicit caller-set header wins; never clobber it.
+                wire_headers.setdefault("x-sandhi-run-id", run_id)
             if wire_headers:
                 kwargs["headers_json"] = json.dumps(wire_headers)
             if auth_scheme:

@@ -195,3 +195,4 @@ nav:
       - Exception Handling: development/exception-handling.md
       - Testing: development/testing.md
       - PR Workflow: development/PR_WORKFLOW.md
+      - Prompt Evolution Workflow: development/prompt-evolution-workflow.md

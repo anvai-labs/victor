@@ -151,3 +151,60 @@ def make_labeling_pack_sink(
         write_pack_manifest(pack_dir, task_ids)
 
     return sink
+
+
+def load_labeling_records(pack_dir: Path) -> dict[str, dict[str, Any]]:
+    """Load exported pack records keyed by task_id (manifest files excluded)."""
+    records: dict[str, dict[str, Any]] = {}
+    for path in sorted(pack_dir.glob("[0-9]*.json")):
+        record = json.loads(path.read_text())
+        records[record["task_id"]] = record
+    if not records:
+        raise ValueError(f"no labeling records found in {pack_dir}")
+    return records
+
+
+def make_pack_replay_executor(pack_dir: Path) -> Callable[..., Any]:
+    """A CalibrationExecutor that replays an exported labeling pack.
+
+    Re-judging without re-running the agent: for each task the recorded
+    post-execution workspace snapshot is restored over the fresh fixture and
+    the recorded transcript returned, so every judge scores the IDENTICAL
+    (prompt, transcript, workspace) views the original run produced — new
+    judges become comparable to the original run's judges and to labels
+    collected from the same pack.
+
+    Limitations (inherent to the pack format): files the export omitted
+    (binary / oversized) are not restored, and files the agent DELETED from
+    the fixture are not re-deleted (the snapshot records presence, not
+    absence). Both are absent from this corpus; verify gold on replay and
+    VOID the comparison if it drifts from the original run's.
+    """
+    from victor.evaluation.judge_calibration_harness import Transcript, TranscriptStep
+
+    records = load_labeling_records(pack_dir)
+
+    def executor(task: Any, workspace: Path) -> "Transcript":
+        record = records.get(task.task_id)
+        if record is None:
+            raise KeyError(
+                f"task {task.task_id!r} not in pack {pack_dir} — corpus/pack mismatch "
+                "(regenerate with the same --variants)"
+            )
+        for rel, content in record["workspace"]["files"].items():
+            if not isinstance(content, str):
+                continue  # omitted (binary/oversized) — see docstring
+            if rel.startswith(".victor/"):
+                continue  # harness infrastructure, never task content
+            target = workspace / rel
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(content)
+        return Transcript(
+            steps=tuple(
+                TranscriptStep(kind=s["kind"], content=s["content"])
+                for s in record["transcript"]["steps"]
+            ),
+            final_message=record["transcript"]["final_message"],
+        )
+
+    return executor

@@ -322,8 +322,29 @@ Phased, each phase independently shippable and tested (mirroring how FEP-0028 la
   surfaces benefit): a parallel-tool pause aborts the whole batch, so resume now resolves **every**
   unresolved tool_call — the gated one per the human's decision, the sibling calls via the reused
   `execute_tool_call` pipeline — before continuing, so no tool_call is left dangling.
-  Still deferred: a CLI arming *flag* (needs the CLI to first expose the tool-approval
-  enable/ask-on-tools flags); TUI paused lane; streaming resume; chained pauses.
+  Chained pauses **✅ landed** (shared helper): the resume continuation *re-arms* durable pause, so a
+  new ASK mid-continuation raises `ApprovalPause` again → caught → recorded as a fresh `paused_run`
+  (via a new shared `record_pause_from_approval` — now used by *both* the turn boundary and the
+  resume continuation, eliminating the duplicated pause-recording) → surfaced as `awaiting_approval`
+  + a new `run_id` that the API/CLI already render.
+  Expiry/GC **✅ landed** (both store backends via the Protocol): `expire_pending(max_age_seconds)`
+  marks stale never-resumed pauses `expired` (so they drop out of `list_pending` and error on
+  resume), `purge(before)` deletes old terminal rows; `VictorClient.resume` opportunistically expires
+  stragglers (24h TTL) so a day-old approval never silently executes.
+  Streaming pause surfacing **✅ landed**: `stream_message_events` arms durable pause and catches a
+  mid-stream `ApprovalPause` → records the pause (shared `record_pause_from_approval`) → yields an
+  `EventType.AWAITING_APPROVAL` event (new `awaiting_approval_event` constructor) carrying the
+  `run_id` + `approval_request`, which `VictorClient.stream` converts to a `_StreamEvent` — so
+  streaming callers (SSE, TUI) see the pause. (Resuming *into* a re-opened stream is a small
+  follow-up; resume still returns an aggregate.)
+  TUI paused lane **✅ landed** (pure reuse): `map_event` maps the streamed `AWAITING_APPROVAL` to the
+  existing `RenderKind.MEMBER_AWAITING` (labelled `agent`, with the gated tool + resume `run_id`),
+  which flows through `ConversationLog.feed_action` → the same `WireTimelineState` paused-lane
+  renderer teams already use — no new render code. The user reads the run_id and resumes with
+  `victor session resume <run_id>`.
+  **All FEP phases are now functionally complete.** The only remaining nice-to-haves are a CLI *arming*
+  flag (needs the CLI to first expose the tool-approval enable/ask-on-tools flags) and resuming
+  *into* a re-opened stream (resume currently returns an aggregate).
 - **Phase 4 — hardening.** Reject/timeout/expiry, chained pauses, GC, docs, and a
   `victor chat --resume <run_id>` ergonomic.
 
@@ -384,6 +405,10 @@ Status **Draft** — submitted for review. Open questions above are the decision
 | 2026-08-01 | 0.5 | Phase 3b (API surface) landed: `/chat` returns 202 `awaiting_approval` + `run_id` + `approval_request` on a pause; new `/chat/resume` route calls `VictorClient.resume` (404 unknown/resumed, 501 unsupported). CLI/TUI surfaces + batches/streaming still deferred | Vijaykumar Singh |
 | 2026-08-01 | 0.6 | Phase 3b (CLI surface) landed: `victor session resume <run_id> [--approve/--reject] [--note]` + `from_cli_flags(durable_approval=...)`. Homed on the `session` group (the `chat` callback's positional `message` arg blocks `chat` subcommands-with-args). CLI arming flag + TUI + batches/streaming deferred | Vijaykumar Singh |
 | 2026-08-01 | 0.7 | Multi-tool batch partiality landed in the shared `resume_paused_run` (benefits API/CLI/framework at once): resume resolves every unresolved tool_call — gated one per decision, siblings via the reused `execute_tool_call` pipeline — so none dangles before continuing. TUI + streaming + chained pauses deferred | Vijaykumar Singh |
+| 2026-08-02 | 0.8 | Chained pauses landed: the resume continuation re-arms durable pause, so a new ASK parks again (new `paused_run` + `run_id`, surfaced as `awaiting_approval`). Factored the pause-recording into a shared `record_pause_from_approval` used by both the turn boundary and the resume continuation (de-duplicated). TUI + streaming + expiry/GC deferred | Vijaykumar Singh |
+| 2026-08-02 | 0.9 | Expiry/GC landed (both store backends): `expire_pending(max_age_seconds)` marks stale pending runs `expired`, `purge(before)` deletes old terminal rows; `VictorClient.resume` opportunistically expires stragglers (24h TTL) so a stale approval errors instead of executing. TUI + streaming deferred | Vijaykumar Singh |
+| 2026-08-02 | 1.0 | Streaming pause surfacing landed: `stream_message_events` arms+catches `ApprovalPause` mid-stream → records via the shared helper → yields `AWAITING_APPROVAL` (new `awaiting_approval_event`) with `run_id` + `approval_request`, surfaced through `VictorClient.stream`. Unblocks the TUI lane. Only the TUI lane + a CLI arming flag remain | Vijaykumar Singh |
+| 2026-08-02 | 1.1 | TUI paused lane landed (pure reuse): `map_event` maps `AWAITING_APPROVAL` → the existing `RenderKind.MEMBER_AWAITING`, rendered by the shared `WireTimelineState` paused lane (labelled `agent`, gated tool + run_id). **All FEP-0029 phases functionally complete**; only a CLI arming flag + stream-into-resume nice-to-haves remain | Vijaykumar Singh |
 
 ## Acceptance Criteria
 

@@ -1565,13 +1565,13 @@ class StreamingChatExecutor:
         # Completion strategy (ADR-009): thread from settings; build the provider-backed rubric judge
         # for rubric/hybrid (default "enhanced" → no rubric, no behavior change). Reuses the buffered
         # path's helper so both modes resolve completion identically.
-        import os as _os
+        from victor.agent.services.judge_calibration_gate import resolve_completion_strategy
 
         _te = getattr(orch, "turn_executor", None)
-        _strategy = _os.environ.get("VICTOR_COMPLETION_STRATEGY") or getattr(
-            getattr(getattr(orch, "settings", None), "agent", None),
-            "completion_strategy",
-            "enhanced",
+        # Env override → settings default → ADR-011 judge pinning; same gate as buffered path.
+        _strategy = resolve_completion_strategy(
+            getattr(orch, "settings", None),
+            getattr(getattr(_te, "_provider_context", None), "model", None),
         )
         _rubric_fn = (
             _te._build_rubric_complete_fn()
@@ -1579,8 +1579,19 @@ class StreamingChatExecutor:
             else None
         )
         from victor.framework.effect_gate import resolve_effect_gate_enabled
+        from victor.framework.per_turn_auditor import resolve_per_turn_auditor_enabled
 
-        _effect_gate = resolve_effect_gate_enabled(getattr(orch, "settings", None))
+        _settings = getattr(orch, "settings", None)
+        _effect_gate = resolve_effect_gate_enabled(_settings)
+        _auditor = resolve_per_turn_auditor_enabled(_settings)
+        # EVR-6: when the auditor is on, back it with the edge-model prefix judge (Ollama,
+        # token-free). build_edge_turn_judge() returns None when the edge model is unavailable,
+        # so the auditor degrades to its deterministic heuristic.
+        _turn_judge = None
+        if _auditor:
+            from victor.agent.edge_turn_judge import build_edge_turn_judge
+
+            _turn_judge = build_edge_turn_judge()
         loop = AgenticLoop(
             orchestrator=None,
             turn_executor=_te,
@@ -1590,10 +1601,15 @@ class StreamingChatExecutor:
             enable_adaptive_iterations=True,
             exploration_settings=getattr(getattr(orch, "settings", None), "exploration", None),
             streaming_act_port=adapter,
-            config={"completion_strategy": _strategy, "enable_effect_gate": _effect_gate},
+            config={
+                "completion_strategy": _strategy,
+                "enable_effect_gate": _effect_gate,
+                "enable_per_turn_auditor": _auditor,
+            },
             rubric_complete_fn=_rubric_fn,
             verifier=getattr(_te, "_verifier", None),
             max_verify_retries=getattr(_te, "_max_verify_retries", 0),
+            per_turn_judge=_turn_judge,
         )
 
         conversation_history = self._get_conversation_history(runtime_owner, orch, user_message)

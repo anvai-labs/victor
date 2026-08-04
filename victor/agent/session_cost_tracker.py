@@ -43,6 +43,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from victor.core.context import get_auth_group_id, get_auth_subject_id
+
 logger = logging.getLogger(__name__)
 
 
@@ -236,6 +238,10 @@ class SessionCostTracker:
 
         # FEP-0020 Phase 2 — mirror this request into the sandhi usage gateway with
         # per-subject/team attribution. Best-effort; SandhiMeter.record never raises.
+        # Attribution precedence (FEP-0020 attribution join): an authenticated
+        # identity bound on the execution context at the API-server auth seam
+        # wins; the tracker's own subject/group (operator-level config default)
+        # remains the fallback for CLI/local use.
         if self._sandhi is not None:
             self._sandhi.record(
                 provider=self.provider,
@@ -244,8 +250,8 @@ class SessionCostTracker:
                 completion_tokens=completion_tokens,
                 cache_read_tokens=cache_read_tokens,
                 cache_write_tokens=cache_write_tokens,
-                subject_id=self.subject_id,
-                group_id=self.group_id,
+                subject_id=get_auth_subject_id() or self.subject_id,
+                group_id=get_auth_group_id() or self.group_id,
                 session_id=self.session_id,
             )
 

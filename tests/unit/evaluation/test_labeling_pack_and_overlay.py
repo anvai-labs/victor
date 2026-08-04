@@ -201,3 +201,43 @@ class TestLoadReportSamples:
         p.write_text(json.dumps({"samples": []}))
         with pytest.raises(LabelsError):
             load_report_samples(p)
+
+
+class TestPackReplayExecutor:
+    def test_replay_reproduces_gold_and_transcripts(self, tmp_path: Path):
+        from victor.evaluation.labeling_pack import make_pack_replay_executor
+
+        # Original run: scripted executor + pack export.
+        pack_dir = tmp_path / "pack"
+        corpus = default_corpus(variants=2)
+        harness = JudgeCalibrationHarness(corpus)
+        judge = {"j": lambda _p, tr, _w: 1.0 if tr.tool_steps() else 0.0}
+        original = harness.run_multi_judge(
+            alternating_scripted_executor(period=2),
+            judge,
+            record_sink=make_labeling_pack_sink(pack_dir),
+        )["j"]
+
+        # Replay: same corpus, executor restores pack snapshots.
+        replayed = JudgeCalibrationHarness(default_corpus(variants=2)).run_multi_judge(
+            make_pack_replay_executor(pack_dir), judge
+        )["j"]
+
+        assert [(s.task_id, s.gold) for s in replayed.samples] == [
+            (s.task_id, s.gold) for s in original.samples
+        ]
+        assert [(s.judged) for s in replayed.samples] == [(s.judged) for s in original.samples]
+
+    def test_replay_rejects_corpus_mismatch(self, tmp_path: Path):
+        from victor.evaluation.labeling_pack import make_pack_replay_executor
+
+        pack_dir = tmp_path / "pack"
+        harness = JudgeCalibrationHarness(default_corpus(variants=1))
+        harness.run_multi_judge(
+            alternating_scripted_executor(period=2),
+            {"j": lambda _p, _t, _w: 1.0},
+            record_sink=make_labeling_pack_sink(pack_dir),
+        )
+        bigger = JudgeCalibrationHarness(default_corpus(variants=2))
+        with pytest.raises(KeyError, match="corpus/pack mismatch"):
+            bigger.run_multi_judge(make_pack_replay_executor(pack_dir), {"j": lambda *_: 1.0})

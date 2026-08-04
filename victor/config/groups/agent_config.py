@@ -21,7 +21,7 @@ Note: Tool-level configuration (budget, retry, cache, selection) is already
 extracted in victor/config/tool_settings.py as ToolSettings.
 """
 
-from typing import Dict
+from typing import Dict, List
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -74,6 +74,18 @@ class AgentSettings(BaseModel):
     # Threaded into AgenticLoop construction; default leaves behavior unchanged.
     completion_strategy: str = "enhanced"
 
+    # Judge-identity pinning (ADR-011, FINDINGS checklist item 3): rubric/hybrid completion
+    # gating is honored only when the session model (which backs the rubric judge) is in this
+    # calibrated set; otherwise the strategy downgrades to "enhanced" with a warning. Defaults
+    # are the FINDINGS gate-passers (runs 10-11). Matching is case-insensitive exact.
+    rubric_judge_calibrated_models: List[str] = Field(default_factory=lambda: ["llama3.3:70b"])
+
+    # Completion-judge backend (FEP-0030): which model judges completion, independent of the
+    # session chat model. "session-model" (default) = the session's own model (historical
+    # behavior, unchanged); "enhanced" = force the algorithmic evaluator. Decoupled backends
+    # "llm:<model>" / "classifier:<path>" are Phase 2. Env override VICTOR_COMPLETION_JUDGE.
+    completion_judge: str = "session-model"
+
     # Effect-grounded completion gate (ADR-010 / EVR-4): COMPLETE requires a verifiable effect
     # or is downgraded to RETRY ("completion-without-effect"). Opt-in, default off per the
     # flag-graduation policy; env override VICTOR_EFFECT_GATED_COMPLETION.
@@ -84,6 +96,11 @@ class AgentSettings(BaseModel):
     # only classifying by exception type. Opt-in, default off per the flag-graduation policy;
     # env override VICTOR_RECOVERY_LAYER_ATTRIBUTION.
     recovery_layer_attribution: bool = False
+
+    # Online per-turn auditor (EVR-6 / FEP-0008 Phase C): a continue/alarm check on each turn that
+    # downgrades a degenerate COMPLETE to RETRY. Opt-in, default off per the flag-graduation policy;
+    # env override VICTOR_PER_TURN_AUDITOR. (Wired on the streaming path.)
+    per_turn_auditor: bool = False
 
     @field_validator("planning_min_complexity")
     @classmethod
