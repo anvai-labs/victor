@@ -43,7 +43,7 @@ include = '\.pyi?$'
 ### Key Rules
 
 - **Line length**: 100 characters (not the default 88)
-- **Target version**: Python 3.10+
+- **Target version**: Python 3.11+
 - **String quotes**: Double quotes preferred
 - **Trailing commas**: Added in multi-line structures
 

@@ -24,7 +24,7 @@ Everything below was run end-to-end against `vjsingh1984/proximadb:0.2.0`.
 ## Prerequisites
 
 - Docker
-- Python 3.10+
+- Python 3.11+
 - ~10 minutes (most of it is the one-time embedding-model download, ~130 MB)
 
 ## 1. Start ProximaDB
@@ -60,7 +60,7 @@ from pathlib import Path
 import httpx
 from sentence_transformers import SentenceTransformer
 
-from victor_codegraph import iter_source_files, parse, to_proxima_records
+from victor_codegraph import parse_repo, to_proxima_records
 
 PROXIMADB = os.environ.get("PROXIMADB_URL", "http://localhost:5678")
 REPO = Path(os.environ.get("REPO", ".")).resolve()
@@ -83,10 +83,8 @@ r = client.post("/api/v2/collections", json={"name": COLLECTION, "dimension": DI
 assert r.status_code in (200, 201, 409) or "COLLECTION_EXISTS" in r.text, r.text
 
 # 2. Parse the repo into symbols + call relations, projected to ProximaRecords.
-records = []
-for path in iter_source_files(REPO):
-    parsed = parse(path.read_text(encoding="utf-8"), file_path=str(path.relative_to(REPO)))
-    records += to_proxima_records(parsed, repo_graph_id=REPO_ID, embedder=embed)
+repository = parse_repo(REPO, repo_id=REPO_ID)
+records = to_proxima_records(repository, repo_graph_id=REPO_ID, embedder=embed)
 
 
 # 3. Translate to the REST v2 wire shape ({id, vector, props}) and batch-upsert.

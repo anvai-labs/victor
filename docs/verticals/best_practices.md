@@ -625,7 +625,7 @@ class MyVertical(VerticalBase):
         >>> print(result)
 
     Requirements:
-        - Python 3.10+
+        - Python 3.11+
         - Victor 0.6.0+
         - External package: some-package>=1.0.0
 

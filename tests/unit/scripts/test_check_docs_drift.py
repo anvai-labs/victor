@@ -28,6 +28,10 @@ def test_expected_version_matches_version_file():
     assert mod.expected_version() == (mod.ROOT / "VERSION").read_text().strip()
 
 
+def test_expected_python_minimum_matches_package_metadata():
+    assert mod.expected_python_minimum() == "3.11"
+
+
 def test_expected_provider_count_is_positive():
     assert mod.expected_provider_count() >= 20  # 24 today; sanity floor
 
@@ -40,6 +44,15 @@ def test_aligned_canonical_doc_has_no_errors():
 def test_wrong_version_stamp_in_canonical_doc_flagged():
     errs = scan("docs/index.md", "**Version**: 0.7.0 | x", "0.7.1", 24)
     assert any("version stamp 0.7.0 != 0.7.1" in e for e in errs)
+
+
+def test_wrong_python_minimum_flagged_anywhere():
+    errs = scan("docs/anything.md", "Requires Python 3.10+", "0.7.1", 24, "3.11")
+    assert any("Python minimum 3.10 != 3.11" in e for e in errs)
+
+
+def test_python_test_matrix_is_not_a_minimum_claim():
+    assert scan("docs/anything.md", "Test on Python 3.11, 3.12", "0.7.1", 24, "3.11") == []
 
 
 def test_version_stamp_ignored_in_noncanonical_doc():

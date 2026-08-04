@@ -1,5 +1,12 @@
 # Deprecation Inventory (2026-03-03)
 
+> **Historical inventory.** The bundled-contrib vertical entries below describe
+> the March 2026 transition and do not identify current runtime packages. The
+> authoritative vertical ownership model is [ADR-007](../architecture/adr/007-vertical-distribution-and-sdk-boundary.md): first-party domain
+> verticals are authored once under the top-level `verticals/` packages and
+> published from there. Do not use historical `victor/verticals/contrib/...`
+> paths in this document as implementation guidance.
+
 Owner: Verticals Lead (program owner), with role-level ownership per entry.
 
 ## Inventory

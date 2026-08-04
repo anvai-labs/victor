@@ -357,6 +357,6 @@ check-dist:
 	@test -f .github/workflows/release.yml && echo "✓ release.yml" || echo "✗ release.yml missing"
 	@test -f scripts/install/install.sh && echo "✓ install.sh" || echo "✗ install.sh missing"
 	@test -f scripts/install/install.ps1 && echo "✓ install.ps1" || echo "✗ install.ps1 missing"
-	@test -f Formula/victor.rb && echo "✓ Homebrew formula" || echo "✗ Homebrew formula missing"
+	@test -f scripts/homebrew/victor.rb && echo "✓ Homebrew formula" || echo "✗ Homebrew formula missing"
 	@echo ""
 	@echo "Run 'make build' to test the build process"

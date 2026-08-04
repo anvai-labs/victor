@@ -28,7 +28,7 @@
 
 ## System Overview
 
-Victor is a contract-first agentic AI framework in Python 3.10+ providing a typed,
+Victor is a contract-first agentic AI framework in Python 3.11+ providing a typed,
 service-first runtime for building agents that reason, call tools, execute DAG
 workflows, and coordinate multi-agent teams across 24 LLM providers.
 

@@ -88,7 +88,7 @@ which victor
 **Symptom**:
 ```bash
 # During installation
-ERROR: Package 'victor-ai' requires a different Python: 3.9.x not in '>=3.10'
+ERROR: Package 'victor-ai' requires a different Python: 3.10.x not in '>=3.11'
 ```
 
 **Solutions**:
@@ -99,7 +99,7 @@ python --version
 # Must be 3.10 or higher
 ```
 
-**2. Install Python 3.10+**:
+**2. Install Python 3.11+**:
 
 **macOS**:
 ```bash
