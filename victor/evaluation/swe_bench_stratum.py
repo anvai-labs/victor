@@ -39,7 +39,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Optional
 
 _MAX_TOOLS = 30
 _MAX_EDITS = 20
@@ -157,3 +157,93 @@ def write_stratum_jsonl(examples: list[StratumExample], path: Path) -> int:
         for ex in examples:
             fh.write(json.dumps(ex.to_dict()) + "\n")
     return len(examples)
+
+
+@dataclass(frozen=True)
+class StratumGateResult:
+    """A judge's agreement with the in-container verifier gold over a stratum.
+
+    ``krippendorff_alpha`` is nominal (binary completion verdicts vs verifier
+    gold) — the same gate metric FINDINGS.md uses. The confusion counts are
+    reported alongside because a heavily class-imbalanced stratum makes the α
+    point estimate noisy while the false-positive rate stays interpretable.
+    """
+
+    judge: str
+    n: int
+    n_pos: int
+    n_neg: int
+    agree: int
+    true_pos: int
+    false_pos: int
+    true_neg: int
+    false_neg: int
+    krippendorff_alpha: Optional[float]
+    cohens_kappa: Optional[float]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "judge": self.judge,
+            "n": self.n,
+            "n_pos": self.n_pos,
+            "n_neg": self.n_neg,
+            "agree": self.agree,
+            "true_pos": self.true_pos,
+            "false_pos": self.false_pos,
+            "true_neg": self.true_neg,
+            "false_neg": self.false_neg,
+            "krippendorff_alpha": self.krippendorff_alpha,
+            "cohens_kappa": self.cohens_kappa,
+        }
+
+
+def gate_stratum(
+    examples: list[StratumExample],
+    judge: Callable[[str], int],
+    *,
+    judge_name: str = "judge",
+) -> StratumGateResult:
+    """Score a binary completion ``judge`` against the verifier gold on a stratum.
+
+    ``judge(text) -> 0|1`` maps a blinded judge view to a completion verdict.
+    Kept LLM-agnostic (the caller supplies the judge) so it is unit-testable
+    with a stub and reusable across LLM / classifier judges. Returns Krippendorff
+    α (nominal) + Cohen's κ vs gold plus the full confusion matrix.
+    """
+    # Local import: judge_calibration is a heavier eval module and this keeps
+    # the stratum converter importable without pulling the α machinery.
+    from victor.evaluation.judge_calibration import evaluate_judge_agreement
+
+    gold: list[float] = []
+    verdicts: list[float] = []
+    tp = fp = tn = fn = 0
+    for ex in examples:
+        g = 1 if int(ex.label) == 1 else 0
+        v = 1 if int(judge(ex.text)) == 1 else 0
+        gold.append(float(g))
+        verdicts.append(float(v))
+        if g == 1 and v == 1:
+            tp += 1
+        elif g == 0 and v == 1:
+            fp += 1
+        elif g == 0 and v == 0:
+            tn += 1
+        else:
+            fn += 1
+
+    rel = evaluate_judge_agreement(
+        gold, verdicts, level="nominal", categorize=lambda x: int(round(x))
+    )
+    return StratumGateResult(
+        judge=judge_name,
+        n=len(examples),
+        n_pos=tp + fn,
+        n_neg=tn + fp,
+        agree=tp + tn,
+        true_pos=tp,
+        false_pos=fp,
+        true_neg=tn,
+        false_neg=fn,
+        krippendorff_alpha=rel.krippendorff_alpha,
+        cohens_kappa=rel.cohens_kappa,
+    )
