@@ -57,11 +57,66 @@ def _flag_env_var(flag: str) -> str:
     return FLAG_ENV.get(flag, f"VICTOR_{flag.upper()}")
 
 
-def _default_task_provider(variants: int) -> list[Tuple[Any, Any]]:
-    from victor.evaluation.calibration_agent_executor import verifiable_to_benchmark_task
+#: Named task corpora. "calibration" = the general battery; "effect-gate" = tasks that tempt
+#: premature completion (a fair test for the effect gate).
+CORPORA = ("calibration", "effect-gate")
+
+
+def _corpus_loader(corpus: str) -> Any:
+    if corpus == "effect-gate":
+        from victor.evaluation.effect_gate_corpus import effect_gate_corpus
+
+        return effect_gate_corpus
     from victor.evaluation.calibration_corpus import default_corpus
 
-    return [(t, verifiable_to_benchmark_task(t)) for t in default_corpus(variants=variants)]
+    return default_corpus
+
+
+def _corpus_task_provider(corpus: str) -> Callable[[int], list[Tuple[Any, Any]]]:
+    def provider(variants: int) -> list[Tuple[Any, Any]]:
+        from victor.evaluation.calibration_agent_executor import verifiable_to_benchmark_task
+
+        loader = _corpus_loader(corpus)
+        return [(t, verifiable_to_benchmark_task(t)) for t in loader(variants=variants)]
+
+    return provider
+
+
+def _default_task_provider(variants: int) -> list[Tuple[Any, Any]]:
+    return _corpus_task_provider("calibration")(variants)
+
+
+def _verify_task(verifiable: Any, workspace: Path, trace: Any) -> float:
+    """Run a task's programmatic verifier on the final workspace → 1.0 pass / 0.0 fail."""
+    verify = getattr(verifiable, "verify", None)
+    if not callable(verify):
+        return 0.0
+    try:
+        from victor.evaluation.calibration_agent_executor import trace_to_transcript
+
+        transcript = trace_to_transcript(trace)
+    except Exception:  # noqa: BLE001 — transcript is optional; most verifiers use the workspace
+        transcript = None
+    try:
+        return 1.0 if float(verify(workspace, transcript)) >= 1.0 else 0.0
+    except Exception:  # noqa: BLE001 — a verifier error scores the task as failed, not the arm
+        logger.debug("verify failed for %s", getattr(verifiable, "task_id", "?"), exc_info=True)
+        return 0.0
+
+
+def _success_battery(successes: Sequence[float]) -> Any:
+    """Aggregate per-task pass/fail into a BatteryResult whose overall mean is the task pass rate."""
+    from victor.evaluation.trajectory_eval import (
+        BatteryResult,
+        IntervalStat,
+        mean_confidence_interval,
+    )
+
+    vals = [float(s) for s in successes]
+    if not vals:
+        return BatteryResult(scores=(), per_dimension=(), overall=None)
+    mean, lo, hi = mean_confidence_interval(vals)
+    return BatteryResult(scores=(), per_dimension=(), overall=IntervalStat(mean, lo, hi, len(vals)))
 
 
 def _default_adapter_factory(
@@ -147,6 +202,8 @@ def run_battery_arm(
     base_url: Optional[str] = None,
     variants: int = 2,
     max_turns: int = 8,
+    corpus: str = "calibration",
+    score: str = "trajectory",
     adapter_factory: Optional[Callable[..., Any]] = None,
     task_provider: Optional[Callable[[int], Sequence[Tuple[Any, Any]]]] = None,
     runner: Optional[Any] = None,
@@ -156,7 +213,12 @@ def run_battery_arm(
 
     The flag's env var is set for the whole arm (the resolvers read it at agent construction) and
     restored afterward. Each task runs in a fresh temp workspace with its fixture set up (when the
-    task provides one). ``max_turns`` bounds per-task cost. Collaborators are injectable for testing.
+    task provides one). ``max_turns`` bounds per-task cost.
+
+    ``corpus`` picks the task set ("calibration" | "effect-gate"). ``score`` picks the metric:
+    "trajectory" (dimension scores from the trace) or "verify" (run each task's programmatic
+    verifier on the final workspace → overall = task pass rate — the fairest signal for the effect
+    gate). Collaborators are injectable for testing.
     """
     env_var = _flag_env_var(flag)
     previous = os.environ.get(env_var)
@@ -167,8 +229,10 @@ def run_battery_arm(
         adapter = (adapter_factory or _default_adapter_factory)(
             base_url=base_url, model=model, max_turns=max_turns
         )
-        tasks = (task_provider or _default_task_provider)(variants)
-        traces = []
+        provider = task_provider or _corpus_task_provider(corpus)
+        tasks = provider(variants)
+        traces: list = []
+        successes: list = []
         for verifiable, bench in tasks:
             with tempfile.TemporaryDirectory(prefix="victor-flagab-") as tmp:
                 workspace = Path(tmp)
@@ -180,7 +244,14 @@ def run_battery_arm(
                         logger.debug(
                             "setup failed for %s", getattr(bench, "task_id", "?"), exc_info=True
                         )
-                traces.append(run.run(adapter.execute_task(bench, workspace)))
+                trace = run.run(adapter.execute_task(bench, workspace))
+                if score == "verify":
+                    # Verify on the final workspace *before* the temp dir is torn down.
+                    successes.append(_verify_task(verifiable, workspace, trace))
+                else:
+                    traces.append(trace)
+        if score == "verify":
+            return _success_battery(successes)
         return (evaluator or _default_evaluator()).score_battery(traces)
     finally:
         # Reap leaked agent background services (file watchers + event loop) before the loop is
@@ -312,6 +383,19 @@ def _main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument(
         "--max-turns", type=int, default=8, help="Per-task turn budget (bounds cost; default 8)"
     )
+    parser.add_argument(
+        "--corpus",
+        default="calibration",
+        choices=CORPORA,
+        help="Task set: 'calibration' (general) or 'effect-gate' (tempts premature completion)",
+    )
+    parser.add_argument(
+        "--score",
+        default="trajectory",
+        choices=("trajectory", "verify"),
+        help="Metric: 'trajectory' dimension scores, or 'verify' task pass-rate "
+        "(the fair effect-gate signal)",
+    )
     parser.add_argument("--out-dir", default=".", help="Where to write the two snapshot JSONs")
     parser.add_argument(
         "--workdir",
@@ -328,6 +412,8 @@ def _main(argv: Optional[list[str]] = None) -> int:
         base_url=args.base_url,
         variants=args.variants,
         max_turns=args.max_turns,
+        corpus=args.corpus,
+        score=args.score,
         out_dir=args.out_dir,
         workdir=args.workdir,
     )
