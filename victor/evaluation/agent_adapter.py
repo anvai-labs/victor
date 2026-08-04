@@ -1174,6 +1174,22 @@ class VictorAgentAdapter:
             # Execute agent loop
             complete = False
             while not complete and self._turns < self.config.max_turns:
+                # Enforce total_timeout across the whole task (previously tracked
+                # but NOT enforced): max_turns × per-turn loop iterations × slow
+                # inference can run for hours on a task that never completes. This
+                # is the outermost wall-clock bound — it stops with the partial
+                # trace instead of running to the turn cap. (The per-turn
+                # asyncio.wait_for below only bounds a single turn.)
+                _task_elapsed = _time.time() - _heartbeat_start
+                if _task_elapsed > self.config.total_timeout:
+                    logger.warning(
+                        "[AgentAdapter] total_timeout %ds exceeded at turn %d "
+                        "(elapsed %.0fs) — stopping with partial result",
+                        self.config.total_timeout,
+                        self._turns,
+                        _task_elapsed,
+                    )
+                    break
                 self._turns += 1
 
                 # Add user message. Turn 1 gets the full task prompt; later
