@@ -1252,23 +1252,25 @@ def test_provider_symbols_to_graph_nodes_preserves_codegraph_v2_identity() -> No
 
 
 def test_module_node_id_matches_codegraph_file_identity() -> None:
-    from victor_codegraph import CodeSymbolType, stable_symbol_key
+    codegraph = pytest.importorskip("victor_codegraph")
     from victor.core.graph_rag.indexing import _module_node_id
 
-    expected = stable_symbol_key("repository", CodeSymbolType.FILE, "pkg/m.py", None, "pkg/m.py")
+    expected = codegraph.stable_symbol_key(
+        "repository", codegraph.CodeSymbolType.FILE, "pkg/m.py", None, "pkg/m.py"
+    )
     assert _module_node_id("pkg/m.py") == expected
 
 
 @pytest.mark.asyncio
 async def test_core_call_edges_preserve_codegraph_v2_ids(tmp_path: Path) -> None:
-    from victor_codegraph import parse
+    codegraph = pytest.importorskip("victor_codegraph")
     from victor.core.graph_rag.indexing import _get_graph_types
 
     source = "def caller(): return target()\n\ndef target(): return 1\n"
     path = tmp_path / "m.py"
     path.write_text(source)
     pipeline = _make_pipeline(tmp_path)
-    parsed = parse(source, file_path="m.py")
+    parsed = codegraph.parse(source, file_path="m.py")
     GraphNode, _ = _get_graph_types()
     nodes = [
         GraphNode(
