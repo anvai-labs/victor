@@ -45,6 +45,7 @@ Example:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from dataclasses import dataclass, field
@@ -263,13 +264,18 @@ class PerceptionIntegration:
         intent_result = detect_intent(query)
         intent = intent_result.intent
 
-        # REUSE: Analyze task complexity using existing TaskAnalyzer
-        # Pass conversation history for context-aware analysis
+        # REUSE: Analyze task complexity using existing TaskAnalyzer.
+        # Offload to a worker thread: analyze() → classify_sync → embed_text_sync
+        # (model.encode) is CPU-bound and SYNC; running it inline blocks the event
+        # loop, which is why per-turn/total timeouts could never fire on a spinning
+        # loop. to_thread keeps the loop responsive so deadlines and cancellation
+        # work. The embedding already guards model.encode with a threading.Lock,
+        # so offloading is thread-safe.
         analyzer = TaskAnalyzer()
         analysis_context = dict(context or {})
         if conversation_history:
             analysis_context["history"] = conversation_history
-        task_analysis = analyzer.analyze(query, context=analysis_context)
+        task_analysis = await asyncio.to_thread(analyzer.analyze, query, context=analysis_context)
         complexity = task_analysis.complexity
 
         # NEW: Extract requirements (if enabled)
