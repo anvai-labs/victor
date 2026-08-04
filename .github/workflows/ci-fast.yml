@@ -492,8 +492,10 @@ jobs:
       - name: Install dependencies
         run: |
           pip install --upgrade pip
-          # victor-contracts first (provides constants), then victor-ai with dev extras
+          # Foundational packages first, then victor-ai with dev extras. Core's semantic
+          # parser facades exercise the real shared path in changed-file tests (ADR-015).
           pip install -e ./victor-contracts
+          pip install -e ./victor-codegraph
           pip install -e ".[dev]"
 
       - name: Run unit tests for changed files
