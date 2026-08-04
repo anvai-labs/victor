@@ -7,28 +7,29 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import victor.storage.proxima_runtime as proxima_runtime
+from victor_codegraph import parse, to_proxima_records
+
 from victor.storage.proxima_runtime import (
     ProximaEmbeddingMode,
     graph_id_for_repo,
-    node_oid,
     repo_id_from_path,
-    symbol_oid,
 )
 
 
-def test_node_oid_canonical_shape():
-    sym = symbol_oid("src/auth.py", "login", "function")
-    oid = node_oid("myrepo", sym)
-    assert oid == f"graph/myrepo/node/{sym}"
-    assert oid.startswith("graph/myrepo/node/")
+def test_proxima_runtime_does_not_define_symbol_identity():
+    """Storage persists CodeGraph identity; it must never derive a competing key."""
+    assert not hasattr(proxima_runtime, "symbol_oid")
+    assert not hasattr(proxima_runtime, "node_oid")
 
 
-def test_symbol_oid_is_stable_and_keyed_on_type_file_name():
-    a = symbol_oid("src/a.py", "foo", "function")
-    assert a == symbol_oid("src/a.py", "foo", "function")  # stable
-    assert a != symbol_oid("src/a.py", "foo", "method")  # type matters
-    assert a != symbol_oid("src/b.py", "foo", "function")  # file matters
-    assert a != symbol_oid("src/a.py", "bar", "function")  # name matters
+def test_codegraph_adapter_owns_the_canonical_storage_oid():
+    parsed = parse("def login():\n    return True\n", file_path="src/auth.py")
+    symbol = parsed.symbols[0]
+    records = to_proxima_records(parsed, repo_graph_id="myrepo")
+    node_record = next(record for record in records if "code_symbol" in record["labels"])
+
+    assert node_record["oid"] == f"graph/myrepo/node/{symbol.id}"
 
 
 def test_repo_id_sanitized_from_path():
