@@ -18,10 +18,13 @@ These tests validate the Python reference implementations that are used
 when Rust extensions are not available.
 """
 
+import inspect
+
 import pytest
 import math
 
 from victor.native.protocols import SymbolType, CoercedType
+from victor.native.python import symbol_extractor as symbol_extractor_module
 
 
 class TestPythonSymbolExtractor:
@@ -112,6 +115,11 @@ class TestPythonSymbolExtractor:
         symbols = symbol_extractor.extract_functions(source, "python")
 
         assert symbols == []
+
+    def test_semantic_extraction_has_no_parallel_ast_parser(self):
+        source = inspect.getsource(symbol_extractor_module)
+        assert "ast.parse" not in source
+        assert "STDLIB_MODULES" not in source
 
 
 class TestPythonArgumentNormalizer:

@@ -1,9 +1,10 @@
-"""Soft adapter from Victor chunking contracts to victor-codegraph v2."""
+"""One soft boundary from Victor contracts to victor-codegraph v2."""
 
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
@@ -24,6 +25,16 @@ class ProjectedCodeChunk:
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class CodeImport:
+    """Small structured projection of a canonical Python import statement."""
+
+    module: str
+    names: tuple[str, ...] = ()
+    alias: str | None = None
+    is_from_import: bool = False
+
+
 _LANGUAGE_ALIASES = {
     "csharp": "c_sharp",
     "cs": "c_sharp",
@@ -32,6 +43,86 @@ _LANGUAGE_ALIASES = {
     "py": "python",
     "rs": "rust",
 }
+
+
+def normalize_code_language(language: str | None) -> str | None:
+    """Normalize consumer aliases to the canonical package vocabulary."""
+    return _LANGUAGE_ALIASES.get(language or "", language)
+
+
+def parse_code(
+    content: str,
+    *,
+    file_path: str = "<unknown>",
+    language: str | None = None,
+    repo_root: str | Path | None = None,
+) -> Any | None:
+    """Parse through victor-codegraph, returning ``None`` at the soft boundary."""
+    try:
+        import victor_codegraph as codegraph
+
+        return codegraph.parse(
+            content,
+            language=normalize_code_language(language),
+            file_path=file_path,
+            repo_root=repo_root,
+        )
+    except Exception as exc:
+        logger.debug("victor-codegraph parser unavailable for %s: %s", file_path, exc)
+        return None
+
+
+def codegraph_available() -> bool:
+    """Return whether the canonical parser package can be imported."""
+    try:
+        import victor_codegraph  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
+def codegraph_file_id(file_path: str, language: str) -> str | None:
+    """Return the canonical v2 file identity when the package is available."""
+    try:
+        import victor_codegraph as codegraph
+
+        return codegraph.stable_symbol_key(
+            language,
+            codegraph.CodeSymbolType.FILE,
+            file_path,
+            None,
+            file_path,
+        )
+    except Exception as exc:
+        logger.debug("victor-codegraph file identity unavailable for %s: %s", file_path, exc)
+        return None
+
+
+def project_python_imports(statements: list[str]) -> list[CodeImport]:
+    """Project CodeGraph's canonical Python import text without reparsing source."""
+    projected: list[CodeImport] = []
+    for statement in statements:
+        text = statement.strip()
+        if text.startswith("from ") and " import " in text:
+            module, imported = text[5:].split(" import ", 1)
+            names = tuple(
+                item.strip().split(" as ", 1)[0]
+                for item in imported.strip("() ").split(",")
+                if item.strip()
+            )
+            projected.append(CodeImport(module=module.strip(), names=names, is_from_import=True))
+            continue
+        if text.startswith("import "):
+            for imported in text[7:].split(","):
+                parts = imported.strip().split(" as ", 1)
+                if parts[0]:
+                    projected.append(
+                        CodeImport(
+                            module=parts[0],
+                            alias=parts[1] if len(parts) == 2 else None,
+                        )
+                    )
+    return projected
 
 
 def _byte_to_char_offset(content_bytes: bytes, offset: int) -> int:
@@ -65,7 +156,7 @@ def chunk_with_codegraph(
         )
         canonical = codegraph.chunk(
             content,
-            language=_LANGUAGE_ALIASES.get(language or "", language),
+            language=normalize_code_language(language),
             file_path=file_path,
             config=config,
         )
@@ -172,4 +263,13 @@ def _fallback_chunks(
     return chunks
 
 
-__all__ = ["ProjectedCodeChunk", "chunk_with_codegraph"]
+__all__ = [
+    "CodeImport",
+    "ProjectedCodeChunk",
+    "chunk_with_codegraph",
+    "codegraph_available",
+    "codegraph_file_id",
+    "normalize_code_language",
+    "parse_code",
+    "project_python_imports",
+]

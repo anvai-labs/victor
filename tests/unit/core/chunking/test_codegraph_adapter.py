@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from victor.core.chunking.codegraph_adapter import chunk_with_codegraph
+from victor.core.codegraph_adapter import chunk_with_codegraph
 
 
 def test_projection_translates_utf8_byte_spans_to_character_offsets() -> None:
