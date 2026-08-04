@@ -52,11 +52,26 @@ class _Config:
 # ---- image resolvers ----
 
 
-def test_resolve_swebench_image_standard_form():
+def test_resolve_swebench_image_deterministic_1776_form():
+    # Official Docker Hub scheme uses the CONSTANT `_1776_` separator in place
+    # of `__` (verified across every major SWE-bench repo), so the per-instance
+    # image name is exact — no version lookup needed.
     img = resolve_swebench_image(_Task(), _Config())
-    # Official Docker Hub scheme: swebench/sweb.eval.<arch>.<instance>; the
-    # resolver is best-effort (exact <version> segment needs the swebench pkg).
-    assert img == "docker.io/swebench/sweb.eval.x86_64.astropy_astropy-12907"
+    assert img == "docker.io/swebench/sweb.eval.x86_64.astropy_1776_astropy-12907"
+
+
+def test_resolve_swebench_image_django_form():
+    # Regression: high-instance repos like django must resolve to the real
+    # `<repo>_1776_<repo>-<n>` image. The old `<repo>_<repo>-<n>` form 404s and
+    # silently degraded every non-cached instance to the deps-less host path.
+    img = resolve_swebench_image(_Task(task_id="django__django-10924"), _Config())
+    assert img == "docker.io/swebench/sweb.eval.x86_64.django_1776_django-10924"
+
+
+def test_resolve_swebench_image_org_ne_repo_form():
+    # `org != repo` instances (e.g. psf/requests) keep the org in the left slot.
+    img = resolve_swebench_image(_Task(task_id="psf__requests-2317"), _Config())
+    assert img == "docker.io/swebench/sweb.eval.x86_64.psf_1776_requests-2317"
 
 
 def test_resolve_swebench_image_custom_registry():
@@ -64,104 +79,24 @@ def test_resolve_swebench_image_custom_registry():
     assert img.startswith("ghcr.io/myorg/sweb.eval.x86_64.")
 
 
-# ---- exact resolver (Docker Hub lookup) ----
+# ---- exact resolver (deterministic, no network) ----
 
 
-class _FakeDockerHubResp:
-    def __init__(self, repos):
-        self._repos = repos
-
-    def raise_for_status(self):
-        pass
-
-    def json(self):
-        return {"results": [{"repo_name": r} for r in self._repos]}
-
-
-def _fake_dockerhub_client(repos, *, boom=False):
-    class _Client:
-        def __init__(self, *a, **k):
-            pass
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *a):
-            pass
-
-        async def get(self, url, params=None, **k):
-            if boom:
-                raise RuntimeError("network down")
-            return _FakeDockerHubResp(repos)
-
-    return _Client
-
-
-async def test_resolve_swebench_image_exact_dockerhub_lookup(monkeypatch):
-    ce._INSTANCE_IMAGE_CACHE.clear()
-    ce._REPO_IMAGE_INDEX.clear()
-    repos = [
-        "swebench/sweb.eval.x86_64.astropy_1776_astropy-14182",
-        "swebench/sweb.eval.x86_64.astropy_1776_astropy-12907",
-        "swebench/sweb.eval.x86_64.astropy_1776_astropy-7166",
-    ]
-    monkeypatch.setattr(ce.httpx, "AsyncClient", _fake_dockerhub_client(repos))
+async def test_resolve_swebench_image_exact_is_deterministic():
+    # The exact resolver returns the deterministic official name with no network
+    # lookup — both a cached-style (astropy) and a high-instance (django) repo.
     img = await ce.resolve_swebench_image_exact(_Task(), _Config())
-    # Picks the repo ending with the instance's issue id, prefixed docker.io.
     assert img == "docker.io/swebench/sweb.eval.x86_64.astropy_1776_astropy-12907"
-    assert "astropy__astropy-12907" in ce._INSTANCE_IMAGE_CACHE  # cached
-
-
-async def test_resolve_swebench_image_exact_falls_back_on_network_failure(monkeypatch):
-    ce._INSTANCE_IMAGE_CACHE.clear()
-    ce._REPO_IMAGE_INDEX.clear()
-    monkeypatch.setattr(ce.httpx, "AsyncClient", _fake_dockerhub_client([], boom=True))
-    img = await ce.resolve_swebench_image_exact(_Task(), _Config())
-    # Falls back to the heuristic resolver (graceful).
-    assert img == "docker.io/swebench/sweb.eval.x86_64.astropy_astropy-12907"
-
-
-async def test_repo_image_index_dedupes_lookups_per_repo(monkeypatch):
-    """The Docker Hub search fires ONCE per repo, not once per instance.
-
-    A repo whose lookup fails is cached empty so every subsequent instance of
-    that repo skips straight to the heuristic — this is the django fix (≈44
-    redundant failing calls reduced to 1).
-    """
-    ce._INSTANCE_IMAGE_CACHE.clear()
-    ce._REPO_IMAGE_INDEX.clear()
-    calls = {"n": 0}
-
-    class _CountingClient:
-        def __init__(self, *a, **k):
-            pass
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *a):
-            pass
-
-        async def get(self, url, params=None, **k):
-            calls["n"] += 1
-            return _FakeDockerHubResp([])  # no matching images → heuristic
-
-    monkeypatch.setattr(ce.httpx, "AsyncClient", _CountingClient)
-    # Three instances of the same repo → the lookup should fire only once.
-    for tid in (
-        "astropy__astropy-12907",
-        "astropy__astropy-14182",
-        "astropy__astropy-7166",
-    ):
-        await ce.resolve_swebench_image_exact(_Task(task_id=tid), _Config())
-    assert calls["n"] == 1
-    # The empty result is cached, so a network failure isn't retried per task.
-    assert ce._REPO_IMAGE_INDEX["astropy"] == []
+    dj = await ce.resolve_swebench_image_exact(_Task(task_id="django__django-10924"), _Config())
+    assert dj == "docker.io/swebench/sweb.eval.x86_64.django_1776_django-10924"
 
 
 async def test_resolve_swebench_image_exact_override_wins():
     img = await ce.resolve_swebench_image_exact(_Task(docker_image="my/exact:1"), _Config())
     assert img == "my/exact:1"
+    # config-level override also wins over the computed name.
+    img2 = await ce.resolve_swebench_image_exact(_Task(), _Config(docker_image_override="cfg/i:2"))
+    assert img2 == "cfg/i:2"
 
 
 def test_resolve_runtime_language_version_map():
