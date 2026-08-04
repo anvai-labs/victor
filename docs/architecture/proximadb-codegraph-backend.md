@@ -22,7 +22,8 @@ level; SQLite stays the default and nothing flips automatically.
   `GraphStoreProtocol` over `proximadb_sdk.graph.ProximaDBGraph`
   (`upsert_nodes/edges`, `get_neighbors`, `search_symbols`, `find_nodes`,
   `multi_hop_traverse_parallel`, …). The graph node id **is** the vector id (one
-  `oid`); `embedding_ref` is dropped.
+  `oid`); `embedding_ref` is dropped. Vector writes fail closed so the indexing
+  pipeline leaves a failed node unmarked and retries it on the next run.
 - Selection: `create_graph_store("proxima", …)`, or per-repo via a
   `<project>/.victor/graph_backend` marker honored by `create_graph_store("auto", …)`
   (default `sqlite`). `impact_analysis` and the hybrid graph query tool resolve
