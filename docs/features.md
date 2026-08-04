@@ -1,6 +1,6 @@
 # Features
 
-**Version**: {{ victor_version }} | **Last Updated**: 2026-06 | **Status**: Canonical
+**Version**: {{ victor_version }} | **Last Updated**: 2026-08 | **Status**: Canonical
 
 Victor is a contract-first, async-first agentic AI framework. It coordinates LLMs to reason, call
 tools, run DAG workflows, and orchestrate multi-agent teams across **24 LLM providers**, with
@@ -51,7 +51,7 @@ team can mix a high-reasoning model for planning with a fast model for execution
 **review** and **reflection** presets are included (reflection critiques against the original task
 and judges satisfaction via a VERDICT).
 
-## Web Chat UI (Chainlit)
+## Web Chat UI (Chainlit, optional extra)
 
 `victor ui` launches a pure-Python **Chainlit** web chat bound to `VictorClient` — streaming
 tokens and reasoning, per-call tool steps with duration/output/pruning telemetry, **informed
@@ -92,11 +92,26 @@ prompt scopes (main agent, edge-model decisions, subagent).
 
 Complete domain applications on the framework: 5 domain-focused (**Coding, DevOps, RAG,
 DataAnalysis, Research**) + 4 utility (**Security, IaC, Classification, Benchmark**). The domain
-verticals are published as separately installable external packages (`victor-coding`,
-`victor-devops`, `victor-rag`, `victor-dataanalysis`, `victor-research`) and are the preferred way
-to consume them; the bundled contrib copies are deprecated.
+verticals are first-party source packages in this monorepo and are also separately installable
+(`victor-coding`, `victor-devops`, `victor-rag`, `victor-dataanalysis`, `victor-research`). Their
+compatibility suite is part of the blocking integration coverage. See
+[ADR-007](architecture/adr/007-vertical-distribution-and-sdk-boundary.md) for the ownership and
+distribution boundary.
 
 ## Surfaces
 
 CLI (Typer), TUI (Textual), **web chat (Chainlit)**, HTTP API, and MCP server — all composing the
 same framework through `VictorClient`.
+
+### Release support levels
+
+| Surface | Support level | Release evidence / boundary |
+| --- | --- | --- |
+| Python SDK and CLI | Core | Package tests run on Python 3.11/3.12; built-wheel import and CLI help smoke are blocking. |
+| HTTP API and MCP | Core | Import/factory smoke is required for release; full deployment validation remains an integration concern. |
+| First-party domain verticals | Core extension | Source is monorepo-owned; compatibility and discovery coverage are blocking. |
+| Textual TUI | Supported optional surface | Selected with `victor tui` or `victor chat --tui`; terminal capability fallback remains available. |
+| Chainlit web UI | Optional extra | Install with `victor-ai[chat-ui]`; validate an interactive session before claiming release support. |
+| Docker image | Release candidate | Advertised, but a fresh image build/run smoke is required before the release tag. |
+| VS Code extension and native Rust extensions | Preview | Their CI checks are currently advisory; do not represent them as release-blocking guarantees. |
+| Observability dashboard/API | Experimental | Product support decision remains tracked by TD-5. |

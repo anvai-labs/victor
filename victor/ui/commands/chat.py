@@ -2220,14 +2220,11 @@ async def run_interactive(
 
             # Resume session if requested
             if resume_session_id:
-                from victor.agent.sqlite_session_persistence import (
-                    get_sqlite_session_persistence,
-                )
+                from victor.agent.conversation.store import ConversationStore
                 from victor.agent.message_history import MessageHistory
                 from victor.agent.conversation_state import ConversationStateMachine
 
-                persistence = get_sqlite_session_persistence()
-                session_data = persistence.load_session(resume_session_id)
+                session_data = ConversationStore().load_session(resume_session_id)
 
                 if not session_data:
                     console.print(f"[bold red]Error:[/ ] Session not found: {resume_session_id}")

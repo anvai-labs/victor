@@ -481,7 +481,7 @@ class ResumeCommand(BaseSlashCommand):
             # Restore ledger + execution state via SessionContextLinker
             from victor.agent.session_context_linker import SessionContextLinker
 
-            linker = SessionContextLinker(session_persistence=store)
+            linker = SessionContextLinker(conversation_store=store)
             resume_ctx = linker.build_resume_context(session_id)
 
             if resume_ctx.ledger and hasattr(ctx.agent, "session_ledger"):

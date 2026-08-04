@@ -25,13 +25,13 @@ This guide helps you diagnose and fix common issues with Victor. For interactive
 
 **Diagnosis**:
 ```bash
-python --version  # Should be 3.10+
+python --version  # Should be 3.11+
 which python
 pip show victor-ai
 ```
 
 **Solutions**:
-1. Verify Python version (requires 3.10+):
+1. Verify Python version (requires 3.11+):
    ```bash
    python3 --version
    # If < 3.10, install newer Python from python.org or use pyenv/conda
@@ -49,7 +49,7 @@ pip show victor-ai
    ```
 
 **Prevention**:
-- Always use Python 3.10 or higher
+- Always use Python 3.11 or higher
 - Use virtual environments: `python -m venv .venv`
 
 ### Dependency Installation Errors

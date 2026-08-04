@@ -4,7 +4,7 @@ Get Victor up and running in **5 minutes**.
 
 ## Prerequisites
 
-- Python 3.10+ installed
+- Python 3.11+ installed
 - One of the following:
   - **Local**: [Ollama](https://ollama.ai) for free local models
   - **Cloud**: API key for Anthropic, OpenAI, or Google

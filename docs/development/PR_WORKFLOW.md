@@ -178,8 +178,8 @@ gh pr merge --squash
 Before any PR can merge to main, all checks must pass:
 
 1. **Lint** - Code formatting and linting (ruff, black)
-2. **Test (Python 3.10)** - Unit tests on Python 3.10
-3. **Test (Python 3.11)** - Unit tests on Python 3.11
+2. **Test (Python 3.11)** - Unit tests on Python 3.11
+3. **Test (Python 3.12)** - Unit tests on Python 3.12
 4. **Test (Python 3.12)** - Unit tests on Python 3.12
 5. **Security Scan** - Security vulnerability scanning
 6. **Build Package** - Package builds successfully
@@ -335,7 +335,7 @@ gh pr create --base main --head develop
 The repository uses GitHub Actions for CI/CD:
 
 - `.github/workflows/lint.yml` - Linting
-- `.github/workflows/test.yml` - Testing (Python 3.10, 3.11, 3.12)
+- `.github/workflows/test.yml` - Testing (Python 3.11, 3.12)
 - `.github/workflows/security.yml` - Security scanning
 - `.github/workflows/build.yml` - Package building
 

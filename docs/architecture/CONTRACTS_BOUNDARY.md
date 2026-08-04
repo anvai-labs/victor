@@ -115,10 +115,12 @@ Layer rule enforced by `scripts/check_imports.py`:
 config/ ← providers/ ← tools/ ← agent/ ← ui/
 ```
 
-Verticals should import from `victor_contracts` only (not `victor.core`,
-`victor.agent`, etc.). The
-contrib directory (`victor/verticals/contrib/`) is a deprecated tombstone with
-regression guard tests at `tests/unit/contracts/test_contrib_import_boundaries.py`.
+Third-party vertical definition layers should import from `victor_contracts` only
+(not `victor.core`, `victor.agent`, etc.). The five first-party domain verticals
+are authored and published from the top-level `verticals/` packages in this
+monorepo; they are not bundled under a second `victor/verticals/contrib/` source
+tree. See [ADR-007](adr/007-vertical-distribution-and-sdk-boundary.md) for the
+authoritative ownership and distribution boundary.
 
 Contract boundary stability is enforced by contract shape tests at
 `tests/unit/contracts/test_contracts_contract_shapes.py`.

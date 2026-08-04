@@ -25,7 +25,25 @@ HOTSPOT_LINE_CAPS = {
     # pure task-report metadata builders to victor/agent/task_report_metadata.py.
     # Ratcheted 2026-07-30 (ADR-019 increment 2): 4600 -> 4402 after extracting the
     # tool-supply policy (Tool-Necessity Gate + budgeter) to victor/agent/tool_supply_policy.py.
-    "victor/agent/orchestrator.py": 4402,
+    # Ratcheted 2026-08-03 (ADR-019 increment 3): 4402 -> 4400 after moving
+    # task-report start/finish metadata assembly into task_report_metadata.py.
+    # Ratcheted 2026-08-03 (ADR-019 increment 4): 4400 -> 4368 after moving
+    # the edge-model tool-necessity decision into tool_supply_policy.py.
+    # Ratcheted 2026-08-03 (ADR-019 increment 5): 4368 -> 4340 after moving
+    # KV tool ordering and strategy-setting interpretation into ToolStrategyRuntime.
+    # Ratcheted 2026-08-03 (ADR-019 increment 6): 4340 -> 4326 after moving
+    # provider-economics session locking into ToolStrategyRuntime.
+    # Ratcheted 2026-08-03 (ADR-019 increment 7): 4326 -> 4320 after moving
+    # strategy feature checks and ToolService utility delegation into ToolStrategyRuntime.
+    # Ratcheted 2026-08-03 (ADR-019 increment 8): 4320 -> 4303 after moving
+    # context-aware strategy execution and telemetry assembly into ToolStrategyRuntime.
+    # Ratcheted 2026-08-03 (ADR-019 increment 9): 4303 -> 4290 after moving
+    # tool-strategy metrics event emission into ToolStrategyRuntime.
+    # Ratcheted 2026-08-03 (ADR-019 increment 10): 4290 -> 4266 after moving
+    # configured KV strategy execution and session-cache updates into ToolStrategyRuntime.
+    # Ratcheted 2026-08-03 (ADR-019 increment 11): 4266 -> 4225 after deleting
+    # uncalled private KV session-lock and Gemini-provider compatibility helpers.
+    "victor/agent/orchestrator.py": 4225,
     "victor/agent/services/planning_runtime.py": 3518,
     "victor/agent/services/tool_service.py": 3079,
     "victor/agent/services/runtime_intelligence.py": 2864,

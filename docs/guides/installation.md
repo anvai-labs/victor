@@ -27,7 +27,7 @@ python --version
 python3 --version
 ```
 
-You should see `Python 3.10.0` or higher.
+You should see `Python 3.11.0` or higher.
 
 **If you have Python < 3.10**:
 
@@ -304,9 +304,9 @@ xcode-select --install
 
 **Cause**: Python version too old
 
-**Solution**: Upgrade to Python 3.10+
+**Solution**: Upgrade to Python 3.11+
 ```bash
-python --version  # Should be 3.10+
+python --version  # Should be 3.11+
 ```
 
 ### Ollama Connection Errors

@@ -38,7 +38,7 @@ Tools:
     # Minimal for simple tasks
     agent = await Agent.create(tools=ToolSet.minimal())
 
-    # Full access to all 45+ tools
+    # Full access to every registered tool in the selected ToolSet
     agent = await Agent.create(tools=ToolSet.full())
 
 State Observation:
@@ -47,10 +47,9 @@ State Observation:
 
     agent.on_state_change(lambda old, new: print(f"{old.stage} -> {new.stage}"))
 
-Escape Hatch:
-    # Access full AgentOrchestrator for advanced use cases
-orchestrator = agent.get_orchestrator()
-    # Now you have access to all 27+ internal components
+Extensions:
+    # Build integrations on documented framework APIs and extension contracts.
+    # Runtime internals are intentionally not part of this public quick-start.
 """
 
 import warnings

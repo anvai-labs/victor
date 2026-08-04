@@ -724,7 +724,6 @@ class TestKVToolSelectionStrategy:
         orch.model = "gpt-4.1"
         orch._get_context_window.return_value = 200000
         orch._estimate_tool_tokens.side_effect = lambda tool, provider_category: 100
-        orch._should_session_lock_all_tools.return_value = True
         orch._emit_tool_strategy_event = MagicMock()
         orch._tool_service = MagicMock()
         orch._tool_service.apply_context_aware_strategy.side_effect = lambda tools, **kwargs: tools

@@ -14,16 +14,17 @@ evaluation loop and gating every change on it over adding new capabilities.
 
 ---
 
-## Now — 0.7.2 release train (July 2026)
+## Now — 0.8.4 release verification (August 2026)
 
-Ship 0.7.2 with evidence, not posture. Source: [release-readiness MVP blockers](release-readiness-mvp.md).
+Verify 0.8.4 with evidence, not posture. Source: [release-readiness MVP blockers](release-readiness-mvp.md).
 
-1. Fix `make check-dist` (points at `Formula/victor.rb`; formula lives at `scripts/homebrew/victor.rb`).
-2. Prove clean packaging: build + `twine check` + wheel install/CLI smoke on Python 3.11/3.12.
-3. Make release-critical CI gates blocking (`packages.yml`, `ci-integration.yml` currently allow failure).
-4. Finalize release notes; decide external-vertical support level (preview vs blocking).
-5. Verify advertised surfaces: CLI, API/MCP import, `victor ui`, Docker.
-6. Docs governance (TD-18): this file stays committed; hygiene check that pointer targets resolve.
+1. Complete clean packaging proof: build + `twine check` + wheel install/CLI smoke on Python 3.11/3.12.
+   Both versions passed locally on 2026-08-03; capture the release-run CI evidence.
+2. Decide the support level for the remaining advisory CI checks (TestPyPI publishing, VS Code, Rust).
+   Core package tests, built-wheel CLI smoke, integration, and vertical compatibility are blocking.
+3. Finalize release notes; decide external-vertical support level (preview vs blocking).
+4. Verify advertised surfaces: CLI, API/MCP import, `victor ui`, Docker.
+5. Docs governance (TD-18): this file stays committed; hygiene check that pointer targets resolve.
 
 ## Next — Q3 2026: close the evaluation loop (EVR P0 sequence)
 

@@ -88,7 +88,7 @@ verticals = ["coding"]
 requires_tool_calling = true
 preferred_providers = ["anthropic", "openai"]
 min_context_window = 100000
-python_version = ">=3.10"
+python_version = ">=3.11"
 
 [vertical.security]
 # Security metadata
@@ -146,7 +146,7 @@ post_install = "victor vertical info security"
 | `requires_tool_calling` | boolean | No | true | Whether vertical requires tool-calling support |
 | `preferred_providers` | array of strings | No | [] | Preferred LLM providers |
 | `min_context_window` | integer | No | null | Minimum context window size |
-| `python_version` | string | No | ">=3.10" | Minimum Python version |
+| `python_version` | string | No | ">=3.11" | Minimum Python version |
 | `platforms` | array of strings | No | ["linux", "macos", "windows"] | Supported platforms |
 
 ### [vertical.security] Section
@@ -245,7 +245,7 @@ verticals = ["coding"]
 requires_tool_calling = true
 preferred_providers = ["anthropic", "openai"]
 min_context_window = 100000
-python_version = ">=3.10"
+python_version = ">=3.11"
 platforms = ["linux", "macos", "windows"]
 
 [vertical.security]
