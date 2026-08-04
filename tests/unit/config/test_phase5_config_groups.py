@@ -28,7 +28,7 @@ class TestEmbeddingSettings:
         assert settings.codebase_dimension == 384
         assert settings.codebase_batch_size == 32
         assert settings.codebase_structural_indexing_enabled is False
-        assert settings.codebase_chunking_strategy == "tree_sitter_structural"
+        assert settings.codebase_chunking_strategy == "victor_codegraph"
         assert settings.codebase_chunk_size == 500
         assert settings.codebase_chunk_overlap == 50
         assert settings.codebase_embedding_extra_config == {}
