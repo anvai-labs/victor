@@ -2,7 +2,7 @@
 
 ## Metadata
 
-- **Status**: Accepted (2026-08-04 — Phases 0–2 shipped; Phase 3 pending; was Proposed)
+- **Status**: Implemented (2026-08-04 — Phases 0–3 shipped; was Proposed)
 - **Date**: 2026-06-26
 - **Decision Makers**: Vijaykumar Singh
 - **Related ADRs**: ADR 014 (shared victor-codegraph package), ADR 007 (vertical/contracts boundary)
@@ -45,11 +45,10 @@ their **symbol source** should change.
 ## Decision
 
 Adopt `victor_codegraph` as victor core's foundational parser via **soft-import, default-on
-delegation** (the same mixed-read-safe pattern as the vertical and the ProximaDB SDK): when
-`victor_codegraph` is importable, core sources symbols/relations from `victor_codegraph.parse()`;
-otherwise it falls back to the existing path. `victor-codegraph` is installed in CI
-(foundational) so the real path is exercised. No protocol/registry is removed — `victor_codegraph`
-becomes the *implementation behind* the existing `extract_symbols`/analysis seams.
+delegation**. `victor-codegraph` is installed in CI (foundational) so the real path is exercised.
+Existing public protocols remain compatibility seams, but they project the canonical result rather
+than owning alternate parsers. A missing package degrades honestly (empty semantic output, or the
+single bounded raw-text chunk fallback) instead of silently activating another semantic engine.
 
 ### Phased migration (each phase a separate, CI-verified PR)
 
@@ -61,19 +60,20 @@ becomes the *implementation behind* the existing `extract_symbols`/analysis seam
   symbol-dict / edge shapes. This is the seam that makes victor's CPG `oid`s match
   ProximaDB/AnvaiOps. **Gate on the full graph-RAG test suite** (cannot be verified offline;
   must be green in CI).
-- **Phase 2 — Chunking symbol source (MED, #4/#5):** keep the chunking *strategies*; swap their
-  symbol input to `victor_codegraph.parse().symbols`; let `core/chunking/strategies/code.py`
-  delegate to `victor_codegraph.chunk()` (AST-aligned + size-capped vs regex).
+- **Phase 2 — Chunking convergence (MED, #4/#5):** converge the generic, vector, and embedding
+  paths on `victor_codegraph.chunk()` (AST-aligned + size-capped) and delete their duplicate
+  regex, symbol-span, and structural engines. Persisted strategy names are aliases, not engines.
 - **Phase 3 — Utilities (LOW, #6/#7/#8):** `native/python/symbol_extractor.py`,
-  the entity-memory extractor, and the (unused) `BasicCodebaseAnalyzer`.
+  the entity-memory extractor, and the public-but-low-use `BasicCodebaseAnalyzer` become thin
+  projections of the same shared parse boundary; their AST/regex/tree-sitter parsers are deleted.
 
 ### Invariants
 
 - **Determinism:** the `oid`/symbol-id `victor_codegraph` emits must be identical to what
   ProximaDB stores and AnvaiOps serves — verified by a cross-surface fixture (same source →
   same ids) as part of Phase 1.
-- **Soft + reversible:** every seam keeps its legacy fallback until the phase is baked; no
-  flag-day.
+- **Soft + observable:** package absence cannot crash callers, but degradation must not create a
+  second source of semantic truth. Callers receive empty semantic output or bounded raw chunks.
 - **Eval the ranked surface:** graph-RAG retrieval is a ranked/generated surface — its eval
   suite (recall/trajectory) must not regress across the swap (tests-vs-evals discipline).
 
@@ -103,7 +103,10 @@ stubs stay (runtime injection).
   path converge on one shared v2 adapter. The duplicate regex, symbol-span, and structural chunk
   engines were deleted (rather than retained behind strategy proliferation). Persisted legacy
   strategy names normalize to `victor_codegraph`; package failure has one bounded raw-text fallback.
-- Phase 3: pending.
+- Phase 3: shipped. Native symbol extraction, entity-memory extraction, and the basic codebase
+  analyzer share the same soft core adapter. Canonical v2 symbol/file IDs flow into entity memory;
+  the duplicated Python AST, regex, temporary-file, capability-discovery, and relation-inference
+  paths were removed while their public contracts remain compatible.
 
 The v2 target and its invariants are recorded in
 [`codegraph-v2-design.md`](../codegraph-v2-design.md).

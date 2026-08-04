@@ -19,7 +19,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Optional, Protocol, runtime_checkable
 
-from victor.core.chunking.codegraph_adapter import chunk_with_codegraph
+from victor.core.codegraph_adapter import chunk_with_codegraph
 
 
 @dataclass(frozen=True)

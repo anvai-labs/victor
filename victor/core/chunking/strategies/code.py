@@ -18,7 +18,7 @@ from __future__ import annotations
 from typing import List
 
 from victor.core.chunking.base import Chunk, ChunkingStrategy
-from victor.core.chunking.codegraph_adapter import chunk_with_codegraph
+from victor.core.codegraph_adapter import chunk_with_codegraph
 
 
 class CodeChunkingStrategy(ChunkingStrategy):
