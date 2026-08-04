@@ -78,3 +78,44 @@ class TestPerceptionOncePerIteration:
             f"perception_calls={g.perception_calls} != iterations={g.iteration_count} "
             "— the once-per-iteration premise of the spin signal has drifted"
         )
+
+
+@pytest.mark.timeout(30)
+class TestPerceptionDoesNotBlockEventLoop:
+    """C1: perception's CPU-bound analyze/embed must run off the event-loop thread.
+
+    Reproduction of the root enabler — while a synchronous perception blocked the
+    loop thread, asyncio timeouts (per-turn 240s, total) could never fire, so a
+    spin ran unbounded. With to_thread, the loop stays responsive.
+    """
+
+    async def test_slow_sync_perception_keeps_event_loop_responsive(self, monkeypatch):
+        import asyncio
+        import time as _time
+
+        from victor.framework.perception_integration import TaskAnalyzer, perceive
+
+        real_analyze = TaskAnalyzer.analyze
+
+        def _slow_analyze(self, query, context=None):
+            _time.sleep(0.5)  # mimic the blocking model.encode under the lock
+            return real_analyze(self, query, context=context)
+
+        monkeypatch.setattr(TaskAnalyzer, "analyze", _slow_analyze)
+
+        ticks = {"n": 0}
+
+        async def _heartbeat():
+            while True:
+                ticks["n"] += 1
+                await asyncio.sleep(0.02)
+
+        hb = asyncio.create_task(_heartbeat())
+        try:
+            await perceive("a query whose perception blocks for 0.5s")
+        finally:
+            hb.cancel()
+
+        # With C1 (to_thread) the 0.5s sync analyze runs off-thread, so the
+        # heartbeat kept ticking (~25). WITHOUT C1 it blocks the loop → ~0-1 ticks.
+        assert ticks["n"] >= 5, f"event loop was blocked during perception (ticks={ticks['n']})"
