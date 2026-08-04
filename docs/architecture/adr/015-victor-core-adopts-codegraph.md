@@ -2,7 +2,7 @@
 
 ## Metadata
 
-- **Status**: Accepted (2026-08-04 — Phases 0–1 shipped; Phase 2 partial; Phase 3 pending; was Proposed)
+- **Status**: Accepted (2026-08-04 — Phases 0–2 shipped; Phase 3 pending; was Proposed)
 - **Date**: 2026-06-26
 - **Decision Makers**: Vijaykumar Singh
 - **Related ADRs**: ADR 014 (shared victor-codegraph package), ADR 007 (vertical/contracts boundary)
@@ -99,8 +99,10 @@ stubs stay (runtime injection).
   edges; semantic sources bypass the older name-only fan-out resolver while mixed/absent package
   installs retain the existing soft fallback. The coding analysis provider delegates symbols,
   relations, and imports with a cross-surface conformance fixture.
-- Phase 2: partial/live. Coding-vertical chunkers delegate where the package is installed; the
-  remaining core chunk strategies still need convergence on the v2 chunk planner.
+- Phase 2: shipped. The generic core registry, structural embedding bridge, and ProximaDB vector
+  path converge on one shared v2 adapter. The duplicate regex, symbol-span, and structural chunk
+  engines were deleted (rather than retained behind strategy proliferation). Persisted legacy
+  strategy names normalize to `victor_codegraph`; package failure has one bounded raw-text fallback.
 - Phase 3: pending.
 
 The v2 target and its invariants are recorded in

@@ -161,6 +161,15 @@ class ChunkingRegistry:
 
         # Get and apply strategy
         strategy = self.get_strategy(detected_type)
+        if strategy.name == "code":
+            from victor.core.chunking.strategies.code import CodeChunkingStrategy
+
+            if isinstance(strategy, CodeChunkingStrategy):
+                return strategy.chunk(
+                    content,
+                    source=source,
+                    language=None if detected_type == "code" else detected_type,
+                )
         return strategy.chunk(content)
 
     @property
