@@ -384,6 +384,13 @@ class GraphIndexingPipeline:
         # project-wide module index handle both same-package and cross-package
         # targets uniformly.
         self._pending_import_records: List[Tuple[str, str, str]] = []
+        # Repository-wide victor-codegraph snapshot prepared once per indexing
+        # run.  Per-file edge projection reads from this snapshot instead of
+        # reparsing each file, and the final relation pass retains import-aware
+        # cross-file resolution rather than degrading to the legacy name index.
+        self._codegraph_repository: Any = None
+        self._codegraph_owned_symbol_ids: Set[str] = set()
+        self._codegraph_owned_files: Set[str] = set()
         # Parser cache is thread-local so each ThreadPoolExecutor worker gets
         # its own parser instance (tree-sitter parsers are not thread-safe to share).
         self._thread_local = threading.local()
@@ -451,6 +458,9 @@ class GraphIndexingPipeline:
         self._pending_call_records.clear()
         self._pending_relationship_records.clear()
         self._pending_import_records.clear()
+        self._codegraph_repository = None
+        self._codegraph_owned_symbol_ids.clear()
+        self._codegraph_owned_files.clear()
 
         # Resolve the analysis provider — and let it finish language-plugin
         # discovery — BEFORE the parallel parse burst. Resolution is lazy and
@@ -474,6 +484,7 @@ class GraphIndexingPipeline:
         _status("Discovering source files…")
         files = await self._discover_files(root)
         logger.info("Discovered %d indexable source files", len(files))
+        discovered_files = files
 
         _status(f"Planning: {len(files)} files found — checking mtimes…")
         planning_stats = await self._prepare_incremental_work(files, root)
@@ -491,6 +502,17 @@ class GraphIndexingPipeline:
                 len(files),
                 planning_stats.files_unchanged,
                 planning_stats.files_deleted,
+            )
+
+        # Parse one consistent repository snapshot only when at least one file
+        # will be indexed.  The snapshot still includes unchanged discovered
+        # files: a changed caller may import an unchanged target, and an
+        # unchanged caller may acquire a newly-added target.
+        if files:
+            await asyncio.to_thread(
+                self._prepare_codegraph_repository,
+                root,
+                discovered_files,
             )
 
         # Process files in batches — parse in parallel, write serially.
@@ -538,23 +560,27 @@ class GraphIndexingPipeline:
         # analyzer derives module adjacency from cross-file graph_edge rows, so
         # CALLS resolution must run first or graph_module_metric stays empty.
         if graph_changed:
+            cg_calls, cg_relationships, cg_imports = (
+                await self._resolve_codegraph_repository_relations()
+            )
+
             resolved = await self._resolve_cross_file_calls(root)
-            stats.cross_file_calls_resolved = resolved
-            stats.edges_created += resolved
+            stats.cross_file_calls_resolved = cg_calls + resolved
+            stats.edges_created += cg_calls + resolved
 
             # Same pass for INHERITS/IMPLEMENTS/COMPOSITION — base classes,
             # interfaces, and composed types often live in another file, so
             # per-file resolution alone leaves these edges unresolved.
             rel_resolved = await self._resolve_cross_file_relationships(root)
-            stats.cross_file_relationships_resolved = rel_resolved
-            stats.edges_created += rel_resolved
+            stats.cross_file_relationships_resolved = cg_relationships + rel_resolved
+            stats.edges_created += cg_relationships + rel_resolved
 
             # IMPORTS edges between module nodes. The synthetic module nodes
             # were already persisted by _inject_module_node; we just emit
             # the cross-module edges here.
             imports_resolved = await self._resolve_imports(root)
-            stats.imports_resolved = imports_resolved
-            stats.edges_created += imports_resolved
+            stats.imports_resolved = cg_imports + imports_resolved
+            stats.edges_created += cg_imports + imports_resolved
 
         if getattr(self.config, "enable_module_metrics", True) and graph_changed:
             stats.module_metrics_computed = self._refresh_module_metrics(root)
@@ -567,6 +593,66 @@ class GraphIndexingPipeline:
         )
 
         return stats
+
+    def _prepare_codegraph_repository(self, root_path: Path, files: List[Path]) -> None:
+        """Prepare one filtered semantic snapshot for this indexing run.
+
+        ``victor-codegraph`` remains a soft dependency.  Any import or parse
+        failure leaves the snapshot unset and all existing provider/handler
+        resolvers continue unchanged.
+        """
+        from victor.core.graph_rag.codegraph_repository import prepare_repository_snapshot
+
+        allowed_files = (self._canonical_file_str(path) for path in files)
+        self._codegraph_repository = prepare_repository_snapshot(root_path, allowed_files)
+
+    async def _resolve_codegraph_repository_relations(self) -> Tuple[int, int, int]:
+        """Project import-aware v2 repository relations into Graph-RAG edges.
+
+        Returns ``(calls, structural_relationships, imports)``.  Only relations
+        resolved by the repository pass are projected here; in-file relations
+        remain the responsibility of ``_build_calls_edges``.  Legacy buffers
+        are removed only for sources whose v2 identities matched the Graph-RAG
+        nodes, preserving the soft fallback for mixed or absent installations.
+        """
+        repository = self._codegraph_repository
+        if repository is None or not self._codegraph_owned_files:
+            return 0, 0, 0
+
+        from victor.core.graph_rag.codegraph_repository import project_resolved_relations
+        from victor.storage.graph.edge_types import EdgeType
+
+        projection = project_resolved_relations(repository)
+        _, GraphEdge = _get_graph_types()
+        edges = [
+            GraphEdge(src=src, dst=dst, type=EdgeType(edge_type))
+            for src, dst, edge_type in projection.edges
+        ]
+
+        if edges:
+            async with self._graph_store_write_batch():
+                await self.graph_store.upsert_edges(edges)
+
+        owned_ids = self._codegraph_owned_symbol_ids
+        self._pending_call_records = [
+            record for record in self._pending_call_records if record[0] not in owned_ids
+        ]
+        self._pending_relationship_records = [
+            record for record in self._pending_relationship_records if record[0] not in owned_ids
+        ]
+        owned_files = self._codegraph_owned_files
+        self._pending_import_records = [
+            record
+            for record in self._pending_import_records
+            if self._canonical_file_str(record[0]) not in owned_files
+        ]
+        logger.info(
+            "victor-codegraph repository resolution: %d CALLS, %d structural, " "%d IMPORTS edges",
+            projection.calls,
+            projection.relationships,
+            projection.imports,
+        )
+        return projection.calls, projection.relationships, projection.imports
 
     async def _resolve_cross_file_calls(self, root_path: Path) -> int:
         """Resolve buffered CALLS records against project-wide name indices.
@@ -2331,14 +2417,20 @@ class GraphIndexingPipeline:
         try:
             import victor_codegraph as _vcg
 
-            source_code = file_path.read_text(encoding="utf-8")
-            parsed = _vcg.parse(
-                source_code,
-                language=language,
-                file_path=self._canonical_file_str(file_path),
-            )
+            canonical_file = self._canonical_file_str(file_path)
+            repository = self._codegraph_repository
+            parsed = repository.files.get(canonical_file) if repository is not None else None
+            if parsed is None:
+                source_code = file_path.read_text(encoding="utf-8")
+                parsed = _vcg.parse(
+                    source_code,
+                    language=language,
+                    file_path=canonical_file,
+                )
             node_ids = {node.node_id for node in nodes}
-            if parsed.symbols and {symbol.id for symbol in parsed.symbols} <= node_ids:
+            if {symbol.id for symbol in parsed.symbols} <= node_ids:
+                self._codegraph_owned_files.add(canonical_file)
+                self._codegraph_owned_symbol_ids.update(symbol.id for symbol in parsed.symbols)
                 structural = {
                     "EXTENDS": EdgeType.INHERITS,
                     "IMPLEMENTS": EdgeType.IMPLEMENTS,
