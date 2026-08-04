@@ -34,10 +34,11 @@ def test_fallback_uses_victor_codegraph_ast_not_regex():
     assert any(n.type == "method" for n in nodes)
 
 
-def test_fallback_preserves_node_id_scheme():
-    import hashlib
+def test_fallback_preserves_codegraph_v2_node_identity():
+    from victor_codegraph import parse
 
     nodes = _fallback(SRC)
     a = next(n for n in nodes if n.name == "a")
-    expected = hashlib.sha256(f"{Path('m.py')}:a:{a.line}".encode()).hexdigest()[:16]
-    assert a.node_id == expected  # sha256(file:name:line)[:16], unchanged downstream
+    canonical = parse(SRC, file_path="m.py")
+    expected = next(symbol.id for symbol in canonical.symbols if symbol.simple_name == "a")
+    assert a.node_id == expected

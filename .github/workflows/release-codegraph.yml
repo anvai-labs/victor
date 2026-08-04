@@ -66,6 +66,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+      - name: Verify tag matches package version
+        if: startsWith(github.ref, 'refs/tags/victor-codegraph-v')
+        run: |
+          python -c 'import os, pathlib, tomllib; version=tomllib.loads(pathlib.Path("victor-codegraph/pyproject.toml").read_text())["project"]["version"]; tag=os.environ["GITHUB_REF_NAME"].removeprefix("victor-codegraph-v"); assert tag == version, f"tag {tag} != package {version}"'
       - name: Install build tools
         run: pip install build twine
       - name: Build sdist + wheel

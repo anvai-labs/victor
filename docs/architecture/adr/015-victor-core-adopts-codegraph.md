@@ -93,6 +93,13 @@ stubs stay (runtime injection).
 ## Status of work
 
 - Phase 0: shipped (CI install + vertical delegation, ADR 014 PRs).
-- Phases 1–3: to be executed as separate CI-verified PRs, in order. This ADR is the plan and
-  the consistency rationale; implementation does not begin on a phase until its predecessor is
-  green in CI.
+- Phase 1: partial/live. Core graph indexing preserves `victor-codegraph` v2 symbol IDs and
+  uses the same v2 identity for synthetic file/module nodes. The coding analysis provider
+  delegates symbols, relations, and imports with a cross-surface conformance fixture. Wiring
+  repository-resolved relations into every older core edge-building path remains.
+- Phase 2: partial/live. Coding-vertical chunkers delegate where the package is installed; the
+  remaining core chunk strategies still need convergence on the v2 chunk planner.
+- Phase 3: pending.
+
+The v2 target and its invariants are recorded in
+[`codegraph-v2-design.md`](../codegraph-v2-design.md).

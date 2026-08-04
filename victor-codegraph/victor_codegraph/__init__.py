@@ -1,4 +1,4 @@
-"""victor-codegraph — shared code->CPG chunker.
+"""victor-codegraph — shared repository-to-Code-Semantic-Graph compiler.
 
 One tree-sitter symbol+relation chunker, three consumers (Victor, ProximaDB SDK,
 AnvaiOps). See ProximaDB ADR-029 / Victor ADR-014.
@@ -16,6 +16,7 @@ from .adapter import relation_to_record, symbol_to_record, to_proxima_records
 from .config import ChunkConfig
 from .languages import detect_language
 from .model import (
+    CapabilityTier,
     LINE_BASE,
     CodeChunk,
     CodeRelation,
@@ -23,16 +24,28 @@ from .model import (
     CodeSymbol,
     CodeSymbolType,
     ParsedCode,
+    ParseDiagnostic,
+    ParseStatus,
     SourceLocation,
+    SymbolReference,
     deterministic_symbol_id,
     stable_symbol_oid,
+    stable_symbol_key,
 )
 from .manifest import ManifestDiff, build_manifest, diff_manifest, iter_changed_files
 from .parser import chunk, parse
 from .repo import chunk_path, chunk_repo, iter_source_files, parse_path, read_source_text
 from .resolution import resolve_relations
+from .repository_index import (
+    IndexDelta,
+    ParsedRepository,
+    apply_index_delta,
+    diff_repository,
+    parse_repo,
+    relation_key,
+)
 
-__version__ = "0.8.1"
+__version__ = "0.9.0"
 
 __all__ = [
     "__version__",
@@ -59,8 +72,19 @@ __all__ = [
     "CodeSymbolType",
     "CodeRelationType",
     "ParsedCode",
+    "ParsedRepository",
+    "IndexDelta",
+    "ParseStatus",
+    "CapabilityTier",
+    "ParseDiagnostic",
+    "SymbolReference",
     "SourceLocation",
     "stable_symbol_oid",
+    "stable_symbol_key",
     "deterministic_symbol_id",
     "resolve_relations",
+    "parse_repo",
+    "diff_repository",
+    "apply_index_delta",
+    "relation_key",
 ]

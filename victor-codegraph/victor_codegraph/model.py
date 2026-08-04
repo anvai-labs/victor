@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass, field
-from enum import IntEnum
+from enum import Enum, IntEnum
 from typing import Any
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -77,6 +77,44 @@ class CodeRelationType(IntEnum):
     TESTED_BY = 18
 
 
+class ParseStatus(str, Enum):
+    """Observable outcome of a language frontend."""
+
+    SUCCESS = "success"
+    PARTIAL = "partial"
+    FALLBACK = "fallback"
+    ERROR = "error"
+
+
+class CapabilityTier(str, Enum):
+    """Honest extraction fidelity advertised for a parse result."""
+
+    FULL = "full"
+    SYMBOLS = "symbols"
+    FALLBACK = "fallback"
+
+
+@dataclass(frozen=True)
+class ParseDiagnostic:
+    """Machine-readable explanation of degraded or partial extraction."""
+
+    code: str
+    message: str
+    severity: str = "warning"
+    line: int | None = None
+    column: int | None = None
+
+
+@dataclass(frozen=True)
+class SymbolReference:
+    """A structured target that has not yet resolved to a local symbol."""
+
+    name: str
+    qualifier: str | None = None
+    arity: int | None = None
+    text: str | None = None
+
+
 @dataclass
 class SourceLocation:
     """Where a symbol lives in source.
@@ -115,6 +153,10 @@ class CodeSymbol:
     return_type: str | None = None
     complexity: dict[str, int] | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+    # v2 identity is structural and line-independent. ``legacy_id`` retains the
+    # pre-v2 (path, name, line, column) alias for mixed reads.
+    legacy_id: str = ""
+    identity_version: str = "v2"
 
 
 @dataclass
@@ -127,6 +169,8 @@ class CodeRelation:
     call_site: SourceLocation | None = None
     context: str | None = None
     confidence: float = 1.0
+    target_ref: SymbolReference | None = None
+    provenance: str = "parser"
 
 
 @dataclass
@@ -139,6 +183,10 @@ class ParsedCode:
     relations: list[CodeRelation] = field(default_factory=list)
     imports: list[str] = field(default_factory=list)
     content_hash: str = ""
+    status: ParseStatus = ParseStatus.SUCCESS
+    capability_tier: CapabilityTier = CapabilityTier.SYMBOLS
+    diagnostics: list[ParseDiagnostic] = field(default_factory=list)
+    source_code: str = ""
 
 
 @dataclass
@@ -193,6 +241,58 @@ def stable_symbol_oid(
     disc = signature or ""
     key = "\x1f".join((repo_id, language, fully_qualified_name, disc))
     return hashlib.blake2b(key.encode("utf-8"), digest_size=8).hexdigest()
+
+
+def normalize_signature(signature: str | None) -> str:
+    """Normalize an overload discriminator without changing quoted text.
+
+    Tree-sitter frontends expose source text rather than a typed signature IR. Removing
+    insignificant whitespace outside string literals provides stable identity across
+    formatting edits while preserving defaults and literal types that may be semantic.
+    """
+
+    if not signature:
+        return ""
+    out: list[str] = []
+    quote: str | None = None
+    escaped = False
+    for char in signature:
+        if quote is not None:
+            out.append(char)
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == quote:
+                quote = None
+        elif char in ("'", '"'):
+            quote = char
+            out.append(char)
+        elif not char.isspace():
+            out.append(char)
+    return "".join(out)
+
+
+def stable_symbol_key(
+    language: str,
+    symbol_type: CodeSymbolType,
+    fully_qualified_name: str,
+    signature: str | None,
+    file_path: str = "",
+) -> str:
+    """v2 repository-local structural key shared by symbols, chunks, and adapters."""
+
+    key = "\x1f".join(
+        (
+            "v2",
+            language,
+            symbol_type.name,
+            file_path,
+            fully_qualified_name,
+            normalize_signature(signature),
+        )
+    )
+    return hashlib.blake2b(key.encode("utf-8"), digest_size=16).hexdigest()
 
 
 def content_hash(content: str) -> str:

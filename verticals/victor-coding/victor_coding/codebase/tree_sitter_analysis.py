@@ -175,6 +175,7 @@ class TreeSitterAnalysisProvider:
             return None
         if not parsed.symbols:
             return None
+        by_scope = {(*s.scope_chain, s.simple_name): s.id for s in parsed.symbols}
         out: List[Dict[str, Any]] = []
         for s in parsed.symbols:
             stype = s.symbol_type.name.lower()
@@ -187,6 +188,12 @@ class TreeSitterAnalysisProvider:
                     "line_end": s.location.end_line,
                     "parent_symbol": s.scope_chain[-1] if s.scope_chain else None,
                     "ast_kind": _CODEGRAPH_AST_KIND.get(stype, "function_definition"),
+                    "symbol_id": s.id,
+                    "legacy_symbol_id": s.legacy_id,
+                    "parent_id": by_scope.get(tuple(s.scope_chain)),
+                    "signature": s.signature,
+                    "docstring": s.documentation,
+                    "visibility": "private" if "private" in s.modifiers else "public",
                 }
             )
         return out
@@ -198,6 +205,52 @@ class TreeSitterAnalysisProvider:
         *,
         file_path: str,
     ) -> List[Dict[str, Any]]:
+        if _codegraph_symbols_enabled():
+            try:
+                src = content.decode("utf-8", errors="replace")
+                codegraph = _victor_codegraph.parse(src, language=language, file_path=file_path)
+                if codegraph.symbols:
+                    names = {s.id: s.simple_name for s in codegraph.symbols}
+                    mapped: List[Dict[str, Any]] = []
+                    for relation in codegraph.relations:
+                        source = names.get(relation.from_symbol_id)
+                        target = names.get(relation.to_symbol_id)
+                        if source is None:
+                            continue
+                        target = target or (
+                            relation.target_ref.name
+                            if relation.target_ref is not None
+                            else relation.to_symbol_id
+                        )
+                        edge_type = (
+                            "INHERITS"
+                            if relation.relation_type.name == "EXTENDS"
+                            else relation.relation_type.name
+                        )
+                        mapped.append(
+                            {
+                                "source": source,
+                                "target": target,
+                                "source_id": relation.from_symbol_id,
+                                "target_id": (
+                                    relation.to_symbol_id if relation.target_ref is None else None
+                                ),
+                                "edge_type": edge_type,
+                                "file_path": file_path,
+                                "line_number": (
+                                    relation.call_site.start_line
+                                    if relation.call_site is not None
+                                    else 0
+                                ),
+                                "is_method_call": bool(
+                                    relation.target_ref and relation.target_ref.qualifier
+                                ),
+                                "confidence": relation.confidence,
+                            }
+                        )
+                    return mapped
+            except Exception as e:  # noqa: BLE001 - preserve the legacy fallback
+                logger.debug("victor-codegraph edge delegation failed for %s: %s", file_path, e)
         parsed = self.parse(content, language, file_path=file_path)
         if parsed is None:
             return []
@@ -210,6 +263,14 @@ class TreeSitterAnalysisProvider:
         *,
         file_path: Optional[str] = None,
     ) -> List[str]:
+        if _codegraph_symbols_enabled() and file_path is not None:
+            try:
+                src = content.decode("utf-8", errors="replace")
+                codegraph = _victor_codegraph.parse(src, language=language, file_path=file_path)
+                if codegraph.status.value in {"success", "partial"}:
+                    return list(codegraph.imports)
+            except Exception as e:  # noqa: BLE001 - preserve the legacy fallback
+                logger.debug("victor-codegraph import delegation failed for %s: %s", file_path, e)
         parsed = self.parse(content, language, file_path=file_path)
         if parsed is None:
             return []

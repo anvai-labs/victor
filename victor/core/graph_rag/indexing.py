@@ -179,9 +179,15 @@ def _module_node_id(file_path: str) -> str:
     a module-level helper so both the indexer and the import resolver agree on
     the encoding without sharing state.
     """
-    import hashlib
+    try:
+        from victor_codegraph import CodeSymbolType, stable_symbol_key
 
-    return hashlib.sha256(f"module:{file_path}".encode()).hexdigest()[:16]
+        return stable_symbol_key("repository", CodeSymbolType.FILE, file_path, None, file_path)
+    except Exception:
+        # Mixed-install fallback during the v2 migration.
+        import hashlib
+
+        return hashlib.sha256(f"module:{file_path}".encode()).hexdigest()[:16]
 
 
 # Import at runtime for use in non-type-checked contexts
@@ -1422,12 +1428,15 @@ class GraphIndexingPipeline:
                 ast_kind or sym.get("symbol_type") or "unknown",
                 sym.get("symbol_type") or "unknown",
             )
-            node_id = hashlib.sha256(f"{file_str}:{name}:{line_int}".encode()).hexdigest()[:16]
+            node_id = (
+                sym.get("symbol_id")
+                or hashlib.sha256(f"{file_str}:{name}:{line_int}".encode()).hexdigest()[:16]
+            )
             node = GraphNode(
                 node_id=node_id,
                 type=node_type,
                 name=name,
-                file=file_str,
+                file=sym.get("file_path") or file_str,
                 line=line_int,
                 end_line=int(sym.get("line_end") or line_int),
                 lang=language,
@@ -1447,6 +1456,12 @@ class GraphIndexingPipeline:
         # the ``method`` node type so the taxonomy distinguishes free
         # functions from class methods.
         for node, sym in annotated:
+            direct_parent_id = sym.get("parent_id")
+            if direct_parent_id and direct_parent_id != node.node_id:
+                node.parent_id = direct_parent_id
+                if sym.get("parent_is_class") and node.type in _FUNCTION_LIKE_NODE_TYPES:
+                    node.type = "method"
+                continue
             parent_name = sym.get("parent_symbol")
             parent_line = sym.get("parent_line")
             if not parent_name or parent_line is None:
@@ -1502,10 +1517,11 @@ class GraphIndexingPipeline:
         if enhanced and provider is not None:
             try:
                 if provider.supports_language(language):
+                    canonical_file = self._canonical_file_str(file_path)
                     symbol_dicts = provider.extract_symbols(
                         bytes(source_code, "utf-8"),
                         language,
-                        file_path=str(file_path),
+                        file_path=canonical_file,
                     )
                     nodes.extend(
                         self._provider_symbols_to_graph_nodes(symbol_dicts, file_path, language)
@@ -1519,7 +1535,7 @@ class GraphIndexingPipeline:
                             provider.extract_imports(
                                 bytes(source_code, "utf-8"),
                                 language,
-                                file_path=str(file_path),
+                                file_path=canonical_file,
                             )
                             or []
                         )
@@ -2136,15 +2152,27 @@ class GraphIndexingPipeline:
 
         # ADR-015 (Phase 1): prefer the shared victor-codegraph parser when importable —
         # real AST (functions/classes/methods, multi-language) instead of the Python-only
-        # def/class regex below. The node_id scheme (sha256 of file:name:line) is preserved
-        # so downstream edge-matching is unchanged; falls back to the regex on any failure.
+        # def/class regex below. Canonical v2 ids are preserved so downstream
+        # consumers share one identity scheme; falls back to the regex on any
+        # parser failure.
         try:
             import victor_codegraph as _vcg
         except Exception:
             _vcg = None
         if _vcg is not None:
+            canonical_file = Path(file_path).as_posix()
             try:
-                parsed = _vcg.parse(source_code, language=language, file_path=str(file_path))
+                canonical_file = self._canonical_file_str(file_path)
+            except (AttributeError, TypeError):
+                # This extraction seam is deliberately usable as a stateless
+                # fallback in isolation (including by compatibility callers).
+                pass
+            try:
+                parsed = _vcg.parse(
+                    source_code,
+                    language=language,
+                    file_path=canonical_file,
+                )
             except Exception:
                 parsed = None
             if parsed is not None and parsed.symbols:
@@ -2159,14 +2187,14 @@ class GraphIndexingPipeline:
                 for s in parsed.symbols:
                     name = s.simple_name
                     line = s.location.start_line
-                    node_id = hashlib.sha256(f"{file_path}:{name}:{line}".encode()).hexdigest()[:16]
+                    node_id = s.id
                     stype = s.symbol_type.name.lower()
                     delegated.append(
                         GraphNode(
                             node_id=node_id,
                             type=stype,
                             name=name,
-                            file=str(file_path),
+                            file=canonical_file,
                             line=line,
                             lang=language,
                             ast_kind=_AST_KIND.get(stype, "function_definition"),
@@ -2296,6 +2324,65 @@ class GraphIndexingPipeline:
         language = self._detect_language(file_path)
         if language == "unknown":
             return edges
+
+        # ADR-015/v2 canonical path: use the same relations and stable ids that
+        # produced ``nodes``. Resolved in-file edges can be emitted immediately;
+        # structured unresolved references feed the existing project-wide resolver.
+        try:
+            import victor_codegraph as _vcg
+
+            source_code = file_path.read_text(encoding="utf-8")
+            parsed = _vcg.parse(
+                source_code,
+                language=language,
+                file_path=self._canonical_file_str(file_path),
+            )
+            node_ids = {node.node_id for node in nodes}
+            if parsed.symbols and {symbol.id for symbol in parsed.symbols} <= node_ids:
+                structural = {
+                    "EXTENDS": EdgeType.INHERITS,
+                    "IMPLEMENTS": EdgeType.IMPLEMENTS,
+                }
+                for relation in parsed.relations:
+                    if relation.relation_type.name == "CALLS":
+                        if relation.target_ref is None and relation.to_symbol_id in node_ids:
+                            edges.append(
+                                GraphEdge(
+                                    src=relation.from_symbol_id,
+                                    dst=relation.to_symbol_id,
+                                    type=EdgeType.CALLS,
+                                )
+                            )
+                        elif relation.target_ref is not None:
+                            self._pending_call_records.append(
+                                (
+                                    relation.from_symbol_id,
+                                    relation.target_ref.name,
+                                    None,
+                                    bool(relation.target_ref.qualifier),
+                                )
+                            )
+                    elif relation.relation_type.name in structural:
+                        edge_type = structural[relation.relation_type.name]
+                        if relation.target_ref is None and relation.to_symbol_id in node_ids:
+                            edges.append(
+                                GraphEdge(
+                                    src=relation.from_symbol_id,
+                                    dst=relation.to_symbol_id,
+                                    type=edge_type,
+                                )
+                            )
+                        elif relation.target_ref is not None:
+                            self._pending_relationship_records.append(
+                                (
+                                    relation.from_symbol_id,
+                                    relation.target_ref.name,
+                                    edge_type.value,
+                                )
+                            )
+                return edges
+        except Exception as exc:
+            logger.debug("victor-codegraph edge delegation failed for %s: %s", file_path, exc)
 
         # NEW PATH: Use language-specific edge handler (2026-04-29)
         try:

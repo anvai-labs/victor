@@ -175,8 +175,9 @@ def test_js_anonymous_callback_calls_belong_to_enclosing_function():
     assert deep_call.confidence == 0.5
 
 
-def test_no_self_edges_on_recursion():
+def test_recursion_is_retained_as_graph_evidence():
     src = "function fib(n) { return n < 2 ? n : fib(n - 1) + fib(n - 2); }\n"
     parsed = _parse("javascript", src, "js")
     calls = _rels(parsed, CodeRelationType.CALLS)
-    assert all(r.context != "fib" for r in calls)
+    assert len(calls) == 2
+    assert all(r.from_symbol_id == r.to_symbol_id for r in calls)
