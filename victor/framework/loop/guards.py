@@ -47,6 +47,16 @@ logger = logging.getLogger(__name__)
 # re-perception (e.g. one retry per turn would still be ~2x).
 PERCEPTION_SPIN_FACTOR = 4
 
+# A single run's perception count should never exceed the iteration budget by
+# much (perception is once-per-iteration). Far beyond that is a within-run
+# runaway — terminate. The cross-run spin is bounded separately at the adapter.
+PERCEPTION_BACKSTOP_FACTOR = 8
+
+
+class LoopSpinError(RuntimeError):
+    """Raised to terminate a loop that tripped a wall-clock or perception guard."""
+
+
 # The current run's guards, so the shared perception seam can find them without
 # threading a parameter through every call site. Unset (None) outside a loop.
 _CURRENT_GUARDS: "contextvars.ContextVar[Optional[LoopGuards]]" = contextvars.ContextVar(
@@ -122,7 +132,7 @@ class LoopGuards:
         return False
 
     def check_total(self, deadline_s: Optional[float]) -> bool:
-        """True if total wall-clock exceeded ``deadline_s`` (log-only in Phase 1)."""
+        """True if total wall-clock exceeded ``deadline_s`` (log-only)."""
         if deadline_s is None:
             return False
         if self.total_elapsed() > deadline_s:
@@ -136,6 +146,38 @@ class LoopGuards:
             )
             return True
         return False
+
+    # ----- terminating enforcement (C2/C3) -----
+
+    def enforce(
+        self,
+        *,
+        total_timeout: Optional[float] = None,
+        effective_max: Optional[int] = None,
+        backstop_factor: int = PERCEPTION_BACKSTOP_FACTOR,
+    ) -> None:
+        """Raise :class:`LoopSpinError` if a wall-clock or perception guard trips.
+
+        Called once per iteration. ``total_timeout`` (default None = off) is a
+        hard per-run wall-clock deadline. The perception backstop terminates a
+        within-run runaway (perception far exceeding the iteration budget) — a
+        defense against a broken once-per-iteration invariant; the cross-run
+        spin is bounded at the adapter (total_timeout there).
+        """
+        if total_timeout is not None and self.total_elapsed() > total_timeout:
+            raise LoopSpinError(
+                f"loop wall-clock deadline exceeded: {self.total_elapsed():.1f}s > "
+                f"{total_timeout:.1f}s (iterations={self.iteration_count}, "
+                f"perception_calls={self.perception_calls})"
+            )
+        if effective_max is not None and effective_max > 0:
+            limit = effective_max * backstop_factor
+            if self.perception_calls > limit:
+                raise LoopSpinError(
+                    f"perception backstop tripped: perception_calls="
+                    f"{self.perception_calls} > {limit} (iterations="
+                    f"{self.iteration_count}, effective_max={effective_max})"
+                )
 
 
 def set_current_guards(guards: Optional[LoopGuards]) -> "contextvars.Token":
