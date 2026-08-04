@@ -398,6 +398,37 @@ class TestVictorAgentAdapter:
 
             assert trace.turns == 2  # Should stop at max_turns
 
+    @pytest.mark.asyncio
+    async def test_execute_task_total_timeout_enforced(self, adapter, mock_orchestrator):
+        """total_timeout bounds the whole task (not just per-turn), stopping early.
+
+        Before this guard, max_turns × slow per-turn inference could run for hours
+        on a task that never completes; total_timeout was tracked but not enforced.
+        """
+        import asyncio
+
+        adapter.config.max_turns = 50  # high — the timeout must stop us first
+        adapter.config.total_timeout = 1  # 1s whole-task budget
+
+        async def _slow_chat(*args, **kwargs):
+            await asyncio.sleep(0.4)  # each turn takes 0.4s, never completes
+            return MagicMock(content="Still working...")
+
+        mock_orchestrator.chat = AsyncMock(side_effect=_slow_chat)
+
+        task = BenchmarkTask(
+            task_id="test/timeout",
+            benchmark=BenchmarkType.CUSTOM,
+            description="Total timeout test",
+            prompt="Do something slow",
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            trace = await adapter.execute_task(task, Path(tmpdir))
+
+        # Broke on total_timeout, well before the 50-turn cap.
+        assert 1 <= trace.turns < 50
+
 
 class TestCreateVictorAgentCallback:
     """Tests for create_victor_agent_callback function."""
