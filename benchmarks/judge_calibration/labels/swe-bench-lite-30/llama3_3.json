@@ -1,0 +1,13 @@
+{
+  "judge": "llama3.3:70b",
+  "n": 30,
+  "n_pos": 5,
+  "n_neg": 25,
+  "agree": 20,
+  "true_pos": 5,
+  "false_pos": 10,
+  "true_neg": 15,
+  "false_neg": 0,
+  "krippendorff_alpha": 0.26250000000000007,
+  "cohens_kappa": 0.33333333333333326
+}

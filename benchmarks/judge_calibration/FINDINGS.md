@@ -105,6 +105,11 @@ reports: docs/architecture/judge-independence-experiments.md.
 
 ## Verdict and open items
 
+> ⚠️ **Qualified by the SWE-bench-lite re-gate (2026-08-04, below).** Both gate-passing
+> judges over-credit on the true shipping distribution (in-container-verified SWE-bench):
+> gemma4:31b α=−0.52, llama3.3:70b α=0.26. Treat checklist item 2 (and the graduation
+> recommendation) as **unproven on the production distribution** pending a balanced harvest.
+
 **All three graduation gates are now cleared — by two complementary judges.** The scripted
 gate at gating-grade n is met by llama3.3:70b (run 10: α=1.000, n=96), and the real-agent
 trajectory gate is met by gemma4:31b (run 11: α=0.865, integrity clean, zero false
@@ -139,3 +144,49 @@ Open follow-ups (no longer blocking graduation): a variants-16 scripted run for 
 (single-judge rigor); the `--hard` corpus (run 0/PR #417) against the gate-passers to probe
 discrimination past the α=1.0 ceiling; and the agent-side `edit` arg-format bug surfaced in
 run 11 (the 30B model sends `ops` as a string).
+
+### SWE-bench-lite real-distribution re-gate (2026-08-04) — the "real" gate wasn't real enough
+
+Runs 11–14 treated the calibration-corpus real-agent trajectories as "the production
+distribution." They are not: that corpus is 6 synthetic task templates, ~81% solved
+(positive-heavy), with gold from the agent's own successes. To gate against the distribution
+Victor actually ships into, we re-ran the judges on a **SWE-bench-lite** stratum — real GitHub
+issues (astropy, django), the agent's `git diff` patch as the completing effect, and
+**in-container FAIL_TO_PASS gold** (`--eval-backend docker`; an independent verifier, not the
+agent's self-report). 30 instances, **5 resolved / 25 not** (17% solve — negative-heavy, the
+inverse of the corpus). Stratum + per-judge results committed under `labels/swe-bench-lite-30/`;
+produced by `victor.evaluation.swe_bench_stratum` + `gate_swe_bench_stratum.py`.
+
+| Judge | corpus α (run 11/13) | **SWE-bench-lite α** | confusion (pos=5 / neg=25) |
+|---|---|---|---|
+| gemma4:31b | 0.865 (run 11) | **−0.523** | TP=5 FP=23 TN=2 FN=0 |
+| llama3.3:70b | 0.878 (run 13) | **0.263** | TP=5 FP=10 TN=15 FN=0 |
+
+Both collapse below the 0.7 gate. The failure mode is a **systematic positive bias**: perfect
+recall (FN=0 — every real fix caught) but heavy false positives — gemma credits 28/30 complete
+(near-constant "yes"), llama 15/30. On the positive-heavy corpus that bias mostly agrees with
+gold and α looks high; on the negative-heavy real distribution it produces mass false
+completions. **At real distribution an LLM completion judge cannot distinguish "looks done"
+(plausible patch + confident summary) from "passes tests" — only the in-container verifier
+can.** This confirms the effect-gate / acceptance-oracle thesis (ADR-012 / EVR) on real data,
+and it *inverts* the run-11 story: there the activity baselines collapsed while the LLM judge
+held; on true SWE-bench it is the LLM judge that collapses.
+
+**Caveat (honest).** 5 positives is thin, so the α *point estimate* is noisy and the exact
+llama > gemma ranking should not be over-read. What is robust at n=25 negatives is the
+false-positive rate — gemma 23/25, llama 10/25 — either of which fails the gate on its own. A
+balanced harvest (≥ ~20 positives, i.e. ~100–150 lite instances) would firm the α; the
+qualitative conclusion (both judges over-credit on real negatives) does not depend on it.
+
+**Consequence for graduation.** Checklist item 2 ("real agent trajectories — DONE") is met
+only for the calibration corpus, not the shipping distribution. Do **not** graduate an LLM
+completion judge (gemma4:31b or llama3.3:70b) as a default on this evidence; the in-container
+verifier remains the trustworthy completion signal. Re-open item 2 pending a balanced
+SWE-bench re-gate.
+
+Reproduction::
+
+    python benchmarks/judge_calibration/gate_swe_bench_stratum.py \
+        ~/.victor/evaluations/eval_manifest_<id>.jsonl \
+        --judge llama3.3:70b --endpoint http://<ollama-host>:11434 \
+        --out benchmarks/judge_calibration/labels/swe-bench-lite-30/llama3_3.json

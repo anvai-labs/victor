@@ -1,0 +1,13 @@
+{
+  "judge": "gemma4:31b",
+  "n": 30,
+  "n_pos": 5,
+  "n_neg": 25,
+  "agree": 7,
+  "true_pos": 5,
+  "false_pos": 23,
+  "true_neg": 2,
+  "false_neg": 0,
+  "krippendorff_alpha": -0.52300785634119,
+  "cohens_kappa": 0.02816901408450705
+}
