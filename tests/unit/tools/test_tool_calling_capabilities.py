@@ -92,6 +92,31 @@ class TestModelCapabilityLoader:
         assert caps.streaming_tool_calls is True
         assert caps.tool_choice_param is True
 
+    def test_llamacpp_provider_defaults(self):
+        """llama.cpp (llama-server) is an OpenAI-compatible native-tool-calling endpoint.
+
+        Like LMStudio/vLLM, llama-server exposes native OpenAI function-calling
+        (verified: it emits `finish_reason: tool_calls`), so its provider defaults
+        must enable native tool calls rather than inheriting the strict-prompting
+        Ollama-style fallback.
+        """
+        caps = get_model_capabilities("llamacpp")
+        assert caps.native_tool_calls is True
+        assert caps.streaming_tool_calls is True
+        assert caps.tool_choice_param is True
+        assert caps.requires_strict_prompting is False
+
+    def test_llamacpp_qwen3_coder_uses_native_tools(self):
+        """Regression: qwen3-coder on llama.cpp must use native tool calls, not XML fallback.
+
+        The server emits native OpenAI tool_calls; treating llamacpp as strict-prompted
+        (the missing-provider fallback to the global `false` default) drops the tool call
+        so the agent narrates instead of acting. Mirrors the lmstudio/vllm entries.
+        """
+        caps = get_model_capabilities("llamacpp", "qwen3-coder")
+        assert caps.native_tool_calls is True
+        assert caps.requires_strict_prompting is False
+
     def test_ollama_timeout_multiplier(self):
         """Ollama should have higher timeout multiplier for slow local models."""
         caps = get_model_capabilities("ollama", "qwen3-coder:30b")
