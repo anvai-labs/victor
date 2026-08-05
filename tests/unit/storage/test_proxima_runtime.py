@@ -29,7 +29,10 @@ def test_codegraph_adapter_owns_the_canonical_storage_oid():
     records = to_proxima_records(parsed, repo_graph_id="myrepo")
     node_record = next(record for record in records if "code_symbol" in record["labels"])
 
-    assert node_record["oid"] == f"graph/myrepo/node/{symbol.id}"
+    # The primary oid is the line-independent ADR-044 identity. The parser's
+    # line-coupled symbol id remains only as the explicit mixed-read alias.
+    assert node_record["oid"] == node_record["props"]["stable_oid"]
+    assert node_record["props"]["legacy_oid"] == f"graph/myrepo/node/{symbol.id}"
 
 
 def test_repo_id_sanitized_from_path():

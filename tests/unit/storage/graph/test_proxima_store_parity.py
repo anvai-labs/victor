@@ -41,6 +41,7 @@ class FakeProximaClient:
     def __init__(self) -> None:
         self.nodes: Dict[str, Dict[str, Any]] = {}
         self.edges: List[Dict[str, Any]] = []
+        self.fail_node_writes = False
 
     # graph lifecycle
     def create_graph(self, graph_id: str, *a: Any, **k: Any) -> Dict[str, Any]:
@@ -59,6 +60,8 @@ class FakeProximaClient:
         labels: Optional[List[str]] = None,
         properties: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
+        if self.fail_node_writes:
+            raise RuntimeError("projection unavailable")
         self.nodes[node_id] = {
             "id": node_id,
             "labels": list(labels or []),
@@ -148,6 +151,53 @@ class FakeProximaClient:
         return {"node_count": len(self.nodes), "edge_count": len(self.edges)}
 
 
+class FakeRecordCollection:
+    """Record-native authority used to verify one-envelope node writes."""
+
+    def __init__(self) -> None:
+        self.records: Dict[str, Dict[str, Any]] = {}
+        self.writes: List[List[Dict[str, Any]]] = []
+        self.fail_with: Exception | None = None
+
+    async def insert_records(self, records):
+        if self.fail_with is not None:
+            raise self.fail_with
+        copied = [
+            {
+                **record,
+                "vector": list(record["vector"]),
+                "props": dict(record.get("props") or {}),
+            }
+            for record in records
+        ]
+        self.writes.append(copied)
+        for record in copied:
+            self.records[record["id"]] = record
+        return {
+            "inserted_count": len(copied),
+            "failed_count": 0,
+            "errors": [],
+            "inserted_ids": [record["id"] for record in copied],
+        }
+
+    async def search(self, query_vector, top_k=10, filters=None):
+        matches = []
+        for record in self.records.values():
+            props = record.get("props") or {}
+            if filters and any(props.get(key) != value for key, value in filters.items()):
+                continue
+            matches.append({"id": record["id"], "score": 1.0})
+        return matches[:top_k]
+
+    async def delete(self, ids):
+        for record_id in ids:
+            self.records.pop(record_id, None)
+        return len(ids)
+
+    async def clear(self):
+        self.records.clear()
+
+
 # ---------------------------------------------------------------------------
 # Fixture repo: a tiny but real call graph with known symbols
 # ---------------------------------------------------------------------------
@@ -212,7 +262,12 @@ async def _make_sqlite_store(tmp_path) -> SqliteGraphStore:
 async def _make_proxima_store() -> ProximaGraphStore:
     client = FakeProximaClient()
     graph = ProximaDBGraph(client, "fixture_codegraph")
-    store = ProximaGraphStore(graph=graph, client=client, repo="fixture")
+    store = ProximaGraphStore(
+        graph=graph,
+        client=client,
+        repo="fixture",
+        record_collection=FakeRecordCollection(),
+    )
     await store.upsert_nodes(_fixture_nodes())
     await store.upsert_edges(_fixture_edges())
     return store
@@ -339,26 +394,174 @@ async def test_indexing_pipeline_node_updates():
     await proxima.update_node_metadata("n:missing", {"x": 1})
 
 
-async def test_set_node_embedding_fails_when_vector_collection_is_unavailable():
-    proxima = await _make_proxima_store()
+async def test_hot_node_is_one_atomic_record_before_projection():
+    client = FakeProximaClient()
+    collection = FakeRecordCollection()
+    graph = ProximaDBGraph(client, "atomic_codegraph")
+    store = ProximaGraphStore(
+        graph=graph,
+        client=client,
+        repo="atomic",
+        record_collection=collection,
+    )
+    node = GraphNode(
+        "n:parse",
+        "function",
+        "parse",
+        "a.py",
+        line=10,
+        signature="def parse(x)",
+        metadata={"complexity": 3},
+    )
 
-    with pytest.raises(RuntimeError, match="vector collection is unavailable"):
-        await proxima.set_node_embedding("n:parse", [0.1, 0.2, 0.3])
+    await store.upsert_nodes([node])
+
+    record = collection.records["n:parse"]
+    assert record["props"]["record_kind"] == "graph_node"
+    assert record["props"]["graph_id"] == "atomic_codegraph"
+    assert record["props"]["type"] == "function"
+    assert record["props"]["name"] == "parse"
+    assert record["props"]["metadata"] == {
+        "complexity": 3,
+        "has_embedding": False,
+    }
+    assert record["props"]["has_embedding"] is False
+    assert record["vector"] == [0.0] * 384
+    assert set(client.nodes) == {"n:parse"}
 
 
-async def test_set_node_embedding_propagates_storage_failure():
-    class FailingCollection:
-        async def insert_records(self, records):
-            raise RuntimeError("disk full")
-
-    proxima = await _make_proxima_store()
-    proxima._symbol_collection = FailingCollection()
+async def test_record_failure_never_creates_graph_only_node():
+    client = FakeProximaClient()
+    collection = FakeRecordCollection()
+    collection.fail_with = RuntimeError("disk full")
+    graph = ProximaDBGraph(client, "atomic_codegraph")
+    store = ProximaGraphStore(
+        graph=graph,
+        client=client,
+        repo="atomic",
+        record_collection=collection,
+    )
 
     with pytest.raises(RuntimeError, match="disk full"):
-        await proxima.set_node_embedding("n:parse", [0.1, 0.2, 0.3])
+        await store.upsert_nodes([GraphNode("n:a", "function", "a", "a.py")])
+
+    assert client.nodes == {}
 
 
-async def test_delete_by_repo_clears_vectors_and_sidecars_when_requested():
+async def test_atomic_embedding_record_contains_graph_props_vector_and_staleness():
+    proxima = await _make_proxima_store()
+    collection = proxima._symbol_collection
+    writes_before = len(collection.writes)
+    embedding = [0.1] * 384
+
+    await proxima.upsert_node_record(
+        "n:parse",
+        embedding,
+        metadata={"has_embedding": True, "content_version": "v1"},
+    )
+
+    assert len(collection.writes) == writes_before + 1
+    assert len(collection.writes[-1]) == 1
+    record = collection.records["n:parse"]
+    assert record["vector"] == embedding
+    assert record["props"]["name"] == "parse"
+    assert record["props"]["file"] == "a.py"
+    assert record["props"]["metadata"]["has_embedding"] is True
+    assert record["props"]["metadata"]["content_version"] == "v1"
+    assert record["props"]["has_embedding"] is True
+    node = await proxima.get_node_by_id("n:parse")
+    assert node.metadata["content_version"] == "v1"
+
+
+async def test_semantic_search_excludes_pending_placeholder_records():
+    proxima = await _make_proxima_store()
+    query = [0.1] * 384
+
+    assert await proxima.semantic_search(query, top_k=10) == []
+
+    await proxima.upsert_node_record(
+        "n:helper",
+        query,
+        metadata={"content_version": "v1"},
+    )
+    hits = await proxima.semantic_search(query, top_k=10)
+    assert [node.node_id for node in hits] == ["n:helper"]
+
+
+async def test_atomic_embedding_failure_preserves_pending_projection():
+    proxima = await _make_proxima_store()
+    collection = proxima._symbol_collection
+    collection.fail_with = RuntimeError("disk full")
+
+    with pytest.raises(RuntimeError, match="disk full"):
+        await proxima.upsert_node_record(
+            "n:parse",
+            [0.1] * 384,
+            metadata={"has_embedding": True, "content_version": "v1"},
+        )
+
+    assert collection.records["n:parse"]["props"]["has_embedding"] is False
+    node = await proxima.get_node_by_id("n:parse")
+    assert not node.metadata.get("has_embedding")
+    assert not hasattr(proxima, "set_node_embedding")
+
+
+async def test_metadata_update_preserves_committed_vector_atomically():
+    proxima = await _make_proxima_store()
+    collection = proxima._symbol_collection
+    embedding = [0.25] * 384
+    await proxima.upsert_node_record(
+        "n:parse",
+        embedding,
+        metadata={"has_embedding": True, "content_version": "v1"},
+    )
+    writes_before = len(collection.writes)
+
+    await proxima.update_node_metadata("n:parse", {"hotspot": True})
+
+    assert len(collection.writes) == writes_before + 1
+    record = collection.records["n:parse"]
+    assert record["vector"] == embedding
+    assert record["props"]["metadata"] == {
+        "has_embedding": True,
+        "content_version": "v1",
+        "hotspot": True,
+    }
+
+
+async def test_projection_failure_keeps_committed_record_authoritative():
+    client = FakeProximaClient()
+    collection = FakeRecordCollection()
+    store = ProximaGraphStore(
+        graph=ProximaDBGraph(client, "atomic_codegraph"),
+        client=client,
+        repo="atomic",
+        record_collection=collection,
+    )
+    client.fail_node_writes = True
+
+    with pytest.raises(RuntimeError, match="ORION node projection failed"):
+        await store.upsert_nodes([GraphNode("n:a", "function", "a", "a.py")])
+
+    assert "n:a" in collection.records
+    assert client.nodes == {}
+    committed = await store.get_node_by_id("n:a")
+    assert committed is not None
+    assert committed.name == "a"
+
+
+async def test_wrong_embedding_dimension_fails_before_record_mutation():
+    proxima = await _make_proxima_store()
+    collection = proxima._symbol_collection
+    writes_before = len(collection.writes)
+
+    with pytest.raises(ValueError, match="3 dimensions; expected 384"):
+        await proxima.upsert_node_record("n:parse", [0.1, 0.2, 0.3])
+
+    assert len(collection.writes) == writes_before
+
+
+async def test_delete_by_repo_clears_records_and_sidecars():
     class FakeEmbeddedDB:
         def __init__(self):
             self.deleted = []
@@ -384,14 +587,14 @@ async def test_delete_by_repo_clears_vectors_and_sidecars_when_requested():
 
     await proxima.delete_by_repo(clear_embeddings=True)
 
-    assert connection.embedded_db.deleted == ["fixture_codegraph_vectors"]
-    assert connection.forgotten == ["fixture_codegraph_vectors"]
+    assert connection.embedded_db.deleted == ["fixture_codegraph_records"]
+    assert connection.forgotten == ["fixture_codegraph_records"]
     assert proxima._symbol_collection is None
     assert proxima._file_mtimes == {}
     assert proxima._file_hashes == {}
 
 
-async def test_delete_by_repo_stops_before_graph_reset_when_vector_cleanup_fails():
+async def test_delete_by_repo_stops_before_projection_reset_when_record_cleanup_fails():
     class FailingEmbeddedDB:
         async def delete_collection(self, name):
             return False
@@ -422,6 +625,7 @@ async def test_tier_boundary_keeps_cpg_out_of_hot_graph_and_drills_down_on_deman
         client=client,
         repo="tiered",
         cpg_store=fragments,
+        record_collection=FakeRecordCollection(),
     )
     symbol = GraphNode("fn:a", "function", "a", "src/a.py", line=1)
     statements = [
@@ -512,6 +716,7 @@ async def test_tier_boundary_deletes_hot_and_cold_file_state(tmp_path):
         client=client,
         repo="tiered",
         cpg_store=CpgFragmentStore(tmp_path / "cpg-fragments.sqlite3"),
+        record_collection=FakeRecordCollection(),
     )
     await store.upsert_nodes(
         [
@@ -541,3 +746,27 @@ async def test_tier_boundary_deletes_hot_and_cold_file_state(tmp_path):
     await store.delete_by_repo()
     assert (await store.stats())["tier_b_nodes"] == 0
     await store.close()
+
+
+async def test_file_delete_reopens_record_authority_before_projection_delete():
+    store = await _make_proxima_store()
+    collection = store._symbol_collection
+
+    class FakeConnection:
+        async def get_or_create_collection(self, name, *, dimension):
+            assert name == "fixture_codegraph_records"
+            assert dimension == 384
+            return collection
+
+    # Simulate a restarted store whose collection handle/cache has not yet been
+    # hydrated while the ORION projection is already available.
+    store._symbol_collection = None
+    store._record_nodes.clear()
+    store._record_vectors.clear()
+    store._record_node_ids.clear()
+    store._conn = FakeConnection()
+
+    await store.delete_by_file("a.py")
+
+    assert "n:main" not in collection.records
+    assert "n:parse" not in collection.records

@@ -83,7 +83,7 @@ async def test_connection_is_shared_and_refcounted(tmp_path):
 
 
 async def test_oid_bridges_vector_to_graph(tmp_path):
-    """Co-indexed vector → graph node by identity (single oid, one instance)."""
+    """Atomic record vector → graph projection by identity (one oid)."""
     data_dir = tmp_path / "proximadb"
     await _require_embedded(data_dir)
 
@@ -98,23 +98,28 @@ async def test_oid_bridges_vector_to_graph(tmp_path):
                 GraphNode(node_id="o:gamma", type="function", name="gamma", file="c.py"),
             ]
         )
-        # Co-index orthogonal unit vectors under the SAME oids as the graph nodes.
-        await store.set_node_embedding("o:alpha", [1.0, 0.0, 0.0, 0.0])
-        await store.set_node_embedding("o:beta", [0.0, 1.0, 0.0, 0.0])
-        await store.set_node_embedding("o:gamma", [0.0, 0.0, 1.0, 0.0])
+        # Atomically replace each pending record with graph props + a 384-d vector.
+        alpha = [1.0, *([0.0] * 383)]
+        beta = [0.0, 1.0, *([0.0] * 382)]
+        gamma = [0.0, 0.0, 1.0, *([0.0] * 381)]
+        await store.upsert_node_record("o:alpha", alpha)
+        await store.upsert_node_record("o:beta", beta)
+        await store.upsert_node_record("o:gamma", gamma)
 
         # A query near alpha's vector must resolve to alpha's GRAPH node by oid.
-        hits = await store.semantic_search([0.9, 0.1, 0.0, 0.0], top_k=1)
+        near_alpha = [0.9, 0.1, *([0.0] * 382)]
+        hits = await store.semantic_search(near_alpha, top_k=1)
         assert [n.node_id for n in hits] == ["o:alpha"]
         assert hits[0].name == "alpha"  # vector hit → full graph node, not a join
 
         # And near beta → beta.
-        hits = await store.semantic_search([0.05, 0.95, 0.0, 0.0], top_k=1)
+        near_beta = [0.05, 0.95, *([0.0] * 382)]
+        hits = await store.semantic_search(near_beta, top_k=1)
         assert [n.node_id for n in hits] == ["o:beta"]
 
         # Deleting the node drops the co-indexed vector too (one entity).
         await store.delete_by_file("a.py")
-        remaining = await store.semantic_search([0.9, 0.1, 0.0, 0.0], top_k=3)
+        remaining = await store.semantic_search(near_alpha, top_k=3)
         assert "o:alpha" not in {n.node_id for n in remaining}
     finally:
         await store.close()

@@ -22,9 +22,10 @@ level; SQLite stays the default and nothing flips automatically.
 - `victor/storage/graph/proxima_store.py` — `ProximaGraphStore` implements
   `GraphStoreProtocol` over `proximadb_sdk.graph.ProximaDBGraph`
   (`upsert_nodes/edges`, `get_neighbors`, `search_symbols`, `find_nodes`,
-  `multi_hop_traverse_parallel`, …). The graph node id **is** the vector id (one
-  `oid`); `embedding_ref` is dropped. Vector writes fail closed so the indexing
-  pipeline leaves a failed node unmarked and retries it on the next run.
+  `multi_hop_traverse_parallel`, …). Each Tier-A symbol is durably written as one
+  ProximaRecord envelope containing its graph properties, vector, and staleness
+  markers under one `oid`; `embedding_ref` is dropped. The indexing pipeline no
+  longer performs a vector write followed by a graph-metadata write.
 - `victor/storage/graph/cpg_fragments.py` — the Tier-B boundary is live. The
   Proxima adapter routes `statement` nodes and every CFG/CDG/DDG edge away from
   ORION into a durable SQLite fragment index keyed by file, scope, statement
@@ -54,6 +55,48 @@ level; SQLite stays the default and nothing flips automatically.
   default until a live parity bench passes (`cd proximaDB && cargo build --release`
   to unblock). Arrow Flight bulk-load and ORION native centrality (steps below) are
   also still pending on that live verification.
+- **Local source dependency gate:** Victor's development virtualenv resolves the
+  pure-Python `proximadb` 0.2.2 SDK directly from `../proximaDB/clients/python`.
+  Do not pin a newer PyPI version until ProximaDB publishes it. A release-wheel
+  build reproduced at ProximaDB `develop@97e70be10` and its unchanged packaging
+  configuration through `f28b84cbb` currently fails: the root and embedded
+  maturin configs still request the removed `pylib` feature, while the actual
+  `crates/binding/proximadb-embedded` Python build is missing direct DataFusion,
+  tracing-subscriber, storage-common, and Arrow `pyarrow` feature wiring and has
+  stale root-crate module paths. This is a hard release gate, not a Victor
+  fallback to an older native wheel.
+
+## Atomic record boundary and failure model
+
+“Atomic” has one precise meaning here: the authoritative write for one symbol is
+one `/api/v2/collections/{collection}/records/batch` ProximaRecord containing
+`id`, `vector`, and the complete `props` map. ProximaDB commits that envelope on
+its canonical record/WAL path. ORION does not currently accept this rich public
+record shape as a graph mutation, so its node is a rebuildable traversal
+projection applied only after the record commit succeeds.
+
+- A new or changed symbol first writes a pending record with full graph props,
+  `has_embedding=false`, and a 384-dimensional zero placeholder. The placeholder
+  is necessary because the current v2 public record contract requires a vector;
+  semantic search always adds `has_embedding=true`, so pending records cannot
+  enter retrieval.
+- Embedding completion replaces that same record once with the real vector,
+  `has_embedding=true`, and `content_version`. There is no subsequent metadata
+  mutation.
+- A record failure prevents the ORION projection from being created or changed.
+  A projection failure leaves a correct committed record and is retriable; local
+  reads prefer the record authority over the stale projection.
+- Metadata changes preserve the committed vector and replace the complete record.
+  If Victor cannot prove it has the vector needed for replacement, it fails
+  closed instead of overwriting it with a placeholder.
+- File/repository deletion removes the unified record before deleting its ORION
+  projection. The legacy `clear_embeddings` argument cannot split the modalities
+  and is retained only as a compatibility input.
+
+This boundary eliminates graph-only and vector-only *authoritative* states. It
+does not claim a distributed transaction between the record WAL and ORION; that
+would require ProximaDB to expose a graph projection sourced transactionally from
+the rich ProximaRecord itself.
 
 ## Why
 
@@ -71,11 +114,11 @@ watch daemon keeps both in sync on file change. The abstraction to swap them alr
 `GraphStoreProtocol` (sqlite/memory/duckdb-stub) and an `EmbeddingProvider` protocol with a
 `proximadb_provider.py` referencing ProximaDB's SST (vector) + ORION (graph) engines.
 
-The opportunity: collapse the two stores into **one correlated ProximaDB collection** where a code
-**symbol is one entity** — a relational row, an ORION graph node, and an HNSW vector — addressed by a
-single `oid`. This removes the dual-write skew, makes the embedding update atomic with the code change,
-and gives the agent native graph algorithms (impact analysis, centrality, hybrid seed→expand) instead of
-hand-rolled Python.
+The opportunity: collapse the two stores into **one authoritative ProximaDB record collection** where a
+code **symbol is one durable entity** — complete graph properties plus an HNSW vector — addressed by a
+single `oid`, with ORION as its traversal projection. This removes authoritative dual-write skew, makes
+the embedding and staleness update one record replacement, and gives the agent native graph algorithms
+(impact analysis, centrality, hybrid seed→expand) instead of hand-rolled Python.
 
 ## Measured shape (one real repo, 3,659 files)
 
@@ -97,11 +140,11 @@ record makes embedding optional-per-node (NF² props), removing the always-empty
 
 ## Design — three tiers, one `oid` per symbol
 
-A code symbol becomes **one ProximaDB record** with the `victor-codegraph`-emitted
+A code symbol becomes **one authoritative ProximaDB record** with the `victor-codegraph`-emitted
 `oid = graph/{repo}/node/{symbol_oid}`, carrying its
-relational columns (props), its embedding (`EmbeddingCell`), its branch (`branch_id`), and a ref to its
-intra-procedural detail. The same `oid` is what the vector index (HNSW) and graph engine (ORION CSR) both
-key on, so vector hit → graph node is identity, not a join.
+properties, its embedding, and a ref to its intra-procedural detail. The same `oid`
+keys its vector index entry and derived ORION node, so vector hit → graph node is
+identity, not a join.
 
 - **Tier A — semantic graph (HOT, in-RAM):** ~80K symbol nodes + ~96K cross-fn edges + per-node 384-d
   vector → ORION graph + co-indexed vector. Drives `impact_analysis` (forward/backward k-hop), call paths,
@@ -149,8 +192,10 @@ Tier-B PAX fragment contract, optional transactional multi-modal write, code-emb
    the SQLite store on known symbols (adapter-level always-on + embedded gated).
 3. ✅ Enforce the local Tier-A/Tier-B storage boundary with durable, on-demand
    CPG fragments and restart/routing/deletion contract tests.
-4. ⏳ Replace the local Tier-B representation with Proxima PAX/columnar
+4. ✅ Replace separate Tier-A vector and graph-metadata mutations with one
+   authoritative ProximaRecord replacement; keep ORION explicitly rebuildable.
+5. ⏳ Replace the local Tier-B representation with Proxima PAX/columnar
    fragments and verify per-function drill-down parity in service mode.
-5. ⏳ Bench Arrow Flight bulk-load + k-hop + hybrid latency; compare footprint vs the 2.4 GB SQLite + Lance
+6. ⏳ Bench Arrow Flight bulk-load + k-hop + hybrid latency; compare footprint vs the 2.4 GB SQLite + Lance
    pair (projected ~120 MB f32 / ~35 MB SQ8 for Tier-A). Blocked on a built `proximadb-server` binary.
-6. ⏳ Flip the default provider per-repo once parity holds (per-repo `.victor/graph_backend` flag exists; SQLite stays default).
+7. ⏳ Flip the default provider per-repo once parity holds (per-repo `.victor/graph_backend` flag exists; SQLite stays default).
