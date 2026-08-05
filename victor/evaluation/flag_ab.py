@@ -120,19 +120,23 @@ def _success_battery(successes: Sequence[float]) -> Any:
 
 
 def _default_adapter_factory(
-    *, base_url: Optional[str], model: Optional[str], max_turns: int = 8
+    *, base_url: Optional[str], model: Optional[str], max_turns: int = 12
 ) -> Any:
     from victor.evaluation.agent_adapter import AdapterConfig, VictorAgentAdapter
 
-    # Bound per-task cost so a runaway task can't stall the A/B (the default 20 turns / 20-min
-    # budget is far too loose for a battery of tasks over a local model).
+    # Bound per-task cost (the stock 20-turn / 20-min budget is too loose for a battery), but the
+    # TOOL budget must stay generous and decoupled from max_turns: a real task reads a few files,
+    # edits, then verifies — ~10-15 tool calls — and an enabled effect gate forces extra work by
+    # design. A tight tool budget starves it (COMPLETE→RETRY exhausts the budget → the task FAILs
+    # with no effect), which silently poisons an effect-gate A/B (observed: gate-ON → 0% pass at
+    # tool_budget=8). Keep it well clear of that.
     return VictorAgentAdapter.from_profile(
         profile="default",
         base_url=base_url,
         model_override=model,
         config=AdapterConfig(
             max_turns=max_turns,
-            tool_budget=max(6, max_turns),
+            tool_budget=max(30, max_turns * 3),
             total_timeout=600,
             min_turn_timeout=90,
         ),
@@ -201,7 +205,7 @@ def run_battery_arm(
     model: Optional[str] = None,
     base_url: Optional[str] = None,
     variants: int = 2,
-    max_turns: int = 8,
+    max_turns: int = 12,
     corpus: str = "calibration",
     score: str = "trajectory",
     adapter_factory: Optional[Callable[..., Any]] = None,
@@ -270,7 +274,7 @@ def run_flag_ab(
     model: Optional[str] = None,
     base_url: Optional[str] = None,
     variants: int = 2,
-    max_turns: int = 8,
+    max_turns: int = 12,
     out_dir: str = ".",
     workdir: Optional[str] = None,
     isolate_cwd: bool = True,
@@ -381,7 +385,7 @@ def _main(argv: Optional[list[str]] = None) -> int:
     )
     parser.add_argument("--variants", type=int, default=2, help="Task variants per family (6×N)")
     parser.add_argument(
-        "--max-turns", type=int, default=8, help="Per-task turn budget (bounds cost; default 8)"
+        "--max-turns", type=int, default=12, help="Per-task turn budget (bounds cost; default 12)"
     )
     parser.add_argument(
         "--corpus",

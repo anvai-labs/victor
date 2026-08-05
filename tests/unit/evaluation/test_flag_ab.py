@@ -273,3 +273,21 @@ def test_corpus_task_provider_selects_corpus() -> None:
     assert len(effect) == 6
     assert "record-answer" in {verifiable.family for verifiable, _bench in effect}
     assert len(_corpus_task_provider("calibration")(1)) == 6
+
+
+def test_default_factory_tool_budget_is_generous(monkeypatch) -> None:
+    # Regression lock: a tight tool budget starves the effect gate (gate-ON → 0% pass observed).
+    import victor.evaluation.agent_adapter as agent_adapter
+    from victor.evaluation.flag_ab import _default_adapter_factory
+
+    captured: dict = {}
+
+    def _fake_from_profile(*, profile, base_url, model_override, config):
+        captured["config"] = config
+        return object()
+
+    monkeypatch.setattr(
+        agent_adapter.VictorAgentAdapter, "from_profile", staticmethod(_fake_from_profile)
+    )
+    _default_adapter_factory(base_url=None, model=None, max_turns=8)
+    assert captured["config"].tool_budget >= 24  # decoupled + generous, not max(6, 8)=8
