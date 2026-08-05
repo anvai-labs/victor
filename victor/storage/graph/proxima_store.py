@@ -333,17 +333,17 @@ class ProximaGraphStore(GraphStoreProtocol):
         Stores the raw vector in the correlated collection on the **same** embedded
         instance as the ORION node, so a vector hit resolves to its graph node by
         identity (TD-12) and the always-empty ``embedding_ref`` bridge is retired.
-        Best-effort: never raises on the indexing hot path.
+
+        Persistence failures propagate so the indexing pipeline leaves the node
+        unmarked and retries it on the next run. Reporting success without a vector
+        would turn a storage failure into a permanent recall miss.
         """
         vector = list(embedding)
         self._vector_dim = len(vector) or self._vector_dim
         collection = await self._symbol_vectors()
         if collection is None:
-            return
-        try:
-            await collection.insert_records([{"id": node_id, "vector": vector}])
-        except Exception as exc:  # pragma: no cover - depends on live server
-            logger.debug("set_node_embedding(%s) failed: %s", node_id, exc)
+            raise RuntimeError("ProximaDB vector collection is unavailable")
+        await collection.insert_records([{"id": node_id, "vector": vector}])
 
     async def semantic_search(
         self,

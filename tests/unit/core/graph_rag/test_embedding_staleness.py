@@ -163,6 +163,24 @@ async def test_vector_persistence_failure_leaves_node_unmarked(store_and_root, m
 
 
 @pytest.mark.asyncio
+async def test_colocated_vector_failure_leaves_node_unmarked(tmp_path, monkeypatch):
+    class FailingEmbeddingStore(SqliteGraphStore):
+        async def set_node_embedding(self, node_id, embedding):
+            raise RuntimeError("disk full")
+
+    store = FailingEmbeddingStore(project_path=tmp_path)
+    await store.upsert_nodes([_node("n1", "a.py", "alpha")])
+    _patch_embedding_stack(monkeypatch, provider=None)
+
+    stats = await _pipeline(store, tmp_path)._generate_embeddings()
+
+    assert stats.embeddings_generated == 0
+    assert stats.error_count >= 1
+    node = (await store.get_all_nodes())[0]
+    assert not node.metadata.get("has_embedding")
+
+
+@pytest.mark.asyncio
 async def test_update_node_metadata_merges_and_sets_embedding_ref(store_and_root):
     store, _root = store_and_root
     await store.upsert_nodes([_node("n1", "a.py", "alpha")])

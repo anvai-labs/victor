@@ -324,7 +324,7 @@ async def test_oid_is_the_only_correlation_key():
 
 
 async def test_indexing_pipeline_node_updates():
-    """update_node_metadata round-trips; set_node_embedding is a safe no-throw."""
+    """Node metadata updates round-trip through the graph adapter."""
     proxima = await _make_proxima_store()
 
     await proxima.update_node_metadata("n:parse", {"complexity": 7, "hotspot": True})
@@ -333,9 +333,24 @@ async def test_indexing_pipeline_node_updates():
     assert node.metadata.get("complexity") == 7
     assert node.metadata.get("hotspot") is True
 
-    # set_node_embedding must not raise even though the vector is owned by the
-    # co-oid'd vector collection, not the graph node.
-    await proxima.set_node_embedding("n:parse", [0.1, 0.2, 0.3])
     # Unknown node is a no-op, not an error.
     await proxima.update_node_metadata("n:missing", {"x": 1})
-    await proxima.set_node_embedding("n:missing", [0.0])
+
+
+async def test_set_node_embedding_fails_when_vector_collection_is_unavailable():
+    proxima = await _make_proxima_store()
+
+    with pytest.raises(RuntimeError, match="vector collection is unavailable"):
+        await proxima.set_node_embedding("n:parse", [0.1, 0.2, 0.3])
+
+
+async def test_set_node_embedding_propagates_storage_failure():
+    class FailingCollection:
+        async def insert_records(self, records):
+            raise RuntimeError("disk full")
+
+    proxima = await _make_proxima_store()
+    proxima._symbol_collection = FailingCollection()
+
+    with pytest.raises(RuntimeError, match="disk full"):
+        await proxima.set_node_embedding("n:parse", [0.1, 0.2, 0.3])
