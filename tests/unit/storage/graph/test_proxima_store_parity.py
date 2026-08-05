@@ -354,3 +354,58 @@ async def test_set_node_embedding_propagates_storage_failure():
 
     with pytest.raises(RuntimeError, match="disk full"):
         await proxima.set_node_embedding("n:parse", [0.1, 0.2, 0.3])
+
+
+async def test_delete_by_repo_clears_vectors_and_sidecars_when_requested():
+    class FakeEmbeddedDB:
+        def __init__(self):
+            self.deleted = []
+
+        async def delete_collection(self, name):
+            self.deleted.append(name)
+            return True
+
+    class FakeConnection:
+        def __init__(self):
+            self.embedded_db = FakeEmbeddedDB()
+            self.forgotten = []
+
+        def forget_collection(self, name):
+            self.forgotten.append(name)
+
+    proxima = await _make_proxima_store()
+    connection = FakeConnection()
+    proxima._conn = connection
+    proxima._symbol_collection = object()
+    proxima._file_mtimes["a.py"] = 1.0
+    proxima._file_hashes["a.py"] = "abc"
+
+    await proxima.delete_by_repo(clear_embeddings=True)
+
+    assert connection.embedded_db.deleted == ["fixture_codegraph_vectors"]
+    assert connection.forgotten == ["fixture_codegraph_vectors"]
+    assert proxima._symbol_collection is None
+    assert proxima._file_mtimes == {}
+    assert proxima._file_hashes == {}
+
+
+async def test_delete_by_repo_stops_before_graph_reset_when_vector_cleanup_fails():
+    class FailingEmbeddedDB:
+        async def delete_collection(self, name):
+            return False
+
+    class FailingConnection:
+        embedded_db = FailingEmbeddedDB()
+
+        def forget_collection(self, name):
+            raise AssertionError("failed collection deletion must not invalidate the handle")
+
+    proxima = await _make_proxima_store()
+    proxima._conn = FailingConnection()
+    proxima._file_hashes["a.py"] = "abc"
+
+    with pytest.raises(RuntimeError, match="Failed to delete ProximaDB collection"):
+        await proxima.delete_by_repo(clear_embeddings=True)
+
+    assert await proxima.get_all_nodes()
+    assert proxima._file_hashes == {"a.py": "abc"}
