@@ -1,4 +1,4 @@
-# Copyright 2025 Vijaykumar Singh <singhvjd@gmail.com>
+# Copyright 2025 Vijaykumar Singh <vijay@anvaiops.com>
 # SPDX-License-Identifier: Apache-2.0
 
 """Contract tests for the durable Tier-B CPG fragment store."""

@@ -3,7 +3,7 @@ name = "victor-coding-native"
 version = "0.1.0"
 edition = "2021"
 description = "Native performance extensions for victor-coding (chunking and regex)"
-authors = ["Vijaykumar Singh <singhvjd@gmail.com>"]
+authors = ["Vijaykumar Singh <vijay@anvaiops.com>"]
 license = "Apache-2.0"
 repository = "https://github.com/vijay-singh/codingagent"
 

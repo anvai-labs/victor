@@ -1,4 +1,4 @@
-# Copyright 2025 Vijaykumar Singh <singhvjd@gmail.com>
+# Copyright 2025 Vijaykumar Singh <vijay@anvaiops.com>
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -26,7 +26,7 @@ resolver = "2"
 version = "0.8.0"
 edition = "2021"
 license = "Apache-2.0"
-authors = ["Vijaykumar Singh <singhvjd@gmail.com>"]
+authors = ["Vijaykumar Singh <vijay@anvaiops.com>"]
 
 [profile.release]
 opt-level = 3

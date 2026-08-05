@@ -1,4 +1,4 @@
-# Copyright 2025 Vijaykumar Singh <singhvjd@gmail.com>
+# Copyright 2025 Vijaykumar Singh <vijay@anvaiops.com>
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -86,7 +86,7 @@ try:
 except Exception:
     __version__ = "0.0.0"  # fallback for editable installs without metadata
 __author__ = "Vijaykumar Singh"
-__email__ = "singhvjd@gmail.com"
+__email__ = "vijay@anvaiops.com"
 __license__ = "Apache-2.0"
 
 __all__ = [

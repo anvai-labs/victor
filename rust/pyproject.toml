@@ -1,4 +1,4 @@
-# Copyright 2025 Vijaykumar Singh <singhvjd@gmail.com>
+# Copyright 2025 Vijaykumar Singh <vijay@anvaiops.com>
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -23,7 +23,7 @@ description = "High-performance native extensions for Victor AI coding assistant
 readme = "README.md"
 license = {text = "Apache-2.0"}
 authors = [
-    {name = "Vijaykumar Singh", email = "singhvjd@gmail.com"}
+    {name = "Vijaykumar Singh", email = "vijay@anvaiops.com"}
 ]
 requires-python = ">=3.10"
 classifiers = [

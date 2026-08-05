@@ -2,7 +2,7 @@
 name = "coding"
 version = "0.5.1"
 description = "Core coding vertical with code editing, refactoring, and testing capabilities"
-authors = [{name = "Vijaykumar Singh", email = "singhvjd@gmail.com"}]
+authors = [{name = "Vijaykumar Singh", email = "vijay@anvaiops.com"}]
 license = "Apache-2.0"
 requires_victor = ">=0.5.0"
 

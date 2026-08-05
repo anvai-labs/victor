@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright 2026 Vijaykumar Singh <singhvjd@gmail.com>
+# Copyright 2026 Vijaykumar Singh <vijay@anvaiops.com>
 # SPDX-License-Identifier: Apache-2.0
 """Generate the judge-training dataset (E2).
 

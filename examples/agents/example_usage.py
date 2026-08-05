@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright 2025 Vijaykumar Singh <singhvjd@gmail.com>
+# Copyright 2025 Vijaykumar Singh <vijay@anvaiops.com>
 # SPDX-License-Identifier: Apache-2.0
 
 """Example usage of Victor's Agent Ensemble and Entity Memory systems.

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Copyright 2025 Vijaykumar Singh <singhvjd@gmail.com>
+# Copyright 2025 Vijaykumar Singh <vijay@anvaiops.com>
 #
 # Test air-gapped embedding functionality in Docker
 # This verifies that the embedding model is pre-downloaded and works offline
