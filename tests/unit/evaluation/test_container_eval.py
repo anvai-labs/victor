@@ -18,6 +18,7 @@ from victor.evaluation import container_eval as ce
 from victor.evaluation.container_eval import (
     DockerUnavailable,
     EvalContainer,
+    cleanup_stale_sandbox_containers,
     resolve_runtime,
     resolve_swebench_image,
 )
@@ -243,3 +244,44 @@ async def test_eval_container_stop_never_raises(monkeypatch):
     c = EvalContainer(image="x", workspace_host_path="/tmp/repo")
     c.name = "victor-eval-test"
     await c.stop()  # must not raise
+
+
+# ---- stale-sandbox sweep ----
+
+
+async def test_cleanup_sweeps_by_label_key_not_just_eval(monkeypatch):
+    """The sweep must filter on the ``victor.sandbox`` KEY so it reclaims BOTH
+    eval and code-executor orphans (an eval-only value filter left a 3,456
+    code-executor pileup uncollected)."""
+    issued: list = []
+
+    async def _fake(cmd, timeout):
+        issued.append(list(cmd))
+        if cmd[1] == "ps":
+            return 0, b"aaa\nbbb\nccc\n", b""  # three orphans
+        if cmd[1] == "rm":
+            return 0, b"", b""
+        return 0, b"", b""
+
+    monkeypatch.setattr(ce, "_run_cmd", _fake)
+    removed = await cleanup_stale_sandbox_containers()
+
+    assert removed == 3
+    ps = next(c for c in issued if c[1] == "ps")
+    # Filter is the bare label KEY — no "=eval" value pinned.
+    assert "label=victor.sandbox" in ps
+    assert "label=victor.sandbox=eval" not in ps
+    rm = next(c for c in issued if c[1] == "rm")
+    assert rm[:3] == ["docker", "rm", "-f"] and rm[3:] == ["aaa", "bbb", "ccc"]
+
+
+async def test_cleanup_no_orphans_is_noop(monkeypatch):
+    issued: list = []
+
+    async def _fake(cmd, timeout):
+        issued.append(list(cmd))
+        return 0, b"", b""  # ps returns nothing
+
+    monkeypatch.setattr(ce, "_run_cmd", _fake)
+    assert await cleanup_stale_sandbox_containers() == 0
+    assert not any(c[1] == "rm" for c in issued)  # never attempts a remove

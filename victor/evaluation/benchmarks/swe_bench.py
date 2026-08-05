@@ -587,18 +587,18 @@ class SWEBenchRunner(BaseBenchmarkRunner):
         from victor.evaluation.container_eval import (
             EVAL_WORKSPACE_MOUNT,
             EvalContainer,
-            cleanup_stale_eval_containers,
+            cleanup_stale_sandbox_containers,
             resolve_runtime,
             resolve_swebench_image_exact,
         )
 
-        # One-shot: sweep orphaned eval containers from prior crashed runs
+        # One-shot: sweep orphaned sandbox containers from prior crashed runs
         # (process death before stop() → containers accumulate → Docker strain).
         # Skip when a persistent container is supplied — it's already running and
-        # would match the cleanup pattern (victor-eval-*) → "No such container".
+        # would match the cleanup pattern → "No such container".
         if container is None and not getattr(SWEBenchRunner, "_stale_containers_cleaned", False):
             SWEBenchRunner._stale_containers_cleaned = True
-            await cleanup_stale_eval_containers()
+            await cleanup_stale_sandbox_containers()
 
         image = (
             await resolve_swebench_image_exact(task, config)

@@ -169,7 +169,7 @@ class TestVerifyPatchInContainer:
         async def _noop_cleanup():
             return 0
 
-        monkeypatch.setattr(container_eval, "cleanup_stale_eval_containers", _noop_cleanup)
+        monkeypatch.setattr(container_eval, "cleanup_stale_sandbox_containers", _noop_cleanup)
 
         import victor.context.test_runner as trm
 
@@ -243,7 +243,7 @@ class TestVerifyPatchInContainer:
             return 0
 
         monkeypatch.setattr(container_eval, "resolve_swebench_image_exact", _img)
-        monkeypatch.setattr(container_eval, "cleanup_stale_eval_containers", _noop)
+        monkeypatch.setattr(container_eval, "cleanup_stale_sandbox_containers", _noop)
         import victor.context.test_runner as trm
 
         def _rec(project_root, test_files=None):

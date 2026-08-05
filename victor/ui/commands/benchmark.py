@@ -2046,16 +2046,16 @@ async def _run_benchmark_async(
                         )
                         from victor.evaluation.container_eval import (
                             EvalContainer,
-                            cleanup_stale_eval_containers,
+                            cleanup_stale_sandbox_containers,
                             resolve_swebench_image_exact,
                         )
 
-                        # Sweep orphaned eval containers from prior crashed runs
+                        # Sweep orphaned sandbox containers from prior crashed runs
                         # BEFORE starting the persistent one.
                         if not getattr(SWEBenchRunner, "_stale_containers_cleaned", False):
                             SWEBenchRunner._stale_containers_cleaned = True
                             try:
-                                await cleanup_stale_eval_containers()
+                                await cleanup_stale_sandbox_containers()
                             except Exception:
                                 pass
 
