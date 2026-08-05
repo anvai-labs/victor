@@ -105,40 +105,48 @@ reports: docs/architecture/judge-independence-experiments.md.
 
 ## Verdict and open items
 
-> ⚠️ **Qualified by the SWE-bench-lite re-gate (2026-08-04, below).** Both gate-passing
-> judges over-credit on the true shipping distribution (in-container-verified SWE-bench):
-> gemma4:31b α=−0.52, llama3.3:70b α=0.26. Treat checklist item 2 (and the graduation
-> recommendation) as **unproven on the production distribution** pending a balanced harvest.
+> ⛔ **DECIDED (2026-08-05): do NOT graduate an LLM completion judge as a default.** The
+> SWE-bench-lite re-gate (below) settled it on the true shipping distribution: both
+> calibration-corpus gate-passers **over-credit** (gemma4:31b α=−0.52, llama3.3:70b α=0.26)
+> and a classifier *trained on real trajectories* **under-credits** (ModernBERT α=−0.05,
+> collapses). All three fail; only the **in-container verifier** discriminates. Keep
+> `completion_strategy="enhanced"` (the current default — no code change needed). Read the
+> paragraphs below as the history of how the calibration-corpus gates were *provisionally*
+> cleared, not as a live recommendation.
 
-**All three graduation gates are now cleared — by two complementary judges.** The scripted
-gate at gating-grade n is met by llama3.3:70b (run 10: α=1.000, n=96), and the real-agent
-trajectory gate is met by gemma4:31b (run 11: α=0.865, integrity clean, zero false
-completions). `completion_strategy=rubric` has the evidence to graduate. Trust is
-**judge-specific**: this graduates these calibrated judges, not LLM-judging in the abstract
-(identical code scored 0.173–0.279 with other models, and one thinking model produced zero
-usable grades — see point 4 and the run-8 guard).
+**On the calibration corpus the gates were cleared — but that corpus was not the shipping
+distribution.** The scripted gate at gating-grade n was met by llama3.3:70b (run 10:
+α=1.000, n=96) and the (calibration-corpus) real-agent gate by gemma4:31b (run 11: α=0.865).
+That looked like enough to graduate `completion_strategy=rubric` — until the **SWE-bench-lite
+re-gate** ran the same judges against real GitHub-issue trajectories with in-container
+FAIL_TO_PASS gold (17% solve, negative-heavy — the inverse of the 81%-positive corpus). There
+gemma4:31b fell to **α=−0.52** and llama3.3:70b to **0.26**, and a ModernBERT classifier trained
+on those real trajectories collapsed to **α=−0.05** (see the two sections below). Trust was
+always **judge-specific** (identical code scored 0.173–0.279 with other models); the
+shipping-distribution result shows even the *best* calibration-corpus judges do not transfer.
 
-Judge selection — **gemma4:31b is the recommended default**: it cleared BOTH the scripted
-(0.929, run 7) and real-trajectory (0.865, run 11) gates, fits a 20 GB GPU fully (fast, no
-offload), and is the model that carried the real-trajectory pass. llama3.3:70b is the
-higher-accuracy alternative (1.000 scripted) where its ~42 GB footprint is affordable.
+Judge selection — **none recommended as a default.** gemma4:31b and llama3.3:70b remain the
+strongest *opt-in* rubric judges on the calibration corpus, but neither is trustworthy on the
+production distribution, so `completion_strategy` stays **`enhanced`** (algorithmic) and the
+**in-container verifier is the completion oracle** for code-fix-at-scale. Revisit only when the
+agent's solve rate is high enough that real positives are no longer scarce — a stronger agent,
+not a bigger judge (the classifier failed for lack of positives, not lack of capacity).
 
 Graduation checklist for `completion_strategy=rubric` (TD-17 evidence):
 
-1. ✅ **Confirmation at gating-grade n** — DONE (run 10, llama3.3:70b): `--variants 16`,
-   n=16/family, 96/96 correct, α=1.000 every family. (Open: a variants-16 scripted
-   confirmation for gemma4:31b specifically would let one judge own both gates; gemma4 has
-   n=8 scripted (0.929) + real-trajectory (0.865) today.)
-2. ✅ **Real agent trajectories** — DONE (run 11, gemma4:31b): α=0.865 on real
-   qwen3-coder:30b trajectories, all families ≥ 0.7, zero false completions, integrity
-   clean. The production distribution the gate exists for; the scripted-perfect `evidence`
-   and `rubric-heuristic` baselines collapsed to −0.092 on the same trajectories.
-3. ⏳ **Pin the judge identity in the flag criteria** — the remaining step: wire
-   `completion_strategy=rubric` default-on ONLY with a calibrated judge (gemma4:31b or
-   llama3.3:70b); an uncalibrated model or the heuristic fallback (α=−0.092) must revert to
-   `enhanced`, per the ADR-011 fallback contract and the
-   [flag-graduation policy](../../docs/architecture/flag-graduation-policy.md). This is a
-   code change to the flag wiring, not another measurement.
+1. ✅ **Confirmation at gating-grade n (scripted/corpus)** — met by llama3.3:70b (run 10,
+   α=1.000, n=96). Necessary but, as item 2 shows, not sufficient.
+2. ❌ **Real agent trajectories — RE-OPENED / FAILED.** Run 11's α=0.865 was on the
+   *calibration corpus* rendered with a real agent, not the shipping distribution. On
+   in-container-verified **SWE-bench-lite** both LLM judges fail the 0.7 gate (gemma −0.52,
+   llama 0.26) and a real-trained classifier collapses (−0.05). No substitute judge clears
+   the production distribution the gate exists for.
+3. ⛔ **Do not pin an LLM judge default-on.** The prior plan (wire `rubric` default-on with a
+   calibrated judge) is **shelved**: no LLM/classifier judge is trustworthy on the shipping
+   distribution. The correct default is the existing `enhanced` path plus the in-container
+   verifier — no flag-wiring change is warranted. If `rubric` is ever used opt-in, the
+   ADR-011 pin + heuristic-fallback contract ([flag-graduation
+   policy](../../docs/architecture/flag-graduation-policy.md)) still apply.
 
 Open follow-ups (no longer blocking graduation): a variants-16 scripted run for gemma4:31b
 (single-judge rigor); the `--hard` corpus (run 0/PR #417) against the gate-passers to probe

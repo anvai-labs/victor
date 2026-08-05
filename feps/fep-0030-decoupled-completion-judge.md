@@ -137,11 +137,19 @@ becomes meaningful for *every* session, not just llama-as-agent sessions.
    - **2b. Classifier backend.** `classifier:<path>` (resident ModernBERT/linear)
      via a direct-verdict loop seam. Gated on real-distribution calibration (the
      SWE-bench stratum, converter landed #848) before it is validated for live use.
-3. **Default flip (absorbs PR-8).** With a calibrated decoupled judge available,
-   `completion_strategy=rubric` becomes the default; the prong-B end-to-end
-   task-success A/B runs against the *decoupled* judge (the meaningful A/B the
-   coupled design could not support), with the kill-switch and streaming parity
-   guards.
+     **Status (2026-08-05): the real-distribution calibration ran and FAILED** — a
+     ModernBERT classifier trained on real SWE-bench trajectories collapses to the
+     majority class (α=−0.05); real positives are too scarce to train a
+     discriminator (#883). The classifier backend stays strictly opt-in/BYO.
+3. **Default flip (absorbs PR-8) — SHELVED (2026-08-05).** The flip was gated on a
+   decoupled judge that passes on the *shipping* distribution; the SWE-bench-lite
+   re-gate showed none do (LLM judges over-credit: gemma α=−0.52, llama α=0.26; the
+   trained classifier under-credits: α=−0.05 — #872, #883). `completion_strategy`
+   therefore stays **`enhanced`** with the in-container verifier as the completion
+   oracle; there is no judge to flip to. Revisit only when a higher-solve-rate agent
+   makes real positives non-scarce. (Prior text: "with a calibrated decoupled judge
+   available, `completion_strategy=rubric` becomes the default, A/B'd against the
+   decoupled judge" — kept for history.)
 4. **EVR-6 convergence.** The per-turn `TurnAuditor` (FEP-0008 Phase C) consumes
    the same classifier backend for prefix-only CONTINUE/ALARM — one cheap
    resident judge serves both completion gating and per-turn auditing.
