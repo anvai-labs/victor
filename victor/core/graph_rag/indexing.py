@@ -560,9 +560,11 @@ class GraphIndexingPipeline:
         # analyzer derives module adjacency from cross-file graph_edge rows, so
         # CALLS resolution must run first or graph_module_metric stays empty.
         if graph_changed:
-            cg_calls, cg_relationships, cg_imports = (
-                await self._resolve_codegraph_repository_relations()
-            )
+            (
+                cg_calls,
+                cg_relationships,
+                cg_imports,
+            ) = await self._resolve_codegraph_repository_relations()
 
             resolved = await self._resolve_cross_file_calls(root)
             stats.cross_file_calls_resolved = cg_calls + resolved
@@ -647,7 +649,7 @@ class GraphIndexingPipeline:
             if self._canonical_file_str(record[0]) not in owned_files
         ]
         logger.info(
-            "victor-codegraph repository resolution: %d CALLS, %d structural, " "%d IMPORTS edges",
+            "victor-codegraph repository resolution: %d CALLS, %d structural, %d IMPORTS edges",
             projection.calls,
             projection.relationships,
             projection.imports,
@@ -1243,7 +1245,11 @@ class GraphIndexingPipeline:
         except OSError:
             resolved = file_path.absolute()
         try:
-            return resolved.relative_to(root_path).as_posix()
+            resolved_root = root_path.resolve(strict=False)
+        except OSError:
+            resolved_root = root_path.absolute()
+        try:
+            return resolved.relative_to(resolved_root).as_posix()
         except ValueError:
             return str(resolved)
 
@@ -2783,12 +2789,12 @@ class GraphIndexingPipeline:
     def _get_vector_provider(self) -> Any:
         """Vector store for persisting node embeddings, or None.
 
-        Proxima-style stores co-locate vectors with graph nodes via
-        ``set_node_embedding`` — they need no external provider. For the
+        Proxima-style stores co-locate graph properties and vectors via an atomic
+        ``upsert_node_record`` — they need no external provider. For the
         default sqlite store, build a provider from the store's settings-driven
         config (falls back to defaults).
         """
-        if hasattr(self.graph_store, "set_node_embedding"):
+        if hasattr(self.graph_store, "upsert_node_record"):
             return None
         try:
             from victor.storage.vector_stores.registry import EmbeddingRegistry
@@ -2818,7 +2824,7 @@ class GraphIndexingPipeline:
           batch (see ``GraphAwareEmbedder.embed_batch``).
         - Persistence: ``index_embedded_documents`` on the vector store keyed
           by node_id (default sqlite path), or the graph store's own
-          ``set_node_embedding`` (proxima co-located vectors).
+          ``upsert_node_record`` (one ProximaRecord containing graph props + vector).
 
         Returns:
             Stats for embedding generation
@@ -2890,6 +2896,8 @@ class GraphIndexingPipeline:
                 if not embeddings:
                     continue
 
+                persisted_ids: set[str] = set()
+                atomic_record_store = getattr(self.graph_store, "upsert_node_record", None)
                 try:
                     if vector_provider is not None and hasattr(
                         vector_provider, "index_embedded_documents"
@@ -2912,31 +2920,48 @@ class GraphIndexingPipeline:
                                 }
                             )
                         await vector_provider.index_embedded_documents(docs)
-                    elif hasattr(self.graph_store, "set_node_embedding"):
+                        persisted_ids.update(embeddings)
+                    elif atomic_record_store is not None:
                         for node_id, vector in embeddings.items():
-                            await self.graph_store.set_node_embedding(node_id, vector)
+                            try:
+                                await atomic_record_store(
+                                    node_id,
+                                    vector,
+                                    metadata={
+                                        "has_embedding": True,
+                                        "content_version": versions[node_id],
+                                    },
+                                )
+                                persisted_ids.add(node_id)
+                            except Exception as e:
+                                logger.warning(
+                                    "Atomic record persistence failed for %s: %s", node_id, e
+                                )
+                                stats.error_count += 1
+                                stats.errors.append(f"Atomic ProximaRecord {node_id}: {e}")
                 except Exception as e:
                     logger.warning(f"Vector persistence failed for batch: {e}")
                     stats.error_count += 1
                     stats.errors.append(f"Vector persistence: {e}")
                     continue  # don't mark nodes embedded if vectors didn't persist
 
-                for node_id in embeddings:
-                    try:
-                        await self.graph_store.update_node_metadata(
-                            node_id,
-                            {
-                                "embedding_ref": f"emb:{node_id}",
-                                "has_embedding": True,
-                                "content_version": versions[node_id],
-                            },
-                        )
-                    except Exception as e:
-                        logger.warning(f"Failed to mark embedding for {node_id}: {e}")
-                        stats.error_count += 1
-                        stats.errors.append(f"Embedding metadata failed for {node_id}: {e}")
+                if atomic_record_store is None:
+                    for node_id in persisted_ids:
+                        try:
+                            await self.graph_store.update_node_metadata(
+                                node_id,
+                                {
+                                    "embedding_ref": f"emb:{node_id}",
+                                    "has_embedding": True,
+                                    "content_version": versions[node_id],
+                                },
+                            )
+                        except Exception as e:
+                            logger.warning(f"Failed to mark embedding for {node_id}: {e}")
+                            stats.error_count += 1
+                            stats.errors.append(f"Embedding metadata failed for {node_id}: {e}")
 
-                embedded_total += len(embeddings)
+                embedded_total += len(persisted_ids)
                 logger.debug(f"Embedded batch {i // batch_size + 1}")
 
             stats.embeddings_generated = embedded_total

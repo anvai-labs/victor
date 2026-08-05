@@ -50,8 +50,10 @@ addressed by a single stable oid.
 
 - Foundation shipped: `victor-codegraph` extraction (ADR-014), phased core adoption (ADR-015,
   Phase 1 live), stable line-independent `symbol_oid` (ProximaDB ADR-044, victor-codegraph 0.1.2).
-- Remaining: ADR-015 later phases; TD-11 `ProximaGraphStore`; TD-12 embedding↔node correlation by
-  shared oid (retire `graph_node.embedding_ref` dual-write); TD-13 Tier-A/Tier-B CCG split.
+- Shipped behind the per-repo flag: TD-12 one authoritative ProximaRecord for node props + vector +
+  staleness under the shared oid, and TD-13's local Tier-A/Tier-B routing boundary.
+- Remaining: ADR-015 later phases; TD-11 native-wheel/live-parity/default-graduation work; replacing
+  Tier B's local fragment implementation with Proxima PAX/columnar fragments.
   Design: [ProximaDB as the CCG Backend](architecture/proximadb-codegraph-backend.md).
 
 ## Later — directional horizons (from VISION.md)

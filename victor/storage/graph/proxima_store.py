@@ -18,11 +18,11 @@
 ORION graph engine via ``proximadb_sdk.graph.ProximaDBGraph``. Tier-A symbols and
 semantic edges live in the correlated hot graph, while Tier-B statement nodes
 and CFG/CDG/DDG edges are routed to durable, indexed CPG fragments and fetched
-only for explicit dataflow drilldowns. A code symbol is **one** hot entity
-addressed by a single ``oid``
-(``graph/{repo}/node/{symbol_oid}``): the graph node id and the vector record id
-are the same string, so a vector hit maps to its graph node by identity and the
-always-empty ``graph_node.embedding_ref`` bridge is retired.
+only for explicit dataflow drilldowns. A code symbol is **one** durable
+``ProximaRecord`` containing both semantic properties and its vector, addressed
+by the same ``oid`` used by its derived ORION traversal projection. A vector hit
+therefore maps to its graph node by identity and the always-empty
+``graph_node.embedding_ref`` bridge is retired.
 
 SQLite stays the default. This backend is selected per-repo (see
 ``victor.storage.graph.registry``). The **embedded** path (one local
@@ -40,6 +40,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, AsyncIterator, Dict, Iterable, List, Optional
 
@@ -99,6 +100,7 @@ class ProximaGraphStore(GraphStoreProtocol):
         graph: Any = None,
         client: Any = None,
         cpg_store: CpgFragmentStoreProtocol | None = None,
+        record_collection: Any = None,
     ) -> None:
         """Create a ProximaGraphStore.
 
@@ -120,6 +122,8 @@ class ProximaGraphStore(GraphStoreProtocol):
                 node/edge deletion which ``ProximaDBGraph`` does not expose).
             cpg_store: Optional Tier-B fragment store. By default, statement
                 nodes and CFG/CDG/DDG edges are persisted under ``data_dir``.
+            record_collection: Injected ProximaRecord collection used by tests.
+                Production creates the collection on the shared connection.
         """
         self._project_path = Path(project_path).resolve() if project_path else None
         self._repo = repo or repo_id_from_path(self._project_path)
@@ -140,12 +144,15 @@ class ProximaGraphStore(GraphStoreProtocol):
         self._conn = None  # shared ProximaRepoConnection (embedded path)
         self._initialized = graph is not None
 
-        # Correlated vector collection: a symbol's 384-d embedding is co-indexed
-        # here under the SAME oid as its ORION graph node, so a vector hit maps to
-        # its graph node by identity (TD-12). Lives on the shared instance.
+        # Durable Tier-A authority: graph properties and the embedding occupy one
+        # ProximaRecord. ORION nodes are a rebuildable traversal projection applied
+        # only after the record commit succeeds (TD-12).
         self._vector_dim = 384
-        self._symbol_collection_name = f"{self._repo}_codegraph_vectors"
-        self._symbol_collection: Any = None
+        self._symbol_collection_name = f"{self._repo}_codegraph_records"
+        self._symbol_collection: Any = record_collection
+        self._record_nodes: Dict[str, GraphNode] = {}
+        self._record_vectors: Dict[str, List[float]] = {}
+        self._record_node_ids: set[str] = set()
 
         # In-memory sidecars for facts ProximaDBGraph does not yet persist
         # natively (relational Tier-C work lands with TD-127). Idempotent and
@@ -215,6 +222,9 @@ class ProximaGraphStore(GraphStoreProtocol):
         self._client = None
         self._graph = None
         self._symbol_collection = None
+        self._record_nodes.clear()
+        self._record_vectors.clear()
+        self._record_node_ids.clear()
         self._initialized = False
 
     async def _ensure(self) -> Any:
@@ -305,8 +315,9 @@ class ProximaGraphStore(GraphStoreProtocol):
         cold_nodes = [node for node in node_list if node.type == "statement"]
         if hot_nodes:
             graph = await self._ensure()
-            payload = [self._to_proxima_node(node) for node in hot_nodes]
-            await asyncio.to_thread(graph.batch_create_nodes, payload)
+            pending_nodes = [self._node_for_record(node, has_embedding=False) for node in hot_nodes]
+            await self._write_node_records(pending_nodes)
+            await self._apply_node_projection(graph, pending_nodes)
         if cold_nodes:
             await self._cpg_store.upsert_nodes(cold_nodes)
 
@@ -322,7 +333,7 @@ class ProximaGraphStore(GraphStoreProtocol):
             await self._cpg_store.upsert_edges(cold_edges)
 
     async def update_node_metadata(self, node_id: str, metadata: Dict[str, Any]) -> None:
-        """Merge ``metadata`` into a node's free-form metadata and re-upsert.
+        """Atomically merge metadata while preserving the record's vector.
 
         Used by the indexing pipeline; no-op if the node is unknown.
         """
@@ -331,16 +342,26 @@ class ProximaGraphStore(GraphStoreProtocol):
             return
         merged = dict(node.metadata or {})
         merged.update(metadata or {})
-        node.metadata = merged
-        await self.upsert_nodes([node])
+        has_embedding = bool(merged.get("has_embedding"))
+        vector = self._record_vectors.get(node_id)
+        if has_embedding and vector is None:
+            raise RuntimeError(
+                f"Cannot preserve vector for {node_id}: committed ProximaRecord is not cached"
+            )
+        committed = self._node_for_record(
+            node,
+            has_embedding=has_embedding,
+            metadata=merged,
+        )
+        await self._write_node_records([committed], {node_id: vector} if vector else None)
+        graph = await self._ensure()
+        await self._apply_node_projection(graph, [committed])
 
-    async def _symbol_vectors(self) -> Any:
-        """Get/create the correlated symbol-vector collection on the shared instance.
+    async def _symbol_records(self) -> Any:
+        """Get/create the correlated ProximaRecord collection on the shared instance.
 
-        Vectors are keyed by the symbol ``oid`` (== graph node id), so the vector
-        index and the ORION graph share one identity — no ``embedding_ref`` bridge.
-        Returns ``None`` when there is no embedded connection (e.g. service mode or
-        an injected test graph without a real instance).
+        Each record owns the node properties and vector under one ``oid``. ORION
+        consumes a projection of those properties; it is not a second authority.
         """
         if self._symbol_collection is not None:
             return self._symbol_collection
@@ -351,23 +372,112 @@ class ProximaGraphStore(GraphStoreProtocol):
         )
         return self._symbol_collection
 
-    async def set_node_embedding(self, node_id: str, embedding: List[float]) -> None:
-        """Co-index a symbol's vector under its ``oid`` (== graph node id).
+    def _node_for_record(
+        self,
+        node: GraphNode,
+        *,
+        has_embedding: bool,
+        metadata: Dict[str, Any] | None = None,
+    ) -> GraphNode:
+        merged = dict(node.metadata or {})
+        if not has_embedding:
+            merged.pop("has_embedding", None)
+            merged.pop("content_version", None)
+            merged.pop("embedding_ref", None)
+        if metadata:
+            merged.update(metadata)
+        merged["has_embedding"] = has_embedding
+        return replace(node, embedding_ref=None, metadata=merged)
 
-        Stores the raw vector in the correlated collection on the **same** embedded
-        instance as the ORION node, so a vector hit resolves to its graph node by
-        identity (TD-12) and the always-empty ``embedding_ref`` bridge is retired.
+    def _to_proxima_record(
+        self, node: GraphNode, vector: List[float] | None = None
+    ) -> Dict[str, Any]:
+        """Build the one durable graph-property + vector envelope for a symbol."""
+        values = list(vector) if vector is not None else [0.0] * self._vector_dim
+        if len(values) != self._vector_dim:
+            raise ValueError(
+                f"Embedding for {node.node_id} has {len(values)} dimensions; "
+                f"expected {self._vector_dim}"
+            )
+        props: Dict[str, Any] = {
+            "record_kind": "graph_node",
+            "graph_id": self._graph_id,
+            "type": node.type,
+            "metadata": dict(node.metadata or {}),
+            "has_embedding": bool((node.metadata or {}).get("has_embedding")),
+        }
+        for key in _NODE_FIELD_KEYS:
+            value = getattr(node, key, None)
+            if value is not None:
+                props[key] = value
+        return {"id": node.node_id, "vector": values, "props": props}
 
-        Persistence failures propagate so the indexing pipeline leaves the node
-        unmarked and retries it on the next run. Reporting success without a vector
-        would turn a storage failure into a permanent recall miss.
-        """
-        vector = list(embedding)
-        self._vector_dim = len(vector) or self._vector_dim
-        collection = await self._symbol_vectors()
+    @staticmethod
+    def _validate_record_write(result: Any, expected: int) -> None:
+        """Fail closed unless Proxima confirms every requested record write."""
+        if isinstance(result, dict):
+            failed = int(result.get("failed_count", result.get("failed", 0)) or 0)
+            succeeded = int(
+                result.get("inserted_count", result.get("success", expected if not failed else 0))
+                or 0
+            )
+            errors = result.get("errors") or []
+        else:
+            failed = int(getattr(result, "failed", 0) or 0)
+            succeeded = int(getattr(result, "success", 0) or 0)
+            errors = getattr(result, "errors", None) or []
+        if failed or succeeded != expected:
+            detail = "; ".join(str(error) for error in errors) or (
+                f"confirmed {succeeded} of {expected} records"
+            )
+            raise RuntimeError(f"Atomic ProximaRecord write failed: {detail}")
+
+    async def _write_node_records(
+        self,
+        nodes: List[GraphNode],
+        vectors: Dict[str, List[float]] | None = None,
+    ) -> None:
+        collection = await self._symbol_records()
         if collection is None:
-            raise RuntimeError("ProximaDB vector collection is unavailable")
-        await collection.insert_records([{"id": node_id, "vector": vector}])
+            raise RuntimeError("ProximaDB atomic record collection is unavailable")
+        payload = [
+            self._to_proxima_record(node, (vectors or {}).get(node.node_id)) for node in nodes
+        ]
+        result = await collection.insert_records(payload)
+        self._validate_record_write(result, len(payload))
+        for node, record in zip(nodes, payload):
+            self._record_nodes[node.node_id] = node
+            self._record_vectors[node.node_id] = list(record["vector"])
+            self._record_node_ids.add(node.node_id)
+
+    async def _apply_node_projection(self, graph: Any, nodes: List[GraphNode]) -> None:
+        """Apply the rebuildable ORION projection after the record commit."""
+        payload = [self._to_proxima_node(node) for node in nodes]
+        result = await asyncio.to_thread(graph.batch_create_nodes, payload)
+        if isinstance(result, dict) and not result.get("success", False):
+            raise RuntimeError(f"ORION node projection failed: {result.get('errors') or result}")
+
+    async def upsert_node_record(
+        self,
+        node_id: str,
+        embedding: List[float],
+        *,
+        metadata: Dict[str, Any] | None = None,
+    ) -> None:
+        """Atomically replace a symbol's graph properties and vector.
+
+        The ProximaRecord write is the durable commit. ORION is updated afterward
+        as a rebuildable projection; projection failure propagates so retry repairs
+        it without ever producing a graph-only or vector-only authoritative state.
+        """
+        node = self._record_nodes.get(node_id) or await self.get_node_by_id(node_id)
+        if node is None:
+            raise KeyError(f"Unknown graph node: {node_id}")
+        vector = list(embedding)
+        committed = self._node_for_record(node, has_embedding=True, metadata=metadata)
+        await self._write_node_records([committed], {node_id: vector})
+        graph = await self._ensure()
+        await self._apply_node_projection(graph, [committed])
 
     async def semantic_search(
         self,
@@ -383,10 +493,12 @@ class ProximaGraphStore(GraphStoreProtocol):
         seed→expand, served from the one correlated collection (vector hit → node
         is identity, not a join). Empty when no vectors are co-indexed.
         """
-        collection = await self._symbol_vectors()
+        collection = await self._symbol_records()
         if collection is None:
             return []
-        hits = await collection.search(query_vector, top_k=top_k, filters=filters or None)
+        search_filters = dict(filters or {})
+        search_filters["has_embedding"] = True
+        hits = await collection.search(query_vector, top_k=top_k, filters=search_filters)
         nodes: List[GraphNode] = []
         for hit in hits or []:
             oid = hit.get("id") if isinstance(hit, dict) else None
@@ -499,6 +611,8 @@ class ProximaGraphStore(GraphStoreProtocol):
         return [self._from_proxima_node(n) for n in raw]
 
     async def get_node_by_id(self, node_id: str) -> Optional[GraphNode]:
+        if node_id in self._record_nodes:
+            return self._record_nodes[node_id]
         graph = await self._ensure()
         raw = await asyncio.to_thread(graph.get_node_by_id, node_id)
         if raw is not None:
@@ -508,14 +622,20 @@ class ProximaGraphStore(GraphStoreProtocol):
     async def get_all_nodes(self) -> List[GraphNode]:
         graph = await self._ensure()
         raw = await asyncio.to_thread(lambda: graph.get_all_nodes(include_internal=True))
-        nodes = [self._from_proxima_node(n) for n in raw]
+        by_id = {node.node_id: node for node in (self._from_proxima_node(n) for n in raw)}
+        by_id.update(self._record_nodes)
+        nodes = list(by_id.values())
         nodes.sort(key=lambda n: (n.file, n.line or 0, n.name))
         return nodes
 
     async def get_nodes_by_file(self, file: str) -> List[GraphNode]:
         graph = await self._ensure()
         raw = await asyncio.to_thread(graph.get_nodes_by_file, file)
-        nodes = [self._from_proxima_node(n) for n in raw]
+        by_id = {node.node_id: node for node in (self._from_proxima_node(n) for n in raw)}
+        by_id.update(
+            (node_id, node) for node_id, node in self._record_nodes.items() if node.file == file
+        )
+        nodes = list(by_id.values())
         nodes.sort(key=lambda n: (n.line or 0, n.name))
         return nodes
 
@@ -569,36 +689,49 @@ class ProximaGraphStore(GraphStoreProtocol):
             self._subgraph_cache.pop(sg_id, None)
 
     async def _delete_node(self, node_id: str) -> None:
-        if self._client is None:
-            return
-        delete_node = getattr(self._client, "delete_node", None)
-        if delete_node is not None:
-            try:
-                await asyncio.to_thread(delete_node, node_id=node_id, graph_id=self._graph_id)
-            except Exception as exc:  # pragma: no cover - depends on live server
-                logger.debug("delete_node(%s) failed: %s", node_id, exc)
-        # Drop the co-indexed vector under the same oid (one entity, one delete).
-        if self._symbol_collection is not None:
-            try:
-                await self._symbol_collection.delete([node_id])
-            except Exception as exc:  # pragma: no cover
-                logger.debug("vector delete(%s) failed: %s", node_id, exc)
+        # Delete the authoritative record as one entity, then its ORION projection.
+        collection = await self._symbol_records()
+        if collection is None:
+            raise RuntimeError("ProximaDB atomic record collection is unavailable")
+        deleted = await collection.delete([node_id])
+        if deleted is not None and int(deleted) < 1:
+            logger.debug("record %s was already absent", node_id)
+        self._record_nodes.pop(node_id, None)
+        self._record_vectors.pop(node_id, None)
+        self._record_node_ids.discard(node_id)
+        if self._client is not None:
+            delete_node = getattr(self._client, "delete_node", None)
+            if delete_node is not None:
+                try:
+                    await asyncio.to_thread(delete_node, node_id=node_id, graph_id=self._graph_id)
+                except Exception as exc:  # pragma: no cover - depends on live server
+                    logger.debug("delete_node(%s) failed: %s", node_id, exc)
 
-    async def _clear_symbol_vectors(self) -> None:
-        """Delete the embedded symbol collection and invalidate cached handles."""
-        if self._conn is None:
-            return
-        deleted = await self._conn.embedded_db.delete_collection(self._symbol_collection_name)
-        if not deleted:
-            raise RuntimeError(
-                f"Failed to delete ProximaDB collection {self._symbol_collection_name}"
-            )
-        self._conn.forget_collection(self._symbol_collection_name)
+    async def _clear_symbol_records(self) -> None:
+        """Delete the unified symbol-record authority and invalidate projections."""
+        if self._conn is not None:
+            deleted = await self._conn.embedded_db.delete_collection(self._symbol_collection_name)
+            if not deleted:
+                raise RuntimeError(
+                    f"Failed to delete ProximaDB collection {self._symbol_collection_name}"
+                )
+            self._conn.forget_collection(self._symbol_collection_name)
+        elif self._symbol_collection is not None:
+            clear = getattr(self._symbol_collection, "clear", None)
+            if clear is not None:
+                await clear()
+            elif self._record_node_ids:
+                await self._symbol_collection.delete(sorted(self._record_node_ids))
         self._symbol_collection = None
+        self._record_nodes.clear()
+        self._record_vectors.clear()
+        self._record_node_ids.clear()
 
     async def delete_by_repo(self, clear_embeddings: bool = False) -> None:
-        if clear_embeddings:
-            await self._clear_symbol_vectors()
+        # Graph properties and embeddings are one record now; clearing only one
+        # modality is structurally impossible. The compatibility flag is ignored.
+        del clear_embeddings
+        await self._clear_symbol_records()
         if self._client is None:
             await self._cpg_store.clear()
             self._file_mtimes.clear()
