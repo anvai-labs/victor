@@ -25,8 +25,10 @@ navigable view of the codebase. Victor has the pieces — the shared `victor-cod
   unpopulated, so a code change can rewrite text and re-embedding in two non-atomic writes (TD-12).
 - **No correlated backend.** `proximadb_provider.py` is not yet a real `GraphStoreProtocol`
   implementation, so the SQLite+Lance pair can't be replaced by one correlated collection (TD-11).
-- **Whole-CPG in RAM doesn't scale.** Indexing symbols + cross-fn edges *and* intra-procedural CPG
-  into the live graph is memory-heavy; the Tier-A/Tier-B split (TD-13) is designed but not landed.
+- **Whole-CPG in RAM doesn't scale.** Indexing symbols + cross-fn edges *and*
+  intra-procedural CPG into the live graph is memory-heavy. The local
+  Tier-A/Tier-B boundary now keeps statement/CFG/CDG/DDG fragments out of ORION;
+  the Proxima PAX/columnar service representation and RAM benchmark remain.
 
 The decisions (ADR-014/015) and the work (TD-11/12/13) exist; what's missing is the ADR that names
 the **GA target** those converge toward.
@@ -76,7 +78,9 @@ seam). Sequenced by the existing register items:
 
 1. **TD-12** — correlate embedding↔node on `oid`; retire `embedding_ref`; make the upsert atomic.
 2. **TD-11** — implement `ProximaGraphStore` behind `GraphStoreProtocol`; keep SQLite as fallback.
-3. **TD-13** — land the Tier-A/Tier-B split; verify the RAM envelope.
+3. **TD-13** — ✅ land the local Tier-A/Tier-B routing and durable drill-down
+   seam; ⏳ move the cold representation to Proxima PAX/columnar fragments and
+   verify the RAM envelope.
 4. On GA-criterion pass, complete ADR-015's later phases and flip this ADR to Accepted.
 
 ## Alternatives Considered

@@ -27,6 +27,8 @@ except Exception as _exc:  # pragma: no cover - environment-dependent
 from proximadb_sdk.graph import ProximaDBGraph  # noqa: E402
 
 from victor.storage.graph import GraphEdge, GraphNode, SqliteGraphStore  # noqa: E402
+from victor.storage.graph.cpg_fragments import CpgFragmentStore  # noqa: E402
+from victor.storage.graph.edge_types import EdgeType  # noqa: E402
 from victor.storage.graph.proxima_store import ProximaGraphStore  # noqa: E402
 
 
@@ -409,3 +411,133 @@ async def test_delete_by_repo_stops_before_graph_reset_when_vector_cleanup_fails
 
     assert await proxima.get_all_nodes()
     assert proxima._file_hashes == {"a.py": "abc"}
+
+
+async def test_tier_boundary_keeps_cpg_out_of_hot_graph_and_drills_down_on_demand(tmp_path):
+    client = FakeProximaClient()
+    graph = ProximaDBGraph(client, "tiered_codegraph")
+    fragments = CpgFragmentStore(tmp_path / "cpg-fragments.sqlite3")
+    store = ProximaGraphStore(
+        graph=graph,
+        client=client,
+        repo="tiered",
+        cpg_store=fragments,
+    )
+    symbol = GraphNode("fn:a", "function", "a", "src/a.py", line=1)
+    statements = [
+        GraphNode(
+            "stmt:1",
+            "statement",
+            "assignment:2",
+            "src/a.py",
+            line=2,
+            scope_id="fn:a",
+            statement_type="assignment",
+        ),
+        GraphNode(
+            "stmt:2",
+            "statement",
+            "return:3",
+            "src/a.py",
+            line=3,
+            scope_id="fn:a",
+            statement_type="return",
+        ),
+    ]
+
+    await store.upsert_nodes([symbol, *statements])
+    await store.upsert_edges(
+        [
+            GraphEdge("fn:a", "fn:b", EdgeType.CALLS),
+            GraphEdge("stmt:1", "stmt:2", EdgeType.CFG_SUCCESSOR),
+            GraphEdge("stmt:1", "stmt:2", EdgeType.DDG_DEF_USE),
+        ]
+    )
+
+    # Tier A remains the only globally traversable/scan-visible graph.
+    assert set(client.nodes) == {"fn:a"}
+    assert {edge["edge_type"] for edge in client.edges} == {EdgeType.CALLS}
+    assert [node.node_id for node in await store.get_all_nodes()] == ["fn:a"]
+    assert {edge.type for edge in await store.get_all_edges()} == {EdgeType.CALLS}
+    assert {edge.type for edge in await store.get_neighbors("stmt:1")} == set()
+
+    # Explicit statement and CCG requests drill into Tier B without promoting it.
+    assert [node.node_id for node in await store.get_nodes_by_statement_type("assignment")] == [
+        "stmt:1"
+    ]
+    assert {node.node_id for node in await store.get_nodes_by_scope("fn:a")} == {
+        "stmt:1",
+        "stmt:2",
+    }
+    assert [
+        node.node_id
+        for node in await store.find_nodes(name="return:3", type="statement", file="src/a.py")
+    ] == ["stmt:2"]
+    assert (await store.get_node_by_id("stmt:2")).statement_type == "return"
+    cold_edges = await store.get_neighbors(
+        "stmt:1",
+        edge_types={EdgeType.CFG_SUCCESSOR, EdgeType.DDG_DEF_USE},
+        direction="out",
+    )
+    assert {edge.type for edge in cold_edges} == {
+        EdgeType.CFG_SUCCESSOR,
+        EdgeType.DDG_DEF_USE,
+    }
+    cold_batches = [
+        batch
+        async for batch in store.iter_edges(
+            batch_size=1,
+            edge_types={EdgeType.CFG_SUCCESSOR, EdgeType.DDG_DEF_USE},
+        )
+    ]
+    assert all(len(batch) == 1 for batch in cold_batches)
+    assert {edge.type for batch in cold_batches for edge in batch} == {
+        EdgeType.CFG_SUCCESSOR,
+        EdgeType.DDG_DEF_USE,
+    }
+
+    stats = await store.stats()
+    assert stats["tier_a_nodes"] == 1
+    assert stats["tier_a_edges"] == 1
+    assert stats["tier_b_nodes"] == 2
+    assert stats["tier_b_edges"] == 2
+    await store.close()
+
+
+async def test_tier_boundary_deletes_hot_and_cold_file_state(tmp_path):
+    client = FakeProximaClient()
+    graph = ProximaDBGraph(client, "tiered_codegraph")
+    store = ProximaGraphStore(
+        graph=graph,
+        client=client,
+        repo="tiered",
+        cpg_store=CpgFragmentStore(tmp_path / "cpg-fragments.sqlite3"),
+    )
+    await store.upsert_nodes(
+        [
+            GraphNode("fn:a", "function", "a", "src/a.py"),
+            GraphNode(
+                "stmt:a",
+                "statement",
+                "return:2",
+                "src/a.py",
+                line=2,
+                scope_id="fn:a",
+                statement_type="return",
+            ),
+        ]
+    )
+    await store.upsert_edges([GraphEdge("stmt:a", "stmt:a", EdgeType.CFG_LOOP_BACK)])
+
+    await store.delete_by_file("src/a.py")
+
+    assert client.nodes == {}
+    assert await store.get_node_by_id("stmt:a") is None
+    assert (await store.stats())["tier_b_nodes"] == 0
+
+    await store.upsert_nodes(
+        [GraphNode("stmt:b", "statement", "return:1", "src/b.py", statement_type="return")]
+    )
+    await store.delete_by_repo()
+    assert (await store.stats())["tier_b_nodes"] == 0
+    await store.close()

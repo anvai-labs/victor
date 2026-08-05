@@ -15,9 +15,11 @@
 """ProximaDB-backed graph store (Code Context Graph backend, TD-11/12/13).
 
 ``ProximaGraphStore`` implements :class:`GraphStoreProtocol` over ProximaDB's
-ORION graph engine via ``proximadb_sdk.graph.ProximaDBGraph``. It collapses the
-SQLite ``graph_*`` tables + LanceDB vectors into one correlated collection where
-a code symbol is **one** entity addressed by a single ``oid``
+ORION graph engine via ``proximadb_sdk.graph.ProximaDBGraph``. Tier-A symbols and
+semantic edges live in the correlated hot graph, while Tier-B statement nodes
+and CFG/CDG/DDG edges are routed to durable, indexed CPG fragments and fetched
+only for explicit dataflow drilldowns. A code symbol is **one** hot entity
+addressed by a single ``oid``
 (``graph/{repo}/node/{symbol_oid}``): the graph node id and the vector record id
 are the same string, so a vector hit maps to its graph node by identity and the
 always-empty ``graph_node.embedding_ref`` bridge is retired.
@@ -41,6 +43,8 @@ import time
 from pathlib import Path
 from typing import Any, AsyncIterator, Dict, Iterable, List, Optional
 
+from victor.storage.graph.cpg_fragments import CpgFragmentStore, CpgFragmentStoreProtocol
+from victor.storage.graph.edge_types import EdgeType
 from victor.storage.graph.protocol import (
     GraphEdge,
     GraphNode,
@@ -94,6 +98,7 @@ class ProximaGraphStore(GraphStoreProtocol):
         binary_path: Optional[str] = None,
         graph: Any = None,
         client: Any = None,
+        cpg_store: CpgFragmentStoreProtocol | None = None,
     ) -> None:
         """Create a ProximaGraphStore.
 
@@ -113,6 +118,8 @@ class ProximaGraphStore(GraphStoreProtocol):
                 against an in-memory fake client without a server binary.
             client: Pre-built ProximaDB client (used with an injected graph for
                 node/edge deletion which ``ProximaDBGraph`` does not expose).
+            cpg_store: Optional Tier-B fragment store. By default, statement
+                nodes and CFG/CDG/DDG edges are persisted under ``data_dir``.
         """
         self._project_path = Path(project_path).resolve() if project_path else None
         self._repo = repo or repo_id_from_path(self._project_path)
@@ -146,6 +153,12 @@ class ProximaGraphStore(GraphStoreProtocol):
         self._file_mtimes: Dict[str, float] = {}
         self._file_hashes: Dict[str, str] = {}
         self._subgraph_cache: Dict[str, Subgraph] = {}
+
+        # Tier A is the ORION graph above. Tier B is deliberately a separate,
+        # durable fragment index so statements and intra-procedural edges never
+        # inflate default graph scans/traversals. It is initialized lazily only
+        # when a CPG write or explicit dataflow drilldown occurs.
+        self._cpg_store = cpg_store or CpgFragmentStore(self._data_dir / "cpg_fragments.sqlite3")
 
     @property
     def repo_root(self) -> Optional[Path]:
@@ -195,6 +208,7 @@ class ProximaGraphStore(GraphStoreProtocol):
         self._initialized = True
 
     async def close(self) -> None:
+        await self._cpg_store.close()
         if self._conn is not None:
             await self._conn.release()
             self._conn = None
@@ -286,16 +300,26 @@ class ProximaGraphStore(GraphStoreProtocol):
     # Writes
     # ------------------------------------------------------------------
     async def upsert_nodes(self, nodes: Iterable[GraphNode]) -> None:
-        graph = await self._ensure()
-        payload = [self._to_proxima_node(n) for n in nodes]
-        if payload:
+        node_list = list(nodes)
+        hot_nodes = [node for node in node_list if node.type != "statement"]
+        cold_nodes = [node for node in node_list if node.type == "statement"]
+        if hot_nodes:
+            graph = await self._ensure()
+            payload = [self._to_proxima_node(node) for node in hot_nodes]
             await asyncio.to_thread(graph.batch_create_nodes, payload)
+        if cold_nodes:
+            await self._cpg_store.upsert_nodes(cold_nodes)
 
     async def upsert_edges(self, edges: Iterable[GraphEdge]) -> None:
-        graph = await self._ensure()
-        payload = [self._to_proxima_edge(e) for e in edges]
-        if payload:
+        edge_list = list(edges)
+        hot_edges = [edge for edge in edge_list if not EdgeType.is_ccg_edge(edge.type)]
+        cold_edges = [edge for edge in edge_list if EdgeType.is_ccg_edge(edge.type)]
+        if hot_edges:
+            graph = await self._ensure()
+            payload = [self._to_proxima_edge(edge) for edge in hot_edges]
             await asyncio.to_thread(graph.batch_create_edges, payload)
+        if cold_edges:
+            await self._cpg_store.upsert_edges(cold_edges)
 
     async def update_node_metadata(self, node_id: str, metadata: Dict[str, Any]) -> None:
         """Merge ``metadata`` into a node's free-form metadata and re-upsert.
@@ -388,6 +412,56 @@ class ProximaGraphStore(GraphStoreProtocol):
             raise ValueError(f"Unsupported graph traversal direction: {direction}")
         if max_depth < 1:
             return []
+
+        requested_types = list(edge_types) if edge_types is not None else []
+        if requested_types:
+            cold_types = [
+                edge_type for edge_type in requested_types if EdgeType.is_ccg_edge(edge_type)
+            ]
+            hot_types = [
+                edge_type for edge_type in requested_types if not EdgeType.is_ccg_edge(edge_type)
+            ]
+            if cold_types and not hot_types:
+                return await self._cpg_store.get_neighbors(
+                    node_id,
+                    cold_types,
+                    direction=direction,
+                    max_depth=max_depth,
+                )
+            if cold_types:
+                hot_result, cold_result = await asyncio.gather(
+                    self._get_hot_neighbors(
+                        node_id,
+                        hot_types,
+                        direction=direction,
+                        max_depth=max_depth,
+                    ),
+                    self._cpg_store.get_neighbors(
+                        node_id,
+                        cold_types,
+                        direction=direction,
+                        max_depth=max_depth,
+                    ),
+                )
+                return self._sorted_edges([*hot_result, *cold_result])
+
+        # An unfiltered traversal is intentionally Tier A only. Cold CPG data
+        # must be requested through explicit CFG/CDG/DDG edge filters.
+        return await self._get_hot_neighbors(
+            node_id,
+            requested_types or None,
+            direction=direction,
+            max_depth=max_depth,
+        )
+
+    async def _get_hot_neighbors(
+        self,
+        node_id: str,
+        edge_types: Optional[Iterable[str]] = None,
+        *,
+        direction: GraphTraversalDirection = "both",
+        max_depth: int = 1,
+    ) -> List[GraphEdge]:
         graph = await self._ensure()
         allowed = list(edge_types) if edge_types else None
         raw = await asyncio.to_thread(
@@ -406,6 +480,8 @@ class ProximaGraphStore(GraphStoreProtocol):
         type: str | None = None,
         file: str | None = None,
     ) -> List[GraphNode]:
+        if type == "statement":
+            return await self._cpg_store.find_nodes(name=name, file=file)
         graph = await self._ensure()
         raw = await asyncio.to_thread(lambda: graph.find_nodes(name=name, type=type, file=file))
         return [self._from_proxima_node(n) for n in raw]
@@ -425,7 +501,9 @@ class ProximaGraphStore(GraphStoreProtocol):
     async def get_node_by_id(self, node_id: str) -> Optional[GraphNode]:
         graph = await self._ensure()
         raw = await asyncio.to_thread(graph.get_node_by_id, node_id)
-        return self._from_proxima_node(raw) if raw is not None else None
+        if raw is not None:
+            return self._from_proxima_node(raw)
+        return await self._cpg_store.get_node_by_id(node_id)
 
     async def get_all_nodes(self) -> List[GraphNode]:
         graph = await self._ensure()
@@ -477,12 +555,14 @@ class ProximaGraphStore(GraphStoreProtocol):
     async def delete_by_file(self, file: str) -> None:
         await self._ensure()
         nodes = await self.get_nodes_by_file(file)
+        cold_nodes = await self._cpg_store.get_nodes_by_file(file)
         for node in nodes:
             await self._delete_node(node.node_id)
+        await self._cpg_store.delete_by_file(file)
         self._file_mtimes.pop(str(file), None)
         self._file_hashes.pop(str(file), None)
         # Invalidate any cached subgraphs anchored on deleted nodes.
-        deleted_ids = {n.node_id for n in nodes}
+        deleted_ids = {n.node_id for n in [*nodes, *cold_nodes]}
         for sg_id in [
             sg_id for sg_id, sg in self._subgraph_cache.items() if sg.anchor_node_id in deleted_ids
         ]:
@@ -520,6 +600,7 @@ class ProximaGraphStore(GraphStoreProtocol):
         if clear_embeddings:
             await self._clear_symbol_vectors()
         if self._client is None:
+            await self._cpg_store.clear()
             self._file_mtimes.clear()
             self._file_hashes.clear()
             self._subgraph_cache.clear()
@@ -536,6 +617,7 @@ class ProximaGraphStore(GraphStoreProtocol):
                 await asyncio.to_thread(create_graph, self._graph_id)
             except Exception:  # pragma: no cover
                 pass
+        await self._cpg_store.clear()
         self._file_mtimes.clear()
         self._file_hashes.clear()
         self._subgraph_cache.clear()
@@ -550,13 +632,20 @@ class ProximaGraphStore(GraphStoreProtocol):
         except Exception as exc:  # pragma: no cover
             logger.debug("get_stats failed: %s", exc)
             raw = {}
+        raw_stats = raw if isinstance(raw, dict) else {}
+        cold_stats = await self._cpg_store.stats()
         return {
             "backend": "proxima",
             "repo": self._repo,
             "graph_id": self._graph_id,
             "embedding_mode": self._embedding_mode.value,
             "service_mode_wip": bool(self._server_url),
-            **(raw if isinstance(raw, dict) else {}),
+            **raw_stats,
+            "tier_a_nodes": int(raw_stats.get("node_count", raw_stats.get("nodes", 0))),
+            "tier_a_edges": int(raw_stats.get("edge_count", raw_stats.get("edges", 0))),
+            "tier_b_nodes": cold_stats["nodes"],
+            "tier_b_edges": cold_stats["edges"],
+            "tier_b_files": cold_stats["files"],
         }
 
     # ------------------------------------------------------------------
@@ -565,14 +654,15 @@ class ProximaGraphStore(GraphStoreProtocol):
     async def get_nodes_by_statement_type(
         self, statement_type: str, *, file: str | None = None
     ) -> List[GraphNode]:
-        nodes = await (self.get_nodes_by_file(file) if file else self.get_all_nodes())
-        return [n for n in nodes if n.statement_type == statement_type]
+        return await self._cpg_store.get_nodes_by_statement_type(statement_type, file=file)
 
     async def get_nodes_by_requirement(self, requirement_id: str) -> List[GraphNode]:
-        return [n for n in await self.get_all_nodes() if n.requirement_id == requirement_id]
+        hot = [n for n in await self.get_all_nodes() if n.requirement_id == requirement_id]
+        cold = await self._cpg_store.get_nodes_by_requirement(requirement_id)
+        return [*hot, *cold]
 
     async def get_nodes_by_scope(self, scope_id: str) -> List[GraphNode]:
-        return [n for n in await self.get_all_nodes() if n.scope_id == scope_id]
+        return await self._cpg_store.get_nodes_by_scope(scope_id)
 
     # ------------------------------------------------------------------
     # Subgraph cache (in-memory; computed via multi-hop traversal)
@@ -730,12 +820,24 @@ class ProximaGraphStore(GraphStoreProtocol):
         batch_size: int = 100,
         edge_types: Iterable[str] | None = None,
     ) -> AsyncIterator[List[GraphEdge]]:
-        allowed = set(edge_types) if edge_types else None
-        edges = await self.get_all_edges()
-        if allowed is not None:
-            edges = [e for e in edges if e.type in allowed]
-        for i in range(0, len(edges), batch_size):
-            yield edges[i : i + batch_size]
+        requested = list(edge_types) if edge_types is not None else []
+        cold_types = [edge_type for edge_type in requested if EdgeType.is_ccg_edge(edge_type)]
+        hot_types = [edge_type for edge_type in requested if not EdgeType.is_ccg_edge(edge_type)]
+
+        # Unfiltered iteration is Tier A only; Tier B must always be explicit.
+        if not requested or hot_types:
+            allowed = set(hot_types) if requested else None
+            edges = await self.get_all_edges()
+            if allowed is not None:
+                edges = [edge for edge in edges if edge.type in allowed]
+            for i in range(0, len(edges), batch_size):
+                yield edges[i : i + batch_size]
+
+        if cold_types:
+            async for batch in self._cpg_store.iter_edges(
+                batch_size=batch_size, edge_types=cold_types
+            ):
+                yield batch
 
     async def iter_neighbors(
         self,
