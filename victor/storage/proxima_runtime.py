@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import asyncio
 import enum
+import inspect
 import logging
 import re
 from pathlib import Path
@@ -229,6 +230,39 @@ async def start_embedded_db(
     return db
 
 
+def _uds_kwargs(db: Any) -> Dict[str, str]:
+    """Return the ``uds_path`` kwarg for a portless embedded instance, if any.
+
+    Embedded ProximaDB binds Unix-domain sockets rather than TCP ports by
+    default, because fixed ports collide between concurrent instances. In that
+    mode ``rest_url`` is only a host header, so a client built from it must be
+    given the socket to connect through.
+
+    Returns an empty mapping for a TCP instance, and also when the installed SDK
+    predates ``ProximaDBClient(uds_path=...)`` — callers keep working against an
+    older SDK instead of failing on an unexpected keyword.
+    """
+    if getattr(db, "socket_dir", None) is None:
+        return {}
+    try:
+        socket_path = str(db.rest_socket_path)
+    except Exception:  # pragma: no cover - SDK without UDS support
+        return {}
+
+    from proximadb_sdk.unified_client import ProximaDBClient
+
+    if "uds_path" not in inspect.signature(ProximaDBClient.__init__).parameters:
+        logger.warning(
+            "Embedded ProximaDB is portless (UDS at %s) but the installed SDK's "
+            "ProximaDBClient has no uds_path parameter; graph operations will "
+            "fail to connect. Upgrade proximadb, or start the server with "
+            "transport='tcp'.",
+            socket_path,
+        )
+        return {}
+    return {"uds_path": socket_path}
+
+
 # ---------------------------------------------------------------------------
 # Shared per-repo connection — one embedded instance for graph + vectors
 # ---------------------------------------------------------------------------
@@ -290,7 +324,18 @@ class ProximaRepoConnection:
         self._db = await start_embedded_db(self._data_dir, binary_path=self._binary_path)
         # Graph + vector ops are served over REST (the gRPC client has no graph
         # RPCs), so the shared client is pinned to the REST protocol.
-        self._client = ProximaDBClient(url=self._db.rest_url, protocol="rest")
+        #
+        # The embedded server is portless by default: it binds a Unix-domain
+        # socket and `rest_url` degrades to the host-header sentinel
+        # "http://localhost" with no port. A plain TCP client built from that
+        # URL silently targets port 80, so every graph call fails with
+        # ECONNREFUSED while ProximaRecord writes still succeed through the
+        # SDK's own UDS-aware client — a split-transport state where the
+        # authoritative record commits but its ORION projection never lands.
+        # Pass the socket through so both halves share one transport.
+        self._client = ProximaDBClient(
+            url=self._db.rest_url, protocol="rest", **_uds_kwargs(self._db)
+        )
 
     @property
     def client(self) -> Any:
