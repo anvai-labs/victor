@@ -206,8 +206,8 @@ class GraphStoreProtocol(Protocol):
         """
         ...
 
-    async def delete_by_repo(self) -> None:
-        """Clear current repo graph (per-repo store)."""
+    async def delete_by_repo(self, clear_embeddings: bool = False) -> None:
+        """Clear current repo graph and optionally its co-indexed embeddings."""
         ...
 
     async def stats(self) -> Dict[str, Any]: ...

@@ -504,10 +504,25 @@ class ProximaGraphStore(GraphStoreProtocol):
             except Exception as exc:  # pragma: no cover
                 logger.debug("vector delete(%s) failed: %s", node_id, exc)
 
-    async def delete_by_repo(self) -> None:
-        self._file_mtimes.clear()
-        self._subgraph_cache.clear()
+    async def _clear_symbol_vectors(self) -> None:
+        """Delete the embedded symbol collection and invalidate cached handles."""
+        if self._conn is None:
+            return
+        deleted = await self._conn.embedded_db.delete_collection(self._symbol_collection_name)
+        if not deleted:
+            raise RuntimeError(
+                f"Failed to delete ProximaDB collection {self._symbol_collection_name}"
+            )
+        self._conn.forget_collection(self._symbol_collection_name)
+        self._symbol_collection = None
+
+    async def delete_by_repo(self, clear_embeddings: bool = False) -> None:
+        if clear_embeddings:
+            await self._clear_symbol_vectors()
         if self._client is None:
+            self._file_mtimes.clear()
+            self._file_hashes.clear()
+            self._subgraph_cache.clear()
             return
         delete_graph = getattr(self._client, "delete_graph", None)
         if delete_graph is not None:
@@ -521,6 +536,9 @@ class ProximaGraphStore(GraphStoreProtocol):
                 await asyncio.to_thread(create_graph, self._graph_id)
             except Exception:  # pragma: no cover
                 pass
+        self._file_mtimes.clear()
+        self._file_hashes.clear()
+        self._subgraph_cache.clear()
 
     # ------------------------------------------------------------------
     # Stats

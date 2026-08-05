@@ -16,16 +16,45 @@
 
 from __future__ import annotations
 
+import inspect
+
 import pytest
 
+from victor.storage.graph.duckdb_store import DuckDBGraphStore
+from victor.storage.graph.memory_store import MemoryGraphStore
+from victor.storage.graph.proxima_store import ProximaGraphStore
 from victor.storage.graph.protocol import (
-    GraphNode,
     GraphEdge,
+    GraphNode,
+    GraphQueryResult,
+    GraphStoreProtocol,
+    GraphTraversalDirection,
     RequirementNode,
     Subgraph,
-    GraphQueryResult,
-    GraphTraversalDirection,
 )
+from victor.storage.graph.sqlite_store import SqliteGraphStore
+
+
+def test_delete_by_repo_contract_accepts_clear_embeddings_across_backends() -> None:
+    implementations = (MemoryGraphStore, SqliteGraphStore, DuckDBGraphStore, ProximaGraphStore)
+
+    for implementation in implementations:
+        parameter = inspect.signature(implementation.delete_by_repo).parameters.get(
+            "clear_embeddings"
+        )
+        assert parameter is not None, implementation.__name__
+        assert parameter.default is False, implementation.__name__
+
+
+@pytest.mark.asyncio
+async def test_memory_delete_by_repo_clears_all_sidecars() -> None:
+    store = MemoryGraphStore()
+    await store.update_file_mtime("a.py", 1.0, content_hash="abc")
+
+    await store.delete_by_repo(clear_embeddings=True)
+
+    assert await store.get_indexed_files() == []
+    assert await store.get_file_hashes(["a.py"]) == {}
 
 
 class TestGraphNode:
