@@ -1,0 +1,20 @@
+{
+  "judge": "modernbert-swebench-v1",
+  "trained_on": "run-1 (30 inst, 5 pos/25 neg)",
+  "tested_on": "run-2 held-out (30 inst, 4 pos/26 neg)",
+  "n": 30,
+  "n_pos": 4,
+  "n_neg": 26,
+  "agree": 26,
+  "true_pos": 0,
+  "false_pos": 0,
+  "true_neg": 26,
+  "false_neg": 4,
+  "krippendorff_alpha": -0.0535714285714286,
+  "cohens_kappa": 0.0,
+  "score_min": 0.017,
+  "score_max": 0.117,
+  "score_mean": 0.07,
+  "predicted_positive": 0,
+  "note": "majority-class collapse \u2014 4 training positives insufficient to learn a discriminator"
+}
