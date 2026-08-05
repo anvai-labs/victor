@@ -28,6 +28,16 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 
+# A change that maps past this many targets is a *sweeping* edit — a repo-wide
+# rename, license/email-header pass, or formatting run — not a proportional
+# feature change. Selecting its (near-full-suite) target set blows the fast
+# gate's wall-clock budget (observed: a 3,265-file email sweep mapped to
+# thousands of targets and the 25-min job was cancelled at ~5%). Past the cap we
+# select NOTHING and lean on the documented safety net — the sharded full suite
+# at develop->main — exactly as an unmapped change already does. Set well above
+# any real feature PR's footprint so it only trips on mechanical sweeps.
+MAX_SELECTED_TARGETS = 200
+
 
 def select(changed: list[str]) -> list[str]:
     targets: set[str] = set()
@@ -52,7 +62,16 @@ def select(changed: list[str]) -> list[str]:
                 test_dir.glob(f"test_{rel.stem}_*.py")
             ):
                 targets.add(str(cand.relative_to(ROOT)))
-    return sorted(targets)
+    result = sorted(targets)
+    if len(result) > MAX_SELECTED_TARGETS:
+        print(
+            f"select_changed_tests: {len(result)} targets exceed the "
+            f"{MAX_SELECTED_TARGETS} cap — treating as a sweeping/mechanical change; "
+            "selecting nothing and deferring to the develop->main full suite.",
+            file=sys.stderr,
+        )
+        return []
+    return result
 
 
 if __name__ == "__main__":
