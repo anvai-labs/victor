@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 import victor.storage.proxima_runtime as proxima_runtime
 from victor_codegraph import parse, to_proxima_records
 
@@ -53,6 +55,49 @@ def test_embedding_mode_coerce():
     assert ProximaEmbeddingMode.coerce(ProximaEmbeddingMode.COLD) is ProximaEmbeddingMode.COLD
     # Unknown values fall back to MEMORY rather than raising.
     assert ProximaEmbeddingMode.coerce("bogus") is ProximaEmbeddingMode.MEMORY
+
+
+class _FakeUdsDb:
+    """Portless embedded instance: UDS sockets, no TCP port."""
+
+    def __init__(self, socket_dir: Path) -> None:
+        self.socket_dir = socket_dir
+        self.rest_url = "http://localhost"  # host header only — carries no port
+
+    @property
+    def rest_socket_path(self) -> Path:
+        return self.socket_dir / "proximadb.rest.sock"
+
+
+class _FakeTcpDb:
+    socket_dir = None
+    rest_url = "http://localhost:15678"
+
+
+def test_uds_kwargs_empty_for_a_tcp_instance():
+    assert proxima_runtime._uds_kwargs(_FakeTcpDb()) == {}
+
+
+def test_uds_kwargs_passes_the_socket_for_a_portless_instance(tmp_path):
+    pytest.importorskip("proximadb_sdk")
+    db = _FakeUdsDb(tmp_path)
+
+    assert proxima_runtime._uds_kwargs(db) == {"uds_path": str(db.rest_socket_path)}
+
+
+def test_uds_kwargs_degrades_when_the_sdk_lacks_uds_support(tmp_path, monkeypatch, caplog):
+    """An older SDK must warn, not raise an unexpected-keyword TypeError."""
+    sdk = pytest.importorskip("proximadb_sdk.unified_client")
+
+    class _LegacyClient:
+        def __init__(self, url=None, protocol=None):  # no uds_path parameter
+            pass
+
+    monkeypatch.setattr(sdk, "ProximaDBClient", _LegacyClient)
+
+    with caplog.at_level("WARNING"):
+        assert proxima_runtime._uds_kwargs(_FakeUdsDb(tmp_path)) == {}
+    assert "uds_path" in caplog.text
 
 
 def test_registry_resolves_per_repo_marker(tmp_path):

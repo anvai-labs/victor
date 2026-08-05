@@ -3,9 +3,9 @@
 Status: Embedded backend and local Tier-A/Tier-B boundary implemented behind a
 per-repo flag; SQLite remains default (tracked as TD-11, TD-12, TD-13 in
 `../tech-stack.md`). Proxima columnar/service mode is WIP.
-Date: 2026-08-04
+Date: 2026-08-05
 
-## Implementation status (2026-08-04)
+## Implementation status (2026-08-05)
 
 The embedded ProximaDB backend is implemented and parity-verified at the adapter
 level; SQLite stays the default and nothing flips automatically.
@@ -49,22 +49,40 @@ level; SQLite stays the default and nothing flips automatically.
   **engine-side gate is now satisfied on ProximaDB `develop`**: TD-127/128 merged
   (PR #215, `40c08076`), TD-130 graph bulk-load merged (PR #220, `967f15db`), and
   REST v2 hybrid is live (`/api/v2/hybrid/search` + `/strategies` in the SDK). The
-  remaining blocker is operational, not API: there is **no built `proximadb-server`
-  binary** in this environment, so the embedded engine cannot start and live parity
-  cannot be measured yet. The code keeps the service-mode WIP guard and SQLite
-  default until a live parity bench passes (`cd proximaDB && cargo build --release`
-  to unblock). Arrow Flight bulk-load and ORION native centrality (steps below) are
-  also still pending on that live verification.
+  service-mode WIP guard and the SQLite default stay in place until a live
+  **bench** (not just parity) passes. Arrow Flight bulk-load and ORION native
+  centrality (steps below) remain pending on that measurement.
+- **Live parity is verified (2026-08-05).** An earlier revision of this document
+  claimed live parity could not be measured because no `proximadb-server` binary
+  existed here. That was stale: a release binary was available, and both live
+  suites now pass against a real embedded instance — `impact_analysis`
+  (forward/backward) and hybrid seed→expand match SQLite, and a vector resolves to
+  its graph node by `oid`. Getting there required two fixes, because a live run
+  exercised seams the fake-client unit tests cannot reach:
+  - **Embedded transport.** ProximaDB #264 made embedded mode portless (UDS
+    sockets, no TCP port), so `rest_url` degrades to the host-header sentinel
+    `http://localhost`. `ProximaRepoConnection` built a plain TCP client from it,
+    so every ORION call failed with `ECONNREFUSED` while ProximaRecord writes
+    still succeeded through the SDK's own UDS-aware client. That split transport
+    meant the authoritative record committed and its projection never landed —
+    the exact skew the atomic-record boundary exists to prevent. Fixed by
+    plumbing the socket through (needs `ProximaDBClient(uds_path=…)`, proximaDB
+    PR #1447).
+  - **Stale parity fixture.** The embedded parity test injected a pre-built
+    graph/client, bypassing the connection that owns the record collection, so it
+    failed before any assertion. It now drives the production bootstrap.
 - **Local source dependency gate:** Victor's development virtualenv resolves the
   pure-Python `proximadb` 0.2.2 SDK directly from `../proximaDB/clients/python`.
-  Do not pin a newer PyPI version until ProximaDB publishes it. A release-wheel
-  build reproduced at ProximaDB `develop@97e70be10` and its unchanged packaging
-  configuration through `f28b84cbb` currently fails: the root and embedded
-  maturin configs still request the removed `pylib` feature, while the actual
-  `crates/binding/proximadb-embedded` Python build is missing direct DataFusion,
-  tracing-subscriber, storage-common, and Arrow `pyarrow` feature wiring and has
-  stale root-crate module paths. This is a hard release gate, not a Victor
-  fallback to an older native wheel.
+  Do not pin a newer PyPI version until ProximaDB publishes it. The native
+  `proximadb_embedded` wheel could not be rebuilt because ProximaDB #1021 moved
+  the PyO3 bindings into `crates/binding/proximadb-embedded` without updating the
+  Python build config: maturin still targeted the root manifest (whose `python`
+  feature is now an empty stub and whose lib is `rlib`-only), requested the
+  removed `pylib` feature, and no crate declared a `cdylib`. Fixed in proximaDB
+  PR #1448. Note this wheel is a **separate artifact** from the pure-Python SDK
+  Victor actually uses at runtime — Victor's embedded mode spawns a
+  `proximadb-server` subprocess and never imports the native module, so the wheel
+  gates the PyPI release, not Victor's local verification.
 
 ## Atomic record boundary and failure model
 
@@ -189,7 +207,8 @@ Tier-B PAX fragment contract, optional transactional multi-modal write, code-emb
 
 1. ✅ Stand up `ProximaGraphStore` behind the existing `GraphStoreProtocol`; keep SQLite as the default.
 2. ✅ Parity test on a fixture repo: `impact_analysis(forward/backward)` and hybrid seed→expand match
-   the SQLite store on known symbols (adapter-level always-on + embedded gated).
+   the SQLite store on known symbols — adapter-level always-on, and **verified
+   live against a real embedded instance on 2026-08-05** (previously unmeasured).
 3. ✅ Enforce the local Tier-A/Tier-B storage boundary with durable, on-demand
    CPG fragments and restart/routing/deletion contract tests.
 4. ✅ Replace separate Tier-A vector and graph-metadata mutations with one
@@ -197,5 +216,7 @@ Tier-B PAX fragment contract, optional transactional multi-modal write, code-emb
 5. ⏳ Replace the local Tier-B representation with Proxima PAX/columnar
    fragments and verify per-function drill-down parity in service mode.
 6. ⏳ Bench Arrow Flight bulk-load + k-hop + hybrid latency; compare footprint vs the 2.4 GB SQLite + Lance
-   pair (projected ~120 MB f32 / ~35 MB SQ8 for Tier-A). Blocked on a built `proximadb-server` binary.
+   pair (projected ~120 MB f32 / ~35 MB SQ8 for Tier-A). No longer blocked on a
+   binary — a release `proximadb-server` builds and runs; this is now just an
+   unrun measurement.
 7. ⏳ Flip the default provider per-repo once parity holds (per-repo `.victor/graph_backend` flag exists; SQLite stays default).
