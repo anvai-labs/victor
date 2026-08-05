@@ -190,3 +190,28 @@ Reproduction::
         ~/.victor/evaluations/eval_manifest_<id>.jsonl \
         --judge llama3.3:70b --endpoint http://<ollama-host>:11434 \
         --out benchmarks/judge_calibration/labels/swe-bench-lite-30/llama3_3.json
+
+### Trained-classifier re-gate (2026-08-05) — the other half fails too
+
+The LLM re-gate above showed LLM judges **over-credit** on the real distribution. The natural
+follow-up: can a classifier *trained on real trajectories* do better? We harvested a second
+30-instance run (13.3% solve) for a 60-instance pool (9 pos / 51 neg), then ran the honest
+cross-run experiment — **train ModernBERT-base on run-1 (30 inst, 5 pos), test on run-2's
+unseen instances (30 inst, 4 pos)** — no leakage. Result JSON: `labels/swe-bench-lite-60/`.
+
+| Judge | real-SWE-bench α | failure mode |
+|---|---|---|
+| gemma4:31b (LLM) | −0.52 | over-credits (near-constant "complete") |
+| llama3.3:70b (LLM) | 0.26 | over-credits (all solves caught, many FP) |
+| **ModernBERT (trained on real)** | **−0.05** | **under-credits** — collapses to constant "incomplete" |
+
+The classifier's held-out scores spanned only 0.017–0.117 (predicted-positive 0/30): with just
+4 training positives it learned the majority class — TP=0, FP=0, TN=26, FN=4. So the two
+substitute approaches fail in **opposite directions** — the LLM judge says "done" too often, the
+small-data classifier says "not done" always — and **only the in-container verifier
+discriminates.** This reproduces the run-12 encoder collapse (α=−0.27) with a clean cross-run
+split, and closes the question the whole judge-independence arc opened: at the real shipping
+distribution, the acceptance oracle (ADR-012 / EVR) is not merely preferable but **necessary** —
+neither an LLM nor a cheaply-trained classifier is a viable stand-in until real positives are far
+less scarce (a stronger agent, not a bigger judge). Model artifact not committed (598 MB);
+regenerate via `benchmarks/judge_training/train_encoder.py` on the committed strata.
