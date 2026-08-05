@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import glob
 import importlib.util
 from pathlib import Path
 
@@ -20,7 +21,8 @@ def _load():
     return module
 
 
-select = _load().select
+_mod = _load()
+select = _mod.select
 
 
 def test_source_file_maps_to_mirror_tests():
@@ -56,3 +58,21 @@ def test_results_are_deduped_and_sorted():
     )
     assert out == sorted(set(out))
     assert "tests/unit/framework/test_client.py" in out
+
+
+def test_sweeping_change_exceeding_cap_selects_nothing():
+    # A repo-wide sweep (email/license header, rename) maps past the cap → the
+    # fast gate would approach the full suite, so we defer to develop->main.
+    # Use real, existing test files so the cap — not the existence check — is
+    # what trips.
+    real = sorted(glob.glob("tests/unit/**/test_*.py", recursive=True))
+    assert len(real) > _mod.MAX_SELECTED_TARGETS, "need enough real tests to exceed the cap"
+    over = real[: _mod.MAX_SELECTED_TARGETS + 25]
+    assert select(over) == []  # capped → nothing
+
+
+def test_at_or_below_cap_still_selects():
+    real = sorted(glob.glob("tests/unit/**/test_*.py", recursive=True))
+    under = real[:5]
+    out = select(under)
+    assert out == sorted(under) and len(out) == 5  # under cap → normal selection
