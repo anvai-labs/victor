@@ -41,14 +41,22 @@ logger = logging.getLogger(__name__)
 EVAL_CONTAINER_LABEL_VALUE = "eval"
 
 
-async def cleanup_stale_eval_containers() -> int:
-    """Remove orphaned victor-eval containers from prior crashed runs.
+async def cleanup_stale_sandbox_containers() -> int:
+    """Remove orphaned victor sandbox containers from prior crashed runs.
 
-    If a benchmark process dies (SIGHUP, crash, OOM) mid-task, the
-    ``EvalContainer.stop()`` in the ``finally`` block doesn't run → that
-    task's container stays. Over multiple runs these accumulate and can
-    exhaust Docker resources (disk, memory, container-limit). Call this at
-    benchmark START to sweep orphans labelled ``victor.sandbox=eval``.
+    If a benchmark process dies (SIGHUP, crash, OOM, manual kill) mid-task, the
+    ``finally``-block teardown doesn't run — ``EvalContainer.stop()`` for the
+    eval sandbox, and likewise the code-executor sandbox's own cleanup — so that
+    container stays alive. Over many crashed runs these accumulate and can
+    exhaust Docker resources (disk, memory, the daemon's container limit).
+
+    Call this at benchmark START to sweep every orphan under the
+    ``victor.sandbox`` label, both ``=eval`` and ``=code-executor`` values: any
+    sandbox container still alive at a fresh run start is by definition an
+    orphan (a live run holds its own container reference). Filtering by the
+    label KEY — not a single value — is what lets one sweep reclaim both
+    subsystems' leaks (an eval-only filter passed a 3,456-container / ~14 GB
+    code-executor pileup by).
 
     Returns the number of containers removed.
     """
@@ -59,7 +67,7 @@ async def cleanup_stale_eval_containers() -> int:
                 "ps",
                 "-aq",
                 "--filter",
-                f"label={SANDBOX_CONTAINER_LABEL}={EVAL_CONTAINER_LABEL_VALUE}",
+                f"label={SANDBOX_CONTAINER_LABEL}",
             ],
             timeout=30,
         )
@@ -68,9 +76,9 @@ async def cleanup_stale_eval_containers() -> int:
         ids = [line.strip() for line in out.decode().splitlines() if line.strip()]
         if not ids:
             return 0
-        rc, _, _ = await _run_cmd(["docker", "rm", "-f", *ids], timeout=60)
+        rc, _, _ = await _run_cmd(["docker", "rm", "-f", *ids], timeout=120)
         if rc == 0:
-            logger.info("Cleaned up %d stale eval container(s) at startup", len(ids))
+            logger.info("Cleaned up %d stale sandbox container(s) at startup", len(ids))
             return len(ids)
     except Exception as exc:
         logger.debug("Stale container cleanup failed (non-fatal): %s", exc)
