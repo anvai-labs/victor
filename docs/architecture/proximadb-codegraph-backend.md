@@ -1,10 +1,11 @@
 # ProximaDB as the Code Context Graph (CCG) Backend
 
-Status: Embedded backend implemented behind a per-repo flag; SQLite remains default
-(tracked as TD-11, TD-12, TD-13 in `../tech-stack.md`). Service mode is WIP.
-Date: 2026-06-22
+Status: Embedded backend and local Tier-A/Tier-B boundary implemented behind a
+per-repo flag; SQLite remains default (tracked as TD-11, TD-12, TD-13 in
+`../tech-stack.md`). Proxima columnar/service mode is WIP.
+Date: 2026-08-04
 
-## Implementation status (2026-06-22)
+## Implementation status (2026-08-04)
 
 The embedded ProximaDB backend is implemented and parity-verified at the adapter
 level; SQLite stays the default and nothing flips automatically.
@@ -24,6 +25,14 @@ level; SQLite stays the default and nothing flips automatically.
   `multi_hop_traverse_parallel`, …). The graph node id **is** the vector id (one
   `oid`); `embedding_ref` is dropped. Vector writes fail closed so the indexing
   pipeline leaves a failed node unmarked and retries it on the next run.
+- `victor/storage/graph/cpg_fragments.py` — the Tier-B boundary is live. The
+  Proxima adapter routes `statement` nodes and every CFG/CDG/DDG edge away from
+  ORION into a durable SQLite fragment index keyed by file, scope, statement
+  type, and edge endpoint. Default scans and unfiltered traversals remain Tier A;
+  explicit CCG filters and statement/scope lookups drill into Tier B. File/repo
+  deletion, restart persistence, bounded edge iteration, and per-tier stats are
+  contract-tested. This local indexed representation establishes the replaceable
+  boundary; Proxima PAX/columnar fragments remain the service-mode follow-up.
 - Selection: `create_graph_store("proxima", …)`, or per-repo via a
   `<project>/.victor/graph_backend` marker honored by `create_graph_store("auto", …)`
   (default `sqlite`). `impact_analysis` and the hybrid graph query tool resolve
@@ -97,9 +106,11 @@ key on, so vector hit → graph node is identity, not a join.
 - **Tier A — semantic graph (HOT, in-RAM):** ~80K symbol nodes + ~96K cross-fn edges + per-node 384-d
   vector → ORION graph + co-indexed vector. Drives `impact_analysis` (forward/backward k-hop), call paths,
   and hybrid semantic-seed → expand. ~120 MB f32 / ~35 MB SQ8 — fits memory.
-- **Tier B — intra-procedural CPG (COLD, columnar):** statements + DDG/CFG/CDG → columnar fragments per
-  function, fetched on dataflow drill-down. Never globally loaded; the real size driver stays off the hot
-  graph.
+- **Tier B — intra-procedural CPG (COLD fragments):** statements + DDG/CFG/CDG
+  are routed to the durable fragment store and fetched on dataflow drill-down.
+  The local implementation is SQLite indexed by file/scope; the service target
+  is PAX/columnar fragments per function. Tier B is never included in default
+  global scans, so the real size driver stays off the hot graph.
 - **Tier C — relational facts:** `code_file` / `code_import` / `code_module_metric` / `code_file_mtime`
   served from the same records; point-reads/upserts on the re-index hot path.
 
@@ -136,6 +147,10 @@ Tier-B PAX fragment contract, optional transactional multi-modal write, code-emb
 1. ✅ Stand up `ProximaGraphStore` behind the existing `GraphStoreProtocol`; keep SQLite as the default.
 2. ✅ Parity test on a fixture repo: `impact_analysis(forward/backward)` and hybrid seed→expand match
    the SQLite store on known symbols (adapter-level always-on + embedded gated).
-3. ⏳ Bench Arrow Flight bulk-load + k-hop + hybrid latency; compare footprint vs the 2.4 GB SQLite + Lance
+3. ✅ Enforce the local Tier-A/Tier-B storage boundary with durable, on-demand
+   CPG fragments and restart/routing/deletion contract tests.
+4. ⏳ Replace the local Tier-B representation with Proxima PAX/columnar
+   fragments and verify per-function drill-down parity in service mode.
+5. ⏳ Bench Arrow Flight bulk-load + k-hop + hybrid latency; compare footprint vs the 2.4 GB SQLite + Lance
    pair (projected ~120 MB f32 / ~35 MB SQ8 for Tier-A). Blocked on a built `proximadb-server` binary.
-4. ⏳ Flip the default provider per-repo once parity holds (per-repo `.victor/graph_backend` flag exists; SQLite stays default).
+6. ⏳ Flip the default provider per-repo once parity holds (per-repo `.victor/graph_backend` flag exists; SQLite stays default).
