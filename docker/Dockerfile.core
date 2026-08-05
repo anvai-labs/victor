@@ -1,4 +1,4 @@
-# Copyright 2025 Vijaykumar Singh <singhvjd@gmail.com>
+# Copyright 2025 Vijaykumar Singh <vijay@anvaiops.com>
 # SPDX-License-Identifier: Apache-2.0
 
 # Victor Core - Minimal LLM Orchestration Image
@@ -7,7 +7,7 @@
 
 FROM python:3.12-slim
 
-LABEL maintainer="Vijaykumar Singh <singhvjd@gmail.com>"
+LABEL maintainer="Vijaykumar Singh <vijay@anvaiops.com>"
 LABEL description="Victor Core - Minimal LLM Orchestration"
 LABEL version="0.3.0"
 

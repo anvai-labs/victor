@@ -2,7 +2,7 @@
 name = "rag"
 version = "0.5.1"
 description = "RAG vertical for document ingestion, vector search, and knowledge management"
-authors = [{name = "Vijaykumar Singh", email = "singhvjd@gmail.com"}]
+authors = [{name = "Vijaykumar Singh", email = "vijay@anvaiops.com"}]
 license = "Apache-2.0"
 requires_victor = ">=0.5.0"
 

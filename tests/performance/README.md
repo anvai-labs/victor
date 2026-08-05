@@ -267,6 +267,6 @@ When adding new performance tests:
 
 ## License
 
-Copyright 2025 Vijaykumar Singh <singhvjd@gmail.com>
+Copyright 2025 Vijaykumar Singh <vijay@anvaiops.com>
 
 Licensed under the Apache License, Version 2.0

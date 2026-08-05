@@ -7,7 +7,7 @@ created: 2025-01-09
 modified: 2025-01-09
 authors:
   - name: Vijaykumar Singh
-    email: singhvjd@gmail.com
+    email: vijay@anvaiops.com
     github: vjsingh1984
 reviewers: []
 discussion: https://github.com/anvai-labs/victor/discussions/3
@@ -1021,7 +1021,7 @@ registry.register(MyTool())  # DeprecationWarning: Use register(name, tool_class
 
 ### Submission
 
-- **Submitted by**: Vijaykumar Singh <singhvjd@gmail.com> (@vjsingh1984)
+- **Submitted by**: Vijaykumar Singh <vijay@anvaiops.com> (@vjsingh1984)
 - **Date**: 2025-01-09
 - **Pull Request**: (To be created)
 

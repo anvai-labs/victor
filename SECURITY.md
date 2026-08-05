@@ -47,7 +47,7 @@ We take security vulnerabilities seriously. If you discover a security issue, pl
 
 **Alternative: Email**
 
-If you prefer email, contact the maintainer directly at: `singhvjd@gmail.com`
+If you prefer email, contact the maintainer directly at: `vijay@anvaiops.com`
 
 - Use subject line: `[SECURITY] Brief description of issue`
 - If possible, encrypt sensitive details using PGP
