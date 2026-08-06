@@ -250,13 +250,29 @@ Four findings, none of which were visible before the bench existed:
   embedding path replaces one full ProximaRecord per symbol, so vector
   completion pays a whole-record write; SQLite updates a column. Worth
   attention before recommending Proxima for large first-time indexes.
-- **SQLite holds a consistent ~10× traversal advantage** (k-hop p50 0.06 ms vs
-  0.65 ms across every configuration).
-- **Step 7 is therefore a trade-off, not a graduation.** ~10× less disk against
-  ~10× slower traversal and ~3.5× slower embedded ingest. Which side wins
-  depends on whether a given repo is disk-bound or query-bound; that argues for
-  keeping the per-repo flag and a documented recommendation rather than flipping
-  a global default.
+- **SQLite's ~10× traversal advantage does not matter at these magnitudes.**
+  k-hop p50 is 0.06 ms vs 0.65 ms — a large ratio on a negligible absolute
+  number. Graph reads happen in tool calls inside an agent turn whose LLM
+  round-trip is measured in *seconds*; even 100 graph queries per turn costs
+  ~65 ms on Proxima, well under 1% of the turn. Retrieval latency is not a
+  differentiator between these backends and should not be weighted as one.
+- **Footprint is the decisive axis, and worktrees are why.** Victor development
+  routinely runs many linked worktrees at once, each carrying its own
+  `.victor/project.db` and embeddings. Per-worktree indexing is where a ~10×
+  reduction stops being a nice-to-have: the SQLite+Lance pair does not scale
+  across concurrent worktrees; Proxima does.
+- **Ingest is the one real regression.** ~3.5× slower with embeddings, paid on
+  first index and session start — the moments a developer actually waits.
+  Extrapolating the 87-file result linearly to Victor's ~1,452 source files
+  suggests roughly 12 min (Proxima) vs 3.4 min (SQLite). That is an
+  order-of-magnitude estimate, not a measurement.
+
+**Assessment for step 7:** the axes are not symmetric. Footprint favours Proxima
+structurally (per-worktree scaling), traversal latency is a wash in practice, and
+ingest is a fixable cost rather than an architectural one — the atomic-record
+boundary replaces a whole ProximaRecord per symbol on embedding completion
+because the v2 record contract exposes no partial/vector-only update. That is an
+upstream capability gap, raised as ProximaDB issue #1479 rather than worked around here.
 
 Not yet measured: hybrid seed→expand latency under load, SQ8 cold mode, and
 behaviour at the 3,659-file / 2.4 GB scale the original figure came from.
