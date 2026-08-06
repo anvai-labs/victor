@@ -199,10 +199,10 @@ def _render(results: List[Dict[str, Any]], *, embeddings: bool) -> str:
     # same data. Refuse to print a ratio across differing node counts.
     counts = {r.get("nodes") for r in usable}
     if len(usable) == 2 and len(counts) > 1:
+        detail = ", ".join("{}={}".format(r["backend"], r.get("nodes")) for r in usable)
         lines.append(
-            f"footprint ratio SUPPRESSED — backends hold different node counts "
-            f"({', '.join(f'{r['backend']}={r.get('nodes')}' for r in usable)}); "
-            "not a like-for-like comparison."
+            "footprint ratio SUPPRESSED — backends hold different node counts "
+            f"({detail}); not a like-for-like comparison."
         )
         usable = []
     if len(usable) == 2:
