@@ -769,6 +769,25 @@ class ProximaGraphStore(GraphStoreProtocol):
         cold_stats = await self._cpg_store.stats()
         tier_a_nodes = int(raw_stats.get("node_count", raw_stats.get("nodes", 0)))
         tier_a_edges = int(raw_stats.get("edge_count", raw_stats.get("edges", 0)))
+
+        # ORION's get_stats() reports 0 even when the graph demonstrably holds
+        # nodes — get_all_nodes() returns them on the same handle. Trusting the
+        # zero silently dropped the entire Tier-A symbol tier from the totals:
+        # `victor init` on a 70-file corpus reported 25,937 nodes against
+        # SQLite's 27,265, the difference being exactly the 1,328 symbols.
+        # A zero here is treated as "unreported", not "empty", and recounted
+        # from the authoritative read path. Tier-A is symbols only, so this is
+        # bounded well below the statement-level Tier-B volume.
+        if tier_a_nodes == 0:
+            try:
+                tier_a_nodes = len(await self.get_all_nodes())
+            except Exception as exc:  # pragma: no cover - depends on live server
+                logger.debug("Tier-A node recount failed: %s", exc)
+        if tier_a_edges == 0:
+            try:
+                tier_a_edges = len(await self.get_all_edges())
+            except Exception as exc:  # pragma: no cover - depends on live server
+                logger.debug("Tier-A edge recount failed: %s", exc)
         return {
             "backend": "proxima",
             "repo": self._repo,
