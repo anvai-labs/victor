@@ -349,9 +349,39 @@ class ProximaGraphStore(GraphStoreProtocol):
         if hot_edges:
             graph = await self._ensure()
             payload = [self._to_proxima_edge(edge) for edge in hot_edges]
-            await asyncio.to_thread(graph.batch_create_edges, payload)
+            result = await asyncio.to_thread(graph.batch_create_edges, payload)
+            # The return value used to be discarded, so a rejected batch left no
+            # trace at all: a `victor init` run landed its 1,258 CONTAINS edges
+            # and silently dropped every CALLS/INHERITS/IMPLEMENTS/COMPOSITION
+            # edge, and the only symptom was an edge count that did not match
+            # SQLite. Node projection already validates its result; edges now do
+            # too, so the next such failure names itself.
+            self._validate_edge_write(result, len(payload), hot_edges)
         if cold_edges:
             await self._cpg_store.upsert_edges(cold_edges)
+
+    @staticmethod
+    def _validate_edge_write(result: Any, expected: int, edges: List[GraphEdge]) -> None:
+        """Raise when ORION did not accept every edge in the batch."""
+        if not isinstance(result, dict):
+            return
+        if result.get("success") is False:
+            raise RuntimeError(
+                f"ORION edge projection failed for {expected} edges "
+                f"({sorted({e.type for e in edges})}): {result.get('errors') or result}"
+            )
+        created = result.get("created")
+        failed = result.get("failed")
+        if isinstance(failed, int) and failed > 0:
+            raise RuntimeError(
+                f"ORION rejected {failed}/{expected} edges "
+                f"({sorted({e.type for e in edges})}): {result.get('errors') or result}"
+            )
+        if isinstance(created, int) and created < expected:
+            raise RuntimeError(
+                f"ORION created only {created}/{expected} edges "
+                f"({sorted({e.type for e in edges})}): {result.get('errors') or result}"
+            )
 
     async def update_node_metadata(self, node_id: str, metadata: Dict[str, Any]) -> None:
         """Atomically merge metadata while preserving the record's vector.
