@@ -12,17 +12,29 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Post-index graph enrichment for synthetic architecture edges."""
+"""Post-index graph enrichment for synthetic architecture edges.
+
+Reads and writes go through ``GraphStoreProtocol``, not raw SQL. This module
+used to query and INSERT against SQLite's ``graph_node``/``graph_edge`` tables
+directly, which meant it silently did nothing on any other backend: a
+ProximaDB-backed ``victor init`` left those tables empty, so enrichment bailed at
+the node-count guard and the run produced no IMPLEMENTS edges at all — with no
+error and no log line, because "no nodes" and "wrong backend" looked identical.
+
+Enrichment *state* (version + last-seen mtime) stays in the project database.
+That is per-run bookkeeping about the enrichment pass, not graph content, so it
+belongs with the project's other metadata regardless of graph backend.
+"""
 
 from __future__ import annotations
 
 import ast
-import json
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Set, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
+from victor.core.async_utils import run_sync
 from victor.core.database import get_project_database
 
 logger = logging.getLogger(__name__)
@@ -54,35 +66,35 @@ def ensure_project_graph_enriched(
     *,
     latest_mtime: Optional[float] = None,
     force: bool = False,
+    graph_store: Any = None,
 ) -> GraphEnrichmentStats:
-    """Ensure project graph includes synthetic architecture edges."""
+    """Ensure project graph includes synthetic architecture edges.
+
+    Args:
+        root_path: Project root.
+        latest_mtime: Newest source mtime seen by the caller; used to skip when
+            enrichment already covers this state.
+        force: Run even when the recorded state looks current.
+        graph_store: Optional pre-built store. When omitted, one is resolved via
+            ``create_graph_store("auto", …)`` so the per-repo
+            ``.victor/graph_backend`` marker is honored — the same resolution the
+            indexing pipeline and query tools use.
+    """
 
     root = Path(root_path)
     project_db = get_project_database(root)
-    if not project_db.table_exists("graph_node") or not project_db.table_exists("graph_edge"):
-        return GraphEnrichmentStats(skipped=True)
-
-    node_count_row = project_db.query_one("SELECT COUNT(*) FROM graph_node")
-    if node_count_row is None or int(node_count_row[0]) == 0:
-        return GraphEnrichmentStats(skipped=True)
 
     if not force and _is_enrichment_current(project_db, latest_mtime):
         return GraphEnrichmentStats(skipped=True)
 
-    stats = GraphEnrichmentStats()
-    repo_root = root.resolve()
+    stats = run_sync(_enrich_via_store(root, graph_store=graph_store))
+    if stats.skipped:
+        return stats
 
     with project_db.transaction() as conn:
-        implements_edges = _infer_protocol_implementation_edges(conn)
-        decorates_edges, registers_edges = _infer_tool_registration_edges(conn, repo_root)
-        stats = GraphEnrichmentStats(
-            implements_edges=implements_edges,
-            decorates_edges=decorates_edges,
-            registers_edges=registers_edges,
-            skipped=False,
-        )
         _record_enrichment_state(conn, latest_mtime)
 
+    repo_root = root.resolve()
     if stats.total_edges:
         logger.info(
             "[graph-enrichment] Added %d synthetic edges for %s "
@@ -97,6 +109,160 @@ def ensure_project_graph_enriched(
         logger.debug("[graph-enrichment] No synthetic edges added for %s", repo_root)
 
     return stats
+
+
+async def _enrich_via_store(root: Path, *, graph_store: Any = None) -> GraphEnrichmentStats:
+    """Compute and persist synthetic edges through the graph store."""
+    from victor.storage.graph.registry import create_graph_store
+
+    store = graph_store
+    owns_store = store is None
+    if owns_store:
+        store = create_graph_store("auto", project_path=root)
+        await store.initialize()
+
+    try:
+        nodes = await store.get_all_nodes()
+        if not nodes:
+            return GraphEnrichmentStats(skipped=True)
+        existing_edges = await store.get_all_edges()
+
+        # Only edges that are not already present count as inserted. The SQL
+        # version relied on INSERT OR IGNORE's rowcount for this; deduping
+        # against a read is the backend-agnostic equivalent, and it keeps the
+        # pass idempotent across reruns.
+        seen = {(e.src, e.dst, str(getattr(e.type, "value", e.type))) for e in existing_edges}
+
+        new_edges: List[Any] = []
+        implements = _protocol_implementation_edges(nodes, existing_edges, seen, new_edges)
+        decorates, registers = _tool_registration_edges(nodes, root.resolve(), seen, new_edges)
+
+        if new_edges:
+            await store.upsert_edges(new_edges)
+
+        return GraphEnrichmentStats(
+            implements_edges=implements,
+            decorates_edges=decorates,
+            registers_edges=registers,
+            skipped=False,
+        )
+    finally:
+        if owns_store:
+            await store.close()
+
+
+def _make_edge(src: str, dst: str, edge_type: str, metadata: Dict[str, object]) -> Any:
+    from victor.storage.graph import GraphEdge
+
+    return GraphEdge(src=src, dst=dst, type=edge_type, metadata=dict(metadata))
+
+
+def _add_edge(
+    src: str,
+    dst: str,
+    edge_type: str,
+    metadata: Dict[str, object],
+    seen: Set[Tuple[str, str, str]],
+    out: List[Any],
+) -> int:
+    """Queue an edge unless it already exists. Returns 1 if queued."""
+    key = (src, dst, edge_type)
+    if key in seen:
+        return 0
+    seen.add(key)
+    out.append(_make_edge(src, dst, edge_type, metadata))
+    return 1
+
+
+def _protocol_implementation_edges(
+    nodes: Sequence[Any],
+    edges: Sequence[Any],
+    seen: Set[Tuple[str, str, str]],
+    out: List[Any],
+) -> int:
+    """A class INHERITing a ``*Protocol`` class also IMPLEMENTS it."""
+    protocol_ids = {
+        n.node_id for n in nodes if n.type == "class" and (n.name or "").endswith("Protocol")
+    }
+    if not protocol_ids:
+        return 0
+
+    metadata = {
+        "synthetic": True,
+        "inferred_from": "INHERITS",
+        "rule": "protocol_suffix_target",
+    }
+    inserted = 0
+    for edge in edges:
+        if str(getattr(edge.type, "value", edge.type)) != "INHERITS":
+            continue
+        if edge.dst not in protocol_ids:
+            continue
+        inserted += _add_edge(edge.src, edge.dst, "IMPLEMENTS", metadata, seen, out)
+    return inserted
+
+
+def _tool_registration_edges(
+    nodes: Sequence[Any],
+    repo_root: Path,
+    seen: Set[Tuple[str, str, str]],
+    out: List[Any],
+) -> Tuple[int, int]:
+    """``@tool``-decorated symbols are DECORATES targets and REGISTERS sources."""
+    node_ids = {n.node_id for n in nodes}
+    if _TOOL_DECORATOR_NODE_ID not in node_ids:
+        return 0, 0
+    has_registry = _TOOL_METADATA_REGISTRY_NODE_ID in node_ids
+
+    node_lookup: Dict[str, Dict[Tuple[str, int], str]] = {}
+    for node in nodes:
+        if node.type not in ("function", "class"):
+            continue
+        if not node.file or not str(node.file).endswith(".py") or node.line is None:
+            continue
+        node_lookup.setdefault(str(node.file), {})[(str(node.name), int(node.line))] = str(
+            node.node_id
+        )
+
+    decorates_inserted = 0
+    registers_inserted = 0
+    for rel_path, nodes_by_name_line in node_lookup.items():
+        abs_path = repo_root / rel_path
+        if not abs_path.exists():
+            continue
+        try:
+            content = abs_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        if "@tool" not in content or "victor.tools.decorators" not in content:
+            continue
+
+        discovered = _find_tool_decorated_nodes(content, rel_path, nodes_by_name_line)
+        for target_node_id in discovered:
+            decorates_inserted += _add_edge(
+                _TOOL_DECORATOR_NODE_ID,
+                target_node_id,
+                "DECORATES",
+                {"synthetic": True, "inferred_from": "python_ast", "decorator": "tool"},
+                seen,
+                out,
+            )
+            if has_registry:
+                registers_inserted += _add_edge(
+                    target_node_id,
+                    _TOOL_METADATA_REGISTRY_NODE_ID,
+                    "REGISTERS",
+                    {
+                        "synthetic": True,
+                        "inferred_from": "python_ast",
+                        "via_decorator": "tool",
+                        "registry": "ToolMetadataRegistry",
+                    },
+                    seen,
+                    out,
+                )
+
+    return decorates_inserted, registers_inserted
 
 
 def _is_enrichment_current(project_db: object, latest_mtime: Optional[float]) -> bool:
@@ -140,103 +306,6 @@ def _record_enrichment_state(conn: object, latest_mtime: Optional[float]) -> Non
             """,
             (_LATEST_MTIME_KEY, str(float(latest_mtime))),
         )
-
-
-def _infer_protocol_implementation_edges(conn: object) -> int:
-    rows = conn.execute("""
-        SELECT e.src, e.dst
-        FROM graph_edge e
-        JOIN graph_node dst ON dst.node_id = e.dst
-        WHERE e.type = 'INHERITS'
-          AND dst.type = 'class'
-          AND dst.name LIKE '%Protocol'
-        """).fetchall()
-    if not rows:
-        return 0
-
-    metadata = {
-        "synthetic": True,
-        "inferred_from": "INHERITS",
-        "rule": "protocol_suffix_target",
-    }
-    inserted = 0
-    for src, dst in rows:
-        inserted += _insert_synthetic_edge(
-            conn,
-            src=str(src),
-            dst=str(dst),
-            edge_type="IMPLEMENTS",
-            metadata=metadata,
-        )
-    return inserted
-
-
-def _infer_tool_registration_edges(conn: object, repo_root: Path) -> Tuple[int, int]:
-    available_nodes = {
-        row[0]
-        for row in conn.execute(
-            "SELECT node_id FROM graph_node WHERE node_id IN (?, ?)",
-            (_TOOL_DECORATOR_NODE_ID, _TOOL_METADATA_REGISTRY_NODE_ID),
-        ).fetchall()
-    }
-    if _TOOL_DECORATOR_NODE_ID not in available_nodes:
-        return 0, 0
-
-    node_rows = conn.execute("""
-        SELECT node_id, file, name, line
-        FROM graph_node
-        WHERE file LIKE '%.py'
-          AND line IS NOT NULL
-          AND type IN ('function', 'class')
-        """).fetchall()
-    node_lookup: Dict[str, Dict[Tuple[str, int], str]] = {}
-    for node_id, file_path, name, line in node_rows:
-        node_lookup.setdefault(str(file_path), {})[(str(name), int(line))] = str(node_id)
-
-    decorates_inserted = 0
-    registers_inserted = 0
-    for rel_path, nodes_by_name_line in node_lookup.items():
-        abs_path = repo_root / rel_path
-        if not abs_path.exists():
-            continue
-        try:
-            content = abs_path.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
-            continue
-        if "@tool" not in content or "victor.tools.decorators" not in content:
-            continue
-
-        discovered = _find_tool_decorated_nodes(content, rel_path, nodes_by_name_line)
-        if not discovered:
-            continue
-
-        for target_node_id in discovered:
-            decorates_inserted += _insert_synthetic_edge(
-                conn,
-                src=_TOOL_DECORATOR_NODE_ID,
-                dst=target_node_id,
-                edge_type="DECORATES",
-                metadata={
-                    "synthetic": True,
-                    "inferred_from": "python_ast",
-                    "decorator": "tool",
-                },
-            )
-            if _TOOL_METADATA_REGISTRY_NODE_ID in available_nodes:
-                registers_inserted += _insert_synthetic_edge(
-                    conn,
-                    src=target_node_id,
-                    dst=_TOOL_METADATA_REGISTRY_NODE_ID,
-                    edge_type="REGISTERS",
-                    metadata={
-                        "synthetic": True,
-                        "inferred_from": "python_ast",
-                        "via_decorator": "tool",
-                        "registry": "ToolMetadataRegistry",
-                    },
-                )
-
-    return decorates_inserted, registers_inserted
 
 
 def _find_tool_decorated_nodes(
@@ -312,24 +381,6 @@ def _attribute_path(node: ast.Attribute) -> Tuple[str, ...]:
         parts.reverse()
         return tuple(parts)
     return ()
-
-
-def _insert_synthetic_edge(
-    conn: object,
-    *,
-    src: str,
-    dst: str,
-    edge_type: str,
-    metadata: Dict[str, object],
-) -> int:
-    cursor = conn.execute(
-        """
-        INSERT OR IGNORE INTO graph_edge (src, dst, type, weight, metadata)
-        VALUES (?, ?, ?, NULL, ?)
-        """,
-        (src, dst, edge_type, json.dumps(metadata, sort_keys=True)),
-    )
-    return int(cursor.rowcount or 0)
 
 
 __all__ = ["GraphEnrichmentStats", "ensure_project_graph_enriched"]
