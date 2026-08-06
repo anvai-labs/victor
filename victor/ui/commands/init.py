@@ -15,7 +15,6 @@ from victor.config.settings import (
 )
 from victor.core.async_utils import run_sync
 from victor.core.database import get_database, get_project_database
-from victor.core.indexing.graph_enrichment import ensure_project_graph_enriched
 from victor.core.utils.capability_loader import load_codebase_analyzer_attr
 from victor.ui.commands.init_content import (
     ensure_architecture_evidence_section,
@@ -668,9 +667,14 @@ def _gather_graph_context(root: Path) -> Optional[dict]:
         ddg_edges = sum(v for k, v in edge_type_counts.items() if k.startswith("DDG_"))
         ccg_coverage = cfg_edges + cdg_edges + ddg_edges
 
-        decorator_edges = edge_type_counts.get("DECORATES", 0)
+        # IMPLEMENTS comes from the language handlers — real declared conformance.
+        # DECORATES/REGISTERS used to be counted here too, but they only ever
+        # existed as synthetic edges the enrichment pass fabricated, and that pass
+        # has been removed: it derived IMPLEMENTS from INHERITS plus a "*Protocol"
+        # name suffix (adding no information the graph did not already hold), and
+        # gated DECORATES/REGISTERS on two hardcoded victor/tools/… node ids, so
+        # both were always 0 for any other repository.
         protocol_edges = edge_type_counts.get("IMPLEMENTS", 0)
-        registry_edges = edge_type_counts.get("REGISTERS", 0)
         inheritance_edges = edge_type_counts.get("INHERITS", 0)
         calls_edges = edge_type_counts.get("CALLS", 0)
 
@@ -678,7 +682,6 @@ def _gather_graph_context(root: Path) -> Optional[dict]:
             "project_path": str(root),
             "has_ccg": ccg_coverage > 0,
             "has_graph": total_nodes > 0,
-            "has_synthetic_edges": decorator_edges + protocol_edges + registry_edges > 0,
             "stats": {
                 "total_nodes": total_nodes,
                 "total_edges": total_edges,
@@ -688,9 +691,7 @@ def _gather_graph_context(root: Path) -> Optional[dict]:
                 "ddg_edges": ddg_edges,
             },
             "patterns": {
-                "decorator": decorator_edges,
                 "protocol": protocol_edges,
-                "registry": registry_edges,
                 "inheritance": inheritance_edges,
                 "calls": calls_edges,
             },
@@ -1227,10 +1228,9 @@ providers:
                     console.print(f"[dim]  {msg}[/]")
 
             project_root = Path.cwd()
-            project_latest_mtime = latest_mtime(project_root)
 
             # Build graph data BEFORE LLM synthesis so the LLM can leverage it.
-            # Order: incremental graph/CCG refresh → synthetic edge enrichment → LLM synthesis
+            # Order: incremental graph/CCG refresh → LLM synthesis
 
             # 1. CCG indexing (if enabled and not in quick/index mode)
             if ccg and mode not in ("quick", "index"):
@@ -1402,23 +1402,7 @@ providers:
                 except Exception as exc:
                     console.print(f"[yellow]![/] CCG indexing skipped: {exc}")
 
-            # 2. Synthetic edge enrichment (IMPLEMENTS, DECORATES, REGISTERS)
-            try:
-                stats = ensure_project_graph_enriched(
-                    project_root,
-                    latest_mtime=project_latest_mtime,
-                )
-                if stats.total_edges:
-                    console.print(
-                        "[dim]  Enriched graph with synthetic architecture edges "
-                        f"(implements={stats.implements_edges}, "
-                        f"decorates={stats.decorates_edges}, "
-                        f"registers={stats.registers_edges})[/]"
-                    )
-            except Exception as exc:
-                console.print(f"[yellow]![/] Graph enrichment skipped: {exc}")
-
-            # 3. Gather graph context for LLM synthesis (only when using LLM)
+            # 2. Gather graph context for LLM synthesis (only when using LLM)
             graph_ctx = None
             if deep:  # Only gather for LLM synthesis
                 with _Status(

@@ -524,7 +524,6 @@ class GraphManager:
             GraphIndexStats,
         )
         from victor.core.indexing.index_lock import IndexLockRegistry
-        from victor.core.indexing.graph_enrichment import ensure_project_graph_enriched
         from victor.storage.graph import create_graph_store
         from victor.tools.common import latest_mtime
 
@@ -585,16 +584,6 @@ class GraphManager:
                     phase3_time,
                     root_str,
                     stats.files_processed + stats.files_unchanged,
-                )
-
-                phase4_start = datetime.now().timestamp()
-                ensure_project_graph_enriched(root, latest_mtime=repo_mtime)
-
-                phase4_time = datetime.now().timestamp() - phase4_start
-                logger.debug(
-                    "[GraphManager] Graph enrichment took %.2fs for %s",
-                    phase4_time,
-                    root_str,
                 )
 
         total_time = datetime.now().timestamp() - refresh_started_at
