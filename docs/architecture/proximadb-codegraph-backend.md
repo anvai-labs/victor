@@ -215,8 +215,48 @@ Tier-B PAX fragment contract, optional transactional multi-modal write, code-emb
    authoritative ProximaRecord replacement; keep ORION explicitly rebuildable.
 5. ⏳ Replace the local Tier-B representation with Proxima PAX/columnar
    fragments and verify per-function drill-down parity in service mode.
-6. ⏳ Bench Arrow Flight bulk-load + k-hop + hybrid latency; compare footprint vs the 2.4 GB SQLite + Lance
-   pair (projected ~120 MB f32 / ~35 MB SQ8 for Tier-A). No longer blocked on a
-   binary — a release `proximadb-server` builds and runs; this is now just an
-   unrun measurement.
+6. 🟡 Bench footprint + k-hop latency — **measured 2026-08-06** via
+   `scripts/benchmark_graph_backends.py`; see "Measured backend comparison"
+   below. Arrow Flight bulk-load is **not** benched and cannot be: Victor has no
+   Arrow Flight code path (ingest is REST `insert_records` + `batch_create_nodes`),
+   so that clause is a feature to build, not a measurement to take.
 7. ⏳ Flip the default provider per-repo once parity holds (per-repo `.victor/graph_backend` flag exists; SQLite stays default).
+
+## Measured backend comparison (2026-08-06)
+
+Same corpus, same `GraphIndexingPipeline`, both backends holding **verified
+identical data** (the bench suppresses the ratio outright if node counts differ,
+because a footprint comparison across differing data is worse than no number).
+Tier-A only (`enable_ccg=False`).
+
+| corpus | embeddings | nodes | SQLite | ProximaDB | ratio | SQLite B/node | Proxima B/node |
+|---|---|---|---|---|---|---|---|
+| 10 files | off | 251 | 1.4 MB | 309 KB | 4.58× | 5,777 | 1,261 |
+| 87 files | off | 1,328 | 3.0 MB | 1.1 MB | 2.80× | 2,361 | 843 |
+| 10 files | on | 251 | 8.1 MB | 987 KB | 8.38× | 33,729 | 4,026 |
+| 87 files | on | 1,328 | **42.8 MB** | **4.3 MB** | **9.88×** | 33,827 | 3,424 |
+
+Four findings, none of which were visible before the bench existed:
+
+- **The footprint win is real and comes from vectors.** Graph-only, the ratio
+  *shrinks* with scale (4.58× → 2.80×). With embeddings it *grows* (8.38× →
+  9.88×), and SQLite's cost stays pinned near 33 KB/node while Proxima's falls.
+  This is the design's premise — the SQLite+LanceDB pair stores vectors
+  inefficiently — confirmed by measurement rather than projection. It also means
+  a graph-only benchmark understates the case, and extrapolating any single
+  corpus size overstates or understates depending on which mode it ran in.
+- **Ingest reverses under embeddings.** Proxima is ~3× *faster* to index without
+  them (3.5 s vs 10.4 s) and ~3.5× *slower* with them (40.3 s vs 11.5 s). The
+  embedding path replaces one full ProximaRecord per symbol, so vector
+  completion pays a whole-record write; SQLite updates a column. Worth
+  attention before recommending Proxima for large first-time indexes.
+- **SQLite holds a consistent ~10× traversal advantage** (k-hop p50 0.06 ms vs
+  0.65 ms across every configuration).
+- **Step 7 is therefore a trade-off, not a graduation.** ~10× less disk against
+  ~10× slower traversal and ~3.5× slower embedded ingest. Which side wins
+  depends on whether a given repo is disk-bound or query-bound; that argues for
+  keeping the per-repo flag and a documented recommendation rather than flipping
+  a global default.
+
+Not yet measured: hybrid seed→expand latency under load, SQ8 cold mode, and
+behaviour at the 3,659-file / 2.4 GB scale the original figure came from.
