@@ -11,6 +11,15 @@ and traversal latency. The footprint number is the one that decides step 7 (the
 per-repo default flip) — the design projects ~120 MB f32 / ~35 MB SQ8 for Tier-A
 against a measured 2.4 GB SQLite + LanceDB pair.
 
+**Both backends must index the same corpus path.** Symbol and statement node ids
+are derived from the file path, so indexing two copies of a corpus at different
+paths yields two entirely disjoint node-id sets — a diff then reports 100%
+difference regardless of backend, and edge counts drift by tens purely from the
+path. This script indexes one ``--corpus`` for every backend precisely so the
+comparison is like-for-like; do not "helpfully" give each backend its own copy.
+Measured at a shared path, SQLite and ProximaDB produce identical node sets and
+identical statement-level edges.
+
 Deliberately *not* covered: Arrow Flight bulk-load throughput. Victor has no
 Arrow Flight code path at all — ingest goes through REST ``insert_records`` +
 ``batch_create_nodes`` — so that line of step 6 is a feature to build, not a
