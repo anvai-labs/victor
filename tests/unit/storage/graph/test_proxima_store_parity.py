@@ -810,3 +810,34 @@ async def test_proxima_stats_totals_span_both_tiers():
         assert stats["edges"] == stats["tier_a_edges"] + stats["tier_b_edges"]
     finally:
         await store.close()
+
+
+def test_orion_stat_reads_the_envelope_shape():
+    """ORION answers {'success':..., 'data': {'total_nodes': N}}, not a flat map.
+
+    Reading `node_count`/`nodes` off the top level returned 0 for a graph holding
+    1,328 symbols, which silently dropped the whole Tier-A tier from the totals.
+    """
+    from victor.storage.graph.proxima_store import _orion_stat
+
+    envelope = {
+        "success": True,
+        "data": {"total_nodes": 1328, "total_edges": 1258, "average_degree": 0.94},
+    }
+    assert _orion_stat(envelope, "nodes") == 1328
+    assert _orion_stat(envelope, "edges") == 1258
+
+
+def test_orion_stat_still_reads_flat_spellings():
+    from victor.storage.graph.proxima_store import _orion_stat
+
+    assert _orion_stat({"node_count": 7, "edge_count": 9}, "nodes") == 7
+    assert _orion_stat({"nodes": 3, "edges": 4}, "edges") == 4
+
+
+def test_orion_stat_returns_zero_for_an_unknown_shape():
+    """A 0 must mean 'unreported' so stats() falls back to a real recount."""
+    from victor.storage.graph.proxima_store import _orion_stat
+
+    assert _orion_stat({}, "nodes") == 0
+    assert _orion_stat({"data": {"unexpected": 1}}, "edges") == 0

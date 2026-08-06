@@ -84,6 +84,27 @@ _NODE_FIELD_KEYS = (
     "visibility",
 )
 
+# ORION's get_stats() answers with an envelope, not a flat mapping:
+#   {"success": True, "data": {"total_nodes": N, "total_edges": M, ...}}
+# Reading `node_count`/`nodes` off the top level therefore found nothing and
+# yielded 0 for a graph that plainly held data. Both the envelope and the flat
+# spellings are accepted so a future shape change degrades to the recount rather
+# than silently reporting an empty tier.
+_ORION_STAT_KEYS = {
+    "nodes": ("total_nodes", "node_count", "nodes"),
+    "edges": ("total_edges", "edge_count", "edges"),
+}
+
+
+def _orion_stat(raw: Dict[str, Any], kind: str) -> int:
+    """Extract a node/edge count from ORION's get_stats() response."""
+    payload = raw.get("data") if isinstance(raw.get("data"), dict) else raw
+    for key in _ORION_STAT_KEYS[kind]:
+        value = payload.get(key)
+        if isinstance(value, (int, float)):
+            return int(value)
+    return 0
+
 
 class ProximaGraphStore(GraphStoreProtocol):
     """GraphStoreProtocol implementation backed by ProximaDB (ORION + HNSW)."""
@@ -767,17 +788,15 @@ class ProximaGraphStore(GraphStoreProtocol):
             raw = {}
         raw_stats = raw if isinstance(raw, dict) else {}
         cold_stats = await self._cpg_store.stats()
-        tier_a_nodes = int(raw_stats.get("node_count", raw_stats.get("nodes", 0)))
-        tier_a_edges = int(raw_stats.get("edge_count", raw_stats.get("edges", 0)))
+        tier_a_nodes = _orion_stat(raw_stats, "nodes")
+        tier_a_edges = _orion_stat(raw_stats, "edges")
 
-        # ORION's get_stats() reports 0 even when the graph demonstrably holds
-        # nodes — get_all_nodes() returns them on the same handle. Trusting the
-        # zero silently dropped the entire Tier-A symbol tier from the totals:
-        # `victor init` on a 70-file corpus reported 25,937 nodes against
-        # SQLite's 27,265, the difference being exactly the 1,328 symbols.
-        # A zero here is treated as "unreported", not "empty", and recounted
-        # from the authoritative read path. Tier-A is symbols only, so this is
-        # bounded well below the statement-level Tier-B volume.
+        # Belt-and-braces: if the envelope shape changes again, recount from the
+        # authoritative read path rather than silently reporting an empty tier.
+        # Reading a zero as "empty" is what dropped the whole Tier-A symbol tier
+        # from the totals — `victor init` on a 70-file corpus reported 25,937
+        # nodes against SQLite's 27,265, short by exactly the 1,328 symbols.
+        # Tier-A is symbols only, so a recount stays well below Tier-B volume.
         if tier_a_nodes == 0:
             try:
                 tier_a_nodes = len(await self.get_all_nodes())
