@@ -136,16 +136,23 @@ async def _bench_backend(
         return {**result, "skipped": f"indexing failed: {type(exc).__name__}: {exc}"}
 
     try:
-        store_stats = await store.stats()
-        result["nodes"] = store_stats.get("node_count") or store_stats.get("nodes")
-        result["edges"] = store_stats.get("edge_count") or store_stats.get("edges")
         result["files_indexed"] = getattr(stats, "files_processed", None)
 
+        # Count by reading the data back, not from stats(): backends disagree on
+        # the stats() key names and some return none at all, and a footprint
+        # number is meaningless unless we can prove the rows are actually there.
         nodes = await store.get_all_nodes()
+        edges = await store.get_all_edges()
+        result["nodes"] = len(nodes)
+        result["edges"] = len(edges)
+
+        store_stats = await store.stats()
+        reported = store_stats.get("node_count", store_stats.get("nodes"))
+        if reported is not None and reported != len(nodes):
+            result["stats_disagreement"] = f"stats()={reported} readback={len(nodes)}"
+
         seeds = [n.node_id for n in nodes[:seed_count]]
-        result["traversal"] = await _time_traversals(
-            store, seeds, hops=hops, repeats=repeats
-        )
+        result["traversal"] = await _time_traversals(store, seeds, hops=hops, repeats=repeats)
     except Exception as exc:
         result["measure_error"] = f"{type(exc).__name__}: {exc}"
     finally:
@@ -175,14 +182,29 @@ def _render(results: List[Dict[str, Any]], *, embeddings: bool) -> str:
             lines.append(f"{r['backend']:10} SKIPPED — {r['skipped']}")
             continue
         trav = r.get("traversal") or {}
+        nodes = r.get("nodes")
+        edges = r.get("edges")
         lines.append(
-            f"{r['backend']:10} {r.get('nodes', 0):>8} {r.get('edges', 0):>8} "
+            f"{r['backend']:10} {('?' if nodes is None else nodes):>8} "
+            f"{('?' if edges is None else edges):>8} "
             f"{r.get('index_seconds', 0):>9} {r.get('footprint', '?'):>12} "
-            f"{r.get('bytes_per_node', 0):>9} {trav.get('p50_ms', float('nan')):>9}ms"
+            f"{r.get('bytes_per_node', '?'):>9} {trav.get('p50_ms', float('nan')):>9}ms"
         )
+        if r.get("stats_disagreement"):
+            lines.append(f"{'':10} WARNING stats disagreement: {r['stats_disagreement']}")
     lines.append("-" * 78)
 
     usable = [r for r in results if not r.get("skipped") and r.get("footprint_bytes")]
+    # A footprint comparison is only meaningful between backends holding the
+    # same data. Refuse to print a ratio across differing node counts.
+    counts = {r.get("nodes") for r in usable}
+    if len(usable) == 2 and len(counts) > 1:
+        lines.append(
+            f"footprint ratio SUPPRESSED — backends hold different node counts "
+            f"({', '.join(f'{r['backend']}={r.get('nodes')}' for r in usable)}); "
+            "not a like-for-like comparison."
+        )
+        usable = []
     if len(usable) == 2:
         a, b = usable
         if b["footprint_bytes"]:
@@ -218,9 +240,7 @@ async def _main() -> int:
         print(f"corpus not found: {corpus}", file=sys.stderr)
         return 2
 
-    workdir = args.workdir or Path(
-        __import__("tempfile").mkdtemp(prefix="graph-backend-bench-")
-    )
+    workdir = args.workdir or Path(__import__("tempfile").mkdtemp(prefix="graph-backend-bench-"))
     workdir.mkdir(parents=True, exist_ok=True)
     print(f"corpus:  {corpus}")
     print(f"workdir: {workdir}")
