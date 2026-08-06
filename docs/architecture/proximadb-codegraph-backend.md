@@ -236,7 +236,13 @@ Tier-A only (`enable_ccg=False`).
 | 10 files | on | 251 | 8.1 MB | 987 KB | 8.38× | 33,729 | 4,026 |
 | 87 files | on | 1,328 | **42.8 MB** | **4.3 MB** | **9.88×** | 33,827 | 3,424 |
 
-Four findings, none of which were visible before the bench existed:
+> **Read the ratios above with the caveat below.** Every row runs
+> `enable_ccg=False`, which is *not* what `victor init` does. In the default
+> CCG-on configuration the footprint advantage **disappears** — see
+> "End-to-end reality check". The vector-efficiency result is real but applies
+> to the symbol tier, which statement-level CPG dwarfs in practice.
+
+Four findings from the Tier-A slice:
 
 - **The footprint win is real and comes from vectors.** Graph-only, the ratio
   *shrinks* with scale (4.58× → 2.80×). With embeddings it *grows* (8.38× →
@@ -267,12 +273,49 @@ Four findings, none of which were visible before the bench existed:
   suggests roughly 12 min (Proxima) vs 3.4 min (SQLite). That is an
   order-of-magnitude estimate, not a measurement.
 
-**Assessment for step 7:** the axes are not symmetric. Footprint favours Proxima
-structurally (per-worktree scaling), traversal latency is a wash in practice, and
-ingest is a fixable cost rather than an architectural one — the atomic-record
-boundary replaces a whole ProximaRecord per symbol on embedding completion
-because the v2 record contract exposes no partial/vector-only update. That is an
-upstream capability gap, raised as ProximaDB issue #1479 rather than worked around here.
+## End-to-end reality check (`victor init`, 2026-08-06)
+
+The table above measures a slice, not the product. Running the **real CLI** —
+`victor init --no-deep --no-interactive --force`, CCG on (the default), identical
+70-file corpora, backend chosen by the `.victor/graph_backend` marker:
+
+| | SQLite | ProximaDB |
+|---|---|---|
+| init wall time | 22.59 s | **10.71 s** |
+| nodes | 27,265 | 25,937 |
+| edges | 75,626 | 74,204 |
+| footprint | **52 MB** | 54 MB |
+
+**Footprint is a wash, not ~10×.** The Tier-A bench disables CCG; init enables it,
+and statement-level CFG/CDG/DDG then dominates the graph. The Tier-A/Tier-B
+boundary routes all of that to a local SQLite fragment store, so the Proxima
+configuration is mostly SQLite by volume:
+
+```
+50 MB   .victor/proximadb/cpg_fragments.sqlite3   <- Tier-B SQLite
+1.1 MB  .victor/proximadb/data                    <- actual ProximaDB storage
+```
+
+ProximaDB holds 1.1 MB of the 54 MB. The vector-efficiency result stays true but
+governs only the symbol tier. **Until Tier-B moves to Proxima PAX/columnar
+fragments (checklist step 5), a footprint argument for this backend is measuring
+the wrong thing.**
+
+**What the default configuration does show is ingest: ProximaDB is 2.1× faster
+end to end** (10.71 s vs 22.59 s). That, not disk, is the adoption argument
+today — which makes the write-amplification gap (ProximaDB issue #1479, no
+partial/vector-only record update) the thing worth pushing upstream, since it is
+what stops that lead from being larger.
+
+**Blocking gap for step 7:** the backends **do not hold identical graphs** through
+init — Proxima is short 1,328 nodes and 1,422 edges. Flipping any default before
+that has a root cause would ship a silently lossier index.
+
+Two bugs had to be fixed before this comparison could run at all, both silent:
+`victor init` hardcoded the SQLite backend while the read paths honored the
+marker (split-brain), and `ProximaGraphStore.stats()` omitted top-level
+`nodes`/`edges`, so init raised `KeyError('nodes')`, printed only
+`! CCG indexing skipped: 'nodes'`, and reported success having built no index.
 
 Not yet measured: hybrid seed→expand latency under load, SQ8 cold mode, and
 behaviour at the 3,659-file / 2.4 GB scale the original figure came from.
