@@ -42,7 +42,7 @@ import logging
 import time
 from dataclasses import replace
 from pathlib import Path
-from typing import Any, AsyncIterator, Dict, Iterable, List, Optional
+from typing import Any, AsyncIterator, Dict, Iterable, List, Optional, Set
 
 from victor.storage.graph.cpg_fragments import CpgFragmentStore, CpgFragmentStoreProtocol
 from victor.storage.graph.edge_types import EdgeType
@@ -174,6 +174,9 @@ class ProximaGraphStore(GraphStoreProtocol):
         self._record_nodes: Dict[str, GraphNode] = {}
         self._record_vectors: Dict[str, List[float]] = {}
         self._record_node_ids: set[str] = set()
+        # Tier-A edge ids already in ORION. Loaded on first edge write so
+        # duplicates never reach a batch (see upsert_edges); None = not yet read.
+        self._orion_edge_ids: Optional[Set[str]] = None
 
         # In-memory sidecars for facts ProximaDBGraph does not yet persist
         # natively (relational Tier-C work lands with TD-127). Idempotent and
@@ -246,6 +249,7 @@ class ProximaGraphStore(GraphStoreProtocol):
         self._record_nodes.clear()
         self._record_vectors.clear()
         self._record_node_ids.clear()
+        self._orion_edge_ids = None
         self._initialized = False
 
     async def _ensure(self) -> Any:
@@ -356,17 +360,56 @@ class ProximaGraphStore(GraphStoreProtocol):
         cold_edges = [edge for edge in edge_list if EdgeType.is_ccg_edge(edge.type)]
         if hot_edges:
             graph = await self._ensure()
-            payload = [self._to_proxima_edge(edge) for edge in hot_edges]
-            result = await asyncio.to_thread(graph.batch_create_edges, payload)
-            # The return value used to be discarded, so a rejected batch left no
-            # trace at all: a `victor init` run landed its 1,258 CONTAINS edges
-            # and silently dropped every CALLS/INHERITS/IMPLEMENTS/COMPOSITION
-            # edge, and the only symptom was an edge count that did not match
-            # SQLite. Node projection already validates its result; edges now do
-            # too, so the next such failure names itself.
-            self._validate_edge_write(result, len(payload), hot_edges)
+            known = await self._known_edge_ids(graph)
+
+            # Duplicates must never reach ORION. `batch_create_edges` aborts the
+            # batch at the first "already exists" and silently discards every
+            # edge after it: a 3-edge batch whose middle edge is a duplicate
+            # answers created=1, failed=1 and drops the third without counting
+            # it. Since these passes deliberately re-emit edges per-file indexing
+            # already wrote, which edge is the first duplicate varies run to run
+            # — and so did the resulting edge count (75,523 / 75,539 / 75,549 /
+            # 75,558 across four identical runs, against a deterministic 75,626
+            # on SQLite). Filtering here makes the write idempotent by
+            # construction instead of relying on the server to tolerate repeats.
+            payload = []
+            sent: List[GraphEdge] = []
+            for edge in hot_edges:
+                proxima_edge = self._to_proxima_edge(edge)
+                edge_id = proxima_edge.id
+                if edge_id in known:
+                    continue
+                known.add(edge_id)
+                payload.append(proxima_edge)
+                sent.append(edge)
+
+            if payload:
+                result = await asyncio.to_thread(graph.batch_create_edges, payload)
+                self._validate_edge_write(result, len(payload), sent)
         if cold_edges:
             await self._cpg_store.upsert_edges(cold_edges)
+
+    async def _known_edge_ids(self, graph: Any) -> Set[str]:
+        """Ids of every Tier-A edge already in ORION, read once per session."""
+        if self._orion_edge_ids is None:
+            try:
+                raw = await asyncio.to_thread(graph.get_all_edges)
+            except Exception as exc:  # pragma: no cover - depends on live server
+                logger.debug("Could not preload ORION edge ids: %s", exc)
+                raw = []
+            self._orion_edge_ids = {self._proxima_edge_id(e) for e in raw}
+        return self._orion_edge_ids
+
+    @staticmethod
+    def _proxima_edge_id(pedge: Any) -> str:
+        """Rebuild the id `_to_proxima_edge` assigns, for comparison."""
+        existing = getattr(pedge, "id", None)
+        if existing:
+            return str(existing)
+        src = getattr(pedge, "from_node", "")
+        dst = getattr(pedge, "to_node", "")
+        etype = getattr(pedge, "edge_type", "")
+        return f"{src}|{getattr(etype, 'value', etype)}|{dst}"
 
     @staticmethod
     def _validate_edge_write(result: Any, expected: int, edges: List[GraphEdge]) -> None:
@@ -385,11 +428,28 @@ class ProximaGraphStore(GraphStoreProtocol):
 
         errors = result.get("errors") or []
         texts = [str(e) for e in errors] if isinstance(errors, list) else [str(errors)]
+        types = sorted({str(getattr(e.type, "value", e.type)) for e in edges})
+
+        # Silent-drop guard. ORION abandons the rest of a batch after a rejected
+        # edge without counting the abandoned ones, so `created + failed` short of
+        # the batch size means edges vanished with no error attached. Duplicates
+        # are filtered before the write now, so reaching this is a real defect
+        # rather than the benign repeat it used to be.
+        created = result.get("created")
+        failed = result.get("failed")
+        if isinstance(created, int) and isinstance(failed, int):
+            accounted = created + failed
+            if accounted < expected:
+                raise RuntimeError(
+                    f"ORION silently dropped {expected - accounted} of {expected} edges "
+                    f"({types}); it reported created={created} failed={failed}. "
+                    f"{texts or 'No errors were returned.'}"
+                )
+
         real_errors = [t for t in texts if "already exists" not in t.lower()]
         if not real_errors and texts:
-            return  # every failure was a benign duplicate
+            return  # a duplicate slipped through; the write itself still holds
 
-        types = sorted({str(getattr(e.type, "value", e.type)) for e in edges})
         if result.get("success") is False:
             raise RuntimeError(
                 f"ORION edge projection failed for {expected} edges ({types}): "
@@ -796,6 +856,7 @@ class ProximaGraphStore(GraphStoreProtocol):
         self._record_nodes.clear()
         self._record_vectors.clear()
         self._record_node_ids.clear()
+        self._orion_edge_ids = None
 
     async def delete_by_repo(self, clear_embeddings: bool = False) -> None:
         # Graph properties and embeddings are one record now; clearing only one

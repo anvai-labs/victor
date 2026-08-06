@@ -841,3 +841,48 @@ def test_orion_stat_returns_zero_for_an_unknown_shape():
 
     assert _orion_stat({}, "nodes") == 0
     assert _orion_stat({"data": {"unexpected": 1}}, "edges") == 0
+
+
+async def test_upsert_edges_filters_duplicates_before_writing():
+    """Duplicates must never reach ORION's batch_create_edges.
+
+    That call aborts the batch at the first "already exists" and silently
+    discards every edge after it — a 3-edge batch whose middle edge is a repeat
+    answers created=1, failed=1 and drops the third without counting it. Because
+    the cross-file resolution passes deliberately re-emit edges per-file
+    indexing already wrote, whichever edge happened to be the first duplicate
+    decided how many survived, and the same corpus indexed to a different edge
+    count on every run.
+    """
+    store = await _make_proxima_store()
+    try:
+        graph = await store._ensure()
+        edge = GraphEdge(src="n:main", dst="n:parse", type="CALLS")
+
+        await store.upsert_edges([edge])
+        first = len(await store.get_all_edges())
+
+        calls_before = len(getattr(graph, "created_edge_batches", []) or [])
+        await store.upsert_edges([edge])  # exact repeat
+        assert len(await store.get_all_edges()) == first, "repeat must not add an edge"
+
+        # The repeat must be filtered client-side, not handed to the server.
+        batches = getattr(graph, "created_edge_batches", None)
+        if batches is not None:
+            assert len(batches) == calls_before, "duplicate batch should not be sent"
+    finally:
+        await store.close()
+
+
+async def test_upsert_edges_raises_when_the_server_drops_edges_silently():
+    """created + failed short of the batch size means edges vanished."""
+    store = await _make_proxima_store()
+    try:
+        with pytest.raises(RuntimeError, match="silently dropped"):
+            store._validate_edge_write(
+                {"success": True, "created": 1, "failed": 1, "errors": []},
+                3,
+                [GraphEdge(src="a", dst="b", type="CALLS")],
+            )
+    finally:
+        await store.close()
