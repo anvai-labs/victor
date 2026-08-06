@@ -767,6 +767,8 @@ class ProximaGraphStore(GraphStoreProtocol):
             raw = {}
         raw_stats = raw if isinstance(raw, dict) else {}
         cold_stats = await self._cpg_store.stats()
+        tier_a_nodes = int(raw_stats.get("node_count", raw_stats.get("nodes", 0)))
+        tier_a_edges = int(raw_stats.get("edge_count", raw_stats.get("edges", 0)))
         return {
             "backend": "proxima",
             "repo": self._repo,
@@ -774,8 +776,19 @@ class ProximaGraphStore(GraphStoreProtocol):
             "embedding_mode": self._embedding_mode.value,
             "service_mode_wip": bool(self._server_url),
             **raw_stats,
-            "tier_a_nodes": int(raw_stats.get("node_count", raw_stats.get("nodes", 0))),
-            "tier_a_edges": int(raw_stats.get("edge_count", raw_stats.get("edges", 0))),
+            # Protocol contract: every backend reports total `nodes`/`edges`.
+            # These MUST come after the `raw_stats` splat — the SDK's get_stats()
+            # may itself carry a "nodes" key describing only the ORION tier, and
+            # letting that win would under-report the graph by everything in
+            # Tier-B. Omitting them entirely is what broke `victor init` against
+            # this backend: init does `db_stats['nodes']`, so a proxima-backed
+            # repo died with KeyError('nodes') and reported only
+            # "CCG indexing skipped: 'nodes'" — the index was never built.
+            "nodes": tier_a_nodes + int(cold_stats["nodes"]),
+            "edges": tier_a_edges + int(cold_stats["edges"]),
+            "indexed_files": int(cold_stats["files"]),
+            "tier_a_nodes": tier_a_nodes,
+            "tier_a_edges": tier_a_edges,
             "tier_b_nodes": cold_stats["nodes"],
             "tier_b_edges": cold_stats["edges"],
             "tier_b_files": cold_stats["files"],

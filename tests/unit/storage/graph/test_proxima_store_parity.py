@@ -770,3 +770,43 @@ async def test_file_delete_reopens_record_authority_before_projection_delete():
 
     assert "n:main" not in collection.records
     assert "n:parse" not in collection.records
+
+
+async def test_stats_contract_holds_for_both_backends(tmp_path):
+    """Both backends must expose integer ``nodes``/``edges`` totals.
+
+    ``victor init`` indexes these directly (``db_stats['nodes']``). ProximaDB
+    previously reported only ``tier_a_*``/``tier_b_*``, so a repo whose
+    ``.victor/graph_backend`` marker selected proxima died with
+    KeyError('nodes') and printed just "CCG indexing skipped: 'nodes'" — the
+    graph index was silently never built.
+    """
+    sqlite_store = await _make_sqlite_store(tmp_path)
+    proxima_store = await _make_proxima_store()
+    try:
+        for store in (sqlite_store, proxima_store):
+            stats = await store.stats()
+            for key in ("nodes", "edges"):
+                assert key in stats, f"{type(store).__name__}.stats() is missing {key!r}"
+                assert isinstance(stats[key], int), (
+                    f"{type(store).__name__}.stats()[{key!r}] must be an int, "
+                    f"got {type(stats[key]).__name__}"
+                )
+    finally:
+        await sqlite_store.close()
+        await proxima_store.close()
+
+
+async def test_proxima_stats_totals_span_both_tiers():
+    """``nodes``/``edges`` are whole-graph totals, not just the ORION tier.
+
+    Tier-B holds every statement node and CFG/CDG/DDG edge, which is the bulk of
+    a CCG index. Reporting only Tier-A would under-count the graph by most of it.
+    """
+    store = await _make_proxima_store()
+    try:
+        stats = await store.stats()
+        assert stats["nodes"] == stats["tier_a_nodes"] + stats["tier_b_nodes"]
+        assert stats["edges"] == stats["tier_a_edges"] + stats["tier_b_edges"]
+    finally:
+        await store.close()
