@@ -301,11 +301,19 @@ class ProximaGraphStore(GraphStoreProtocol):
     def _to_proxima_edge(self, edge: GraphEdge) -> Any:
         from proximadb_sdk.graph import GraphEdge as PGEdge
 
+        # Callers hand us either a plain string or an EdgeType member. Under
+        # Python 3.11 an (str, Enum) member formats as "EdgeType.CALLS", not
+        # "CALLS", so interpolating it produced edge ids and edge_type values
+        # like "…|EdgeType.CALLS|…" that no CALLS query would ever match. The
+        # per-file writer passes strings, which is why only enum-typed edges
+        # from the cross-file resolution passes were affected.
+        edge_type = getattr(edge.type, "value", edge.type)
+
         return PGEdge(
-            id=f"{edge.src}|{edge.type}|{edge.dst}",
+            id=f"{edge.src}|{edge_type}|{edge.dst}",
             from_node=edge.src,
             to_node=edge.dst,
-            edge_type=edge.type,
+            edge_type=edge_type,
             properties=dict(edge.metadata or {}),
             weight=edge.weight,
         )
@@ -362,25 +370,36 @@ class ProximaGraphStore(GraphStoreProtocol):
 
     @staticmethod
     def _validate_edge_write(result: Any, expected: int, edges: List[GraphEdge]) -> None:
-        """Raise when ORION did not accept every edge in the batch."""
+        """Raise when ORION rejected edges for any reason other than presence.
+
+        This method implements ``upsert_edges``, but ORION's ``batch_create_edges``
+        is create-only and answers "Edge <id> already exists" for a repeat. The
+        cross-file resolution passes deliberately re-emit edges that per-file
+        indexing may already have written (that is what makes them upserts), so
+        treating an already-exists as failure would abort a correct rebuild —
+        and SQLite, whose upsert really does replace, would silently disagree.
+        An upsert that finds the edge present has achieved its goal.
+        """
         if not isinstance(result, dict):
             return
+
+        errors = result.get("errors") or []
+        texts = [str(e) for e in errors] if isinstance(errors, list) else [str(errors)]
+        real_errors = [t for t in texts if "already exists" not in t.lower()]
+        if not real_errors and texts:
+            return  # every failure was a benign duplicate
+
+        types = sorted({str(getattr(e.type, "value", e.type)) for e in edges})
         if result.get("success") is False:
             raise RuntimeError(
-                f"ORION edge projection failed for {expected} edges "
-                f"({sorted({e.type for e in edges})}): {result.get('errors') or result}"
+                f"ORION edge projection failed for {expected} edges ({types}): "
+                f"{real_errors or errors or result}"
             )
-        created = result.get("created")
         failed = result.get("failed")
         if isinstance(failed, int) and failed > 0:
             raise RuntimeError(
-                f"ORION rejected {failed}/{expected} edges "
-                f"({sorted({e.type for e in edges})}): {result.get('errors') or result}"
-            )
-        if isinstance(created, int) and created < expected:
-            raise RuntimeError(
-                f"ORION created only {created}/{expected} edges "
-                f"({sorted({e.type for e in edges})}): {result.get('errors') or result}"
+                f"ORION rejected {failed}/{expected} edges ({types}): "
+                f"{real_errors or errors or result}"
             )
 
     async def update_node_metadata(self, node_id: str, metadata: Dict[str, Any]) -> None:
