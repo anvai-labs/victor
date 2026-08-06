@@ -874,9 +874,7 @@ def init(
         "-L",
         help="Include conversation history insights (default: on)",
     ),
-    index: bool = typer.Option(
-        False, "--index", "-i", help="Use SQLite symbol store only (no LLM)"
-    ),
+    index: bool = typer.Option(False, "--index", "-i", help="Build the symbol store only (no LLM)"),
     deep: bool = typer.Option(
         True, "--deep/--no-deep", "-d", help="Use LLM for deep analysis (default: on)"
     ),
@@ -1300,7 +1298,13 @@ providers:
                             )
 
                     async def _build_ccg_index():
-                        graph_store = create_graph_store("sqlite", project_path=project_root)
+                        # "auto" honors <project>/.victor/graph_backend and falls
+                        # back to sqlite. Hardcoding "sqlite" here meant init wrote
+                        # to SQLite while the read paths (graph_query_tool,
+                        # graph_manager) already resolved through "auto" — a repo
+                        # that set the marker got its queries routed to a store
+                        # init had never populated.
+                        graph_store = create_graph_store("auto", project_path=project_root)
                         config = GraphIndexConfig(
                             root_path=project_root,
                             enable_ccg=True,
@@ -1378,7 +1382,9 @@ providers:
                         from victor.storage.graph import create_graph_store
 
                         async def _read_ccg_stats():
-                            graph_store = create_graph_store("sqlite", project_path=project_root)
+                            # Must resolve the same way the write path does, or the
+                            # reported counts come from a store init never wrote to.
+                            graph_store = create_graph_store("auto", project_path=project_root)
                             return await graph_store.stats()
 
                         db_stats = asyncio.run(_read_ccg_stats())

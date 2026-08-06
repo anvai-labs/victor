@@ -128,7 +128,11 @@ def test_init_ccg_reports_project_graph_stats_without_name_error(tmp_path, monke
                     log_level=None,
                 )
 
-    create_graph_store.assert_called_once_with("sqlite", project_path=Path.cwd())
+    # "auto", not "sqlite": init must resolve the per-repo
+    # <project>/.victor/graph_backend marker the read paths already honor.
+    # Pinning a concrete backend here is what let init and the query tools
+    # disagree about which store holds the index.
+    create_graph_store.assert_called_once_with("auto", project_path=Path.cwd())
     fake_graph_store.stats.assert_awaited_once()
 
     rendered = output.getvalue()
