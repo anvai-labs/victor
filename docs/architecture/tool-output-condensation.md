@@ -1,6 +1,6 @@
 # Tool Output Condensation (rtk co-design)
 
-Status: Phases 1-3 implemented
+Status: Phases 1-4 implemented
 Date: 2026-08-07
 
 ## Problem
@@ -115,10 +115,17 @@ reported in the result's `command` field, with the original preserved as
 `original_command`. Gated by `shell_frugal_flags_enabled` (default True,
 also requires `shell_output_condensation_enabled`).
 
+## Phase 4 (implemented)
+
+**Savings telemetry** (rtk `gain` analogue): every condensation event is
+recorded in `UsageAnalytics` (`record_output_condensation`), aggregated per
+condenser (count, chars before/after) and persisted with the existing
+analytics cache. `get_condensation_stats()` returns per-condenser and total
+savings plus an estimated-tokens-saved figure using the chars/4 heuristic —
+percentages are reliable, absolute token numbers approximate (same caveat rtk
+documents). Recording is fail-open: telemetry can never break tool output.
+
 ## Future phases
-- **Phase 4 — savings telemetry:** aggregate `condensed` metadata into the
-  existing usage-analytics pipeline (`rtk gain` equivalent), and use measured
-  savings to tune per-condenser aggressiveness.
 - **Phase 5 — Rust hot path:** if profiling justifies it, move line filtering
   into the existing `rust/` crates behind the `_NATIVE_AVAILABLE` pattern.
 - **Optional rtk backend:** for users with rtk installed, a
