@@ -294,8 +294,12 @@ class TestParallelRetrieverIntegration:
         config = MockConfig()
         retriever = MultiHopRetriever(populated_graph_store, config)
 
-        # Check that parallel retrieval method exists
-        assert hasattr(retriever, "retrieve_parallel")
+        # `assert hasattr(retriever, "retrieve_parallel")` used to stand here. It
+        # passed for as long as the method existed — including the entire period
+        # when nothing called it, it raised AttributeError on a stock config, and
+        # it skipped ranking. Behaviour is asserted in
+        # tests/unit/core/graph_rag/test_retrieval_parallel_parity.py; what is
+        # worth checking here is the gate that decides which strategy runs.
 
         # Check _should_use_parallel logic
         assert retriever._should_use_parallel(config) is True
