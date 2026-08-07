@@ -44,6 +44,12 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Ceiling for a bulk k-hop walk when the caller sets no explicit `max_nodes`.
+# Serial expansion is bounded only by `max_hops`, so a tighter cap here would
+# drop candidates before ranking ever judged them; this exists to bound memory
+# on a pathological hub, not to shape results. Well above any realistic `top_k`.
+_PARALLEL_TRAVERSAL_CEILING = 10_000
+
 
 @dataclass
 class RetrievalResult:
@@ -141,6 +147,12 @@ class MultiHopRetriever:
     ) -> RetrievalResult:
         """Retrieve relevant context via multi-hop graph traversal.
 
+        Dispatches to the batched expansion strategy when the store supports it
+        and the config allows, otherwise to the serial one. Both produce a
+        ``RetrievalResult``; the batched route expands the frontier in one call
+        per hop instead of one call per node, which on an out-of-process store is
+        the difference between a handful of round trips and hundreds.
+
         Args:
             query: Natural language query
             config: Optional config override
@@ -148,15 +160,42 @@ class MultiHopRetriever:
         Returns:
             RetrievalResult with retrieved nodes and edges
         """
+        cfg = config or self.config
+
+        # Cache handling lives here, at the public entry, so both strategies are
+        # memoized identically and neither can be silently skipped.
+        cache_result = await self._try_cache(query, cfg)
+        if cache_result is not None:
+            return cache_result
+
+        if self._should_use_parallel(cfg) and hasattr(
+            self.graph_store, "multi_hop_traverse_parallel"
+        ):
+            result = await self.retrieve_parallel(query, cfg)
+        else:
+            result = await self._retrieve_serial(query, cfg)
+
+        await self._save_to_cache(query, cfg, result)
+        return result
+
+    async def _retrieve_serial(
+        self,
+        query: str,
+        config: Any | None = None,
+    ) -> RetrievalResult:
+        """Serial BFS expansion: one ``get_neighbors`` per visited node.
+
+        The original strategy, kept as the portable fallback for stores without
+        a batched traversal and for configs that opt out. Caching is the caller's
+        job (see :meth:`retrieve`) so this can also serve as
+        :meth:`retrieve_parallel`'s fallback without re-entering the dispatch —
+        which would otherwise recurse whenever the config permits parallel but
+        the seed count does not.
+        """
         start_time = time.time()
         cfg = config or self.config
 
         logger.debug(f"Multi-hop retrieval for query: {query}")
-
-        # Try cache first (PH4-005: Graph query cache)
-        cache_result = await self._try_cache(query, cfg)
-        if cache_result is not None:
-            return cache_result
 
         # Stage 1: Find seed nodes via dense retrieval
         seed_nodes = await self._find_seed_nodes(query, cfg)
@@ -201,9 +240,9 @@ class MultiHopRetriever:
             f"{len(result.edges)} edges in {result.execution_time_ms:.1f}ms"
         )
 
-        # Cache the result (PH4-005: Graph query cache)
-        await self._save_to_cache(query, cfg, result)
-
+        # Caching is handled by `retrieve`, so both strategies are memoized on
+        # the same terms and this can be reused as a fallback without double
+        # writes.
         return result
 
     async def expand_from_seeds(
@@ -729,16 +768,21 @@ class MultiHopRetriever:
         use_parallel = self._should_use_parallel(cfg)
 
         if not use_parallel:
-            # Fall back to regular retrieval
-            return await self.retrieve(query, cfg)
+            # Fall back to the serial strategy directly, NOT through `retrieve`:
+            # `retrieve` dispatches back here, so routing the fallback through it
+            # would recurse.
+            return await self._retrieve_serial(query, cfg)
 
         # Stage 1: Find seed nodes
         seed_nodes = await self._find_seed_nodes(query, cfg)
         seed_ids = [n.node_id for n in seed_nodes]
 
         if len(seed_ids) < getattr(cfg, "parallel_min_batch_size", 3):
-            # Not enough seeds to benefit from parallel
-            return await self.retrieve(query, cfg)
+            # Not enough seeds to benefit from parallel. This is the case that
+            # makes the recursion real: `_should_use_parallel` reads the config's
+            # seed_count, while this checks the seeds actually found, so the
+            # dispatch can send us here and this can send it back.
+            return await self._retrieve_serial(query, cfg)
 
         logger.debug(f"Using parallel traversal with {len(seed_ids)} seeds")
 
@@ -748,24 +792,48 @@ class MultiHopRetriever:
 
         # Use graph store's parallel traversal if available
         if hasattr(self.graph_store, "multi_hop_traverse_parallel"):
-            from victor.storage.graph.protocol import GraphQueryResult
+            # `max_nodes` is a SubgraphConfig field, not a RetrievalConfig one —
+            # reading `cfg.max_nodes` here raised AttributeError, so this branch
+            # could never have run against a stock config. Serial expansion is
+            # bounded only by `max_hops`, so capping the walk tighter than that
+            # would drop candidates ranking should have judged. Honour an explicit
+            # cap when a caller sets one; otherwise take a ceiling that protects
+            # memory without binding for realistic `top_k`.
+            max_nodes = getattr(cfg, "max_nodes", None) or _PARALLEL_TRAVERSAL_CEILING
 
             graph_result = await self.graph_store.multi_hop_traverse_parallel(
                 start_node_ids=seed_ids,
                 max_hops=cfg.max_hops,
                 edge_types=edge_types,
-                max_nodes=cfg.max_nodes,
+                max_nodes=max_nodes,
                 max_workers=max_workers,
             )
 
-            # Convert to RetrievalResult
+            # The traversal returns nodes and edges but no per-node distance, and
+            # ranking needs one. Deriving it here — a multi-source BFS over the
+            # edge set we already hold — costs no extra round trips and matches
+            # how `_multi_hop_expand` assigns distance (first visit wins).
+            expanded_nodes = self._score_traversal_result(graph_result, seed_ids, cfg)
+
+            # Rank the WHOLE neighbourhood, then cut to top_k. Serial retrieval
+            # truncates during traversal instead, which leaves its ranking unable
+            # to change the result set; doing it in this order is the point of
+            # the parallel path, not an incidental difference.
+            ranked_nodes = self._rank_nodes(expanded_nodes, seed_ids, query, cfg)
+            final_nodes = ranked_nodes[: cfg.top_k]
+
+            node_ids = {n.node.node_id for n in final_nodes}
+            edges = await self._get_edges_between(node_ids, cfg)
+
             result = RetrievalResult(
-                nodes=graph_result.nodes,
-                edges=graph_result.edges,
+                nodes=[n.node for n in final_nodes],
+                edges=edges,
                 subgraphs=[],
                 query=query,
                 seed_nodes=seed_ids,
-                execution_time_ms=graph_result.execution_time_ms,
+                hop_distances={n.node.node_id: n.distance for n in final_nodes},
+                scores={n.node.node_id: n.score for n in final_nodes},
+                execution_time_ms=(time.time() - start_time) * 1000,
                 metadata=graph_result.metadata,
             )
         else:
@@ -816,6 +884,68 @@ class MultiHopRetriever:
         await self._save_to_cache(query, cfg, result)
 
         return result
+
+    def _score_traversal_result(
+        self,
+        graph_result: Any,
+        seed_ids: List[str],
+        config: Any,
+        seed_scores: Dict[str, float] | None = None,
+    ) -> List[NodeWithScore]:
+        """Attach hop distance, path and score to a bulk traversal result.
+
+        `multi_hop_traverse_parallel` answers with nodes and edges but no
+        per-node distance, and ranking needs one. Rather than widen the store
+        protocol, reconstruct it from the edges already returned: a multi-source
+        BFS from the seeds, first visit winning, which is exactly how
+        `_multi_hop_expand` assigns distance. Purely in-memory — no round trips.
+
+        Nodes unreachable from a seed through the returned edges (isolated seeds,
+        or edges filtered out by `edge_types`) still get scored, at their own
+        distance 0 if they are seeds and at `max_hops` otherwise, so nothing the
+        traversal returned is silently discarded before ranking.
+        """
+        nodes_by_id = {node.node_id: node for node in graph_result.nodes}
+
+        adjacency: Dict[str, List[str]] = {}
+        for edge in graph_result.edges:
+            adjacency.setdefault(edge.src, []).append(edge.dst)
+
+        distances: Dict[str, int] = {}
+        paths: Dict[str, List[str]] = {}
+        queue: deque[str] = deque()
+        for seed_id in seed_ids:
+            if seed_id in distances:
+                continue
+            distances[seed_id] = 0
+            paths[seed_id] = [seed_id]
+            queue.append(seed_id)
+
+        while queue:
+            node_id = queue.popleft()
+            if distances[node_id] >= config.max_hops:
+                continue
+            for neighbor_id in adjacency.get(node_id, ()):
+                if neighbor_id in distances:
+                    continue
+                distances[neighbor_id] = distances[node_id] + 1
+                paths[neighbor_id] = paths[node_id] + [neighbor_id]
+                queue.append(neighbor_id)
+
+        scored: List[NodeWithScore] = []
+        for node_id, node in nodes_by_id.items():
+            distance = distances.get(node_id, config.max_hops)
+            path = paths.get(node_id, [node_id])
+            base = seed_scores.get(path[0], 1.0) if seed_scores else 1.0
+            scored.append(
+                NodeWithScore(
+                    node=node,
+                    score=self._decay_score(base, distance, config.max_hops),
+                    distance=distance,
+                    path=path,
+                )
+            )
+        return scored
 
     def _should_use_parallel(self, config: Any) -> bool:
         """Check if parallel traversal should be used.
