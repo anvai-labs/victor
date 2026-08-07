@@ -125,9 +125,21 @@ savings plus an estimated-tokens-saved figure using the chars/4 heuristic —
 percentages are reliable, absolute token numbers approximate (same caveat rtk
 documents). Recording is fail-open: telemetry can never break tool output.
 
+## CLI surfacing (implemented)
+
+`/gain` (aliases `/savings`, `/condensation`) renders cumulative per-condenser
+savings from `UsageAnalytics.get_condensation_stats()` — the rtk `gain`
+dashboard equivalent.
+
+## Phase 5 — Rust hot path: measured, WON'T DO
+
+Profiled 2026-08-07 on worst-case inputs (10,000-line outputs): the structural
+pytest condenser takes ~5.6 ms median on 496 KB input; the line-filter path
+~8.8 ms median on 254 KB. Against multi-second command executions and LLM
+round-trips this is noise, so a Rust port is not justified. Revisit only if a
+future condenser demonstrably exceeds ~50 ms on realistic input.
+
 ## Future phases
-- **Phase 5 — Rust hot path:** if profiling justifies it, move line filtering
-  into the existing `rust/` crates behind the `_NATIVE_AVAILABLE` pattern.
 - **Optional rtk backend:** for users with rtk installed, a
   `shell_output_condenser_backend: "rtk"` mode could delegate to the binary
   (100+ commands) with the native Python implementation as fallback. Deferred
