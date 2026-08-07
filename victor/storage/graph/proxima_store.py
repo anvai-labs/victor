@@ -38,6 +38,7 @@ TD-130/131 (graph bulk-load + REST v2 hybrid).
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 from dataclasses import replace
@@ -104,6 +105,23 @@ def _orion_stat(raw: Dict[str, Any], kind: str) -> int:
         if isinstance(value, (int, float)):
             return int(value)
     return 0
+
+
+def _unwrap_props(props: Dict[str, Any]) -> Dict[str, Any]:
+    """Flatten the REST record shape into plain values.
+
+    The scan/get endpoints return each prop as a typed envelope —
+    ``{"src": {"type": "string", "value": "n1"}}`` — while ``insert_records``
+    accepts plain values. Unwrap so the read side sees what the write side sent.
+    Values that are already plain pass through, so this is safe on both shapes.
+    """
+    flat: Dict[str, Any] = {}
+    for key, value in (props or {}).items():
+        if isinstance(value, dict) and "value" in value and "type" in value:
+            flat[key] = value["value"]
+        else:
+            flat[key] = value
+    return flat
 
 
 class ProximaGraphStore(GraphStoreProtocol):
@@ -174,11 +192,26 @@ class ProximaGraphStore(GraphStoreProtocol):
         self._record_nodes: Dict[str, GraphNode] = {}
         self._record_vectors: Dict[str, List[float]] = {}
         self._record_node_ids: set[str] = set()
+        # Durable Tier-A EDGES. Nodes have been record-backed since TD-12, but
+        # edges lived only in ORION — which does not persist them across a
+        # restart (anvai-labs/proximaDB#1524, reproduced on develop tip: 5 nodes
+        # and 4 edges written, 5 nodes and 0 edges after reopening). So every
+        # session silently lost its call/import graph. Edges now commit as
+        # records first and ORION becomes the same rebuildable projection nodes
+        # already treat it as.
+        #
+        # dimension=1, NOT self._vector_dim: edges carry no embedding, and a
+        # 384-dim zero vector per edge would cost ~1.5 KB each for nothing.
+        self._edge_vector_dim = 1
+        self._edge_collection_name = f"{self._repo}_codegraph_edges"
+        self._edge_collection: Any = None
         # Tier-A edge ids already in ORION. Loaded on first edge write so
         # duplicates never reach a batch (see upsert_edges); None = not yet read.
         self._orion_edge_ids: Optional[Set[str]] = None
         # One-shot guard so a missing-vector warning does not repeat per query.
         self._warned_missing_vectors = False
+        # One-shot guard for the "edges are not durable here" warning.
+        self._warned_edge_records_unavailable = False
 
         # In-memory sidecars for facts ProximaDBGraph does not yet persist
         # natively (relational Tier-C work lands with TD-127). Idempotent and
@@ -362,6 +395,16 @@ class ProximaGraphStore(GraphStoreProtocol):
         cold_edges = [edge for edge in edge_list if EdgeType.is_ccg_edge(edge.type)]
         if hot_edges:
             graph = await self._ensure()
+
+            # Durable commit first, projection second — the same order
+            # `upsert_node_record` uses ("the ProximaRecord write is the durable
+            # commit"). Every hot edge is written, not just the ones ORION has
+            # not seen: the ORION dedup below exists to work around a
+            # create-only batch API, whereas records are upserts keyed by oid,
+            # so re-writing one is both harmless and necessary for the record
+            # tier to stay complete when ORION already holds the edge.
+            await self._write_edge_records(hot_edges)
+
             known = await self._known_edge_ids(graph)
 
             # Duplicates must never reach ORION. `batch_create_edges` aborts the
@@ -503,6 +546,82 @@ class ProximaGraphStore(GraphStoreProtocol):
             self._symbol_collection_name, dimension=self._vector_dim
         )
         return self._symbol_collection
+
+    async def _edge_records(self) -> Any:
+        """Get/create the durable Tier-A edge collection (dimension 1)."""
+        if self._edge_collection is not None:
+            return self._edge_collection
+        if self._conn is None:
+            return None
+        self._edge_collection = await self._conn.get_or_create_collection(
+            self._edge_collection_name, dimension=self._edge_vector_dim
+        )
+        return self._edge_collection
+
+    def _to_proxima_edge_record(self, edge: GraphEdge) -> Dict[str, Any]:
+        """Build the durable envelope for one Tier-A edge.
+
+        The id is the same ``src|type|dst`` key ``_to_proxima_edge`` gives ORION,
+        so a repeated write is an upsert over the same oid rather than a
+        duplicate — the property that makes re-running a resolution pass safe.
+        """
+        edge_type = getattr(edge.type, "value", edge.type)
+        props: Dict[str, Any] = {
+            "record_kind": "graph_edge",
+            "graph_id": self._graph_id,
+            "src": edge.src,
+            "dst": edge.dst,
+            "type": edge_type,
+            "metadata": dict(edge.metadata or {}),
+        }
+        if edge.weight is not None:
+            props["weight"] = edge.weight
+        return {
+            "id": f"{edge.src}|{edge_type}|{edge.dst}",
+            "vector": [0.0] * self._edge_vector_dim,
+            "props": props,
+        }
+
+    @staticmethod
+    def _edge_from_record_props(props: Dict[str, Any]) -> Optional[GraphEdge]:
+        """Rebuild a GraphEdge from stored props, or None if the row is unusable."""
+        src = props.get("src")
+        dst = props.get("dst")
+        etype = props.get("type")
+        if not (src and dst and etype):
+            return None
+        metadata = props.get("metadata")
+        if isinstance(metadata, str):
+            try:
+                metadata = json.loads(metadata)
+            except (TypeError, ValueError):
+                metadata = {}
+        return GraphEdge(
+            src=str(src),
+            dst=str(dst),
+            type=str(etype),
+            weight=props.get("weight"),
+            metadata=dict(metadata or {}),
+        )
+
+    async def _write_edge_records(self, edges: List[GraphEdge]) -> None:
+        """Commit Tier-A edges durably, before the ORION projection."""
+        collection = await self._edge_records()
+        if collection is None:
+            # Client-mode / injected-graph deployments have no record collection.
+            # ORION remains the only store there, so edges stay non-durable —
+            # say so once rather than pretending the write happened.
+            if not self._warned_edge_records_unavailable:
+                logger.warning(
+                    "No ProximaRecord collection available for Tier-A edges; they "
+                    "will live only in ORION and will not survive a restart "
+                    "(anvai-labs/proximaDB#1524)."
+                )
+                self._warned_edge_records_unavailable = True
+            return
+        payload = [self._to_proxima_edge_record(edge) for edge in edges]
+        result = await collection.insert_records(payload)
+        self._validate_record_write(result, len(payload))
 
     def _node_for_record(
         self,
@@ -790,9 +909,82 @@ class ProximaGraphStore(GraphStoreProtocol):
         return nodes
 
     async def get_all_edges(self) -> List[GraphEdge]:
+        """Tier-A edges, read from the durable record tier where available.
+
+        ORION is consulted only as the projection: after a restart it reports
+        zero edges while the records still hold them (#1524), so preferring
+        records is what makes the graph survive. Whichever source answers, the
+        union is returned — during the first indexing pass ORION and the record
+        tier hold the same set, and `_sorted_edges` dedups nothing, so the merge
+        is keyed explicitly.
+        """
         graph = await self._ensure()
         raw = await asyncio.to_thread(graph.get_all_edges)
-        return self._sorted_edges([self._from_proxima_edge(e) for e in raw])
+        projected = [self._from_proxima_edge(e) for e in raw]
+
+        durable = await self._read_edge_records()
+        if durable is None:
+            return self._sorted_edges(projected)
+
+        merged: Dict[tuple[str, str, str], GraphEdge] = {}
+        for edge in [*projected, *durable]:
+            if edge.src and edge.dst and edge.type:
+                merged[(edge.src, edge.dst, str(edge.type))] = edge
+        return self._sorted_edges(list(merged.values()))
+
+    async def _read_edge_records(self) -> Optional[List[GraphEdge]]:
+        """Every Tier-A edge in the record tier, or None when unreadable.
+
+        The SDK's collection object exposes insert/search/delete/count but no
+        scan, so this goes to the REST scan endpoint through the embedded
+        server's own HTTP client. That is the single place reaching past the
+        SDK's public surface; if the SDK grows a scan method, this collapses to
+        a call.
+
+        Scanning the whole collection is acceptable here and only here: Tier-A
+        is ~1.4k edges. It is emphatically NOT a pattern to reuse for Tier-B
+        (81k edges), where the same scan measured 158 ms per lookup because the
+        server materializes the collection before filtering
+        (anvai-labs/proximaDB TD-FPRUNE-2).
+        """
+        if self._conn is None:
+            return None
+        collection = await self._edge_records()
+        if collection is None:
+            return None
+        db = getattr(self._conn, "embedded_db", None)
+        client_factory = getattr(db, "_http_client", None)
+        if db is None or client_factory is None:
+            return None
+        try:
+            edges: List[GraphEdge] = []
+            cursor: Optional[str] = None
+            async with client_factory() as client:
+                while True:
+                    body: Dict[str, Any] = {"limit": 1000}
+                    if cursor:
+                        body["cursor"] = cursor
+                    response = await client.post(
+                        f"{db.rest_url}/api/v2/collections/"
+                        f"{self._edge_collection_name}/records/scan",
+                        json=body,
+                        timeout=60.0,
+                    )
+                    if response.status_code != 200:
+                        return None
+                    payload = response.json()
+                    for record in payload.get("records") or []:
+                        props = record.get("props") or {}
+                        edge = self._edge_from_record_props(_unwrap_props(props))
+                        if edge is not None:
+                            edges.append(edge)
+                    cursor = payload.get("next_cursor")
+                    if not cursor:
+                        break
+            return edges
+        except Exception as exc:  # pragma: no cover - depends on live server
+            logger.debug("Could not read Tier-A edge records: %s", exc)
+            return None
 
     # ------------------------------------------------------------------
     # File mtime / staleness (in-memory sidecar until Tier-C relational facts)

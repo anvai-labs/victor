@@ -50,16 +50,14 @@ from victor.storage.graph.registry import create_graph_store  # noqa: E402
 
 pytestmark = [pytest.mark.integration, pytest.mark.slow]
 
-# ORION drops *edges* across a restart while keeping nodes — confirmed through
-# three independent read paths (get_all_edges, get_neighbors, and ORION's own
-# get_stats, which reports total_edges 0 alongside the surviving nodes). Filed as
-# anvai-labs/proximaDB#1524. xfail(strict=True) rather than skip, so the day the
-# engine fixes it this turns XPASS and fails the build, forcing the marker out.
-_ORION_DROPS_EDGES = pytest.mark.xfail(
-    strict=True,
-    reason="ORION does not persist edges across a restart; see anvai-labs/proximaDB#1524",
-)
-
+# ORION still drops *edges* across a restart while keeping nodes — that engine
+# defect is unchanged (anvai-labs/proximaDB#1524) and this suite used to carry an
+# `xfail(strict=True)` for it. The xfail is gone because Victor no longer depends
+# on ORION for durability: Tier-A edges are committed as ProximaRecords first and
+# ORION is treated as the rebuildable projection that node writes already treated
+# it as. So the assertion below now holds through the record tier, and if edge
+# records ever regress this test fails rather than xfails.
+#
 # Records and their embeddings ARE durable. An earlier revision of this file
 # xfailed the vector case too, on the strength of `records/scan` returning 0
 # after a restart — but that endpoint only reads the memtable, so it goes blind
@@ -67,10 +65,7 @@ _ORION_DROPS_EDGES = pytest.mark.xfail(
 # full Victor round trip (index -> close -> reopen -> semantic_search) recovers
 # every vector. The lesson is in _vector_hits: assert through a read path that
 # sees flushed state.
-GRAPH_BACKENDS = [
-    "sqlite",
-    pytest.param("proxima", marks=_ORION_DROPS_EDGES),
-]
+GRAPH_BACKENDS = ["sqlite", "proxima"]
 VECTOR_BACKENDS = ["sqlite", "proxima"]
 
 _SOURCE = '''
