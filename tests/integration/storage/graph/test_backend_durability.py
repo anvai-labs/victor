@@ -42,7 +42,23 @@ from victor.storage.graph.registry import create_graph_store  # noqa: E402
 
 pytestmark = [pytest.mark.integration, pytest.mark.slow]
 
-BACKENDS = ["sqlite", "proxima"]
+# Proxima is expected to fail both assertions today: ORION drops edges across a
+# restart, and the ProximaRecords holding the vectors are not persisted at all.
+# Filed upstream. Marked xfail(strict=True) rather than skipped so the day the
+# engine fixes it these turn XPASS and fail the build, prompting the marker's
+# removal — a skip would just go quiet and we would never notice the fix.
+_PROXIMA_NOT_DURABLE = pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "ProximaDB does not persist ORION edges or ProximaRecords across a "
+        "restart; see anvai-labs/proximaDB#1524"
+    ),
+)
+
+BACKENDS = [
+    "sqlite",
+    pytest.param("proxima", marks=_PROXIMA_NOT_DURABLE),
+]
 
 _SOURCE = '''
 """Fixture module."""
