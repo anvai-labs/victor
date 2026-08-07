@@ -1,6 +1,6 @@
 # Tool Output Condensation (rtk co-design)
 
-Status: Phase 1 implemented
+Status: Phases 1-2 implemented
 Date: 2026-08-07
 
 ## Problem
@@ -91,12 +91,20 @@ stricter standard than the deprecated pruner:
 - **KV prefix caching** is unaffected — condensation touches per-turn tool
   results, not the stable system prefix.
 
-## Future phases
+## Phase 2 (implemented)
 
-- **Phase 2 — coverage:** go test, mypy/ruff/eslint/tsc grouped-by-rule,
-  docker/kubectl table slimming, npm test, make. Port rtk's TOML corpus as a
-  data-driven `LineFilterSpec` table (YAML under `victor/config/`), including
-  inline tests.
+- **Structural:** `go test` (--- FAIL blocks kept, ok/pass lines collapsed to
+  package counts, verbose `=== RUN`/`--- PASS` noise stripped).
+- **Line filters:** npm/pnpm/yarn/jest test (PASS/✓ lines stripped), docker
+  build/pull progress, make Entering/Leaving-directory noise, apt-get and brew
+  install logs.
+- **User-extensible overlay** (rtk `.rtk/filters.toml` analogue):
+  `{project}/.victor/output_filters.yaml` then `~/.victor/output_filters.yaml`,
+  same schema as `LineFilterSpec` (`name`, `match_command`, `strip_lines`,
+  `max_lines`, `on_empty`). User filters win over builtins; invalid entries are
+  skipped with a warning; files are cached by mtime.
+
+## Future phases
 - **Phase 3 — frugal flag injection:** rewrite recognized commands to quieter
   forms (`pytest -q --tb=short -rxX`) before execution, with the original
   command preserved in metadata.

@@ -298,6 +298,72 @@ def _condense_git_status(
 
 
 # ---------------------------------------------------------------------------
+# Structural condenser: go test
+# ---------------------------------------------------------------------------
+
+_GO_TEST_RE = re.compile(r"^go\s+test\b")
+_GO_OK_RE = re.compile(r"^ok\s+\S+\s+(?:[\d.]+s|\(cached\))")
+_GO_NOTEST_RE = re.compile(r"^\?\s+\S+\s+\[no test files\]")
+_GO_FAIL_PKG_RE = re.compile(r"^(?:FAIL|---\s+FAIL)")
+_GO_PASS_NOISE_RE = re.compile(r"^(?:=== RUN|=== PAUSE|=== CONT|--- PASS:|PASS$)")
+
+
+def _condense_go_test(
+    command: str, stdout: str, stderr: str, return_code: int
+) -> Optional[Tuple[str, str]]:
+    """Keep --- FAIL blocks and FAIL lines; collapse ok/pass lines to counts."""
+    lines = stdout.splitlines()
+    ok_count = 0
+    cached_count = 0
+    notest_count = 0
+    kept: List[str] = []
+    in_fail_block = False
+    recognized = False
+
+    for line in lines:
+        if _GO_OK_RE.match(line):
+            ok_count += 1
+            if "(cached)" in line:
+                cached_count += 1
+            recognized = True
+            in_fail_block = False
+            continue
+        if _GO_NOTEST_RE.match(line):
+            notest_count += 1
+            recognized = True
+            in_fail_block = False
+            continue
+        if _GO_PASS_NOISE_RE.match(line.strip()):
+            in_fail_block = False
+            continue
+        if _GO_FAIL_PKG_RE.match(line):
+            recognized = True
+            in_fail_block = True
+            kept.append(line)
+            continue
+        if in_fail_block and (line.startswith((" ", "\t")) or not line.strip()):
+            kept.append(line)
+            continue
+        in_fail_block = False
+        if line.strip():
+            kept.append(line)
+
+    if not recognized:
+        return None
+
+    parts = _cap_section([ln for ln in kept if ln.strip()], MAX_FAILURE_SECTION_LINES)
+    if ok_count:
+        cached_note = f", {cached_count} cached" if cached_count else ""
+        parts.append(f"ok: {ok_count} packages{cached_note}")
+    if notest_count:
+        parts.append(f"[no test files: {notest_count} packages]")
+    condensed = "\n".join(parts)
+    if len(condensed) >= len(stdout):
+        return None
+    return condensed, stderr
+
+
+# ---------------------------------------------------------------------------
 # Declarative line filters (rtk TOML-filter analogue)
 # ---------------------------------------------------------------------------
 
@@ -365,7 +431,143 @@ LINE_FILTERS: List[LineFilterSpec] = [
             r"^\s*Updating\s+crates\.io index",
         ),
     ),
+    LineFilterSpec(
+        name="npm-test",
+        match_command=re.compile(r"^(?:npm|pnpm|yarn)\s+(?:run\s+)?test\b|^(?:npx\s+)?jest\b"),
+        strip_lines=_p(
+            r"^PASS\s+\S+",
+            r"^\s*(?:✓|✔)\s",
+            r"^\s*(?:⠋|⠙|⠹|⠸|⠼|⠴|⠦|⠧|⠇|⠏)",
+        ),
+    ),
+    LineFilterSpec(
+        name="docker-build",
+        match_command=re.compile(r"^docker\s+(?:buildx\s+)?build\b"),
+        strip_lines=_p(
+            r"^Sending build context to Docker daemon",
+            r"^\s*---> (?:[0-9a-f]{12}|Running in [0-9a-f]{12})",
+            r"^Removing intermediate container",
+            r"^#\d+ (?:DONE|CACHED)\b",
+            r"^#\d+ (?:extracting|resolve|sha256:|transferring)\b",
+        ),
+    ),
+    LineFilterSpec(
+        name="docker-pull",
+        match_command=re.compile(r"^docker\s+(?:image\s+)?pull\b"),
+        strip_lines=_p(
+            r"^[0-9a-f]{12}: (?:Pulling|Waiting|Verifying|Download|Pull complete|Extracting|Already exists)",
+        ),
+    ),
+    LineFilterSpec(
+        name="make",
+        match_command=re.compile(r"^(?:g?make)\b"),
+        strip_lines=_p(
+            r"^make(?:\[\d+\])?: (?:Entering|Leaving) directory",
+        ),
+    ),
+    LineFilterSpec(
+        name="apt-install",
+        match_command=re.compile(r"^(?:sudo\s+)?apt(?:-get)?\s+(?:install|upgrade|update)\b"),
+        strip_lines=_p(
+            r"^(?:Get|Hit|Ign):\d+",
+            r"^(?:Reading package lists|Building dependency tree|Reading state information)",
+            r"^(?:Preparing to unpack|Unpacking|Setting up|Selecting previously unselected|Processing triggers)\b",
+            r"^\(Reading database",
+        ),
+    ),
+    LineFilterSpec(
+        name="brew-install",
+        match_command=re.compile(r"^brew\s+(?:install|upgrade|update)\b"),
+        strip_lines=_p(
+            r"^==> (?:Downloading|Fetching|Pouring|Verifying)\b",
+            r"^Already downloaded:",
+            r"^#{4,}",
+        ),
+    ),
 ]
+
+
+# ---------------------------------------------------------------------------
+# User-defined filter overlay (rtk's .rtk/filters.toml analogue)
+#
+# Project filters in {project}/.victor/output_filters.yaml, user filters in
+# ~/.victor/output_filters.yaml. Schema:
+#
+#   filters:
+#     - name: my-tool
+#       match_command: "^my-tool\\b"
+#       strip_lines: ["^noise pattern"]
+#       max_lines: 40          # optional
+#       on_empty: "my-tool: ok"  # optional
+#
+# Project filters win over user filters; both win over builtins. Invalid
+# entries are skipped with a warning (fail-open).
+# ---------------------------------------------------------------------------
+
+_USER_FILTERS_FILENAME = "output_filters.yaml"
+_user_filters_cache: dict[str, tuple[float, List[LineFilterSpec]]] = {}
+
+
+def _parse_filter_entries(entries: object, source: str) -> List[LineFilterSpec]:
+    specs: List[LineFilterSpec] = []
+    if not isinstance(entries, list):
+        return specs
+    for entry in entries:
+        try:
+            if not isinstance(entry, dict):
+                continue
+            specs.append(
+                LineFilterSpec(
+                    name=str(entry["name"]),
+                    match_command=re.compile(str(entry["match_command"])),
+                    strip_lines=[re.compile(str(p)) for p in entry.get("strip_lines", [])],
+                    max_lines=(
+                        int(entry["max_lines"]) if entry.get("max_lines") is not None else None
+                    ),
+                    on_empty=str(entry.get("on_empty", "")),
+                )
+            )
+        except (KeyError, TypeError, ValueError, re.error) as exc:
+            logger.warning("Skipping invalid output filter in %s: %s", source, exc)
+    return specs
+
+
+def _load_filters_file(path: Path) -> List[LineFilterSpec]:
+    """Load one filters YAML file, cached by mtime."""
+    try:
+        mtime = path.stat().st_mtime
+    except OSError:
+        _user_filters_cache.pop(str(path), None)
+        return []
+    cached = _user_filters_cache.get(str(path))
+    if cached and cached[0] == mtime:
+        return cached[1]
+    try:
+        import yaml
+
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        specs = _parse_filter_entries(data.get("filters"), str(path))
+    except Exception as exc:
+        logger.warning("Failed to load output filters from %s: %s", path, exc)
+        specs = []
+    _user_filters_cache[str(path)] = (mtime, specs)
+    return specs
+
+
+def _user_line_filters() -> List[LineFilterSpec]:
+    """Project filters first, then user-global filters."""
+    paths: List[Path] = []
+    try:
+        from victor.config.settings import load_settings
+
+        paths.append(load_settings().project_victor_dir / _USER_FILTERS_FILENAME)
+    except Exception:
+        paths.append(Path.cwd() / ".victor" / _USER_FILTERS_FILENAME)
+    paths.append(Path.home() / ".victor" / _USER_FILTERS_FILENAME)
+    specs: List[LineFilterSpec] = []
+    for path in paths:
+        specs.extend(_load_filters_file(path))
+    return specs
 
 
 def _apply_line_filter(
@@ -387,6 +589,7 @@ Condenser = Callable[[str, str, str, int], Optional[Tuple[str, str]]]
 _STRUCTURAL: List[Tuple[Pattern[str], str, Condenser]] = [
     (_PYTEST_RE, "pytest", _condense_pytest),
     (_GIT_STATUS_RE, "git-status", _condense_git_status),
+    (_GO_TEST_RE, "go-test", _condense_go_test),
 ]
 
 
@@ -421,7 +624,7 @@ def condense_shell_output(
                 name = cname
                 break
         if outcome is None:
-            for spec in LINE_FILTERS:
+            for spec in _user_line_filters() + LINE_FILTERS:
                 if spec.match_command.match(effective):
                     outcome = _apply_line_filter(spec, effective, stdout, stderr, return_code)
                     name = spec.name
