@@ -30,11 +30,19 @@ from typing import Any, List, Tuple
 import pytest
 
 try:  # importorskip only catches ImportError; a broken install raises RuntimeError
-    import proximadb_sdk  # noqa: F401
+    from proximadb_sdk import embedded as _proxima_embedded
 
     _PROXIMA_IMPORTABLE = True
+    # anvai-labs/proximaDB#1487 made the collection accessors read both the flat
+    # and nested payload shapes and resolve `get_collection` through LIST. Without
+    # it, reopening a collection raises from inside the SDK and this test fails
+    # with an error that looks like data loss but is an install-version artefact —
+    # a misreading that already produced one wrong xfail marker in this file. Skip
+    # loudly instead: a test must not silently depend on an unreleased SDK.
+    _PROXIMA_SDK_CURRENT = hasattr(_proxima_embedded, "_collection_field")
 except Exception:  # pragma: no cover - environment-dependent
     _PROXIMA_IMPORTABLE = False
+    _PROXIMA_SDK_CURRENT = False
 
 from victor.core.graph_rag.config import GraphIndexConfig  # noqa: E402
 from victor.core.graph_rag.indexing import GraphIndexingPipeline  # noqa: E402
@@ -97,8 +105,16 @@ def _make_corpus(root: Path) -> Path:
 
 
 def _skip_if_backend_unavailable(backend: str) -> None:
-    if backend == "proxima" and not _PROXIMA_IMPORTABLE:
+    if backend != "proxima":
+        return
+    if not _PROXIMA_IMPORTABLE:
         pytest.skip("proximadb_sdk unavailable")
+    if not _PROXIMA_SDK_CURRENT:
+        pytest.skip(
+            "installed proximadb_sdk predates anvai-labs/proximaDB#1487 "
+            "(collection accessors); reopening a collection would fail for "
+            "install-version reasons, not durability ones"
+        )
 
 
 async def _index_once(backend: str, project: Path, corpus: Path, *, embeddings: bool) -> None:
