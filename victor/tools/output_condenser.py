@@ -100,6 +100,47 @@ def _effective_command(command: str) -> Optional[str]:
 
 
 # ---------------------------------------------------------------------------
+# Frugal flag injection (rtk-style command rewriting)
+#
+# The cheapest token is one the tool never emits: rewrite recognized commands
+# to quieter forms before execution. Only simple commands are rewritten — any
+# chain, pipe, or redirect passes through untouched — and explicit user flags
+# are never overridden.
+# ---------------------------------------------------------------------------
+
+_SHELL_OPERATORS_RE = re.compile(r"[|;<>]|&&")
+_PYTEST_VERBOSITY_RE = re.compile(r"(?:^|\s)(?:-q|--quiet|-v{1,3}|--verbose)\b")
+_PYTEST_REPORT_RE = re.compile(r"(?:^|\s)-r[A-Za-z]*\b")
+
+
+def rewrite_frugal_command(command: str) -> Optional[str]:
+    """Return a quieter equivalent of *command*, or None to run it as-is.
+
+    Currently rewrites bare pytest invocations to add ``-q --tb=short -rxX``
+    (quiet progress, short tracebacks, xfail/xpass surfaced in the short
+    summary) — the same flags rtk injects. Flags already present are never
+    duplicated or overridden.
+    """
+    if _SHELL_OPERATORS_RE.search(command):
+        return None
+    effective = _effective_command(command)
+    if not effective or not _PYTEST_RE.match(effective):
+        return None
+    if "--collect-only" in effective or "--co" in effective.split():
+        return None
+    additions: List[str] = []
+    if not _PYTEST_VERBOSITY_RE.search(effective):
+        additions.append("-q")
+    if "--tb" not in effective:
+        additions.append("--tb=short")
+    if not _PYTEST_REPORT_RE.search(effective):
+        additions.append("-rxX")
+    if not additions:
+        return None
+    return f"{command.rstrip()} {' '.join(additions)}"
+
+
+# ---------------------------------------------------------------------------
 # Raw-output tee (lossless escape hatch)
 # ---------------------------------------------------------------------------
 

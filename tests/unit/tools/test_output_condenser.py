@@ -12,6 +12,7 @@ from victor.tools.output_condenser import (
     _cap_section,
     _effective_command,
     condense_shell_output,
+    rewrite_frugal_command,
     tee_raw_output,
 )
 from victor.tools.subprocess_executor import _truncate_output_by_lines
@@ -388,6 +389,55 @@ class TestUserFilterOverlay:
         self._write_yaml(yaml_path, 'filters:\n  - name: two\n    match_command: "^two"\n')
         os.utime(yaml_path, (1e9, 1e9))  # force distinct mtime
         assert [s.name for s in oc._load_filters_file(yaml_path)] == ["two"]
+
+
+class TestFrugalFlagRewrite:
+    def test_bare_pytest_gets_all_flags(self):
+        assert rewrite_frugal_command("pytest tests/unit") == "pytest tests/unit -q --tb=short -rxX"
+
+    def test_python_m_pytest(self):
+        assert (
+            rewrite_frugal_command("python -m pytest tests")
+            == "python -m pytest tests -q --tb=short -rxX"
+        )
+
+    def test_explicit_verbosity_respected(self):
+        result = rewrite_frugal_command("pytest -v tests")
+        assert result is not None
+        assert "-q" not in result.split()
+        assert "--tb=short" in result
+
+    def test_explicit_tb_not_overridden(self):
+        result = rewrite_frugal_command("pytest --tb=long tests")
+        assert result is not None
+        assert "--tb=short" not in result
+        assert result.count("--tb") == 1
+
+    def test_existing_report_flag_not_duplicated(self):
+        result = rewrite_frugal_command("pytest -ra tests")
+        assert result is not None
+        assert "-rxX" not in result
+
+    def test_all_flags_present_returns_none(self):
+        assert rewrite_frugal_command("pytest -q --tb=short -rxX tests") is None
+
+    def test_chains_and_pipes_untouched(self):
+        assert rewrite_frugal_command("cd /repo && pytest") is None
+        assert rewrite_frugal_command("pytest | tail -5") is None
+        assert rewrite_frugal_command("pytest > out.txt") is None
+
+    def test_collect_only_untouched(self):
+        assert rewrite_frugal_command("pytest --collect-only tests") is None
+
+    def test_non_pytest_returns_none(self):
+        assert rewrite_frugal_command("git status") is None
+        assert rewrite_frugal_command("cargo test") is None
+
+    def test_env_prefix_and_wrapper_preserved(self):
+        result = rewrite_frugal_command("CI=1 uv run pytest tests")
+        assert result is not None
+        assert result.startswith("CI=1 uv run pytest tests")
+        assert result.endswith("-q --tb=short -rxX")
 
 
 class TestSavingsAccounting:

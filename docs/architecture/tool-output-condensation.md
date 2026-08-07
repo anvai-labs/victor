@@ -1,6 +1,6 @@
 # Tool Output Condensation (rtk co-design)
 
-Status: Phases 1-2 implemented
+Status: Phases 1-3 implemented
 Date: 2026-08-07
 
 ## Problem
@@ -104,10 +104,18 @@ stricter standard than the deprecated pruner:
   `max_lines`, `on_empty`). User filters win over builtins; invalid entries are
   skipped with a warning; files are cached by mtime.
 
+## Phase 3 (implemented)
+
+**Frugal flag injection** (`rewrite_frugal_command`): bare pytest invocations
+are rewritten to add `-q --tb=short -rxX` before execution — the same flags
+rtk injects — so less output exists in the first place. Explicit user flags
+are never overridden; commands with chains, pipes, or redirects pass through
+untouched; `--collect-only` is exempt. The rewritten command runs and is
+reported in the result's `command` field, with the original preserved as
+`original_command`. Gated by `shell_frugal_flags_enabled` (default True,
+also requires `shell_output_condensation_enabled`).
+
 ## Future phases
-- **Phase 3 — frugal flag injection:** rewrite recognized commands to quieter
-  forms (`pytest -q --tb=short -rxX`) before execution, with the original
-  command preserved in metadata.
 - **Phase 4 — savings telemetry:** aggregate `condensed` metadata into the
   existing usage-analytics pipeline (`rtk gain` equivalent), and use measured
   savings to tune per-condenser aggressiveness.
