@@ -632,20 +632,20 @@ class ProximaGraphStore(GraphStoreProtocol):
         search_filters["has_embedding"] = True
         hits = await collection.search(query_vector, top_k=top_k, filters=search_filters)
 
-        # Empty results are ambiguous here, and the ambiguity is dangerous: this
-        # backend keeps vectors inside ProximaRecords, and those records do not
-        # currently survive a restart (the write reports success, reads work in
-        # the same session, and the data is gone on reopen). A caller that indexed
-        # in a previous process therefore gets a silent zero rather than an error,
-        # and simply loses code search with nothing to notice. Say so once when
-        # the graph plainly holds symbols but no vector answers for them.
+        # Records and their vectors ARE durable across a restart; an earlier
+        # revision of this warning claimed otherwise and was wrong. Empty results
+        # are still worth one line, because the most common cause is an index
+        # built without embeddings: `victor init` only generates vectors when
+        # asked (`--embeddings`), so a repo can hold a complete graph and no
+        # vectors at all, and semantic search then returns zero with nothing to
+        # explain it.
         if not hits and not self._warned_missing_vectors:
             self._warned_missing_vectors = True
             logger.warning(
-                "ProximaDB semantic search returned no vectors for %s. If this repo "
-                "was indexed in an earlier process, its ProximaRecords (which carry "
-                "the embeddings) were not persisted — reindex in-process, or use the "
-                "sqlite backend, until record durability is fixed upstream.",
+                "ProximaDB semantic search matched no vectors for %s. The graph may "
+                "have been indexed without embeddings — re-run indexing with "
+                "embeddings enabled (`victor init --embeddings`) if semantic search "
+                "is expected here.",
                 self._repo,
             )
 

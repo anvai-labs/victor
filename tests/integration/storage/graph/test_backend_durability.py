@@ -42,23 +42,28 @@ from victor.storage.graph.registry import create_graph_store  # noqa: E402
 
 pytestmark = [pytest.mark.integration, pytest.mark.slow]
 
-# Proxima is expected to fail both assertions today: ORION drops edges across a
-# restart, and the ProximaRecords holding the vectors are not persisted at all.
-# Filed upstream. Marked xfail(strict=True) rather than skipped so the day the
-# engine fixes it these turn XPASS and fail the build, prompting the marker's
-# removal — a skip would just go quiet and we would never notice the fix.
-_PROXIMA_NOT_DURABLE = pytest.mark.xfail(
+# ORION drops *edges* across a restart while keeping nodes — confirmed through
+# three independent read paths (get_all_edges, get_neighbors, and ORION's own
+# get_stats, which reports total_edges 0 alongside the surviving nodes). Filed as
+# anvai-labs/proximaDB#1524. xfail(strict=True) rather than skip, so the day the
+# engine fixes it this turns XPASS and fails the build, forcing the marker out.
+_ORION_DROPS_EDGES = pytest.mark.xfail(
     strict=True,
-    reason=(
-        "ProximaDB does not persist ORION edges or ProximaRecords across a "
-        "restart; see anvai-labs/proximaDB#1524"
-    ),
+    reason="ORION does not persist edges across a restart; see anvai-labs/proximaDB#1524",
 )
 
-BACKENDS = [
+# Records and their embeddings ARE durable. An earlier revision of this file
+# xfailed the vector case too, on the strength of `records/scan` returning 0
+# after a restart — but that endpoint only reads the memtable, so it goes blind
+# to anything already flushed to an L0 segment. `search` returns the rows, and a
+# full Victor round trip (index -> close -> reopen -> semantic_search) recovers
+# every vector. The lesson is in _vector_hits: assert through a read path that
+# sees flushed state.
+GRAPH_BACKENDS = [
     "sqlite",
-    pytest.param("proxima", marks=_PROXIMA_NOT_DURABLE),
+    pytest.param("proxima", marks=_ORION_DROPS_EDGES),
 ]
+VECTOR_BACKENDS = ["sqlite", "proxima"]
 
 _SOURCE = '''
 """Fixture module."""
@@ -154,7 +159,7 @@ async def _vector_hits(store: Any) -> int:
             await close()
 
 
-@pytest.mark.parametrize("backend", BACKENDS)
+@pytest.mark.parametrize("backend", GRAPH_BACKENDS)
 async def test_graph_survives_restart(backend: str, tmp_path: Path) -> None:
     """Nodes and edges written by one process must be readable by the next."""
     _skip_if_backend_unavailable(backend)
@@ -176,7 +181,7 @@ async def test_graph_survives_restart(backend: str, tmp_path: Path) -> None:
         await store.close()
 
 
-@pytest.mark.parametrize("backend", BACKENDS)
+@pytest.mark.parametrize("backend", VECTOR_BACKENDS)
 async def test_vectors_survive_restart(backend: str, tmp_path: Path) -> None:
     """Embeddings must outlive the process that produced them.
 
