@@ -238,6 +238,158 @@ class TestTailPreservingTruncation:
         assert result == text
 
 
+class TestGoTestCondenser:
+    def test_failures_kept_ok_collapsed(self):
+        out = "\n".join(
+            [f"ok  \tgithub.com/x/pkg{i}\t0.01{i}s" for i in range(30)]
+            + [
+                "--- FAIL: TestWidget (0.00s)",
+                "    widget_test.go:12: expected 1 got 2",
+                "FAIL",
+                "FAIL\tgithub.com/x/widget\t0.52s",
+                "ok  \tgithub.com/x/last\t(cached)",
+            ]
+        )
+        result = condense_shell_output("go test ./...", out, "", 1, tee_enabled=False)
+        assert result is not None
+        assert result.condenser == "go-test"
+        assert "--- FAIL: TestWidget (0.00s)" in result.stdout
+        assert "widget_test.go:12: expected 1 got 2" in result.stdout
+        assert "ok: 31 packages, 1 cached" in result.stdout
+        assert "github.com/x/pkg5" not in result.stdout
+
+    def test_verbose_pass_noise_stripped(self):
+        out = "\n".join(
+            [
+                item
+                for i in range(40)
+                for item in (f"=== RUN   TestCase{i}", f"--- PASS: TestCase{i} (0.00s)")
+            ]
+            + ["PASS", "ok  \tgithub.com/x/pkg\t1.20s"]
+        )
+        result = condense_shell_output("go test -v ./pkg", out, "", 0, tee_enabled=False)
+        assert result is not None
+        assert "=== RUN" not in result.stdout
+        assert "--- PASS" not in result.stdout
+        assert "ok: 1 packages" in result.stdout
+
+    def test_unrecognized_fails_open(self):
+        out = "\n".join(f"random line {i}" for i in range(50))
+        assert condense_shell_output("go test ./...", out, "", 1, tee_enabled=False) is None
+
+
+class TestNewLineFilters:
+    def test_npm_test_jest_pass_lines_stripped(self):
+        out = "\n".join(
+            [f"PASS src/mod_{i}.test.ts" for i in range(20)]
+            + [f"  ✓ renders widget {i} (3 ms)" for i in range(20)]
+            + [
+                "FAIL src/broken.test.ts",
+                "  ● broken › explodes",
+                "Tests:       1 failed, 40 passed, 41 total",
+            ]
+        )
+        result = condense_shell_output("npm test", out, "", 1, tee_enabled=False)
+        assert result is not None
+        assert result.condenser == "npm-test"
+        assert "FAIL src/broken.test.ts" in result.stdout
+        assert "Tests:       1 failed, 40 passed, 41 total" in result.stdout
+        assert "PASS src/mod_3.test.ts" not in result.stdout
+
+    def test_make_directory_noise_stripped(self):
+        out = "\n".join(
+            [
+                "make[1]: Entering directory '/repo/sub'",
+                "gcc -c foo.c",
+                "make[1]: Leaving directory '/repo/sub'",
+            ]
+            * 15
+        )
+        result = condense_shell_output("make all", out, "", 0, tee_enabled=False)
+        assert result is not None
+        assert "gcc -c foo.c" in result.stdout
+        assert "Entering directory" not in result.stdout
+
+    def test_docker_pull_layer_noise_stripped(self):
+        out = "\n".join(
+            [f"{'a1b2c3d4e5f'[:11]}{i % 10}: Pull complete" for i in range(30)]
+            + ["Digest: sha256:deadbeef", "Status: Downloaded newer image for python:3.12"]
+        )
+        result = condense_shell_output("docker pull python:3.12", out, "", 0, tee_enabled=False)
+        assert result is not None
+        assert "Status: Downloaded newer image" in result.stdout
+        assert "Pull complete" not in result.stdout
+
+    def test_apt_install_noise_stripped(self):
+        out = "\n".join(
+            ["Reading package lists...", "Building dependency tree..."]
+            + [f"Get:{i} http://archive.ubuntu.com jammy/main pkg{i}" for i in range(20)]
+            + [f"Unpacking pkg{i} (1.0-1)" for i in range(20)]
+            + ["Setting up pkg1 (1.0-1)", "1 upgraded, 20 newly installed, 0 to remove."]
+        )
+        result = condense_shell_output("apt-get install -y pkgs", out, "", 0, tee_enabled=False)
+        assert result is not None
+        assert "1 upgraded, 20 newly installed" in result.stdout
+        assert "Unpacking pkg5" not in result.stdout
+
+
+class TestUserFilterOverlay:
+    def _write_yaml(self, path, body):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(body, encoding="utf-8")
+
+    def test_user_filter_applies_and_wins_over_builtin(self, tmp_path, monkeypatch):
+        import victor.tools.output_condenser as oc
+
+        yaml_path = tmp_path / ".victor" / "output_filters.yaml"
+        self._write_yaml(
+            yaml_path,
+            "filters:\n"
+            "  - name: user-make\n"
+            '    match_command: "^make\\\\b"\n'
+            '    strip_lines: ["^gcc "]\n',
+        )
+        monkeypatch.setattr(oc, "_user_line_filters", lambda: oc._load_filters_file(yaml_path))
+        out = "\n".join(["gcc -c foo.c", "make[1]: Entering directory '/x'", "ld foo.o"] * 15)
+        result = condense_shell_output("make", out, "", 0, tee_enabled=False)
+        assert result is not None
+        assert result.condenser == "user-make"  # user filter matched before builtin
+        assert "gcc -c foo.c" not in result.stdout
+        assert "ld foo.o" in result.stdout
+
+    def test_invalid_entries_skipped(self, tmp_path):
+        import victor.tools.output_condenser as oc
+
+        yaml_path = tmp_path / "output_filters.yaml"
+        self._write_yaml(
+            yaml_path,
+            "filters:\n"
+            "  - name: broken\n"
+            '    match_command: "([unclosed"\n'
+            "  - name: valid\n"
+            '    match_command: "^valid\\\\b"\n',
+        )
+        specs = oc._load_filters_file(yaml_path)
+        assert [s.name for s in specs] == ["valid"]
+
+    def test_missing_file_returns_empty(self, tmp_path):
+        import victor.tools.output_condenser as oc
+
+        assert oc._load_filters_file(tmp_path / "nope.yaml") == []
+
+    def test_mtime_cache_reloads_on_change(self, tmp_path):
+        import os
+
+        import victor.tools.output_condenser as oc
+
+        yaml_path = tmp_path / "output_filters.yaml"
+        self._write_yaml(yaml_path, 'filters:\n  - name: one\n    match_command: "^one"\n')
+        assert [s.name for s in oc._load_filters_file(yaml_path)] == ["one"]
+        self._write_yaml(yaml_path, 'filters:\n  - name: two\n    match_command: "^two"\n')
+        os.utime(yaml_path, (1e9, 1e9))  # force distinct mtime
+        assert [s.name for s in oc._load_filters_file(yaml_path)] == ["two"]
+
+
 class TestSavingsAccounting:
     def test_result_reports_savings(self):
         r = CondensationResult(
