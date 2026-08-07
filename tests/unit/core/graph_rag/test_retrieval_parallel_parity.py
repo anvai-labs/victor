@@ -262,3 +262,27 @@ async def test_falls_back_to_serial_when_parallel_is_disabled(
     result = await retriever.retrieve_parallel("handler")
 
     assert result.nodes, "disabling parallel must fall back to serial, not return nothing"
+
+
+async def test_edges_between_does_not_read_the_whole_graph(
+    store: SqliteGraphStore,
+) -> None:
+    """Edge assembly must be scoped to the returned nodes.
+
+    `_get_edges_between` used to call `get_all_edges()` and filter in Python —
+    a whole-graph read per query for the few edges among `top_k` nodes. SQLite
+    hid it at ~2.9 ms; the ProximaDB backend measured 732 ms for the same call,
+    which made it the dominant cost of a retrieval returning a handful of nodes.
+    """
+    counting = CountingStore(store)
+    retriever = MultiHopRetriever(counting, _config("scoped-edges"))
+
+    result = await retriever.retrieve("handler")
+
+    assert counting.calls.get("get_all_edges", 0) == 0, (
+        "retrieval read the entire edge set; it should ask only about the nodes " "it is returning"
+    )
+    # Still correct: every edge returned must connect two returned nodes.
+    returned = {n.node_id for n in result.nodes}
+    for edge in result.edges:
+        assert edge.src in returned and edge.dst in returned

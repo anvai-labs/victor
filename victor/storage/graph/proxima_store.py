@@ -96,6 +96,12 @@ _ORION_STAT_KEYS = {
     "edges": ("total_edges", "edge_count", "edges"),
 }
 
+# One scan page for the Tier-A edge read. The server's cursor cannot be followed
+# by collection name (proximaDB#1542), so this is the whole budget rather than a
+# page size; it is far above Victor's Tier-A edge counts (~1.4k on this repo) and
+# a graph that exceeds it logs a truncation warning instead of quietly shrinking.
+_EDGE_SCAN_LIMIT = 100_000
+
 
 def _orion_stat(raw: Dict[str, Any], kind: str) -> int:
     """Extract a node/edge count from ORION's get_stats() response."""
@@ -212,6 +218,9 @@ class ProximaGraphStore(GraphStoreProtocol):
         self._warned_missing_vectors = False
         # One-shot guard for the "edges are not durable here" warning.
         self._warned_edge_records_unavailable = False
+        # Session cache of the durable edge set; None = not yet read. Invalidated
+        # by `upsert_edges`, which is the only thing that changes it.
+        self._edge_record_cache: Optional[List[GraphEdge]] = None
 
         # In-memory sidecars for facts ProximaDBGraph does not yet persist
         # natively (relational Tier-C work lands with TD-127). Idempotent and
@@ -404,6 +413,8 @@ class ProximaGraphStore(GraphStoreProtocol):
             # so re-writing one is both harmless and necessary for the record
             # tier to stay complete when ORION already holds the edge.
             await self._write_edge_records(hot_edges)
+            # The durable set just changed; drop the cached read.
+            self._edge_record_cache = None
 
             known = await self._known_edge_ids(graph)
 
@@ -947,6 +958,8 @@ class ProximaGraphStore(GraphStoreProtocol):
         server materializes the collection before filtering
         (anvai-labs/proximaDB TD-FPRUNE-2).
         """
+        if self._edge_record_cache is not None:
+            return self._edge_record_cache
         if self._conn is None:
             return None
         collection = await self._edge_records()
@@ -956,35 +969,57 @@ class ProximaGraphStore(GraphStoreProtocol):
         client_factory = getattr(db, "_http_client", None)
         if db is None or client_factory is None:
             return None
+
+        edges: List[GraphEdge] = []
         try:
-            edges: List[GraphEdge] = []
-            cursor: Optional[str] = None
             async with client_factory() as client:
-                while True:
-                    body: Dict[str, Any] = {"limit": 1000}
-                    if cursor:
-                        body["cursor"] = cursor
-                    response = await client.post(
-                        f"{db.rest_url}/api/v2/collections/"
-                        f"{self._edge_collection_name}/records/scan",
-                        json=body,
-                        timeout=60.0,
+                # Deliberately ONE request, not a cursor loop. The server mints a
+                # scan cursor against the collection's numeric object id but
+                # validates it against the identifier in the request path, so a
+                # name-addressed client is rejected on page 2 with
+                # "scan cursor was issued for collection '2', not '<name>'"
+                # (anvai-labs/proximaDB#1542). Paginating therefore cannot work
+                # from here at all, and the previous cursor loop discarded even
+                # the rows it had already read.
+                response = await client.post(
+                    f"{db.rest_url}/api/v2/collections/"
+                    f"{self._edge_collection_name}/records/scan",
+                    json={"limit": _EDGE_SCAN_LIMIT},
+                    timeout=120.0,
+                )
+                if response.status_code != 200:
+                    logger.warning(
+                        "Tier-A edge record scan failed (HTTP %s); falling back to the "
+                        "ORION projection, which does not survive a restart.",
+                        response.status_code,
                     )
-                    if response.status_code != 200:
-                        return None
-                    payload = response.json()
-                    for record in payload.get("records") or []:
-                        props = record.get("props") or {}
-                        edge = self._edge_from_record_props(_unwrap_props(props))
-                        if edge is not None:
-                            edges.append(edge)
-                    cursor = payload.get("next_cursor")
-                    if not cursor:
-                        break
-            return edges
+                    return None
+                payload = response.json()
+                records = payload.get("records") or []
+                for record in records:
+                    edge = self._edge_from_record_props(_unwrap_props(record.get("props") or {}))
+                    if edge is not None:
+                        edges.append(edge)
+                if payload.get("next_cursor"):
+                    # Truncation must be loud. Silently returning a prefix of the
+                    # graph is exactly the failure mode that made this look like
+                    # an empty collection.
+                    logger.warning(
+                        "Tier-A edge records exceed one scan page (%d read, more "
+                        "available) and the server's cursor cannot be followed by "
+                        "collection name (proximaDB#1542); the graph is truncated.",
+                        len(edges),
+                    )
         except Exception as exc:  # pragma: no cover - depends on live server
-            logger.debug("Could not read Tier-A edge records: %s", exc)
+            logger.warning("Could not read Tier-A edge records: %s", exc)
             return None
+
+        # Cache for the session: these records only change when this store writes
+        # them, and `upsert_edges` invalidates. Without this, `get_all_edges` —
+        # which retrieval calls on every query — repeats a full scan that measured
+        # 732 ms on a 1.4k-edge graph.
+        self._edge_record_cache = edges
+        return edges
 
     # ------------------------------------------------------------------
     # File mtime / staleness (in-memory sidecar until Tier-C relational facts)
