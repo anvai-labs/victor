@@ -876,6 +876,13 @@ def init(
         help="Include conversation history insights (default: on)",
     ),
     index: bool = typer.Option(False, "--index", "-i", help="Build the symbol store only (no LLM)"),
+    embeddings: bool = typer.Option(
+        False,
+        "--embeddings/--no-embeddings",
+        help=(
+            "Generate graph embeddings so semantic code search works " "(slower init; default: off)"
+        ),
+    ),
     deep: bool = typer.Option(
         True, "--deep/--no-deep", "-d", help="Use LLM for deep analysis (default: on)"
     ),
@@ -1308,7 +1315,14 @@ providers:
                         config = GraphIndexConfig(
                             root_path=project_root,
                             enable_ccg=True,
-                            enable_embeddings=False,  # Skip embeddings for faster init
+                            # Off by default because generating vectors roughly
+                            # triples init time, but no longer hardcoded: without
+                            # this, `GraphIndexConfig.enable_embeddings` (which
+                            # defaults to True) was silently overridden and NO
+                            # backend ever produced graph vectors, so semantic
+                            # seed->expand had nothing to search after a fresh init.
+                            # Opt in with `victor init --embeddings`.
+                            enable_embeddings=embeddings,
                             incremental=not force,  # force=True wipes clean, force=False is incremental
                         )
                         pipeline = GraphIndexingPipeline(graph_store, config)

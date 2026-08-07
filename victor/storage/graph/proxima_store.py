@@ -177,6 +177,8 @@ class ProximaGraphStore(GraphStoreProtocol):
         # Tier-A edge ids already in ORION. Loaded on first edge write so
         # duplicates never reach a batch (see upsert_edges); None = not yet read.
         self._orion_edge_ids: Optional[Set[str]] = None
+        # One-shot guard so a missing-vector warning does not repeat per query.
+        self._warned_missing_vectors = False
 
         # In-memory sidecars for facts ProximaDBGraph does not yet persist
         # natively (relational Tier-C work lands with TD-127). Idempotent and
@@ -629,6 +631,24 @@ class ProximaGraphStore(GraphStoreProtocol):
         search_filters = dict(filters or {})
         search_filters["has_embedding"] = True
         hits = await collection.search(query_vector, top_k=top_k, filters=search_filters)
+
+        # Records and their vectors ARE durable across a restart; an earlier
+        # revision of this warning claimed otherwise and was wrong. Empty results
+        # are still worth one line, because the most common cause is an index
+        # built without embeddings: `victor init` only generates vectors when
+        # asked (`--embeddings`), so a repo can hold a complete graph and no
+        # vectors at all, and semantic search then returns zero with nothing to
+        # explain it.
+        if not hits and not self._warned_missing_vectors:
+            self._warned_missing_vectors = True
+            logger.warning(
+                "ProximaDB semantic search matched no vectors for %s. The graph may "
+                "have been indexed without embeddings — re-run indexing with "
+                "embeddings enabled (`victor init --embeddings`) if semantic search "
+                "is expected here.",
+                self._repo,
+            )
+
         nodes: List[GraphNode] = []
         for hit in hits or []:
             oid = hit.get("id") if isinstance(hit, dict) else None
