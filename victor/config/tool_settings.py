@@ -154,6 +154,19 @@ class ToolSettings(BaseModel):
         description="Maximum tool output size in MB for display (default: 10MB, higher when pruning disabled)",
     )
 
+    # Shell output condensation (rtk-style, applies to the LLM path)
+    # Command-aware structural compression of shell output: pytest failures+summary,
+    # git status grouping, install/build noise stripping. Diagnostic content is
+    # preserved verbatim; raw output is teed to .victor/tool_output/ for recovery.
+    shell_output_condensation_enabled: bool = Field(
+        default=True,
+        description="Condense recognized shell command output (pytest, git, pip/npm/cargo) before LLM injection; fail-open passthrough on parse anomalies",
+    )
+    shell_output_raw_tee_enabled: bool = Field(
+        default=True,
+        description="Tee raw shell output to .victor/tool_output/ when condensed, so the full log stays retrievable",
+    )
+
     # Adaptive preview sizing (context-aware)
     tool_output_preview_adaptive: bool = Field(
         default=True,
