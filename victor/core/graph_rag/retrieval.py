@@ -666,16 +666,37 @@ class MultiHopRetriever:
             List of edges
         """
         edges: List[GraphEdge] = []
+        if not node_ids:
+            return edges
 
-        # Get all edges and filter
+        # Ask only about the nodes we are returning. This used to call
+        # `get_all_edges()` — reading the ENTIRE graph on every query and
+        # filtering it in Python for the handful of edges among `top_k` nodes.
+        # In-process SQLite hid the cost (~2.9 ms); against the ProximaDB backend
+        # the same call measured 732 ms, making it the dominant cost of a
+        # retrieval that returns a few nodes. It is also the same
+        # materialize-then-filter shape we filed against the server as
+        # TD-FPRUNE-2, so it should not live here either.
         try:
-            all_edges = await self.graph_store.get_all_edges()
+            batch = getattr(self.graph_store, "get_neighbors_batch", None)
+            if batch is not None:
+                by_node = await batch(list(node_ids), edge_types=config.edge_types, direction="out")
+                candidates = [edge for group in by_node.values() for edge in group]
+            else:
+                # Stores without the batch primitive keep the previous behaviour.
+                candidates = await self.graph_store.get_all_edges()
 
-            for edge in all_edges:
-                if edge.src in node_ids and edge.dst in node_ids:
-                    # Filter by edge type if specified
-                    if config.edge_types is None or edge.type in config.edge_types:
-                        edges.append(edge)
+            seen: Set[Tuple[str, str, str]] = set()
+            for edge in candidates:
+                if edge.src not in node_ids or edge.dst not in node_ids:
+                    continue
+                if config.edge_types is not None and edge.type not in config.edge_types:
+                    continue
+                key = (edge.src, edge.dst, str(edge.type))
+                if key in seen:
+                    continue
+                seen.add(key)
+                edges.append(edge)
         except Exception as e:
             logger.warning(f"Error getting edges: {e}")
 
