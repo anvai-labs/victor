@@ -697,4 +697,14 @@ def condense_shell_output(
         condensed_chars,
         result.savings_pct,
     )
+    try:
+        from victor.agent.usage_analytics import UsageAnalytics
+
+        UsageAnalytics.get_instance().record_output_condensation(
+            condenser=name,
+            original_chars=original_chars,
+            condensed_chars=condensed_chars,
+        )
+    except Exception:  # Telemetry must never break tool output.
+        logger.debug("Condensation telemetry skipped", exc_info=True)
     return result

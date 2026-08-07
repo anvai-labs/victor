@@ -446,3 +446,50 @@ class TestSavingsAccounting:
             stdout="a", stderr="", condenser="x", original_chars=1000, condensed_chars=100
         )
         assert r.savings_pct == pytest.approx(90.0)
+
+
+class TestCondensationTelemetry:
+    def test_condensation_recorded_in_usage_analytics(self):
+        from victor.agent.usage_analytics import UsageAnalytics
+
+        UsageAnalytics.reset_instance()
+        try:
+            out = _pytest_output(n_pass=300, failures=True)
+            result = condense_shell_output("pytest tests", out, "", 1, tee_enabled=False)
+            assert result is not None
+            stats = UsageAnalytics.get_instance().get_condensation_stats()
+            assert stats["total_events"] == 1
+            assert stats["per_condenser"]["pytest"]["count"] == 1
+            assert stats["chars_saved"] > 0
+            assert stats["est_tokens_saved"] == stats["chars_saved"] // 4
+            assert stats["savings_pct"] > 80
+        finally:
+            UsageAnalytics.reset_instance()
+
+    def test_stats_accumulate_across_condensers(self):
+        from victor.agent.usage_analytics import UsageAnalytics
+
+        UsageAnalytics.reset_instance()
+        try:
+            analytics = UsageAnalytics.get_instance()
+            analytics.record_output_condensation("pytest", 1000, 100)
+            analytics.record_output_condensation("pytest", 2000, 200)
+            analytics.record_output_condensation("git-status", 500, 250)
+            stats = analytics.get_condensation_stats()
+            assert stats["total_events"] == 3
+            assert stats["per_condenser"]["pytest"]["original_chars"] == 3000
+            assert stats["total_original_chars"] == 3500
+            assert stats["total_condensed_chars"] == 550
+        finally:
+            UsageAnalytics.reset_instance()
+
+    def test_empty_stats(self):
+        from victor.agent.usage_analytics import UsageAnalytics
+
+        UsageAnalytics.reset_instance()
+        try:
+            stats = UsageAnalytics.get_instance().get_condensation_stats()
+            assert stats["total_events"] == 0
+            assert stats["savings_pct"] == 0.0
+        finally:
+            UsageAnalytics.reset_instance()
