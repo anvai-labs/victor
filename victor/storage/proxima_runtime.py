@@ -230,6 +230,21 @@ async def start_embedded_db(
     return db
 
 
+_ALREADY_EXISTS_MARKERS = ("collection_exists", "already exists")
+
+
+def _is_already_exists(exc: BaseException) -> bool:
+    """True when a create failed only because the target is already there.
+
+    The embedded server surfaces this as an HTTP 500 whose body carries
+    ``error_code="COLLECTION_EXISTS"``, so there is no typed exception to catch
+    and the message is the only signal available. Matching narrowly here keeps a
+    genuine creation failure fatal.
+    """
+    text = str(exc).lower()
+    return any(marker in text for marker in _ALREADY_EXISTS_MARKERS)
+
+
 def _uds_kwargs(db: Any) -> Dict[str, str]:
     """Return the ``uds_path`` kwarg for a portless embedded instance, if any.
 
@@ -368,18 +383,40 @@ class ProximaRepoConnection:
         distance_metric: str = "cosine",
         embedding_model: Any = None,
     ) -> Any:
-        """Return (and cache) a vector collection on this shared instance."""
+        """Return (and cache) a vector collection on this shared instance.
+
+        Genuinely get-or-create. The cache is per-process, so on any run after
+        the first the collection already exists on disk and ``create_collection``
+        fails with ``COLLECTION_EXISTS``. Treating that as fatal made the whole
+        ProximaRecord path work exactly once, on a fresh data directory: reopening
+        an indexed repo — a second session, an incremental reindex — raised
+        RuntimeError before a single record could be read or written.
+        """
         cached = self._collections.get(name)
         if cached is not None:
             if embedding_model is not None and not getattr(cached, "has_embedding_model", True):
                 cached.set_embedding_model(embedding_model)
             return cached
-        collection = await self._db.create_collection(
-            name,
-            dimension=dimension,
-            distance_metric=distance_metric,
-            embedding_model=embedding_model,
-        )
+
+        try:
+            collection = await self._db.create_collection(
+                name,
+                dimension=dimension,
+                distance_metric=distance_metric,
+                embedding_model=embedding_model,
+            )
+        except Exception as exc:
+            if not _is_already_exists(exc):
+                raise
+            # Adopt the existing collection rather than failing. Mirrors how
+            # `graph()` above already tolerates a pre-existing graph.
+            collection = await self._db.get_collection(name)
+            if collection is None:
+                raise
+            logger.debug("Adopted existing Proxima collection %s", name)
+            if embedding_model is not None and not getattr(collection, "has_embedding_model", True):
+                collection.set_embedding_model(embedding_model)
+
         self._collections[name] = collection
         return collection
 

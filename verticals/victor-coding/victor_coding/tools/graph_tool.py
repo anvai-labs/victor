@@ -18,14 +18,6 @@ from typing import Any, DefaultDict, Dict, Iterable, List, Literal, Optional, Se
 
 from victor.config.settings import get_project_paths, load_settings
 
-# Harden the module-level contracts import: if the bridge is incomplete (a
-# function was added to victor.core but not proxied in victor_contracts),
-# the module must still load. ensure_project_graph_enriched is set to None
-# and the pre-flight check (_check_graph_dependencies) catches it at runtime.
-try:
-    from victor_contracts.indexing_runtime import ensure_project_graph_enriched
-except (ImportError, AttributeError):
-    ensure_project_graph_enriched = None
 from victor.native.python.graph_algo import (
     connected_components,
     pagerank,
@@ -54,7 +46,6 @@ _GRAPH_DEPENDENCIES_CHECKED: Optional[bool] = None
 _GRAPH_DEPENDENCY_CHECKS = [
     ("victor_contracts.database_runtime", "get_project_database"),
     ("victor_contracts.database_runtime", "resolve_project_db_root"),
-    ("victor_contracts.indexing_runtime", "ensure_project_graph_enriched"),
     ("victor_contracts.indexing_runtime", "GraphManager"),
     ("victor_contracts.capability_runtime", "get_capability_provider"),
 ]
@@ -1470,17 +1461,6 @@ def _project_graph_has_data(root_path: Path) -> bool:
     return node_count > 0 or edge_count > 0
 
 
-def _ensure_project_graph_ready(root_path: Path) -> None:
-    try:
-        ensure_project_graph_enriched(root_path)
-    except Exception as exc:  # pragma: no cover - defensive logging only
-        logger.warning(
-            "[graph] Failed to enrich persisted project graph for %s: %s",
-            root_path,
-            exc,
-        )
-
-
 def _ensure_project_graph_tables(project_db: Any) -> None:
     """Ensure project graph tables exist, raise error if not.
 
@@ -1625,8 +1605,6 @@ async def _load_graph_from_project_store(root_path: Path) -> LoadedGraph:
             f"To build the index: graph(mode='stats', path='{path_str}', reindex=True). "
             f"Or use ls(path='{path_str}', depth=2) for file operations."
         )
-
-    _ensure_project_graph_ready(root_path)
 
     graph_store = SqliteGraphStore(root_path)
     fallback_index = SimpleNamespace(graph_store=graph_store, files={})
@@ -1987,7 +1965,6 @@ async def _run_graph_sql_query_for_root(
             }
 
     try:
-        _ensure_project_graph_ready(root_path)
         project_db = get_project_database(root_path)
 
         # Bound DB materialization for unbounded queries (e.g. SELECT * FROM ...)

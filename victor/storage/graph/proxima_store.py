@@ -42,7 +42,7 @@ import logging
 import time
 from dataclasses import replace
 from pathlib import Path
-from typing import Any, AsyncIterator, Dict, Iterable, List, Optional
+from typing import Any, AsyncIterator, Dict, Iterable, List, Optional, Set
 
 from victor.storage.graph.cpg_fragments import CpgFragmentStore, CpgFragmentStoreProtocol
 from victor.storage.graph.edge_types import EdgeType
@@ -83,6 +83,27 @@ _NODE_FIELD_KEYS = (
     "requirement_id",
     "visibility",
 )
+
+# ORION's get_stats() answers with an envelope, not a flat mapping:
+#   {"success": True, "data": {"total_nodes": N, "total_edges": M, ...}}
+# Reading `node_count`/`nodes` off the top level therefore found nothing and
+# yielded 0 for a graph that plainly held data. Both the envelope and the flat
+# spellings are accepted so a future shape change degrades to the recount rather
+# than silently reporting an empty tier.
+_ORION_STAT_KEYS = {
+    "nodes": ("total_nodes", "node_count", "nodes"),
+    "edges": ("total_edges", "edge_count", "edges"),
+}
+
+
+def _orion_stat(raw: Dict[str, Any], kind: str) -> int:
+    """Extract a node/edge count from ORION's get_stats() response."""
+    payload = raw.get("data") if isinstance(raw.get("data"), dict) else raw
+    for key in _ORION_STAT_KEYS[kind]:
+        value = payload.get(key)
+        if isinstance(value, (int, float)):
+            return int(value)
+    return 0
 
 
 class ProximaGraphStore(GraphStoreProtocol):
@@ -153,6 +174,9 @@ class ProximaGraphStore(GraphStoreProtocol):
         self._record_nodes: Dict[str, GraphNode] = {}
         self._record_vectors: Dict[str, List[float]] = {}
         self._record_node_ids: set[str] = set()
+        # Tier-A edge ids already in ORION. Loaded on first edge write so
+        # duplicates never reach a batch (see upsert_edges); None = not yet read.
+        self._orion_edge_ids: Optional[Set[str]] = None
 
         # In-memory sidecars for facts ProximaDBGraph does not yet persist
         # natively (relational Tier-C work lands with TD-127). Idempotent and
@@ -225,6 +249,7 @@ class ProximaGraphStore(GraphStoreProtocol):
         self._record_nodes.clear()
         self._record_vectors.clear()
         self._record_node_ids.clear()
+        self._orion_edge_ids = None
         self._initialized = False
 
     async def _ensure(self) -> Any:
@@ -280,11 +305,19 @@ class ProximaGraphStore(GraphStoreProtocol):
     def _to_proxima_edge(self, edge: GraphEdge) -> Any:
         from proximadb_sdk.graph import GraphEdge as PGEdge
 
+        # Callers hand us either a plain string or an EdgeType member. Under
+        # Python 3.11 an (str, Enum) member formats as "EdgeType.CALLS", not
+        # "CALLS", so interpolating it produced edge ids and edge_type values
+        # like "…|EdgeType.CALLS|…" that no CALLS query would ever match. The
+        # per-file writer passes strings, which is why only enum-typed edges
+        # from the cross-file resolution passes were affected.
+        edge_type = getattr(edge.type, "value", edge.type)
+
         return PGEdge(
-            id=f"{edge.src}|{edge.type}|{edge.dst}",
+            id=f"{edge.src}|{edge_type}|{edge.dst}",
             from_node=edge.src,
             to_node=edge.dst,
-            edge_type=edge.type,
+            edge_type=edge_type,
             properties=dict(edge.metadata or {}),
             weight=edge.weight,
         )
@@ -327,10 +360,107 @@ class ProximaGraphStore(GraphStoreProtocol):
         cold_edges = [edge for edge in edge_list if EdgeType.is_ccg_edge(edge.type)]
         if hot_edges:
             graph = await self._ensure()
-            payload = [self._to_proxima_edge(edge) for edge in hot_edges]
-            await asyncio.to_thread(graph.batch_create_edges, payload)
+            known = await self._known_edge_ids(graph)
+
+            # Duplicates must never reach ORION. `batch_create_edges` aborts the
+            # batch at the first "already exists" and silently discards every
+            # edge after it: a 3-edge batch whose middle edge is a duplicate
+            # answers created=1, failed=1 and drops the third without counting
+            # it. Since these passes deliberately re-emit edges per-file indexing
+            # already wrote, which edge is the first duplicate varies run to run
+            # — and so did the resulting edge count (75,523 / 75,539 / 75,549 /
+            # 75,558 across four identical runs, against a deterministic 75,626
+            # on SQLite). Filtering here makes the write idempotent by
+            # construction instead of relying on the server to tolerate repeats.
+            payload = []
+            sent: List[GraphEdge] = []
+            for edge in hot_edges:
+                proxima_edge = self._to_proxima_edge(edge)
+                edge_id = proxima_edge.id
+                if edge_id in known:
+                    continue
+                known.add(edge_id)
+                payload.append(proxima_edge)
+                sent.append(edge)
+
+            if payload:
+                result = await asyncio.to_thread(graph.batch_create_edges, payload)
+                self._validate_edge_write(result, len(payload), sent)
         if cold_edges:
             await self._cpg_store.upsert_edges(cold_edges)
+
+    async def _known_edge_ids(self, graph: Any) -> Set[str]:
+        """Ids of every Tier-A edge already in ORION, read once per session."""
+        if self._orion_edge_ids is None:
+            try:
+                raw = await asyncio.to_thread(graph.get_all_edges)
+            except Exception as exc:  # pragma: no cover - depends on live server
+                logger.debug("Could not preload ORION edge ids: %s", exc)
+                raw = []
+            self._orion_edge_ids = {self._proxima_edge_id(e) for e in raw}
+        return self._orion_edge_ids
+
+    @staticmethod
+    def _proxima_edge_id(pedge: Any) -> str:
+        """Rebuild the id `_to_proxima_edge` assigns, for comparison."""
+        existing = getattr(pedge, "id", None)
+        if existing:
+            return str(existing)
+        src = getattr(pedge, "from_node", "")
+        dst = getattr(pedge, "to_node", "")
+        etype = getattr(pedge, "edge_type", "")
+        return f"{src}|{getattr(etype, 'value', etype)}|{dst}"
+
+    @staticmethod
+    def _validate_edge_write(result: Any, expected: int, edges: List[GraphEdge]) -> None:
+        """Raise when ORION rejected edges for any reason other than presence.
+
+        This method implements ``upsert_edges``, but ORION's ``batch_create_edges``
+        is create-only and answers "Edge <id> already exists" for a repeat. The
+        cross-file resolution passes deliberately re-emit edges that per-file
+        indexing may already have written (that is what makes them upserts), so
+        treating an already-exists as failure would abort a correct rebuild —
+        and SQLite, whose upsert really does replace, would silently disagree.
+        An upsert that finds the edge present has achieved its goal.
+        """
+        if not isinstance(result, dict):
+            return
+
+        errors = result.get("errors") or []
+        texts = [str(e) for e in errors] if isinstance(errors, list) else [str(errors)]
+        types = sorted({str(getattr(e.type, "value", e.type)) for e in edges})
+
+        # Silent-drop guard. ORION abandons the rest of a batch after a rejected
+        # edge without counting the abandoned ones, so `created + failed` short of
+        # the batch size means edges vanished with no error attached. Duplicates
+        # are filtered before the write now, so reaching this is a real defect
+        # rather than the benign repeat it used to be.
+        created = result.get("created")
+        failed = result.get("failed")
+        if isinstance(created, int) and isinstance(failed, int):
+            accounted = created + failed
+            if accounted < expected:
+                raise RuntimeError(
+                    f"ORION silently dropped {expected - accounted} of {expected} edges "
+                    f"({types}); it reported created={created} failed={failed}. "
+                    f"{texts or 'No errors were returned.'}"
+                )
+
+        real_errors = [t for t in texts if "already exists" not in t.lower()]
+        if not real_errors and texts:
+            return  # a duplicate slipped through; the write itself still holds
+
+        if result.get("success") is False:
+            raise RuntimeError(
+                f"ORION edge projection failed for {expected} edges ({types}): "
+                f"{real_errors or errors or result}"
+            )
+        failed = result.get("failed")
+        if isinstance(failed, int) and failed > 0:
+            raise RuntimeError(
+                f"ORION rejected {failed}/{expected} edges ({types}): "
+                f"{real_errors or errors or result}"
+            )
 
     async def update_node_metadata(self, node_id: str, metadata: Dict[str, Any]) -> None:
         """Atomically merge metadata while preserving the record's vector.
@@ -726,6 +856,7 @@ class ProximaGraphStore(GraphStoreProtocol):
         self._record_nodes.clear()
         self._record_vectors.clear()
         self._record_node_ids.clear()
+        self._orion_edge_ids = None
 
     async def delete_by_repo(self, clear_embeddings: bool = False) -> None:
         # Graph properties and embeddings are one record now; clearing only one
@@ -767,6 +898,25 @@ class ProximaGraphStore(GraphStoreProtocol):
             raw = {}
         raw_stats = raw if isinstance(raw, dict) else {}
         cold_stats = await self._cpg_store.stats()
+        tier_a_nodes = _orion_stat(raw_stats, "nodes")
+        tier_a_edges = _orion_stat(raw_stats, "edges")
+
+        # Belt-and-braces: if the envelope shape changes again, recount from the
+        # authoritative read path rather than silently reporting an empty tier.
+        # Reading a zero as "empty" is what dropped the whole Tier-A symbol tier
+        # from the totals — `victor init` on a 70-file corpus reported 25,937
+        # nodes against SQLite's 27,265, short by exactly the 1,328 symbols.
+        # Tier-A is symbols only, so a recount stays well below Tier-B volume.
+        if tier_a_nodes == 0:
+            try:
+                tier_a_nodes = len(await self.get_all_nodes())
+            except Exception as exc:  # pragma: no cover - depends on live server
+                logger.debug("Tier-A node recount failed: %s", exc)
+        if tier_a_edges == 0:
+            try:
+                tier_a_edges = len(await self.get_all_edges())
+            except Exception as exc:  # pragma: no cover - depends on live server
+                logger.debug("Tier-A edge recount failed: %s", exc)
         return {
             "backend": "proxima",
             "repo": self._repo,
@@ -774,8 +924,19 @@ class ProximaGraphStore(GraphStoreProtocol):
             "embedding_mode": self._embedding_mode.value,
             "service_mode_wip": bool(self._server_url),
             **raw_stats,
-            "tier_a_nodes": int(raw_stats.get("node_count", raw_stats.get("nodes", 0))),
-            "tier_a_edges": int(raw_stats.get("edge_count", raw_stats.get("edges", 0))),
+            # Protocol contract: every backend reports total `nodes`/`edges`.
+            # These MUST come after the `raw_stats` splat — the SDK's get_stats()
+            # may itself carry a "nodes" key describing only the ORION tier, and
+            # letting that win would under-report the graph by everything in
+            # Tier-B. Omitting them entirely is what broke `victor init` against
+            # this backend: init does `db_stats['nodes']`, so a proxima-backed
+            # repo died with KeyError('nodes') and reported only
+            # "CCG indexing skipped: 'nodes'" — the index was never built.
+            "nodes": tier_a_nodes + int(cold_stats["nodes"]),
+            "edges": tier_a_edges + int(cold_stats["edges"]),
+            "indexed_files": int(cold_stats["files"]),
+            "tier_a_nodes": tier_a_nodes,
+            "tier_a_edges": tier_a_edges,
             "tier_b_nodes": cold_stats["nodes"],
             "tier_b_edges": cold_stats["edges"],
             "tier_b_files": cold_stats["files"],

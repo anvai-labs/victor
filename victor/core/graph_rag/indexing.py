@@ -388,6 +388,9 @@ class GraphIndexingPipeline:
         # run.  Per-file edge projection reads from this snapshot instead of
         # reparsing each file, and the final relation pass retains import-aware
         # cross-file resolution rather than degrading to the legacy name index.
+        # Snapshot of persisted symbol nodes, shared by the three cross-file
+        # resolution passes. Populated lazily via _persisted_symbols().
+        self._persisted_symbol_cache: Optional[List[Any]] = None
         self._codegraph_repository: Any = None
         self._codegraph_owned_symbol_ids: Set[str] = set()
         self._codegraph_owned_files: Set[str] = set()
@@ -434,6 +437,9 @@ class GraphIndexingPipeline:
         root = (root_path or self.config.root_path).resolve()
         stats = GraphIndexStats()
         start_time = time.time()
+        # Per-run snapshot: a reused pipeline must not resolve this run's edges
+        # against the previous run's symbols.
+        self._persisted_symbol_cache = None
 
         logger.info(f"Starting graph indexing for {root}")
 
@@ -656,6 +662,30 @@ class GraphIndexingPipeline:
         )
         return projection.calls, projection.relationships, projection.imports
 
+    async def _persisted_symbols(self) -> List[Any]:
+        """Every persisted symbol node, read through the graph store.
+
+        The cross-file resolution passes used to build their name indices with
+        raw SQL against the SQLite ``graph_node`` table. That silently produced
+        an empty index on any other backend: a ProximaDB-backed ``victor init``
+        wrote its nodes to ORION and its statements to the fragment store, left
+        ``graph_node`` empty, and so resolved **zero** CALLS / INHERITS /
+        IMPLEMENTS / COMPOSITION edges — 125 edges short of the SQLite run, with
+        no error, because these passes read backend-specific but write through
+        the backend-agnostic store.
+
+        Reading through ``get_all_nodes()`` keeps the indices correct for every
+        backend. Proxima returns its Tier-A symbols here, which is exactly the
+        population these passes bind against — statement-level nodes are never
+        call or inheritance targets.
+
+        Cached per run: three passes need the same snapshot and it does not
+        change between them.
+        """
+        if self._persisted_symbol_cache is None:
+            self._persisted_symbol_cache = await self.graph_store.get_all_nodes()
+        return self._persisted_symbol_cache
+
     async def _resolve_cross_file_calls(self, root_path: Path) -> int:
         """Resolve buffered CALLS records against project-wide name indices.
 
@@ -681,11 +711,6 @@ class GraphIndexingPipeline:
 
         max_fanout = int(getattr(self.config, "cross_file_call_max_fanout", 25))
 
-        from victor.core.database import ProjectDatabaseManager
-
-        db = ProjectDatabaseManager(root_path)
-        conn = db._get_raw_connection()
-
         # Leaf-name index (function/method/impl) plus per-node file map so
         # name-only resolution can prefer same-file candidates. Rust function
         # names are module-scoped, so a local helper `fn inputs(t)` called
@@ -703,34 +728,32 @@ class GraphIndexingPipeline:
         # by the impl-node signature: trait impls always contain ` for `
         # (e.g. "impl Drop for SearchState {"), inherent impls don't
         # (e.g. "impl Foo {").
+        symbols = await self._persisted_symbols()
+        by_id = {node.node_id: node for node in symbols}
+
         name_index: Dict[str, List[str]] = {}
         node_file_index: Dict[str, str] = {}
-        for row in conn.execute(
-            "SELECT m.name, m.node_id, m.file FROM graph_node m "
-            "LEFT JOIN graph_node impl ON m.parent_id = impl.node_id "
-            "AND impl.type = 'impl' "
-            "WHERE m.name IS NOT NULL "
-            "AND m.type IN ('function','method','impl') "
-            "AND (impl.signature IS NULL OR impl.signature NOT LIKE '% for %')"
-        ):
-            name, node_id, file = row[0], row[1], (row[2] if len(row) > 2 else None)
-            name_index.setdefault(name, []).append(node_id)
-            if file is not None:
-                node_file_index[node_id] = file
+        for node in symbols:
+            if not node.name or node.type not in ("function", "method", "impl"):
+                continue
+            parent = by_id.get(node.parent_id) if node.parent_id else None
+            if parent is not None and parent.type == "impl" and " for " in (parent.signature or ""):
+                continue
+            name_index.setdefault(node.name, []).append(node.node_id)
+            if node.file:
+                node_file_index[node.node_id] = node.file
 
-        # Impl-type index. The schema doesn't carry an explicit impl_type
-        # column, but methods inside `impl T` have parent_id pointing at the
-        # impl_item node (type='impl', name='T'). One join is enough.
+        # Impl-type index. There is no explicit impl_type field, but methods
+        # inside `impl T` have parent_id pointing at the impl_item node
+        # (type='impl', name='T').
         impl_method_index: Dict[Tuple[str, str], List[str]] = {}
-        for row in conn.execute(
-            "SELECT impl.name AS impl_type, m.name AS method_name, m.node_id "
-            "FROM graph_node m "
-            "JOIN graph_node impl ON m.parent_id = impl.node_id "
-            "WHERE impl.type = 'impl' "
-            "AND m.name IS NOT NULL "
-            "AND m.type IN ('function','method')"
-        ):
-            impl_method_index.setdefault((row[0], row[1]), []).append(row[2])
+        for node in symbols:
+            if not node.name or node.type not in ("function", "method"):
+                continue
+            parent = by_id.get(node.parent_id) if node.parent_id else None
+            if parent is None or parent.type != "impl" or not parent.name:
+                continue
+            impl_method_index.setdefault((parent.name, node.name), []).append(node.node_id)
 
         _, GraphEdge = _get_graph_types()
         from victor.storage.graph.edge_types import EdgeType
@@ -848,20 +871,22 @@ class GraphIndexingPipeline:
 
         max_fanout = int(getattr(self.config, "cross_file_call_max_fanout", 25))
 
-        from victor.core.database import ProjectDatabaseManager
-
-        db = ProjectDatabaseManager(root_path)
-        conn = db._get_raw_connection()
-
         # Class-like name index — restricts target binding to types that
         # actually make sense as INHERITS/IMPLEMENTS/COMPOSITION targets.
+        class_like = {
+            "class",
+            "interface",
+            "struct",
+            "impl",
+            "trait",
+            "type",
+            "type_alias",
+            "enum",
+        }
         class_name_index: Dict[str, List[str]] = {}
-        for row in conn.execute(
-            "SELECT name, node_id FROM graph_node "
-            "WHERE name IS NOT NULL "
-            "AND type IN ('class','interface','struct','impl','trait','type','type_alias','enum')"
-        ):
-            class_name_index.setdefault(row[0], []).append(row[1])
+        for node in await self._persisted_symbols():
+            if node.name and node.type in class_like:
+                class_name_index.setdefault(node.name, []).append(node.node_id)
 
         _, GraphEdge = _get_graph_types()
 
@@ -948,15 +973,10 @@ class GraphIndexingPipeline:
         # repo-relative form in both the ``file`` column and the node_id
         # hash input. We do the same here so set membership and hash
         # derivation both agree.
-        from victor.core.database import ProjectDatabaseManager
-
-        db = ProjectDatabaseManager(root_path)
-        conn = db._get_raw_connection()
         indexed_module_files: Set[str] = {
-            row[0]
-            for row in conn.execute(
-                "SELECT file FROM graph_node WHERE type = 'module' AND file IS NOT NULL"
-            )
+            node.file
+            for node in await self._persisted_symbols()
+            if node.type == "module" and node.file
         }
 
         _, GraphEdge = _get_graph_types()

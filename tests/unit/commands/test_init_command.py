@@ -56,16 +56,6 @@ def test_init_ccg_reports_project_graph_stats_without_name_error(tmp_path, monke
         lambda: SimpleNamespace(db_path=project_paths.project_victor_dir / "project.db"),
     )
     monkeypatch.setattr(init_module, "latest_mtime", lambda _root: 0.0)
-    monkeypatch.setattr(
-        init_module,
-        "ensure_project_graph_enriched",
-        lambda *_args, **_kwargs: SimpleNamespace(
-            total_edges=0,
-            implements_edges=0,
-            decorates_edges=0,
-            registers_edges=0,
-        ),
-    )
     monkeypatch.setattr(init_module, "_generate_init_content", lambda **_kwargs: "# init\n")
     # _gather_graph_context is a sync function — use MagicMock, not AsyncMock
     monkeypatch.setattr(init_module, "_gather_graph_context", MagicMock(return_value=None))
@@ -128,7 +118,11 @@ def test_init_ccg_reports_project_graph_stats_without_name_error(tmp_path, monke
                     log_level=None,
                 )
 
-    create_graph_store.assert_called_once_with("sqlite", project_path=Path.cwd())
+    # "auto", not "sqlite": init must resolve the per-repo
+    # <project>/.victor/graph_backend marker the read paths already honor.
+    # Pinning a concrete backend here is what let init and the query tools
+    # disagree about which store holds the index.
+    create_graph_store.assert_called_once_with("auto", project_path=Path.cwd())
     fake_graph_store.stats.assert_awaited_once()
 
     rendered = output.getvalue()
@@ -163,16 +157,6 @@ def test_init_ccg_lock_timeout_uses_existing_graph_snapshot(tmp_path, monkeypatc
         lambda: SimpleNamespace(db_path=project_paths.project_victor_dir / "project.db"),
     )
     monkeypatch.setattr(init_module, "latest_mtime", lambda _root: 0.0)
-    monkeypatch.setattr(
-        init_module,
-        "ensure_project_graph_enriched",
-        lambda *_args, **_kwargs: SimpleNamespace(
-            total_edges=0,
-            implements_edges=0,
-            decorates_edges=0,
-            registers_edges=0,
-        ),
-    )
     monkeypatch.setattr(init_module, "_generate_init_content", lambda **_kwargs: "# init\n")
     monkeypatch.setattr(init_module, "_gather_graph_context", AsyncMock(return_value=None))
 
@@ -326,9 +310,7 @@ make test
         "has_ccg": True,
         "stats": {"ccg_edges": 42},
         "patterns": {
-            "registry": 3,
             "protocol": 5,
-            "decorator": 0,
             "inheritance": 7,
         },
     }
@@ -336,7 +318,7 @@ make test
     enhanced = ensure_architecture_patterns_section(content, graph_context)
 
     assert "## Architecture Patterns" in enhanced
-    assert "Registry/plugin extensibility" in enhanced
+    assert "Registry/plugin extensibility" not in enhanced
     assert "Protocol/interface contracts" in enhanced
     assert count_architecture_patterns(enhanced) >= 3
 
@@ -356,9 +338,7 @@ def test_ensure_architecture_evidence_section_adds_graph_backed_summary() -> Non
             "ccg_edges": 240,
         },
         "patterns": {
-            "registry": 4,
             "protocol": 6,
-            "decorator": 2,
             "inheritance": 9,
         },
         "complexity": {
@@ -370,7 +350,12 @@ def test_ensure_architecture_evidence_section_adds_graph_backed_summary() -> Non
 
     assert "## Architecture Evidence" in enhanced
     assert "Graph scale" in enhanced
-    assert "Registry/plugin evidence" in enhanced
+    # REGISTERS/DECORATES evidence lines are gone with the synthetic edges that
+    # fed them — they were fabricated, not observed. Real relationship evidence
+    # (IMPLEMENTS from language handlers, INHERITS) still renders.
+    assert "Registry/plugin evidence" not in enhanced
+    assert "Decorator evidence" not in enhanced
+    assert "Protocol/interface evidence" in enhanced
     assert "Protocol/interface evidence" in enhanced
     assert "Statement-level flow evidence" in enhanced
 
@@ -496,16 +481,6 @@ def test_init_enriches_content_with_architecture_evidence(tmp_path, monkeypatch)
     monkeypatch.setattr(init_module, "latest_mtime", lambda _root: 0.0)
     monkeypatch.setattr(
         init_module,
-        "ensure_project_graph_enriched",
-        lambda *_args, **_kwargs: SimpleNamespace(
-            total_edges=0,
-            implements_edges=0,
-            decorates_edges=0,
-            registers_edges=0,
-        ),
-    )
-    monkeypatch.setattr(
-        init_module,
         "_generate_init_content",
         lambda **_kwargs: "# init.md\n\n## Architecture Patterns\n\n- **Facade**: One entry point\n",
     )
@@ -522,9 +497,7 @@ def test_init_enriches_content_with_architecture_evidence(tmp_path, monkeypatch)
                     "ccg_edges": 50,
                 },
                 "patterns": {
-                    "registry": 2,
                     "protocol": 3,
-                    "decorator": 0,
                     "inheritance": 4,
                 },
                 "complexity": {"avg_branching": 2.5},
@@ -556,4 +529,4 @@ def test_init_enriches_content_with_architecture_evidence(tmp_path, monkeypatch)
 
     written = project_paths.project_context_file.read_text(encoding="utf-8")
     assert "## Architecture Evidence" in written
-    assert "Registry/plugin evidence" in written
+    assert "Registry/plugin evidence" not in written

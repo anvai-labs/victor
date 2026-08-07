@@ -770,3 +770,119 @@ async def test_file_delete_reopens_record_authority_before_projection_delete():
 
     assert "n:main" not in collection.records
     assert "n:parse" not in collection.records
+
+
+async def test_stats_contract_holds_for_both_backends(tmp_path):
+    """Both backends must expose integer ``nodes``/``edges`` totals.
+
+    ``victor init`` indexes these directly (``db_stats['nodes']``). ProximaDB
+    previously reported only ``tier_a_*``/``tier_b_*``, so a repo whose
+    ``.victor/graph_backend`` marker selected proxima died with
+    KeyError('nodes') and printed just "CCG indexing skipped: 'nodes'" — the
+    graph index was silently never built.
+    """
+    sqlite_store = await _make_sqlite_store(tmp_path)
+    proxima_store = await _make_proxima_store()
+    try:
+        for store in (sqlite_store, proxima_store):
+            stats = await store.stats()
+            for key in ("nodes", "edges"):
+                assert key in stats, f"{type(store).__name__}.stats() is missing {key!r}"
+                assert isinstance(stats[key], int), (
+                    f"{type(store).__name__}.stats()[{key!r}] must be an int, "
+                    f"got {type(stats[key]).__name__}"
+                )
+    finally:
+        await sqlite_store.close()
+        await proxima_store.close()
+
+
+async def test_proxima_stats_totals_span_both_tiers():
+    """``nodes``/``edges`` are whole-graph totals, not just the ORION tier.
+
+    Tier-B holds every statement node and CFG/CDG/DDG edge, which is the bulk of
+    a CCG index. Reporting only Tier-A would under-count the graph by most of it.
+    """
+    store = await _make_proxima_store()
+    try:
+        stats = await store.stats()
+        assert stats["nodes"] == stats["tier_a_nodes"] + stats["tier_b_nodes"]
+        assert stats["edges"] == stats["tier_a_edges"] + stats["tier_b_edges"]
+    finally:
+        await store.close()
+
+
+def test_orion_stat_reads_the_envelope_shape():
+    """ORION answers {'success':..., 'data': {'total_nodes': N}}, not a flat map.
+
+    Reading `node_count`/`nodes` off the top level returned 0 for a graph holding
+    1,328 symbols, which silently dropped the whole Tier-A tier from the totals.
+    """
+    from victor.storage.graph.proxima_store import _orion_stat
+
+    envelope = {
+        "success": True,
+        "data": {"total_nodes": 1328, "total_edges": 1258, "average_degree": 0.94},
+    }
+    assert _orion_stat(envelope, "nodes") == 1328
+    assert _orion_stat(envelope, "edges") == 1258
+
+
+def test_orion_stat_still_reads_flat_spellings():
+    from victor.storage.graph.proxima_store import _orion_stat
+
+    assert _orion_stat({"node_count": 7, "edge_count": 9}, "nodes") == 7
+    assert _orion_stat({"nodes": 3, "edges": 4}, "edges") == 4
+
+
+def test_orion_stat_returns_zero_for_an_unknown_shape():
+    """A 0 must mean 'unreported' so stats() falls back to a real recount."""
+    from victor.storage.graph.proxima_store import _orion_stat
+
+    assert _orion_stat({}, "nodes") == 0
+    assert _orion_stat({"data": {"unexpected": 1}}, "edges") == 0
+
+
+async def test_upsert_edges_filters_duplicates_before_writing():
+    """Duplicates must never reach ORION's batch_create_edges.
+
+    That call aborts the batch at the first "already exists" and silently
+    discards every edge after it — a 3-edge batch whose middle edge is a repeat
+    answers created=1, failed=1 and drops the third without counting it. Because
+    the cross-file resolution passes deliberately re-emit edges per-file
+    indexing already wrote, whichever edge happened to be the first duplicate
+    decided how many survived, and the same corpus indexed to a different edge
+    count on every run.
+    """
+    store = await _make_proxima_store()
+    try:
+        graph = await store._ensure()
+        edge = GraphEdge(src="n:main", dst="n:parse", type="CALLS")
+
+        await store.upsert_edges([edge])
+        first = len(await store.get_all_edges())
+
+        calls_before = len(getattr(graph, "created_edge_batches", []) or [])
+        await store.upsert_edges([edge])  # exact repeat
+        assert len(await store.get_all_edges()) == first, "repeat must not add an edge"
+
+        # The repeat must be filtered client-side, not handed to the server.
+        batches = getattr(graph, "created_edge_batches", None)
+        if batches is not None:
+            assert len(batches) == calls_before, "duplicate batch should not be sent"
+    finally:
+        await store.close()
+
+
+async def test_upsert_edges_raises_when_the_server_drops_edges_silently():
+    """created + failed short of the batch size means edges vanished."""
+    store = await _make_proxima_store()
+    try:
+        with pytest.raises(RuntimeError, match="silently dropped"):
+            store._validate_edge_write(
+                {"success": True, "created": 1, "failed": 1, "errors": []},
+                3,
+                [GraphEdge(src="a", dst="b", type="CALLS")],
+            )
+    finally:
+        await store.close()

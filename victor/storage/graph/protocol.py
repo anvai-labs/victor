@@ -210,7 +210,17 @@ class GraphStoreProtocol(Protocol):
         """Clear current repo graph and optionally its co-indexed embeddings."""
         ...
 
-    async def stats(self) -> Dict[str, Any]: ...
+    async def stats(self) -> Dict[str, Any]:
+        """Return graph statistics.
+
+        Contract: the mapping MUST contain ``nodes`` and ``edges`` as integer
+        totals for the whole graph, whatever internal tiering a backend uses.
+        Callers index these directly (``victor init`` does ``stats["nodes"]``),
+        so a backend that reports only its own tier-specific keys raises
+        KeyError at the call site rather than degrading. Backends may add any
+        further keys they like (``tier_a_nodes``, ``backend``, ``path``, …).
+        """
+        ...
 
     async def get_all_edges(self) -> List[GraphEdge]:
         """Get all edges in the graph (bulk retrieval for loading into memory)."""

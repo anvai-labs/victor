@@ -12,7 +12,6 @@ __all__ = [
     "FileChangeType",
     "FileWatcherRegistry",
     "IndexLockRegistry",
-    "ensure_project_graph_enriched",
     "GraphBuildCoordinator",
     "GraphManager",
 ]
@@ -22,7 +21,6 @@ _LAZY_IMPORTS = {
     "FileChangeType": "victor.core.indexing.file_watcher",
     "FileWatcherRegistry": "victor.core.indexing.file_watcher",
     "IndexLockRegistry": "victor.core.indexing.index_lock",
-    "ensure_project_graph_enriched": "victor.core.indexing.graph_enrichment",
     "GraphBuildCoordinator": "victor.core.indexing.graph_manager",
     "GraphManager": "victor.core.indexing.graph_manager",
 }
