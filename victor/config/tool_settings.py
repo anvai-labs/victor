@@ -166,6 +166,10 @@ class ToolSettings(BaseModel):
         default=True,
         description="Tee raw shell output to .victor/tool_output/ when condensed, so the full log stays retrievable",
     )
+    shell_frugal_flags_enabled: bool = Field(
+        default=True,
+        description="Rewrite recognized commands to quieter forms before execution (e.g. pytest -q --tb=short -rxX); explicit user flags are never overridden",
+    )
 
     # Adaptive preview sizing (context-aware)
     tool_output_preview_adaptive: bool = Field(

@@ -1695,6 +1695,23 @@ async def shell(
                 "return_code": -1,
             }
 
+    # Frugal flag injection: rewrite recognized commands to quieter forms so
+    # less output exists in the first place (e.g. pytest -q --tb=short -rxX).
+    original_command: Optional[str] = None
+    try:
+        from victor.config.tool_settings import get_tool_settings as _get_ts
+        from victor.tools.output_condenser import rewrite_frugal_command
+
+        _ts = _get_ts()
+        if _ts.shell_output_condensation_enabled and _ts.shell_frugal_flags_enabled:
+            _rewritten = rewrite_frugal_command(cmd)
+            if _rewritten:
+                original_command = cmd
+                cmd = _rewritten
+                logger.debug("Frugal flag rewrite: %r → %r", original_command, cmd)
+    except Exception:
+        logger.debug("Frugal flag rewrite skipped", exc_info=True)
+
     def _condense_streams(
         stdout_text: str, stderr_text: str, returncode: int
     ) -> tuple[str, str, Optional[Dict[str, Any]]]:
@@ -1777,6 +1794,8 @@ async def shell(
                 }
                 if condensation_info:
                     result_dict["condensed"] = condensation_info
+                if original_command:
+                    result_dict["original_command"] = original_command
                 return result_dict
             except Exception as cache_error:
                 # If caching fails, fall through to normal execution
@@ -1894,6 +1913,8 @@ async def shell(
         }
         if condensation_info:
             result["condensed"] = condensation_info
+        if original_command:
+            result["original_command"] = original_command
 
         # Cache successful read-only command results (raw streams — the cached
         # path re-applies condensation so hits and misses stay consistent)
