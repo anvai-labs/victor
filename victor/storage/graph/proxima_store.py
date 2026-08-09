@@ -414,7 +414,7 @@ class ProximaGraphStore(GraphStoreProtocol):
             # tier to stay complete when ORION already holds the edge.
             await self._write_edge_records(hot_edges)
             # The durable set just changed; drop the cached read.
-            self._edge_record_cache = None
+            self._invalidate_edge_records()
 
             known = await self._known_edge_ids(graph)
 
@@ -1056,6 +1056,9 @@ class ProximaGraphStore(GraphStoreProtocol):
         for node in nodes:
             await self._delete_node(node.node_id)
         await self._cpg_store.delete_by_file(file)
+        # Edges incident to the deleted nodes must go too, or the durable tier
+        # keeps returning edges into nodes that no longer exist.
+        await self._delete_edge_records_for_nodes({n.node_id for n in nodes})
         self._file_mtimes.pop(str(file), None)
         self._file_hashes.pop(str(file), None)
         # Invalidate any cached subgraphs anchored on deleted nodes.
@@ -1084,6 +1087,67 @@ class ProximaGraphStore(GraphStoreProtocol):
                 except Exception as exc:  # pragma: no cover - depends on live server
                     logger.debug("delete_node(%s) failed: %s", node_id, exc)
 
+    def _invalidate_edge_records(self) -> None:
+        """Drop the cached durable edge set.
+
+        Must be called by everything that changes edges — writes *and* deletions.
+        The cache exists because `get_all_edges` runs once per retrieval and the
+        underlying scan measured 99 ms; the cost of forgetting to invalidate it is
+        that a session keeps serving edges that were deleted.
+        """
+        self._edge_record_cache = None
+
+    async def _clear_edge_records(self) -> None:
+        """Delete the durable Tier-A edge collection.
+
+        `delete_by_repo` used to clear only the symbol records, so the edge
+        collection survived a full repo wipe — and since `delete_by_repo` is what
+        a force rebuild calls, every previous edge stayed on disk to be read back
+        by the next session as if it were current.
+        """
+        self._invalidate_edge_records()
+        if self._conn is not None:
+            try:
+                await self._conn.embedded_db.delete_collection(self._edge_collection_name)
+                self._conn.forget_collection(self._edge_collection_name)
+            except Exception as exc:  # pragma: no cover - depends on live server
+                # A repo that never wrote edges has no collection to drop; that is
+                # not a failure. Anything else is worth seeing.
+                logger.debug("Could not delete %s: %s", self._edge_collection_name, exc)
+        elif self._edge_collection is not None:
+            clear = getattr(self._edge_collection, "clear", None)
+            if clear is not None:
+                await clear()
+        self._edge_collection = None
+
+    async def _delete_edge_records_for_nodes(self, node_ids: Set[str]) -> None:
+        """Remove edge records incident to deleted nodes.
+
+        Without this, `delete_by_file` left edges pointing at nodes that no longer
+        exist — a dangling graph that reads as real.
+        """
+        if not node_ids:
+            return
+        durable = await self._read_edge_records()
+        if not durable:
+            return
+        doomed = [
+            f"{edge.src}|{getattr(edge.type, 'value', edge.type)}|{edge.dst}"
+            for edge in durable
+            if edge.src in node_ids or edge.dst in node_ids
+        ]
+        if not doomed:
+            return
+        collection = await self._edge_records()
+        if collection is None:
+            return
+        try:
+            await collection.delete(doomed)
+        except Exception as exc:  # pragma: no cover - depends on live server
+            logger.warning("Could not delete %d incident edge records: %s", len(doomed), exc)
+        finally:
+            self._invalidate_edge_records()
+
     async def _clear_symbol_records(self) -> None:
         """Delete the unified symbol-record authority and invalidate projections."""
         if self._conn is not None:
@@ -1110,6 +1174,7 @@ class ProximaGraphStore(GraphStoreProtocol):
         # modality is structurally impossible. The compatibility flag is ignored.
         del clear_embeddings
         await self._clear_symbol_records()
+        await self._clear_edge_records()
         if self._client is None:
             await self._cpg_store.clear()
             self._file_mtimes.clear()

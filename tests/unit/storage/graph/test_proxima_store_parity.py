@@ -587,8 +587,14 @@ async def test_delete_by_repo_clears_records_and_sidecars():
 
     await proxima.delete_by_repo(clear_embeddings=True)
 
-    assert connection.embedded_db.deleted == ["fixture_codegraph_records"]
-    assert connection.forgotten == ["fixture_codegraph_records"]
+    # Both tiers must be dropped. Clearing only the symbol records left the edge
+    # collection on disk, so a force rebuild — which is what delete_by_repo
+    # serves — resurrected every previous edge in the next session.
+    assert connection.embedded_db.deleted == [
+        "fixture_codegraph_records",
+        "fixture_codegraph_edges",
+    ]
+    assert connection.forgotten == ["fixture_codegraph_records", "fixture_codegraph_edges"]
     assert proxima._symbol_collection is None
     assert proxima._file_mtimes == {}
     assert proxima._file_hashes == {}
@@ -754,8 +760,11 @@ async def test_file_delete_reopens_record_authority_before_projection_delete():
 
     class FakeConnection:
         async def get_or_create_collection(self, name, *, dimension):
-            assert name == "fixture_codegraph_records"
-            assert dimension == 384
+            # delete_by_file now touches BOTH tiers: the symbol records (384-dim)
+            # and the durable edge records (dim 1), since edges incident to the
+            # deleted nodes must go too or the graph keeps dangling edges.
+            assert name in ("fixture_codegraph_records", "fixture_codegraph_edges")
+            assert dimension == (1 if name.endswith("_edges") else 384)
             return collection
 
     # Simulate a restarted store whose collection handle/cache has not yet been
