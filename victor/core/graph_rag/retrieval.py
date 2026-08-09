@@ -50,6 +50,12 @@ logger = logging.getLogger(__name__)
 # on a pathological hub, not to shape results. Well above any realistic `top_k`.
 _PARALLEL_TRAVERSAL_CEILING = 10_000
 
+# Upper bound on candidates the serial BFS will gather before ranking. It exists
+# only to stop a pathological hub from expanding without limit — it must stay far
+# above any realistic `top_k`, because the moment this binds it is traversal, not
+# ranking, deciding the result, which is the defect it replaced.
+_CANDIDATE_CEILING = 10_000
+
 
 @dataclass
 class RetrievalResult:
@@ -421,8 +427,16 @@ class MultiHopRetriever:
         # Check if lazy loading is enabled (PH4-006)
         use_lazy_loading = self._use_lazy_loading(config)
 
-        # BFS traversal
-        while queue and len(results) < config.top_k:
+        # BFS traversal.
+        #
+        # Bounded by `max_hops` and a candidate ceiling — NOT by `top_k`. It used
+        # to stop at `len(results) < config.top_k`, which meant traversal chose
+        # the candidate set by discovery order and the `_rank_nodes` call below
+        # could only reorder what BFS had already settled: a relevant node two
+        # hops out could never displace a nearer, duller one whatever it scored.
+        # Ranking is the thing that is supposed to decide, so let it see the
+        # neighbourhood.
+        while queue and len(results) < _CANDIDATE_CEILING:
             node_id, distance, path = queue.popleft()
 
             # Get node
@@ -977,12 +991,26 @@ class MultiHopRetriever:
         Returns:
             True if parallel traversal is beneficial
         """
-        # Check if explicitly disabled
-        if hasattr(config, "enable_parallel"):
-            if not config.enable_parallel:
-                return False
+        # Opt-in, not opt-out. This gate used to return True whenever
+        # `seed_count >= parallel_min_batch_size` (3), i.e. essentially always —
+        # on the theory that batching the frontier saves round trips. Measured on
+        # a real code graph, it does not pay:
+        #
+        #   sqlite   serial 0.31 ms   batched 0.70 ms   (2.3x slower)
+        #   proxima  serial 26.4 ms   batched 63.1 ms   (2.4x slower)
+        #
+        # Code graphs are sparse — this repo's is 1,339 nodes / 1,385 edges, a
+        # fan-out of 0-2 — so there is almost nothing to batch and the extra
+        # machinery costs more than the round trips it saves. Now that both
+        # strategies rank the full neighbourhood, they also return equivalent
+        # results, so there is nothing bought by paying for it.
+        #
+        # Kept reachable and correct rather than deleted: on a dense graph the
+        # trade should reverse, and `retrieve_parallel` remains directly callable.
+        # Turn it on with `enable_parallel = True` and MEASURE on your corpus.
+        if not getattr(config, "enable_parallel", False):
+            return False
 
-        # Check if we have enough seeds to benefit
         seed_count = getattr(config, "seed_count", 5)
         min_batch = getattr(config, "parallel_min_batch_size", 3)
 
