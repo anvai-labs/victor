@@ -315,17 +315,28 @@ class TestParallelRetrieverIntegration:
 
         retriever = MultiHopRetriever(populated_graph_store, None)
 
-        # Small seed count - should not use parallel
+        # Batched traversal is OPT-IN: measured 2.3-2.4x slower than serial on
+        # real code graphs, which are sparse (fan-out 0-2), so seed count alone
+        # no longer turns it on.
+        class LargeConfigWithoutOptIn:
+            seed_count = 5
+            parallel_min_batch_size = 3
+
+        assert not retriever._should_use_parallel(LargeConfigWithoutOptIn())
+
+        # Opted in but too few seeds to batch — still serial.
         class SmallConfig:
             seed_count = 2
             parallel_min_batch_size = 3
+            enable_parallel = True
 
         assert not retriever._should_use_parallel(SmallConfig())
 
-        # Large seed count - should use parallel
+        # Opted in with enough seeds — batched.
         class LargeConfig:
             seed_count = 5
             parallel_min_batch_size = 3
+            enable_parallel = True
 
         assert retriever._should_use_parallel(LargeConfig())
 

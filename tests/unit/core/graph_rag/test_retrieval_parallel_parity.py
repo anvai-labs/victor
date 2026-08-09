@@ -186,7 +186,7 @@ async def test_parallel_retrieval_ranks_a_superset_of_the_serial_candidates(
     ``top_k`` may differ — that difference is the improvement, and it is only
     legitimate if the seeds still survive and ranking actually ran.
     """
-    retriever = MultiHopRetriever(store, _config("superset"))
+    retriever = MultiHopRetriever(store, _config("superset", enable_parallel=True))
 
     serial = await retriever.retrieve("handler")
     parallel = await retriever.retrieve_parallel("handler")
@@ -217,7 +217,7 @@ async def test_parallel_retrieval_applies_the_top_k_limit(
     store: SqliteGraphStore,
 ) -> None:
     """top_k is a budget, not a suggestion — the parallel branch skipped it."""
-    retriever = MultiHopRetriever(store, _config("topk", top_k=3))
+    retriever = MultiHopRetriever(store, _config("topk", top_k=3, enable_parallel=True))
 
     result = await retriever.retrieve_parallel("handler")
 
@@ -239,13 +239,15 @@ async def test_parallel_retrieval_expands_in_fewer_round_trips(
     serial_store = CountingStore(store)
     parallel_store = CountingStore(store)
 
-    # `_retrieve_serial`, not `retrieve`: `retrieve` now dispatches to the
-    # batched strategy, so comparing against it would compare the parallel path
+    # Call each strategy explicitly rather than through `retrieve`, which now
+    # dispatches to serial by default — routing through it would compare serial
     # with itself and pass vacuously.
     await MultiHopRetriever(serial_store, _config("roundtrip-serial"))._retrieve_serial("handler")
-    await MultiHopRetriever(parallel_store, _config("roundtrip-parallel")).retrieve_parallel(
-        "handler"
-    )
+    # `enable_parallel` because batching is opt-in (it measured slower on sparse
+    # code graphs); this test is about its call pattern, so switch it on.
+    await MultiHopRetriever(
+        parallel_store, _config("roundtrip-parallel", enable_parallel=True)
+    ).retrieve_parallel("handler")
 
     assert parallel_store.traversal_calls < serial_store.traversal_calls, (
         f"parallel retrieval made {parallel_store.traversal_calls} traversal calls "
@@ -286,3 +288,35 @@ async def test_edges_between_does_not_read_the_whole_graph(
     returned = {n.node_id for n in result.nodes}
     for edge in result.edges:
         assert edge.src in returned and edge.dst in returned
+
+
+async def test_serial_retrieval_considers_the_whole_neighbourhood(
+    store: SqliteGraphStore,
+) -> None:
+    """Ranking must decide the result on the serial path too.
+
+    `_retrieve_serial` ran `while queue and len(results) < top_k`, stopping
+    traversal as soon as it had `top_k` nodes and only then ranking them. The
+    candidate set was therefore chosen by BFS discovery order, and ranking could
+    only reorder what traversal had already settled.
+
+    The observable is the number of candidates considered, not the nodes
+    returned: with score decaying by distance the nearest `top_k` win either way,
+    so the returned set looks identical while the *choice* behind it is
+    different. The serial BFS fetches each visited node, so counting
+    `get_node_by_id` counts candidates. The fixture holds 28 nodes (4 seeds,
+    12 one-hop, 12 two-hop) against a `top_k` of 10 — an implementation that
+    still truncates during traversal stops at ~10.
+    """
+    counting = CountingStore(store)
+    retriever = MultiHopRetriever(counting, _config("serial-full-rank", top_k=10))
+
+    result = await retriever._retrieve_serial("handler")
+
+    considered = counting.calls.get("get_node_by_id", 0)
+    assert considered > 10, (
+        f"serial traversal considered only {considered} candidates for top_k=10; "
+        "it is still truncating during traversal, so ranking cannot change the "
+        "result set"
+    )
+    assert len(result.nodes) <= 10, "top_k must still bound the returned set"
