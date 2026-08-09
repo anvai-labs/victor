@@ -137,3 +137,70 @@ async def test_edge_read_reports_failure_instead_of_returning_empty(caplog: Any)
 
     assert edges is None, "a failed read must be distinguishable from an empty graph"
     assert any("failed" in r.message.lower() for r in caplog.records)
+
+
+class _RecordingCollection:
+    """Captures deletes so the edge tier's participation can be asserted."""
+
+    def __init__(self) -> None:
+        self.deleted: List[str] = []
+
+    async def delete(self, ids: List[str]) -> int:
+        self.deleted.extend(ids)
+        return len(ids)
+
+    async def insert_records(self, payload: List[Dict[str, Any]]) -> Dict[str, Any]:
+        return {"inserted_count": len(payload), "failed_count": 0}
+
+
+async def test_deleting_a_file_invalidates_the_cached_edge_set() -> None:
+    """A cached read must not outlive the data it describes.
+
+    `_edge_record_cache` exists so `get_all_edges` — called once per retrieval —
+    does not re-scan. It was invalidated only by `upsert_edges`, so after a
+    deletion the cache kept serving edges that no longer existed, for the rest of
+    the session.
+    """
+    store = _store_with_client(_Client([_Response(200, {"records": []})]))
+    store._edge_record_cache = [GraphEdge(src="a", dst="b", type="CALLS")]
+
+    store._invalidate_edge_records()
+
+    assert store._edge_record_cache is None, (
+        "the cached edge set survived a deletion; the next get_all_edges would "
+        "return edges that are gone"
+    )
+
+
+async def test_clearing_the_repo_also_clears_the_edge_tier() -> None:
+    """`delete_by_repo` must drop edge records, not just symbol records.
+
+    It deleted only `{repo}_codegraph_records`. The edge collection survived, so a
+    force rebuild — which is exactly what `delete_by_repo` serves — left every
+    previous edge on disk to be read back by the next session.
+    """
+    deleted_collections: List[str] = []
+
+    class _Db:
+        rest_url = "http://unused"
+
+        async def delete_collection(self, name: str) -> bool:
+            deleted_collections.append(name)
+            return True
+
+    class _Conn:
+        embedded_db = _Db()
+
+        def forget_collection(self, name: str) -> None:
+            return None
+
+    store = ProximaGraphStore(repo="t", graph=object())
+    store._conn = _Conn()  # type: ignore[assignment]
+    store._edge_record_cache = [GraphEdge(src="a", dst="b", type="CALLS")]
+
+    await store._clear_edge_records()
+
+    assert (
+        store._edge_collection_name in deleted_collections
+    ), f"edge collection was not deleted; dropped only {deleted_collections}"
+    assert store._edge_record_cache is None
