@@ -37,6 +37,7 @@ hold rather than equality with the older behaviour:
 
 from __future__ import annotations
 
+from itertools import combinations
 from pathlib import Path
 from typing import Any, Dict, Iterable, List
 
@@ -221,9 +222,36 @@ async def test_parallel_retrieval_applies_the_top_k_limit(
 
     result = await retriever.retrieve_parallel("handler")
 
-    assert (
-        len(result.nodes) <= 3
-    ), f"top_k=3 but parallel retrieval returned {len(result.nodes)} nodes"
+    assert len(result.nodes) <= 3, (
+        f"top_k=3 but parallel retrieval returned {len(result.nodes)} nodes"
+    )
+
+
+async def test_parallel_retrieval_preserves_nonzero_hop_distances(
+    store: SqliteGraphStore,
+) -> None:
+    """The final result must not flatten every traversed node back to distance zero."""
+    retriever = MultiHopRetriever(store, _config("hop-distance", enable_parallel=True))
+
+    result = await retriever.retrieve_parallel("handler")
+
+    non_seeds = {node.node_id for node in result.nodes} - set(result.seed_nodes)
+    assert non_seeds, "fixture did not return any expanded nodes"
+    assert any(result.hop_distances[node_id] > 0 for node_id in non_seeds), (
+        "parallel retrieval flattened every expanded node to hop distance zero"
+    )
+
+
+async def test_parallel_retrieval_assembles_internal_edges_once(
+    store: SqliteGraphStore,
+) -> None:
+    """Ranking the traversal must not repeat the final neighbor batch read."""
+    counting = CountingStore(store)
+    retriever = MultiHopRetriever(counting, _config("edge-assembly", enable_parallel=True))
+
+    await retriever.retrieve_parallel("handler")
+
+    assert counting.calls.get("get_neighbors_batch", 0) == 1
 
 
 async def test_parallel_retrieval_expands_in_fewer_round_trips(
@@ -266,6 +294,35 @@ async def test_falls_back_to_serial_when_parallel_is_disabled(
     assert result.nodes, "disabling parallel must fall back to serial, not return nothing"
 
 
+async def test_parallel_fallback_reuses_the_seed_search(
+    store: SqliteGraphStore,
+) -> None:
+    """Finding too few actual seeds must not repeat the remote seed query.
+
+    Dispatch uses the configured ``seed_count`` while this fallback necessarily
+    uses the number actually returned.  A sparse match therefore reaches the
+    parallel method, discovers one seed, and falls back.  Re-running discovery
+    in the serial helper doubles the dominant remote query without changing the
+    result.
+    """
+    counting = CountingStore(store)
+    retriever = MultiHopRetriever(
+        counting,
+        _config(
+            "fallback-seeds-once",
+            enable_parallel=True,
+            parallel_min_batch_size=3,
+        ),
+    )
+
+    result = await retriever.retrieve_parallel("handler_0_call_0_leaf")
+
+    assert result.nodes
+    assert counting.calls.get("search_symbols", 0) == 1, (
+        "parallel fallback repeated seed discovery before serial traversal"
+    )
+
+
 async def test_edges_between_does_not_read_the_whole_graph(
     store: SqliteGraphStore,
 ) -> None:
@@ -282,12 +339,48 @@ async def test_edges_between_does_not_read_the_whole_graph(
     result = await retriever.retrieve("handler")
 
     assert counting.calls.get("get_all_edges", 0) == 0, (
-        "retrieval read the entire edge set; it should ask only about the nodes " "it is returning"
+        "retrieval read the entire edge set; it should ask only about the nodes it is returning"
     )
     # Still correct: every edge returned must connect two returned nodes.
     returned = {n.node_id for n in result.nodes}
     for edge in result.edges:
         assert edge.src in returned and edge.dst in returned
+
+
+async def test_outgoing_batches_reconstruct_every_internal_edge(
+    store: SqliteGraphStore,
+) -> None:
+    """Outgoing reads from every returned node equal the induced edge set.
+
+    This exhausts every subset of a seven-node component. It specifically
+    guards the non-obvious completeness argument behind ``direction="out"``:
+    an edge internal to the result has its source in the queried set, so it must
+    appear in that source's outgoing batch even when its destination was reached
+    by some unrelated path.
+    """
+    retriever = MultiHopRetriever(store, _config("induced-edge-property"))
+    all_edges = await store.get_all_edges()
+    component = sorted(
+        {
+            node_id
+            for edge in all_edges
+            for node_id in (edge.src, edge.dst)
+            if node_id.startswith("handler_0")
+        }
+    )
+    assert len(component) == 7
+
+    for size in range(len(component) + 1):
+        for chosen in combinations(component, size):
+            node_ids = set(chosen)
+            actual = await retriever._get_edges_between(node_ids, retriever.config)
+            actual_keys = {(edge.src, edge.dst, str(edge.type)) for edge in actual}
+            expected_keys = {
+                (edge.src, edge.dst, str(edge.type))
+                for edge in all_edges
+                if edge.src in node_ids and edge.dst in node_ids
+            }
+            assert actual_keys == expected_keys, f"wrong induced edges for {sorted(node_ids)}"
 
 
 async def test_serial_retrieval_considers_the_whole_neighbourhood(

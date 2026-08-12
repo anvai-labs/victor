@@ -21,7 +21,7 @@ from typing import Any, Dict, List
 
 import pytest
 
-from victor.storage.graph.protocol import GraphEdge
+from victor.storage.graph.protocol import GraphEdge, GraphNode
 from victor.storage.graph.proxima_store import ProximaGraphStore
 
 
@@ -144,6 +144,7 @@ class _RecordingCollection:
 
     def __init__(self) -> None:
         self.deleted: List[str] = []
+        self.cleared = False
 
     async def delete(self, ids: List[str]) -> int:
         self.deleted.extend(ids)
@@ -151,6 +152,9 @@ class _RecordingCollection:
 
     async def insert_records(self, payload: List[Dict[str, Any]]) -> Dict[str, Any]:
         return {"inserted_count": len(payload), "failed_count": 0}
+
+    async def clear(self) -> None:
+        self.cleared = True
 
 
 async def test_deleting_a_file_invalidates_the_cached_edge_set() -> None:
@@ -200,7 +204,98 @@ async def test_clearing_the_repo_also_clears_the_edge_tier() -> None:
 
     await store._clear_edge_records()
 
-    assert (
-        store._edge_collection_name in deleted_collections
-    ), f"edge collection was not deleted; dropped only {deleted_collections}"
+    assert store._edge_collection_name in deleted_collections, (
+        f"edge collection was not deleted; dropped only {deleted_collections}"
+    )
     assert store._edge_record_cache is None
+
+
+class _Graph:
+    def get_nodes_by_file(self, file: str) -> List[Any]:
+        return []
+
+
+class _CpgStore:
+    async def get_nodes_by_file(self, file: str) -> List[GraphNode]:
+        return []
+
+    async def delete_by_file(self, file: str) -> None:
+        return None
+
+    async def clear(self) -> None:
+        return None
+
+    async def close(self) -> None:
+        return None
+
+
+def _store_for_delete() -> tuple[ProximaGraphStore, _RecordingCollection]:
+    symbols = _RecordingCollection()
+    edges = _RecordingCollection()
+    store = ProximaGraphStore(
+        repo="t",
+        graph=_Graph(),
+        record_collection=symbols,
+        cpg_store=_CpgStore(),
+    )
+    store._edge_collection = edges
+    return store, edges
+
+
+async def test_delete_by_file_removes_cached_and_durable_incident_edges() -> None:
+    """A file delete must remove the durable edge, not merely its ORION projection."""
+    store, edge_collection = _store_for_delete()
+    node = GraphNode(node_id="a", type="function", name="a", file="a.py")
+    deleted = GraphEdge(src="a", dst="b", type="CALLS")
+    retained = GraphEdge(src="x", dst="y", type="CALLS")
+    store._record_nodes[node.node_id] = node
+    store._record_node_ids.add(node.node_id)
+    store._edge_record_cache = [deleted, retained]
+    store._orion_edge_ids = {"a|CALLS|b", "x|CALLS|y"}
+
+    await store.delete_by_file("a.py")
+
+    assert edge_collection.deleted == ["a|CALLS|b"]
+    assert store._edge_record_cache is None
+    assert store._orion_edge_ids is None
+
+
+async def test_delete_by_file_refreshes_cache_before_discovering_incident_edges() -> None:
+    """A sibling store may have added an edge after this store cached its scan."""
+    store, edge_collection = _store_for_delete()
+    node = GraphNode(node_id="a", type="function", name="a", file="a.py")
+    added_by_sibling = GraphEdge(src="a", dst="new", type="CALLS")
+    store._record_nodes[node.node_id] = node
+    store._record_node_ids.add(node.node_id)
+    store._edge_record_cache = []
+
+    class _EmbeddedDB:
+        _http_client = object()
+
+    class _Connection:
+        embedded_db = _EmbeddedDB()
+
+    store._conn = _Connection()  # type: ignore[assignment]  # production scan-capable path
+
+    async def fresh_edge_records() -> List[GraphEdge]:
+        assert store._edge_record_cache is None, "delete trusted a possibly stale session cache"
+        return [added_by_sibling]
+
+    store._read_edge_records = fresh_edge_records  # type: ignore[method-assign]
+
+    await store.delete_by_file("a.py")
+
+    assert edge_collection.deleted == ["a|CALLS|new"]
+
+
+async def test_delete_by_repo_clears_edge_record_collection_and_cache() -> None:
+    """Repository deletion must clear both record collections and every edge cache."""
+    store, edge_collection = _store_for_delete()
+    store._edge_record_cache = [GraphEdge(src="a", dst="b", type="CALLS")]
+    store._orion_edge_ids = {"a|CALLS|b"}
+
+    await store.delete_by_repo()
+
+    assert edge_collection.cleared
+    assert store._edge_record_cache is None
+    assert store._orion_edge_ids is None
