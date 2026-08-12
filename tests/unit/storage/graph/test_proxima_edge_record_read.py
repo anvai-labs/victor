@@ -141,8 +141,8 @@ async def test_edge_read_caches_within_a_session() -> None:
     assert len(client.requests) == 1, "the second read should be served from cache"
 
 
-async def test_get_all_edges_caches_the_final_union() -> None:
-    """Caching only the durable scan still repeated the expensive ORION read."""
+async def test_get_all_edges_uses_only_the_durable_authority() -> None:
+    """A healthy authoritative read must not consult the ORION projection."""
     client = _Client([_Response(200, {"records": [_record("a", "b", "CALLS")]})])
     store = _store_with_client(client)
 
@@ -160,8 +160,53 @@ async def test_get_all_edges_caches_the_final_union() -> None:
     second = await store.get_all_edges()
 
     assert first == second
-    assert graph.calls == 1
+    assert graph.calls == 0
     assert len(client.requests) == 1
+
+
+async def test_get_all_edges_does_not_resurrect_a_deleted_edge_from_orion() -> None:
+    """Projection lag after a canonical delete must not change the logical result."""
+    client = _Client([_Response(200, {"records": []})])
+    store = _store_with_client(client)
+
+    class _StaleGraph:
+        calls = 0
+
+        def get_all_edges(self) -> List[Any]:
+            self.calls += 1
+            return [
+                type(
+                    "ProjectedEdge",
+                    (),
+                    {
+                        "from_node": "deleted",
+                        "to_node": "target",
+                        "edge_type": "CALLS",
+                        "properties": {},
+                        "weight": None,
+                    },
+                )()
+            ]
+
+    graph = _StaleGraph()
+    store._graph = graph
+
+    assert await store.get_all_edges() == []
+    assert graph.calls == 0
+
+
+async def test_get_all_edges_fails_closed_when_durable_authority_is_unreadable() -> None:
+    """An embedded store must never downgrade to a stale projection on scan failure."""
+    store = _store_with_client(_Client([_Response(500, {})]))
+
+    class _GraphWithEdge:
+        def get_all_edges(self) -> List[Any]:
+            return [object()]
+
+    store._graph = _GraphWithEdge()
+
+    with pytest.raises(RuntimeError, match="authoritative Tier-A edge records"):
+        await store.get_all_edges()
 
 
 async def test_sibling_mutation_invalidates_a_generation_tagged_cache() -> None:

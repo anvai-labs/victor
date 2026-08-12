@@ -221,9 +221,6 @@ class ProximaGraphStore(GraphStoreProtocol):
         # edge mutation and lifecycle boundary must invalidate it.
         self._edge_record_cache: Optional[List[GraphEdge]] = None
         self._edge_record_cache_generation: Optional[int] = None
-        # The ORION + durable union is the expensive retrieval-facing view.
-        self._all_edge_cache: Optional[List[GraphEdge]] = None
-        self._all_edge_cache_generation: Optional[int] = None
         self._local_edge_generation = 0
 
         # In-memory sidecars for facts ProximaDBGraph does not yet persist
@@ -927,36 +924,35 @@ class ProximaGraphStore(GraphStoreProtocol):
         return nodes
 
     async def get_all_edges(self) -> List[GraphEdge]:
-        """Tier-A edges, read from the durable record tier where available.
+        """Return Tier-A edges from their durable authority.
 
-        ORION is consulted only as the projection: after a restart it reports
-        zero edges while the records still hold them (#1524), so preferring
-        records is what makes the graph survive. Whichever source answers, the
-        union is returned — during the first indexing pass ORION and the record
-        tier hold the same set, and `_sorted_edges` dedups nothing, so the merge
-        is keyed explicitly.
+        ORION is a rebuildable traversal projection. Merging it into this result
+        would make a stale projection authoritative by addition: if the record
+        delete committed but its projection delete failed, the union would
+        resurrect the deleted edge. Embedded mode therefore fails closed when
+        the record tier is unreadable.
+
+        An injected graph or the WIP service adapter has no record collection
+        today. That explicitly legacy path remains ORION-only and uncacheable;
+        it must not be mistaken for the supported durable mode.
         """
-        graph = await self._ensure()
-        generation = self._edge_generation()
-        if self._all_edge_cache is not None and self._all_edge_cache_generation == generation:
-            return list(self._all_edge_cache)
-
-        raw = await asyncio.to_thread(graph.get_all_edges)
-        projected = [self._from_proxima_edge(e) for e in raw]
-
         durable = await self._read_edge_records()
-        if durable is None:
-            return self._sorted_edges(projected)
+        if durable is not None:
+            return self._sorted_edges(list(durable))
 
-        merged: Dict[tuple[str, str, str], GraphEdge] = {}
-        for edge in [*projected, *durable]:
-            if edge.src and edge.dst and edge.type:
-                merged[(edge.src, edge.dst, str(edge.type))] = edge
-        result = self._sorted_edges(list(merged.values()))
-        if self._edge_generation() == generation:
-            self._all_edge_cache = result
-            self._all_edge_cache_generation = generation
-        return list(result)
+        if self._conn is not None:
+            raise RuntimeError(
+                "Could not read authoritative Tier-A edge records; refusing to "
+                "serve the potentially stale ORION projection"
+            )
+
+        graph = await self._ensure()
+        logger.warning(
+            "Tier-A edges are being read from ORION-only legacy mode; this view "
+            "is not a durable authority and is intentionally not cached."
+        )
+        raw = await asyncio.to_thread(graph.get_all_edges)
+        return self._sorted_edges([self._from_proxima_edge(e) for e in raw])
 
     async def _read_edge_records(self) -> Optional[List[GraphEdge]]:
         """Every Tier-A edge in the record tier, or None when unreadable.
@@ -1006,8 +1002,7 @@ class ProximaGraphStore(GraphStoreProtocol):
                     if response.status_code != 200:
                         logger.warning(
                             "Tier-A edge record scan failed (HTTP %s after %d rows); "
-                            "falling back to the ORION projection, which does not "
-                            "survive a restart.",
+                            "the authoritative edge view is unavailable.",
                             response.status_code,
                             len(edges),
                         )
@@ -1172,8 +1167,6 @@ class ProximaGraphStore(GraphStoreProtocol):
         """
         self._edge_record_cache = None
         self._edge_record_cache_generation = None
-        self._all_edge_cache = None
-        self._all_edge_cache_generation = None
 
     def _edge_generation(self) -> int:
         """Return the shared mutation epoch when this store has a connection."""

@@ -3,7 +3,7 @@
 Status: Embedded backend and local Tier-A/Tier-B boundary implemented behind a
 per-repo flag; SQLite remains default (tracked as TD-11, TD-12, TD-13 in
 `../tech-stack.md`). Proxima columnar/service mode is WIP.
-Date: 2026-08-05
+Date: 2026-08-12
 
 ## Implementation status (2026-08-05)
 
@@ -102,8 +102,10 @@ projection applied only after the record commit succeeds.
   `has_embedding=true`, and `content_version`. There is no subsequent metadata
   mutation.
 - A record failure prevents the ORION projection from being created or changed.
-  A projection failure leaves a correct committed record and is retriable; local
-  reads prefer the record authority over the stale projection.
+  A projection failure leaves a correct committed record and is retriable.
+  Logical edge enumeration reads the record authority exclusively: it never
+  unions ORION into the result and fails closed if the record scan is unreadable.
+  Otherwise a lagging projection could resurrect a canonically deleted edge.
 - Metadata changes preserve the committed vector and replace the complete record.
   If Victor cannot prove it has the vector needed for replacement, it fails
   closed instead of overwriting it with a placeholder.
@@ -191,8 +193,13 @@ identity, not a join.
 
 ### Embedded vs service
 
-- **Embedded (local single-repo):** one `EmbeddedProximaDB` (PyO3) per repo, `EmbeddingMode::Memory`.
-  Drop-in for the current SQLite + LanceDB pair.
+- **Embedded (local single-repo):** one `proximadb-server` subprocess owns the
+  repo's local writable roots; clients share that owner over UDS. ProximaDB
+  rejects a second server for any overlapping local authority. SDK startup
+  accepts `/health` only when its process identity matches the child it spawned,
+  so a pre-existing server cannot be mistaken for a successful launch.
+  `EmbeddingMode::Memory` remains the Tier-A vector mode. The separate native
+  PyO3 package is not the runtime used by this adapter.
 - **Service (multi-tenant, via anvaiops):** collection `{tenant}_{repo}_codegraph`, `graph_id`=repo,
   `branch_id`=git branch, `EmbeddingMode::Cold` (SQ8) to bound RAM. See the ProximaDB design spec
   `proximaDB/docs/12-design/CODE_GRAPH_CORRELATED_SUBSTRATE_2026_06_22.adoc` and the anvaiops ADR.
