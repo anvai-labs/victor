@@ -1,18 +1,12 @@
 # Copyright 2025 Vijaykumar Singh <vijay@anvaiops.com>
 # SPDX-License-Identifier: Apache-2.0
 
-"""Reading the durable Tier-A edge tier must degrade loudly, never to silence.
+"""Reading the durable Tier-A edge tier must be complete or fail closed.
 
-The first version of this read paginated with the server's scan cursor and
-returned ``None`` if any page failed. The server mints that cursor against the
-collection's numeric object id and validates it against the name in the request
-path, so page 2 always 400s for a name-addressed client
-(anvai-labs/proximaDB#1542). The result: a graph with more than one page of edges
-reported **zero** edges — indistinguishable from an empty collection — and the
-failure was logged at debug.
-
-A unit test catches this where an integration test did not: the durability
-fixture holds ~7 edges, one page, so it never reached the second request.
+The server caps scan pages at 10,000 records. A single request therefore cannot
+implement ``get_all_edges`` for larger graphs, regardless of the client's limit.
+These tests cross the cursor boundary and reject partial prefixes when a later
+page fails.
 """
 
 from __future__ import annotations
@@ -83,37 +77,56 @@ def _store_with_client(client: _Client) -> ProximaGraphStore:
     return store
 
 
-async def test_edge_read_issues_a_single_request_not_a_cursor_loop() -> None:
-    """Following the cursor is impossible by name, so it must not be attempted."""
-    client = _Client([_Response(200, {"records": [_record("a", "b", "CALLS")]})])
+async def test_edge_read_follows_every_scan_page() -> None:
+    """A server cursor means more authoritative rows, not optional work."""
+    client = _Client(
+        [
+            _Response(
+                200,
+                {
+                    "records": [_record("a", "b", "CALLS")],
+                    "next_cursor": "page-2",
+                },
+            ),
+            _Response(200, {"records": [_record("b", "c", "CALLS")]}),
+        ]
+    )
     store = _store_with_client(client)
 
     edges = await store._read_edge_records()
 
-    assert edges == [GraphEdge(src="a", dst="b", type="CALLS", weight=None, metadata={})]
-    assert len(client.requests) == 1, "the read must not paginate"
+    assert edges == [
+        GraphEdge(src="a", dst="b", type="CALLS", weight=None, metadata={}),
+        GraphEdge(src="b", dst="c", type="CALLS", weight=None, metadata={}),
+    ]
+    assert len(client.requests) == 2
     assert "cursor" not in client.requests[0]
+    assert client.requests[1]["cursor"] == "page-2"
 
 
-async def test_edge_read_keeps_rows_when_the_server_reports_more(caplog: Any) -> None:
-    """A truncated read returns what it has AND says so.
-
-    Previously this returned None, so a partial read looked like an empty graph.
-    """
-    payload = {
-        "records": [_record("a", "b", "CALLS"), _record("b", "c", "CALLS")],
-        "next_cursor": "opaque",
-    }
-    store = _store_with_client(_Client([_Response(200, payload)]))
+async def test_edge_read_rejects_a_partial_prefix_when_a_later_page_fails(caplog: Any) -> None:
+    """A prefix is not an authoritative graph and must never be cached."""
+    store = _store_with_client(
+        _Client(
+            [
+                _Response(
+                    200,
+                    {
+                        "records": [_record("a", "b", "CALLS")],
+                        "next_cursor": "page-2",
+                    },
+                ),
+                _Response(500, {}),
+            ]
+        )
+    )
 
     with caplog.at_level("WARNING"):
         edges = await store._read_edge_records()
 
-    assert len(edges) == 2, "rows already read must not be discarded"
-    assert any("truncated" in r.message.lower() for r in caplog.records), (
-        "truncation must be reported at WARNING; a silent prefix of the graph is "
-        "the failure mode this test exists to prevent"
-    )
+    assert edges is None
+    assert store._edge_record_cache is None
+    assert any("failed" in r.message.lower() for r in caplog.records)
 
 
 async def test_edge_read_caches_within_a_session() -> None:
@@ -126,6 +139,59 @@ async def test_edge_read_caches_within_a_session() -> None:
 
     assert first == second
     assert len(client.requests) == 1, "the second read should be served from cache"
+
+
+async def test_get_all_edges_caches_the_final_union() -> None:
+    """Caching only the durable scan still repeated the expensive ORION read."""
+    client = _Client([_Response(200, {"records": [_record("a", "b", "CALLS")]})])
+    store = _store_with_client(client)
+
+    class _CountingGraph:
+        calls = 0
+
+        def get_all_edges(self) -> List[Any]:
+            self.calls += 1
+            return []
+
+    graph = _CountingGraph()
+    store._graph = graph
+
+    first = await store.get_all_edges()
+    second = await store.get_all_edges()
+
+    assert first == second
+    assert graph.calls == 1
+    assert len(client.requests) == 1
+
+
+async def test_sibling_mutation_invalidates_a_generation_tagged_cache() -> None:
+    """Incremental reindex through a sibling store must invalidate this view."""
+    client = _Client([_Response(200, {"records": [_record("b", "c", "CALLS")]})])
+    store = _store_with_client(client)
+
+    class _SharedConnection:
+        embedded_db = store._conn.embedded_db
+
+        def __init__(self) -> None:
+            self.generation = 0
+
+        def collection_generation(self, name: str) -> int:
+            return self.generation
+
+        def mark_collection_mutated(self, name: str) -> int:
+            self.generation += 1
+            return self.generation
+
+    connection = _SharedConnection()
+    store._conn = connection  # type: ignore[assignment]
+    store._edge_record_cache = [GraphEdge(src="a", dst="b", type="CALLS")]
+    store._edge_record_cache_generation = 0
+
+    connection.mark_collection_mutated(store._edge_collection_name)
+    edges = await store._read_edge_records()
+
+    assert edges == [GraphEdge(src="b", dst="c", type="CALLS", weight=None, metadata={})]
+    assert len(client.requests) == 1
 
 
 async def test_edge_read_reports_failure_instead_of_returning_empty(caplog: Any) -> None:
@@ -251,6 +317,7 @@ async def test_delete_by_file_removes_cached_and_durable_incident_edges() -> Non
     store._record_nodes[node.node_id] = node
     store._record_node_ids.add(node.node_id)
     store._edge_record_cache = [deleted, retained]
+    store._edge_record_cache_generation = store._edge_generation()
     store._orion_edge_ids = {"a|CALLS|b", "x|CALLS|y"}
 
     await store.delete_by_file("a.py")
