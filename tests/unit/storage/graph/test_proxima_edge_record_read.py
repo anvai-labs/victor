@@ -31,9 +31,14 @@ class _Response:
 class _Client:
     """Serves one page and then fails, the way the server actually behaves."""
 
-    def __init__(self, pages: List[_Response]) -> None:
+    def __init__(
+        self, pages: List[_Response], *, revision: int = 1, revision_epoch: str = "epoch-a"
+    ) -> None:
         self._pages = pages
+        self.revision = revision
+        self.revision_token = f"{revision_epoch}:{revision}"
         self.requests: List[Dict[str, Any]] = []
+        self.get_requests = 0
 
     async def __aenter__(self) -> "_Client":
         return self
@@ -43,7 +48,22 @@ class _Client:
 
     async def post(self, url: str, json: Dict[str, Any] | None = None, timeout: float = 0) -> Any:
         self.requests.append(json or {})
-        return self._pages[min(len(self.requests) - 1, len(self._pages) - 1)]
+        response = self._pages[min(len(self.requests) - 1, len(self._pages) - 1)]
+        payload = dict(response._payload)
+        if response.status_code == 200:
+            payload.setdefault("content_revision", self.revision)
+            payload.setdefault("content_revision_token", self.revision_token)
+        return _Response(response.status_code, payload)
+
+    async def get(self, url: str, timeout: float = 0) -> Any:
+        self.get_requests += 1
+        return _Response(
+            200,
+            {
+                "content_revision": self.revision,
+                "content_revision_token": self.revision_token,
+            },
+        )
 
 
 def _record(src: str, dst: str, etype: str) -> Dict[str, Any]:
@@ -139,6 +159,42 @@ async def test_edge_read_caches_within_a_session() -> None:
 
     assert first == second
     assert len(client.requests) == 1, "the second read should be served from cache"
+    assert client.get_requests == 1, "cache hits must revalidate the server revision"
+
+
+async def test_edge_read_invalidates_when_another_process_changes_the_collection() -> None:
+    """A process-local generation cannot validate a cross-process cache."""
+    client = _Client([_Response(200, {"records": [_record("b", "c", "CALLS")]})], revision=2)
+    store = _store_with_client(client)
+    store._edge_record_cache = [GraphEdge(src="a", dst="b", type="CALLS")]
+    store._edge_record_cache_generation = store._edge_generation()
+    store._edge_record_cache_revision = 1
+    store._edge_record_cache_revision_token = "epoch-a:1"
+
+    edges = await store._read_edge_records()
+
+    assert edges == [GraphEdge(src="b", dst="c", type="CALLS", weight=None, metadata={})]
+    assert client.get_requests == 1
+    assert len(client.requests) == 1
+
+
+async def test_edge_read_rejects_revision_aba_after_server_restart() -> None:
+    """The same numeric revision from a new server incarnation is not fresh."""
+    client = _Client(
+        [_Response(200, {"records": [_record("b", "c", "CALLS")]})],
+        revision=1,
+        revision_epoch="epoch-b",
+    )
+    store = _store_with_client(client)
+    store._edge_record_cache = [GraphEdge(src="a", dst="b", type="CALLS")]
+    store._edge_record_cache_generation = store._edge_generation()
+    store._edge_record_cache_revision = 1
+    store._edge_record_cache_revision_token = "epoch-a:1"
+
+    edges = await store._read_edge_records()
+
+    assert edges == [GraphEdge(src="b", dst="c", type="CALLS", weight=None, metadata={})]
+    assert len(client.requests) == 1
 
 
 async def test_get_all_edges_uses_only_the_durable_authority() -> None:

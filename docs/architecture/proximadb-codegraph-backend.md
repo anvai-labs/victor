@@ -106,6 +106,11 @@ projection applied only after the record commit succeeds.
   Logical edge enumeration reads the record authority exclusively: it never
   unions ORION into the result and fails closed if the record scan is unreadable.
   Otherwise a lagging projection could resurrect a canonically deleted edge.
+  Cached enumerations are revalidated against ProximaDB's server-owned
+  `content_revision_token`. The token combines the monotonic content revision
+  with a server-incarnation epoch, so a restart cannot validate stale data via
+  revision-number reuse. Process-local mutation generations remain a fast path,
+  not the cross-process freshness authority.
 - Metadata changes preserve the committed vector and replace the complete record.
   If Victor cannot prove it has the vector needed for replacement, it fails
   closed instead of overwriting it with a placeholder.

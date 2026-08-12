@@ -221,6 +221,8 @@ class ProximaGraphStore(GraphStoreProtocol):
         # edge mutation and lifecycle boundary must invalidate it.
         self._edge_record_cache: Optional[List[GraphEdge]] = None
         self._edge_record_cache_generation: Optional[int] = None
+        self._edge_record_cache_revision: Optional[int] = None
+        self._edge_record_cache_revision_token: Optional[str] = None
         self._local_edge_generation = 0
 
         # In-memory sidecars for facts ProximaDBGraph does not yet persist
@@ -970,12 +972,11 @@ class ProximaGraphStore(GraphStoreProtocol):
         (anvai-labs/proximaDB TD-FPRUNE-2).
         """
         generation = self._edge_generation()
-        if self._edge_record_cache is not None and self._edge_record_cache_generation == generation:
-            return self._edge_record_cache
-        if self._edge_record_cache is not None:
-            self._invalidate_edge_records()
         if self._conn is None:
-            return None
+            # Injected/WIP adapters have no server revision surface. Preserve
+            # their explicitly supplied cache for legacy test/service mode;
+            # supported embedded mode always has a connection and revalidates.
+            return self._edge_record_cache
         collection = await self._edge_records()
         if collection is None:
             return None
@@ -985,8 +986,38 @@ class ProximaGraphStore(GraphStoreProtocol):
             return None
 
         edges: List[GraphEdge] = []
+        content_revision: Optional[int] = None
+        content_revision_token: Optional[str] = None
         try:
             async with client_factory() as client:
+                if self._edge_record_cache is not None:
+                    revision_response = await client.get(
+                        f"{db.rest_url}/api/v2/collections/{self._edge_collection_name}",
+                        timeout=30.0,
+                    )
+                    revision_payload = (
+                        revision_response.json() if revision_response.status_code == 200 else {}
+                    )
+                    current_revision = (
+                        int(revision_payload["content_revision"])
+                        if revision_payload.get("content_revision") is not None
+                        else None
+                    )
+                    current_revision_token = (
+                        str(revision_payload["content_revision_token"])
+                        if revision_payload.get("content_revision_token")
+                        else None
+                    )
+                    if (
+                        self._edge_record_cache_generation == generation
+                        and self._edge_record_cache_revision is not None
+                        and current_revision == self._edge_record_cache_revision
+                        and self._edge_record_cache_revision_token is not None
+                        and current_revision_token == self._edge_record_cache_revision_token
+                    ):
+                        return self._edge_record_cache
+                    self._invalidate_edge_records()
+
                 cursor: Optional[str] = None
                 seen_cursors: set[str] = set()
                 while True:
@@ -1008,6 +1039,28 @@ class ProximaGraphStore(GraphStoreProtocol):
                         )
                         return None
                     payload = response.json()
+                    page_revision = payload.get("content_revision")
+                    page_revision_token = payload.get("content_revision_token")
+                    if page_revision is not None:
+                        page_revision = int(page_revision)
+                        if content_revision is None:
+                            content_revision = page_revision
+                        elif page_revision != content_revision:
+                            logger.warning(
+                                "Tier-A edge content revision changed within a scan; "
+                                "rejecting a mixed snapshot."
+                            )
+                            return None
+                    if page_revision_token is not None:
+                        page_revision_token = str(page_revision_token)
+                        if content_revision_token is None:
+                            content_revision_token = page_revision_token
+                        elif page_revision_token != content_revision_token:
+                            logger.warning(
+                                "Tier-A edge revision token changed within a scan; "
+                                "rejecting a mixed snapshot."
+                            )
+                            return None
                     records = payload.get("records") or []
                     for record in records:
                         edge = self._edge_from_record_props(
@@ -1041,6 +1094,8 @@ class ProximaGraphStore(GraphStoreProtocol):
             return None
         self._edge_record_cache = edges
         self._edge_record_cache_generation = generation
+        self._edge_record_cache_revision = content_revision
+        self._edge_record_cache_revision_token = content_revision_token
         return edges
 
     # ------------------------------------------------------------------
@@ -1167,6 +1222,8 @@ class ProximaGraphStore(GraphStoreProtocol):
         """
         self._edge_record_cache = None
         self._edge_record_cache_generation = None
+        self._edge_record_cache_revision = None
+        self._edge_record_cache_revision_token = None
 
     def _edge_generation(self) -> int:
         """Return the shared mutation epoch when this store has a connection."""
