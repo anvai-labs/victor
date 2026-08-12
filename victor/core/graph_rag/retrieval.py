@@ -50,11 +50,14 @@ logger = logging.getLogger(__name__)
 # on a pathological hub, not to shape results. Well above any realistic `top_k`.
 _PARALLEL_TRAVERSAL_CEILING = 10_000
 
-# Upper bound on candidates the serial BFS will gather before ranking. It exists
-# only to stop a pathological hub from expanding without limit — it must stay far
-# above any realistic `top_k`, because the moment this binds it is traversal, not
-# ranking, deciding the result, which is the defect it replaced.
+# Upper bound on candidates the serial BFS may discover before ranking. This is
+# a safety budget, not a result limit: binding it raises instead of returning a
+# BFS-order-dependent prefix as though ranking had considered the neighbourhood.
 _CANDIDATE_CEILING = 10_000
+
+
+class CandidateBudgetExceededError(RuntimeError):
+    """Traversal cannot rank a complete neighbourhood within its safety budget."""
 
 
 @dataclass
@@ -424,6 +427,12 @@ class MultiHopRetriever:
         visited: Set[str] = set()
         queue: deque[Tuple[str, int, List[str]]] = deque()
 
+        if len(seed_ids) > _CANDIDATE_CEILING:
+            raise CandidateBudgetExceededError(
+                "Graph retrieval candidate safety budget exceeded by the seed set "
+                f"({len(seed_ids)} > {_CANDIDATE_CEILING}); refusing a partial result"
+            )
+
         # Initialize queue with seed nodes
         for seed_id in seed_ids:
             queue.append((seed_id, 0, [seed_id]))
@@ -434,14 +443,14 @@ class MultiHopRetriever:
 
         # BFS traversal.
         #
-        # Bounded by `max_hops` and a candidate ceiling — NOT by `top_k`. It used
+        # Bounded by `max_hops` and a candidate budget — NOT by `top_k`. It used
         # to stop at `len(results) < config.top_k`, which meant traversal chose
         # the candidate set by discovery order and the `_rank_nodes` call below
         # could only reorder what BFS had already settled: a relevant node two
         # hops out could never displace a nearer, duller one whatever it scored.
         # Ranking is the thing that is supposed to decide, so let it see the
         # neighbourhood.
-        while queue and len(results) < _CANDIDATE_CEILING:
+        while queue:
             node_id, distance, path = queue.popleft()
 
             # Get node
@@ -483,10 +492,17 @@ class MultiHopRetriever:
                     for edge in neighbors:
                         neighbor_id = edge.dst
                         if neighbor_id not in visited:
+                            if len(visited) >= _CANDIDATE_CEILING:
+                                raise CandidateBudgetExceededError(
+                                    "Graph retrieval candidate safety budget exceeded "
+                                    f"({_CANDIDATE_CEILING}); refusing a partial result"
+                                )
                             visited.add(neighbor_id)
                             new_path = path + [neighbor_id]
                             queue.append((neighbor_id, distance + 1, new_path))
 
+                except CandidateBudgetExceededError:
+                    raise
                 except Exception as e:
                     logger.warning(f"Error getting neighbors for {node_id}: {e}")
 

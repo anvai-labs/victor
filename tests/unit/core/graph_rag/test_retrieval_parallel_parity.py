@@ -44,6 +44,7 @@ from typing import Any, Dict, Iterable, List
 import pytest
 
 from victor.core.graph_rag.config import RetrievalConfig
+from victor.core.graph_rag import retrieval as retrieval_module
 from victor.core.graph_rag.retrieval import MultiHopRetriever
 from victor.storage.graph.protocol import GraphEdge, GraphNode
 from victor.storage.graph.sqlite_store import SqliteGraphStore
@@ -413,3 +414,14 @@ async def test_serial_retrieval_considers_the_whole_neighbourhood(
         "result set"
     )
     assert len(result.nodes) <= 10, "top_k must still bound the returned set"
+
+
+async def test_serial_retrieval_fails_closed_when_candidate_budget_binds(
+    store: SqliteGraphStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A safety budget must not silently turn BFS order into ranking."""
+    monkeypatch.setattr(retrieval_module, "_CANDIDATE_CEILING", 3)
+    retriever = MultiHopRetriever(store, _config("serial-budget", top_k=2))
+
+    with pytest.raises(RuntimeError, match="candidate.*budget"):
+        await retriever._retrieve_serial("handler")
