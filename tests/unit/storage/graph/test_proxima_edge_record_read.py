@@ -412,9 +412,9 @@ async def test_clearing_the_repo_also_clears_the_edge_tier() -> None:
 
     await store._clear_edge_records()
 
-    assert store._edge_collection_name in deleted_collections, (
-        f"edge collection was not deleted; dropped only {deleted_collections}"
-    )
+    assert (
+        store._edge_collection_name in deleted_collections
+    ), f"edge collection was not deleted; dropped only {deleted_collections}"
     assert store._edge_record_cache is None
 
 
@@ -508,3 +508,53 @@ async def test_delete_by_repo_clears_edge_record_collection_and_cache() -> None:
     assert edge_collection.cleared
     assert store._edge_record_cache is None
     assert store._orion_edge_ids is None
+
+
+class _RevisionlessClient(_Client):
+    """A server that returns NO revision fields — i.e. every real one today.
+
+    `content_revision` / `content_revision_token` appear nowhere in ProximaDB
+    (checked against develop @ 3b5df468d; the collection response carries only
+    `updated_at`). Every other client in this file supplies them, so the
+    revalidated cache path is exercised only against a fixture that is more
+    capable than the product. This subclass models the shape the code will
+    actually meet.
+    """
+
+    async def post(self, url: str, json: Dict[str, Any] | None = None, timeout: float = 0) -> Any:
+        self.requests.append(json or {})
+        response = self._pages[min(len(self.requests) - 1, len(self._pages) - 1)]
+        return _Response(response.status_code, dict(response._payload))
+
+    async def get(self, url: str, timeout: float = 0) -> Any:
+        self.get_requests += 1
+        return _Response(200, {"updated_at": "2026-08-15T00:00:00Z"})
+
+
+async def test_missing_revision_fields_force_a_reread_rather_than_a_stale_cache() -> None:
+    """With no revision to compare, the cache must NOT be served.
+
+    This is the only shape a real ProximaDB returns today, so it is the branch
+    that actually runs in production — and it must fail closed: re-read rather
+    than hand back a cache that nothing has revalidated. Serving it would
+    reintroduce exactly the cross-process staleness this revalidation exists to
+    prevent.
+
+    The cost is real and deliberate: with no revision surface the cache is inert,
+    so `get_all_edges` re-scans on every call (~99 ms on a 1.4k-edge graph rather
+    than ~1 ms). Correctness over speed until the server exposes a revision or
+    ETag, at which point the fast path switches itself back on.
+    """
+    pages = [_Response(200, {"records": [_record("a", "b", "CALLS")]})]
+    client = _RevisionlessClient(pages)
+    store = _store_with_client(client)
+
+    first = await store._read_edge_records()
+    second = await store._read_edge_records()
+
+    assert first == second, "results must stay consistent across re-reads"
+    assert len(client.requests) >= 2, (
+        "the cache was served without a revision to validate it against; with no "
+        "server revision surface this path must re-read, or a second process's "
+        "edge writes stay invisible for the rest of the session"
+    )
