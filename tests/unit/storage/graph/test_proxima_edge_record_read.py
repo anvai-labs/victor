@@ -220,6 +220,47 @@ async def test_get_all_edges_uses_only_the_durable_authority() -> None:
     assert len(client.requests) == 1
 
 
+async def test_get_all_edges_initializes_embedded_store_before_selecting_authority() -> None:
+    """A fresh embedded store is not an injected ORION-only legacy adapter."""
+    client = _Client([_Response(200, {"records": [_record("a", "b", "CALLS")]})])
+    store = ProximaGraphStore(repo="t")
+
+    class _Db:
+        rest_url = "http://unused"
+
+        def _http_client(self) -> _Client:
+            return client
+
+    class _Conn:
+        embedded_db = _Db()
+
+    class _Projection:
+        calls = 0
+
+        def get_all_edges(self) -> List[Any]:
+            self.calls += 1
+            return []
+
+    projection = _Projection()
+    initialized = False
+
+    async def initialize() -> None:
+        nonlocal initialized
+        initialized = True
+        store._conn = _Conn()  # type: ignore[assignment]
+        store._edge_collection = object()
+        store._graph = projection
+        store._initialized = True
+
+    store.initialize = initialize  # type: ignore[method-assign]
+
+    edges = await store.get_all_edges()
+
+    assert initialized
+    assert edges == [GraphEdge(src="a", dst="b", type="CALLS", weight=None, metadata={})]
+    assert projection.calls == 0
+
+
 async def test_get_all_edges_does_not_resurrect_a_deleted_edge_from_orion() -> None:
     """Projection lag after a canonical delete must not change the logical result."""
     client = _Client([_Response(200, {"records": []})])

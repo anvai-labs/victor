@@ -1298,6 +1298,37 @@ def test_provider_symbols_to_graph_nodes_preserves_codegraph_v2_identity() -> No
     assert node.node_id == "stable-v2-id"
 
 
+def test_provider_symbols_recover_identity_from_prepared_repository(tmp_path: Path) -> None:
+    """The provider currently delegates to codegraph but omits ``symbol_id``.
+
+    The prepared repository snapshot is the canonical identity authority, so
+    the adapter must recover the id from the same file/name/line/type tuple
+    instead of inventing an unrelated hash and breaking relation joins.
+    """
+    codegraph = pytest.importorskip("victor_codegraph")
+    path = tmp_path / "m.py"
+    path.write_text("def target():\n    return 1\n", encoding="utf-8")
+    pipeline = _make_pipeline(tmp_path)
+    pipeline._prepare_codegraph_repository(tmp_path, [path])
+    expected = next(
+        symbol
+        for symbol in pipeline._codegraph_repository.symbols
+        if symbol.simple_name == "target"
+    )
+    provider_symbol = {
+        "name": expected.simple_name,
+        "symbol_type": expected.symbol_type.name.lower(),
+        "file_path": expected.location.file_path,
+        "line_start": expected.location.start_line,
+        "line_end": expected.location.end_line,
+        "ast_kind": "function_definition",
+    }
+
+    node = pipeline._provider_symbols_to_graph_nodes([provider_symbol], path, "python")[0]
+
+    assert node.node_id == expected.id
+
+
 def test_module_node_id_matches_codegraph_file_identity() -> None:
     codegraph = pytest.importorskip("victor_codegraph")
     from victor.core.graph_rag.indexing import _module_node_id
@@ -1413,10 +1444,12 @@ async def test_codegraph_repository_relations_use_import_context_and_suppress_na
         captured.extend(edges)
 
     graph_store.upsert_edges = _capture_edges
+    graph_store.nodes.extend(MagicMock(node_id=symbol.id) for symbol in repository.symbols)
 
-    calls, relationships, imports = await pipeline._resolve_codegraph_repository_relations()
+    projection = await pipeline._resolve_codegraph_repository_relations()
 
-    assert (calls, relationships, imports) == (1, 1, 1)
+    assert (projection.calls, projection.relationships, projection.imports) == (1, 1, 1)
+    assert projection.dropped_unmaterialized == 0
     call_edges = [edge for edge in captured if edge.type.value == "CALLS"]
     assert [(edge.src, edge.dst) for edge in call_edges] == [(caller.id, preferred.id)]
     assert all(edge.dst != other.id for edge in call_edges)
@@ -1448,7 +1481,9 @@ async def test_codegraph_repository_relation_fallback_preserves_legacy_buffers(
     pipeline._pending_relationship_records = [pending_relationship]
     pipeline._pending_import_records = [pending_import]
 
-    assert await pipeline._resolve_codegraph_repository_relations() == (0, 0, 0)
+    projection = await pipeline._resolve_codegraph_repository_relations()
+    assert (projection.calls, projection.relationships, projection.imports) == (0, 0, 0)
+    assert projection.dropped_unmaterialized == 0
     assert pipeline._pending_call_records == [pending_call]
     assert pipeline._pending_relationship_records == [pending_relationship]
     assert pipeline._pending_import_records == [pending_import]
@@ -1511,9 +1546,13 @@ async def test_codegraph_repository_relations_cover_import_only_modules(tmp_path
     module_node = pipeline._make_module_node(importer, "python")
 
     await pipeline._build_calls_edges([module_node], importer)
-    calls, relationships, imports = await pipeline._resolve_codegraph_repository_relations()
+    graph_store.nodes.extend(
+        MagicMock(node_id=symbol.id) for symbol in pipeline._codegraph_repository.symbols
+    )
+    projection = await pipeline._resolve_codegraph_repository_relations()
 
-    assert (calls, relationships, imports) == (0, 0, 1)
+    assert (projection.calls, projection.relationships, projection.imports) == (0, 0, 1)
+    assert projection.dropped_unmaterialized == 0
     assert pipeline._codegraph_owned_files == {"importer.py"}
 
 

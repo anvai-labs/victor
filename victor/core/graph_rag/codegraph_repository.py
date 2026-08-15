@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable
+from typing import AbstractSet, Any, Iterable
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +18,7 @@ class RepositoryRelationProjection:
     calls: int = 0
     relationships: int = 0
     imports: int = 0
+    dropped_unmaterialized: int = 0
 
 
 def prepare_repository_snapshot(
@@ -53,8 +54,19 @@ def prepare_repository_snapshot(
     return repository
 
 
-def project_resolved_relations(repository: Any) -> RepositoryRelationProjection:
-    """Map repository-resolved semantic relations onto Graph-RAG edge names."""
+def project_resolved_relations(
+    repository: Any,
+    *,
+    materialized_symbol_ids: AbstractSet[str] | None = None,
+) -> RepositoryRelationProjection:
+    """Map resolved relations onto the materialized Graph-RAG graph.
+
+    The repository snapshot describes parser output, not committed graph state.
+    When ``materialized_symbol_ids`` is supplied, both endpoints must exist in
+    that committed set. This keeps permissive and referentially strict graph
+    stores behaviorally identical instead of letting SQLite accept edges that
+    ORION rejects.
+    """
     edge_types = {
         "CALLS": "CALLS",
         "EXTENDS": "INHERITS",
@@ -62,7 +74,7 @@ def project_resolved_relations(repository: Any) -> RepositoryRelationProjection:
         "IMPORTS": "IMPORTS",
     }
     edges: list[tuple[str, str, str]] = []
-    calls = relationships = imports = 0
+    calls = relationships = imports = dropped_unmaterialized = 0
     seen: set[tuple[str, str, str]] = set()
     for relation in repository.relations:
         if relation.target_ref is not None or relation.provenance not in {
@@ -74,6 +86,11 @@ def project_resolved_relations(repository: Any) -> RepositoryRelationProjection:
         if edge_type is None:
             continue
         edge = (relation.from_symbol_id, relation.to_symbol_id, edge_type)
+        if materialized_symbol_ids is not None and (
+            edge[0] not in materialized_symbol_ids or edge[1] not in materialized_symbol_ids
+        ):
+            dropped_unmaterialized += 1
+            continue
         if edge in seen or edge[0] == edge[1]:
             continue
         seen.add(edge)
@@ -84,4 +101,10 @@ def project_resolved_relations(repository: Any) -> RepositoryRelationProjection:
             imports += 1
         else:
             relationships += 1
-    return RepositoryRelationProjection(tuple(edges), calls, relationships, imports)
+    return RepositoryRelationProjection(
+        tuple(edges),
+        calls,
+        relationships,
+        imports,
+        dropped_unmaterialized,
+    )

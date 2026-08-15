@@ -938,6 +938,14 @@ class ProximaGraphStore(GraphStoreProtocol):
         today. That explicitly legacy path remains ORION-only and uncacheable;
         it must not be mistaken for the supported durable mode.
         """
+        # `_conn is None` means "not initialized yet" for a normal embedded
+        # store as well as "no record tier" for an injected/service adapter.
+        # Establish the lifecycle state before selecting an authority; doing
+        # this after `_read_edge_records` made the first read after construction
+        # silently fall through to ORION-only legacy mode.
+        if not self._initialized:
+            await self.initialize()
+
         durable = await self._read_edge_records()
         if durable is not None:
             return self._sorted_edges(list(durable))
