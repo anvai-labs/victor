@@ -154,8 +154,8 @@ prompt_toolkit==3.0.52
 propcache==0.4.1
 proto-plus==1.26.1
 protobuf==6.33.5
--e git+ssh://git@github.com/anvai-labs/proximaDB.git@f2df18818ae808524920c99d6bd617990786acef#egg=proximadb
--e git+ssh://git@github.com/anvai-labs/proximaDB.git@f2df18818ae808524920c99d6bd617990786acef#egg=proximadb_python&subdirectory=clients/python
+-e git+ssh://git@github.com/anvai-labs/proximaDB.git@v0.3.0#egg=proximadb
+-e git+ssh://git@github.com/anvai-labs/proximaDB.git@v0.3.0#egg=proximadb_python&subdirectory=clients/python
 psycopg2-binary==2.9.11
 py-serializable==2.1.0
 pyarrow==23.0.1

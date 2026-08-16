@@ -5,6 +5,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased] (develop)
 
+## [0.9.0] - 2026-08-16
+
+### Changed
+- **Dependency-chain bump (release train)**: `sandhi-gateway==0.1.6` (was
+  `0.1.5`) and `proximadb>=0.3,<0.4` (was `>=0.2,<0.3`) across victor-ai and the
+  victor-coding vertical; the `requirements.txt` proximaDB source pin advances
+  from a floating SHA to the released `v0.3.0` tag. Completes the
+  sandhi 0.1.6 → proximaDB 0.3.0 → victor 0.9.0 dependency-chain releases
+  (proximaDB 0.3.0 brings pgwire vector search, DuckDB OLAP routing, DV-aware
+  SST compaction, relational ABAC; the SDK relaxes collection-name validation
+  and defaults ADR-044 canonical oids on).
+
 ### Added
 - **Effect-grounded completion gate (ADR-010 / EVR-4, opt-in)**: COMPLETE is now
   conditional on a verifiable effect — a workspace delta or verified check
