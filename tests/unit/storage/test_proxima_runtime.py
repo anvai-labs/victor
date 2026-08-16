@@ -48,6 +48,17 @@ def test_graph_id_for_repo():
     assert graph_id_for_repo("victor") == "victor_codegraph"
 
 
+def test_collection_mutation_generations_are_isolated_by_name(tmp_path):
+    connection = proxima_runtime.ProximaRepoConnection("test", tmp_path, None)
+
+    assert connection.collection_generation("edges-a") == 0
+    assert connection.collection_generation("edges-b") == 0
+    assert connection.mark_collection_mutated("edges-a") == 1
+    assert connection.mark_collection_mutated("edges-a") == 2
+    assert connection.collection_generation("edges-a") == 2
+    assert connection.collection_generation("edges-b") == 0
+
+
 def test_embedding_mode_coerce():
     assert ProximaEmbeddingMode.coerce(None) is ProximaEmbeddingMode.MEMORY
     assert ProximaEmbeddingMode.coerce("cold") is ProximaEmbeddingMode.COLD

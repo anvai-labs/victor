@@ -96,11 +96,10 @@ _ORION_STAT_KEYS = {
     "edges": ("total_edges", "edge_count", "edges"),
 }
 
-# One scan page for the Tier-A edge read. The server's cursor cannot be followed
-# by collection name (proximaDB#1542), so this is the whole budget rather than a
-# page size; it is far above Victor's Tier-A edge counts (~1.4k on this repo) and
-# a graph that exceeds it logs a truncation warning instead of quietly shrinking.
-_EDGE_SCAN_LIMIT = 100_000
+# The server clamps a records scan to this many rows per page. This is a page
+# size, not a graph-size ceiling: `_read_edge_records` must follow cursors until
+# exhaustion or reject the read as incomplete.
+_EDGE_SCAN_PAGE_SIZE = 10_000
 
 
 def _orion_stat(raw: Dict[str, Any], kind: str) -> int:
@@ -218,9 +217,13 @@ class ProximaGraphStore(GraphStoreProtocol):
         self._warned_missing_vectors = False
         # One-shot guard for the "edges are not durable here" warning.
         self._warned_edge_records_unavailable = False
-        # Session cache of the durable edge set; None = not yet read. Invalidated
-        # by `upsert_edges`, which is the only thing that changes it.
+        # Session cache of the durable edge set; None = not yet read. Every local
+        # edge mutation and lifecycle boundary must invalidate it.
         self._edge_record_cache: Optional[List[GraphEdge]] = None
+        self._edge_record_cache_generation: Optional[int] = None
+        self._edge_record_cache_revision: Optional[int] = None
+        self._edge_record_cache_revision_token: Optional[str] = None
+        self._local_edge_generation = 0
 
         # In-memory sidecars for facts ProximaDBGraph does not yet persist
         # natively (relational Tier-C work lands with TD-127). Idempotent and
@@ -293,6 +296,8 @@ class ProximaGraphStore(GraphStoreProtocol):
         self._record_nodes.clear()
         self._record_vectors.clear()
         self._record_node_ids.clear()
+        self._edge_collection = None
+        self._invalidate_edge_records()
         self._orion_edge_ids = None
         self._initialized = False
 
@@ -413,8 +418,9 @@ class ProximaGraphStore(GraphStoreProtocol):
             # so re-writing one is both harmless and necessary for the record
             # tier to stay complete when ORION already holds the edge.
             await self._write_edge_records(hot_edges)
-            # The durable set just changed; drop the cached read.
-            self._invalidate_edge_records()
+            # The durable set just changed; invalidate this store and sibling
+            # stores sharing the same per-repo connection.
+            self._mark_edge_records_mutated()
 
             known = await self._known_edge_ids(graph)
 
@@ -920,28 +926,43 @@ class ProximaGraphStore(GraphStoreProtocol):
         return nodes
 
     async def get_all_edges(self) -> List[GraphEdge]:
-        """Tier-A edges, read from the durable record tier where available.
+        """Return Tier-A edges from their durable authority.
 
-        ORION is consulted only as the projection: after a restart it reports
-        zero edges while the records still hold them (#1524), so preferring
-        records is what makes the graph survive. Whichever source answers, the
-        union is returned — during the first indexing pass ORION and the record
-        tier hold the same set, and `_sorted_edges` dedups nothing, so the merge
-        is keyed explicitly.
+        ORION is a rebuildable traversal projection. Merging it into this result
+        would make a stale projection authoritative by addition: if the record
+        delete committed but its projection delete failed, the union would
+        resurrect the deleted edge. Embedded mode therefore fails closed when
+        the record tier is unreadable.
+
+        An injected graph or the WIP service adapter has no record collection
+        today. That explicitly legacy path remains ORION-only and uncacheable;
+        it must not be mistaken for the supported durable mode.
         """
-        graph = await self._ensure()
-        raw = await asyncio.to_thread(graph.get_all_edges)
-        projected = [self._from_proxima_edge(e) for e in raw]
+        # `_conn is None` means "not initialized yet" for a normal embedded
+        # store as well as "no record tier" for an injected/service adapter.
+        # Establish the lifecycle state before selecting an authority; doing
+        # this after `_read_edge_records` made the first read after construction
+        # silently fall through to ORION-only legacy mode.
+        if not self._initialized:
+            await self.initialize()
 
         durable = await self._read_edge_records()
-        if durable is None:
-            return self._sorted_edges(projected)
+        if durable is not None:
+            return self._sorted_edges(list(durable))
 
-        merged: Dict[tuple[str, str, str], GraphEdge] = {}
-        for edge in [*projected, *durable]:
-            if edge.src and edge.dst and edge.type:
-                merged[(edge.src, edge.dst, str(edge.type))] = edge
-        return self._sorted_edges(list(merged.values()))
+        if self._conn is not None:
+            raise RuntimeError(
+                "Could not read authoritative Tier-A edge records; refusing to "
+                "serve the potentially stale ORION projection"
+            )
+
+        graph = await self._ensure()
+        logger.warning(
+            "Tier-A edges are being read from ORION-only legacy mode; this view "
+            "is not a durable authority and is intentionally not cached."
+        )
+        raw = await asyncio.to_thread(graph.get_all_edges)
+        return self._sorted_edges([self._from_proxima_edge(e) for e in raw])
 
     async def _read_edge_records(self) -> Optional[List[GraphEdge]]:
         """Every Tier-A edge in the record tier, or None when unreadable.
@@ -958,10 +979,12 @@ class ProximaGraphStore(GraphStoreProtocol):
         server materializes the collection before filtering
         (anvai-labs/proximaDB TD-FPRUNE-2).
         """
-        if self._edge_record_cache is not None:
-            return self._edge_record_cache
+        generation = self._edge_generation()
         if self._conn is None:
-            return None
+            # Injected/WIP adapters have no server revision surface. Preserve
+            # their explicitly supplied cache for legacy test/service mode;
+            # supported embedded mode always has a connection and revalidates.
+            return self._edge_record_cache
         collection = await self._edge_records()
         if collection is None:
             return None
@@ -971,54 +994,116 @@ class ProximaGraphStore(GraphStoreProtocol):
             return None
 
         edges: List[GraphEdge] = []
+        content_revision: Optional[int] = None
+        content_revision_token: Optional[str] = None
         try:
             async with client_factory() as client:
-                # Deliberately ONE request, not a cursor loop. The server mints a
-                # scan cursor against the collection's numeric object id but
-                # validates it against the identifier in the request path, so a
-                # name-addressed client is rejected on page 2 with
-                # "scan cursor was issued for collection '2', not '<name>'"
-                # (anvai-labs/proximaDB#1542). Paginating therefore cannot work
-                # from here at all, and the previous cursor loop discarded even
-                # the rows it had already read.
-                response = await client.post(
-                    f"{db.rest_url}/api/v2/collections/"
-                    f"{self._edge_collection_name}/records/scan",
-                    json={"limit": _EDGE_SCAN_LIMIT},
-                    timeout=120.0,
-                )
-                if response.status_code != 200:
-                    logger.warning(
-                        "Tier-A edge record scan failed (HTTP %s); falling back to the "
-                        "ORION projection, which does not survive a restart.",
-                        response.status_code,
+                if self._edge_record_cache is not None:
+                    revision_response = await client.get(
+                        f"{db.rest_url}/api/v2/collections/{self._edge_collection_name}",
+                        timeout=30.0,
                     )
-                    return None
-                payload = response.json()
-                records = payload.get("records") or []
-                for record in records:
-                    edge = self._edge_from_record_props(_unwrap_props(record.get("props") or {}))
-                    if edge is not None:
-                        edges.append(edge)
-                if payload.get("next_cursor"):
-                    # Truncation must be loud. Silently returning a prefix of the
-                    # graph is exactly the failure mode that made this look like
-                    # an empty collection.
-                    logger.warning(
-                        "Tier-A edge records exceed one scan page (%d read, more "
-                        "available) and the server's cursor cannot be followed by "
-                        "collection name (proximaDB#1542); the graph is truncated.",
-                        len(edges),
+                    revision_payload = (
+                        revision_response.json() if revision_response.status_code == 200 else {}
                     )
+                    current_revision = (
+                        int(revision_payload["content_revision"])
+                        if revision_payload.get("content_revision") is not None
+                        else None
+                    )
+                    current_revision_token = (
+                        str(revision_payload["content_revision_token"])
+                        if revision_payload.get("content_revision_token")
+                        else None
+                    )
+                    if (
+                        self._edge_record_cache_generation == generation
+                        and self._edge_record_cache_revision is not None
+                        and current_revision == self._edge_record_cache_revision
+                        and self._edge_record_cache_revision_token is not None
+                        and current_revision_token == self._edge_record_cache_revision_token
+                    ):
+                        return self._edge_record_cache
+                    self._invalidate_edge_records()
+
+                cursor: Optional[str] = None
+                seen_cursors: set[str] = set()
+                while True:
+                    request: Dict[str, Any] = {"limit": _EDGE_SCAN_PAGE_SIZE}
+                    if cursor is not None:
+                        request["cursor"] = cursor
+                    response = await client.post(
+                        f"{db.rest_url}/api/v2/collections/"
+                        f"{self._edge_collection_name}/records/scan",
+                        json=request,
+                        timeout=120.0,
+                    )
+                    if response.status_code != 200:
+                        logger.warning(
+                            "Tier-A edge record scan failed (HTTP %s after %d rows); "
+                            "the authoritative edge view is unavailable.",
+                            response.status_code,
+                            len(edges),
+                        )
+                        return None
+                    payload = response.json()
+                    page_revision = payload.get("content_revision")
+                    page_revision_token = payload.get("content_revision_token")
+                    if page_revision is not None:
+                        page_revision = int(page_revision)
+                        if content_revision is None:
+                            content_revision = page_revision
+                        elif page_revision != content_revision:
+                            logger.warning(
+                                "Tier-A edge content revision changed within a scan; "
+                                "rejecting a mixed snapshot."
+                            )
+                            return None
+                    if page_revision_token is not None:
+                        page_revision_token = str(page_revision_token)
+                        if content_revision_token is None:
+                            content_revision_token = page_revision_token
+                        elif page_revision_token != content_revision_token:
+                            logger.warning(
+                                "Tier-A edge revision token changed within a scan; "
+                                "rejecting a mixed snapshot."
+                            )
+                            return None
+                    records = payload.get("records") or []
+                    for record in records:
+                        edge = self._edge_from_record_props(
+                            _unwrap_props(record.get("props") or {})
+                        )
+                        if edge is not None:
+                            edges.append(edge)
+
+                    next_cursor = payload.get("next_cursor")
+                    if not next_cursor:
+                        break
+                    cursor = str(next_cursor)
+                    if cursor in seen_cursors:
+                        logger.warning(
+                            "Tier-A edge record scan repeated a cursor after %d rows; "
+                            "rejecting an incomplete graph.",
+                            len(edges),
+                        )
+                        return None
+                    seen_cursors.add(cursor)
         except Exception as exc:  # pragma: no cover - depends on live server
             logger.warning("Could not read Tier-A edge records: %s", exc)
             return None
 
-        # Cache for the session: these records only change when this store writes
-        # them, and `upsert_edges` invalidates. Without this, `get_all_edges` —
+        # Cache for the session: local writes and deletes invalidate it. Without
+        # this, `get_all_edges` —
         # which retrieval calls on every query — repeats a full scan that measured
         # 732 ms on a 1.4k-edge graph.
+        if self._edge_generation() != generation:
+            logger.warning("Tier-A edge records changed during a scan; rejecting a stale snapshot.")
+            return None
         self._edge_record_cache = edges
+        self._edge_record_cache_generation = generation
+        self._edge_record_cache_revision = content_revision
+        self._edge_record_cache_revision_token = content_revision_token
         return edges
 
     # ------------------------------------------------------------------
@@ -1053,20 +1138,68 @@ class ProximaGraphStore(GraphStoreProtocol):
         await self._ensure()
         nodes = await self.get_nodes_by_file(file)
         cold_nodes = await self._cpg_store.get_nodes_by_file(file)
+        deleted_ids = {n.node_id for n in [*nodes, *cold_nodes]}
+
+        # ORION deletes incident edges with the node, but the record tier is a
+        # separate collection and has no cascade. Resolve its incident record
+        # ids before deleting the nodes so the durable authority follows the
+        # projection. After a restart ORION may be empty (#1524), so deriving
+        # these ids from graph neighbors would silently miss durable edges.
+        # This store's session cache may predate a write made through another
+        # ProximaGraphStore sharing the same ref-counted connection. Refresh
+        # before deciding which durable edge ids are incident to the file; an
+        # old prefix here would strand the newer records after node deletion.
+        embedded_db = getattr(self._conn, "embedded_db", None)
+        can_refresh_durable_edges = (
+            embedded_db is not None and getattr(embedded_db, "_http_client", None) is not None
+        )
+        has_durable_edge_authority = (
+            self._edge_record_cache is not None
+            or self._edge_collection is not None
+            or can_refresh_durable_edges
+        )
+        if can_refresh_durable_edges:
+            self._invalidate_edge_records()
+        durable_edges = await self._read_edge_records()
+        if durable_edges is None and has_durable_edge_authority:
+            raise RuntimeError(
+                "Cannot delete file safely: durable Tier-A edge records are unreadable"
+            )
+        incident_edges = [
+            edge
+            for edge in durable_edges or []
+            if edge.src in deleted_ids or edge.dst in deleted_ids
+        ]
+
+        # Delete the durable edges before their nodes. The operation is not
+        # transactional, but this ordering is retryable: if a later node delete
+        # fails, the nodes still identify the file on the next attempt. Deleting
+        # nodes first could strand edge records that no longer have endpoints
+        # from which a retry can discover them.
+        self._invalidate_edge_records()
+        self._orion_edge_ids = None
+        await self._delete_edge_records(incident_edges)
         for node in nodes:
             await self._delete_node(node.node_id)
         await self._cpg_store.delete_by_file(file)
-        # Edges incident to the deleted nodes must go too, or the durable tier
-        # keeps returning edges into nodes that no longer exist.
-        await self._delete_edge_records_for_nodes({n.node_id for n in nodes})
+        self._mark_edge_records_mutated()
         self._file_mtimes.pop(str(file), None)
         self._file_hashes.pop(str(file), None)
         # Invalidate any cached subgraphs anchored on deleted nodes.
-        deleted_ids = {n.node_id for n in [*nodes, *cold_nodes]}
         for sg_id in [
             sg_id for sg_id, sg in self._subgraph_cache.items() if sg.anchor_node_id in deleted_ids
         ]:
             self._subgraph_cache.pop(sg_id, None)
+
+    async def _delete_edge_records(self, edges: List[GraphEdge]) -> None:
+        """Delete durable edge records by their deterministic projection ids."""
+        if not edges:
+            return
+        collection = await self._edge_records()
+        if collection is None:
+            return  # service/injected mode can be ORION-only
+        ids = sorted({self._to_proxima_edge_record(edge)["id"] for edge in edges})
+        await collection.delete(ids)
 
     async def _delete_node(self, node_id: str) -> None:
         # Delete the authoritative record as one entity, then its ORION projection.
@@ -1096,6 +1229,25 @@ class ProximaGraphStore(GraphStoreProtocol):
         that a session keeps serving edges that were deleted.
         """
         self._edge_record_cache = None
+        self._edge_record_cache_generation = None
+        self._edge_record_cache_revision = None
+        self._edge_record_cache_revision_token = None
+
+    def _edge_generation(self) -> int:
+        """Return the shared mutation epoch when this store has a connection."""
+        generation = getattr(self._conn, "collection_generation", None)
+        if callable(generation):
+            return int(generation(self._edge_collection_name))
+        return self._local_edge_generation
+
+    def _mark_edge_records_mutated(self) -> None:
+        """Invalidate this store and advance the shared process-local epoch."""
+        mark_mutated = getattr(self._conn, "mark_collection_mutated", None)
+        if callable(mark_mutated):
+            mark_mutated(self._edge_collection_name)
+        else:
+            self._local_edge_generation += 1
+        self._invalidate_edge_records()
 
     async def _clear_edge_records(self) -> None:
         """Delete the durable Tier-A edge collection.
@@ -1105,48 +1257,25 @@ class ProximaGraphStore(GraphStoreProtocol):
         a force rebuild calls, every previous edge stayed on disk to be read back
         by the next session as if it were current.
         """
+        # Do not create the collection merely to delete it. The embedded SDK
+        # treats a missing collection as an idempotent success (HTTP 404), while
+        # injected stores can clear an already-supplied handle below.
+        collection = self._edge_collection
         self._invalidate_edge_records()
+        self._orion_edge_ids = None
         if self._conn is not None:
-            try:
-                await self._conn.embedded_db.delete_collection(self._edge_collection_name)
-                self._conn.forget_collection(self._edge_collection_name)
-            except Exception as exc:  # pragma: no cover - depends on live server
-                # A repo that never wrote edges has no collection to drop; that is
-                # not a failure. Anything else is worth seeing.
-                logger.debug("Could not delete %s: %s", self._edge_collection_name, exc)
-        elif self._edge_collection is not None:
-            clear = getattr(self._edge_collection, "clear", None)
+            deleted = await self._conn.embedded_db.delete_collection(self._edge_collection_name)
+            if not deleted:
+                raise RuntimeError(
+                    f"Failed to delete ProximaDB collection {self._edge_collection_name}"
+                )
+            self._conn.forget_collection(self._edge_collection_name)
+        elif collection is not None:
+            clear = getattr(collection, "clear", None)
             if clear is not None:
                 await clear()
         self._edge_collection = None
-
-    async def _delete_edge_records_for_nodes(self, node_ids: Set[str]) -> None:
-        """Remove edge records incident to deleted nodes.
-
-        Without this, `delete_by_file` left edges pointing at nodes that no longer
-        exist — a dangling graph that reads as real.
-        """
-        if not node_ids:
-            return
-        durable = await self._read_edge_records()
-        if not durable:
-            return
-        doomed = [
-            f"{edge.src}|{getattr(edge.type, 'value', edge.type)}|{edge.dst}"
-            for edge in durable
-            if edge.src in node_ids or edge.dst in node_ids
-        ]
-        if not doomed:
-            return
-        collection = await self._edge_records()
-        if collection is None:
-            return
-        try:
-            await collection.delete(doomed)
-        except Exception as exc:  # pragma: no cover - depends on live server
-            logger.warning("Could not delete %d incident edge records: %s", len(doomed), exc)
-        finally:
-            self._invalidate_edge_records()
+        self._mark_edge_records_mutated()
 
     async def _clear_symbol_records(self) -> None:
         """Delete the unified symbol-record authority and invalidate projections."""

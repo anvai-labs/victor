@@ -1,18 +1,12 @@
 # Copyright 2025 Vijaykumar Singh <vijay@anvaiops.com>
 # SPDX-License-Identifier: Apache-2.0
 
-"""Reading the durable Tier-A edge tier must degrade loudly, never to silence.
+"""Reading the durable Tier-A edge tier must be complete or fail closed.
 
-The first version of this read paginated with the server's scan cursor and
-returned ``None`` if any page failed. The server mints that cursor against the
-collection's numeric object id and validates it against the name in the request
-path, so page 2 always 400s for a name-addressed client
-(anvai-labs/proximaDB#1542). The result: a graph with more than one page of edges
-reported **zero** edges — indistinguishable from an empty collection — and the
-failure was logged at debug.
-
-A unit test catches this where an integration test did not: the durability
-fixture holds ~7 edges, one page, so it never reached the second request.
+The server caps scan pages at 10,000 records. A single request therefore cannot
+implement ``get_all_edges`` for larger graphs, regardless of the client's limit.
+These tests cross the cursor boundary and reject partial prefixes when a later
+page fails.
 """
 
 from __future__ import annotations
@@ -21,7 +15,7 @@ from typing import Any, Dict, List
 
 import pytest
 
-from victor.storage.graph.protocol import GraphEdge
+from victor.storage.graph.protocol import GraphEdge, GraphNode
 from victor.storage.graph.proxima_store import ProximaGraphStore
 
 
@@ -37,9 +31,14 @@ class _Response:
 class _Client:
     """Serves one page and then fails, the way the server actually behaves."""
 
-    def __init__(self, pages: List[_Response]) -> None:
+    def __init__(
+        self, pages: List[_Response], *, revision: int = 1, revision_epoch: str = "epoch-a"
+    ) -> None:
         self._pages = pages
+        self.revision = revision
+        self.revision_token = f"{revision_epoch}:{revision}"
         self.requests: List[Dict[str, Any]] = []
+        self.get_requests = 0
 
     async def __aenter__(self) -> "_Client":
         return self
@@ -49,7 +48,22 @@ class _Client:
 
     async def post(self, url: str, json: Dict[str, Any] | None = None, timeout: float = 0) -> Any:
         self.requests.append(json or {})
-        return self._pages[min(len(self.requests) - 1, len(self._pages) - 1)]
+        response = self._pages[min(len(self.requests) - 1, len(self._pages) - 1)]
+        payload = dict(response._payload)
+        if response.status_code == 200:
+            payload.setdefault("content_revision", self.revision)
+            payload.setdefault("content_revision_token", self.revision_token)
+        return _Response(response.status_code, payload)
+
+    async def get(self, url: str, timeout: float = 0) -> Any:
+        self.get_requests += 1
+        return _Response(
+            200,
+            {
+                "content_revision": self.revision,
+                "content_revision_token": self.revision_token,
+            },
+        )
 
 
 def _record(src: str, dst: str, etype: str) -> Dict[str, Any]:
@@ -83,37 +97,56 @@ def _store_with_client(client: _Client) -> ProximaGraphStore:
     return store
 
 
-async def test_edge_read_issues_a_single_request_not_a_cursor_loop() -> None:
-    """Following the cursor is impossible by name, so it must not be attempted."""
-    client = _Client([_Response(200, {"records": [_record("a", "b", "CALLS")]})])
+async def test_edge_read_follows_every_scan_page() -> None:
+    """A server cursor means more authoritative rows, not optional work."""
+    client = _Client(
+        [
+            _Response(
+                200,
+                {
+                    "records": [_record("a", "b", "CALLS")],
+                    "next_cursor": "page-2",
+                },
+            ),
+            _Response(200, {"records": [_record("b", "c", "CALLS")]}),
+        ]
+    )
     store = _store_with_client(client)
 
     edges = await store._read_edge_records()
 
-    assert edges == [GraphEdge(src="a", dst="b", type="CALLS", weight=None, metadata={})]
-    assert len(client.requests) == 1, "the read must not paginate"
+    assert edges == [
+        GraphEdge(src="a", dst="b", type="CALLS", weight=None, metadata={}),
+        GraphEdge(src="b", dst="c", type="CALLS", weight=None, metadata={}),
+    ]
+    assert len(client.requests) == 2
     assert "cursor" not in client.requests[0]
+    assert client.requests[1]["cursor"] == "page-2"
 
 
-async def test_edge_read_keeps_rows_when_the_server_reports_more(caplog: Any) -> None:
-    """A truncated read returns what it has AND says so.
-
-    Previously this returned None, so a partial read looked like an empty graph.
-    """
-    payload = {
-        "records": [_record("a", "b", "CALLS"), _record("b", "c", "CALLS")],
-        "next_cursor": "opaque",
-    }
-    store = _store_with_client(_Client([_Response(200, payload)]))
+async def test_edge_read_rejects_a_partial_prefix_when_a_later_page_fails(caplog: Any) -> None:
+    """A prefix is not an authoritative graph and must never be cached."""
+    store = _store_with_client(
+        _Client(
+            [
+                _Response(
+                    200,
+                    {
+                        "records": [_record("a", "b", "CALLS")],
+                        "next_cursor": "page-2",
+                    },
+                ),
+                _Response(500, {}),
+            ]
+        )
+    )
 
     with caplog.at_level("WARNING"):
         edges = await store._read_edge_records()
 
-    assert len(edges) == 2, "rows already read must not be discarded"
-    assert any("truncated" in r.message.lower() for r in caplog.records), (
-        "truncation must be reported at WARNING; a silent prefix of the graph is "
-        "the failure mode this test exists to prevent"
-    )
+    assert edges is None
+    assert store._edge_record_cache is None
+    assert any("failed" in r.message.lower() for r in caplog.records)
 
 
 async def test_edge_read_caches_within_a_session() -> None:
@@ -126,6 +159,181 @@ async def test_edge_read_caches_within_a_session() -> None:
 
     assert first == second
     assert len(client.requests) == 1, "the second read should be served from cache"
+    assert client.get_requests == 1, "cache hits must revalidate the server revision"
+
+
+async def test_edge_read_invalidates_when_another_process_changes_the_collection() -> None:
+    """A process-local generation cannot validate a cross-process cache."""
+    client = _Client([_Response(200, {"records": [_record("b", "c", "CALLS")]})], revision=2)
+    store = _store_with_client(client)
+    store._edge_record_cache = [GraphEdge(src="a", dst="b", type="CALLS")]
+    store._edge_record_cache_generation = store._edge_generation()
+    store._edge_record_cache_revision = 1
+    store._edge_record_cache_revision_token = "epoch-a:1"
+
+    edges = await store._read_edge_records()
+
+    assert edges == [GraphEdge(src="b", dst="c", type="CALLS", weight=None, metadata={})]
+    assert client.get_requests == 1
+    assert len(client.requests) == 1
+
+
+async def test_edge_read_rejects_revision_aba_after_server_restart() -> None:
+    """The same numeric revision from a new server incarnation is not fresh."""
+    client = _Client(
+        [_Response(200, {"records": [_record("b", "c", "CALLS")]})],
+        revision=1,
+        revision_epoch="epoch-b",
+    )
+    store = _store_with_client(client)
+    store._edge_record_cache = [GraphEdge(src="a", dst="b", type="CALLS")]
+    store._edge_record_cache_generation = store._edge_generation()
+    store._edge_record_cache_revision = 1
+    store._edge_record_cache_revision_token = "epoch-a:1"
+
+    edges = await store._read_edge_records()
+
+    assert edges == [GraphEdge(src="b", dst="c", type="CALLS", weight=None, metadata={})]
+    assert len(client.requests) == 1
+
+
+async def test_get_all_edges_uses_only_the_durable_authority() -> None:
+    """A healthy authoritative read must not consult the ORION projection."""
+    client = _Client([_Response(200, {"records": [_record("a", "b", "CALLS")]})])
+    store = _store_with_client(client)
+
+    class _CountingGraph:
+        calls = 0
+
+        def get_all_edges(self) -> List[Any]:
+            self.calls += 1
+            return []
+
+    graph = _CountingGraph()
+    store._graph = graph
+
+    first = await store.get_all_edges()
+    second = await store.get_all_edges()
+
+    assert first == second
+    assert graph.calls == 0
+    assert len(client.requests) == 1
+
+
+async def test_get_all_edges_initializes_embedded_store_before_selecting_authority() -> None:
+    """A fresh embedded store is not an injected ORION-only legacy adapter."""
+    client = _Client([_Response(200, {"records": [_record("a", "b", "CALLS")]})])
+    store = ProximaGraphStore(repo="t")
+
+    class _Db:
+        rest_url = "http://unused"
+
+        def _http_client(self) -> _Client:
+            return client
+
+    class _Conn:
+        embedded_db = _Db()
+
+    class _Projection:
+        calls = 0
+
+        def get_all_edges(self) -> List[Any]:
+            self.calls += 1
+            return []
+
+    projection = _Projection()
+    initialized = False
+
+    async def initialize() -> None:
+        nonlocal initialized
+        initialized = True
+        store._conn = _Conn()  # type: ignore[assignment]
+        store._edge_collection = object()
+        store._graph = projection
+        store._initialized = True
+
+    store.initialize = initialize  # type: ignore[method-assign]
+
+    edges = await store.get_all_edges()
+
+    assert initialized
+    assert edges == [GraphEdge(src="a", dst="b", type="CALLS", weight=None, metadata={})]
+    assert projection.calls == 0
+
+
+async def test_get_all_edges_does_not_resurrect_a_deleted_edge_from_orion() -> None:
+    """Projection lag after a canonical delete must not change the logical result."""
+    client = _Client([_Response(200, {"records": []})])
+    store = _store_with_client(client)
+
+    class _StaleGraph:
+        calls = 0
+
+        def get_all_edges(self) -> List[Any]:
+            self.calls += 1
+            return [
+                type(
+                    "ProjectedEdge",
+                    (),
+                    {
+                        "from_node": "deleted",
+                        "to_node": "target",
+                        "edge_type": "CALLS",
+                        "properties": {},
+                        "weight": None,
+                    },
+                )()
+            ]
+
+    graph = _StaleGraph()
+    store._graph = graph
+
+    assert await store.get_all_edges() == []
+    assert graph.calls == 0
+
+
+async def test_get_all_edges_fails_closed_when_durable_authority_is_unreadable() -> None:
+    """An embedded store must never downgrade to a stale projection on scan failure."""
+    store = _store_with_client(_Client([_Response(500, {})]))
+
+    class _GraphWithEdge:
+        def get_all_edges(self) -> List[Any]:
+            return [object()]
+
+    store._graph = _GraphWithEdge()
+
+    with pytest.raises(RuntimeError, match="authoritative Tier-A edge records"):
+        await store.get_all_edges()
+
+
+async def test_sibling_mutation_invalidates_a_generation_tagged_cache() -> None:
+    """Incremental reindex through a sibling store must invalidate this view."""
+    client = _Client([_Response(200, {"records": [_record("b", "c", "CALLS")]})])
+    store = _store_with_client(client)
+
+    class _SharedConnection:
+        embedded_db = store._conn.embedded_db
+
+        def __init__(self) -> None:
+            self.generation = 0
+
+        def collection_generation(self, name: str) -> int:
+            return self.generation
+
+        def mark_collection_mutated(self, name: str) -> int:
+            self.generation += 1
+            return self.generation
+
+    connection = _SharedConnection()
+    store._conn = connection  # type: ignore[assignment]
+    store._edge_record_cache = [GraphEdge(src="a", dst="b", type="CALLS")]
+    store._edge_record_cache_generation = 0
+
+    connection.mark_collection_mutated(store._edge_collection_name)
+    edges = await store._read_edge_records()
+
+    assert edges == [GraphEdge(src="b", dst="c", type="CALLS", weight=None, metadata={})]
+    assert len(client.requests) == 1
 
 
 async def test_edge_read_reports_failure_instead_of_returning_empty(caplog: Any) -> None:
@@ -144,6 +352,7 @@ class _RecordingCollection:
 
     def __init__(self) -> None:
         self.deleted: List[str] = []
+        self.cleared = False
 
     async def delete(self, ids: List[str]) -> int:
         self.deleted.extend(ids)
@@ -151,6 +360,9 @@ class _RecordingCollection:
 
     async def insert_records(self, payload: List[Dict[str, Any]]) -> Dict[str, Any]:
         return {"inserted_count": len(payload), "failed_count": 0}
+
+    async def clear(self) -> None:
+        self.cleared = True
 
 
 async def test_deleting_a_file_invalidates_the_cached_edge_set() -> None:
@@ -204,3 +416,145 @@ async def test_clearing_the_repo_also_clears_the_edge_tier() -> None:
         store._edge_collection_name in deleted_collections
     ), f"edge collection was not deleted; dropped only {deleted_collections}"
     assert store._edge_record_cache is None
+
+
+class _Graph:
+    def get_nodes_by_file(self, file: str) -> List[Any]:
+        return []
+
+
+class _CpgStore:
+    async def get_nodes_by_file(self, file: str) -> List[GraphNode]:
+        return []
+
+    async def delete_by_file(self, file: str) -> None:
+        return None
+
+    async def clear(self) -> None:
+        return None
+
+    async def close(self) -> None:
+        return None
+
+
+def _store_for_delete() -> tuple[ProximaGraphStore, _RecordingCollection]:
+    symbols = _RecordingCollection()
+    edges = _RecordingCollection()
+    store = ProximaGraphStore(
+        repo="t",
+        graph=_Graph(),
+        record_collection=symbols,
+        cpg_store=_CpgStore(),
+    )
+    store._edge_collection = edges
+    return store, edges
+
+
+async def test_delete_by_file_removes_cached_and_durable_incident_edges() -> None:
+    """A file delete must remove the durable edge, not merely its ORION projection."""
+    store, edge_collection = _store_for_delete()
+    node = GraphNode(node_id="a", type="function", name="a", file="a.py")
+    deleted = GraphEdge(src="a", dst="b", type="CALLS")
+    retained = GraphEdge(src="x", dst="y", type="CALLS")
+    store._record_nodes[node.node_id] = node
+    store._record_node_ids.add(node.node_id)
+    store._edge_record_cache = [deleted, retained]
+    store._edge_record_cache_generation = store._edge_generation()
+    store._orion_edge_ids = {"a|CALLS|b", "x|CALLS|y"}
+
+    await store.delete_by_file("a.py")
+
+    assert edge_collection.deleted == ["a|CALLS|b"]
+    assert store._edge_record_cache is None
+    assert store._orion_edge_ids is None
+
+
+async def test_delete_by_file_refreshes_cache_before_discovering_incident_edges() -> None:
+    """A sibling store may have added an edge after this store cached its scan."""
+    store, edge_collection = _store_for_delete()
+    node = GraphNode(node_id="a", type="function", name="a", file="a.py")
+    added_by_sibling = GraphEdge(src="a", dst="new", type="CALLS")
+    store._record_nodes[node.node_id] = node
+    store._record_node_ids.add(node.node_id)
+    store._edge_record_cache = []
+
+    class _EmbeddedDB:
+        _http_client = object()
+
+    class _Connection:
+        embedded_db = _EmbeddedDB()
+
+    store._conn = _Connection()  # type: ignore[assignment]  # production scan-capable path
+
+    async def fresh_edge_records() -> List[GraphEdge]:
+        assert store._edge_record_cache is None, "delete trusted a possibly stale session cache"
+        return [added_by_sibling]
+
+    store._read_edge_records = fresh_edge_records  # type: ignore[method-assign]
+
+    await store.delete_by_file("a.py")
+
+    assert edge_collection.deleted == ["a|CALLS|new"]
+
+
+async def test_delete_by_repo_clears_edge_record_collection_and_cache() -> None:
+    """Repository deletion must clear both record collections and every edge cache."""
+    store, edge_collection = _store_for_delete()
+    store._edge_record_cache = [GraphEdge(src="a", dst="b", type="CALLS")]
+    store._orion_edge_ids = {"a|CALLS|b"}
+
+    await store.delete_by_repo()
+
+    assert edge_collection.cleared
+    assert store._edge_record_cache is None
+    assert store._orion_edge_ids is None
+
+
+class _RevisionlessClient(_Client):
+    """A server that returns NO revision fields — i.e. every real one today.
+
+    `content_revision` / `content_revision_token` appear nowhere in ProximaDB
+    (checked against develop @ 3b5df468d; the collection response carries only
+    `updated_at`). Every other client in this file supplies them, so the
+    revalidated cache path is exercised only against a fixture that is more
+    capable than the product. This subclass models the shape the code will
+    actually meet.
+    """
+
+    async def post(self, url: str, json: Dict[str, Any] | None = None, timeout: float = 0) -> Any:
+        self.requests.append(json or {})
+        response = self._pages[min(len(self.requests) - 1, len(self._pages) - 1)]
+        return _Response(response.status_code, dict(response._payload))
+
+    async def get(self, url: str, timeout: float = 0) -> Any:
+        self.get_requests += 1
+        return _Response(200, {"updated_at": "2026-08-15T00:00:00Z"})
+
+
+async def test_missing_revision_fields_force_a_reread_rather_than_a_stale_cache() -> None:
+    """With no revision to compare, the cache must NOT be served.
+
+    This is the only shape a real ProximaDB returns today, so it is the branch
+    that actually runs in production — and it must fail closed: re-read rather
+    than hand back a cache that nothing has revalidated. Serving it would
+    reintroduce exactly the cross-process staleness this revalidation exists to
+    prevent.
+
+    The cost is real and deliberate: with no revision surface the cache is inert,
+    so `get_all_edges` re-scans on every call (~99 ms on a 1.4k-edge graph rather
+    than ~1 ms). Correctness over speed until the server exposes a revision or
+    ETag, at which point the fast path switches itself back on.
+    """
+    pages = [_Response(200, {"records": [_record("a", "b", "CALLS")]})]
+    client = _RevisionlessClient(pages)
+    store = _store_with_client(client)
+
+    first = await store._read_edge_records()
+    second = await store._read_edge_records()
+
+    assert first == second, "results must stay consistent across re-reads"
+    assert len(client.requests) >= 2, (
+        "the cache was served without a revision to validate it against; with no "
+        "server revision surface this path must re-read, or a second process's "
+        "edge writes stay invisible for the rest of the session"
+    )

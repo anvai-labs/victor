@@ -50,11 +50,14 @@ logger = logging.getLogger(__name__)
 # on a pathological hub, not to shape results. Well above any realistic `top_k`.
 _PARALLEL_TRAVERSAL_CEILING = 10_000
 
-# Upper bound on candidates the serial BFS will gather before ranking. It exists
-# only to stop a pathological hub from expanding without limit — it must stay far
-# above any realistic `top_k`, because the moment this binds it is traversal, not
-# ranking, deciding the result, which is the defect it replaced.
+# Upper bound on candidates the serial BFS may discover before ranking. This is
+# a safety budget, not a result limit: binding it raises instead of returning a
+# BFS-order-dependent prefix as though ranking had considered the neighbourhood.
 _CANDIDATE_CEILING = 10_000
+
+
+class CandidateBudgetExceededError(RuntimeError):
+    """Traversal cannot rank a complete neighbourhood within its safety budget."""
 
 
 @dataclass
@@ -188,6 +191,8 @@ class MultiHopRetriever:
         self,
         query: str,
         config: Any | None = None,
+        *,
+        seed_nodes: Optional[List[GraphNode]] = None,
     ) -> RetrievalResult:
         """Serial BFS expansion: one ``get_neighbors`` per visited node.
 
@@ -203,8 +208,11 @@ class MultiHopRetriever:
 
         logger.debug(f"Multi-hop retrieval for query: {query}")
 
-        # Stage 1: Find seed nodes via dense retrieval
-        seed_nodes = await self._find_seed_nodes(query, cfg)
+        # Stage 1: Find seed nodes via dense retrieval.  The parallel path may
+        # already have done this before discovering that the *actual* seed set
+        # is too small to batch, so let that fallback reuse the result.
+        if seed_nodes is None:
+            seed_nodes = await self._find_seed_nodes(query, cfg)
         seed_ids = [n.node_id for n in seed_nodes]
 
         logger.debug(f"Found {len(seed_ids)} seed nodes")
@@ -419,6 +427,12 @@ class MultiHopRetriever:
         visited: Set[str] = set()
         queue: deque[Tuple[str, int, List[str]]] = deque()
 
+        if len(seed_ids) > _CANDIDATE_CEILING:
+            raise CandidateBudgetExceededError(
+                "Graph retrieval candidate safety budget exceeded by the seed set "
+                f"({len(seed_ids)} > {_CANDIDATE_CEILING}); refusing a partial result"
+            )
+
         # Initialize queue with seed nodes
         for seed_id in seed_ids:
             queue.append((seed_id, 0, [seed_id]))
@@ -429,14 +443,14 @@ class MultiHopRetriever:
 
         # BFS traversal.
         #
-        # Bounded by `max_hops` and a candidate ceiling — NOT by `top_k`. It used
+        # Bounded by `max_hops` and a candidate budget — NOT by `top_k`. It used
         # to stop at `len(results) < config.top_k`, which meant traversal chose
         # the candidate set by discovery order and the `_rank_nodes` call below
         # could only reorder what BFS had already settled: a relevant node two
         # hops out could never displace a nearer, duller one whatever it scored.
         # Ranking is the thing that is supposed to decide, so let it see the
         # neighbourhood.
-        while queue and len(results) < _CANDIDATE_CEILING:
+        while queue:
             node_id, distance, path = queue.popleft()
 
             # Get node
@@ -478,10 +492,17 @@ class MultiHopRetriever:
                     for edge in neighbors:
                         neighbor_id = edge.dst
                         if neighbor_id not in visited:
+                            if len(visited) >= _CANDIDATE_CEILING:
+                                raise CandidateBudgetExceededError(
+                                    "Graph retrieval candidate safety budget exceeded "
+                                    f"({_CANDIDATE_CEILING}); refusing a partial result"
+                                )
                             visited.add(neighbor_id)
                             new_path = path + [neighbor_id]
                             queue.append((neighbor_id, distance + 1, new_path))
 
+                except CandidateBudgetExceededError:
+                    raise
                 except Exception as e:
                     logger.warning(f"Error getting neighbors for {node_id}: {e}")
 
@@ -817,13 +838,15 @@ class MultiHopRetriever:
             # makes the recursion real: `_should_use_parallel` reads the config's
             # seed_count, while this checks the seeds actually found, so the
             # dispatch can send us here and this can send it back.
-            return await self._retrieve_serial(query, cfg)
+            return await self._retrieve_serial(query, cfg, seed_nodes=seed_nodes)
 
         logger.debug(f"Using parallel traversal with {len(seed_ids)} seeds")
 
         # Stage 2: Parallel multi-hop expansion
         max_workers = getattr(cfg, "max_workers", 4)
         edge_types = getattr(cfg, "edge_types", None)
+
+        metadata: Dict[str, Any] = {}
 
         # Use graph store's parallel traversal if available
         if hasattr(self.graph_store, "multi_hop_traverse_parallel"):
@@ -849,52 +872,16 @@ class MultiHopRetriever:
             # edge set we already hold — costs no extra round trips and matches
             # how `_multi_hop_expand` assigns distance (first visit wins).
             expanded_nodes = self._score_traversal_result(graph_result, seed_ids, cfg)
-
-            # Rank the WHOLE neighbourhood, then cut to top_k. Serial retrieval
-            # truncates during traversal instead, which leaves its ranking unable
-            # to change the result set; doing it in this order is the point of
-            # the parallel path, not an incidental difference.
-            ranked_nodes = self._rank_nodes(expanded_nodes, seed_ids, query, cfg)
-            final_nodes = ranked_nodes[: cfg.top_k]
-
-            node_ids = {n.node.node_id for n in final_nodes}
-            edges = await self._get_edges_between(node_ids, cfg)
-
-            result = RetrievalResult(
-                nodes=[n.node for n in final_nodes],
-                edges=edges,
-                subgraphs=[],
-                query=query,
-                seed_nodes=seed_ids,
-                hop_distances={n.node.node_id: n.distance for n in final_nodes},
-                scores={n.node.node_id: n.score for n in final_nodes},
-                execution_time_ms=(time.time() - start_time) * 1000,
-                metadata=graph_result.metadata,
-            )
+            metadata = graph_result.metadata
         else:
             # Fall back to regular expansion
             expanded_nodes = await self._multi_hop_expand(seed_ids, cfg)
 
-            # Build result
-            node_ids = {n.node.node_id for n in expanded_nodes}
-            edges = await self._get_edges_between(node_ids, cfg)
-
-            result = RetrievalResult(
-                nodes=[n.node for n in expanded_nodes],
-                edges=edges,
-                subgraphs=[],
-                query=query,
-                seed_nodes=seed_ids,
-                execution_time_ms=(time.time() - start_time) * 1000,
-            )
-
-        # Stage 3: Rank and prune
-        ranked_nodes = self._rank_nodes(
-            [NodeWithScore(n, result.scores.get(n.node_id, 0.5), 0, []) for n in result.nodes],
-            seed_ids,
-            query,
-            cfg,
-        )
+        # Stage 3: rank the whole neighbourhood, then prune. Keep the traversal's
+        # original distance/path/score inputs; rebuilding NodeWithScore objects
+        # here used to flatten every distance to zero and rank the same result a
+        # second time.
+        ranked_nodes = self._rank_nodes(expanded_nodes, seed_ids, query, cfg)
 
         # Apply top-k limit
         final_nodes = ranked_nodes[: cfg.top_k]
@@ -913,10 +900,8 @@ class MultiHopRetriever:
             hop_distances={n.node.node_id: n.distance for n in final_nodes},
             scores={n.node.node_id: n.score for n in final_nodes},
             execution_time_ms=(time.time() - start_time) * 1000,
+            metadata=metadata,
         )
-
-        # Cache the result
-        await self._save_to_cache(query, cfg, result)
 
         return result
 

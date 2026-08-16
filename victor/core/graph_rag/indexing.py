@@ -66,6 +66,7 @@ from typing import (
 from victor.core.graph_rag.exclude_patterns import is_path_excluded
 
 if TYPE_CHECKING:
+    from victor.core.graph_rag.codegraph_repository import RepositoryRelationProjection
     from victor.storage.graph.protocol import GraphStoreProtocol
 
 logger = logging.getLogger(__name__)
@@ -231,6 +232,7 @@ class GraphIndexStats:
     cross_file_calls_resolved: int = 0
     cross_file_relationships_resolved: int = 0
     imports_resolved: int = 0
+    repository_relations_dropped_unmaterialized: int = 0
     # Files that tried the enhanced TreeSitterAnalysisProtocol provider but
     # had to fall back to the hardcoded extraction path (because the provider
     # raised or returned None for a language it claimed to support).
@@ -260,6 +262,9 @@ class GraphIndexStats:
             "cross_file_calls_resolved": self.cross_file_calls_resolved,
             "cross_file_relationships_resolved": self.cross_file_relationships_resolved,
             "imports_resolved": self.imports_resolved,
+            "repository_relations_dropped_unmaterialized": (
+                self.repository_relations_dropped_unmaterialized
+            ),
             "provider_fallbacks": self.provider_fallbacks,
             "processing_time_seconds": self.processing_time_seconds,
             "error_count": self.error_count,
@@ -394,6 +399,10 @@ class GraphIndexingPipeline:
         self._codegraph_repository: Any = None
         self._codegraph_owned_symbol_ids: Set[str] = set()
         self._codegraph_owned_files: Set[str] = set()
+        # Canonical identity bridge for analysis providers that delegate their
+        # parsing to victor-codegraph but omit ``symbol_id`` from the returned
+        # dictionaries. Only unambiguous location/type tuples are retained.
+        self._codegraph_symbol_ids_by_location: Dict[Tuple[str, str, int, str], str] = {}
         # Parser cache is thread-local so each ThreadPoolExecutor worker gets
         # its own parser instance (tree-sitter parsers are not thread-safe to share).
         self._thread_local = threading.local()
@@ -467,6 +476,7 @@ class GraphIndexingPipeline:
         self._codegraph_repository = None
         self._codegraph_owned_symbol_ids.clear()
         self._codegraph_owned_files.clear()
+        self._codegraph_symbol_ids_by_location.clear()
 
         # Resolve the analysis provider — and let it finish language-plugin
         # discovery — BEFORE the parallel parse burst. Resolution is lazy and
@@ -566,11 +576,13 @@ class GraphIndexingPipeline:
         # analyzer derives module adjacency from cross-file graph_edge rows, so
         # CALLS resolution must run first or graph_module_metric stays empty.
         if graph_changed:
-            (
-                cg_calls,
-                cg_relationships,
-                cg_imports,
-            ) = await self._resolve_codegraph_repository_relations()
+            repository_relations = await self._resolve_codegraph_repository_relations()
+            cg_calls = repository_relations.calls
+            cg_relationships = repository_relations.relationships
+            cg_imports = repository_relations.imports
+            stats.repository_relations_dropped_unmaterialized += (
+                repository_relations.dropped_unmaterialized
+            )
 
             resolved = await self._resolve_cross_file_calls(root)
             stats.cross_file_calls_resolved = cg_calls + resolved
@@ -613,24 +625,51 @@ class GraphIndexingPipeline:
 
         allowed_files = (self._canonical_file_str(path) for path in files)
         self._codegraph_repository = prepare_repository_snapshot(root_path, allowed_files)
+        self._codegraph_symbol_ids_by_location.clear()
+        repository = self._codegraph_repository
+        if repository is None:
+            return
 
-    async def _resolve_codegraph_repository_relations(self) -> Tuple[int, int, int]:
+        ambiguous: Set[Tuple[str, str, int, str]] = set()
+        for symbol in repository.symbols:
+            key = (
+                str(symbol.location.file_path),
+                str(symbol.simple_name),
+                int(symbol.location.start_line),
+                str(symbol.symbol_type.name).lower(),
+            )
+            if key in self._codegraph_symbol_ids_by_location:
+                ambiguous.add(key)
+            else:
+                self._codegraph_symbol_ids_by_location[key] = str(symbol.id)
+        for key in ambiguous:
+            self._codegraph_symbol_ids_by_location.pop(key, None)
+
+    async def _resolve_codegraph_repository_relations(self) -> RepositoryRelationProjection:
         """Project import-aware v2 repository relations into Graph-RAG edges.
 
-        Returns ``(calls, structural_relationships, imports)``.  Only relations
+        Returns a ``RepositoryRelationProjection``. Only relations
         resolved by the repository pass are projected here; in-file relations
         remain the responsibility of ``_build_calls_edges``.  Legacy buffers
         are removed only for sources whose v2 identities matched the Graph-RAG
         nodes, preserving the soft fallback for mixed or absent installations.
         """
+        from victor.core.graph_rag.codegraph_repository import (
+            RepositoryRelationProjection,
+            project_resolved_relations,
+        )
+
         repository = self._codegraph_repository
         if repository is None or not self._codegraph_owned_files:
-            return 0, 0, 0
+            return RepositoryRelationProjection()
 
-        from victor.core.graph_rag.codegraph_repository import project_resolved_relations
         from victor.storage.graph.edge_types import EdgeType
 
-        projection = project_resolved_relations(repository)
+        materialized_ids = {node.node_id for node in await self._persisted_symbols()}
+        projection = project_resolved_relations(
+            repository,
+            materialized_symbol_ids=materialized_ids,
+        )
         _, GraphEdge = _get_graph_types()
         edges = [
             GraphEdge(src=src, dst=dst, type=EdgeType(edge_type))
@@ -655,12 +694,19 @@ class GraphIndexingPipeline:
             if self._canonical_file_str(record[0]) not in owned_files
         ]
         logger.info(
-            "victor-codegraph repository resolution: %d CALLS, %d structural, %d IMPORTS edges",
+            "victor-codegraph repository resolution: %d CALLS, %d structural, "
+            "%d IMPORTS edges; %d relations dropped because an endpoint was not materialized",
             projection.calls,
             projection.relationships,
             projection.imports,
+            projection.dropped_unmaterialized,
         )
-        return projection.calls, projection.relationships, projection.imports
+        if projection.dropped_unmaterialized:
+            logger.warning(
+                "Dropped %d victor-codegraph repository relations with unmaterialized endpoints",
+                projection.dropped_unmaterialized,
+            )
+        return projection
 
     async def _persisted_symbols(self) -> List[Any]:
         """Every persisted symbol node, read through the graph store.
@@ -1540,8 +1586,18 @@ class GraphIndexingPipeline:
                 ast_kind or sym.get("symbol_type") or "unknown",
                 sym.get("symbol_type") or "unknown",
             )
+            canonical_file = self._canonical_file_str(sym.get("file_path") or file_path)
+            canonical_id = self._codegraph_symbol_ids_by_location.get(
+                (
+                    canonical_file,
+                    str(name),
+                    line_int,
+                    str(sym.get("symbol_type") or "").lower(),
+                )
+            )
             node_id = (
                 sym.get("symbol_id")
+                or canonical_id
                 or hashlib.sha256(f"{file_str}:{name}:{line_int}".encode()).hexdigest()[:16]
             )
             node = GraphNode(
@@ -3035,6 +3091,9 @@ class GraphIndexingPipeline:
         target.cross_file_calls_resolved += source.cross_file_calls_resolved
         target.cross_file_relationships_resolved += source.cross_file_relationships_resolved
         target.imports_resolved += source.imports_resolved
+        target.repository_relations_dropped_unmaterialized += (
+            source.repository_relations_dropped_unmaterialized
+        )
         target.error_count += source.error_count
         target.errors.extend(source.errors)
 

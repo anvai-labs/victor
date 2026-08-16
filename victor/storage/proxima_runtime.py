@@ -307,6 +307,9 @@ class ProximaRepoConnection:
         self._client: Any = None
         self._graphs: Dict[str, Any] = {}
         self._collections: Dict[str, Any] = {}
+        # Process-local mutation epochs let sibling stores sharing this
+        # connection detect that a cached collection view is stale.
+        self._collection_generations: Dict[str, int] = {}
         self._refcount = 0
 
     @classmethod
@@ -424,6 +427,16 @@ class ProximaRepoConnection:
         """Drop a cached collection handle (e.g. after it was deleted server-side)."""
         self._collections.pop(name, None)
 
+    def collection_generation(self, name: str) -> int:
+        """Return the process-local mutation epoch for a collection."""
+        return self._collection_generations.get(name, 0)
+
+    def mark_collection_mutated(self, name: str) -> int:
+        """Advance and return a collection's process-local mutation epoch."""
+        generation = self.collection_generation(name) + 1
+        self._collection_generations[name] = generation
+        return generation
+
     async def release(self) -> None:
         """Drop one reference; stop the subprocess when the last holder releases."""
         async with _CONN_LOCK:
@@ -436,6 +449,7 @@ class ProximaRepoConnection:
             self._client = None
             self._graphs.clear()
             self._collections.clear()
+            self._collection_generations.clear()
         if db is not None:
             try:
                 await db.stop()
