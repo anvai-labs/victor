@@ -429,12 +429,64 @@ class SqliteGraphStore(GraphStoreProtocol):
             rows,
         )
 
+    def _drop_dangling_edge_rows(
+        self,
+        conn: sqlite3.Connection,
+        rows: List[tuple[Any, ...]],
+    ) -> List[tuple[Any, ...]]:
+        """Split off edge rows referencing nonexistent nodes; log what dropped.
+
+        Row layout in both edge-table variants starts (src, dst, ...). Missing
+        endpoints are resolved with one chunked SELECT over the batch's
+        distinct ids, so the check is O(batch), not O(graph).
+        """
+        if not rows:
+            return rows
+        ids = {r[0] for r in rows} | {r[1] for r in rows}
+        known: set[str] = set()
+        id_list = list(ids)
+        chunk = 900  # stay under SQLite's default host-parameter limit
+        for i in range(0, len(id_list), chunk):
+            part = id_list[i : i + chunk]
+            marks = ",".join("?" * len(part))
+            cur = conn.execute(
+                f"SELECT node_id FROM {_NODE_TABLE} WHERE node_id IN ({marks})",
+                part,
+            )
+            known.update(row[0] for row in cur.fetchall())
+        missing = ids - known
+        if not missing:
+            return rows
+        kept = [r for r in rows if r[0] in known and r[1] in known]
+        dropped = len(rows) - len(kept)
+        sample = [f"{r[0]}->{r[1]}" for r in rows if r[0] in missing or r[1] in missing][:5]
+        logger.warning(
+            "sqlite graph store: dropped %d dangling edge(s) referencing %d "
+            "nonexistent node id(s); sample: %s",
+            dropped,
+            len(missing),
+            sample,
+        )
+        return kept
+
     def _upsert_edges_rows(
         self,
         conn: sqlite3.Connection,
         rows: List[tuple[Any, ...]],
     ) -> None:
-        """Write edge rows using the provided connection."""
+        """Write edge rows using the provided connection.
+
+        Endpoint integrity is enforced here, at the same layer ORION enforces
+        it: an edge whose src or dst is not a persisted node is SKIPPED and
+        logged, and the rest of the batch still lands. Without this the SQLite
+        backend silently accepted dangling edges (181 on the repo-scale
+        corpus) that the ProximaDB backend rejected — the same write produced
+        backend-dependent graphs, and resolver identity bugs reached disk
+        invisibly on the default backend.
+        """
+        rows = self._drop_dangling_edge_rows(conn, rows)
+        if not rows:
+            return
         has_file_column = self._edge_has_file_column
         if has_file_column is None:
             has_file_column = self._has_table_column(conn, _EDGE_TABLE, "file")
