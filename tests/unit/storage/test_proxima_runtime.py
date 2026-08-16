@@ -10,7 +10,14 @@ from pathlib import Path
 import pytest
 
 import victor.storage.proxima_runtime as proxima_runtime
-from victor_codegraph import parse, to_proxima_records
+
+# victor_codegraph is an optional vertical package not installed in the sharded
+# unit battery (only ci-codegraph / ci-integration install it). Guard the import
+# so an absent package skips this module instead of erroring collection for the
+# whole shard — matching the proximadb_sdk importorskip guards below.
+_codegraph = pytest.importorskip("victor_codegraph")
+parse = _codegraph.parse
+to_proxima_records = _codegraph.to_proxima_records
 
 from victor.storage.proxima_runtime import (
     ProximaEmbeddingMode,
