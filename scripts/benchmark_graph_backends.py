@@ -41,6 +41,7 @@ import asyncio
 import json
 import shutil
 import statistics
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -178,6 +179,96 @@ async def _bench_backend(
     return result
 
 
+def _git_sha(repo: Path) -> str:
+    """Short SHA of ``repo``, or a marker when it cannot be read."""
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(repo), "rev-parse", "--short", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        return out.stdout.strip() or "unknown"
+    except Exception:  # pragma: no cover - environment-dependent
+        return "unknown"
+
+
+def _git_dirty(repo: Path) -> bool:
+    """True when ``repo`` has uncommitted changes (results would not reproduce)."""
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(repo), "status", "--porcelain"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        return bool(out.stdout.strip())
+    except Exception:  # pragma: no cover - environment-dependent
+        return False
+
+
+def _describe_environment() -> Dict[str, Any]:
+    """Identify exactly what is about to be measured.
+
+    Three separate measurement sessions were invalidated by the environment
+    rather than the code: a two-week-stale server binary made an
+    already-fixed defect look live; an SDK missing the engine fix made a
+    footprint benchmark characterise the wrong storage engine; and a shared
+    venv repointed at an in-progress worktree broke embedded startup outright.
+    In each case the numbers looked plausible and were about something other
+    than what was claimed.
+
+    A benchmark that cannot say what it measured produces folklore, so record
+    it up front and print it beside the results.
+    """
+    env: Dict[str, Any] = {}
+
+    try:
+        import proximadb_sdk
+
+        sdk_path = Path(proximadb_sdk.__file__).resolve()
+        env["sdk_path"] = str(sdk_path)
+        # Walk up to the checkout root (…/clients/python/src/proximadb_sdk/…).
+        root = sdk_path
+        for _ in range(6):
+            root = root.parent
+            if (root / ".git").exists():
+                break
+        env["sdk_repo"] = str(root)
+        env["sdk_sha"] = _git_sha(root)
+        env["sdk_dirty"] = _git_dirty(root)
+    except Exception as exc:  # pragma: no cover - optional dependency
+        env["sdk_path"] = f"unavailable ({type(exc).__name__})"
+        env["sdk_dirty"] = False
+
+    server = shutil.which("proximadb-server") or str(Path(sys.prefix) / "bin" / "proximadb-server")
+    server_path = Path(server)
+    if server_path.exists():
+        resolved = server_path.resolve()
+        stat = resolved.stat()
+        env["server_path"] = str(resolved)
+        env["server_bytes"] = stat.st_size
+        env["server_mtime"] = time.strftime("%Y-%m-%d %H:%M", time.localtime(stat.st_mtime))
+    else:
+        env["server_path"] = "not found"
+
+    victor_root = Path(__file__).resolve().parent.parent
+    env["victor_sha"] = _git_sha(victor_root)
+    env["victor_dirty"] = _git_dirty(victor_root)
+    return env
+
+
+def _print_environment(env: Dict[str, Any]) -> None:
+    print("environment under measurement:")
+    print(f"  victor       {env.get('victor_sha')}{'  (DIRTY)' if env.get('victor_dirty') else ''}")
+    print(f"  sdk          {env.get('sdk_path')}")
+    if "sdk_sha" in env:
+        print(f"               {env['sdk_sha']}{'  (DIRTY)' if env.get('sdk_dirty') else ''}")
+    print(f"  server       {env.get('server_path')}")
+    if "server_bytes" in env:
+        print(f"               {env['server_bytes']:,} bytes, built {env['server_mtime']}")
+
+
 def _render(results: List[Dict[str, Any]], *, embeddings: bool) -> str:
     lines: List[str] = []
     lines.append("")
@@ -242,7 +333,26 @@ async def _main() -> int:
     parser.add_argument("--seeds", type=int, default=25)
     parser.add_argument("--repeats", type=int, default=3)
     parser.add_argument("--json", type=Path, default=None)
+    parser.add_argument(
+        "--allow-dirty",
+        action="store_true",
+        help="measure anyway when the SDK resolves to a checkout with uncommitted changes",
+    )
     args = parser.parse_args()
+
+    env = _describe_environment()
+    _print_environment(env)
+    if env.get("sdk_dirty") and not args.allow_dirty:
+        print(
+            "\nREFUSING TO MEASURE: the proximadb SDK resolves to a checkout with "
+            "uncommitted changes, so these numbers could not be reproduced or "
+            "attributed to a commit.\n"
+            "Point the venv at a clean checkout, or pass --allow-dirty and treat "
+            "the results as indicative only.",
+            file=sys.stderr,
+        )
+        return 3
+    print()
 
     corpus = args.corpus.resolve()
     if not corpus.exists():
@@ -275,7 +385,12 @@ async def _main() -> int:
     if args.json:
         args.json.write_text(
             json.dumps(
-                {"corpus": str(corpus), "embeddings": args.embeddings, "results": results},
+                {
+                    "corpus": str(corpus),
+                    "embeddings": args.embeddings,
+                    "environment": env,
+                    "results": results,
+                },
                 indent=2,
                 default=str,
             ),
