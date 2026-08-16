@@ -725,6 +725,36 @@ class ProximaGraphStore(GraphStoreProtocol):
         if isinstance(result, dict) and not result.get("success", False):
             raise RuntimeError(f"ORION node projection failed: {result.get('errors') or result}")
 
+    async def upsert_node_records(
+        self,
+        items: List[tuple],
+        *,
+        metadata: Dict[str, Any] | None = None,
+    ) -> None:
+        """Batched ``upsert_node_record``: one durable ProximaRecord batch write
+        plus one projection batch, instead of two round trips per node.
+
+        ``items`` is ``[(node_id, embedding, per_item_metadata_or_None), ...]``;
+        ``metadata`` (if given) is merged under each item's own metadata. Unknown
+        node ids raise ``KeyError`` before anything is written, preserving the
+        singular method's all-or-nothing commit contract per batch.
+        """
+        if not items:
+            return
+        committed = []
+        vectors: Dict[str, List[float]] = {}
+        for node_id, embedding, item_metadata in items:
+            node = self._record_nodes.get(node_id) or await self.get_node_by_id(node_id)
+            if node is None:
+                raise KeyError(f"Unknown graph node: {node_id}")
+            merged = dict(metadata or {})
+            merged.update(item_metadata or {})
+            committed.append(self._node_for_record(node, has_embedding=True, metadata=merged))
+            vectors[node_id] = list(embedding)
+        await self._write_node_records(committed, vectors)
+        graph = await self._ensure()
+        await self._apply_node_projection(graph, committed)
+
     async def upsert_node_record(
         self,
         node_id: str,
