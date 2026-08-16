@@ -114,6 +114,12 @@ jobs:
           # Install the in-repo SDK FIRST so victor-ai can resolve victor-contracts>=X.Y
           # from the local editable install instead of requiring it on PyPI.
           pip install --no-cache-dir -e ./victor-contracts
+          # victor core imports victor_codegraph (victor.core.codegraph_adapter) for
+          # symbol extraction — parse_code() returns None without it, so the pure-Python
+          # symbol-extractor tests (native/test_python_fallbacks, contrib/test_codebase)
+          # silently get empty results. Install the in-repo package here, matching
+          # ci-integration; it is not a PyPI dependency of victor-ai.
+          pip install --no-cache-dir -e ./victor-codegraph
           # Install the full development + CI dependency set explicitly. Avoid relying on
           # self-referential extras, which can leave async/test plugins unresolved in matrix jobs.
           # NOTE: Do NOT use --force-reinstall here — it overwrites the local editable
