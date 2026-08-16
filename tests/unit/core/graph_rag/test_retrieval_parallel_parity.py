@@ -223,9 +223,9 @@ async def test_parallel_retrieval_applies_the_top_k_limit(
 
     result = await retriever.retrieve_parallel("handler")
 
-    assert len(result.nodes) <= 3, (
-        f"top_k=3 but parallel retrieval returned {len(result.nodes)} nodes"
-    )
+    assert (
+        len(result.nodes) <= 3
+    ), f"top_k=3 but parallel retrieval returned {len(result.nodes)} nodes"
 
 
 async def test_parallel_retrieval_preserves_nonzero_hop_distances(
@@ -238,9 +238,9 @@ async def test_parallel_retrieval_preserves_nonzero_hop_distances(
 
     non_seeds = {node.node_id for node in result.nodes} - set(result.seed_nodes)
     assert non_seeds, "fixture did not return any expanded nodes"
-    assert any(result.hop_distances[node_id] > 0 for node_id in non_seeds), (
-        "parallel retrieval flattened every expanded node to hop distance zero"
-    )
+    assert any(
+        result.hop_distances[node_id] > 0 for node_id in non_seeds
+    ), "parallel retrieval flattened every expanded node to hop distance zero"
 
 
 async def test_parallel_retrieval_assembles_internal_edges_once(
@@ -319,9 +319,9 @@ async def test_parallel_fallback_reuses_the_seed_search(
     result = await retriever.retrieve_parallel("handler_0_call_0_leaf")
 
     assert result.nodes
-    assert counting.calls.get("search_symbols", 0) == 1, (
-        "parallel fallback repeated seed discovery before serial traversal"
-    )
+    assert (
+        counting.calls.get("search_symbols", 0) == 1
+    ), "parallel fallback repeated seed discovery before serial traversal"
 
 
 async def test_edges_between_does_not_read_the_whole_graph(
@@ -339,9 +339,9 @@ async def test_edges_between_does_not_read_the_whole_graph(
 
     result = await retriever.retrieve("handler")
 
-    assert counting.calls.get("get_all_edges", 0) == 0, (
-        "retrieval read the entire edge set; it should ask only about the nodes it is returning"
-    )
+    assert (
+        counting.calls.get("get_all_edges", 0) == 0
+    ), "retrieval read the entire edge set; it should ask only about the nodes it is returning"
     # Still correct: every edge returned must connect two returned nodes.
     returned = {n.node_id for n in result.nodes}
     for edge in result.edges:
