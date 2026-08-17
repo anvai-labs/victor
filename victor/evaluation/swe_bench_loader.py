@@ -692,7 +692,17 @@ class SWEBenchWorkspaceManager:
 
         settings = load_settings()
         graph_writer_mode = _resolve_graph_writer_mode(settings)
-        graph_store_name = getattr(settings, "codebase_graph_store", "sqlite")
+        # Honor the per-repo backend marker (.victor/graph_backend) with the
+        # global setting as fallback — this path previously read only the
+        # global setting, so the marker (whose whole purpose is flipping a
+        # single repo without changing global settings) was silently ignored
+        # by benchmark/eval indexing.
+        from victor.storage.graph.registry import resolve_graph_backend
+
+        graph_store_name = resolve_graph_backend(
+            cache_path,
+            default=getattr(settings, "codebase_graph_store", "sqlite"),
+        )
         graph_path = getattr(settings, "codebase_graph_path", None)
 
         try:
