@@ -129,6 +129,12 @@ def _unwrap_props(props: Dict[str, Any]) -> Dict[str, Any]:
     return flat
 
 
+# Records per insert_records request. Symbol records run ~1-3KB (name,
+# signature, docstring, vector); 1,000/request stays ~10x under the embedded
+# server's 32MB request cap while keeping round trips low.
+_RECORD_WRITE_CHUNK = 1_000
+
+
 class ProximaGraphStore(GraphStoreProtocol):
     """GraphStoreProtocol implementation backed by ProximaDB (ORION + HNSW)."""
 
@@ -637,8 +643,11 @@ class ProximaGraphStore(GraphStoreProtocol):
                 self._warned_edge_records_unavailable = True
             return
         payload = [self._to_proxima_edge_record(edge) for edge in edges]
-        result = await collection.insert_records(payload)
-        self._validate_record_write(result, len(payload))
+        # Chunked for the same 32MB-request-cap reason as _write_node_records.
+        for start in range(0, len(payload), _RECORD_WRITE_CHUNK):
+            chunk = payload[start : start + _RECORD_WRITE_CHUNK]
+            result = await collection.insert_records(chunk)
+            self._validate_record_write(result, len(chunk))
 
     def _node_for_record(
         self,
@@ -711,8 +720,14 @@ class ProximaGraphStore(GraphStoreProtocol):
         payload = [
             self._to_proxima_record(node, (vectors or {}).get(node.node_id)) for node in nodes
         ]
-        result = await collection.insert_records(payload)
-        self._validate_record_write(result, len(payload))
+        # Chunked: a single-shot insert of a whole repo's symbol records
+        # (~20k with signatures/docstrings) exceeded the embedded server's
+        # 32MB request cap — HTTP 413 that the indexing catch-all reduced to
+        # a warning, leaving a near-empty store behind a green checkmark.
+        for start in range(0, len(payload), _RECORD_WRITE_CHUNK):
+            chunk = payload[start : start + _RECORD_WRITE_CHUNK]
+            result = await collection.insert_records(chunk)
+            self._validate_record_write(result, len(chunk))
         for node, record in zip(nodes, payload):
             self._record_nodes[node.node_id] = node
             self._record_vectors[node.node_id] = list(record["vector"])
