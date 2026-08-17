@@ -805,6 +805,15 @@ def setup_benchmark(
     force_reindex: bool = typer.Option(
         False, "--force", "-f", help="Force re-index even if already done"
     ),
+    graph_rag: bool = typer.Option(
+        False,
+        "--graph-rag",
+        help=(
+            "Also build the Graph-RAG codegraph (CCG) per repo — the store "
+            "the agent's marker-aware graph tooling reads; honors "
+            ".victor/graph_backend (victor#907 slice 2)."
+        ),
+    ),
     log_level: Optional[str] = typer.Option(
         None, "--log-level", help="Logging level (DEBUG, INFO, WARNING, ERROR)"
     ),
@@ -832,6 +841,7 @@ def setup_benchmark(
             benchmark_lower=benchmark_lower,
             max_tasks=max_tasks,
             force_reindex=force_reindex,
+            build_graph_rag=graph_rag,
         )
     )
 
@@ -876,6 +886,15 @@ def run_benchmark(
         False,
         "--shuffle",
         help="Shuffle task order for diverse repo sampling",
+    ),
+    frozen_prompts: bool = typer.Option(
+        False,
+        "--frozen-prompts",
+        help=(
+            "A/B hygiene: run on static baseline prompts (ignore evolved "
+            "candidates) and skip post-run prompt evolution, so comparison "
+            "arms see identical prompts."
+        ),
     ),
     model: Optional[str] = typer.Option(
         None, "--model", "-m", help="Model to use (default: from profile)"
@@ -967,6 +986,9 @@ def run_benchmark(
     ),
 ) -> None:
     """Run a benchmark evaluation."""
+    if frozen_prompts:
+        # Must be set before any agent/prompt machinery initializes.
+        os.environ["VICTOR_FROZEN_PROMPTS"] = "1"
     _configure_log_level(log_level, debug_modules=debug_modules)
 
     # Disable edge model if requested
@@ -1105,7 +1127,9 @@ def run_benchmark(
     # Auto-evolve: run GEPA evolution after benchmark completes
     # This is the "post-session hook" from Memory Scaling — the agent
     # improves its prompts automatically after each benchmark run.
-    if metrics["total_tasks"] >= 5:  # Only evolve with enough data
+    if os.environ.get("VICTOR_FROZEN_PROMPTS"):
+        logger.debug("Auto-evolve skipped: frozen prompts requested")
+    elif metrics["total_tasks"] >= 5:  # Only evolve with enough data
         try:
             from victor.framework.rl.coordinator import get_rl_coordinator
 
@@ -1723,6 +1747,7 @@ async def _setup_benchmark_async(
     benchmark_lower: str,
     max_tasks: Optional[int],
     force_reindex: bool,
+    build_graph_rag: bool = False,
 ) -> None:
     from victor.evaluation.protocol import BenchmarkType, EvaluationConfig
     from victor.evaluation.benchmarks import SWEBenchRunner
@@ -1763,12 +1788,17 @@ async def _setup_benchmark_async(
             progress.update(setup_task, description=f"[{i+1}/{len(unique_tasks)}] {repo_name}")
 
             try:
-                if not force_reindex and workspace_manager.is_repo_indexed(task):
+                if (
+                    not force_reindex
+                    and workspace_manager.is_repo_indexed(task)
+                    and not build_graph_rag
+                ):
                     console.print(f"  [green]✓[/] {repo_name} (cached)")
                 else:
                     await workspace_manager.setup_repo_with_indexes(
                         task,
                         force_reindex=force_reindex,
+                        build_graph_rag=build_graph_rag,
                     )
                     console.print(f"  [green]✓[/] {repo_name} (indexed)")
             except Exception as e:
