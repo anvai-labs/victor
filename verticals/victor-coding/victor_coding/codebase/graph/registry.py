@@ -27,13 +27,18 @@ except ImportError:
 
 
 def create_graph_store(
-    name: str = "sqlite",
+    name: str = "auto",
     project_path: Optional[str] = None,
     *,
     backend: Optional[str] = None,
     **kwargs: Any,
 ) -> Optional[Any]:
     """Create a graph store via victor's registry.
+
+    Default is ``"auto"``: victor resolves the per-repo
+    ``.victor/graph_backend`` marker (sqlite when absent), so a repo flipped
+    to another backend is honored by every default construction instead of
+    silently landing on sqlite.
 
     Returns None if victor-ai is not installed.
     """
