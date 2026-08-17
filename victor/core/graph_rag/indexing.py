@@ -2998,23 +2998,53 @@ class GraphIndexingPipeline:
                         await vector_provider.index_embedded_documents(docs)
                         persisted_ids.update(embeddings)
                     elif atomic_record_store is not None:
-                        for node_id, vector in embeddings.items():
-                            try:
-                                await atomic_record_store(
+                        # Prefer the batched write: two round trips per BATCH
+                        # instead of two per NODE (the per-node loop measured as
+                        # a dominant term of repo-scale embeddings-on ingest).
+                        plural_store = getattr(self.graph_store, "upsert_node_records", None)
+                        if callable(plural_store):
+                            batch_items = [
+                                (
                                     node_id,
                                     vector,
-                                    metadata={
+                                    {
                                         "has_embedding": True,
                                         "content_version": versions[node_id],
                                     },
                                 )
-                                persisted_ids.add(node_id)
+                                for node_id, vector in embeddings.items()
+                            ]
+                            try:
+                                await plural_store(batch_items)
+                                persisted_ids.update(embeddings)
                             except Exception as e:
                                 logger.warning(
-                                    "Atomic record persistence failed for %s: %s", node_id, e
+                                    "Batched record persistence failed (%d nodes): %s",
+                                    len(batch_items),
+                                    e,
                                 )
                                 stats.error_count += 1
-                                stats.errors.append(f"Atomic ProximaRecord {node_id}: {e}")
+                                stats.errors.append(f"Batched ProximaRecord: {e}")
+                        else:
+                            for node_id, vector in embeddings.items():
+                                try:
+                                    await atomic_record_store(
+                                        node_id,
+                                        vector,
+                                        metadata={
+                                            "has_embedding": True,
+                                            "content_version": versions[node_id],
+                                        },
+                                    )
+                                    persisted_ids.add(node_id)
+                                except Exception as e:
+                                    logger.warning(
+                                        "Atomic record persistence failed for %s: %s",
+                                        node_id,
+                                        e,
+                                    )
+                                    stats.error_count += 1
+                                    stats.errors.append(f"Atomic ProximaRecord {node_id}: {e}")
                 except Exception as e:
                     logger.warning(f"Vector persistence failed for batch: {e}")
                     stats.error_count += 1

@@ -473,6 +473,46 @@ async def test_atomic_embedding_record_contains_graph_props_vector_and_staleness
     assert node.metadata["content_version"] == "v1"
 
 
+async def test_batched_embedding_records_write_once_per_batch():
+    # Plural upsert: TWO round trips per BATCH (one record write + one
+    # projection call) instead of two per node — the per-node loop was a
+    # dominant term of repo-scale embeddings-on ingest.
+    proxima = await _make_proxima_store()
+    collection = proxima._symbol_collection
+    writes_before = len(collection.writes)
+
+    await proxima.upsert_node_records(
+        [
+            ("n:parse", [0.1] * 384, {"content_version": "v1"}),
+            ("n:helper", [0.2] * 384, {"content_version": "v2"}),
+        ],
+        metadata={"has_embedding": True},
+    )
+
+    assert len(collection.writes) == writes_before + 1, "one batch write, not per-node"
+    assert len(collection.writes[-1]) == 2
+    assert collection.records["n:parse"]["vector"] == [0.1] * 384
+    assert collection.records["n:parse"]["props"]["metadata"]["content_version"] == "v1"
+    assert collection.records["n:helper"]["props"]["metadata"]["has_embedding"] is True
+    assert collection.records["n:helper"]["props"]["metadata"]["content_version"] == "v2"
+
+
+async def test_batched_embedding_unknown_node_raises_before_any_write():
+    proxima = await _make_proxima_store()
+    collection = proxima._symbol_collection
+    writes_before = len(collection.writes)
+
+    with pytest.raises(KeyError, match="n:ghost"):
+        await proxima.upsert_node_records(
+            [
+                ("n:parse", [0.1] * 384, None),
+                ("n:ghost", [0.2] * 384, None),
+            ]
+        )
+
+    assert len(collection.writes) == writes_before, "all-or-nothing per batch"
+
+
 async def test_semantic_search_excludes_pending_placeholder_records():
     proxima = await _make_proxima_store()
     query = [0.1] * 384
