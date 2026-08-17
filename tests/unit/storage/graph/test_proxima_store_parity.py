@@ -473,6 +473,28 @@ async def test_atomic_embedding_record_contains_graph_props_vector_and_staleness
     assert node.metadata["content_version"] == "v1"
 
 
+async def test_record_writes_chunk_under_request_cap():
+    # A whole-repo single-shot insert (~20k records) blew the embedded
+    # server's 32MB request cap (HTTP 413) and the indexing catch-all
+    # reduced it to a warning — a near-empty store behind a green check.
+    # Writers must chunk; every chunk must still be validated.
+    from victor.storage.graph.proxima_store import _RECORD_WRITE_CHUNK
+
+    proxima = await _make_proxima_store()
+    collection = proxima._symbol_collection
+    writes_before = len(collection.writes)
+
+    count = _RECORD_WRITE_CHUNK + 7
+    nodes = [GraphNode(f"n:bulk{i}", "function", f"bulk{i}", "bulk.py") for i in range(count)]
+    await proxima.upsert_nodes(nodes)
+
+    new_writes = collection.writes[writes_before:]
+    assert len(new_writes) == 2, "one full chunk + one remainder"
+    assert len(new_writes[0]) == _RECORD_WRITE_CHUNK
+    assert len(new_writes[1]) == 7
+    assert sum(len(w) for w in new_writes) == count
+
+
 async def test_batched_embedding_records_write_once_per_batch():
     # Plural upsert: TWO round trips per BATCH (one record write + one
     # projection call) instead of two per node — the per-node loop was a
