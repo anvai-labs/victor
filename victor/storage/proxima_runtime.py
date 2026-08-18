@@ -285,6 +285,44 @@ _CONN_REGISTRY: "Dict[str, ProximaRepoConnection]" = {}
 _CONN_LOCK = asyncio.Lock()
 
 
+async def release_all_connections() -> None:
+    """Stop every embedded server this process started, now.
+
+    The refcounted registry frees a connection when its last holder releases,
+    but a long-lived process (a benchmark harness running many iterations, a
+    daemon) can accumulate live connections whose holders were dropped without
+    closing. Call this at an iteration boundary to get back to a known-clean
+    state instead of relying on interpreter exit.
+
+    Best-effort and idempotent: teardown must never raise into a caller's
+    control flow.
+    """
+    async with _CONN_LOCK:
+        conns = list(_CONN_REGISTRY.values())
+        _CONN_REGISTRY.clear()
+    for conn in conns:
+        db = conn._db
+        conn._db = None
+        conn._client = None
+        conn._graphs.clear()
+        conn._collections.clear()
+        conn._refcount = 0
+        if db is not None:
+            try:
+                await db.stop()
+            except Exception as exc:  # pragma: no cover - teardown path
+                logger.debug("Embedded ProximaDB stop failed during drain: %s", exc)
+
+
+def live_connection_count() -> int:
+    """How many embedded connections this process currently holds.
+
+    Exposed so harnesses (and tests) can ASSERT a clean teardown rather than
+    hope for one — the property victor#911 was missing.
+    """
+    return len(_CONN_REGISTRY)
+
+
 class ProximaRepoConnection:
     """One embedded ProximaDB instance shared by a repo's graph + vector stores.
 
