@@ -2280,6 +2280,22 @@ async def _run_benchmark_async(
         except Exception as exc:  # never break the benchmark
             logger.debug("decision_outcome safety-net recording skipped: %s", exc)
 
+        # Deterministic teardown: stop any embedded server this run started
+        # before returning. Servers are spawned setsid and survive their
+        # parent, so a harness that finishes without releasing leaves them
+        # running against the benchmark data dirs — where they keep rewriting
+        # state and contaminate the next iteration (anvai-labs/victor#911).
+        try:
+            from victor.storage.proxima_runtime import (
+                live_connection_count,
+                release_all_connections,
+            )
+
+            if live_connection_count():
+                await release_all_connections()
+        except Exception as exc:  # pragma: no cover - teardown must not raise
+            logger.debug("Embedded connection drain skipped: %s", exc)
+
         return eval_result
 
 

@@ -69,7 +69,18 @@ async def test_sqlite_graph_store_persists_project_local_files_as_relative(tmp_p
                 name="foo",
                 file=absolute_source,
                 line=1,
-            )
+            ),
+            # The edge's target must exist: endpoint integrity is enforced at
+            # the store layer (#903), so a dangling edge is dropped and this
+            # test — whose subject is path relativization, not dangling-edge
+            # acceptance — would silently have no edge row to assert on.
+            GraphNode(
+                node_id="symbol:src/main.py:bar",
+                type="function",
+                name="bar",
+                file=absolute_source,
+                line=10,
+            ),
         ]
     )
     await store.upsert_edges(
@@ -92,8 +103,11 @@ async def test_sqlite_graph_store_persists_project_local_files_as_relative(tmp_p
     assert node_file == "src/main.py"
     assert edge_file == "src/main.py"
     assert mtime_file == "src/main.py"
-    assert len(await store.get_nodes_by_file(absolute_source)) == 1
-    assert len(await store.get_nodes_by_file("src/main.py")) == 1
+    # Two symbols now live in this file (the call's caller and callee), so
+    # lookup returns both — by absolute and relative path alike, which is what
+    # this test is actually about.
+    assert len(await store.get_nodes_by_file(absolute_source)) == 2
+    assert len(await store.get_nodes_by_file("src/main.py")) == 2
 
 
 @pytest.mark.asyncio

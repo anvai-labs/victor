@@ -49,6 +49,7 @@ Usage:
 
 import asyncio
 import hashlib
+import inspect
 import json
 import logging
 import shutil
@@ -438,6 +439,24 @@ class SWEBenchLoader:
         logger.info(f"Exported {len(tasks)} tasks to {output_path}")
 
 
+async def _close_quietly(store: Any) -> None:
+    """Close a graph store if it supports it, swallowing teardown errors.
+
+    Teardown runs on failure paths too, so it must never mask the original
+    error — but it must always run, because a live store pins an embedded
+    server that outlives this process.
+    """
+    close = getattr(store, "close", None)
+    if close is None:
+        return
+    try:
+        result = close()
+        if inspect.isawaitable(result):
+            await result
+    except Exception as exc:  # pragma: no cover - teardown must not raise
+        logger.debug("Graph store close failed during teardown: %s", exc)
+
+
 class SWEBenchWorkspaceManager:
     """Manages workspaces for SWE-bench task execution."""
 
@@ -725,7 +744,10 @@ class SWEBenchWorkspaceManager:
                 graph_store_name=graph_store_name,
                 graph_path=Path(graph_path) if graph_path else None,
             )
-            await indexer.index_codebase()
+            try:
+                await indexer.index_codebase()
+            finally:
+                await _close_quietly(getattr(indexer, "graph_store", None))
 
             # Auto-generate init.md for project context
             from victor.context.project_context import ProjectContext
@@ -778,8 +800,16 @@ class SWEBenchWorkspaceManager:
             )
             pipeline = GraphIndexingPipeline(graph_store, config)
             logger.info(f"Building Graph-RAG codegraph for {cache_path}...")
-            await run_indexing_with_lock(cache_path, pipeline.index_repository)
-            logger.info(f"Graph-RAG codegraph built for {cache_path}")
+            try:
+                await run_indexing_with_lock(cache_path, pipeline.index_repository)
+                logger.info(f"Graph-RAG codegraph built for {cache_path}")
+            finally:
+                # Release deterministically. The store holds a refcounted
+                # ProximaRepoConnection whose last release stops the embedded
+                # subprocess; without this, setup leaves a server running that
+                # outlives the process and keeps rewriting the data dir
+                # (anvai-labs/victor#911).
+                await _close_quietly(graph_store)
         except Exception as e:
             logger.error(
                 f"Graph-RAG build FAILED for {cache_path} (setup continues; "
