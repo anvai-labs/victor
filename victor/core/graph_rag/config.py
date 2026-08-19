@@ -123,6 +123,9 @@ class RetrievalConfig:
         seed_count: Number of seed nodes from dense retrieval
         max_hops: Maximum number of hops for graph traversal
         edge_types: Edge types to traverse (None = all)
+        direction: Edge direction to traverse. "out" follows edges away from
+            the seed (what does X call); "in" follows them backwards (who
+            calls X — the caller/impact question); "both" follows either.
         top_k: Maximum number of results to return
         centrality_weight: Weight for node centrality in ranking (0-1)
         size_penalty_weight: Penalty for large subgraphs (0-1)
@@ -136,6 +139,7 @@ class RetrievalConfig:
     seed_count: int = 5
     max_hops: int = 2
     edge_types: Optional[Set[str]] = None
+    direction: str = "out"
     top_k: int = 10
     centrality_weight: float = 0.2
     size_penalty_weight: float = 0.01
