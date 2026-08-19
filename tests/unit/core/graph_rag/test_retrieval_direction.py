@@ -237,6 +237,25 @@ async def test_non_outward_request_stays_off_the_batched_traversal(
     assert {f"caller_{i}" for i in range(CALLERS)} <= found
 
 
+@pytest.mark.asyncio
+async def test_context_assembly_surfaces_callers(store: SqliteGraphStore) -> None:
+    """The knob has to be *set* somewhere, or it ships dead.
+
+    A config option no production path selects is indistinguishable from the
+    bug it fixes — this repo has a long history of exactly that. This asserts
+    at the product surface: context assembled for a task mentioning a symbol
+    includes the code that calls it, which is what "what breaks if I change
+    this" needs and what the outward-only walk could never provide.
+    """
+    from victor.context.graph_context_builder import GraphEnhancedContextBuilder
+
+    builder = GraphEnhancedContextBuilder(store)
+    nodes = await builder._identify_relevant_symbols("target_symbol", max_symbols=25)
+
+    found = {node.node_id for node in nodes}
+    assert {f"caller_{i}" for i in range(CALLERS)} <= found
+
+
 def test_neighbor_endpoint_skips_self_loops() -> None:
     """A self-loop has no neighbour; returning the node re-enqueues itself."""
     loop = GraphEdge(src="n", dst="n", type="CALLS")

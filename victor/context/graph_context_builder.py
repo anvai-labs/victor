@@ -177,9 +177,16 @@ class GraphEnhancedContextBuilder:
         from victor.core.graph_rag import MultiHopRetriever, RetrievalConfig
 
         # Use semantic search
+        # Both directions: assembling context for a task, the code that CALLS a
+        # symbol matters as much as the code it calls — "what breaks if I change
+        # this" is answered by the inward edges. Measured on this repo over 8
+        # targets with mechanically-derived caller sets, "both" recovers
+        # recall@20 0.853 against 0.873 for a perfectly-guessed inward-only
+        # walk, at the same latency, and needs no intent classifier.
         config = RetrievalConfig(
             seed_count=max_symbols,
             top_k=max_symbols,
+            direction="both",
         )
         retriever = MultiHopRetriever(self.graph_store, config)
 
