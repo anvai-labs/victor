@@ -163,7 +163,7 @@ async def start_embedded_db(
     vector_engine: str = "SST",
     graph_engine: str = "ORION",
     binary_path: Optional[str] = None,
-    timeout: float = 30.0,
+    timeout: Optional[float] = None,
     rest_port: Optional[int] = None,
     grpc_port: Optional[int] = None,
 ) -> Any:
@@ -180,7 +180,18 @@ async def start_embedded_db(
         vector_engine: Vector storage engine (SST is write-optimized for code).
         graph_engine: Graph engine (ORION = WAL + in-memory).
         binary_path: Explicit path to the ``proximadb-server`` binary (optional).
-        timeout: Seconds to wait for the server to become healthy.
+        timeout: Seconds to wait for the server to become healthy. ``None``
+            (the default) delegates to the SDK's **progress-aware** wait, which
+            watches the server's runtime-state phases and gives up only when a
+            phase *stalls* — not when a wall-clock budget expires. A fixed
+            budget cannot be right here: startup cost scales with the data
+            directory, because the server replays and rebuilds before it binds.
+            The previous hard 30 s ceiling was survivable on toy repos and
+            failed outright on a real one (a 478 MB / 93k-node graph stalled at
+            ``last phase: binding``), which is the worst shape for a default —
+            it works until the data matters. Pass a number only to bound a
+            specific call; an explicit value deliberately overrides the
+            progress-aware wait.
         rest_port: Explicit REST port (default: an OS-selected free port).
         grpc_port: Explicit gRPC port (default: an OS-selected free port).
 
