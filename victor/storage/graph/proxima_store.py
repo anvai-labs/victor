@@ -430,16 +430,17 @@ class ProximaGraphStore(GraphStoreProtocol):
 
             known = await self._known_edge_ids(graph)
 
-            # Duplicates must never reach ORION. `batch_create_edges` aborts the
-            # batch at the first "already exists" and silently discards every
-            # edge after it: a 3-edge batch whose middle edge is a duplicate
-            # answers created=1, failed=1 and drops the third without counting
-            # it. Since these passes deliberately re-emit edges per-file indexing
-            # already wrote, which edge is the first duplicate varies run to run
-            # — and so did the resulting edge count (75,523 / 75,539 / 75,549 /
-            # 75,558 across four identical runs, against a deterministic 75,626
-            # on SQLite). Filtering here makes the write idempotent by
-            # construction instead of relying on the server to tolerate repeats.
+            # Skip edges this run already sent — a free in-process check, not a
+            # correctness requirement. It used to be both: ORION's create-only
+            # batch API aborted at the first "already exists" and silently
+            # discarded every edge after it, so a duplicate truncated the batch
+            # at a run-dependent point and the edge count wandered (75,523 /
+            # 75,539 / 75,549 / 75,558 across four identical runs, against a
+            # deterministic 75,626 on SQLite). proximaDB#1647 made admission
+            # per-edge — a duplicate is rejected on its own and the remainder of
+            # the batch still applies — so the server is now the thing that makes
+            # this idempotent, and cross-session filtering is no longer bought
+            # with a full-graph scan.
             payload = []
             sent: List[GraphEdge] = []
             for edge in hot_edges:
@@ -458,14 +459,36 @@ class ProximaGraphStore(GraphStoreProtocol):
             await self._cpg_store.upsert_edges(cold_edges)
 
     async def _known_edge_ids(self, graph: Any) -> Set[str]:
-        """Ids of every Tier-A edge already in ORION, read once per session."""
+        """Edge ids this session has already sent to ORION.
+
+        This used to be seeded by ``graph.get_all_edges()`` — every edge in the
+        graph, read up front so duplicates could be filtered before the write.
+        That preload is gone, and the reason is worth recording because the cost
+        was enormous and invisible.
+
+        ``get_all_edges`` is not one request. The SDK implements it as
+        "outgoing-edge scans": it walks every node and issues **one HTTP request
+        per node**. On this repo that is ~93k round trips to build a set, paid
+        before edges are written and again after any invalidation. It is the
+        dominant term in ProximaDB ingest — full-repo indexing measured 3,269 s
+        against SQLite's 447 s (7.3x), and the gap grows superlinearly with the
+        graph because the scan grows with it.
+
+        None of it is needed any more. The preload worked around ORION's
+        create-only batch API aborting at the first "already exists" and
+        silently discarding the rest of the batch. proximaDB#1647 replaced that
+        with **per-edge admission** — a rejected edge is recorded in ``rejected``
+        and "the remainder of the batch applies" — so a duplicate now costs one
+        skipped edge instead of an arbitrary truncation. Duplicates are benign
+        by construction, and ``_validate_edge_write`` already treats "already
+        exists" as success.
+
+        What remains is a free, in-process set: edges this run has already sent,
+        so a single indexing pass does not re-send its own work. It needs no
+        I/O, so there is nothing to preload and nothing to fail.
+        """
         if self._orion_edge_ids is None:
-            try:
-                raw = await asyncio.to_thread(graph.get_all_edges)
-            except Exception as exc:  # pragma: no cover - depends on live server
-                logger.debug("Could not preload ORION edge ids: %s", exc)
-                raw = []
-            self._orion_edge_ids = {self._proxima_edge_id(e) for e in raw}
+            self._orion_edge_ids = set()
         return self._orion_edge_ids
 
     @staticmethod

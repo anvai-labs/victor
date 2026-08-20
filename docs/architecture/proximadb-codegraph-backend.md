@@ -331,3 +331,80 @@ marker (split-brain), and `ProximaGraphStore.stats()` omitted top-level
 
 Not yet measured: hybrid seed→expand latency under load, SQ8 cold mode, and
 behaviour at the 3,659-file / 2.4 GB scale the original figure came from.
+
+## Repo-scale measurement and the ingest blocker (2026-08-19)
+
+The 2026-08-06 comparison above measured corpora of 10–87 files. This run
+measured the **whole repository**, and the conclusion changes at scale: the
+blocker is not traversal latency, it is **ingest and recovery**.
+
+Both backends indexed the same corpus through the same `GraphIndexingPipeline`
+and ended at byte-identical graph size — **93,457 nodes / 177,031 edges** —
+so nothing below is a data-difference artifact. Embeddings off (Tier-A only).
+
+| | SQLite | ProximaDB | ratio |
+|---|---|---|---|
+| index time | 447 s | **3,269 s** | 7.3× slower |
+| footprint | 205.7 MB | 478.5 MB | 2.33× larger |
+| k-hop traversal p50 | 0.33 ms | 1.76 ms | 5.3× slower |
+
+**The ingest ratio is not a constant, and that is the whole point.** The same
+comparison on a 33,205-node corpus gives 379 s vs 331 s — only 1.14×. Netting
+out the parse baseline both arms share, graph-write cost goes from ~48 s to
+~2,821 s for 3.5× the data. The cost is quadratic in graph size.
+
+**Root cause is server-side: `ORION` rebuilds its CSR on every edge insert**
+(`add_edge_to_csr` → `csr_out.rebuild()` + `csr_in.rebuild()`, O(E) each, so
+O(E²) overall). A batch primitive that rebuilds once, `add_edges_to_csr_batch`,
+exists in the same file and has **zero callers**. Filed as anvai-labs/proximaDB#1673
+with the measured decay curve: insert throughput falls monotonically from
+2,526/s to ~60/s within a single run as the graph fills — a 42× slowdown.
+
+**Recovery inherits the same defect, and this is the adoption blocker.**
+Reopening the 478 MB data directory replays ~77k batched operations through the
+same per-edge rebuild. It never reached `serving`: 900 s via the SDK, and still
+recovering at 813 s when run manually on an idle machine. A graph that cannot be
+reopened in 15 minutes is unusable regardless of query speed.
+
+**Recommendation: keep SQLite as the default backend for repo-scale graphs
+until #1673 lands.** The 5.3× traversal gap does *not* justify this on its own —
+1.4 ms inside an agent turn whose LLM round-trip is measured in seconds is
+noise, as the 2026-08-06 analysis already argued. Ingest and recovery are the
+gating axes.
+
+### What this run fixed on the Victor side
+
+Two defects found while measuring, both fixed here:
+
+- **`upsert_edges` no longer preloads every edge id.** It called
+  `graph.get_all_edges()`, which the SDK implements as per-node outgoing-edge
+  scans — **one HTTP request per node**, ~93k round trips, re-paid on any cache
+  invalidation. It existed to work around ORION's create-only batch aborting at
+  the first duplicate and silently discarding the rest; proximaDB#1647 replaced
+  that with per-edge admission ("remainder of the batch applies"), so the scan
+  is obsolete. A free in-process set still prevents re-sending within one run.
+- **The 30 s startup ceiling is gone.** `start_embedded_db` hardcoded it, and
+  since proximaDB#1668 an explicit caller timeout deliberately overrides the
+  SDK's progress-aware wait — so Victor's constant became the binding limit.
+  Startup cost scales with the data directory (replay and rebuild happen before
+  the listener binds), so a fixed budget is the wrong shape: it passes on toy
+  repos and fails on real ones. The default now delegates to the phase-watching
+  wait, which gives up on a *stall* rather than a clock.
+
+Neither fix can show its full benefit while the server is quadratic; re-measure
+ingest once #1673 is fixed.
+
+### Method notes (so these numbers can be re-run)
+
+- Reproduce with `scripts/benchmark_graph_backends.py --corpus . --backends
+  sqlite,proxima`, and retrieval quality with
+  `scripts/eval_graph_retrieval_value.py`.
+- The SDK under measurement must be a **clean** checkout — the benchmark refuses
+  to measure otherwise, because a number that cannot be attributed to a commit
+  cannot be reproduced.
+- Timing runs need a quiet machine. Recall does not: it is unaffected by load,
+  so quality numbers from a busy machine are still sound while latency is not.
+- Two plausible causes were checked and **rejected** before landing on the CSR
+  rebuild: WAL replay re-appending to the WAL (the `is_replaying()` gate works;
+  the surrounding debug lines print even when the append is suppressed), and
+  replay dropping edges on ordering (exactly 1 failed frame out of ~77k).
