@@ -449,8 +449,9 @@ ingest once #1673 is fixed.
 ### Method notes (so these numbers can be re-run)
 
 - Reproduce with `scripts/benchmark_graph_backends.py --corpus . --backends
-  sqlite,proxima`, and retrieval quality with
-  `scripts/eval_graph_retrieval_value.py`.
+  sqlite,proxima --proxima-binary /path/to/proximadb-server`; the report includes
+  post-close reopen time and recovered node/edge parity. Measure retrieval
+  quality with `scripts/eval_graph_retrieval_value.py`.
 - The SDK under measurement must be a **clean** checkout — the benchmark refuses
   to measure otherwise, because a number that cannot be attributed to a commit
   cannot be reproduced.

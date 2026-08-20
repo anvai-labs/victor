@@ -20,6 +20,10 @@ comparison is like-for-like; do not "helpfully" give each backend its own copy.
 Measured at a shared path, SQLite and ProximaDB produce identical node sets and
 identical statement-level edges.
 
+The report includes both first-index time and close/reopen time.  Reopen is an
+adoption gate in its own right: an engine that indexes successfully but spends
+minutes replaying its WAL before it can serve the next session is not usable.
+
 Deliberately *not* covered: Arrow Flight bulk-load throughput. Victor has no
 Arrow Flight code path at all — ingest goes through REST ``insert_records`` +
 ``batch_create_nodes`` — so that line of step 6 is a feature to build, not a
@@ -27,11 +31,13 @@ measurement to take. What this script reports for ingest is today's real path.
 
 Usage::
 
-    python scripts/benchmark_graph_backends.py --corpus victor/storage --max-files 150
+    python scripts/benchmark_graph_backends.py --corpus victor/storage
     python scripts/benchmark_graph_backends.py --corpus . --backends sqlite --json out.json
+    python scripts/benchmark_graph_backends.py --corpus . --proxima-binary /path/to/proximadb-server
 
-The ProximaDB backend needs a ``proximadb-server`` binary on PATH (or in the
-SDK's build tree); it is reported as skipped rather than failing the run.
+The ProximaDB backend needs a ``proximadb-server`` binary on PATH, in the SDK's
+build tree, or supplied with ``--proxima-binary``; it is reported as skipped
+rather than failing the run.
 """
 
 from __future__ import annotations
@@ -123,6 +129,61 @@ async def _time_traversals(
     }
 
 
+def _create_benchmark_store(
+    backend: str,
+    project: Path,
+    *,
+    server_binary: Optional[Path] = None,
+) -> Any:
+    """Create a store, pinning an explicit Proxima binary when requested."""
+    if server_binary is not None and backend.lower() in {"proxima", "proximadb"}:
+        from victor.storage.graph.proxima_store import ProximaGraphStore
+
+        return ProximaGraphStore(project_path=project, binary_path=str(server_binary))
+    return create_graph_store(backend, project_path=project)
+
+
+async def _time_reopen(
+    backend: str,
+    project: Path,
+    *,
+    server_binary: Optional[Path] = None,
+) -> Dict[str, Any]:
+    """Close/reopen probe: time readiness, then prove persisted rows are readable.
+
+    For embedded ProximaDB, ``initialize()`` cannot return until the child server
+    has replayed its WAL and reached serving.  The readback is deliberately
+    outside the timer: it validates durability without conflating recovery with
+    a full logical scan.  SQLite follows the same path as a control.
+    """
+    store: Any = None
+    started = time.perf_counter()
+    try:
+        store = _create_benchmark_store(backend, project, server_binary=server_binary)
+        await store.initialize()
+        reopen_seconds = round(time.perf_counter() - started, 2)
+    except Exception as exc:
+        if store is not None:
+            try:
+                await store.close()
+            except Exception:
+                pass
+        return {"error": f"{type(exc).__name__}: {exc}"}
+
+    result: Dict[str, Any] = {"seconds": reopen_seconds}
+    try:
+        result["nodes"] = len(await store.get_all_nodes())
+        result["edges"] = len(await store.get_all_edges())
+    except Exception as exc:
+        result["readback_error"] = f"{type(exc).__name__}: {exc}"
+    finally:
+        try:
+            await store.close()
+        except Exception:
+            pass
+    return result
+
+
 async def _bench_backend(
     backend: str,
     corpus: Path,
@@ -132,6 +193,7 @@ async def _bench_backend(
     hops: int,
     seed_count: int,
     repeats: int,
+    server_binary: Optional[Path] = None,
 ) -> Dict[str, Any]:
     """Index ``corpus`` into one backend and measure it."""
     project = workdir / backend
@@ -142,7 +204,7 @@ async def _bench_backend(
     result: Dict[str, Any] = {"backend": backend}
 
     try:
-        store = create_graph_store(backend, project_path=project)
+        store = _create_benchmark_store(backend, project, server_binary=server_binary)
     except Exception as exc:
         return {**result, "skipped": f"could not create store: {exc}"}
 
@@ -205,6 +267,19 @@ async def _bench_backend(
     result["footprint"] = _fmt_bytes(result["footprint_bytes"])
     if result.get("nodes"):
         result["bytes_per_node"] = round(result["footprint_bytes"] / result["nodes"], 1)
+
+    # A successful first index says nothing about whether the next agent session
+    # can reopen it.  Time readiness after a real close, then read rows back to
+    # keep a fast-but-empty recovery from looking healthy.
+    result["reopen"] = await _time_reopen(backend, project, server_binary=server_binary)
+    reopen = result["reopen"]
+    if not reopen.get("error") and not reopen.get("readback_error"):
+        expected = (result.get("nodes"), result.get("edges"))
+        recovered = (reopen.get("nodes"), reopen.get("edges"))
+        if recovered != expected:
+            result["reopen_disagreement"] = (
+                f"before close nodes/edges={expected}; after reopen={recovered}"
+            )
     return result
 
 
@@ -236,7 +311,7 @@ def _git_dirty(repo: Path) -> bool:
         return False
 
 
-def _describe_environment() -> Dict[str, Any]:
+def _describe_environment(server_binary: Optional[Path] = None) -> Dict[str, Any]:
     """Identify exactly what is about to be measured.
 
     Three separate measurement sessions were invalidated by the environment
@@ -270,7 +345,11 @@ def _describe_environment() -> Dict[str, Any]:
         env["sdk_path"] = f"unavailable ({type(exc).__name__})"
         env["sdk_dirty"] = False
 
-    server = shutil.which("proximadb-server") or str(Path(sys.prefix) / "bin" / "proximadb-server")
+    server = (
+        server_binary
+        or shutil.which("proximadb-server")
+        or Path(sys.prefix) / "bin" / "proximadb-server"
+    )
     server_path = Path(server)
     if server_path.exists():
         resolved = server_path.resolve()
@@ -302,26 +381,37 @@ def _render(results: List[Dict[str, Any]], *, embeddings: bool) -> str:
     lines: List[str] = []
     lines.append("")
     lines.append(f"Graph backend comparison (embeddings={'on' if embeddings else 'off'})")
-    lines.append("=" * 78)
-    header = f"{'backend':10} {'nodes':>8} {'edges':>8} {'index s':>9} {'footprint':>12} {'B/node':>9} {'k-hop p50':>10}"
+    lines.append("=" * 90)
+    header = (
+        f"{'backend':10} {'nodes':>8} {'edges':>8} {'index s':>9} {'reopen s':>9} "
+        f"{'footprint':>12} {'B/node':>9} {'k-hop p50':>10}"
+    )
     lines.append(header)
-    lines.append("-" * 78)
+    lines.append("-" * 90)
     for r in results:
         if r.get("skipped"):
             lines.append(f"{r['backend']:10} SKIPPED — {r['skipped']}")
             continue
         trav = r.get("traversal") or {}
+        reopen = r.get("reopen") or {}
         nodes = r.get("nodes")
         edges = r.get("edges")
         lines.append(
             f"{r['backend']:10} {('?' if nodes is None else nodes):>8} "
             f"{('?' if edges is None else edges):>8} "
-            f"{r.get('index_seconds', 0):>9} {r.get('footprint', '?'):>12} "
+            f"{r.get('index_seconds', 0):>9} {reopen.get('seconds', '?'):>9} "
+            f"{r.get('footprint', '?'):>12} "
             f"{r.get('bytes_per_node', '?'):>9} {trav.get('p50_ms', float('nan')):>9}ms"
         )
         if r.get("stats_disagreement"):
             lines.append(f"{'':10} WARNING stats disagreement: {r['stats_disagreement']}")
-    lines.append("-" * 78)
+        if reopen.get("error"):
+            lines.append(f"{'':10} ERROR reopen failed: {reopen['error']}")
+        if reopen.get("readback_error"):
+            lines.append(f"{'':10} ERROR reopen readback failed: {reopen['readback_error']}")
+        if r.get("reopen_disagreement"):
+            lines.append(f"{'':10} ERROR reopen disagreement: {r['reopen_disagreement']}")
+    lines.append("-" * 90)
 
     usable = [r for r in results if not r.get("skipped") and r.get("footprint_bytes")]
     # A footprint comparison is only meaningful between backends holding the
@@ -363,13 +453,24 @@ async def _main() -> int:
     parser.add_argument("--repeats", type=int, default=3)
     parser.add_argument("--json", type=Path, default=None)
     parser.add_argument(
+        "--proxima-binary",
+        type=Path,
+        default=None,
+        help="exact proximadb-server binary to use for both index and reopen",
+    )
+    parser.add_argument(
         "--allow-dirty",
         action="store_true",
         help="measure anyway when the SDK resolves to a checkout with uncommitted changes",
     )
     args = parser.parse_args()
 
-    env = _describe_environment()
+    server_binary = args.proxima_binary.expanduser().resolve() if args.proxima_binary else None
+    if server_binary is not None and not server_binary.is_file():
+        print(f"proxima binary not found: {server_binary}", file=sys.stderr)
+        return 2
+
+    env = _describe_environment(server_binary)
     _print_environment(env)
     if env.get("sdk_dirty") and not args.allow_dirty:
         print(
@@ -404,6 +505,7 @@ async def _main() -> int:
             hops=args.hops,
             seed_count=args.seeds,
             repeats=args.repeats,
+            server_binary=server_binary,
         )
         results.append(res)
         print(json.dumps(res, indent=2, default=str))
