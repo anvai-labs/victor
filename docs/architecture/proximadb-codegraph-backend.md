@@ -388,18 +388,40 @@ SQLite 0.33 ms vs Proxima 1.76 ms in one run and SQLite 4.77 ms vs Proxima
 The harness samples 75 traversals with seeds re-chosen per run and no cache
 control or repeats, so it cannot support a claim in either direction yet.
 
-**Recovery inherits the same defect, and this is the adoption blocker.**
-Reopening the 478 MB data directory replays ~77k batched operations through the
-same per-edge rebuild. It never reached `serving`: 900 s via the SDK, and still
-recovering at 813 s when run manually on an idle machine. A graph that cannot be
-reopened in 15 minutes is unusable regardless of query speed.
+**Recovery inherited the same defect — fixed and measured.** Reopening the
+data directory replays ~77k batched operations through the same per-edge
+rebuild. anvai-labs/proximaDB#1678 defers the CSR rebuild for the duration of
+replay and commits it once at the end. Timed on a 467 MB / 93,457-node /
+177,030-edge directory, each arm on its own copy:
 
-**Recommendation: keep SQLite as the default backend for repo-scale graphs
-until #1673/#1678 land.** Traversal latency is not the reason and never was —
+| binary | load at start | time to `serving` |
+|---|---|---|
+| pre-fix | 16.85 | 824.5 s |
+| pre-fix | 11.67 | 655.0 s |
+| **post-fix** | 4.13 | **171.1 s** |
+| **post-fix** | 4.66 | **176.7 s** |
+
+The post-fix figure is stable across runs; the pre-fix figure is load-sensitive,
+so the honest speedup is **~3–4×** rather than the 4.8× the extreme pair
+suggests. Repo-scale startup is now under three minutes.
+
+> **Correction.** Earlier revisions of this section said the graph "never
+> reached `serving`" and was "unusable regardless of query speed". That was
+> wrong: pre-fix recovery completes at **824.5 s**, and the original run was
+> killed at 813 s — about eleven seconds early. The distinction matters,
+> because "cannot be reopened" and "takes fourteen minutes to reopen" justify
+> different decisions. The quadratic behaviour was real and the fix is real;
+> the catastrophic framing was not.
+
+**Recommendation: keep SQLite as the default backend for repo-scale graphs.**
+(proximaDB#1673/#1678 have since landed and recovery is fixed; the
+recommendation now rests on ingest cost and the absence of a storage
+advantage, not on recovery.) Traversal latency is not the reason and never was —
 a millisecond inside an agent turn whose LLM round-trip is measured in seconds
 is noise, as the 2026-08-06 analysis already argued, and the current numbers are
-too unstable to quote anyway. Recovery is the blocker: a graph that cannot be
-reopened is unusable at any query speed. Ingest and recovery are the
+too unstable to quote anyway. Recovery is no longer the blocker either — it is
+under three minutes since proximaDB#1678, validated above. What is left is the
+ingest cost and the absence of any offsetting advantage. Ingest and recovery are the
 gating axes.
 
 ### What this run fixed on the Victor side
