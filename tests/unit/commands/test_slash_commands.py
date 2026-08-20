@@ -1,4 +1,4 @@
-# Copyright 2025 Vijaykumar Singh <singhvjd@gmail.com>
+# Copyright 2025 Vijaykumar Singh <vijay@anvaiops.com>
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -492,6 +492,7 @@ class TestAllCommandsRegistered:
         "explore",
         "reindex",
         "metrics",
+        "gain",
         "serialization",
         "learning",
         "mlstats",
@@ -524,6 +525,7 @@ class TestAllCommandsRegistered:
         "mode": ["m"],
         "reindex": ["index"],
         "metrics": ["perf", "performance"],
+        "gain": ["savings", "condensation"],
         "serialization": ["serialize", "ser"],
         "learning": ["qlearn", "rl"],
         "mlstats": ["ml", "analytics"],

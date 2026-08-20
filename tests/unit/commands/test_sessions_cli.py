@@ -1,4 +1,4 @@
-# Copyright 2025 Vijaykumar Singh <singhvjd@gmail.com>
+# Copyright 2025 Vijaykumar Singh <vijay@anvaiops.com>
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -25,7 +25,7 @@ import tempfile
 import json
 
 from victor.agent.message_history import MessageHistory
-from victor.agent.sqlite_session_persistence import SQLiteSessionPersistence
+from victor.agent.conversation.store import ConversationStore
 from victor.ui.commands.sessions import sessions_app
 
 
@@ -44,7 +44,7 @@ def runner():
 @pytest.fixture
 def runner_with_db(temp_db_path):
     """Test runner with test database path in environment."""
-    return CliRunner(env={"VICTOR_TEST_DB_PATH": str(temp_db_path)})
+    return CliRunner(env={"VICTOR_CONVERSATION_DB": str(temp_db_path)})
 
 
 @pytest.fixture
@@ -60,8 +60,8 @@ def temp_db_path():
 
 @pytest.fixture
 def sample_persistence(temp_db_path):
-    """Create SQLiteSessionPersistence with sample data."""
-    persistence = SQLiteSessionPersistence(db_path=temp_db_path)
+    """Create a canonical ConversationStore with sample data."""
+    persistence = ConversationStore(db_path=temp_db_path)
 
     # Create sample sessions
     sessions_data = [
@@ -153,7 +153,7 @@ class TestSessionsCommand:
 
     def test_sessions_list_json_includes_preview_count(self, runner_with_db, temp_db_path):
         """Test 'victor sessions list --json' includes preview counts."""
-        persistence = SQLiteSessionPersistence(db_path=temp_db_path)
+        persistence = ConversationStore(db_path=temp_db_path)
         conversation = MessageHistory()
         conversation.add_user_message("Show app.py")
         conversation.add_assistant_message("Here is the current file preview.")
@@ -219,7 +219,7 @@ class TestSessionsCommand:
 
     def test_sessions_search_finds_preview_messages(self, runner_with_db, temp_db_path):
         """Test 'victor sessions search' matches replay-only preview content."""
-        persistence = SQLiteSessionPersistence(db_path=temp_db_path)
+        persistence = ConversationStore(db_path=temp_db_path)
         conversation = MessageHistory()
         conversation.add_user_message("Show app.py")
         conversation.add_assistant_message("Here is the current file preview.")
@@ -277,7 +277,7 @@ class TestSessionsCommand:
 
     def test_sessions_show_json_preserves_preview_messages(self, runner_with_db, temp_db_path):
         """Test 'victor sessions show --json' preserves preview sidecar payloads."""
-        persistence = SQLiteSessionPersistence(db_path=temp_db_path)
+        persistence = ConversationStore(db_path=temp_db_path)
         conversation = MessageHistory()
         conversation.add_user_message("Show app.py")
         conversation.add_assistant_message("Here is the current file preview.")
@@ -306,23 +306,21 @@ class TestSessionsCommand:
 
         clean_output = strip_ansi(result.stdout)
         session = json.loads(clean_output)
-        assert session["conversation"]["preview_messages"] == [
-            {
-                "role": "system",
-                "content": "FILE PREVIEW: app.py",
-                "metadata": {
-                    "preview_kind": "file_preview",
-                    "preview_path": "app.py",
-                    "preview_language": "python",
-                    "preview_body": "print('hello')\n",
-                },
-                "after_message_index": 2,
-            }
-        ]
+        preview = session["conversation"]["preview_messages"]
+        assert len(preview) == 1
+        assert preview[0]["role"] == "system"
+        assert preview[0]["content"] == "FILE PREVIEW: app.py"
+        assert preview[0]["after_message_index"] == 2
+        assert preview[0]["metadata"] == {
+            "preview_kind": "file_preview",
+            "preview_path": "app.py",
+            "preview_language": "python",
+            "preview_body": "print('hello')\n",
+        }
 
     def test_sessions_show_displays_preview_messages(self, runner_with_db, temp_db_path):
         """Test 'victor sessions show' includes preview sidecars in human output."""
-        persistence = SQLiteSessionPersistence(db_path=temp_db_path)
+        persistence = ConversationStore(db_path=temp_db_path)
         conversation = MessageHistory()
         conversation.add_user_message("Show app.py")
         conversation.add_assistant_message("Here is the current file preview.")
@@ -402,7 +400,7 @@ class TestSessionsCommand:
         self, runner_with_db, temp_db_path, tmp_path
     ):
         """Test 'victor sessions export' preserves replay-only preview sidecar payloads."""
-        persistence = SQLiteSessionPersistence(db_path=temp_db_path)
+        persistence = ConversationStore(db_path=temp_db_path)
         conversation = MessageHistory()
         conversation.add_user_message("Show app.py")
         conversation.add_assistant_message("Here is the current file preview.")
@@ -438,19 +436,17 @@ class TestSessionsCommand:
             if session["metadata"]["session_id"] == "myproj-preview-export"
         )
 
-        assert preview_export["conversation"]["preview_messages"] == [
-            {
-                "role": "system",
-                "content": "FILE PREVIEW: app.py",
-                "metadata": {
-                    "preview_kind": "file_preview",
-                    "preview_path": "app.py",
-                    "preview_language": "python",
-                    "preview_body": "print('hello')\n",
-                },
-                "after_message_index": 2,
-            }
-        ]
+        preview = preview_export["conversation"]["preview_messages"]
+        assert len(preview) == 1
+        assert preview[0]["role"] == "system"
+        assert preview[0]["content"] == "FILE PREVIEW: app.py"
+        assert preview[0]["after_message_index"] == 2
+        assert preview[0]["metadata"] == {
+            "preview_kind": "file_preview",
+            "preview_path": "app.py",
+            "preview_language": "python",
+            "preview_body": "print('hello')\n",
+        }
 
 
 class TestSessionsChatFlags:
@@ -477,7 +473,7 @@ class TestSessionsClearCommand:
         sessions_before = persistence.list_sessions(limit=100)
         # Filter to sample sessions
         sample_count = len(
-            [s for s in sessions_before if s["session_id"] in ["myproj-9Kx7Z2", "myproj-9Kx8A3B"]]
+            [s for s in sessions_before if s.session_id in ["myproj-9Kx7Z2", "myproj-9Kx8A3B"]]
         )
         assert sample_count == 2
 
@@ -489,10 +485,10 @@ class TestSessionsClearCommand:
         assert "session(s) from database" in clean_output
 
         # Verify sessions are deleted
-        sessions_after = persistence.list_sessions(limit=100)
+        sessions_after = ConversationStore(db_path=persistence.db_path).list_sessions(limit=100)
         # Filter to check if sample sessions are gone
         sample_after = [
-            s for s in sessions_after if s["session_id"] in ["myproj-9Kx7Z2", "myproj-9Kx8A3B"]
+            s for s in sessions_after if s.session_id in ["myproj-9Kx7Z2", "myproj-9Kx8A3B"]
         ]
         assert len(sample_after) == 0
 
@@ -508,10 +504,11 @@ class TestSessionsClearCommand:
         assert "matching prefix 'myproj-9Kx7'" in clean_output
 
         # Verify session with matching prefix is deleted
-        assert persistence.load_session("myproj-9Kx7Z2") is None
+        refreshed_store = ConversationStore(db_path=persistence.db_path)
+        assert refreshed_store.load_session("myproj-9Kx7Z2") is None
 
         # Verify other session still exists
-        assert persistence.load_session("myproj-9Kx8A3B") is not None
+        assert refreshed_store.load_session("myproj-9Kx8A3B") is not None
 
     def test_sessions_clear_prefix_too_short(self, runner_with_db, sample_persistence):
         """Test 'victor sessions clear' with prefix < 6 chars."""
@@ -530,12 +527,10 @@ class TestSessionsClearCommand:
     def test_sessions_clear_empty_database(self, runner_with_db, temp_db_path):
         """Test 'victor sessions clear' with empty database."""
         # Clear any existing sessions first
-        from victor.agent.sqlite_session_persistence import SQLiteSessionPersistence
-
-        persistence = SQLiteSessionPersistence(db_path=temp_db_path)
+        persistence = ConversationStore(db_path=temp_db_path)
         all_sessions = persistence.list_sessions(limit=10000)
         for session in all_sessions:
-            persistence.delete_session(session["session_id"])
+            persistence.delete_session(session.session_id)
 
         # Now test with empty database
         result = runner_with_db.invoke(sessions_app, ["clear", "--yes"])

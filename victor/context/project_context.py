@@ -1,4 +1,4 @@
-# Copyright 2025 Vijaykumar Singh <singhvjd@gmail.com>
+# Copyright 2025 Vijaykumar Singh <vijay@anvaiops.com>
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -630,12 +630,13 @@ async def generate_victor_md_with_graph(
     try:
         from victor.storage.graph import create_graph_store
 
-        # Get graph store path from settings
-        graph_path = getattr(graph_enabled, "codebase_graph_path", None) or str(
-            root / ".victor" / "graph.db"
-        )
-
-        graph_store = create_graph_store("sqlite", graph_path, root)
+        # `create_graph_store` takes the project ROOT, not a database path — it
+        # derives storage locations per backend. The previous call passed a db
+        # path plus root as a third positional argument, which raised TypeError
+        # ("takes from 0 to 2 positional arguments but 3 were given") on every
+        # invocation; because this whole block is wrapped in `except Exception`,
+        # the graph-context section below silently never ran.
+        graph_store = create_graph_store("auto", root)
         await graph_store.initialize()
 
         # Check if graph has data

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright 2026 Vijaykumar Singh <singhvjd@gmail.com>
+# Copyright 2026 Vijaykumar Singh <vijay@anvaiops.com>
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import re
 import sys
+import tomllib
 from pathlib import Path
 from typing import List
 
@@ -63,6 +64,13 @@ CANONICAL_VERSION_DOCS = frozenset(
 
 _VERSION_STAMP = re.compile(r"\*\*Version\*\*:\s*(\d+\.\d+\.\d+)")
 _CONF_RELEASE = re.compile(r'release\s*=\s*"(\d+\.\d+\.\d+)"')
+# Public-facing minimum-version claims.  This deliberately does not match a
+# CI test matrix such as "Python 3.11, 3.12"—only a stated minimum such as
+# "Python 3.11+" or "requires Python >=3.11".
+_PYTHON_MINIMUM = re.compile(
+    r"(?:Python|python)\s*(?:version\s*)?(?:>=\s*)?(\d+\.\d+)(?:\+|\s+or\s+higher)",
+    re.IGNORECASE,
+)
 # Claim-specific provider phrasings (avoids matching incidental "3 providers" prose).
 _PROVIDERS = re.compile(
     r"(\d+)\+?\s+LLM\s+providers?\b"
@@ -81,6 +89,16 @@ def expected_version() -> str:
     return (ROOT / "VERSION").read_text(encoding="utf-8").strip()
 
 
+def expected_python_minimum() -> str:
+    """Return the package's declared minimum Python version."""
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    requires_python = project["project"]["requires-python"]
+    match = re.fullmatch(r">=\s*(\d+\.\d+)", requires_python)
+    if match is None:
+        raise ValueError(f"Unsupported requires-python format: {requires_python!r}")
+    return match.group(1)
+
+
 def expected_provider_count() -> int:
     """Number of concrete provider adapters (excludes the base class + the shared compat shim)."""
     providers_dir = ROOT / "victor" / "providers"
@@ -96,10 +114,17 @@ def _first_int(match: re.Match) -> int:
     return int(next(g for g in match.groups() if g is not None))
 
 
-def scan_text(label: str, text: str, version: str, provider_count: int) -> List[str]:
+def scan_text(
+    label: str,
+    text: str,
+    version: str,
+    provider_count: int,
+    python_minimum: str | None = None,
+) -> List[str]:
     """Return drift violations for one file's text. Pure — unit-testable without the tree."""
     errors: List[str] = []
     check_version = label in CANONICAL_VERSION_DOCS
+    python_minimum = python_minimum or expected_python_minimum()
     for i, line in enumerate(text.splitlines(), 1):
         if check_version:
             for m in _VERSION_STAMP.finditer(line):
@@ -117,6 +142,9 @@ def scan_text(label: str, text: str, version: str, provider_count: int) -> List[
         for m in _VERTICALS_CANON.finditer(line):
             if int(m.group(1)) != CANON_VERTICALS:
                 errors.append(f"{label}:{i} verticals {m.group(1)} != {CANON_VERTICALS}")
+        for m in _PYTHON_MINIMUM.finditer(line):
+            if m.group(1) != python_minimum:
+                errors.append(f"{label}:{i} Python minimum {m.group(1)} != {python_minimum}")
     return errors
 
 
@@ -129,10 +157,19 @@ def _doc_files() -> List[Path]:
 def main() -> int:
     version = expected_version()
     providers = expected_provider_count()
+    python_minimum = expected_python_minimum()
     errors: List[str] = []
     for path in _doc_files():
         text = path.read_text(encoding="utf-8", errors="ignore")
-        errors.extend(scan_text(str(path.relative_to(ROOT)), text, version, providers))
+        errors.extend(
+            scan_text(
+                str(path.relative_to(ROOT)),
+                text,
+                version,
+                providers,
+                python_minimum,
+            )
+        )
 
     if errors:
         print("❌ Docs drift detected (docs contradict code / declared canon):")
@@ -140,14 +177,16 @@ def main() -> int:
             print(f"  - {e}")
         print(
             f"\nExpected: version={version}, providers={providers}, "
-            f"tool_modules={CANON_TOOL_MODULES}, verticals={CANON_VERTICALS}"
+            f"tool_modules={CANON_TOOL_MODULES}, verticals={CANON_VERTICALS}, "
+            f"python_minimum={python_minimum}"
         )
         print("Fix the docs, or update VERSION / CANON_* if the code legitimately changed.")
         return 1
 
     print(
         f"✓ Docs aligned: version={version}, providers={providers}, "
-        f"tool_modules={CANON_TOOL_MODULES}, verticals={CANON_VERTICALS}"
+        f"tool_modules={CANON_TOOL_MODULES}, verticals={CANON_VERTICALS}, "
+        f"python_minimum={python_minimum}"
     )
     return 0
 

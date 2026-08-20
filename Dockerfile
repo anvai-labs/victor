@@ -1,4 +1,4 @@
-# Copyright 2025 Vijaykumar Singh <singhvjd@gmail.com>
+# Copyright 2025 Vijaykumar Singh <vijay@anvaiops.com>
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -18,7 +18,7 @@
 # Stage 1: Builder
 FROM python:3.12-slim AS builder
 
-LABEL maintainer="Vijaykumar Singh <singhvjd@gmail.com>"
+LABEL maintainer="Vijaykumar Singh <vijay@anvaiops.com>"
 LABEL description="Enterprise-Ready AI Coding Assistant"
 LABEL version="0.4.1"
 

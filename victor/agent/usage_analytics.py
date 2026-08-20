@@ -1,4 +1,4 @@
-# Copyright 2025 Vijaykumar Singh <singhvjd@gmail.com>
+# Copyright 2025 Vijaykumar Singh <vijay@anvaiops.com>
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -152,6 +152,9 @@ class UsageAnalytics:
         # Aggregated metrics for quick access
         self._tool_aggregates: Dict[str, Dict[str, Any]] = {}
         self._provider_aggregates: Dict[str, Dict[str, Any]] = {}
+
+        # Shell output condensation savings: condenser name -> counters
+        self._condensation_stats: Dict[str, Dict[str, int]] = {}
 
         # Thread safety
         self._data_lock = threading.RLock()
@@ -330,6 +333,51 @@ class UsageAnalytics:
                 self._current_session = None
                 return stats
         return None
+
+    def record_output_condensation(
+        self,
+        condenser: str,
+        original_chars: int,
+        condensed_chars: int,
+    ) -> None:
+        """Record one shell-output condensation event.
+
+        Args:
+            condenser: Name of the condenser that fired (e.g. "pytest")
+            original_chars: Output size before condensation
+            condensed_chars: Output size after condensation
+        """
+        with self._data_lock:
+            stats = self._condensation_stats.setdefault(
+                condenser,
+                {"count": 0, "original_chars": 0, "condensed_chars": 0},
+            )
+            stats["count"] += 1
+            stats["original_chars"] += original_chars
+            stats["condensed_chars"] += condensed_chars
+
+        self._maybe_persist()
+
+    def get_condensation_stats(self) -> Dict[str, Any]:
+        """Get cumulative shell-output condensation savings (rtk `gain` analogue).
+
+        Token estimates use the chars/4 heuristic; percentages are reliable,
+        absolute token numbers are approximate.
+        """
+        with self._data_lock:
+            per_condenser = {name: dict(stats) for name, stats in self._condensation_stats.items()}
+        total_original = sum(s["original_chars"] for s in per_condenser.values())
+        total_condensed = sum(s["condensed_chars"] for s in per_condenser.values())
+        chars_saved = total_original - total_condensed
+        return {
+            "per_condenser": per_condenser,
+            "total_events": sum(s["count"] for s in per_condenser.values()),
+            "total_original_chars": total_original,
+            "total_condensed_chars": total_condensed,
+            "chars_saved": chars_saved,
+            "est_tokens_saved": chars_saved // 4,
+            "savings_pct": (100.0 * chars_saved / total_original) if total_original else 0.0,
+        }
 
     def record_turn(self) -> None:
         """Record a conversation turn."""
@@ -962,6 +1010,7 @@ class UsageAnalytics:
                     "session_history": self._session_history,
                     "tool_aggregates": self._tool_aggregates,
                     "provider_aggregates": self._provider_aggregates,
+                    "condensation_stats": self._condensation_stats,
                 }
 
             with open(self._cache_file, "wb") as f:
@@ -986,6 +1035,7 @@ class UsageAnalytics:
             self._session_history = data.get("session_history", [])
             self._tool_aggregates = data.get("tool_aggregates", {})
             self._provider_aggregates = data.get("provider_aggregates", {})
+            self._condensation_stats = data.get("condensation_stats", {})
 
             logger.info(
                 f"Loaded analytics from cache: "

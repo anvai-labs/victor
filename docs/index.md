@@ -3,7 +3,7 @@
 > **Contract-first, service-first agentic AI framework** for building agents that reason,
 > call tools, execute DAG workflows, and coordinate multi-agent teams across 24 LLM providers.
 
-**Version**: {{ victor_version }} | **License**: Apache-2.0 | **Python**: 3.10+
+**Version**: {{ victor_version }} | **License**: Apache-2.0 | **Python**: 3.11+
 
 ---
 

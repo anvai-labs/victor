@@ -25,7 +25,7 @@
 ## What Victor Is
 
 Victor (`victor-ai`) is a **contract-first, service-first agentic AI framework**
-in Python 3.10+ for building autonomous agents that reason, call tools, execute
+in Python 3.11+ for building autonomous agents that reason, call tools, execute
 DAG workflows, and coordinate multi-agent teams across **24 LLM providers**.
 
 Three packages compose the ecosystem:

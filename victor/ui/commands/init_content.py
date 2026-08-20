@@ -1,4 +1,4 @@
-# Copyright 2026 Vijaykumar Singh <singhvjd@gmail.com>
+# Copyright 2026 Vijaykumar Singh <vijay@anvaiops.com>
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -98,20 +98,10 @@ def _build_graph_fallback_patterns(graph_context: Optional[dict]) -> list[str]:
     stats = graph_context.get("stats", {})
     fallback: list[str] = []
 
-    if patterns.get("registry", 0) > 0:
-        fallback.append(
-            f"**Registry/plugin extensibility**: {patterns['registry']} registration "
-            "relationships were detected in the project graph."
-        )
     if patterns.get("protocol", 0) > 0:
         fallback.append(
             f"**Protocol/interface contracts**: {patterns['protocol']} implementation "
             "relationships indicate explicit abstraction boundaries."
-        )
-    if patterns.get("decorator", 0) > 0:
-        fallback.append(
-            f"**Decorator/interceptor behavior**: {patterns['decorator']} decorated symbols "
-            "show cross-cutting behavior applied through wrappers."
         )
     if patterns.get("inheritance", 0) > 0:
         fallback.append(
@@ -144,22 +134,10 @@ def _build_architecture_evidence_lines(graph_context: Optional[dict]) -> list[st
             "available for architecture analysis."
         )
 
-    if patterns.get("registry", 0):
-        lines.append(
-            f"- **Registry/plugin evidence**: `{patterns['registry']}` `REGISTERS` "
-            "relationships confirm dynamic registration points."
-        )
-
     if patterns.get("protocol", 0):
         lines.append(
             f"- **Protocol/interface evidence**: `{patterns['protocol']}` `IMPLEMENTS` "
             "relationships show explicit abstraction contracts."
-        )
-
-    if patterns.get("decorator", 0):
-        lines.append(
-            f"- **Decorator evidence**: `{patterns['decorator']}` `DECORATES` relationships "
-            "show wrapper-based cross-cutting behavior."
         )
 
     if patterns.get("inheritance", 0):

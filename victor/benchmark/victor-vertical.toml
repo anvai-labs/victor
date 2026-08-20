@@ -2,7 +2,7 @@
 name = "benchmark"
 version = "0.5.1"
 description = "Benchmark vertical for SWE-bench, HumanEval, and code generation evaluation"
-authors = [{name = "Vijaykumar Singh", email = "singhvjd@gmail.com"}]
+authors = [{name = "Vijaykumar Singh", email = "vijay@anvaiops.com"}]
 license = "Apache-2.0"
 requires_victor = ">=0.5.0"
 

@@ -329,7 +329,7 @@ Add to README.md:
 ## Test Requirements
 
 ### Python Version
-- Python 3.10+ required
+- Python 3.11+ required
 - Use `pyenv` or `conda` for version management
 
 ### Dependencies
@@ -370,7 +370,7 @@ pytest -n auto
 
 ## Next Steps
 
-1. Set up Python 3.10+ environment
+1. Set up a Python 3.11+ environment
 2. Install Victor in editable mode
 3. Create test directory structure
 4. Implement Phase 1 tests (core functionality)

@@ -1,4 +1,4 @@
-# Copyright 2026 Vijaykumar Singh <singhvjd@gmail.com>
+# Copyright 2026 Vijaykumar Singh <vijay@anvaiops.com>
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -50,6 +50,34 @@ def test_graduate_when_candidate_matches_baseline() -> None:
 
 def test_graduate_when_candidate_beats_baseline() -> None:
     report = assess_graduation(FLAG, _battery(0.70), _battery(0.85))
+    assert report.verdict is GraduationVerdict.GRADUATE
+
+
+def test_hold_no_benefit_when_worse_but_within_tolerance() -> None:
+    # The real effect-gate A/B (n=48): candidate worse by 0.017 — inside the oracle's tolerance
+    # (so ACCEPT, no *significant* regression) but beyond the 0.005 neutral band. Safe, but no
+    # benefit → HOLD, NOT graduate (the bug this fix closes: a negative Δ was called matches-or-beats).
+    report = assess_graduation(
+        FLAG,
+        _battery(0.864, lower=0.845, upper=0.883, n=48),
+        _battery(0.847, lower=0.822, upper=0.872, n=48),
+    )
+    assert report.verdict is GraduationVerdict.HOLD
+    assert not report.should_graduate
+    assert "no benefit" in report.recommendation
+    assert report.acceptance.accepted  # the oracle still ACCEPTs — it's safe, just not worth it
+
+
+def test_graduate_when_neutral_within_band() -> None:
+    # A tiny negative Δ (-0.003) inside the ±0.005 neutral band still graduates (genuine neutrality).
+    report = assess_graduation(FLAG, _battery(0.80), _battery(0.797))
+    assert report.verdict is GraduationVerdict.GRADUATE
+    assert "neutral" in report.recommendation
+
+
+def test_neutral_band_is_configurable() -> None:
+    # Widen the band and the same -0.017 candidate now counts as neutral → GRADUATE.
+    report = assess_graduation(FLAG, _battery(0.864), _battery(0.847), neutral_band=0.05)
     assert report.verdict is GraduationVerdict.GRADUATE
 
 

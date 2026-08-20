@@ -1,4 +1,4 @@
-# Copyright 2026 Vijaykumar Singh <singhvjd@gmail.com>
+# Copyright 2026 Vijaykumar Singh <vijay@anvaiops.com>
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -41,15 +41,13 @@ from pathlib import Path
 from typing import Any, Dict, Mapping, Optional, Set
 
 from victor.core.verticals.import_resolver import vertical_module_candidates
-from victor.core.utils.capability_loader import load_tree_sitter_get_parser
 from victor.storage.vector_stores import EmbeddingConfig as InternalEmbeddingConfig
 from victor.storage.vector_stores.base import (
     BaseEmbeddingProvider as InternalEmbeddingProvider,
 )
 from victor.storage.vector_stores.code_chunking import (
-    CodeChunkingContext,
-    TreeSitterParseContext,
     create_code_chunker,
+    normalize_code_chunking_strategy,
 )
 from victor.storage.vector_stores.registry import (
     EmbeddingRegistry as InternalEmbeddingRegistry,
@@ -60,7 +58,7 @@ logger = logging.getLogger(__name__)
 STRUCTURAL_CODEBASE_VECTOR_STORE = "victor_structural_bridge"
 CODEBASE_INDEX_MANIFEST_NAME = "code_search_index_manifest.json"
 CODEBASE_INDEX_SCHEMA_VERSION = 2
-DEFAULT_CODEBASE_CHUNKING_STRATEGY = "tree_sitter_structural"
+DEFAULT_CODEBASE_CHUNKING_STRATEGY = "victor_codegraph"
 DEFAULT_CODEBASE_CHUNK_SIZE = 500
 DEFAULT_CODEBASE_CHUNK_OVERLAP = 50
 
@@ -103,23 +101,6 @@ _LANGUAGE_BY_SUFFIX = {
 _STRUCTURAL_PROVIDER_CLASS: Optional[type[Any]] = None
 
 
-@dataclass(frozen=True)
-class _BridgeSymbol:
-    """Minimal symbol representation consumed by the chunking strategies."""
-
-    name: str
-    symbol_type: str
-    line_start: int
-    line_end: int
-    parent_symbol: Optional[str] = None
-
-    @property
-    def qualified_name(self) -> str:
-        if self.parent_symbol and not self.name.startswith(f"{self.parent_symbol}."):
-            return f"{self.parent_symbol}.{self.name}"
-        return self.name
-
-
 @dataclass
 class _PendingFileBatch:
     """Accumulated symbol documents for a single file."""
@@ -137,13 +118,12 @@ def _normalized_extra_config(config: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _normalized_chunking_strategy(extra_config: Mapping[str, Any]) -> str:
-    return (
+    return normalize_code_chunking_strategy(
         str(
             extra_config.get("code_chunking_strategy")
             or extra_config.get("chunking_strategy")
             or DEFAULT_CODEBASE_CHUNKING_STRATEGY
-        ).strip()
-        or DEFAULT_CODEBASE_CHUNKING_STRATEGY
+        )
     )
 
 
@@ -643,31 +623,24 @@ def get_structural_codebase_embedding_provider_class() -> Optional[type[Any]]:
             if not content.strip():
                 return []
 
-            symbols = _collect_bridge_symbols(documents)
             language = _resolve_language(
                 full_path,
                 documents,
                 language_overrides=self._language_overrides,
             )
-            parse_context = _build_tree_sitter_parse_context(
-                file_path=str(full_path),
-                content=content,
-                language=language,
-                chunking_strategy=self._chunking_strategy,
-            )
             chunks = self._chunker.chunk(
                 file_path=file_path,
                 content=content,
-                context=CodeChunkingContext(symbols=symbols, parse_context=parse_context),
+                language=language,
             )
 
             chunk_documents: list[dict[str, Any]] = []
             for index, chunk in enumerate(chunks):
                 symbol_name = chunk.symbol_name
-                unified_id = (
+                unified_id = chunk.symbol_id or (
                     f"symbol:{file_path}:{symbol_name}" if symbol_name else f"file:{file_path}"
                 )
-                chunk_id = _make_chunk_id(
+                chunk_id = chunk.chunk_id or _make_chunk_id(
                     file_path=file_path,
                     start_line=chunk.start_line,
                     end_line=chunk.end_line,
@@ -688,6 +661,7 @@ def get_structural_codebase_embedding_provider_class() -> Optional[type[Any]]:
                             "end_line": chunk.end_line,
                             "parent_symbol": chunk.parent_symbol,
                             "chunk_id": chunk_id,
+                            "symbol_id": chunk.symbol_id,
                             "chunk_type": chunk.chunk_type,
                             "chunking_strategy": self._chunking_strategy,
                             "language": language,
@@ -715,38 +689,6 @@ def _infer_workspace_root(explicit_root: Any, persist_directory: Any) -> Path:
         if persist_path.parent.name == ".victor":
             return persist_path.parent.parent
     return Path.cwd().resolve()
-
-
-def _collect_bridge_symbols(documents: list[dict[str, Any]]) -> list[_BridgeSymbol]:
-    symbols: list[_BridgeSymbol] = []
-    seen: set[tuple[str, str, int, int, Optional[str]]] = set()
-    for document in documents:
-        metadata = document.get("metadata", {})
-        symbol_name = metadata.get("symbol_name")
-        if not isinstance(symbol_name, str) or not symbol_name:
-            continue
-        symbol_type = str(metadata.get("symbol_type") or "symbol")
-        start_line = int(metadata.get("line_number") or 1)
-        end_line = int(metadata.get("end_line") or start_line)
-        if end_line < start_line:
-            end_line = start_line
-        parent_symbol = metadata.get("parent_symbol")
-        if parent_symbol is None and "." in symbol_name:
-            parent_symbol = symbol_name.rsplit(".", 1)[0]
-        key = (symbol_name, symbol_type, start_line, end_line, parent_symbol)
-        if key in seen:
-            continue
-        seen.add(key)
-        symbols.append(
-            _BridgeSymbol(
-                name=symbol_name,
-                symbol_type=symbol_type,
-                line_start=start_line,
-                line_end=end_line,
-                parent_symbol=parent_symbol if isinstance(parent_symbol, str) else None,
-            )
-        )
-    return sorted(symbols, key=lambda item: (item.line_start, item.line_end, item.name))
 
 
 def _resolve_language(
@@ -792,74 +734,6 @@ def _resolve_language(
         pass
 
     return _LANGUAGE_BY_SUFFIX.get(full_path.suffix.lower(), "text")
-
-
-def _build_tree_sitter_parse_context(
-    *,
-    file_path: str,
-    content: str,
-    language: str,
-    chunking_strategy: str,
-) -> Optional[TreeSitterParseContext]:
-    if chunking_strategy not in {"tree_sitter_structural", "ast_structural", "cast"}:
-        return None
-
-    # Prefer the enhanced TreeSitterAnalysisProtocol provider so chunking
-    # reuses the same parse that the rest of the framework runs on. This
-    # avoids re-parsing the file in every consumer (symbol extraction,
-    # edge extraction, chunking) and lets root code stop importing
-    # victor_coding directly.
-    chunk_ctx = _build_chunk_context_via_provider(
-        file_path=file_path, content=content, language=language
-    )
-    if chunk_ctx is not None:
-        return chunk_ctx
-
-    try:
-        get_parser = load_tree_sitter_get_parser()
-        parser = get_parser(language)
-        tree = parser.parse(content.encode("utf-8"))
-    except Exception as exc:
-        logger.debug("Tree-sitter parse unavailable for %s (%s): %s", file_path, language, exc)
-        return None
-
-    try:
-        return TreeSitterParseContext.from_content(content, tree.root_node)
-    except Exception as exc:
-        logger.debug("Failed to build parse context for %s: %s", file_path, exc)
-        return None
-
-
-def _build_chunk_context_via_provider(
-    *, file_path: str, content: str, language: str
-) -> Optional[TreeSitterParseContext]:
-    """Try to build a parse context from the TreeSitterAnalysisProtocol provider."""
-    try:
-        from victor.core.capability_registry import CapabilityRegistry
-        from victor.framework.vertical_protocols import TreeSitterAnalysisProtocol
-
-        registry = CapabilityRegistry.get_instance()
-        if not registry.is_enhanced(TreeSitterAnalysisProtocol):
-            return None
-        provider = registry.get(TreeSitterAnalysisProtocol)
-        if provider is None or not provider.supports_language(language):
-            return None
-        view = provider.build_chunk_context(content, language, file_path=file_path)
-    except Exception as exc:
-        logger.debug(
-            "Analysis provider chunk context failed for %s (%s): %s",
-            file_path,
-            language,
-            exc,
-        )
-        return None
-    if view is None or getattr(view, "root_node", None) is None:
-        return None
-    try:
-        return TreeSitterParseContext.from_content(content, view.root_node)
-    except Exception as exc:
-        logger.debug("Failed to wrap provider chunk context for %s: %s", file_path, exc)
-        return None
 
 
 def _make_chunk_id(

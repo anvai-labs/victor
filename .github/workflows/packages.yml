@@ -111,7 +111,6 @@ jobs:
       - name: Run package tests
         run: |
           pytest tests -v --cov --cov-report=xml
-        continue-on-error: true  # Allow initial failures during migration
 
       - name: Upload coverage
         uses: codecov/codecov-action@v4
@@ -193,7 +192,6 @@ jobs:
 
       - name: CLI smoke test
         run: victor --help
-        continue-on-error: true  # May fail during migration
 
   # Publish to TestPyPI on develop branch (preview builds)
   # Production PyPI publishing is handled by release.yml (v* tags)

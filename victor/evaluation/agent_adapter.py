@@ -281,6 +281,12 @@ class VictorAgentAdapter:
         self._served_prompt_identities: Dict[tuple, Dict[str, Any]] = {}
         self._tool_calls: List[EvalToolCall] = []
         self._file_edits: List[FileEdit] = []
+        # The ground-truth combined patch (git diff of the workspace after the
+        # run) — the "completing effect" for a code-fix task. Captured in
+        # execute_task and surfaced via get_conversation_trace so the execution
+        # manifest (and downstream judge views) carry the actual applied diff,
+        # not just the fallible per-edit capture in _file_edits.
+        self._generated_patch: str = ""
         self._messages: List[Dict[str, str]] = []
         self._turns: int = 0
         self._file_snapshots: Dict[str, str] = {}  # path -> content before edit
@@ -486,6 +492,10 @@ class VictorAgentAdapter:
                 }
                 for e in self._file_edits[-20:]  # last 20 edits
             ],
+            # Ground-truth combined diff (git diff of the workspace) — the
+            # completing effect. Bounded; the definitive artifact for a
+            # code-fix judge view when per-edit capture (_file_edits) is empty.
+            "generated_patch": self._generated_patch[:20000],
             "turns": self._turns,
         }
 
@@ -833,6 +843,7 @@ class VictorAgentAdapter:
         """Reset tracking state for new task."""
         self._tool_calls = []
         self._file_edits = []
+        self._generated_patch = ""
         self._messages = []
         self._turns = 0
         self._file_snapshots = {}
@@ -1174,6 +1185,22 @@ class VictorAgentAdapter:
             # Execute agent loop
             complete = False
             while not complete and self._turns < self.config.max_turns:
+                # Enforce total_timeout across the whole task (previously tracked
+                # but NOT enforced): max_turns × per-turn loop iterations × slow
+                # inference can run for hours on a task that never completes. This
+                # is the outermost wall-clock bound — it stops with the partial
+                # trace instead of running to the turn cap. (The per-turn
+                # asyncio.wait_for below only bounds a single turn.)
+                _task_elapsed = _time.time() - _heartbeat_start
+                if _task_elapsed > self.config.total_timeout:
+                    logger.warning(
+                        "[AgentAdapter] total_timeout %ds exceeded at turn %d "
+                        "(elapsed %.0fs) — stopping with partial result",
+                        self.config.total_timeout,
+                        self._turns,
+                        _task_elapsed,
+                    )
+                    break
                 self._turns += 1
 
                 # Add user message. Turn 1 gets the full task prompt; later
@@ -1396,6 +1423,8 @@ class VictorAgentAdapter:
             trace.generated_patch = git_patch or self._generate_combined_patch()
         else:
             trace.generated_patch = self._generate_combined_patch()
+        # Persist for get_conversation_trace() → execution manifest → judge views.
+        self._generated_patch = trace.generated_patch or ""
 
         # A patch is the right artifact for SWE-bench, which applies it to a
         # fresh clone. Code-generation benchmarks are the opposite: MBPP and

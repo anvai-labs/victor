@@ -154,12 +154,9 @@ async def test_victor_client_get_messages_resolves_context_service_from_context_
 @pytest.mark.asyncio
 async def test_victor_client_resume_session_hydrates_and_stamps(monkeypatch) -> None:
     """resume_session loads the store, hydrates both stores, stamps the id."""
-    import victor.agent.sqlite_session_persistence as persistence_mod
-
     session_data = {"metadata": {"title": "arithmetic"}, "conversation": {}}
     monkeypatch.setattr(
-        persistence_mod,
-        "get_sqlite_session_persistence",
+        "victor.agent.conversation.store.ConversationStore",
         lambda *a, **k: SimpleNamespace(load_session=lambda sid: session_data),
     )
     # Capture the hydration call — the helper's own two-store correctness is
@@ -201,11 +198,8 @@ async def test_victor_client_resume_session_hydrates_and_stamps(monkeypatch) -> 
 
 @pytest.mark.asyncio
 async def test_victor_client_resume_session_returns_none_when_missing(monkeypatch) -> None:
-    import victor.agent.sqlite_session_persistence as persistence_mod
-
     monkeypatch.setattr(
-        persistence_mod,
-        "get_sqlite_session_persistence",
+        "victor.agent.conversation.store.ConversationStore",
         lambda *a, **k: SimpleNamespace(load_session=lambda sid: None),
     )
     client = VictorClient(SessionConfig(), container=object())
@@ -223,24 +217,44 @@ async def test_victor_client_resume_session_raises_when_not_initialized() -> Non
 
 
 def test_victor_client_list_recent_sessions(monkeypatch) -> None:
-    import victor.agent.sqlite_session_persistence as persistence_mod
-
-    rows = [{"session_id": "s1", "title": "a"}, {"session_id": "s2", "title": "b"}]
+    session = SimpleNamespace(
+        session_id="s1",
+        title="a",
+        provider="openai",
+        model="gpt-4.1",
+        profile="default",
+        created_at="created",
+        last_activity="updated",
+        messages=[object()],
+        preview_messages=[],
+        tags=["demo"],
+    )
     monkeypatch.setattr(
-        persistence_mod,
-        "get_sqlite_session_persistence",
-        lambda *a, **k: SimpleNamespace(list_sessions=lambda limit: rows[:limit]),
+        "victor.agent.conversation.store.ConversationStore",
+        lambda *a, **k: SimpleNamespace(list_sessions=lambda limit: [session][:limit]),
     )
     client = VictorClient(SessionConfig(), container=object())
-    assert client.list_recent_sessions(limit=5) == rows
+    assert client.list_recent_sessions(limit=5) == [
+        {
+            "session_id": "s1",
+            "title": "a",
+            "provider": "openai",
+            "model": "gpt-4.1",
+            "profile": "default",
+            "created_at": "created",
+            "updated_at": "updated",
+            "last_activity": "updated",
+            "message_count": 1,
+            "preview_count": 0,
+            "tags": ["demo"],
+        }
+    ]
 
 
 def test_victor_client_list_recent_sessions_survives_failure(monkeypatch) -> None:
-    import victor.agent.sqlite_session_persistence as persistence_mod
-
     def _boom(*a, **k):
         raise RuntimeError("db down")
 
-    monkeypatch.setattr(persistence_mod, "get_sqlite_session_persistence", _boom)
+    monkeypatch.setattr("victor.agent.conversation.store.ConversationStore", _boom)
     client = VictorClient(SessionConfig(), container=object())
     assert client.list_recent_sessions() == []

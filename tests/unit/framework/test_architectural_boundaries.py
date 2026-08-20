@@ -1,4 +1,4 @@
-# Copyright 2025 Vijaykumar Singh <singhvjd@gmail.com>
+# Copyright 2025 Vijaykumar Singh <vijay@anvaiops.com>
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -142,6 +142,30 @@ class TestUILayerArchitecturalBoundaries:
                 "UI layer must NOT import FrameworkShim (deprecated).\n"
                 "Use VictorClient or Agent.create() instead.\n\n"
                 "Violations:\n" + "\n".join(f"  - {v['file']}: {v['import']}" for v in violations)
+            )
+
+    def test_ui_layer_must_not_import_legacy_session_persistence(self, ui_layer_files):
+        """UI layer must use ConversationStore, never the deprecated session shim."""
+        violations = []
+
+        for file_path in ui_layer_files:
+            if "test_" in file_path.name or "__tests__" in str(file_path):
+                continue
+
+            tree = ast.parse(file_path.read_text(), filename=str(file_path))
+            for node in ast.walk(tree):
+                if (
+                    isinstance(node, ast.ImportFrom)
+                    and node.module == "victor.agent.sqlite_session_persistence"
+                ):
+                    violations.append(
+                        f"{file_path.relative_to(Path(__file__).parent.parent.parent.parent)}:{node.lineno}"
+                    )
+
+        if violations:
+            pytest.fail(
+                "UI layer must use ConversationStore instead of the deprecated "
+                "SQLiteSessionPersistence shim.\n\nViolations:\n  - " + "\n  - ".join(violations)
             )
 
     def test_ui_layer_must_not_call_private_victor_client_methods(self, ui_layer_files):

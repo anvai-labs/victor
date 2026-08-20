@@ -1,4 +1,4 @@
-# Copyright 2025 Vijaykumar Singh <singhvjd@gmail.com>
+# Copyright 2025 Vijaykumar Singh <vijay@anvaiops.com>
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -91,7 +91,7 @@ async def _index_async(
     console.print(f"[dim]Indexing codebase at: {root_path}[/dim]")
 
     # Create graph store
-    graph_store = create_graph_store("sqlite", root_path)
+    graph_store = create_graph_store("auto", root_path)
     await graph_store.initialize()
 
     # Clear existing if forced
@@ -158,7 +158,7 @@ async def _query_async(
     root_path = Path(path).resolve()
 
     # Create graph store
-    graph_store = create_graph_store("sqlite", root_path)
+    graph_store = create_graph_store("auto", root_path)
     await graph_store.initialize()
 
     # Check if graph exists
@@ -169,10 +169,13 @@ async def _query_async(
         return False
 
     # Create retriever
+    # Both directions, matching the query tool: a `victor graph query` for a
+    # symbol should surface its callers, not only what it calls.
     config = RetrievalConfig(
         seed_count=max_results,
         max_hops=max_hops,
         top_k=max_results,
+        direction="both",
     )
     retriever = MultiHopRetriever(graph_store, config)
 
@@ -238,7 +241,7 @@ async def _impact_async(
     root_path = Path(path).resolve()
 
     # Create graph store
-    graph_store = create_graph_store("sqlite", root_path)
+    graph_store = create_graph_store("auto", root_path)
     await graph_store.initialize()
 
     # Resolve target
@@ -335,7 +338,7 @@ async def _stats_async(path: str) -> bool:
     root_path = Path(path).resolve()
 
     # Create graph store
-    graph_store = create_graph_store("sqlite", root_path)
+    graph_store = create_graph_store("auto", root_path)
     await graph_store.initialize()
 
     # Get stats
@@ -376,7 +379,7 @@ async def _export_async(
     output_path = Path(output)
 
     # Create graph store
-    graph_store = create_graph_store("sqlite", root_path)
+    graph_store = create_graph_store("auto", root_path)
     await graph_store.initialize()
 
     # Get all nodes and edges
@@ -567,7 +570,7 @@ async def _init_context_async(
     console.print(f"[dim]Generating graph-enhanced init.md for: {root_path}[/dim]")
 
     # Check if graph exists
-    graph_store = create_graph_store("sqlite", root_path)
+    graph_store = create_graph_store("auto", root_path)
     await graph_store.initialize()
 
     stats = await graph_store.stats()

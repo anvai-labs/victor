@@ -1,4 +1,4 @@
-# Copyright 2026 Vijaykumar Singh <singhvjd@gmail.com>
+# Copyright 2026 Vijaykumar Singh <vijay@anvaiops.com>
 #
 # Licensed under the Apache License, Version 2.0 (the "License").
 """Containerized evaluation backend — generic container lifecycle + image resolution.
@@ -28,8 +28,6 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Optional
 
-import httpx
-
 from victor.workflows.isolation import IsolationConfig, ResourceLimits
 from victor.workflows.sandbox_executor import (
     SANDBOX_CONTAINER_LABEL,
@@ -43,14 +41,22 @@ logger = logging.getLogger(__name__)
 EVAL_CONTAINER_LABEL_VALUE = "eval"
 
 
-async def cleanup_stale_eval_containers() -> int:
-    """Remove orphaned victor-eval containers from prior crashed runs.
+async def cleanup_stale_sandbox_containers() -> int:
+    """Remove orphaned victor sandbox containers from prior crashed runs.
 
-    If a benchmark process dies (SIGHUP, crash, OOM) mid-task, the
-    ``EvalContainer.stop()`` in the ``finally`` block doesn't run → that
-    task's container stays. Over multiple runs these accumulate and can
-    exhaust Docker resources (disk, memory, container-limit). Call this at
-    benchmark START to sweep orphans labelled ``victor.sandbox=eval``.
+    If a benchmark process dies (SIGHUP, crash, OOM, manual kill) mid-task, the
+    ``finally``-block teardown doesn't run — ``EvalContainer.stop()`` for the
+    eval sandbox, and likewise the code-executor sandbox's own cleanup — so that
+    container stays alive. Over many crashed runs these accumulate and can
+    exhaust Docker resources (disk, memory, the daemon's container limit).
+
+    Call this at benchmark START to sweep every orphan under the
+    ``victor.sandbox`` label, both ``=eval`` and ``=code-executor`` values: any
+    sandbox container still alive at a fresh run start is by definition an
+    orphan (a live run holds its own container reference). Filtering by the
+    label KEY — not a single value — is what lets one sweep reclaim both
+    subsystems' leaks (an eval-only filter passed a 3,456-container / ~14 GB
+    code-executor pileup by).
 
     Returns the number of containers removed.
     """
@@ -61,7 +67,7 @@ async def cleanup_stale_eval_containers() -> int:
                 "ps",
                 "-aq",
                 "--filter",
-                f"label={SANDBOX_CONTAINER_LABEL}={EVAL_CONTAINER_LABEL_VALUE}",
+                f"label={SANDBOX_CONTAINER_LABEL}",
             ],
             timeout=30,
         )
@@ -70,9 +76,9 @@ async def cleanup_stale_eval_containers() -> int:
         ids = [line.strip() for line in out.decode().splitlines() if line.strip()]
         if not ids:
             return 0
-        rc, _, _ = await _run_cmd(["docker", "rm", "-f", *ids], timeout=60)
+        rc, _, _ = await _run_cmd(["docker", "rm", "-f", *ids], timeout=120)
         if rc == 0:
-            logger.info("Cleaned up %d stale eval container(s) at startup", len(ids))
+            logger.info("Cleaned up %d stale sandbox container(s) at startup", len(ids))
             return len(ids)
     except Exception as exc:
         logger.debug("Stale container cleanup failed (non-fatal): %s", exc)
@@ -145,111 +151,50 @@ def resolve_swebench_image(task, config) -> str:
     bake in the correct Python + compiled C-extensions + pinned deps. The
     published scheme (confirmed against Docker Hub) is::
 
-        docker.io/swebench/sweb.eval.<arch>.<repo>_<version>_<instance>
+        docker.io/swebench/sweb.eval.<arch>.<instance_id with __ -> _1776_>
 
-    e.g. ``swebench/sweb.eval.x86_64.sympy_1776_sympy-20590``. The exact tag
-    includes a ``<version>`` segment that only the ``swebench`` package's
-    ``make_image_name`` computes from the dataset row, so this resolver is
-    **best-effort**: it produces the right structure but may miss the version
-    segment. Two reliable paths:
-      * pass the exact image via ``--docker-image`` / ``task.docker_image``
-        (highest precedence — use this for a known-correct name), or
-      * ``pip install swebench`` and the harness can name images authoritatively.
+    where ``1776`` is a **constant** separator SWE-bench uses in place of the
+    ``__`` in an instance id — NOT a per-repo version. Verified against Docker
+    Hub across every major SWE-bench repo (astropy, django, sympy, matplotlib,
+    scikit-learn, pytest-dev, psf/requests, pylint-dev), including the
+    ``org != repo`` cases (``psf__requests-2317`` → ``psf_1776_requests-2317``).
+    So the exact official name is fully deterministic from the instance id::
 
+        astropy__astropy-12907  ->  sweb.eval.x86_64.astropy_1776_astropy-12907
+        django__django-10924    ->  sweb.eval.x86_64.django_1776_django-10924
+
+    Precedence still favors an explicit ``--docker-image`` / ``task.docker_image``.
     A wrong name is safe: ``docker pull`` fails → :class:`DockerUnavailable` →
     the caller falls back to the host eval path.
     """
     registry = getattr(config, "swebench_image_registry", None) or "docker.io/swebench"
-    instance = (getattr(task, "task_id", "") or "").replace("__", "_").lower() or "unknown"
+    instance = (getattr(task, "task_id", "") or "").replace("__", "_1776_").lower() or "unknown"
     return f"{registry}/sweb.eval.x86_64.{instance}"
 
 
-# Per-instance exact-image cache (short-circuits the cheap match scan).
-_INSTANCE_IMAGE_CACHE: dict[str, str] = {}
-
-# Per-REPO index of Docker Hub candidate image names. The search
-# ``sweb.eval.x86_64.<repo>`` is the expensive part (one API call) and its
-# result is shared across ALL instances of that repo, so we cache the
-# candidate list per repo and match each instance against it. This matters
-# for django: the query returns 100+ results and SWE-bench images fall off
-# page 1, so the match fails — without this index that failing lookup
-# repeated once per django task (≈44 redundant API calls). A repo whose
-# lookup fails (or yields no candidates) is cached as an empty list so every
-# subsequent instance skips straight to the heuristic/host fallback.
-_REPO_IMAGE_INDEX: dict[str, list[str]] = {}
-
-
-async def _resolve_repo_image_candidates(repo: str) -> list[str]:
-    """Return (cached) Docker Hub repo-name candidates for a SWE-bench repo.
-
-    The first caller for a given repo performs the search; all later callers
-    reuse the cached list. Network failure / empty results are cached as ``[]``
-    so the lookup is never retried within a process.
-    """
-    if repo in _REPO_IMAGE_INDEX:
-        return _REPO_IMAGE_INDEX[repo]
-    try:
-        async with httpx.AsyncClient(timeout=20.0) as client:
-            resp = await client.get(
-                "https://hub.docker.com/v2/search/repositories/",
-                params={"query": f"sweb.eval.x86_64.{repo}", "page_size": 100},
-            )
-            resp.raise_for_status()
-            candidates = [
-                r.get("repo_name", "") for r in resp.json().get("results", []) if r.get("repo_name")
-            ]
-    except Exception as exc:  # noqa: BLE001 — network failure → empty → heuristic
-        logger.debug("Docker Hub lookup failed for repo %s: %s", repo, exc)
-        candidates = []
-    _REPO_IMAGE_INDEX[repo] = candidates
-    return candidates
-
-
 async def resolve_swebench_image_exact(task, config) -> str:
-    """Resolve the EXACT official SWE-bench image via a Docker Hub lookup.
+    """Resolve the EXACT official SWE-bench image for a task.
 
-    The official name embeds a per-repo version segment (e.g. ``1776`` in
-    ``sweb.eval.x86_64.astropy_1776_astropy-12907``) that only the swebench
-    package's versioning map computes — not derivable from the dataset fields
-    victor has. Rather than take a hard dep on swebench, look the exact repo up
-    on Docker Hub (one search per REPO — see :data:`_REPO_IMAGE_INDEX` — then a
-    cheap per-instance match against the cached candidate list). Falls back to
-    the heuristic :func:`resolve_swebench_image` on any failure (which then
-    degrades gracefully via host fallback on a pull failure).
+    The official image name is fully deterministic from the instance id
+    (``__`` → the constant ``_1776_`` separator — see
+    :func:`resolve_swebench_image`), so this just applies precedence and returns
+    that name; no network lookup is needed. (Historically this did a Docker Hub
+    *search* to recover a presumed per-repo version segment, but that segment is
+    a constant — and the search failed for high-instance repos like django,
+    whose images fall off the first page of results, silently degrading every
+    non-cached instance to the deps-less host eval path.)
 
-    Precedence: ``task.docker_image`` → ``config.docker_image_override`` → Docker
-    Hub lookup → heuristic.
+    Precedence: ``task.docker_image`` → ``config.docker_image_override`` →
+    deterministic official name. A wrong name is still safe: ``docker pull``
+    fails → :class:`DockerUnavailable` → host fallback.
+
+    Async is retained for call-site compatibility (callers ``await`` this).
     """
     if getattr(task, "docker_image", None):
         return task.docker_image
     if getattr(config, "docker_image_override", None):
         return config.docker_image_override
-
-    instance_id = (getattr(task, "task_id", "") or "").lower()
-    if "__" not in instance_id:
-        return resolve_swebench_image(task, config)
-    if instance_id in _INSTANCE_IMAGE_CACHE:
-        return _INSTANCE_IMAGE_CACHE[instance_id]
-
-    repo, _, issue = instance_id.partition("__")
-    candidates = await _resolve_repo_image_candidates(repo)
-
-    # The exact repo ends with the instance's issue id, e.g.
-    # swebench/sweb.eval.x86_64.astropy_1776_astropy-12907  (issue = astropy-12907).
-    match = next((rn for rn in candidates if rn.endswith(issue)), None)
-    if not match:
-        logger.warning(
-            "No Docker Hub image match for %s among %d candidate(s) for repo "
-            "%s; using heuristic name",
-            instance_id,
-            len(candidates),
-            repo,
-        )
-        return resolve_swebench_image(task, config)
-    image = f"docker.io/{match}"
-    _INSTANCE_IMAGE_CACHE[instance_id] = image
-    logger.info("Resolved SWE-bench image for %s via Docker Hub: %s", instance_id, image)
-    return image
+    return resolve_swebench_image(task, config)
 
 
 async def _run_cmd(cmd: list[str], timeout: float) -> tuple[int, bytes, bytes]:

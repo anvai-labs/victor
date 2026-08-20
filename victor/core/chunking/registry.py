@@ -1,4 +1,4 @@
-# Copyright 2025 Vijaykumar Singh <singhvjd@gmail.com>
+# Copyright 2025 Vijaykumar Singh <vijay@anvaiops.com>
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -161,6 +161,15 @@ class ChunkingRegistry:
 
         # Get and apply strategy
         strategy = self.get_strategy(detected_type)
+        if strategy.name == "code":
+            from victor.core.chunking.strategies.code import CodeChunkingStrategy
+
+            if isinstance(strategy, CodeChunkingStrategy):
+                return strategy.chunk(
+                    content,
+                    source=source,
+                    language=None if detected_type == "code" else detected_type,
+                )
         return strategy.chunk(content)
 
     @property

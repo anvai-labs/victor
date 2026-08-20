@@ -1,4 +1,4 @@
-# Copyright 2026 Vijaykumar Singh <singhvjd@gmail.com>
+# Copyright 2026 Vijaykumar Singh <vijay@anvaiops.com>
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -48,9 +48,8 @@ from victor.storage.vector_stores.base import (
 from victor.core.utils.capability_loader import load_tree_sitter_get_parser
 from victor.storage.vector_stores.code_chunking import (
     CodeChunk,
-    CodeChunkingContext,
-    TreeSitterParseContext,
     create_code_chunker,
+    normalize_code_chunking_strategy,
 )
 from victor.storage.vector_stores.change_impact import ChangeImpactAccumulator
 from victor.storage.vector_stores.issue_localization import IssueLocalizationAccumulator
@@ -191,12 +190,11 @@ class _GraphSnapshot:
 
 @dataclass
 class _TreeSitterAnalysis:
-    """Parse-once tree-sitter artifacts reused by graph extraction and chunking."""
+    """Parse-once tree-sitter artifacts used by graph extraction."""
 
     parser: Any
     tree: Any
     queries: Any
-    chunking_context: TreeSitterParseContext
 
 
 class _NullLanguageRegistry:
@@ -257,8 +255,8 @@ class ProximaDBMultiModelProvider(BaseEmbeddingProvider):
         self._batch_size = int(config.extra_config.get("batch_size", 16))
         self._chunk_size = int(config.extra_config.get("chunk_size", 500))
         self._chunk_overlap = int(config.extra_config.get("chunk_overlap", 50))
-        self._code_chunking_strategy = str(
-            config.extra_config.get("code_chunking_strategy", "symbol_span")
+        self._code_chunking_strategy = normalize_code_chunking_strategy(
+            str(config.extra_config.get("code_chunking_strategy", "victor_codegraph"))
         )
         self._code_chunker = create_code_chunker(
             self._code_chunking_strategy,
@@ -551,14 +549,14 @@ class ProximaDBMultiModelProvider(BaseEmbeddingProvider):
         chunks = self._chunk_code(
             file_path,
             content,
-            graph_snapshot.symbols,
-            tree_analysis=tree_analysis,
+            language_name,
         )
         if chunks:
             documents = []
             for index, chunk in enumerate(chunks):
                 chunk_metadata = {
                     **base_metadata,
+                    **chunk.metadata,
                     "record_type": "code_chunk",
                     "chunk_index": index,
                     "chunk_type": chunk.chunk_type,
@@ -566,10 +564,12 @@ class ProximaDBMultiModelProvider(BaseEmbeddingProvider):
                     "parent_symbol": chunk.parent_symbol,
                     "start_line": chunk.start_line,
                     "end_line": chunk.end_line,
+                    "chunk_id": chunk.chunk_id,
+                    "symbol_id": chunk.symbol_id,
                 }
                 documents.append(
                     {
-                        "id": self._chunk_record_id(file_path, file_hash, index),
+                        "id": chunk.chunk_id or self._chunk_record_id(file_path, file_hash, index),
                         "content": chunk.content,
                         "metadata": chunk_metadata,
                     }
@@ -1390,14 +1390,9 @@ class ProximaDBMultiModelProvider(BaseEmbeddingProvider):
         self,
         file_path: str,
         content: str,
-        symbols: List[_GraphSymbol],
-        tree_analysis: Optional[_TreeSitterAnalysis] = None,
+        language: str,
     ) -> List[CodeChunk]:
-        chunking_context = CodeChunkingContext(
-            symbols=symbols,
-            parse_context=tree_analysis.chunking_context if tree_analysis else None,
-        )
-        return self._code_chunker.chunk(file_path, content, chunking_context)
+        return self._code_chunker.chunk(file_path, content, language=language)
 
     def _extract_graph_snapshot(
         self,
@@ -1444,7 +1439,6 @@ class ProximaDBMultiModelProvider(BaseEmbeddingProvider):
             parser=parser,
             tree=tree,
             queries=queries,
-            chunking_context=TreeSitterParseContext.from_content(content, tree.root_node),
         )
 
     def _extract_tree_sitter_snapshot(

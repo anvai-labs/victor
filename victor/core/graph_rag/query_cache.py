@@ -1,4 +1,4 @@
-# Copyright 2025 Vijaykumar Singh <singhvjd@gmail.com>
+# Copyright 2025 Vijaykumar Singh <vijay@anvaiops.com>
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -265,6 +265,9 @@ def _create_query_cache_key(
         "max_hops": getattr(config, "max_hops", 2),
         "top_k": getattr(config, "top_k", 10),
         "edge_types": sorted(getattr(config, "edge_types", None) or []),
+        # Direction: "who calls X" and "what does X call" are different answers
+        # over the same edges — they must not share a cache entry.
+        "direction": getattr(config, "direction", "out"),
         # Seed strategy: semantic/structural/hybrid results must not collide.
         "mode": getattr(config, "mode", "semantic"),
     }

@@ -22,6 +22,7 @@ class _RecordingGraphStore:
         self.write_batch_entries = 0
         self._write_batch_depth = 0
         self.calls: list[tuple[str, bool, int | None]] = []
+        self.nodes: list = []
 
     @asynccontextmanager
     async def write_batch(self):
@@ -45,7 +46,17 @@ class _RecordingGraphStore:
 
     async def upsert_nodes(self, nodes):
         rows = list(nodes)
+        self.nodes.extend(rows)
         self.calls.append(("nodes", self.in_write_batch, len(rows)))
+
+    async def get_all_nodes(self):
+        """The cross-file resolution passes build their name indices from here.
+
+        They used to read the SQLite ``graph_node`` table with raw SQL, which
+        returned nothing on any other backend. Reading through the store is what
+        makes those passes backend-agnostic, so the fake has to hold nodes.
+        """
+        return list(self.nodes)
 
     async def upsert_edges(self, edges):
         rows = list(edges)
@@ -58,9 +69,6 @@ class _RecordingGraphStore:
         self.calls.append(("delete", self.in_write_batch, None))
 
     async def get_stale_files(self, file_mtimes):
-        return []
-
-    async def get_all_nodes(self):
         return []
 
 
@@ -446,6 +454,53 @@ async def test_run_indexing_with_lock_uses_project_index_lock(monkeypatch, tmp_p
     assert lock_events == [str(tmp_path.resolve()), "enter", "operation", "exit"]
 
 
+async def _seed_symbols(
+    pipeline, rows=None, *, name_rows=None, impl_rows=None, node_type="function"
+) -> None:
+    """Seed the graph store with the symbols a resolution pass binds against.
+
+    Mirrors what ``_FakeProjectDatabaseManager`` used to feed the raw SQL:
+
+    - ``name_rows`` — ``(name, node_id[, file])`` callable symbols, the
+      project-wide leaf-name index.
+    - ``impl_rows`` — ``(impl_type, method_name, node_id)``. Recreated as a
+      method node whose ``parent_id`` points at an ``impl`` node named
+      ``impl_type``, which is the real shape the resolver reads.
+
+    The passes now build these indices via ``get_all_nodes()`` rather than
+    querying SQLite directly, so they work on any backend — a ProximaDB-backed
+    repo previously resolved zero cross-file edges because ``graph_node`` was
+    empty there.
+    """
+    from victor.storage.graph import GraphNode
+
+    # Keyed by node_id: a test may list the same symbol in both name_rows and
+    # impl_rows (the leaf-name index and the receiver-typed index overlap).
+    # Emitting it twice would double its fanout and change what the resolver
+    # decides, so the impl_rows pass augments the existing node rather than
+    # adding a second one.
+    by_id: dict = {}
+    for row in list(rows or name_rows or []):
+        name, node_id = row[0], row[1]
+        file = row[2] if len(row) >= 3 and row[2] is not None else ""
+        by_id[node_id] = GraphNode(node_id=node_id, type=node_type, name=name, file=file)
+
+    for impl_type, method_name, node_id in list(impl_rows or []):
+        impl_id = f"impl:{impl_type}"
+        if impl_id not in by_id:
+            by_id[impl_id] = GraphNode(node_id=impl_id, type="impl", name=impl_type, file="")
+        existing = by_id.get(node_id)
+        by_id[node_id] = GraphNode(
+            node_id=node_id,
+            type="method",
+            name=method_name,
+            file=existing.file if existing else "",
+            parent_id=impl_id,
+        )
+
+    await pipeline.graph_store.upsert_nodes(list(by_id.values()))
+
+
 class _FakeProjectDatabaseManager:
     """Stand-in for ProjectDatabaseManager.
 
@@ -526,10 +581,7 @@ async def test_resolve_cross_file_calls_emits_edges_for_cross_file_callees(
     ]
 
     # Project-wide name index has one callee, in a different file (cross-file).
-    monkeypatch.setattr(
-        "victor.core.database.ProjectDatabaseManager",
-        _FakeProjectDatabaseManager([("shared_fn", "callee_x")]),
-    )
+    await _seed_symbols(pipeline, [("shared_fn", "callee_x")])
 
     captured_edges: list[GraphEdge] = []
 
@@ -561,10 +613,7 @@ async def test_resolve_cross_file_calls_skips_self_loops(monkeypatch, tmp_path: 
     pipeline = GraphIndexingPipeline(graph_store, config)
     pipeline._pending_call_records = [("node_self", "recurse", None, False)]
 
-    monkeypatch.setattr(
-        "victor.core.database.ProjectDatabaseManager",
-        _FakeProjectDatabaseManager([("recurse", "node_self")]),
-    )
+    await _seed_symbols(pipeline, [("recurse", "node_self")])
 
     captured: list[GraphEdge] = []
     monkeypatch.setattr(graph_store, "upsert_edges", lambda edges: captured.extend(edges))
@@ -592,16 +641,14 @@ async def test_resolve_cross_file_calls_respects_fanout_cap(monkeypatch, tmp_pat
         ("caller", "rare", None, False),  # 1 candidate  -> emitted
     ]
 
-    monkeypatch.setattr(
-        "victor.core.database.ProjectDatabaseManager",
-        _FakeProjectDatabaseManager(
-            [
-                ("popular", "p1"),
-                ("popular", "p2"),
-                ("popular", "p3"),
-                ("rare", "r1"),
-            ]
-        ),
+    await _seed_symbols(
+        pipeline,
+        [
+            ("popular", "p1"),
+            ("popular", "p2"),
+            ("popular", "p3"),
+            ("rare", "r1"),
+        ],
     )
 
     captured: list[GraphEdge] = []
@@ -694,10 +741,7 @@ async def test_resolve_filters_by_impl_type_when_receiver_known(monkeypatch, tmp
         ("Baz", "render", "render_baz_id"),
         ("Qux", "render", "render_qux_id"),
     ]
-    monkeypatch.setattr(
-        "victor.core.database.ProjectDatabaseManager",
-        _FakeProjectDatabaseManager(name_rows=name_rows, impl_rows=impl_rows),
-    )
+    await _seed_symbols(pipeline, name_rows=name_rows, impl_rows=impl_rows)
 
     captured: list[GraphEdge] = []
 
@@ -737,10 +781,7 @@ async def test_resolve_does_not_fall_back_when_receiver_type_unmatched(monkeypat
 
     name_rows = [("render", "render_foo_id")]
     impl_rows = [("Foo", "render", "render_foo_id")]  # no impl MysteryType
-    monkeypatch.setattr(
-        "victor.core.database.ProjectDatabaseManager",
-        _FakeProjectDatabaseManager(name_rows=name_rows, impl_rows=impl_rows),
-    )
+    await _seed_symbols(pipeline, name_rows=name_rows, impl_rows=impl_rows)
 
     captured: list[GraphEdge] = []
 
@@ -787,10 +828,7 @@ async def test_resolve_drops_method_calls_with_no_inferable_receiver(monkeypatch
     name_rows = [("collect", f"collect_{i}") for i in range(10)] + [
         ("free_fn", "free_fn_id"),
     ]
-    monkeypatch.setattr(
-        "victor.core.database.ProjectDatabaseManager",
-        _FakeProjectDatabaseManager(name_rows=name_rows, impl_rows=impl_rows),
-    )
+    await _seed_symbols(pipeline, name_rows=name_rows, impl_rows=impl_rows)
 
     captured: list[GraphEdge] = []
 
@@ -844,10 +882,7 @@ async def test_resolve_does_not_fanout_when_external_stdlib_receiver(monkeypatch
         )
     ]
     name_rows = [(row[1], row[2]) for row in impl_rows]
-    monkeypatch.setattr(
-        "victor.core.database.ProjectDatabaseManager",
-        _FakeProjectDatabaseManager(name_rows=name_rows, impl_rows=impl_rows),
-    )
+    await _seed_symbols(pipeline, name_rows=name_rows, impl_rows=impl_rows)
 
     captured: list[GraphEdge] = []
 
@@ -888,10 +923,7 @@ async def test_resolve_receiver_typed_match_bypasses_fanout_cap(monkeypatch, tmp
         ("Other", "method", "other_method_id"),
     ]
     name_rows = [(row[1], row[2]) for row in impl_rows]
-    monkeypatch.setattr(
-        "victor.core.database.ProjectDatabaseManager",
-        _FakeProjectDatabaseManager(name_rows=name_rows, impl_rows=impl_rows),
-    )
+    await _seed_symbols(pipeline, name_rows=name_rows, impl_rows=impl_rows)
 
     captured: list[GraphEdge] = []
 
@@ -946,10 +978,7 @@ async def test_name_only_resolution_prefers_same_file_candidate(monkeypatch, tmp
         ("inputs", "inputs_b", "src/file_b.rs"),
         ("inputs", "inputs_c", "src/file_c.rs"),
     ]
-    monkeypatch.setattr(
-        "victor.core.database.ProjectDatabaseManager",
-        _FakeProjectDatabaseManager(name_rows=name_rows),
-    )
+    await _seed_symbols(pipeline, name_rows=name_rows)
 
     captured: list[GraphEdge] = []
 
@@ -965,29 +994,18 @@ async def test_name_only_resolution_prefers_same_file_candidate(monkeypatch, tmp
 
 
 @pytest.mark.asyncio
-async def test_name_index_excludes_trait_impl_methods(monkeypatch, tmp_path: Path):
-    """Trait method names like `drop`, `fmt`, `eq`, `hash` should not appear in
-    the name-only candidate list. They're invoked by the compiler or by typed
-    method dispatch, never by plain function calls. Without this filter,
-    `drop(x)` (std::mem::drop) was fanning out across all 16 user `impl Drop
-    for T { fn drop }` impls in proximaDB.
+async def test_name_index_excludes_trait_impl_methods(tmp_path: Path):
+    """Trait method names must not appear in the name-only candidate list.
 
-    Verifies the resolver's SQL query carries the trait-impl filter
-    (signature NOT LIKE '% for %').
+    Names like `drop`, `fmt`, `eq`, `hash` are invoked by the compiler or by
+    typed method dispatch, never by a plain call. Without the filter, `drop(x)`
+    (std::mem::drop) fanned out across every user `impl Drop for T { fn drop }`.
+
+    Asserts the *behaviour* rather than the SQL text: this index is now built
+    from the graph store so it works on any backend, so there is no query string
+    left to inspect.
     """
-    captured_queries: list[str] = []
-
-    class _RecordingConn:
-        def execute(self, query):
-            captured_queries.append(query)
-            return iter([])
-
-    class _RecordingDB:
-        def __call__(self, _path):
-            return self
-
-        def _get_raw_connection(self):
-            return _RecordingConn()
+    from victor.storage.graph import GraphNode
 
     graph_store = _RecordingGraphStore()
     config = GraphIndexConfig(
@@ -997,23 +1015,55 @@ async def test_name_index_excludes_trait_impl_methods(monkeypatch, tmp_path: Pat
         enable_subgraph_cache=False,
     )
     pipeline = GraphIndexingPipeline(graph_store, config)
+
+    # `impl Drop for Widget { fn drop }` — a trait impl, so `drop` is excluded.
+    # `impl Widget { fn drop }` — inherent, so its `drop` stays a candidate.
+    await graph_store.upsert_nodes(
+        [
+            GraphNode(
+                node_id="trait_impl",
+                type="impl",
+                name="Drop",
+                file="src/w.rs",
+                signature="impl Drop for Widget {",
+            ),
+            GraphNode(
+                node_id="trait_drop",
+                type="method",
+                name="drop",
+                file="src/w.rs",
+                parent_id="trait_impl",
+            ),
+            GraphNode(
+                node_id="inherent_impl",
+                type="impl",
+                name="Widget",
+                file="src/w.rs",
+                signature="impl Widget {",
+            ),
+            GraphNode(
+                node_id="inherent_drop",
+                type="method",
+                name="drop",
+                file="src/w.rs",
+                parent_id="inherent_impl",
+            ),
+        ]
+    )
+
     pipeline._pending_call_records = [("caller", "drop", None, False)]
 
-    monkeypatch.setattr("victor.core.database.ProjectDatabaseManager", _RecordingDB())
+    captured: list[GraphEdge] = []
 
+    async def _capture(edges):
+        captured.extend(edges)
+
+    graph_store.upsert_edges = _capture  # type: ignore[assignment]
     await pipeline._resolve_cross_file_calls(tmp_path)
 
-    # The leaf-name query (no "impl_type" alias) must filter trait impls.
-    leaf_queries = [q for q in captured_queries if "FROM graph_node" in q and "impl_type" not in q]
-    assert leaf_queries, "expected at least one leaf-name SELECT against graph_node"
-    leaf_query = leaf_queries[0]
-    assert "NOT LIKE" in leaf_query, (
-        "leaf-name query must exclude trait-impl methods via NOT LIKE on signature; "
-        f"got: {leaf_query!r}"
-    )
-    assert "for" in leaf_query.lower(), (
-        "leaf-name query must filter on ` for ` substring; " f"got: {leaf_query!r}"
-    )
+    targets = {e.dst for e in captured}
+    assert "trait_drop" not in targets, "trait-impl method must not be a call candidate"
+    assert "inherent_drop" in targets, "inherent method must remain a candidate"
 
 
 @pytest.mark.asyncio
@@ -1037,10 +1087,7 @@ async def test_name_only_falls_through_when_no_same_file_candidate(monkeypatch, 
         ("helper", "helper_b", "src/file_b.rs"),
         ("helper", "helper_c", "src/file_c.rs"),
     ]
-    monkeypatch.setattr(
-        "victor.core.database.ProjectDatabaseManager",
-        _FakeProjectDatabaseManager(name_rows=name_rows),
-    )
+    await _seed_symbols(pipeline, name_rows=name_rows)
 
     captured: list[GraphEdge] = []
 
@@ -1124,7 +1171,7 @@ def test_parse_file_sync_uses_enhanced_provider_when_available(monkeypatch, tmp_
 
     result = pipeline._parse_file_sync(file_path)
 
-    assert provider.calls == [str(file_path)]
+    assert provider.calls == ["a.py"]
     # _parse_file_sync prepends a synthetic module node so IMPORTS edges and
     # top-level CONTAINS edges have something to attach to. The extracted
     # symbol follows it.
@@ -1234,6 +1281,281 @@ def test_provider_symbols_to_graph_nodes_maps_dict_fields() -> None:
     assert node.ast_kind == "class_definition"
 
 
+def test_provider_symbols_to_graph_nodes_preserves_codegraph_v2_identity() -> None:
+    pipeline = _make_pipeline(Path("/tmp"))
+    symbols = [
+        {
+            "name": "f",
+            "symbol_type": "function",
+            "file_path": "pkg/m.py",
+            "line_start": 9,
+            "line_end": 10,
+            "ast_kind": "function_definition",
+            "symbol_id": "stable-v2-id",
+        }
+    ]
+    node = pipeline._provider_symbols_to_graph_nodes(symbols, Path("pkg/m.py"), "python")[0]
+    assert node.node_id == "stable-v2-id"
+
+
+def test_provider_symbols_recover_identity_from_prepared_repository(tmp_path: Path) -> None:
+    """The provider currently delegates to codegraph but omits ``symbol_id``.
+
+    The prepared repository snapshot is the canonical identity authority, so
+    the adapter must recover the id from the same file/name/line/type tuple
+    instead of inventing an unrelated hash and breaking relation joins.
+    """
+    codegraph = pytest.importorskip("victor_codegraph")
+    path = tmp_path / "m.py"
+    path.write_text("def target():\n    return 1\n", encoding="utf-8")
+    pipeline = _make_pipeline(tmp_path)
+    pipeline._prepare_codegraph_repository(tmp_path, [path])
+    expected = next(
+        symbol
+        for symbol in pipeline._codegraph_repository.symbols
+        if symbol.simple_name == "target"
+    )
+    provider_symbol = {
+        "name": expected.simple_name,
+        "symbol_type": expected.symbol_type.name.lower(),
+        "file_path": expected.location.file_path,
+        "line_start": expected.location.start_line,
+        "line_end": expected.location.end_line,
+        "ast_kind": "function_definition",
+    }
+
+    node = pipeline._provider_symbols_to_graph_nodes([provider_symbol], path, "python")[0]
+
+    assert node.node_id == expected.id
+
+
+def test_module_node_id_matches_codegraph_file_identity() -> None:
+    codegraph = pytest.importorskip("victor_codegraph")
+    from victor.core.graph_rag.indexing import _module_node_id
+
+    expected = codegraph.stable_symbol_key(
+        "repository", codegraph.CodeSymbolType.FILE, "pkg/m.py", None, "pkg/m.py"
+    )
+    assert _module_node_id("pkg/m.py") == expected
+
+
+@pytest.mark.asyncio
+async def test_core_call_edges_preserve_codegraph_v2_ids(tmp_path: Path) -> None:
+    codegraph = pytest.importorskip("victor_codegraph")
+    from victor.core.graph_rag.indexing import _get_graph_types
+
+    source = "def caller(): return target()\n\ndef target(): return 1\n"
+    path = tmp_path / "m.py"
+    path.write_text(source)
+    pipeline = _make_pipeline(tmp_path)
+    parsed = codegraph.parse(source, file_path="m.py")
+    GraphNode, _ = _get_graph_types()
+    nodes = [
+        GraphNode(
+            node_id=s.id,
+            type=s.symbol_type.name.lower(),
+            name=s.simple_name,
+            file="m.py",
+            line=s.location.start_line,
+            lang="python",
+        )
+        for s in parsed.symbols
+    ]
+
+    edges = await pipeline._build_calls_edges(nodes, path)
+    call = next(edge for edge in edges if edge.type.value == "CALLS")
+    expected = next(r for r in parsed.relations if r.relation_type.name == "CALLS")
+    assert (call.src, call.dst) == (expected.from_symbol_id, expected.to_symbol_id)
+
+
+@pytest.mark.asyncio
+async def test_codegraph_repository_relations_use_import_context_and_suppress_name_fanout(
+    tmp_path: Path,
+) -> None:
+    """Repository resolution must bind a call only to the imported definition.
+
+    The legacy resolver fans a leaf-name call out to every matching symbol.  The
+    v2 repository resolver instead uses the caller's imports and preserves the
+    canonical symbol ids.  Once that semantic result is available, the lossy
+    legacy records for the same source must be discarded.
+    """
+    codegraph = pytest.importorskip("victor_codegraph")
+    caller_path = tmp_path / "caller.py"
+    caller_path.write_text(
+        "from preferred import Base, target\n\n"
+        "class Child(Base):\n    pass\n\n"
+        "def caller():\n    return target()\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "preferred.py").write_text(
+        "class Base:\n    pass\n\ndef target():\n    return 'preferred'\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "other.py").write_text(
+        "class Base:\n    pass\n\ndef target():\n    return 'other'\n",
+        encoding="utf-8",
+    )
+
+    graph_store = _RecordingGraphStore()
+    pipeline = GraphIndexingPipeline(
+        graph_store,
+        GraphIndexConfig(
+            root_path=tmp_path,
+            enable_ccg=False,
+            enable_embeddings=False,
+            enable_subgraph_cache=False,
+        ),
+    )
+    repository = codegraph.parse_repo(tmp_path)
+    pipeline._codegraph_repository = repository
+    caller = next(symbol for symbol in repository.symbols if symbol.simple_name == "caller")
+    preferred = next(
+        symbol
+        for symbol in repository.symbols
+        if symbol.simple_name == "target" and symbol.location.file_path == "preferred.py"
+    )
+    other = next(
+        symbol
+        for symbol in repository.symbols
+        if symbol.simple_name == "target" and symbol.location.file_path == "other.py"
+    )
+    child = next(symbol for symbol in repository.symbols if symbol.simple_name == "Child")
+    preferred_base = next(
+        symbol
+        for symbol in repository.symbols
+        if symbol.simple_name == "Base" and symbol.location.file_path == "preferred.py"
+    )
+    other_base = next(
+        symbol
+        for symbol in repository.symbols
+        if symbol.simple_name == "Base" and symbol.location.file_path == "other.py"
+    )
+    pipeline._codegraph_owned_symbol_ids = {caller.id, child.id}
+    pipeline._codegraph_owned_files = {"caller.py"}
+    pipeline._pending_call_records = [(caller.id, "target", None, False)]
+    pipeline._pending_relationship_records = [(child.id, "Base", "INHERITS")]
+    pipeline._pending_import_records = [
+        (str(caller_path), "from preferred import target", "python")
+    ]
+
+    captured: list[GraphEdge] = []
+
+    async def _capture_edges(edges):
+        captured.extend(edges)
+
+    graph_store.upsert_edges = _capture_edges
+    graph_store.nodes.extend(MagicMock(node_id=symbol.id) for symbol in repository.symbols)
+
+    projection = await pipeline._resolve_codegraph_repository_relations()
+
+    assert (projection.calls, projection.relationships, projection.imports) == (1, 1, 1)
+    assert projection.dropped_unmaterialized == 0
+    call_edges = [edge for edge in captured if edge.type.value == "CALLS"]
+    assert [(edge.src, edge.dst) for edge in call_edges] == [(caller.id, preferred.id)]
+    assert all(edge.dst != other.id for edge in call_edges)
+    relationship_edges = [edge for edge in captured if edge.type.value == "INHERITS"]
+    assert [(edge.src, edge.dst) for edge in relationship_edges] == [(child.id, preferred_base.id)]
+    assert all(edge.dst != other_base.id for edge in relationship_edges)
+    assert pipeline._pending_call_records == []
+    assert pipeline._pending_relationship_records == []
+    assert pipeline._pending_import_records == []
+
+
+@pytest.mark.asyncio
+async def test_codegraph_repository_relation_fallback_preserves_legacy_buffers(
+    tmp_path: Path,
+) -> None:
+    pipeline = GraphIndexingPipeline(
+        _RecordingGraphStore(),
+        GraphIndexConfig(
+            root_path=tmp_path,
+            enable_ccg=False,
+            enable_embeddings=False,
+            enable_subgraph_cache=False,
+        ),
+    )
+    pending_call = ("caller", "target", None, False)
+    pending_relationship = ("child", "Base", "INHERITS")
+    pending_import = (str(tmp_path / "caller.py"), "import target", "python")
+    pipeline._pending_call_records = [pending_call]
+    pipeline._pending_relationship_records = [pending_relationship]
+    pipeline._pending_import_records = [pending_import]
+
+    projection = await pipeline._resolve_codegraph_repository_relations()
+    assert (projection.calls, projection.relationships, projection.imports) == (0, 0, 0)
+    assert projection.dropped_unmaterialized == 0
+    assert pipeline._pending_call_records == [pending_call]
+    assert pipeline._pending_relationship_records == [pending_relationship]
+    assert pipeline._pending_import_records == [pending_import]
+
+
+@pytest.mark.asyncio
+async def test_core_call_edges_reuse_prepared_repository_snapshot(
+    monkeypatch, tmp_path: Path
+) -> None:
+    codegraph = pytest.importorskip("victor_codegraph")
+    from victor.core.graph_rag.indexing import _get_graph_types
+
+    source = "def caller(): return target()\n\ndef target(): return 1\n"
+    path = tmp_path / "m.py"
+    path.write_text(source, encoding="utf-8")
+    repository = codegraph.parse_repo(tmp_path)
+    pipeline = _make_pipeline(tmp_path)
+    pipeline._codegraph_repository = repository
+    GraphNode, _ = _get_graph_types()
+    nodes = [
+        GraphNode(
+            node_id=symbol.id,
+            type=symbol.symbol_type.name.lower(),
+            name=symbol.simple_name,
+            file="m.py",
+            line=symbol.location.start_line,
+            lang="python",
+        )
+        for symbol in repository.files["m.py"].symbols
+    ]
+    monkeypatch.setattr(
+        codegraph,
+        "parse",
+        lambda *args, **kwargs: pytest.fail("prepared snapshot must avoid a per-file reparse"),
+    )
+
+    edges = await pipeline._build_calls_edges(nodes, path)
+
+    assert len([edge for edge in edges if edge.type.value == "CALLS"]) == 1
+    assert pipeline._codegraph_owned_files == {"m.py"}
+
+
+@pytest.mark.asyncio
+async def test_codegraph_repository_relations_cover_import_only_modules(tmp_path: Path) -> None:
+    codegraph = pytest.importorskip("victor_codegraph")
+    importer = tmp_path / "importer.py"
+    importer.write_text("import target\n", encoding="utf-8")
+    (tmp_path / "target.py").write_text("VALUE = 1\n", encoding="utf-8")
+    graph_store = _RecordingGraphStore()
+    pipeline = GraphIndexingPipeline(
+        graph_store,
+        GraphIndexConfig(
+            root_path=tmp_path,
+            enable_ccg=False,
+            enable_embeddings=False,
+            enable_subgraph_cache=False,
+        ),
+    )
+    pipeline._codegraph_repository = codegraph.parse_repo(tmp_path)
+    module_node = pipeline._make_module_node(importer, "python")
+
+    await pipeline._build_calls_edges([module_node], importer)
+    graph_store.nodes.extend(
+        MagicMock(node_id=symbol.id) for symbol in pipeline._codegraph_repository.symbols
+    )
+    projection = await pipeline._resolve_codegraph_repository_relations()
+
+    assert (projection.calls, projection.relationships, projection.imports) == (0, 0, 1)
+    assert projection.dropped_unmaterialized == 0
+    assert pipeline._codegraph_owned_files == {"importer.py"}
+
+
 def test_provider_fallback_increments_stat_in_merge(tmp_path: Path) -> None:
     pipeline = _make_pipeline(tmp_path)
     target = GraphIndexStats()
@@ -1283,11 +1605,11 @@ async def test_resolve_cross_file_relationships_emits_inherits_edges(
         ("child_id", "Helper", "COMPOSITION"),
     ]
 
-    monkeypatch.setattr(
-        "victor.core.database.ProjectDatabaseManager",
-        _FakeProjectDatabaseManager(
-            [("Parent", "parent_id"), ("Iface", "iface_id"), ("Helper", "helper_id")]
-        ),
+    # INHERITS/IMPLEMENTS/COMPOSITION bind only to class-like types.
+    await _seed_symbols(
+        pipeline,
+        [("Parent", "parent_id"), ("Iface", "iface_id"), ("Helper", "helper_id")],
+        node_type="class",
     )
 
     captured: list[GraphEdge] = []
@@ -1324,10 +1646,7 @@ async def test_resolve_cross_file_relationships_drops_self_loops(
 
     # Pathological case: a class named "Self" that "inherits" from itself.
     pipeline._pending_relationship_records = [("node_self", "Self", "INHERITS")]
-    monkeypatch.setattr(
-        "victor.core.database.ProjectDatabaseManager",
-        _FakeProjectDatabaseManager([("Self", "node_self")]),
-    )
+    await _seed_symbols(pipeline, [("Self", "node_self")])
 
     captured: list[GraphEdge] = []
     monkeypatch.setattr(graph_store, "upsert_edges", lambda edges: captured.extend(edges))
@@ -1406,6 +1725,31 @@ def test_resolve_module_to_path_prefers_module_over_package(tmp_path: Path) -> N
     assert ImportResolverRegistry.create("go") is None
 
 
+async def _seed_indexed_modules(pipeline, files) -> None:
+    """Persist a module node per file through the pipeline's graph store.
+
+    ``_resolve_imports`` filters IMPORTS targets to files that actually produced
+    a module node, so a target with no node would dangle. That set used to come
+    from raw SQL against SQLite's ``graph_node`` table — which returned nothing
+    on any other backend — and is now read through ``get_all_nodes()``. Seeding
+    the store is therefore how a test declares "these files were indexed".
+    """
+    from victor.storage.graph import GraphNode
+
+    paths = [files] if isinstance(files, (str, Path)) else list(files)
+    await pipeline.graph_store.upsert_nodes(
+        [
+            GraphNode(
+                node_id=f"mod:{i}",
+                type="module",
+                name=Path(f).stem,
+                file=f if isinstance(f, str) else pipeline._canonical_file_str(f),
+            )
+            for i, f in enumerate(paths)
+        ]
+    )
+
+
 class _FakeIndexedFilesDb:
     """Stand-in for ProjectDatabaseManager that pretends a fixed set of
     files were indexed in this run. The resolver filters IMPORTS targets
@@ -1446,11 +1790,8 @@ async def test_resolve_imports_emits_edges_between_module_nodes(
     # Match SqliteGraphStore's canonical storage form: repo-relative posix
     # paths. The resolver compares its computed canonical paths against this
     # set, so the test fixture must mirror that contract.
-    monkeypatch.setattr(
-        "victor.core.database.ProjectDatabaseManager",
-        _FakeIndexedFilesDb(
-            [pipeline._canonical_file_str(src), pipeline._canonical_file_str(target)]
-        ),
+    await _seed_indexed_modules(
+        pipeline, [pipeline._canonical_file_str(src), pipeline._canonical_file_str(target)]
     )
 
     pipeline._pending_import_records = [
@@ -1485,10 +1826,7 @@ async def test_resolve_imports_skips_stdlib_and_self(monkeypatch, tmp_path: Path
     pipeline = _make_pipeline(tmp_path)
     src = tmp_path / "x.py"
     src.write_text("")
-    monkeypatch.setattr(
-        "victor.core.database.ProjectDatabaseManager",
-        _FakeIndexedFilesDb([pipeline._canonical_file_str(src)]),
-    )
+    await _seed_indexed_modules(pipeline, [pipeline._canonical_file_str(src)])
     pipeline._pending_import_records = [
         # External — won't resolve to a project file.
         (str(src), "import os", "python"),
@@ -1517,11 +1855,8 @@ async def test_resolve_imports_deduplicates_repeated_pairs(monkeypatch, tmp_path
     target = tmp_path / "b.py"
     src.write_text("import b\nimport b\n")
     target.write_text("")
-    monkeypatch.setattr(
-        "victor.core.database.ProjectDatabaseManager",
-        _FakeIndexedFilesDb(
-            [pipeline._canonical_file_str(src), pipeline._canonical_file_str(target)]
-        ),
+    await _seed_indexed_modules(
+        pipeline, [pipeline._canonical_file_str(src), pipeline._canonical_file_str(target)]
     )
     pipeline._pending_import_records = [
         (str(src), "import b", "python"),
@@ -1548,10 +1883,7 @@ async def test_resolve_imports_unsupported_languages_are_skipped(
     pipeline = _make_pipeline(tmp_path)
     src = tmp_path / "a.go"
     src.write_text("")
-    monkeypatch.setattr(
-        "victor.core.database.ProjectDatabaseManager",
-        _FakeIndexedFilesDb([pipeline._canonical_file_str(src)]),
-    )
+    await _seed_indexed_modules(pipeline, [pipeline._canonical_file_str(src)])
     pipeline._pending_import_records = [(str(src), 'import "fmt"', "go")]
 
     captured: list[GraphEdge] = []
@@ -1589,15 +1921,13 @@ async def test_resolve_imports_rust_use_declarations(monkeypatch, tmp_path: Path
     catalog_lib = catalog / "src" / "lib.rs"
     catalog_lib.write_text("")
 
-    monkeypatch.setattr(
-        "victor.core.database.ProjectDatabaseManager",
-        _FakeIndexedFilesDb(
-            [
-                pipeline._canonical_file_str(src),
-                pipeline._canonical_file_str(storage_mod),
-                pipeline._canonical_file_str(catalog_lib),
-            ]
-        ),
+    await _seed_indexed_modules(
+        pipeline,
+        [
+            pipeline._canonical_file_str(src),
+            pipeline._canonical_file_str(storage_mod),
+            pipeline._canonical_file_str(catalog_lib),
+        ],
     )
     pipeline._pending_import_records = [
         (str(src), "use crate::storage::StorageEngine;", "rust"),
@@ -1676,9 +2006,8 @@ async def test_resolve_imports_cpp_includes(monkeypatch, tmp_path: Path) -> None
     logger_h = tmp_path / "server" / "logging" / "logger.h"
     logger_h.write_text("")
 
-    monkeypatch.setattr(
-        "victor.core.database.ProjectDatabaseManager",
-        _FakeIndexedFilesDb([pipeline._canonical_file_str(p) for p in (src, header, logger_h)]),
+    await _seed_indexed_modules(
+        pipeline, [pipeline._canonical_file_str(p) for p in (src, header, logger_h)]
     )
     pipeline._pending_import_records = [
         (str(src), '#include "engine.h"', "cpp"),
@@ -1723,11 +2052,8 @@ async def test_resolve_imports_typescript_imports(monkeypatch, tmp_path: Path) -
     button = tmp_path / "src" / "components" / "Button.tsx"
     button.write_text("")
 
-    monkeypatch.setattr(
-        "victor.core.database.ProjectDatabaseManager",
-        _FakeIndexedFilesDb(
-            [pipeline._canonical_file_str(p) for p in (src, graph_util, barrel, button)]
-        ),
+    await _seed_indexed_modules(
+        pipeline, [pipeline._canonical_file_str(p) for p in (src, graph_util, barrel, button)]
     )
     pipeline._pending_import_records = [
         (str(src), "import { graph } from './utils/graph'", "typescript"),
@@ -1771,10 +2097,7 @@ async def test_resolve_imports_drops_dangling_targets(monkeypatch, tmp_path: Pat
     target.write_text("def foo(): pass\n")
     # Only `src` made it into the indexed-files set; `target` is on disk
     # but was filtered out of indexing.
-    monkeypatch.setattr(
-        "victor.core.database.ProjectDatabaseManager",
-        _FakeIndexedFilesDb([pipeline._canonical_file_str(src)]),
-    )
+    await _seed_indexed_modules(pipeline, [pipeline._canonical_file_str(src)])
     pipeline._pending_import_records = [(str(src), "import b", "python")]
 
     captured: list[GraphEdge] = []
@@ -1835,10 +2158,7 @@ async def test_resolve_cross_file_relationships_unresolved_target_skipped(
     pipeline._pending_relationship_records = [("child_id", "Vendored", "INHERITS")]
 
     # Project class index has no "Vendored" — common for third-party bases.
-    monkeypatch.setattr(
-        "victor.core.database.ProjectDatabaseManager",
-        _FakeProjectDatabaseManager([]),
-    )
+    await _seed_symbols(pipeline, [])
 
     captured: list[GraphEdge] = []
     monkeypatch.setattr(graph_store, "upsert_edges", lambda edges: captured.extend(edges))

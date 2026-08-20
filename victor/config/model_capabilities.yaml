@@ -223,6 +223,23 @@ provider_defaults:
     recommended_max_tools: 30
     recommended_tool_budget: 15
 
+  # llama.cpp server (llama-server) - OpenAI-compatible endpoint with native
+  # function-calling via --jinja (emits `finish_reason: tool_calls`, streams
+  # tool_call deltas). Same class as LMStudio/vLLM, NOT the strict-prompted
+  # Ollama path; without this it inherits the global `false` default and the
+  # agent narrates instead of calling tools.
+  llamacpp:
+    native_tool_calls: true
+    streaming_tool_calls: true
+    parallel_tool_calls: true
+    tool_choice_param: true
+    requires_strict_prompting: false
+    recommended_max_tools: 25
+    recommended_tool_budget: 15
+    # Local inference needs longer timeouts (300s * 1.5 = 450s = 7.5min)
+    timeout_multiplier: 1.5
+    exploration_multiplier: 1.3
+
   # Moonshot AI - OpenAI-compatible API for Kimi K2 models
   moonshot:
     native_tool_calls: true
@@ -405,6 +422,9 @@ models:
         native_tool_calls: true   # llama.cpp enables it
       vllm:
         native_tool_calls: true   # Guided decoding enables it
+      llamacpp:
+        native_tool_calls: true   # llama-server --jinja emits native tool_calls
+        requires_strict_prompting: false
 
     # Model settings
     settings:
@@ -431,6 +451,9 @@ models:
         native_tool_calls: true
       vllm:
         native_tool_calls: true
+      llamacpp:
+        native_tool_calls: true
+        parallel_tool_calls: true
 
     settings:
       recommended_tool_budget: 15

@@ -527,6 +527,35 @@ class TestAdapterProtocolConformance:
         assert metadata["degraded_resume_state"] is True
         assert metadata["continuation_ledger"].startswith("Intent:")
 
+    def test_start_task_report_preserves_caller_metadata(self):
+        orchestrator = object.__new__(AgentOrchestrator)
+        orchestrator.provider = SimpleNamespace(name="anthropic")
+        orchestrator.model = "claude-sonnet"
+        orchestrator._metrics_coordinator = MagicMock()
+        orchestrator._metrics_coordinator.start_task_report.return_value = "t-1"
+        orchestrator._current_stream_context = None
+        orchestrator.unified_tracker = None
+        orchestrator._current_task_type = None
+        orchestrator._task_type = None
+
+        assert (
+            AgentOrchestrator._start_task_report(
+                orchestrator,
+                "Summarize the changes",
+                stream=True,
+                metadata={"source": "test"},
+            )
+            == "t-1"
+        )
+
+        kwargs = orchestrator._metrics_coordinator.start_task_report.call_args.kwargs
+        assert kwargs["metadata"] == {
+            "stream": True,
+            "provider": "anthropic",
+            "model": "claude-sonnet",
+            "source": "test",
+        }
+
 
 @pytest.mark.filterwarnings("ignore::DeprecationWarning")
 class TestChatServiceBootstrapLaziness:

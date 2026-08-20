@@ -1,4 +1,4 @@
-# Copyright 2025 Vijaykumar Singh <singhvjd@gmail.com>
+# Copyright 2025 Vijaykumar Singh <vijay@anvaiops.com>
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -52,7 +52,7 @@ class CodebaseSettings(BaseModel):
     codebase_dimension: int = 384  # Embedding dimension
     codebase_batch_size: int = 32  # Batch size for embedding generation
     codebase_structural_indexing_enabled: bool = False
-    codebase_chunking_strategy: str = "tree_sitter_structural"
+    codebase_chunking_strategy: str = "victor_codegraph"
     codebase_chunk_size: int = 500
     codebase_chunk_overlap: int = 50
     codebase_embedding_extra_config: dict[str, Any] = Field(

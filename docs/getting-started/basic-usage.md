@@ -9,7 +9,7 @@
 > For Docker, see `../../docker/README.md` and `../../docker/QUICKREF.md`.
 
 ## Prerequisites
-- Python 3.10+
+- Python 3.11+
 - Optional: Ollama for local models
 
 ## Install

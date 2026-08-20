@@ -1,4 +1,4 @@
-# Copyright 2026 Vijaykumar Singh <singhvjd@gmail.com>
+# Copyright 2026 Vijaykumar Singh <vijay@anvaiops.com>
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -84,18 +84,27 @@ def assess_graduation(
     candidate: BatteryResult,
     *,
     oracle: Optional[HarnessAcceptanceOracle] = None,
+    neutral_band: float = 0.005,
 ) -> GraduationReport:
-    """Assess whether ``flag_name`` is safe to graduate default-on.
+    """Assess whether ``flag_name`` is safe *and worth it* to graduate default-on.
+
+    The oracle's ACCEPT is only the **safety** bar (no unacceptable regression). Flipping a
+    default-on additionally needs **benefit or genuine neutrality** — otherwise you take on cost
+    for nothing. So GRADUATE requires ACCEPT *and* an overall delta ≥ ``-neutral_band``; an accepted
+    candidate that is measurably worse (delta below the band) is safe but HOLDs ("no benefit").
 
     Args:
         flag_name: The opt-in flag under assessment (e.g. ``"effect_gated_completion"``).
         baseline: Battery with the flag **off**.
         candidate: Battery with the flag **on**.
         oracle: Acceptance oracle to gate with; a default is used when omitted.
+        neutral_band: How far below baseline still counts as "neutral" (default 0.005). A candidate
+            worse than this — even if not *significantly* worse — earns no default flip.
 
     Returns:
-        A :class:`GraduationReport`: GRADUATE when the oracle accepts (enabling the flag is not an
-        unacceptable regression — the flag-graduation policy's match-or-beat bar), else HOLD.
+        A :class:`GraduationReport`: GRADUATE when the flag beats-or-matches baseline (within the
+        neutral band) with no unacceptable regression; HOLD on regression, no benefit, or too little
+        data.
     """
     oracle = oracle or HarnessAcceptanceOracle()
     config = HarnessConfig(model="battery", label=f"graduate:{flag_name}")
@@ -112,13 +121,31 @@ def assess_graduation(
             ),
         )
     if report.accepted:
+        delta = report.overall_delta
+        if delta >= -neutral_band:
+            stance = (
+                "beats-or-matches baseline"
+                if delta >= 0
+                else f"is statistically neutral (within ±{neutral_band:.3f})"
+            )
+            return GraduationReport(
+                flag=flag_name,
+                verdict=GraduationVerdict.GRADUATE,
+                acceptance=report,
+                recommendation=(
+                    f"GRADUATE: enabling '{flag_name}' {stance} "
+                    f"(Δ {delta:+.4f}, no unacceptable regression)."
+                ),
+            )
+        # Accepted (no significant regression) but measurably worse → safe, but not worth flipping.
         return GraduationReport(
             flag=flag_name,
-            verdict=GraduationVerdict.GRADUATE,
+            verdict=GraduationVerdict.HOLD,
             acceptance=report,
             recommendation=(
-                f"GRADUATE: enabling '{flag_name}' matches-or-beats baseline "
-                f"(Δ {report.overall_delta:+.4f}, no unacceptable regression)."
+                f"HOLD: enabling '{flag_name}' is safe (no unacceptable regression) but shows no "
+                f"benefit — measurably worse (Δ {delta:+.4f}, beyond the ±{neutral_band:.3f} "
+                "neutral band). Keep it opt-in."
             ),
         )
     return GraduationReport(

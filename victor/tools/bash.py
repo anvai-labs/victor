@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-# Copyright 2025 Vijaykumar Singh <singhvjd@gmail.com>
+# Copyright 2025 Vijaykumar Singh <vijay@anvaiops.com>
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -1695,6 +1695,57 @@ async def shell(
                 "return_code": -1,
             }
 
+    # Frugal flag injection: rewrite recognized commands to quieter forms so
+    # less output exists in the first place (e.g. pytest -q --tb=short -rxX).
+    original_command: Optional[str] = None
+    try:
+        from victor.config.tool_settings import get_tool_settings as _get_ts
+        from victor.tools.output_condenser import rewrite_frugal_command
+
+        _ts = _get_ts()
+        if _ts.shell_output_condensation_enabled and _ts.shell_frugal_flags_enabled:
+            _rewritten = rewrite_frugal_command(cmd)
+            if _rewritten:
+                original_command = cmd
+                cmd = _rewritten
+                logger.debug("Frugal flag rewrite: %r → %r", original_command, cmd)
+    except Exception:
+        logger.debug("Frugal flag rewrite skipped", exc_info=True)
+
+    def _condense_streams(
+        stdout_text: str, stderr_text: str, returncode: int
+    ) -> tuple[str, str, Optional[Dict[str, Any]]]:
+        """Apply command-aware output condensation (fail-open passthrough)."""
+        try:
+            from victor.config.tool_settings import get_tool_settings
+            from victor.tools.output_condenser import condense_shell_output
+
+            settings = get_tool_settings()
+            if not settings.shell_output_condensation_enabled:
+                return stdout_text, stderr_text, None
+            condensed = condense_shell_output(
+                cmd,
+                stdout_text,
+                stderr_text,
+                returncode,
+                tee_enabled=settings.shell_output_raw_tee_enabled,
+            )
+            if condensed is None:
+                return stdout_text, stderr_text, None
+            return (
+                condensed.stdout,
+                condensed.stderr,
+                {
+                    "condenser": condensed.condenser,
+                    "original_chars": condensed.original_chars,
+                    "condensed_chars": condensed.condensed_chars,
+                    "raw_log_path": condensed.raw_log_path,
+                },
+            )
+        except Exception:
+            logger.debug("Shell output condensation skipped", exc_info=True)
+            return stdout_text, stderr_text, None
+
     try:
         # Check cache for read-only commands (CI/CD queries, git log, etc.)
         from victor.tools.shell_command_cache import get_shell_cache, execute_with_cache
@@ -1707,6 +1758,12 @@ async def shell(
                     cwd=cwd,
                     shell=True,
                     timeout=timeout,
+                )
+
+                # Condense recognized command output (cache stores raw output,
+                # so condensation stays consistent across cache hits/misses).
+                stdout_str, stderr_str, condensation_info = _condense_streams(
+                    stdout_str, stderr_str, returncode
                 )
 
                 # Apply truncation to cached results too
@@ -1723,7 +1780,7 @@ async def shell(
                     stderr_str, final_stderr_limit, max_bytes=None, stream_name="stderr"
                 )
 
-                return {
+                result_dict = {
                     "success": returncode == 0,
                     "stdout": stdout_str,
                     "stderr": stderr_str,
@@ -1735,6 +1792,11 @@ async def shell(
                     "stdout_lines": stdout_lines,
                     "stderr_lines": stderr_lines,
                 }
+                if condensation_info:
+                    result_dict["condensed"] = condensation_info
+                if original_command:
+                    result_dict["original_command"] = original_command
+                return result_dict
             except Exception as cache_error:
                 # If caching fails, fall through to normal execution
                 logger.warning(f"Cache lookup failed, executing directly: {cache_error}")
@@ -1792,6 +1854,13 @@ async def shell(
 
         stdout_str = stdout.decode("utf-8") if stdout else ""
         stderr_str = stderr.decode("utf-8") if stderr else ""
+        raw_stdout_str, raw_stderr_str = stdout_str, stderr_str
+
+        # Condense recognized command output before generic truncation so the
+        # diagnostic tail (failure summaries, error counts) survives.
+        stdout_str, stderr_str, condensation_info = _condense_streams(
+            stdout_str, stderr_str, process.returncode or 0
+        )
 
         # Apply defaults: 10K stdout lines, 2K stderr lines (None=unlimited)
         final_stdout_limit = stdout_limit if stdout_limit is not None else 10000
@@ -1842,12 +1911,17 @@ async def shell(
             "stdout_lines": stdout_lines,
             "stderr_lines": stderr_lines,
         }
+        if condensation_info:
+            result["condensed"] = condensation_info
+        if original_command:
+            result["original_command"] = original_command
 
-        # Cache successful read-only command results
+        # Cache successful read-only command results (raw streams — the cached
+        # path re-applies condensation so hits and misses stay consistent)
         if process.returncode == 0 and not dangerous and _is_readonly_command(cmd):
             try:
                 cache = get_shell_cache()
-                cache.set(cmd, (process.returncode, stdout_str, stderr_str), cwd)
+                cache.set(cmd, (process.returncode, raw_stdout_str, raw_stderr_str), cwd)
             except Exception as cache_error:
                 logger.warning(f"Failed to cache command result: {cache_error}")
 

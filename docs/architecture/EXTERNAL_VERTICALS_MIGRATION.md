@@ -1,10 +1,12 @@
 # External Verticals Migration Plan
 
 **Date**: 2026-03-01
-**Status**: Complete (contrib shims deprecated as of 2026-03-15)
-**Goal**: Consolidate external vertical packages into main codebase to reduce duplication
+**Status**: Superseded by ADR-007 on 2026-07-02
+**Historical goal**: Consolidate external vertical packages into main codebase to reduce duplication
 
-> **Update 2026-03-15**: Contrib vertical shims are now deprecated and emit `DeprecationWarning` on import. External standalone packages (`victor-coding`, `victor-devops`, etc.) are the preferred import path. All forbidden imports in `victor-devops` have been migrated to `victor.framework.extensions`. See `docs/migration/vertical_import_guide.md` for the migration path.
+> **Historical update (2026-03-15)**: This document previously described external standalone packages as preferred while contrib shims emitted `DeprecationWarning`.
+>
+> **Current policy (2026-07-02)**: [ADR-007](adr/007-vertical-distribution-and-sdk-boundary.md) is authoritative. The first-party Coding, DevOps, RAG, DataAnalysis, and Research implementations live under `verticals/` in this repository. Do not use this historical migration plan to choose a source of truth or introduce another peer implementation.
 
 ---
 

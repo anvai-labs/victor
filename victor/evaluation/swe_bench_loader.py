@@ -49,6 +49,7 @@ Usage:
 
 import asyncio
 import hashlib
+import inspect
 import json
 import logging
 import shutil
@@ -438,6 +439,24 @@ class SWEBenchLoader:
         logger.info(f"Exported {len(tasks)} tasks to {output_path}")
 
 
+async def _close_quietly(store: Any) -> None:
+    """Close a graph store if it supports it, swallowing teardown errors.
+
+    Teardown runs on failure paths too, so it must never mask the original
+    error — but it must always run, because a live store pins an embedded
+    server that outlives this process.
+    """
+    close = getattr(store, "close", None)
+    if close is None:
+        return
+    try:
+        result = close()
+        if inspect.isawaitable(result):
+            await result
+    except Exception as exc:  # pragma: no cover - teardown must not raise
+        logger.debug("Graph store close failed during teardown: %s", exc)
+
+
 class SWEBenchWorkspaceManager:
     """Manages workspaces for SWE-bench task execution."""
 
@@ -640,6 +659,7 @@ class SWEBenchWorkspaceManager:
         self,
         task: BenchmarkTask,
         force_reindex: bool = False,
+        build_graph_rag: bool = False,
     ) -> Path:
         """Clone repo and build indexes (graph, embeddings, project.db).
 
@@ -672,6 +692,8 @@ class SWEBenchWorkspaceManager:
         embeddings_dir = victor_dir / "embeddings"
 
         if not force_reindex and index_marker.exists():
+            if build_graph_rag:
+                await self._build_graph_rag(cache_path)
             logger.info(f"Repo already indexed: {cache_path}")
             return cache_path
 
@@ -683,6 +705,8 @@ class SWEBenchWorkspaceManager:
             from datetime import datetime, timezone
 
             index_marker.write_text(datetime.now(timezone.utc).isoformat())
+            if build_graph_rag:
+                await self._build_graph_rag(cache_path)
             return cache_path
 
         # Build indexes
@@ -692,7 +716,17 @@ class SWEBenchWorkspaceManager:
 
         settings = load_settings()
         graph_writer_mode = _resolve_graph_writer_mode(settings)
-        graph_store_name = getattr(settings, "codebase_graph_store", "sqlite")
+        # Honor the per-repo backend marker (.victor/graph_backend) with the
+        # global setting as fallback — this path previously read only the
+        # global setting, so the marker (whose whole purpose is flipping a
+        # single repo without changing global settings) was silently ignored
+        # by benchmark/eval indexing.
+        from victor.storage.graph.registry import resolve_graph_backend
+
+        graph_store_name = resolve_graph_backend(
+            cache_path,
+            default=getattr(settings, "codebase_graph_store", "sqlite"),
+        )
         graph_path = getattr(settings, "codebase_graph_path", None)
 
         try:
@@ -710,7 +744,10 @@ class SWEBenchWorkspaceManager:
                 graph_store_name=graph_store_name,
                 graph_path=Path(graph_path) if graph_path else None,
             )
-            await indexer.index_codebase()
+            try:
+                await indexer.index_codebase()
+            finally:
+                await _close_quietly(getattr(indexer, "graph_store", None))
 
             # Auto-generate init.md for project context
             from victor.context.project_context import ProjectContext
@@ -728,7 +765,56 @@ class SWEBenchWorkspaceManager:
         except Exception as e:
             logger.warning(f"Indexing failed (will work without): {e}")
 
+        if build_graph_rag:
+            await self._build_graph_rag(cache_path)
+
         return cache_path
+
+    async def _build_graph_rag(self, cache_path: Path) -> None:
+        """Build the Graph-RAG codegraph for a cached benchmark repo.
+
+        Mirrors `victor graph index`: the store comes from
+        `create_graph_store("auto", ...)`, so the repo's
+        `.victor/graph_backend` marker is honored (victor#907 slice 2). The
+        pipeline is incremental, so re-running on an unchanged repo is cheap.
+        Failures are logged LOUDLY (not swallowed into a checkmark) but do
+        not abort setup — the code-intel index remains usable without it.
+        """
+        try:
+            from victor.core.graph_rag.config import GraphIndexConfig
+            from victor.core.graph_rag.indexing import GraphIndexingPipeline
+            from victor.core.graph_rag.indexing import run_indexing_with_lock
+            from victor.storage.graph.registry import create_graph_store
+
+            graph_store = create_graph_store("auto", project_path=cache_path)
+            if graph_store is None:
+                logger.error("Graph-RAG build skipped: no graph store available")
+                return
+            await graph_store.initialize()
+            config = GraphIndexConfig(
+                root_path=cache_path,
+                enable_ccg=True,
+                enable_embeddings=False,
+                enable_subgraph_cache=False,
+                incremental=True,
+            )
+            pipeline = GraphIndexingPipeline(graph_store, config)
+            logger.info(f"Building Graph-RAG codegraph for {cache_path}...")
+            try:
+                await run_indexing_with_lock(cache_path, pipeline.index_repository)
+                logger.info(f"Graph-RAG codegraph built for {cache_path}")
+            finally:
+                # Release deterministically. The store holds a refcounted
+                # ProximaRepoConnection whose last release stops the embedded
+                # subprocess; without this, setup leaves a server running that
+                # outlives the process and keeps rewriting the data dir
+                # (anvai-labs/victor#911).
+                await _close_quietly(graph_store)
+        except Exception as e:
+            logger.error(
+                f"Graph-RAG build FAILED for {cache_path} (setup continues; "
+                f"graph tooling will lack CCG data): {e}"
+            )
 
     def is_repo_indexed(self, task: BenchmarkTask) -> bool:
         """Check if repo has been indexed."""

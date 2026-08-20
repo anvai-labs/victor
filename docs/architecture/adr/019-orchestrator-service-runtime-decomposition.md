@@ -121,3 +121,12 @@ Incremental, ratchet-gated (no separate FEP — internal runtime, no public-API 
 | 2026-07-29 | 1.0 | Initial ADR — records the decomposition target for TD-14/TD-15 | Vijaykumar Singh |
 | 2026-07-30 | 1.1 | Reconciled §3 (orchestrator is the composition root; access-boundary rule re-scoped, guard deferred). Increment 1 shipped: extracted the pure task-report metadata builders to `victor/agent/task_report_metadata.py`; orchestrator 4690→4600, ratchet lowered. | Vijaykumar Singh |
 | 2026-07-30 | 1.2 | Increment 2 shipped: extracted the tool-supply policy (Tool-Necessity Gate + context-window budgeter) to `victor/agent/tool_supply_policy.py` (impure deps injected as callables); orchestrator 4600→4402, ratchet lowered. | Vijaykumar Singh |
+| 2026-08-03 | 1.3 | Increment 3 shipped: extracted task-report start/finish metadata assembly into `victor/agent/task_report_metadata.py`; orchestrator 4402→4400, ratchet lowered. | Vijaykumar Singh |
+| 2026-08-03 | 1.4 | Increment 4 shipped: extracted the edge-model tool-necessity decision into `victor/agent/tool_supply_policy.py`; orchestrator 4400→4368, ratchet lowered. | Vijaykumar Singh |
+| 2026-08-03 | 1.5 | Increment 5 shipped: extracted KV tool ordering and strategy-setting interpretation into `ToolStrategyRuntime`; orchestrator 4368→4340, ratchet lowered. | Vijaykumar Singh |
+| 2026-08-03 | 1.6 | Increment 6 shipped: extracted provider-economics session-lock policy into `ToolStrategyRuntime`; orchestrator 4340→4326, ratchet lowered. | Vijaykumar Singh |
+| 2026-08-03 | 1.7 | Increment 7 shipped: extracted strategy feature checks, context-window lookup, and ToolService utility delegation into `ToolStrategyRuntime`; orchestrator 4326→4320, ratchet lowered. | Vijaykumar Singh |
+| 2026-08-03 | 1.8 | Increment 8 shipped: extracted context-aware strategy execution and telemetry assembly into `ToolStrategyRuntime`; orchestrator 4320→4303, ratchet lowered. | Vijaykumar Singh |
+| 2026-08-03 | 1.9 | Increment 9 shipped: extracted tool-strategy metrics event emission into `ToolStrategyRuntime`; orchestrator 4303→4290, ratchet lowered. | Vijaykumar Singh |
+| 2026-08-03 | 1.10 | Increment 10 shipped: extracted configured KV strategy execution and session-cache updates into `ToolStrategyRuntime`; orchestrator 4290→4266, ratchet lowered. | Vijaykumar Singh |
+| 2026-08-03 | 1.11 | Increment 11 shipped: deleted uncalled private KV session-lock and Gemini-provider compatibility helpers after repository-wide reference audit; orchestrator 4266→4225, ratchet lowered. | Vijaykumar Singh |

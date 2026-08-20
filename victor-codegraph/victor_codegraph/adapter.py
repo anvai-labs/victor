@@ -9,13 +9,23 @@ consumer (Victor embedded, AnvaiOps service) supplies the embedder and the DB wr
 from __future__ import annotations
 
 import hashlib
+import math
 import os
-from typing import Any, Callable
+from numbers import Real
+from typing import Any, Callable, Protocol
 
-from .model import CodeRelation, CodeSymbol, ParsedCode, stable_symbol_oid
+from .model import CodeRelation, CodeSymbol, stable_symbol_oid
 
 Embedder = Callable[[str], list[float]]
 BatchEmbedder = Callable[[list[str]], list[list[float]]]
+
+
+class RecordSource(Protocol):
+    """Structural input accepted by the adapter (`ParsedCode` or repository index)."""
+
+    symbols: list[CodeSymbol]
+    relations: list[CodeRelation]
+
 
 # ADR-044 mixed-read gate. **P2 cutover (2026-06-28): default ON** — the record `oid` is
 # the line-independent canonical form, gated behind the parity ratchet
@@ -36,20 +46,54 @@ def _stable_oid_enabled(override: bool | None = None) -> bool:
 
 def _legacy_symbol_oid(repo_graph_id: str, symbol: CodeSymbol) -> str:
     """Line-coupled alias (today's id) — retained for the mixed-read bake."""
-    return f"graph/{repo_graph_id}/node/{symbol.id}"
+    return f"graph/{repo_graph_id}/node/{symbol.legacy_id or symbol.id}"
 
 
 def _canonical_symbol_oid(repo_graph_id: str, symbol: CodeSymbol) -> str:
     """Line-independent canonical oid (ADR-044) — the correlation join key."""
-    key = stable_symbol_oid(
-        repo_graph_id, symbol.language, symbol.fully_qualified_name, symbol.signature
+    key = (
+        symbol.id
+        if symbol.identity_version == "v2"
+        else stable_symbol_oid(
+            repo_graph_id, symbol.language, symbol.fully_qualified_name, symbol.signature
+        )
     )
     return f"graph/{repo_graph_id}/node/{key}"
+
+
+def _validate_vector(values: list[float], dim: int) -> list[float]:
+    vector = list(values)
+    if len(vector) != dim:
+        raise ValueError(f"embedding dimension mismatch: expected {dim}, received {len(vector)}")
+    if any(not isinstance(value, Real) or not math.isfinite(float(value)) for value in vector):
+        raise ValueError("embedding values must be finite numeric values")
+    return vector
+
+
+def _external_oid(repo_graph_id: str, relation: CodeRelation) -> str:
+    ref = relation.target_ref
+    raw = (
+        "\x1f".join(
+            (
+                ref.name,
+                ref.qualifier or "",
+                str(ref.arity) if ref.arity is not None else "",
+                ref.text or "",
+            )
+        )
+        if ref is not None
+        else relation.to_symbol_id
+    )
+    digest = hashlib.blake2b(raw.encode("utf-8"), digest_size=16).hexdigest()
+    return f"graph/{repo_graph_id}/external/{digest}"
 
 
 def _content_version(symbol: CodeSymbol) -> str:
     """Body fingerprint for staleness/dedup — NOT identity (a body edit bumps this,
     not the oid)."""
+    explicit = symbol.metadata.get("content_version")
+    if explicit:
+        return str(explicit)
     return hashlib.blake2b(symbol.source_code.encode("utf-8"), digest_size=8).hexdigest()
 
 
@@ -101,13 +145,13 @@ def symbol_to_record(
         },
         "embeddings": [],
     }
-    if embedder is not None:
+    if embedder is not None and not symbol.metadata.get("embedding_excluded"):
         record["embeddings"].append(
             {
                 "model_id": model_id,
                 "modality": "code",
                 "dim": dim,
-                "values": embedder(symbol.source_code),
+                "values": _validate_vector(embedder(symbol.source_code), dim),
             }
         )
     return record
@@ -130,7 +174,9 @@ def relation_to_record(
     """
 
     def _endpoint(symbol_id: str) -> str:
-        if id_map is not None and _stable_oid_enabled(stable_oid):
+        if relation.target_ref is not None and symbol_id == relation.to_symbol_id:
+            return _external_oid(repo_graph_id, relation)
+        if id_map is not None:
             mapped = id_map.get(symbol_id)
             if mapped is not None:
                 return mapped
@@ -149,6 +195,17 @@ def relation_to_record(
             "context": relation.context,
             # call-site line (0 when unknown) — a prop, NOT part of edge identity.
             "line": (relation.call_site.start_line if relation.call_site is not None else 0),
+            "call_sites": (
+                [
+                    {
+                        "file": relation.call_site.file_path,
+                        "line": relation.call_site.start_line,
+                        "column": relation.call_site.start_column,
+                    }
+                ]
+                if relation.call_site is not None
+                else []
+            ),
             # legacy endpoints for mixed-read resolution.
             "legacy_from_oid": f"graph/{repo_graph_id}/node/{relation.from_symbol_id}",
             "legacy_to_oid": f"graph/{repo_graph_id}/node/{relation.to_symbol_id}",
@@ -157,7 +214,7 @@ def relation_to_record(
 
 
 def to_proxima_records(
-    parsed: ParsedCode,
+    parsed: RecordSource,
     repo_graph_id: str,
     branch_id: str = "main",
     embedder: Embedder | None = None,
@@ -182,7 +239,17 @@ def to_proxima_records(
     identity and does NOT change on body edits, so it cannot signal staleness.
     """
 
-    id_map = {s.id: _canonical_symbol_oid(repo_graph_id, s) for s in parsed.symbols}
+    id_map: dict[str, str] = {}
+    use_stable = _stable_oid_enabled(stable_oid)
+    for symbol in parsed.symbols:
+        primary = (
+            _canonical_symbol_oid(repo_graph_id, symbol)
+            if use_stable
+            else _legacy_symbol_oid(repo_graph_id, symbol)
+        )
+        for key in (symbol.id, symbol.legacy_id):
+            if key:
+                id_map[key] = primary
     records = [
         symbol_to_record(
             s,
@@ -196,18 +263,76 @@ def to_proxima_records(
         for s in parsed.symbols
     ]
     if batch_embedder is not None and parsed.symbols:
-        vectors = batch_embedder([s.source_code for s in parsed.symbols])
-        for record, values in zip(records, vectors):
+        embeddable = [
+            (index, symbol)
+            for index, symbol in enumerate(parsed.symbols)
+            if not symbol.metadata.get("embedding_excluded")
+        ]
+        vectors = (
+            batch_embedder([symbol.source_code for _, symbol in embeddable]) if embeddable else []
+        )
+        if len(vectors) != len(embeddable):
+            raise ValueError(
+                "batch_embedder must return one vector per symbol "
+                f"(expected {len(embeddable)}, received {len(vectors)})"
+            )
+        for (index, _symbol), values in zip(embeddable, vectors):
+            record = records[index]
             record["embeddings"].append(
                 {
                     "model_id": model_id,
                     "modality": "code",
                     "dim": dim,
-                    "values": list(values),
+                    "values": _validate_vector(values, dim),
                 }
             )
-    records.extend(
-        relation_to_record(r, repo_graph_id, branch_id, id_map=id_map, stable_oid=stable_oid)
-        for r in parsed.relations
-    )
+    by_oid = [r["oid"] for r in records]
+    if len(by_oid) != len(set(by_oid)):
+        raise ValueError("canonical symbol identity collision in adapter input")
+
+    external_records: dict[str, dict[str, Any]] = {}
+    for relation in parsed.relations:
+        if relation.target_ref is None:
+            continue
+        oid = _external_oid(repo_graph_id, relation)
+        ref = relation.target_ref
+        external_records.setdefault(
+            oid,
+            {
+                "oid": oid,
+                "labels": ["graph_node", "external_symbol"],
+                "branch_id": branch_id,
+                "props": {
+                    "name": ref.name,
+                    "qualifier": ref.qualifier,
+                    "arity": ref.arity,
+                    "reference_text": ref.text,
+                    "resolved": False,
+                },
+                "embeddings": [],
+            },
+        )
+    records.extend(external_records.values())
+    edge_records: dict[tuple[str, str, str], dict[str, Any]] = {}
+    for relation in parsed.relations:
+        record = relation_to_record(
+            relation, repo_graph_id, branch_id, id_map=id_map, stable_oid=stable_oid
+        )
+        edge = record["edge"]
+        key = (edge["from_oid"], edge["to_oid"], edge["edge_type"])
+        existing = edge_records.get(key)
+        if existing is None:
+            edge_records[key] = record
+            continue
+        sites = existing["props"]["call_sites"]
+        for site in record["props"]["call_sites"]:
+            if site not in sites:
+                sites.append(site)
+        sites.sort(key=lambda site: (site["file"], site["line"], site["column"]))
+        if sites:
+            existing["props"]["line"] = sites[0]["line"]
+        existing["props"]["confidence"] = max(
+            existing["props"]["confidence"], record["props"]["confidence"]
+        )
+    records.extend(edge_records.values())
     return records

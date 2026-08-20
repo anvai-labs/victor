@@ -8,7 +8,7 @@ Before you begin, ensure you have the following installed:
 
 | Requirement | Minimum Version | Check Command |
 |-------------|-----------------|---------------|
-| Python | 3.10+ | `python --version` |
+| Python | 3.11+ | `python --version` |
 | pip | 21.0+ | `pip --version` |
 | Git | 2.0+ | `git --version` |
 

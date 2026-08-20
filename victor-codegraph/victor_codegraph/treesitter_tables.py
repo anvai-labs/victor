@@ -46,6 +46,8 @@ IDENTIFIER_NODES = frozenset(
         "type_identifier",
         "shorthand_property_identifier",
         "constant",  # ruby constants (class names)
+        "simple_identifier",  # kotlin
+        "word",  # bash
     }
 )
 

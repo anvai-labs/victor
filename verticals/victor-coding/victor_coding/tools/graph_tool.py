@@ -18,14 +18,6 @@ from typing import Any, DefaultDict, Dict, Iterable, List, Literal, Optional, Se
 
 from victor.config.settings import get_project_paths, load_settings
 
-# Harden the module-level contracts import: if the bridge is incomplete (a
-# function was added to victor.core but not proxied in victor_contracts),
-# the module must still load. ensure_project_graph_enriched is set to None
-# and the pre-flight check (_check_graph_dependencies) catches it at runtime.
-try:
-    from victor_contracts.indexing_runtime import ensure_project_graph_enriched
-except (ImportError, AttributeError):
-    ensure_project_graph_enriched = None
 from victor.native.python.graph_algo import (
     connected_components,
     pagerank,
@@ -54,7 +46,6 @@ _GRAPH_DEPENDENCIES_CHECKED: Optional[bool] = None
 _GRAPH_DEPENDENCY_CHECKS = [
     ("victor_contracts.database_runtime", "get_project_database"),
     ("victor_contracts.database_runtime", "resolve_project_db_root"),
-    ("victor_contracts.indexing_runtime", "ensure_project_graph_enriched"),
     ("victor_contracts.indexing_runtime", "GraphManager"),
     ("victor_contracts.capability_runtime", "get_capability_provider"),
 ]
@@ -1454,7 +1445,25 @@ def _has_enhanced_codebase_index_provider() -> bool:
     return factory is not None and is_capability_enhanced(CodebaseIndexFactoryProtocol)
 
 
+def _resolved_graph_backend(root_path: Path) -> str:
+    """The repo's graph backend per its .victor/graph_backend marker."""
+    try:
+        from victor.storage.graph.registry import resolve_graph_backend
+
+        return resolve_graph_backend(root_path, default="sqlite")
+    except Exception:  # pragma: no cover - victor-ai absent
+        return "sqlite"
+
+
 def _project_graph_has_data(root_path: Path) -> bool:
+    # A repo flipped to a non-sqlite backend stores its graph THERE — probing
+    # project.db's sqlite tables would report "empty" for a fully-indexed
+    # repo and silently drop the graph tool from the LLM schema. Advertise
+    # the tool and let the load path construct the real store (an actually
+    # empty store raises the same self-help reindex message either way).
+    if _resolved_graph_backend(root_path) != "sqlite":
+        return True
+
     from victor_contracts.database_runtime import get_project_database
 
     project_db = get_project_database(root_path)
@@ -1468,17 +1477,6 @@ def _project_graph_has_data(root_path: Path) -> bool:
     node_count = int(node_row[0]) if node_row is not None else 0
     edge_count = int(edge_row[0]) if edge_row is not None else 0
     return node_count > 0 or edge_count > 0
-
-
-def _ensure_project_graph_ready(root_path: Path) -> None:
-    try:
-        ensure_project_graph_enriched(root_path)
-    except Exception as exc:  # pragma: no cover - defensive logging only
-        logger.warning(
-            "[graph] Failed to enrich persisted project graph for %s: %s",
-            root_path,
-            exc,
-        )
 
 
 def _ensure_project_graph_tables(project_db: Any) -> None:
@@ -1611,6 +1609,36 @@ async def _load_graph_from_project_store(root_path: Path) -> LoadedGraph:
     from victor_contracts.database_runtime import get_project_database
     from victor.storage.graph.sqlite_store import SqliteGraphStore
 
+    # Non-sqlite backends: the project store IS the marker-resolved store —
+    # project.db's sqlite tables are not where this repo's graph lives.
+    if _resolved_graph_backend(root_path) != "sqlite":
+        from victor_coding.codebase.graph.registry import (
+            create_graph_store as _vc_create_graph_store,
+        )
+
+        graph_store = _vc_create_graph_store("auto", str(root_path))
+        if graph_store is None:
+            raise RuntimeError(
+                f"Graph backend for '{root_path}' could not be constructed "
+                "(victor-ai not installed?)"
+            )
+        await graph_store.initialize()
+        nodes = await graph_store.get_all_nodes()
+        if not nodes:
+            path_str = str(root_path)
+            raise RuntimeError(
+                f"Project graph store is empty for path '{path_str}'. "
+                f"To build the index: graph(mode='stats', path='{path_str}', reindex=True). "
+                f"Or use ls(path='{path_str}', depth=2) for file operations."
+            )
+        fallback_index = SimpleNamespace(graph_store=graph_store, files={})
+        return await _materialize_loaded_graph(
+            root_path,
+            index=fallback_index,
+            graph_store=graph_store,
+            rebuilt=False,
+        )
+
     project_db = get_project_database(root_path)
     _ensure_project_graph_tables(project_db)
 
@@ -1625,8 +1653,6 @@ async def _load_graph_from_project_store(root_path: Path) -> LoadedGraph:
             f"To build the index: graph(mode='stats', path='{path_str}', reindex=True). "
             f"Or use ls(path='{path_str}', depth=2) for file operations."
         )
-
-    _ensure_project_graph_ready(root_path)
 
     graph_store = SqliteGraphStore(root_path)
     fallback_index = SimpleNamespace(graph_store=graph_store, files={})
@@ -1987,7 +2013,6 @@ async def _run_graph_sql_query_for_root(
             }
 
     try:
-        _ensure_project_graph_ready(root_path)
         project_db = get_project_database(root_path)
 
         # Bound DB materialization for unbounded queries (e.g. SELECT * FROM ...)

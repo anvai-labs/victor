@@ -7,7 +7,7 @@ created: 2026-08-01
 modified: 2026-08-01
 authors:
   - name: Vijaykumar Singh
-    email: singhvjd@gmail.com
+    email: vijay@anvaiops.com
     github: singhvjd
 reviewers: []
 discussion: https://github.com/anvai-labs/victor/discussions/0029

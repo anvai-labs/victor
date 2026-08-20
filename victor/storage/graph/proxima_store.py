@@ -1,4 +1,4 @@
-# Copyright 2025 Vijaykumar Singh <singhvjd@gmail.com>
+# Copyright 2025 Vijaykumar Singh <vijay@anvaiops.com>
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,12 +15,14 @@
 """ProximaDB-backed graph store (Code Context Graph backend, TD-11/12/13).
 
 ``ProximaGraphStore`` implements :class:`GraphStoreProtocol` over ProximaDB's
-ORION graph engine via ``proximadb_sdk.graph.ProximaDBGraph``. It collapses the
-SQLite ``graph_*`` tables + LanceDB vectors into one correlated collection where
-a code symbol is **one** entity addressed by a single ``oid``
-(``graph/{repo}/node/{symbol_oid}``): the graph node id and the vector record id
-are the same string, so a vector hit maps to its graph node by identity and the
-always-empty ``graph_node.embedding_ref`` bridge is retired.
+ORION graph engine via ``proximadb_sdk.graph.ProximaDBGraph``. Tier-A symbols and
+semantic edges live in the correlated hot graph, while Tier-B statement nodes
+and CFG/CDG/DDG edges are routed to durable, indexed CPG fragments and fetched
+only for explicit dataflow drilldowns. A code symbol is **one** durable
+``ProximaRecord`` containing both semantic properties and its vector, addressed
+by the same ``oid`` used by its derived ORION traversal projection. A vector hit
+therefore maps to its graph node by identity and the always-empty
+``graph_node.embedding_ref`` bridge is retired.
 
 SQLite stays the default. This backend is selected per-repo (see
 ``victor.storage.graph.registry``). The **embedded** path (one local
@@ -36,11 +38,15 @@ TD-130/131 (graph bulk-load + REST v2 hybrid).
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
+from dataclasses import replace
 from pathlib import Path
-from typing import Any, AsyncIterator, Dict, Iterable, List, Optional
+from typing import Any, AsyncIterator, Dict, Iterable, List, Optional, Set
 
+from victor.storage.graph.cpg_fragments import CpgFragmentStore, CpgFragmentStoreProtocol
+from victor.storage.graph.edge_types import EdgeType
 from victor.storage.graph.protocol import (
     GraphEdge,
     GraphNode,
@@ -79,6 +85,55 @@ _NODE_FIELD_KEYS = (
     "visibility",
 )
 
+# ORION's get_stats() answers with an envelope, not a flat mapping:
+#   {"success": True, "data": {"total_nodes": N, "total_edges": M, ...}}
+# Reading `node_count`/`nodes` off the top level therefore found nothing and
+# yielded 0 for a graph that plainly held data. Both the envelope and the flat
+# spellings are accepted so a future shape change degrades to the recount rather
+# than silently reporting an empty tier.
+_ORION_STAT_KEYS = {
+    "nodes": ("total_nodes", "node_count", "nodes"),
+    "edges": ("total_edges", "edge_count", "edges"),
+}
+
+# The server clamps a records scan to this many rows per page. This is a page
+# size, not a graph-size ceiling: `_read_edge_records` must follow cursors until
+# exhaustion or reject the read as incomplete.
+_EDGE_SCAN_PAGE_SIZE = 10_000
+
+
+def _orion_stat(raw: Dict[str, Any], kind: str) -> int:
+    """Extract a node/edge count from ORION's get_stats() response."""
+    payload = raw.get("data") if isinstance(raw.get("data"), dict) else raw
+    for key in _ORION_STAT_KEYS[kind]:
+        value = payload.get(key)
+        if isinstance(value, (int, float)):
+            return int(value)
+    return 0
+
+
+def _unwrap_props(props: Dict[str, Any]) -> Dict[str, Any]:
+    """Flatten the REST record shape into plain values.
+
+    The scan/get endpoints return each prop as a typed envelope —
+    ``{"src": {"type": "string", "value": "n1"}}`` — while ``insert_records``
+    accepts plain values. Unwrap so the read side sees what the write side sent.
+    Values that are already plain pass through, so this is safe on both shapes.
+    """
+    flat: Dict[str, Any] = {}
+    for key, value in (props or {}).items():
+        if isinstance(value, dict) and "value" in value and "type" in value:
+            flat[key] = value["value"]
+        else:
+            flat[key] = value
+    return flat
+
+
+# Records per insert_records request. Symbol records run ~1-3KB (name,
+# signature, docstring, vector); 1,000/request stays ~10x under the embedded
+# server's 32MB request cap while keeping round trips low.
+_RECORD_WRITE_CHUNK = 1_000
+
 
 class ProximaGraphStore(GraphStoreProtocol):
     """GraphStoreProtocol implementation backed by ProximaDB (ORION + HNSW)."""
@@ -94,6 +149,8 @@ class ProximaGraphStore(GraphStoreProtocol):
         binary_path: Optional[str] = None,
         graph: Any = None,
         client: Any = None,
+        cpg_store: CpgFragmentStoreProtocol | None = None,
+        record_collection: Any = None,
     ) -> None:
         """Create a ProximaGraphStore.
 
@@ -113,6 +170,10 @@ class ProximaGraphStore(GraphStoreProtocol):
                 against an in-memory fake client without a server binary.
             client: Pre-built ProximaDB client (used with an injected graph for
                 node/edge deletion which ``ProximaDBGraph`` does not expose).
+            cpg_store: Optional Tier-B fragment store. By default, statement
+                nodes and CFG/CDG/DDG edges are persisted under ``data_dir``.
+            record_collection: Injected ProximaRecord collection used by tests.
+                Production creates the collection on the shared connection.
         """
         self._project_path = Path(project_path).resolve() if project_path else None
         self._repo = repo or repo_id_from_path(self._project_path)
@@ -133,12 +194,42 @@ class ProximaGraphStore(GraphStoreProtocol):
         self._conn = None  # shared ProximaRepoConnection (embedded path)
         self._initialized = graph is not None
 
-        # Correlated vector collection: a symbol's 384-d embedding is co-indexed
-        # here under the SAME oid as its ORION graph node, so a vector hit maps to
-        # its graph node by identity (TD-12). Lives on the shared instance.
+        # Durable Tier-A authority: graph properties and the embedding occupy one
+        # ProximaRecord. ORION nodes are a rebuildable traversal projection applied
+        # only after the record commit succeeds (TD-12).
         self._vector_dim = 384
-        self._symbol_collection_name = f"{self._repo}_codegraph_vectors"
-        self._symbol_collection: Any = None
+        self._symbol_collection_name = f"{self._repo}_codegraph_records"
+        self._symbol_collection: Any = record_collection
+        self._record_nodes: Dict[str, GraphNode] = {}
+        self._record_vectors: Dict[str, List[float]] = {}
+        self._record_node_ids: set[str] = set()
+        # Durable Tier-A EDGES. Nodes have been record-backed since TD-12, but
+        # edges lived only in ORION — which does not persist them across a
+        # restart (anvai-labs/proximaDB#1524, reproduced on develop tip: 5 nodes
+        # and 4 edges written, 5 nodes and 0 edges after reopening). So every
+        # session silently lost its call/import graph. Edges now commit as
+        # records first and ORION becomes the same rebuildable projection nodes
+        # already treat it as.
+        #
+        # dimension=1, NOT self._vector_dim: edges carry no embedding, and a
+        # 384-dim zero vector per edge would cost ~1.5 KB each for nothing.
+        self._edge_vector_dim = 1
+        self._edge_collection_name = f"{self._repo}_codegraph_edges"
+        self._edge_collection: Any = None
+        # Tier-A edge ids already in ORION. Loaded on first edge write so
+        # duplicates never reach a batch (see upsert_edges); None = not yet read.
+        self._orion_edge_ids: Optional[Set[str]] = None
+        # One-shot guard so a missing-vector warning does not repeat per query.
+        self._warned_missing_vectors = False
+        # One-shot guard for the "edges are not durable here" warning.
+        self._warned_edge_records_unavailable = False
+        # Session cache of the durable edge set; None = not yet read. Every local
+        # edge mutation and lifecycle boundary must invalidate it.
+        self._edge_record_cache: Optional[List[GraphEdge]] = None
+        self._edge_record_cache_generation: Optional[int] = None
+        self._edge_record_cache_revision: Optional[int] = None
+        self._edge_record_cache_revision_token: Optional[str] = None
+        self._local_edge_generation = 0
 
         # In-memory sidecars for facts ProximaDBGraph does not yet persist
         # natively (relational Tier-C work lands with TD-127). Idempotent and
@@ -146,6 +237,12 @@ class ProximaGraphStore(GraphStoreProtocol):
         self._file_mtimes: Dict[str, float] = {}
         self._file_hashes: Dict[str, str] = {}
         self._subgraph_cache: Dict[str, Subgraph] = {}
+
+        # Tier A is the ORION graph above. Tier B is deliberately a separate,
+        # durable fragment index so statements and intra-procedural edges never
+        # inflate default graph scans/traversals. It is initialized lazily only
+        # when a CPG write or explicit dataflow drilldown occurs.
+        self._cpg_store = cpg_store or CpgFragmentStore(self._data_dir / "cpg_fragments.sqlite3")
 
     @property
     def repo_root(self) -> Optional[Path]:
@@ -195,12 +292,19 @@ class ProximaGraphStore(GraphStoreProtocol):
         self._initialized = True
 
     async def close(self) -> None:
+        await self._cpg_store.close()
         if self._conn is not None:
             await self._conn.release()
             self._conn = None
         self._client = None
         self._graph = None
         self._symbol_collection = None
+        self._record_nodes.clear()
+        self._record_vectors.clear()
+        self._record_node_ids.clear()
+        self._edge_collection = None
+        self._invalidate_edge_records()
+        self._orion_edge_ids = None
         self._initialized = False
 
     async def _ensure(self) -> Any:
@@ -256,11 +360,19 @@ class ProximaGraphStore(GraphStoreProtocol):
     def _to_proxima_edge(self, edge: GraphEdge) -> Any:
         from proximadb_sdk.graph import GraphEdge as PGEdge
 
+        # Callers hand us either a plain string or an EdgeType member. Under
+        # Python 3.11 an (str, Enum) member formats as "EdgeType.CALLS", not
+        # "CALLS", so interpolating it produced edge ids and edge_type values
+        # like "…|EdgeType.CALLS|…" that no CALLS query would ever match. The
+        # per-file writer passes strings, which is why only enum-typed edges
+        # from the cross-file resolution passes were affected.
+        edge_type = getattr(edge.type, "value", edge.type)
+
         return PGEdge(
-            id=f"{edge.src}|{edge.type}|{edge.dst}",
+            id=f"{edge.src}|{edge_type}|{edge.dst}",
             from_node=edge.src,
             to_node=edge.dst,
-            edge_type=edge.type,
+            edge_type=edge_type,
             properties=dict(edge.metadata or {}),
             weight=edge.weight,
         )
@@ -286,19 +398,163 @@ class ProximaGraphStore(GraphStoreProtocol):
     # Writes
     # ------------------------------------------------------------------
     async def upsert_nodes(self, nodes: Iterable[GraphNode]) -> None:
-        graph = await self._ensure()
-        payload = [self._to_proxima_node(n) for n in nodes]
-        if payload:
-            await asyncio.to_thread(graph.batch_create_nodes, payload)
+        node_list = list(nodes)
+        hot_nodes = [node for node in node_list if node.type != "statement"]
+        cold_nodes = [node for node in node_list if node.type == "statement"]
+        if hot_nodes:
+            graph = await self._ensure()
+            pending_nodes = [self._node_for_record(node, has_embedding=False) for node in hot_nodes]
+            await self._write_node_records(pending_nodes)
+            await self._apply_node_projection(graph, pending_nodes)
+        if cold_nodes:
+            await self._cpg_store.upsert_nodes(cold_nodes)
 
     async def upsert_edges(self, edges: Iterable[GraphEdge]) -> None:
-        graph = await self._ensure()
-        payload = [self._to_proxima_edge(e) for e in edges]
-        if payload:
-            await asyncio.to_thread(graph.batch_create_edges, payload)
+        edge_list = list(edges)
+        hot_edges = [edge for edge in edge_list if not EdgeType.is_ccg_edge(edge.type)]
+        cold_edges = [edge for edge in edge_list if EdgeType.is_ccg_edge(edge.type)]
+        if hot_edges:
+            graph = await self._ensure()
+
+            # Durable commit first, projection second — the same order
+            # `upsert_node_record` uses ("the ProximaRecord write is the durable
+            # commit"). Every hot edge is written, not just the ones ORION has
+            # not seen: the ORION dedup below exists to work around a
+            # create-only batch API, whereas records are upserts keyed by oid,
+            # so re-writing one is both harmless and necessary for the record
+            # tier to stay complete when ORION already holds the edge.
+            await self._write_edge_records(hot_edges)
+            # The durable set just changed; invalidate this store and sibling
+            # stores sharing the same per-repo connection.
+            self._mark_edge_records_mutated()
+
+            known = await self._known_edge_ids(graph)
+
+            # Skip edges this run already sent — a free in-process check, not a
+            # correctness requirement. It used to be both: ORION's create-only
+            # batch API aborted at the first "already exists" and silently
+            # discarded every edge after it, so a duplicate truncated the batch
+            # at a run-dependent point and the edge count wandered (75,523 /
+            # 75,539 / 75,549 / 75,558 across four identical runs, against a
+            # deterministic 75,626 on SQLite). proximaDB#1647 made admission
+            # per-edge — a duplicate is rejected on its own and the remainder of
+            # the batch still applies — so the server is now the thing that makes
+            # this idempotent, and cross-session filtering is no longer bought
+            # with a full-graph scan.
+            payload = []
+            sent: List[GraphEdge] = []
+            for edge in hot_edges:
+                proxima_edge = self._to_proxima_edge(edge)
+                edge_id = proxima_edge.id
+                if edge_id in known:
+                    continue
+                known.add(edge_id)
+                payload.append(proxima_edge)
+                sent.append(edge)
+
+            if payload:
+                result = await asyncio.to_thread(graph.batch_create_edges, payload)
+                self._validate_edge_write(result, len(payload), sent)
+        if cold_edges:
+            await self._cpg_store.upsert_edges(cold_edges)
+
+    async def _known_edge_ids(self, graph: Any) -> Set[str]:
+        """Edge ids this session has already sent to ORION.
+
+        This used to be seeded by ``graph.get_all_edges()`` — every edge in the
+        graph, read up front so duplicates could be filtered before the write.
+        That preload is gone, and the reason is worth recording because the cost
+        was enormous and invisible.
+
+        ``get_all_edges`` is not one request. The SDK implements it as
+        "outgoing-edge scans": it walks every node and issues **one HTTP request
+        per node**. On this repo that is ~93k round trips to build a set, paid
+        before edges are written and again after any invalidation. It is the
+        dominant term in ProximaDB ingest — full-repo indexing measured 3,269 s
+        against SQLite's 447 s (7.3x), and the gap grows superlinearly with the
+        graph because the scan grows with it.
+
+        None of it is needed any more. The preload worked around ORION's
+        create-only batch API aborting at the first "already exists" and
+        silently discarding the rest of the batch. proximaDB#1647 replaced that
+        with **per-edge admission** — a rejected edge is recorded in ``rejected``
+        and "the remainder of the batch applies" — so a duplicate now costs one
+        skipped edge instead of an arbitrary truncation. Duplicates are benign
+        by construction, and ``_validate_edge_write`` already treats "already
+        exists" as success.
+
+        What remains is a free, in-process set: edges this run has already sent,
+        so a single indexing pass does not re-send its own work. It needs no
+        I/O, so there is nothing to preload and nothing to fail.
+        """
+        if self._orion_edge_ids is None:
+            self._orion_edge_ids = set()
+        return self._orion_edge_ids
+
+    @staticmethod
+    def _proxima_edge_id(pedge: Any) -> str:
+        """Rebuild the id `_to_proxima_edge` assigns, for comparison."""
+        existing = getattr(pedge, "id", None)
+        if existing:
+            return str(existing)
+        src = getattr(pedge, "from_node", "")
+        dst = getattr(pedge, "to_node", "")
+        etype = getattr(pedge, "edge_type", "")
+        return f"{src}|{getattr(etype, 'value', etype)}|{dst}"
+
+    @staticmethod
+    def _validate_edge_write(result: Any, expected: int, edges: List[GraphEdge]) -> None:
+        """Raise when ORION rejected edges for any reason other than presence.
+
+        This method implements ``upsert_edges``, but ORION's ``batch_create_edges``
+        is create-only and answers "Edge <id> already exists" for a repeat. The
+        cross-file resolution passes deliberately re-emit edges that per-file
+        indexing may already have written (that is what makes them upserts), so
+        treating an already-exists as failure would abort a correct rebuild —
+        and SQLite, whose upsert really does replace, would silently disagree.
+        An upsert that finds the edge present has achieved its goal.
+        """
+        if not isinstance(result, dict):
+            return
+
+        errors = result.get("errors") or []
+        texts = [str(e) for e in errors] if isinstance(errors, list) else [str(errors)]
+        types = sorted({str(getattr(e.type, "value", e.type)) for e in edges})
+
+        # Silent-drop guard. ORION abandons the rest of a batch after a rejected
+        # edge without counting the abandoned ones, so `created + failed` short of
+        # the batch size means edges vanished with no error attached. Duplicates
+        # are filtered before the write now, so reaching this is a real defect
+        # rather than the benign repeat it used to be.
+        created = result.get("created")
+        failed = result.get("failed")
+        if isinstance(created, int) and isinstance(failed, int):
+            accounted = created + failed
+            if accounted < expected:
+                raise RuntimeError(
+                    f"ORION silently dropped {expected - accounted} of {expected} edges "
+                    f"({types}); it reported created={created} failed={failed}. "
+                    f"{texts or 'No errors were returned.'}"
+                )
+
+        real_errors = [t for t in texts if "already exists" not in t.lower()]
+        if not real_errors and texts:
+            return  # a duplicate slipped through; the write itself still holds
+
+        if result.get("success") is False:
+            raise RuntimeError(
+                f"ORION edge projection failed for {expected} edges ({types}): "
+                f"{real_errors or errors or result}"
+            )
+        failed = result.get("failed")
+        if isinstance(failed, int) and failed > 0:
+            raise RuntimeError(
+                f"ORION rejected {failed}/{expected} edges ({types}): "
+                f"{real_errors or errors or result}"
+            )
 
     async def update_node_metadata(self, node_id: str, metadata: Dict[str, Any]) -> None:
-        """Merge ``metadata`` into a node's free-form metadata and re-upsert.
+        """Atomically merge metadata while preserving the record's vector.
 
         Used by the indexing pipeline; no-op if the node is unknown.
         """
@@ -307,16 +563,26 @@ class ProximaGraphStore(GraphStoreProtocol):
             return
         merged = dict(node.metadata or {})
         merged.update(metadata or {})
-        node.metadata = merged
-        await self.upsert_nodes([node])
+        has_embedding = bool(merged.get("has_embedding"))
+        vector = self._record_vectors.get(node_id)
+        if has_embedding and vector is None:
+            raise RuntimeError(
+                f"Cannot preserve vector for {node_id}: committed ProximaRecord is not cached"
+            )
+        committed = self._node_for_record(
+            node,
+            has_embedding=has_embedding,
+            metadata=merged,
+        )
+        await self._write_node_records([committed], {node_id: vector} if vector else None)
+        graph = await self._ensure()
+        await self._apply_node_projection(graph, [committed])
 
-    async def _symbol_vectors(self) -> Any:
-        """Get/create the correlated symbol-vector collection on the shared instance.
+    async def _symbol_records(self) -> Any:
+        """Get/create the correlated ProximaRecord collection on the shared instance.
 
-        Vectors are keyed by the symbol ``oid`` (== graph node id), so the vector
-        index and the ORION graph share one identity — no ``embedding_ref`` bridge.
-        Returns ``None`` when there is no embedded connection (e.g. service mode or
-        an injected test graph without a real instance).
+        Each record owns the node properties and vector under one ``oid``. ORION
+        consumes a projection of those properties; it is not a second authority.
         """
         if self._symbol_collection is not None:
             return self._symbol_collection
@@ -327,23 +593,227 @@ class ProximaGraphStore(GraphStoreProtocol):
         )
         return self._symbol_collection
 
-    async def set_node_embedding(self, node_id: str, embedding: List[float]) -> None:
-        """Co-index a symbol's vector under its ``oid`` (== graph node id).
+    async def _edge_records(self) -> Any:
+        """Get/create the durable Tier-A edge collection (dimension 1)."""
+        if self._edge_collection is not None:
+            return self._edge_collection
+        if self._conn is None:
+            return None
+        self._edge_collection = await self._conn.get_or_create_collection(
+            self._edge_collection_name, dimension=self._edge_vector_dim
+        )
+        return self._edge_collection
 
-        Stores the raw vector in the correlated collection on the **same** embedded
-        instance as the ORION node, so a vector hit resolves to its graph node by
-        identity (TD-12) and the always-empty ``embedding_ref`` bridge is retired.
-        Best-effort: never raises on the indexing hot path.
+    def _to_proxima_edge_record(self, edge: GraphEdge) -> Dict[str, Any]:
+        """Build the durable envelope for one Tier-A edge.
+
+        The id is the same ``src|type|dst`` key ``_to_proxima_edge`` gives ORION,
+        so a repeated write is an upsert over the same oid rather than a
+        duplicate — the property that makes re-running a resolution pass safe.
         """
-        vector = list(embedding)
-        self._vector_dim = len(vector) or self._vector_dim
-        collection = await self._symbol_vectors()
+        edge_type = getattr(edge.type, "value", edge.type)
+        props: Dict[str, Any] = {
+            "record_kind": "graph_edge",
+            "graph_id": self._graph_id,
+            "src": edge.src,
+            "dst": edge.dst,
+            "type": edge_type,
+            "metadata": dict(edge.metadata or {}),
+        }
+        if edge.weight is not None:
+            props["weight"] = edge.weight
+        return {
+            "id": f"{edge.src}|{edge_type}|{edge.dst}",
+            "vector": [0.0] * self._edge_vector_dim,
+            "props": props,
+        }
+
+    @staticmethod
+    def _edge_from_record_props(props: Dict[str, Any]) -> Optional[GraphEdge]:
+        """Rebuild a GraphEdge from stored props, or None if the row is unusable."""
+        src = props.get("src")
+        dst = props.get("dst")
+        etype = props.get("type")
+        if not (src and dst and etype):
+            return None
+        metadata = props.get("metadata")
+        if isinstance(metadata, str):
+            try:
+                metadata = json.loads(metadata)
+            except (TypeError, ValueError):
+                metadata = {}
+        return GraphEdge(
+            src=str(src),
+            dst=str(dst),
+            type=str(etype),
+            weight=props.get("weight"),
+            metadata=dict(metadata or {}),
+        )
+
+    async def _write_edge_records(self, edges: List[GraphEdge]) -> None:
+        """Commit Tier-A edges durably, before the ORION projection."""
+        collection = await self._edge_records()
         if collection is None:
+            # Client-mode / injected-graph deployments have no record collection.
+            # ORION remains the only store there, so edges stay non-durable —
+            # say so once rather than pretending the write happened.
+            if not self._warned_edge_records_unavailable:
+                logger.warning(
+                    "No ProximaRecord collection available for Tier-A edges; they "
+                    "will live only in ORION and will not survive a restart "
+                    "(anvai-labs/proximaDB#1524)."
+                )
+                self._warned_edge_records_unavailable = True
             return
-        try:
-            await collection.insert_records([{"id": node_id, "vector": vector}])
-        except Exception as exc:  # pragma: no cover - depends on live server
-            logger.debug("set_node_embedding(%s) failed: %s", node_id, exc)
+        payload = [self._to_proxima_edge_record(edge) for edge in edges]
+        # Chunked for the same 32MB-request-cap reason as _write_node_records.
+        for start in range(0, len(payload), _RECORD_WRITE_CHUNK):
+            chunk = payload[start : start + _RECORD_WRITE_CHUNK]
+            result = await collection.insert_records(chunk)
+            self._validate_record_write(result, len(chunk))
+
+    def _node_for_record(
+        self,
+        node: GraphNode,
+        *,
+        has_embedding: bool,
+        metadata: Dict[str, Any] | None = None,
+    ) -> GraphNode:
+        merged = dict(node.metadata or {})
+        if not has_embedding:
+            merged.pop("has_embedding", None)
+            merged.pop("content_version", None)
+            merged.pop("embedding_ref", None)
+        if metadata:
+            merged.update(metadata)
+        merged["has_embedding"] = has_embedding
+        return replace(node, embedding_ref=None, metadata=merged)
+
+    def _to_proxima_record(
+        self, node: GraphNode, vector: List[float] | None = None
+    ) -> Dict[str, Any]:
+        """Build the one durable graph-property + vector envelope for a symbol."""
+        values = list(vector) if vector is not None else [0.0] * self._vector_dim
+        if len(values) != self._vector_dim:
+            raise ValueError(
+                f"Embedding for {node.node_id} has {len(values)} dimensions; "
+                f"expected {self._vector_dim}"
+            )
+        props: Dict[str, Any] = {
+            "record_kind": "graph_node",
+            "graph_id": self._graph_id,
+            "type": node.type,
+            "metadata": dict(node.metadata or {}),
+            "has_embedding": bool((node.metadata or {}).get("has_embedding")),
+        }
+        for key in _NODE_FIELD_KEYS:
+            value = getattr(node, key, None)
+            if value is not None:
+                props[key] = value
+        return {"id": node.node_id, "vector": values, "props": props}
+
+    @staticmethod
+    def _validate_record_write(result: Any, expected: int) -> None:
+        """Fail closed unless Proxima confirms every requested record write."""
+        if isinstance(result, dict):
+            failed = int(result.get("failed_count", result.get("failed", 0)) or 0)
+            succeeded = int(
+                result.get("inserted_count", result.get("success", expected if not failed else 0))
+                or 0
+            )
+            errors = result.get("errors") or []
+        else:
+            failed = int(getattr(result, "failed", 0) or 0)
+            succeeded = int(getattr(result, "success", 0) or 0)
+            errors = getattr(result, "errors", None) or []
+        if failed or succeeded != expected:
+            detail = "; ".join(str(error) for error in errors) or (
+                f"confirmed {succeeded} of {expected} records"
+            )
+            raise RuntimeError(f"Atomic ProximaRecord write failed: {detail}")
+
+    async def _write_node_records(
+        self,
+        nodes: List[GraphNode],
+        vectors: Dict[str, List[float]] | None = None,
+    ) -> None:
+        collection = await self._symbol_records()
+        if collection is None:
+            raise RuntimeError("ProximaDB atomic record collection is unavailable")
+        payload = [
+            self._to_proxima_record(node, (vectors or {}).get(node.node_id)) for node in nodes
+        ]
+        # Chunked: a single-shot insert of a whole repo's symbol records
+        # (~20k with signatures/docstrings) exceeded the embedded server's
+        # 32MB request cap — HTTP 413 that the indexing catch-all reduced to
+        # a warning, leaving a near-empty store behind a green checkmark.
+        for start in range(0, len(payload), _RECORD_WRITE_CHUNK):
+            chunk = payload[start : start + _RECORD_WRITE_CHUNK]
+            result = await collection.insert_records(chunk)
+            self._validate_record_write(result, len(chunk))
+        for node, record in zip(nodes, payload):
+            self._record_nodes[node.node_id] = node
+            self._record_vectors[node.node_id] = list(record["vector"])
+            self._record_node_ids.add(node.node_id)
+
+    async def _apply_node_projection(self, graph: Any, nodes: List[GraphNode]) -> None:
+        """Apply the rebuildable ORION projection after the record commit."""
+        payload = [self._to_proxima_node(node) for node in nodes]
+        result = await asyncio.to_thread(graph.batch_create_nodes, payload)
+        if isinstance(result, dict) and not result.get("success", False):
+            raise RuntimeError(f"ORION node projection failed: {result.get('errors') or result}")
+
+    async def upsert_node_records(
+        self,
+        items: List[tuple],
+        *,
+        metadata: Dict[str, Any] | None = None,
+    ) -> None:
+        """Batched ``upsert_node_record``: one durable ProximaRecord batch write
+        plus one projection batch, instead of two round trips per node.
+
+        ``items`` is ``[(node_id, embedding, per_item_metadata_or_None), ...]``;
+        ``metadata`` (if given) is merged under each item's own metadata. Unknown
+        node ids raise ``KeyError`` before anything is written, preserving the
+        singular method's all-or-nothing commit contract per batch.
+        """
+        if not items:
+            return
+        committed = []
+        vectors: Dict[str, List[float]] = {}
+        for node_id, embedding, item_metadata in items:
+            node = self._record_nodes.get(node_id) or await self.get_node_by_id(node_id)
+            if node is None:
+                raise KeyError(f"Unknown graph node: {node_id}")
+            merged = dict(metadata or {})
+            merged.update(item_metadata or {})
+            committed.append(self._node_for_record(node, has_embedding=True, metadata=merged))
+            vectors[node_id] = list(embedding)
+        await self._write_node_records(committed, vectors)
+        graph = await self._ensure()
+        await self._apply_node_projection(graph, committed)
+
+    async def upsert_node_record(
+        self,
+        node_id: str,
+        embedding: List[float],
+        *,
+        metadata: Dict[str, Any] | None = None,
+    ) -> None:
+        """Atomically replace a symbol's graph properties and vector.
+
+        The ProximaRecord write is the durable commit. ORION is updated afterward
+        as a rebuildable projection; projection failure propagates so retry repairs
+        it without ever producing a graph-only or vector-only authoritative state.
+        """
+        node = self._record_nodes.get(node_id) or await self.get_node_by_id(node_id)
+        if node is None:
+            raise KeyError(f"Unknown graph node: {node_id}")
+        vector = list(embedding)
+        committed = self._node_for_record(node, has_embedding=True, metadata=metadata)
+        await self._write_node_records([committed], {node_id: vector})
+        graph = await self._ensure()
+        await self._apply_node_projection(graph, [committed])
 
     async def semantic_search(
         self,
@@ -359,10 +829,30 @@ class ProximaGraphStore(GraphStoreProtocol):
         seed→expand, served from the one correlated collection (vector hit → node
         is identity, not a join). Empty when no vectors are co-indexed.
         """
-        collection = await self._symbol_vectors()
+        collection = await self._symbol_records()
         if collection is None:
             return []
-        hits = await collection.search(query_vector, top_k=top_k, filters=filters or None)
+        search_filters = dict(filters or {})
+        search_filters["has_embedding"] = True
+        hits = await collection.search(query_vector, top_k=top_k, filters=search_filters)
+
+        # Records and their vectors ARE durable across a restart; an earlier
+        # revision of this warning claimed otherwise and was wrong. Empty results
+        # are still worth one line, because the most common cause is an index
+        # built without embeddings: `victor init` only generates vectors when
+        # asked (`--embeddings`), so a repo can hold a complete graph and no
+        # vectors at all, and semantic search then returns zero with nothing to
+        # explain it.
+        if not hits and not self._warned_missing_vectors:
+            self._warned_missing_vectors = True
+            logger.warning(
+                "ProximaDB semantic search matched no vectors for %s. The graph may "
+                "have been indexed without embeddings — re-run indexing with "
+                "embeddings enabled (`victor init --embeddings`) if semantic search "
+                "is expected here.",
+                self._repo,
+            )
+
         nodes: List[GraphNode] = []
         for hit in hits or []:
             oid = hit.get("id") if isinstance(hit, dict) else None
@@ -388,6 +878,56 @@ class ProximaGraphStore(GraphStoreProtocol):
             raise ValueError(f"Unsupported graph traversal direction: {direction}")
         if max_depth < 1:
             return []
+
+        requested_types = list(edge_types) if edge_types is not None else []
+        if requested_types:
+            cold_types = [
+                edge_type for edge_type in requested_types if EdgeType.is_ccg_edge(edge_type)
+            ]
+            hot_types = [
+                edge_type for edge_type in requested_types if not EdgeType.is_ccg_edge(edge_type)
+            ]
+            if cold_types and not hot_types:
+                return await self._cpg_store.get_neighbors(
+                    node_id,
+                    cold_types,
+                    direction=direction,
+                    max_depth=max_depth,
+                )
+            if cold_types:
+                hot_result, cold_result = await asyncio.gather(
+                    self._get_hot_neighbors(
+                        node_id,
+                        hot_types,
+                        direction=direction,
+                        max_depth=max_depth,
+                    ),
+                    self._cpg_store.get_neighbors(
+                        node_id,
+                        cold_types,
+                        direction=direction,
+                        max_depth=max_depth,
+                    ),
+                )
+                return self._sorted_edges([*hot_result, *cold_result])
+
+        # An unfiltered traversal is intentionally Tier A only. Cold CPG data
+        # must be requested through explicit CFG/CDG/DDG edge filters.
+        return await self._get_hot_neighbors(
+            node_id,
+            requested_types or None,
+            direction=direction,
+            max_depth=max_depth,
+        )
+
+    async def _get_hot_neighbors(
+        self,
+        node_id: str,
+        edge_types: Optional[Iterable[str]] = None,
+        *,
+        direction: GraphTraversalDirection = "both",
+        max_depth: int = 1,
+    ) -> List[GraphEdge]:
         graph = await self._ensure()
         allowed = list(edge_types) if edge_types else None
         raw = await asyncio.to_thread(
@@ -406,6 +946,8 @@ class ProximaGraphStore(GraphStoreProtocol):
         type: str | None = None,
         file: str | None = None,
     ) -> List[GraphNode]:
+        if type == "statement":
+            return await self._cpg_store.find_nodes(name=name, file=file)
         graph = await self._ensure()
         raw = await asyncio.to_thread(lambda: graph.find_nodes(name=name, type=type, file=file))
         return [self._from_proxima_node(n) for n in raw]
@@ -423,28 +965,214 @@ class ProximaGraphStore(GraphStoreProtocol):
         return [self._from_proxima_node(n) for n in raw]
 
     async def get_node_by_id(self, node_id: str) -> Optional[GraphNode]:
+        if node_id in self._record_nodes:
+            return self._record_nodes[node_id]
         graph = await self._ensure()
         raw = await asyncio.to_thread(graph.get_node_by_id, node_id)
-        return self._from_proxima_node(raw) if raw is not None else None
+        if raw is not None:
+            return self._from_proxima_node(raw)
+        return await self._cpg_store.get_node_by_id(node_id)
 
     async def get_all_nodes(self) -> List[GraphNode]:
         graph = await self._ensure()
         raw = await asyncio.to_thread(lambda: graph.get_all_nodes(include_internal=True))
-        nodes = [self._from_proxima_node(n) for n in raw]
+        by_id = {node.node_id: node for node in (self._from_proxima_node(n) for n in raw)}
+        by_id.update(self._record_nodes)
+        nodes = list(by_id.values())
         nodes.sort(key=lambda n: (n.file, n.line or 0, n.name))
         return nodes
 
     async def get_nodes_by_file(self, file: str) -> List[GraphNode]:
         graph = await self._ensure()
         raw = await asyncio.to_thread(graph.get_nodes_by_file, file)
-        nodes = [self._from_proxima_node(n) for n in raw]
+        by_id = {node.node_id: node for node in (self._from_proxima_node(n) for n in raw)}
+        by_id.update(
+            (node_id, node) for node_id, node in self._record_nodes.items() if node.file == file
+        )
+        nodes = list(by_id.values())
         nodes.sort(key=lambda n: (n.line or 0, n.name))
         return nodes
 
     async def get_all_edges(self) -> List[GraphEdge]:
+        """Return Tier-A edges from their durable authority.
+
+        ORION is a rebuildable traversal projection. Merging it into this result
+        would make a stale projection authoritative by addition: if the record
+        delete committed but its projection delete failed, the union would
+        resurrect the deleted edge. Embedded mode therefore fails closed when
+        the record tier is unreadable.
+
+        An injected graph or the WIP service adapter has no record collection
+        today. That explicitly legacy path remains ORION-only and uncacheable;
+        it must not be mistaken for the supported durable mode.
+        """
+        # `_conn is None` means "not initialized yet" for a normal embedded
+        # store as well as "no record tier" for an injected/service adapter.
+        # Establish the lifecycle state before selecting an authority; doing
+        # this after `_read_edge_records` made the first read after construction
+        # silently fall through to ORION-only legacy mode.
+        if not self._initialized:
+            await self.initialize()
+
+        durable = await self._read_edge_records()
+        if durable is not None:
+            return self._sorted_edges(list(durable))
+
+        if self._conn is not None:
+            raise RuntimeError(
+                "Could not read authoritative Tier-A edge records; refusing to "
+                "serve the potentially stale ORION projection"
+            )
+
         graph = await self._ensure()
+        logger.warning(
+            "Tier-A edges are being read from ORION-only legacy mode; this view "
+            "is not a durable authority and is intentionally not cached."
+        )
         raw = await asyncio.to_thread(graph.get_all_edges)
         return self._sorted_edges([self._from_proxima_edge(e) for e in raw])
+
+    async def _read_edge_records(self) -> Optional[List[GraphEdge]]:
+        """Every Tier-A edge in the record tier, or None when unreadable.
+
+        The SDK's collection object exposes insert/search/delete/count but no
+        scan, so this goes to the REST scan endpoint through the embedded
+        server's own HTTP client. That is the single place reaching past the
+        SDK's public surface; if the SDK grows a scan method, this collapses to
+        a call.
+
+        Scanning the whole collection is acceptable here and only here: Tier-A
+        is ~1.4k edges. It is emphatically NOT a pattern to reuse for Tier-B
+        (81k edges), where the same scan measured 158 ms per lookup because the
+        server materializes the collection before filtering
+        (anvai-labs/proximaDB TD-FPRUNE-2).
+        """
+        generation = self._edge_generation()
+        if self._conn is None:
+            # Injected/WIP adapters have no server revision surface. Preserve
+            # their explicitly supplied cache for legacy test/service mode;
+            # supported embedded mode always has a connection and revalidates.
+            return self._edge_record_cache
+        collection = await self._edge_records()
+        if collection is None:
+            return None
+        db = getattr(self._conn, "embedded_db", None)
+        client_factory = getattr(db, "_http_client", None)
+        if db is None or client_factory is None:
+            return None
+
+        edges: List[GraphEdge] = []
+        content_revision: Optional[int] = None
+        content_revision_token: Optional[str] = None
+        try:
+            async with client_factory() as client:
+                if self._edge_record_cache is not None:
+                    revision_response = await client.get(
+                        f"{db.rest_url}/api/v2/collections/{self._edge_collection_name}",
+                        timeout=30.0,
+                    )
+                    revision_payload = (
+                        revision_response.json() if revision_response.status_code == 200 else {}
+                    )
+                    current_revision = (
+                        int(revision_payload["content_revision"])
+                        if revision_payload.get("content_revision") is not None
+                        else None
+                    )
+                    current_revision_token = (
+                        str(revision_payload["content_revision_token"])
+                        if revision_payload.get("content_revision_token")
+                        else None
+                    )
+                    if (
+                        self._edge_record_cache_generation == generation
+                        and self._edge_record_cache_revision is not None
+                        and current_revision == self._edge_record_cache_revision
+                        and self._edge_record_cache_revision_token is not None
+                        and current_revision_token == self._edge_record_cache_revision_token
+                    ):
+                        return self._edge_record_cache
+                    self._invalidate_edge_records()
+
+                cursor: Optional[str] = None
+                seen_cursors: set[str] = set()
+                while True:
+                    request: Dict[str, Any] = {"limit": _EDGE_SCAN_PAGE_SIZE}
+                    if cursor is not None:
+                        request["cursor"] = cursor
+                    response = await client.post(
+                        f"{db.rest_url}/api/v2/collections/"
+                        f"{self._edge_collection_name}/records/scan",
+                        json=request,
+                        timeout=120.0,
+                    )
+                    if response.status_code != 200:
+                        logger.warning(
+                            "Tier-A edge record scan failed (HTTP %s after %d rows); "
+                            "the authoritative edge view is unavailable.",
+                            response.status_code,
+                            len(edges),
+                        )
+                        return None
+                    payload = response.json()
+                    page_revision = payload.get("content_revision")
+                    page_revision_token = payload.get("content_revision_token")
+                    if page_revision is not None:
+                        page_revision = int(page_revision)
+                        if content_revision is None:
+                            content_revision = page_revision
+                        elif page_revision != content_revision:
+                            logger.warning(
+                                "Tier-A edge content revision changed within a scan; "
+                                "rejecting a mixed snapshot."
+                            )
+                            return None
+                    if page_revision_token is not None:
+                        page_revision_token = str(page_revision_token)
+                        if content_revision_token is None:
+                            content_revision_token = page_revision_token
+                        elif page_revision_token != content_revision_token:
+                            logger.warning(
+                                "Tier-A edge revision token changed within a scan; "
+                                "rejecting a mixed snapshot."
+                            )
+                            return None
+                    records = payload.get("records") or []
+                    for record in records:
+                        edge = self._edge_from_record_props(
+                            _unwrap_props(record.get("props") or {})
+                        )
+                        if edge is not None:
+                            edges.append(edge)
+
+                    next_cursor = payload.get("next_cursor")
+                    if not next_cursor:
+                        break
+                    cursor = str(next_cursor)
+                    if cursor in seen_cursors:
+                        logger.warning(
+                            "Tier-A edge record scan repeated a cursor after %d rows; "
+                            "rejecting an incomplete graph.",
+                            len(edges),
+                        )
+                        return None
+                    seen_cursors.add(cursor)
+        except Exception as exc:  # pragma: no cover - depends on live server
+            logger.warning("Could not read Tier-A edge records: %s", exc)
+            return None
+
+        # Cache for the session: local writes and deletes invalidate it. Without
+        # this, `get_all_edges` —
+        # which retrieval calls on every query — repeats a full scan that measured
+        # 732 ms on a 1.4k-edge graph.
+        if self._edge_generation() != generation:
+            logger.warning("Tier-A edge records changed during a scan; rejecting a stale snapshot.")
+            return None
+        self._edge_record_cache = edges
+        self._edge_record_cache_generation = generation
+        self._edge_record_cache_revision = content_revision
+        self._edge_record_cache_revision_token = content_revision_token
+        return edges
 
     # ------------------------------------------------------------------
     # File mtime / staleness (in-memory sidecar until Tier-C relational facts)
@@ -477,37 +1205,178 @@ class ProximaGraphStore(GraphStoreProtocol):
     async def delete_by_file(self, file: str) -> None:
         await self._ensure()
         nodes = await self.get_nodes_by_file(file)
+        cold_nodes = await self._cpg_store.get_nodes_by_file(file)
+        deleted_ids = {n.node_id for n in [*nodes, *cold_nodes]}
+
+        # ORION deletes incident edges with the node, but the record tier is a
+        # separate collection and has no cascade. Resolve its incident record
+        # ids before deleting the nodes so the durable authority follows the
+        # projection. After a restart ORION may be empty (#1524), so deriving
+        # these ids from graph neighbors would silently miss durable edges.
+        # This store's session cache may predate a write made through another
+        # ProximaGraphStore sharing the same ref-counted connection. Refresh
+        # before deciding which durable edge ids are incident to the file; an
+        # old prefix here would strand the newer records after node deletion.
+        embedded_db = getattr(self._conn, "embedded_db", None)
+        can_refresh_durable_edges = (
+            embedded_db is not None and getattr(embedded_db, "_http_client", None) is not None
+        )
+        has_durable_edge_authority = (
+            self._edge_record_cache is not None
+            or self._edge_collection is not None
+            or can_refresh_durable_edges
+        )
+        if can_refresh_durable_edges:
+            self._invalidate_edge_records()
+        durable_edges = await self._read_edge_records()
+        if durable_edges is None and has_durable_edge_authority:
+            raise RuntimeError(
+                "Cannot delete file safely: durable Tier-A edge records are unreadable"
+            )
+        incident_edges = [
+            edge
+            for edge in durable_edges or []
+            if edge.src in deleted_ids or edge.dst in deleted_ids
+        ]
+
+        # Delete the durable edges before their nodes. The operation is not
+        # transactional, but this ordering is retryable: if a later node delete
+        # fails, the nodes still identify the file on the next attempt. Deleting
+        # nodes first could strand edge records that no longer have endpoints
+        # from which a retry can discover them.
+        self._invalidate_edge_records()
+        self._orion_edge_ids = None
+        await self._delete_edge_records(incident_edges)
         for node in nodes:
             await self._delete_node(node.node_id)
+        await self._cpg_store.delete_by_file(file)
+        self._mark_edge_records_mutated()
         self._file_mtimes.pop(str(file), None)
         self._file_hashes.pop(str(file), None)
         # Invalidate any cached subgraphs anchored on deleted nodes.
-        deleted_ids = {n.node_id for n in nodes}
         for sg_id in [
             sg_id for sg_id, sg in self._subgraph_cache.items() if sg.anchor_node_id in deleted_ids
         ]:
             self._subgraph_cache.pop(sg_id, None)
 
-    async def _delete_node(self, node_id: str) -> None:
-        if self._client is None:
+    async def _delete_edge_records(self, edges: List[GraphEdge]) -> None:
+        """Delete durable edge records by their deterministic projection ids."""
+        if not edges:
             return
-        delete_node = getattr(self._client, "delete_node", None)
-        if delete_node is not None:
-            try:
-                await asyncio.to_thread(delete_node, node_id=node_id, graph_id=self._graph_id)
-            except Exception as exc:  # pragma: no cover - depends on live server
-                logger.debug("delete_node(%s) failed: %s", node_id, exc)
-        # Drop the co-indexed vector under the same oid (one entity, one delete).
-        if self._symbol_collection is not None:
-            try:
-                await self._symbol_collection.delete([node_id])
-            except Exception as exc:  # pragma: no cover
-                logger.debug("vector delete(%s) failed: %s", node_id, exc)
+        collection = await self._edge_records()
+        if collection is None:
+            return  # service/injected mode can be ORION-only
+        ids = sorted({self._to_proxima_edge_record(edge)["id"] for edge in edges})
+        await collection.delete(ids)
 
-    async def delete_by_repo(self) -> None:
-        self._file_mtimes.clear()
-        self._subgraph_cache.clear()
+    async def _delete_node(self, node_id: str) -> None:
+        # Delete the authoritative record as one entity, then its ORION projection.
+        collection = await self._symbol_records()
+        if collection is None:
+            raise RuntimeError("ProximaDB atomic record collection is unavailable")
+        deleted = await collection.delete([node_id])
+        if deleted is not None and int(deleted) < 1:
+            logger.debug("record %s was already absent", node_id)
+        self._record_nodes.pop(node_id, None)
+        self._record_vectors.pop(node_id, None)
+        self._record_node_ids.discard(node_id)
+        if self._client is not None:
+            delete_node = getattr(self._client, "delete_node", None)
+            if delete_node is not None:
+                try:
+                    await asyncio.to_thread(delete_node, node_id=node_id, graph_id=self._graph_id)
+                except Exception as exc:  # pragma: no cover - depends on live server
+                    logger.debug("delete_node(%s) failed: %s", node_id, exc)
+
+    def _invalidate_edge_records(self) -> None:
+        """Drop the cached durable edge set.
+
+        Must be called by everything that changes edges — writes *and* deletions.
+        The cache exists because `get_all_edges` runs once per retrieval and the
+        underlying scan measured 99 ms; the cost of forgetting to invalidate it is
+        that a session keeps serving edges that were deleted.
+        """
+        self._edge_record_cache = None
+        self._edge_record_cache_generation = None
+        self._edge_record_cache_revision = None
+        self._edge_record_cache_revision_token = None
+
+    def _edge_generation(self) -> int:
+        """Return the shared mutation epoch when this store has a connection."""
+        generation = getattr(self._conn, "collection_generation", None)
+        if callable(generation):
+            return int(generation(self._edge_collection_name))
+        return self._local_edge_generation
+
+    def _mark_edge_records_mutated(self) -> None:
+        """Invalidate this store and advance the shared process-local epoch."""
+        mark_mutated = getattr(self._conn, "mark_collection_mutated", None)
+        if callable(mark_mutated):
+            mark_mutated(self._edge_collection_name)
+        else:
+            self._local_edge_generation += 1
+        self._invalidate_edge_records()
+
+    async def _clear_edge_records(self) -> None:
+        """Delete the durable Tier-A edge collection.
+
+        `delete_by_repo` used to clear only the symbol records, so the edge
+        collection survived a full repo wipe — and since `delete_by_repo` is what
+        a force rebuild calls, every previous edge stayed on disk to be read back
+        by the next session as if it were current.
+        """
+        # Do not create the collection merely to delete it. The embedded SDK
+        # treats a missing collection as an idempotent success (HTTP 404), while
+        # injected stores can clear an already-supplied handle below.
+        collection = self._edge_collection
+        self._invalidate_edge_records()
+        self._orion_edge_ids = None
+        if self._conn is not None:
+            deleted = await self._conn.embedded_db.delete_collection(self._edge_collection_name)
+            if not deleted:
+                raise RuntimeError(
+                    f"Failed to delete ProximaDB collection {self._edge_collection_name}"
+                )
+            self._conn.forget_collection(self._edge_collection_name)
+        elif collection is not None:
+            clear = getattr(collection, "clear", None)
+            if clear is not None:
+                await clear()
+        self._edge_collection = None
+        self._mark_edge_records_mutated()
+
+    async def _clear_symbol_records(self) -> None:
+        """Delete the unified symbol-record authority and invalidate projections."""
+        if self._conn is not None:
+            deleted = await self._conn.embedded_db.delete_collection(self._symbol_collection_name)
+            if not deleted:
+                raise RuntimeError(
+                    f"Failed to delete ProximaDB collection {self._symbol_collection_name}"
+                )
+            self._conn.forget_collection(self._symbol_collection_name)
+        elif self._symbol_collection is not None:
+            clear = getattr(self._symbol_collection, "clear", None)
+            if clear is not None:
+                await clear()
+            elif self._record_node_ids:
+                await self._symbol_collection.delete(sorted(self._record_node_ids))
+        self._symbol_collection = None
+        self._record_nodes.clear()
+        self._record_vectors.clear()
+        self._record_node_ids.clear()
+        self._orion_edge_ids = None
+
+    async def delete_by_repo(self, clear_embeddings: bool = False) -> None:
+        # Graph properties and embeddings are one record now; clearing only one
+        # modality is structurally impossible. The compatibility flag is ignored.
+        del clear_embeddings
+        await self._clear_symbol_records()
+        await self._clear_edge_records()
         if self._client is None:
+            await self._cpg_store.clear()
+            self._file_mtimes.clear()
+            self._file_hashes.clear()
+            self._subgraph_cache.clear()
             return
         delete_graph = getattr(self._client, "delete_graph", None)
         if delete_graph is not None:
@@ -521,6 +1390,10 @@ class ProximaGraphStore(GraphStoreProtocol):
                 await asyncio.to_thread(create_graph, self._graph_id)
             except Exception:  # pragma: no cover
                 pass
+        await self._cpg_store.clear()
+        self._file_mtimes.clear()
+        self._file_hashes.clear()
+        self._subgraph_cache.clear()
 
     # ------------------------------------------------------------------
     # Stats
@@ -532,13 +1405,50 @@ class ProximaGraphStore(GraphStoreProtocol):
         except Exception as exc:  # pragma: no cover
             logger.debug("get_stats failed: %s", exc)
             raw = {}
+        raw_stats = raw if isinstance(raw, dict) else {}
+        cold_stats = await self._cpg_store.stats()
+        tier_a_nodes = _orion_stat(raw_stats, "nodes")
+        tier_a_edges = _orion_stat(raw_stats, "edges")
+
+        # Belt-and-braces: if the envelope shape changes again, recount from the
+        # authoritative read path rather than silently reporting an empty tier.
+        # Reading a zero as "empty" is what dropped the whole Tier-A symbol tier
+        # from the totals — `victor init` on a 70-file corpus reported 25,937
+        # nodes against SQLite's 27,265, short by exactly the 1,328 symbols.
+        # Tier-A is symbols only, so a recount stays well below Tier-B volume.
+        if tier_a_nodes == 0:
+            try:
+                tier_a_nodes = len(await self.get_all_nodes())
+            except Exception as exc:  # pragma: no cover - depends on live server
+                logger.debug("Tier-A node recount failed: %s", exc)
+        if tier_a_edges == 0:
+            try:
+                tier_a_edges = len(await self.get_all_edges())
+            except Exception as exc:  # pragma: no cover - depends on live server
+                logger.debug("Tier-A edge recount failed: %s", exc)
         return {
             "backend": "proxima",
             "repo": self._repo,
             "graph_id": self._graph_id,
             "embedding_mode": self._embedding_mode.value,
             "service_mode_wip": bool(self._server_url),
-            **(raw if isinstance(raw, dict) else {}),
+            **raw_stats,
+            # Protocol contract: every backend reports total `nodes`/`edges`.
+            # These MUST come after the `raw_stats` splat — the SDK's get_stats()
+            # may itself carry a "nodes" key describing only the ORION tier, and
+            # letting that win would under-report the graph by everything in
+            # Tier-B. Omitting them entirely is what broke `victor init` against
+            # this backend: init does `db_stats['nodes']`, so a proxima-backed
+            # repo died with KeyError('nodes') and reported only
+            # "CCG indexing skipped: 'nodes'" — the index was never built.
+            "nodes": tier_a_nodes + int(cold_stats["nodes"]),
+            "edges": tier_a_edges + int(cold_stats["edges"]),
+            "indexed_files": int(cold_stats["files"]),
+            "tier_a_nodes": tier_a_nodes,
+            "tier_a_edges": tier_a_edges,
+            "tier_b_nodes": cold_stats["nodes"],
+            "tier_b_edges": cold_stats["edges"],
+            "tier_b_files": cold_stats["files"],
         }
 
     # ------------------------------------------------------------------
@@ -547,14 +1457,15 @@ class ProximaGraphStore(GraphStoreProtocol):
     async def get_nodes_by_statement_type(
         self, statement_type: str, *, file: str | None = None
     ) -> List[GraphNode]:
-        nodes = await (self.get_nodes_by_file(file) if file else self.get_all_nodes())
-        return [n for n in nodes if n.statement_type == statement_type]
+        return await self._cpg_store.get_nodes_by_statement_type(statement_type, file=file)
 
     async def get_nodes_by_requirement(self, requirement_id: str) -> List[GraphNode]:
-        return [n for n in await self.get_all_nodes() if n.requirement_id == requirement_id]
+        hot = [n for n in await self.get_all_nodes() if n.requirement_id == requirement_id]
+        cold = await self._cpg_store.get_nodes_by_requirement(requirement_id)
+        return [*hot, *cold]
 
     async def get_nodes_by_scope(self, scope_id: str) -> List[GraphNode]:
-        return [n for n in await self.get_all_nodes() if n.scope_id == scope_id]
+        return await self._cpg_store.get_nodes_by_scope(scope_id)
 
     # ------------------------------------------------------------------
     # Subgraph cache (in-memory; computed via multi-hop traversal)
@@ -712,12 +1623,24 @@ class ProximaGraphStore(GraphStoreProtocol):
         batch_size: int = 100,
         edge_types: Iterable[str] | None = None,
     ) -> AsyncIterator[List[GraphEdge]]:
-        allowed = set(edge_types) if edge_types else None
-        edges = await self.get_all_edges()
-        if allowed is not None:
-            edges = [e for e in edges if e.type in allowed]
-        for i in range(0, len(edges), batch_size):
-            yield edges[i : i + batch_size]
+        requested = list(edge_types) if edge_types is not None else []
+        cold_types = [edge_type for edge_type in requested if EdgeType.is_ccg_edge(edge_type)]
+        hot_types = [edge_type for edge_type in requested if not EdgeType.is_ccg_edge(edge_type)]
+
+        # Unfiltered iteration is Tier A only; Tier B must always be explicit.
+        if not requested or hot_types:
+            allowed = set(hot_types) if requested else None
+            edges = await self.get_all_edges()
+            if allowed is not None:
+                edges = [edge for edge in edges if edge.type in allowed]
+            for i in range(0, len(edges), batch_size):
+                yield edges[i : i + batch_size]
+
+        if cold_types:
+            async for batch in self._cpg_store.iter_edges(
+                batch_size=batch_size, edge_types=cold_types
+            ):
+                yield batch
 
     async def iter_neighbors(
         self,

@@ -5,7 +5,11 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import Any, List, Optional
 
-from victor.agent.tool_supply_policy import classify_tool_supply, demote_tools_to_fit
+from victor.agent.tool_supply_policy import (
+    classify_tool_supply,
+    demote_tools_to_fit,
+    should_skip_tools_via_edge,
+)
 from victor.tools.enums import Priority, SchemaLevel
 
 # ── classify_tool_supply ──────────────────────────────────────────
@@ -61,6 +65,11 @@ def test_edge_check_receives_message_and_confidence() -> None:
 
     classify_tool_supply("how does the auth flow work", edge_check=_spy)
     assert seen == [("how does the auth flow work", 0.85)]
+
+
+def test_edge_decision_falls_back_to_heuristic_without_service() -> None:
+    assert should_skip_tools_via_edge("what is Victor", 0.85) is True
+    assert should_skip_tools_via_edge("what is Victor", 0.6) is False
 
 
 # ── demote_tools_to_fit ───────────────────────────────────────────

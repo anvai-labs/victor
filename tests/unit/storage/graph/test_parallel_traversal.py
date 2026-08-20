@@ -1,4 +1,4 @@
-# Copyright 2025 Vijaykumar Singh <singhvjd@gmail.com>
+# Copyright 2025 Vijaykumar Singh <vijay@anvaiops.com>
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -294,8 +294,12 @@ class TestParallelRetrieverIntegration:
         config = MockConfig()
         retriever = MultiHopRetriever(populated_graph_store, config)
 
-        # Check that parallel retrieval method exists
-        assert hasattr(retriever, "retrieve_parallel")
+        # `assert hasattr(retriever, "retrieve_parallel")` used to stand here. It
+        # passed for as long as the method existed — including the entire period
+        # when nothing called it, it raised AttributeError on a stock config, and
+        # it skipped ranking. Behaviour is asserted in
+        # tests/unit/core/graph_rag/test_retrieval_parallel_parity.py; what is
+        # worth checking here is the gate that decides which strategy runs.
 
         # Check _should_use_parallel logic
         assert retriever._should_use_parallel(config) is True
@@ -311,17 +315,28 @@ class TestParallelRetrieverIntegration:
 
         retriever = MultiHopRetriever(populated_graph_store, None)
 
-        # Small seed count - should not use parallel
+        # Batched traversal is OPT-IN: measured 2.3-2.4x slower than serial on
+        # real code graphs, which are sparse (fan-out 0-2), so seed count alone
+        # no longer turns it on.
+        class LargeConfigWithoutOptIn:
+            seed_count = 5
+            parallel_min_batch_size = 3
+
+        assert not retriever._should_use_parallel(LargeConfigWithoutOptIn())
+
+        # Opted in but too few seeds to batch — still serial.
         class SmallConfig:
             seed_count = 2
             parallel_min_batch_size = 3
+            enable_parallel = True
 
         assert not retriever._should_use_parallel(SmallConfig())
 
-        # Large seed count - should use parallel
+        # Opted in with enough seeds — batched.
         class LargeConfig:
             seed_count = 5
             parallel_min_batch_size = 3
+            enable_parallel = True
 
         assert retriever._should_use_parallel(LargeConfig())
 

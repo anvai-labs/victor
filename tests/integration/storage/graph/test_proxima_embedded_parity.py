@@ -1,4 +1,4 @@
-# Copyright 2025 Vijaykumar Singh <singhvjd@gmail.com>
+# Copyright 2025 Vijaykumar Singh <vijay@anvaiops.com>
 # SPDX-License-Identifier: Apache-2.0
 
 """Embedded ProximaDB parity test (TD-11/12/13) — the real verification gate.
@@ -63,28 +63,30 @@ def _edge_keys(edges: List[GraphEdge]) -> set:
 
 @pytest.fixture
 async def embedded_proxima_store(tmp_path):
-    """Start a real embedded ProximaDB store, or skip if unavailable."""
+    """Start a real embedded ProximaDB store, or skip if unavailable.
+
+    This drives the **production bootstrap** (``data_dir`` + ``initialize()``)
+    rather than injecting a pre-built graph/client. Injection bypasses the shared
+    ``ProximaRepoConnection``, which is what owns the atomic ProximaRecord
+    collection, so an injected store cannot exercise the record authority at all
+    — it fails in ``_write_node_records`` before reaching any assertion. Keeping
+    this fixture on the real path is the whole point of the live gate.
+    """
+    data_dir = tmp_path / "proximadb"
     try:
-        db = await start_embedded_db(tmp_path / "proximadb")
+        db = await start_embedded_db(data_dir)
     except ProximaUnavailableError as exc:
         pytest.skip(f"Embedded ProximaDB unavailable: {exc}")
+    await db.stop()
 
-    from proximadb_sdk.graph import ProximaDBGraph
-    from proximadb_sdk.unified_client import ProximaDBClient
-
-    client = ProximaDBClient(url=db.rest_url, protocol="rest")
-    try:
-        client.create_graph("fixture_codegraph")
-    except Exception:
-        pass
-    graph = ProximaDBGraph(client, "fixture_codegraph")
-    store = ProximaGraphStore(graph=graph, client=client, repo="fixture")
+    store = ProximaGraphStore(repo="fixture", data_dir=data_dir)
+    await store.initialize()
     await store.upsert_nodes(_nodes())
     await store.upsert_edges(_edges())
     try:
         yield store
     finally:
-        await db.stop()
+        await store.close()
 
 
 async def test_embedded_impact_and_hybrid_parity(tmp_path, embedded_proxima_store):

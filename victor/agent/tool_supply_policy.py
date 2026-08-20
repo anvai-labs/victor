@@ -1,4 +1,4 @@
-# Copyright 2026 Vijaykumar Singh <singhvjd@gmail.com>
+# Copyright 2026 Vijaykumar Singh <vijay@anvaiops.com>
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -195,6 +195,50 @@ def classify_tool_supply(
         return "read_core" if skip else "tools"
 
     return "tools"  # Default: provide tools
+
+
+def should_skip_tools_via_edge(
+    context_msg: str,
+    heuristic_conf: float,
+    *,
+    container: Any = None,
+) -> bool:
+    """Ask the optional decision service whether a turn needs tools.
+
+    The policy keeps the edge-model integration out of ``AgentOrchestrator``.
+    It is deliberately fail-open: an unavailable decision service, an
+    unsupported result, or any error leaves tools available.
+    """
+    try:
+        from victor.agent.decisions.schemas import DecisionType
+        from victor.agent.services.protocols.decision_service import get_decision_service
+
+        service = get_decision_service(container)
+        if service is None:
+            return heuristic_conf >= 0.7
+
+        decision = service.decide_sync(
+            DecisionType.TOOL_NECESSITY,
+            context={"message_excerpt": context_msg[:300]},
+            heuristic_result={"requires_tools": heuristic_conf < 0.7},
+            heuristic_confidence=heuristic_conf,
+        )
+        if decision.source == "heuristic" or decision.result is None:
+            return heuristic_conf >= 0.7
+
+        requires = decision.result.get("requires_tools", True)
+        confidence = decision.result.get("confidence", 0.5)
+        if not requires and confidence >= 0.6:
+            logger.debug(
+                "TOOL_NECESSITY: skipping tools for Q&A turn " "(confidence=%.2f, source=%s)",
+                confidence,
+                decision.source,
+            )
+            return True
+        return False
+    except Exception:
+        logger.debug("Tool necessity check failed, defaulting to provide tools")
+        return False
 
 
 def demote_tools_to_fit(

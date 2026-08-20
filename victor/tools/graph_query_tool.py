@@ -1,4 +1,4 @@
-# Copyright 2025 Vijaykumar Singh <singhvjd@gmail.com>
+# Copyright 2025 Vijaykumar Singh <vijay@anvaiops.com>
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -156,11 +156,16 @@ async def graph_semantic_search(
         mode_note: Optional[str] = None
 
         # Create retriever with config
+        # Traverse both ways: a natural-language question is as likely to be
+        # "who calls X" (inward) as "what does X use" (outward), and answering
+        # the first with the second is silently wrong. Costs ~2% recall against
+        # perfectly-guessed intent; guessing wrong costs all of it.
         config = RetrievalConfig(
             seed_count=max_results,
             max_hops=max_hops,
             top_k=max_results,
             mode=effective_mode,
+            direction="both",
         )
         retriever = MultiHopRetriever(graph_store, config)
 

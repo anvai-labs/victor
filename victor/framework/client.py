@@ -752,9 +752,9 @@ class VictorClient:
     def list_recent_sessions(self, limit: int = 10) -> List[Dict[str, Any]]:
         """List recent stored sessions for a resume picker (cross-visit).
 
-        Reads the SQLite session persistence directly — a read-only lookup that
-        does not require an initialized agent, so a surface can render the
-        picker before a client is bound to a session.
+        Reads the canonical ConversationStore directly — a read-only lookup
+        that does not require an initialized agent, so a surface can render
+        the picker before a client is bound to a session.
 
         Args:
             limit: Maximum number of sessions to return (most recent first).
@@ -764,11 +764,24 @@ class VictorClient:
             last_activity, …); empty on any lookup failure.
         """
         try:
-            from victor.agent.sqlite_session_persistence import (
-                get_sqlite_session_persistence,
-            )
+            from victor.agent.conversation.store import ConversationStore
 
-            return get_sqlite_session_persistence().list_sessions(limit=limit)
+            return [
+                {
+                    "session_id": session.session_id,
+                    "title": session.title or "Untitled Session",
+                    "provider": session.provider or "unknown",
+                    "model": session.model or "unknown",
+                    "profile": session.profile or "default",
+                    "created_at": session.created_at,
+                    "updated_at": session.last_activity,
+                    "last_activity": session.last_activity,
+                    "message_count": len(session.messages),
+                    "preview_count": len(session.preview_messages),
+                    "tags": session.tags,
+                }
+                for session in ConversationStore().list_sessions(limit=limit)
+            ]
         except Exception as exc:  # a picker must never take the surface down
             logger.warning("list_recent_sessions failed: %s", exc)
             return []
@@ -796,9 +809,9 @@ class VictorClient:
             raise RuntimeError("VictorClient not initialized. Call initialize() first.")
 
         from victor.agent.conversation.session_resume import hydrate_session
-        from victor.agent.sqlite_session_persistence import get_sqlite_session_persistence
+        from victor.agent.conversation.store import ConversationStore
 
-        session_data = get_sqlite_session_persistence().load_session(session_id)
+        session_data = ConversationStore().load_session(session_id)
         if not session_data:
             return None
 

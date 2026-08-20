@@ -105,37 +105,121 @@ reports: docs/architecture/judge-independence-experiments.md.
 
 ## Verdict and open items
 
-**All three graduation gates are now cleared — by two complementary judges.** The scripted
-gate at gating-grade n is met by llama3.3:70b (run 10: α=1.000, n=96), and the real-agent
-trajectory gate is met by gemma4:31b (run 11: α=0.865, integrity clean, zero false
-completions). `completion_strategy=rubric` has the evidence to graduate. Trust is
-**judge-specific**: this graduates these calibrated judges, not LLM-judging in the abstract
-(identical code scored 0.173–0.279 with other models, and one thinking model produced zero
-usable grades — see point 4 and the run-8 guard).
+> ⛔ **DECIDED (2026-08-05): do NOT graduate an LLM completion judge as a default.** The
+> SWE-bench-lite re-gate (below) settled it on the true shipping distribution: both
+> calibration-corpus gate-passers **over-credit** (gemma4:31b α=−0.52, llama3.3:70b α=0.26)
+> and a classifier *trained on real trajectories* **under-credits** (ModernBERT α=−0.05,
+> collapses). All three fail; only the **in-container verifier** discriminates. Keep
+> `completion_strategy="enhanced"` (the current default — no code change needed). Read the
+> paragraphs below as the history of how the calibration-corpus gates were *provisionally*
+> cleared, not as a live recommendation.
 
-Judge selection — **gemma4:31b is the recommended default**: it cleared BOTH the scripted
-(0.929, run 7) and real-trajectory (0.865, run 11) gates, fits a 20 GB GPU fully (fast, no
-offload), and is the model that carried the real-trajectory pass. llama3.3:70b is the
-higher-accuracy alternative (1.000 scripted) where its ~42 GB footprint is affordable.
+**On the calibration corpus the gates were cleared — but that corpus was not the shipping
+distribution.** The scripted gate at gating-grade n was met by llama3.3:70b (run 10:
+α=1.000, n=96) and the (calibration-corpus) real-agent gate by gemma4:31b (run 11: α=0.865).
+That looked like enough to graduate `completion_strategy=rubric` — until the **SWE-bench-lite
+re-gate** ran the same judges against real GitHub-issue trajectories with in-container
+FAIL_TO_PASS gold (17% solve, negative-heavy — the inverse of the 81%-positive corpus). There
+gemma4:31b fell to **α=−0.52** and llama3.3:70b to **0.26**, and a ModernBERT classifier trained
+on those real trajectories collapsed to **α=−0.05** (see the two sections below). Trust was
+always **judge-specific** (identical code scored 0.173–0.279 with other models); the
+shipping-distribution result shows even the *best* calibration-corpus judges do not transfer.
+
+Judge selection — **none recommended as a default.** gemma4:31b and llama3.3:70b remain the
+strongest *opt-in* rubric judges on the calibration corpus, but neither is trustworthy on the
+production distribution, so `completion_strategy` stays **`enhanced`** (algorithmic) and the
+**in-container verifier is the completion oracle** for code-fix-at-scale. Revisit only when the
+agent's solve rate is high enough that real positives are no longer scarce — a stronger agent,
+not a bigger judge (the classifier failed for lack of positives, not lack of capacity).
 
 Graduation checklist for `completion_strategy=rubric` (TD-17 evidence):
 
-1. ✅ **Confirmation at gating-grade n** — DONE (run 10, llama3.3:70b): `--variants 16`,
-   n=16/family, 96/96 correct, α=1.000 every family. (Open: a variants-16 scripted
-   confirmation for gemma4:31b specifically would let one judge own both gates; gemma4 has
-   n=8 scripted (0.929) + real-trajectory (0.865) today.)
-2. ✅ **Real agent trajectories** — DONE (run 11, gemma4:31b): α=0.865 on real
-   qwen3-coder:30b trajectories, all families ≥ 0.7, zero false completions, integrity
-   clean. The production distribution the gate exists for; the scripted-perfect `evidence`
-   and `rubric-heuristic` baselines collapsed to −0.092 on the same trajectories.
-3. ⏳ **Pin the judge identity in the flag criteria** — the remaining step: wire
-   `completion_strategy=rubric` default-on ONLY with a calibrated judge (gemma4:31b or
-   llama3.3:70b); an uncalibrated model or the heuristic fallback (α=−0.092) must revert to
-   `enhanced`, per the ADR-011 fallback contract and the
-   [flag-graduation policy](../../docs/architecture/flag-graduation-policy.md). This is a
-   code change to the flag wiring, not another measurement.
+1. ✅ **Confirmation at gating-grade n (scripted/corpus)** — met by llama3.3:70b (run 10,
+   α=1.000, n=96). Necessary but, as item 2 shows, not sufficient.
+2. ❌ **Real agent trajectories — RE-OPENED / FAILED.** Run 11's α=0.865 was on the
+   *calibration corpus* rendered with a real agent, not the shipping distribution. On
+   in-container-verified **SWE-bench-lite** both LLM judges fail the 0.7 gate (gemma −0.52,
+   llama 0.26) and a real-trained classifier collapses (−0.05). No substitute judge clears
+   the production distribution the gate exists for.
+3. ⛔ **Do not pin an LLM judge default-on.** The prior plan (wire `rubric` default-on with a
+   calibrated judge) is **shelved**: no LLM/classifier judge is trustworthy on the shipping
+   distribution. The correct default is the existing `enhanced` path plus the in-container
+   verifier — no flag-wiring change is warranted. If `rubric` is ever used opt-in, the
+   ADR-011 pin + heuristic-fallback contract ([flag-graduation
+   policy](../../docs/architecture/flag-graduation-policy.md)) still apply.
 
 Open follow-ups (no longer blocking graduation): a variants-16 scripted run for gemma4:31b
 (single-judge rigor); the `--hard` corpus (run 0/PR #417) against the gate-passers to probe
 discrimination past the α=1.0 ceiling; and the agent-side `edit` arg-format bug surfaced in
 run 11 (the 30B model sends `ops` as a string).
+
+### SWE-bench-lite real-distribution re-gate (2026-08-04) — the "real" gate wasn't real enough
+
+Runs 11–14 treated the calibration-corpus real-agent trajectories as "the production
+distribution." They are not: that corpus is 6 synthetic task templates, ~81% solved
+(positive-heavy), with gold from the agent's own successes. To gate against the distribution
+Victor actually ships into, we re-ran the judges on a **SWE-bench-lite** stratum — real GitHub
+issues (astropy, django), the agent's `git diff` patch as the completing effect, and
+**in-container FAIL_TO_PASS gold** (`--eval-backend docker`; an independent verifier, not the
+agent's self-report). 30 instances, **5 resolved / 25 not** (17% solve — negative-heavy, the
+inverse of the corpus). Stratum + per-judge results committed under `labels/swe-bench-lite-30/`;
+produced by `victor.evaluation.swe_bench_stratum` + `gate_swe_bench_stratum.py`.
+
+| Judge | corpus α (run 11/13) | **SWE-bench-lite α** | confusion (pos=5 / neg=25) |
+|---|---|---|---|
+| gemma4:31b | 0.865 (run 11) | **−0.523** | TP=5 FP=23 TN=2 FN=0 |
+| llama3.3:70b | 0.878 (run 13) | **0.263** | TP=5 FP=10 TN=15 FN=0 |
+
+Both collapse below the 0.7 gate. The failure mode is a **systematic positive bias**: perfect
+recall (FN=0 — every real fix caught) but heavy false positives — gemma credits 28/30 complete
+(near-constant "yes"), llama 15/30. On the positive-heavy corpus that bias mostly agrees with
+gold and α looks high; on the negative-heavy real distribution it produces mass false
+completions. **At real distribution an LLM completion judge cannot distinguish "looks done"
+(plausible patch + confident summary) from "passes tests" — only the in-container verifier
+can.** This confirms the effect-gate / acceptance-oracle thesis (ADR-012 / EVR) on real data,
+and it *inverts* the run-11 story: there the activity baselines collapsed while the LLM judge
+held; on true SWE-bench it is the LLM judge that collapses.
+
+**Caveat (honest).** 5 positives is thin, so the α *point estimate* is noisy and the exact
+llama > gemma ranking should not be over-read. What is robust at n=25 negatives is the
+false-positive rate — gemma 23/25, llama 10/25 — either of which fails the gate on its own. A
+balanced harvest (≥ ~20 positives, i.e. ~100–150 lite instances) would firm the α; the
+qualitative conclusion (both judges over-credit on real negatives) does not depend on it.
+
+**Consequence for graduation.** Checklist item 2 ("real agent trajectories — DONE") is met
+only for the calibration corpus, not the shipping distribution. Do **not** graduate an LLM
+completion judge (gemma4:31b or llama3.3:70b) as a default on this evidence; the in-container
+verifier remains the trustworthy completion signal. Re-open item 2 pending a balanced
+SWE-bench re-gate.
+
+Reproduction::
+
+    python benchmarks/judge_calibration/gate_swe_bench_stratum.py \
+        ~/.victor/evaluations/eval_manifest_<id>.jsonl \
+        --judge llama3.3:70b --endpoint http://<ollama-host>:11434 \
+        --out benchmarks/judge_calibration/labels/swe-bench-lite-30/llama3_3.json
+
+### Trained-classifier re-gate (2026-08-05) — the other half fails too
+
+The LLM re-gate above showed LLM judges **over-credit** on the real distribution. The natural
+follow-up: can a classifier *trained on real trajectories* do better? We harvested a second
+30-instance run (13.3% solve) for a 60-instance pool (9 pos / 51 neg), then ran the honest
+cross-run experiment — **train ModernBERT-base on run-1 (30 inst, 5 pos), test on run-2's
+unseen instances (30 inst, 4 pos)** — no leakage. Result JSON: `labels/swe-bench-lite-60/`.
+
+| Judge | real-SWE-bench α | failure mode |
+|---|---|---|
+| gemma4:31b (LLM) | −0.52 | over-credits (near-constant "complete") |
+| llama3.3:70b (LLM) | 0.26 | over-credits (all solves caught, many FP) |
+| **ModernBERT (trained on real)** | **−0.05** | **under-credits** — collapses to constant "incomplete" |
+
+The classifier's held-out scores spanned only 0.017–0.117 (predicted-positive 0/30): with just
+4 training positives it learned the majority class — TP=0, FP=0, TN=26, FN=4. So the two
+substitute approaches fail in **opposite directions** — the LLM judge says "done" too often, the
+small-data classifier says "not done" always — and **only the in-container verifier
+discriminates.** This reproduces the run-12 encoder collapse (α=−0.27) with a clean cross-run
+split, and closes the question the whole judge-independence arc opened: at the real shipping
+distribution, the acceptance oracle (ADR-012 / EVR) is not merely preferable but **necessary** —
+neither an LLM nor a cheaply-trained classifier is a viable stand-in until real positives are far
+less scarce (a stronger agent, not a bigger judge). Model artifact not committed (598 MB);
+regenerate via `benchmarks/judge_training/train_encoder.py` on the committed strata.

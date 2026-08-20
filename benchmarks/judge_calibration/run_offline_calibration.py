@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright 2026 Vijaykumar Singh <singhvjd@gmail.com>
+# Copyright 2026 Vijaykumar Singh <vijay@anvaiops.com>
 # SPDX-License-Identifier: Apache-2.0
 """Offline judge-calibration demo (EVR-2, ADR-011) — runs with zero LLM calls.
 

@@ -1,4 +1,4 @@
-# Copyright 2025 Vijaykumar Singh <singhvjd@gmail.com>
+# Copyright 2025 Vijaykumar Singh <vijay@anvaiops.com>
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,10 +14,13 @@
 
 """Unit tests for victor.contrib.codebase package."""
 
+import inspect
+
 import pytest
 from pathlib import Path
 
 from victor.contrib.codebase import BasicCodebaseAnalyzer
+from victor.contrib.codebase import analyzer as analyzer_module
 
 
 @pytest.fixture
@@ -276,3 +279,9 @@ class MyClass:
         assert result.classes[0].name == "MyClass"
         # Note: method_one and static_method are not extracted
         # as separate functions - they're part of the class
+
+    def test_analyzer_has_no_parallel_regex_parser(self) -> None:
+        source = inspect.getsource(analyzer_module)
+        assert "re.compile" not in source
+        assert "CLASS_PATTERN" not in source
+        assert "FUNCTION_PATTERN" not in source

@@ -274,7 +274,8 @@ class DuckDBGraphStore(GraphStoreProtocol):
             finally:
                 conn.close()
 
-    async def delete_by_repo(self) -> None:
+    async def delete_by_repo(self, clear_embeddings: bool = False) -> None:
+        del clear_embeddings  # This backend has no external embedding collection.
         async with self._lock:
             conn = self._connect()
             try:

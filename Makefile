@@ -200,14 +200,17 @@ eval-graduate:
 
 # Flag A/B: run an opt-in flag OFF vs ON over the real agent, emit two battery snapshots + a
 # GRADUATE/HOLD verdict (the run that produces the snapshots eval-graduate consumes). Point
-# BASE_URL at a local Ollama for a token-free run. Example:
+# BASE_URL at a local Ollama for a token-free run. For a fair effect-gate test use the effect-gate
+# corpus + verify scoring (task pass rate). Example:
 #   make eval-flag-ab FLAG=effect_gated_completion BASE_URL=http://172.31.160.1:11434 \
-#     MODEL=qwen3-coder-tools:30b VARIANTS=2
+#     MODEL=qwen3-coder-tools:30b VARIANTS=8 CORPUS=effect-gate SCORE=verify
 eval-flag-ab:
 	python -m victor.evaluation.flag_ab --flag "$(FLAG)" \
 		$(if $(BASE_URL),--base-url "$(BASE_URL)") \
 		$(if $(MODEL),--model "$(MODEL)") \
-		$(if $(VARIANTS),--variants "$(VARIANTS)")
+		$(if $(VARIANTS),--variants "$(VARIANTS)") \
+		$(if $(CORPUS),--corpus "$(CORPUS)") \
+		$(if $(SCORE),--score "$(SCORE)")
 
 test-split:
 	pytest tests/unit --splits=4 --group=1 -v --tb=short
@@ -354,6 +357,6 @@ check-dist:
 	@test -f .github/workflows/release.yml && echo "✓ release.yml" || echo "✗ release.yml missing"
 	@test -f scripts/install/install.sh && echo "✓ install.sh" || echo "✗ install.sh missing"
 	@test -f scripts/install/install.ps1 && echo "✓ install.ps1" || echo "✗ install.ps1 missing"
-	@test -f Formula/victor.rb && echo "✓ Homebrew formula" || echo "✗ Homebrew formula missing"
+	@test -f scripts/homebrew/victor.rb && echo "✓ Homebrew formula" || echo "✗ Homebrew formula missing"
 	@echo ""
 	@echo "Run 'make build' to test the build process"

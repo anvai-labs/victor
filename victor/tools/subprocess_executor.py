@@ -1,4 +1,4 @@
-# Copyright 2025 Vijaykumar Singh <singhvjd@gmail.com>
+# Copyright 2025 Vijaykumar Singh <vijay@anvaiops.com>
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -230,9 +230,21 @@ def _truncate_output_by_lines(
                 )
         return text, False, line_count
 
-    # Truncate by lines
-    truncated_lines = lines[:max_lines]
-    truncated = "".join(truncated_lines)
+    # Truncate by lines, keeping head AND tail. Build/test tooling puts its
+    # diagnostic payload (failure summaries, error counts, exit reasons) at the
+    # end of the stream, so head-only truncation discards exactly the content
+    # the model needs most.
+    head_count = max(1, max_lines * 7 // 10)
+    tail_count = max(0, max_lines - head_count)
+    if tail_count > 0:
+        omitted = line_count - head_count - tail_count
+        truncated = (
+            "".join(lines[:head_count])
+            + f"... [{stream_name}: {omitted} middle lines omitted] ...\n"
+            + "".join(lines[-tail_count:])
+        )
+    else:
+        truncated = "".join(lines[:max_lines])
 
     # Enforce byte limit on truncated text (if specified)
     if max_bytes is not None:

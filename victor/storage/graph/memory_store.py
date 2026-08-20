@@ -200,10 +200,12 @@ class MemoryGraphStore(GraphStoreProtocol):
             self._file_mtimes.pop(file_variant, None)
             self._file_hashes.pop(file_variant, None)
 
-    async def delete_by_repo(self) -> None:
+    async def delete_by_repo(self, clear_embeddings: bool = False) -> None:
+        del clear_embeddings  # This backend has no external embedding collection.
         self._nodes.clear()
         self._edges.clear()
         self._file_mtimes.clear()
+        self._file_hashes.clear()
 
     async def stats(self) -> Dict[str, Any]:
         return {

@@ -114,7 +114,7 @@ class TestNestedModelDefaults:
         assert ss.codebase_vector_store == "lancedb"
         assert ss.codebase_dimension == 384
         assert ss.codebase_structural_indexing_enabled is False
-        assert ss.codebase_chunking_strategy == "tree_sitter_structural"
+        assert ss.codebase_chunking_strategy == "victor_codegraph"
         assert ss.codebase_chunk_size == 500
         assert ss.codebase_chunk_overlap == 50
         assert ss.codebase_embedding_extra_config == {}

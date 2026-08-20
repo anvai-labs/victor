@@ -1,4 +1,4 @@
-# Copyright 2025 Vijaykumar Singh <singhvjd@gmail.com>
+# Copyright 2025 Vijaykumar Singh <vijay@anvaiops.com>
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -66,6 +66,8 @@ class ExtractedSymbol:
     line_number: int
     end_line: Optional[int] = None
     parent_symbol: Optional[str] = None
+    symbol_id: Optional[str] = None
+    legacy_symbol_id: Optional[str] = None
 
 
 @dataclass
@@ -181,6 +183,8 @@ class TreeSitterExtractor:
                 line_number=s.location.start_line,
                 end_line=s.location.end_line or None,
                 parent_symbol=s.scope_chain[-1] if s.scope_chain else None,
+                symbol_id=s.id,
+                legacy_symbol_id=getattr(s, "legacy_id", None),
             )
             for s in parsed.symbols
         ]

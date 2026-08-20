@@ -1,4 +1,4 @@
-# Copyright 2025 Vijaykumar Singh <singhvjd@gmail.com>
+# Copyright 2025 Vijaykumar Singh <vijay@anvaiops.com>
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -160,6 +160,53 @@ async def test_vector_persistence_failure_leaves_node_unmarked(store_and_root, m
     node = (await store.get_all_nodes())[0]
     # Not marked embedded -> next run retries instead of silently skipping.
     assert not node.metadata.get("has_embedding")
+
+
+@pytest.mark.asyncio
+async def test_atomic_record_failure_leaves_node_unmarked(tmp_path, monkeypatch):
+    class FailingEmbeddingStore(SqliteGraphStore):
+        async def upsert_node_record(self, node_id, embedding, *, metadata=None):
+            raise RuntimeError("disk full")
+
+    store = FailingEmbeddingStore(project_path=tmp_path)
+    await store.upsert_nodes([_node("n1", "a.py", "alpha")])
+    _patch_embedding_stack(monkeypatch, provider=None)
+
+    stats = await _pipeline(store, tmp_path)._generate_embeddings()
+
+    assert stats.embeddings_generated == 0
+    assert stats.error_count >= 1
+    node = (await store.get_all_nodes())[0]
+    assert not node.metadata.get("has_embedding")
+
+
+@pytest.mark.asyncio
+async def test_atomic_record_persists_vector_and_staleness_in_one_call(tmp_path, monkeypatch):
+    class AtomicEmbeddingStore(SqliteGraphStore):
+        def __init__(self, project_path):
+            super().__init__(project_path=project_path)
+            self.record_writes = []
+
+        async def upsert_node_record(self, node_id, embedding, *, metadata=None):
+            self.record_writes.append((node_id, list(embedding), dict(metadata or {})))
+            await SqliteGraphStore.update_node_metadata(self, node_id, metadata or {})
+
+        async def update_node_metadata(self, node_id, metadata):
+            raise AssertionError("atomic stores must not receive a second metadata mutation")
+
+    store = AtomicEmbeddingStore(project_path=tmp_path)
+    await store.upsert_nodes([_node("n1", "a.py", "alpha")])
+    _patch_embedding_stack(monkeypatch, provider=None)
+
+    stats = await _pipeline(store, tmp_path)._generate_embeddings()
+
+    assert stats.embeddings_generated == 1
+    assert len(store.record_writes) == 1
+    node_id, vector, metadata = store.record_writes[0]
+    assert node_id == "n1"
+    assert vector == [0.1, 0.2, 0.3]
+    assert metadata["has_embedding"] is True
+    assert metadata["content_version"]
 
 
 @pytest.mark.asyncio

@@ -1,4 +1,4 @@
-# Copyright 2025 Vijaykumar Singh <singhvjd@gmail.com>
+# Copyright 2025 Vijaykumar Singh <vijay@anvaiops.com>
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -481,7 +481,7 @@ class ResumeCommand(BaseSlashCommand):
             # Restore ledger + execution state via SessionContextLinker
             from victor.agent.session_context_linker import SessionContextLinker
 
-            linker = SessionContextLinker(session_persistence=store)
+            linker = SessionContextLinker(conversation_store=store)
             resume_ctx = linker.build_resume_context(session_id)
 
             if resume_ctx.ledger and hasattr(ctx.agent, "session_ledger"):

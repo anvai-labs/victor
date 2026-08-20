@@ -1,4 +1,4 @@
-# Copyright 2025 Vijaykumar Singh <singhvjd@gmail.com>
+# Copyright 2025 Vijaykumar Singh <vijay@anvaiops.com>
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -17,7 +17,6 @@
 from __future__ import annotations
 
 import json
-import os
 import sys
 from pathlib import Path
 from typing import Any, Optional
@@ -34,24 +33,9 @@ sessions_app = typer.Typer(name="session", help="Manage conversation sessions.")
 console = Console()
 
 
-def _use_legacy_session_backend() -> bool:
-    """Return whether CLI should use the legacy SQLite session shim."""
+def _get_session_backend() -> ConversationStore:
+    """Return the canonical conversation session backend."""
 
-    return bool(os.environ.get("VICTOR_TEST_DB_PATH"))
-
-
-def _get_session_backend() -> Any:
-    """Return the active session backend.
-
-    Tests still seed the legacy SQLiteSessionPersistence directly via
-    ``VICTOR_TEST_DB_PATH``. Keep the command layer compatible with that
-    persisted shape while the default runtime continues to use ConversationStore.
-    """
-
-    if _use_legacy_session_backend():
-        from victor.agent.sqlite_session_persistence import SQLiteSessionPersistence
-
-        return SQLiteSessionPersistence(db_path=Path(os.environ["VICTOR_TEST_DB_PATH"]))
     return ConversationStore()
 
 
@@ -84,19 +68,13 @@ def _summary_from_loaded_session(session_data: dict[str, Any]) -> dict[str, Any]
 def _load_session_data(session_id: str) -> Optional[dict[str, Any]]:
     """Load a full session payload using the active backend."""
 
-    backend = _get_session_backend()
-    if _use_legacy_session_backend():
-        return backend.load_session(session_id)
-    return backend.load_session(session_id)
+    return _get_session_backend().load_session(session_id)
 
 
 def _list_session_summaries(limit: int) -> list[dict[str, Any]]:
     """List session summaries with a consistent cross-backend schema."""
 
     backend = _get_session_backend()
-    if _use_legacy_session_backend():
-        return backend.list_sessions(limit=limit)
-
     summaries: list[dict[str, Any]] = []
     for session in backend.list_sessions(limit=limit):
         loaded = backend.load_session(session.session_id)
@@ -110,9 +88,6 @@ def _search_session_summaries(query: str, limit: int) -> list[dict[str, Any]]:
 
     backend = _get_session_backend()
     raw_results = backend.search_sessions(query, limit=limit)
-    if _use_legacy_session_backend():
-        return raw_results
-
     summaries: list[dict[str, Any]] = []
     for result in raw_results:
         session_id = result.get("session_id")
@@ -129,13 +104,6 @@ def _exportable_sessions(limit: int = 1000) -> list[dict[str, Any]]:
 
     backend = _get_session_backend()
     sessions: list[dict[str, Any]] = []
-
-    if _use_legacy_session_backend():
-        for session in backend.list_sessions(limit=limit):
-            loaded = backend.load_session(session["session_id"])
-            if loaded:
-                sessions.append(loaded)
-        return sessions
 
     for session in backend.list_sessions(limit=limit):
         loaded = backend.load_session(session.session_id)

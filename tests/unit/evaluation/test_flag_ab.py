@@ -1,4 +1,4 @@
-# Copyright 2026 Vijaykumar Singh <singhvjd@gmail.com>
+# Copyright 2026 Vijaykumar Singh <vijay@anvaiops.com>
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -233,3 +233,61 @@ def test_max_turns_threaded_to_adapter_factory(tmp_path: Path) -> None:
         runner=_Runner(),
     )
     assert seen_max_turns == [5, 5]  # both arms
+
+
+class _FakeTask:
+    """A verifiable task double: setup is a no-op; verify returns a preset pass/fail."""
+
+    def __init__(self, task_id: str, passes: bool) -> None:
+        self.task_id = task_id
+        self._passes = passes
+
+    def setup(self, ws) -> None:
+        pass
+
+    def verify(self, ws, transcript) -> float:
+        return 1.0 if self._passes else 0.0
+
+
+def test_verify_score_produces_task_pass_rate_battery() -> None:
+    env_var = _flag_env_var(FLAG)
+    tasks = [(_FakeTask(f"t{i}", i % 2 == 0), SimpleNamespace(task_id=f"t{i}")) for i in range(4)]
+    battery = run_battery_arm(
+        FLAG,
+        True,
+        score="verify",
+        adapter_factory=lambda **kw: _FakeAdapter(env_var, []),
+        task_provider=lambda v: tasks,
+        runner=_Runner(),
+    )
+    assert battery.overall is not None
+    assert battery.overall.n == 4
+    assert abs(battery.overall.mean - 0.5) < 1e-9  # 2 of 4 tasks verified
+
+
+def test_corpus_task_provider_selects_corpus() -> None:
+    from victor.evaluation.flag_ab import CORPORA, _corpus_task_provider
+
+    assert set(CORPORA) == {"calibration", "effect-gate"}
+    effect = _corpus_task_provider("effect-gate")(1)
+    assert len(effect) == 6
+    assert "record-answer" in {verifiable.family for verifiable, _bench in effect}
+    assert len(_corpus_task_provider("calibration")(1)) == 6
+
+
+def test_default_factory_tool_budget_is_generous(monkeypatch) -> None:
+    # Regression lock: a tight tool budget starves the effect gate (gate-ON → 0% pass observed).
+    import victor.evaluation.agent_adapter as agent_adapter
+    from victor.evaluation.flag_ab import _default_adapter_factory
+
+    captured: dict = {}
+
+    def _fake_from_profile(*, profile, base_url, model_override, config):
+        captured["config"] = config
+        return object()
+
+    monkeypatch.setattr(
+        agent_adapter.VictorAgentAdapter, "from_profile", staticmethod(_fake_from_profile)
+    )
+    _default_adapter_factory(base_url=None, model=None, max_turns=8)
+    assert captured["config"].tool_budget >= 24  # decoupled + generous, not max(6, 8)=8

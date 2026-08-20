@@ -1,4 +1,4 @@
-# Copyright 2025 Vijaykumar Singh <singhvjd@gmail.com>
+# Copyright 2025 Vijaykumar Singh <vijay@anvaiops.com>
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -18,12 +18,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "victor-ai"
-version = "0.8.4"
+version = "0.9.0"
 description = "Open-source agentic AI framework with multi-provider support, workflow orchestration, and extensible tool system"
 readme = "README.md"
 license = {text = "Apache-2.0"}
 authors = [
-    {name = "Vijaykumar Singh", email = "singhvjd@gmail.com"}
+    {name = "Vijaykumar Singh", email = "vijay@anvaiops.com"}
 ]
 requires-python = ">=3.11"
 keywords = [
@@ -59,7 +59,7 @@ dependencies = [
     "typing-extensions>=4.9",  # For typing.Self on Python 3.10
     "orjson>=3.9.0",  # Fast JSON serialization (Rust-backed, 5-10x faster than stdlib)
     # Typed provider runtime and wire transport; Sandhi is a core boundary, not an extra.
-    "sandhi-gateway==0.1.5",
+    "sandhi-gateway==0.1.6",
     # Imported on the `import victor` path (core.verticals.version_matrix) and for
     # vertical version gating. Previously satisfied only transitively via dev tools —
     # a bare `pip install victor-ai` could land in an env without it.
@@ -132,7 +132,7 @@ embeddings = [
 # providers when absent. Pin kept identical to victor-coding's proximadb extra
 # so the backend version stays aligned across packages.
 proximadb = [
-    "proximadb>=0.2,<0.3",
+    "proximadb>=0.3,<0.4",
 ]
 
 # LangChain interop: adapt LangChain tools as native Victor tools

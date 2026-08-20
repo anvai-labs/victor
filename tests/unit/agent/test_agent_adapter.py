@@ -1,4 +1,4 @@
-# Copyright 2025 Vijaykumar Singh <singhvjd@gmail.com>
+# Copyright 2025 Vijaykumar Singh <vijay@anvaiops.com>
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -329,6 +329,19 @@ class TestVictorAgentAdapter:
         assert "-old" in patch
         assert "+new" in patch
 
+    def test_conversation_trace_carries_generated_patch(self, adapter):
+        """The ground-truth patch is surfaced (bounded) in the manifest trace."""
+        # Default: empty until execute_task computes the git diff.
+        assert adapter.get_conversation_trace()["generated_patch"] == ""
+
+        adapter._generated_patch = "diff --git a/x.py b/x.py\n@@ -1 +1 @@\n-a\n+b"
+        trace = adapter.get_conversation_trace()
+        assert trace["generated_patch"] == adapter._generated_patch
+
+        # Bounded so an enormous diff can't bloat the manifest line.
+        adapter._generated_patch = "x" * 50000
+        assert len(adapter.get_conversation_trace()["generated_patch"]) == 20000
+
     @pytest.mark.asyncio
     async def test_execute_task_basic(self, adapter, mock_orchestrator):
         """Test basic task execution."""
@@ -397,6 +410,37 @@ class TestVictorAgentAdapter:
             trace = await adapter.execute_task(task, Path(tmpdir))
 
             assert trace.turns == 2  # Should stop at max_turns
+
+    @pytest.mark.asyncio
+    async def test_execute_task_total_timeout_enforced(self, adapter, mock_orchestrator):
+        """total_timeout bounds the whole task (not just per-turn), stopping early.
+
+        Before this guard, max_turns × slow per-turn inference could run for hours
+        on a task that never completes; total_timeout was tracked but not enforced.
+        """
+        import asyncio
+
+        adapter.config.max_turns = 50  # high — the timeout must stop us first
+        adapter.config.total_timeout = 1  # 1s whole-task budget
+
+        async def _slow_chat(*args, **kwargs):
+            await asyncio.sleep(0.4)  # each turn takes 0.4s, never completes
+            return MagicMock(content="Still working...")
+
+        mock_orchestrator.chat = AsyncMock(side_effect=_slow_chat)
+
+        task = BenchmarkTask(
+            task_id="test/timeout",
+            benchmark=BenchmarkType.CUSTOM,
+            description="Total timeout test",
+            prompt="Do something slow",
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            trace = await adapter.execute_task(task, Path(tmpdir))
+
+        # Broke on total_timeout, well before the 50-turn cap.
+        assert 1 <= trace.turns < 50
 
 
 class TestCreateVictorAgentCallback:

@@ -28,7 +28,7 @@
 
 ## System Overview
 
-Victor is a contract-first agentic AI framework in Python 3.10+ providing a typed,
+Victor is a contract-first agentic AI framework in Python 3.11+ providing a typed,
 service-first runtime for building agents that reason, call tools, execute DAG
 workflows, and coordinate multi-agent teams across 24 LLM providers.
 
@@ -605,11 +605,12 @@ multiple sessions editing the same project record history concurrently. Undo
 history is rebuildable/ephemeral; durable rollback is covered by file backups
 in `.victor/backups/`.
 
-**Direction — correlated graph + vector backend (roadmap, not shipped):** the Code Context Graph
+**Direction — correlated graph + vector backend (partially shipped behind a per-repo flag):** the default Code Context Graph
 (SQLite `graph_*`) and the LanceDB embedding index are hand-joined today
-(`graph_node.embedding_ref` is unpopulated). The planned direction collapses them into one
-correlated ProximaDB collection where a code symbol is one entity (relational row + graph node +
-vector) addressed by a single `oid`. This is tracked as TD-11/TD-12/TD-13 on the
+(`graph_node.embedding_ref` is unpopulated). The Proxima backend now writes one authoritative
+ProximaRecord containing complete node properties + vector + staleness markers under a single
+`oid`, with ORION as a rebuildable traversal projection; its local Tier-A/Tier-B boundary is also
+implemented. SQLite remains default pending a buildable native wheel and live GA evidence. This is tracked as TD-11/TD-12/TD-13 on the
 [roadmap](roadmap.md) — design in
 [ProximaDB as the CCG Backend](architecture/proximadb-codegraph-backend.md).
 

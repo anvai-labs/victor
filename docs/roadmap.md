@@ -14,16 +14,17 @@ evaluation loop and gating every change on it over adding new capabilities.
 
 ---
 
-## Now — 0.7.2 release train (July 2026)
+## Now — 0.8.4 release verification (August 2026)
 
-Ship 0.7.2 with evidence, not posture. Source: [release-readiness MVP blockers](release-readiness-mvp.md).
+Verify 0.8.4 with evidence, not posture. Source: [release-readiness MVP blockers](release-readiness-mvp.md).
 
-1. Fix `make check-dist` (points at `Formula/victor.rb`; formula lives at `scripts/homebrew/victor.rb`).
-2. Prove clean packaging: build + `twine check` + wheel install/CLI smoke on Python 3.11/3.12.
-3. Make release-critical CI gates blocking (`packages.yml`, `ci-integration.yml` currently allow failure).
-4. Finalize release notes; decide external-vertical support level (preview vs blocking).
-5. Verify advertised surfaces: CLI, API/MCP import, `victor ui`, Docker.
-6. Docs governance (TD-18): this file stays committed; hygiene check that pointer targets resolve.
+1. Complete clean packaging proof: build + `twine check` + wheel install/CLI smoke on Python 3.11/3.12.
+   Both versions passed locally on 2026-08-03; capture the release-run CI evidence.
+2. Decide the support level for the remaining advisory CI checks (TestPyPI publishing, VS Code, Rust).
+   Core package tests, built-wheel CLI smoke, integration, and vertical compatibility are blocking.
+3. Finalize release notes; decide external-vertical support level (preview vs blocking).
+4. Verify advertised surfaces: CLI, API/MCP import, `victor ui`, Docker.
+5. Docs governance (TD-18): this file stays committed; hygiene check that pointer targets resolve.
 
 ## Next — Q3 2026: close the evaluation loop (EVR P0 sequence)
 
@@ -49,8 +50,10 @@ addressed by a single stable oid.
 
 - Foundation shipped: `victor-codegraph` extraction (ADR-014), phased core adoption (ADR-015,
   Phase 1 live), stable line-independent `symbol_oid` (ProximaDB ADR-044, victor-codegraph 0.1.2).
-- Remaining: ADR-015 later phases; TD-11 `ProximaGraphStore`; TD-12 embedding↔node correlation by
-  shared oid (retire `graph_node.embedding_ref` dual-write); TD-13 Tier-A/Tier-B CCG split.
+- Shipped behind the per-repo flag: TD-12 one authoritative ProximaRecord for node props + vector +
+  staleness under the shared oid, and TD-13's local Tier-A/Tier-B routing boundary.
+- Remaining: ADR-015 later phases; TD-11 native-wheel/live-parity/default-graduation work; replacing
+  Tier B's local fragment implementation with Proxima PAX/columnar fragments.
   Design: [ProximaDB as the CCG Backend](architecture/proximadb-codegraph-backend.md).
 
 ## Later — directional horizons (from VISION.md)

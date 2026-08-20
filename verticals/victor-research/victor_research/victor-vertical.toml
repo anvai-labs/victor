@@ -2,7 +2,7 @@
 name = "research"
 version = "0.5.1"
 description = "Research vertical for web search, literature review, and citation management"
-authors = [{name = "Vijaykumar Singh", email = "singhvjd@gmail.com"}]
+authors = [{name = "Vijaykumar Singh", email = "vijay@anvaiops.com"}]
 license = "Apache-2.0"
 requires_victor = ">=0.5.0"
 

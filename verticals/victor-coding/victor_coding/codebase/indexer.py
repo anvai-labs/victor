@@ -1,4 +1,4 @@
-# Copyright 2025 Vijaykumar Singh <singhvjd@gmail.com>
+# Copyright 2025 Vijaykumar Singh <vijay@anvaiops.com>
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -1170,7 +1170,9 @@ class CodebaseIndex:
             enable_watcher: Whether to enable file watching for auto-staleness detection
             graph_store: Optional graph store for symbol relationships. If None,
                 a per-repo store is created under .victor/graph/graph.db.
-            graph_store_name: Optional graph backend name (currently only "sqlite")
+            graph_store_name: Optional graph backend name (sqlite, proxima,
+                memory, or "auto" to resolve the repo's .victor/graph_backend
+                marker; None = "auto")
             graph_path: Optional explicit graph store path
             parallel_workers: Number of parallel workers for file indexing.
                 0 = auto-detect (min(cpu_count, 8)), 1 = sequential (default: 0)
@@ -1228,10 +1230,14 @@ class CodebaseIndex:
         # Callbacks for change notifications (e.g., SymbolStore)
         self._change_callbacks: List[Callable[[str], None]] = []
 
-        # Graph store (per-repo, embedded in project.db)
+        # Graph store (per-repo; backend resolved via graph_store_name or the
+        # repo's .victor/graph_backend marker — this parameter was previously
+        # accepted and silently dropped, so callers passing "proxima" always
+        # got sqlite)
         if graph_store is None:
             self.graph_store: Optional["GraphStoreProtocol"] = create_graph_store(
-                project_path=self.root
+                name=graph_store_name or "auto",
+                project_path=self.root,
             )
         else:
             self.graph_store = graph_store

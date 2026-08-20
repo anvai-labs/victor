@@ -13,10 +13,10 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "Apache-2.0"}
 authors = [
-    { name = "Vijaykumar Singh", email = "singhvjd@gmail.com" },
+    { name = "Vijaykumar Singh", email = "vijay@anvaiops.com" },
 ]
 maintainers = [
-    { name = "Vijaykumar Singh", email = "singhvjd@gmail.com" },
+    { name = "Vijaykumar Singh", email = "vijay@anvaiops.com" },
 ]
 keywords = [
     "victor",
@@ -55,7 +55,7 @@ native = [
 # victor_coding/codebase/embeddings/proximadb_provider.py. Pin kept identical
 # to victor-ai's proximadb extra so the backend version stays aligned.
 proximadb = [
-    "proximadb>=0.2,<0.3",
+    "proximadb>=0.3,<0.4",
 ]
 # Shared code->CPG chunker (ADR-014). Opt-in: when installed AND
 # VICTOR_CODING_USE_CODEGRAPH=1, CodeChunker delegates to it. Published on PyPI

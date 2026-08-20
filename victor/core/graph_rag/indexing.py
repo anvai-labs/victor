@@ -1,4 +1,4 @@
-# Copyright 2025 Vijaykumar Singh <singhvjd@gmail.com>
+# Copyright 2025 Vijaykumar Singh <vijay@anvaiops.com>
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -66,6 +66,7 @@ from typing import (
 from victor.core.graph_rag.exclude_patterns import is_path_excluded
 
 if TYPE_CHECKING:
+    from victor.core.graph_rag.codegraph_repository import RepositoryRelationProjection
     from victor.storage.graph.protocol import GraphStoreProtocol
 
 logger = logging.getLogger(__name__)
@@ -179,9 +180,15 @@ def _module_node_id(file_path: str) -> str:
     a module-level helper so both the indexer and the import resolver agree on
     the encoding without sharing state.
     """
-    import hashlib
+    try:
+        from victor_codegraph import CodeSymbolType, stable_symbol_key
 
-    return hashlib.sha256(f"module:{file_path}".encode()).hexdigest()[:16]
+        return stable_symbol_key("repository", CodeSymbolType.FILE, file_path, None, file_path)
+    except Exception:
+        # Mixed-install fallback during the v2 migration.
+        import hashlib
+
+        return hashlib.sha256(f"module:{file_path}".encode()).hexdigest()[:16]
 
 
 # Import at runtime for use in non-type-checked contexts
@@ -225,6 +232,7 @@ class GraphIndexStats:
     cross_file_calls_resolved: int = 0
     cross_file_relationships_resolved: int = 0
     imports_resolved: int = 0
+    repository_relations_dropped_unmaterialized: int = 0
     # Files that tried the enhanced TreeSitterAnalysisProtocol provider but
     # had to fall back to the hardcoded extraction path (because the provider
     # raised or returned None for a language it claimed to support).
@@ -254,6 +262,9 @@ class GraphIndexStats:
             "cross_file_calls_resolved": self.cross_file_calls_resolved,
             "cross_file_relationships_resolved": self.cross_file_relationships_resolved,
             "imports_resolved": self.imports_resolved,
+            "repository_relations_dropped_unmaterialized": (
+                self.repository_relations_dropped_unmaterialized
+            ),
             "provider_fallbacks": self.provider_fallbacks,
             "processing_time_seconds": self.processing_time_seconds,
             "error_count": self.error_count,
@@ -378,6 +389,20 @@ class GraphIndexingPipeline:
         # project-wide module index handle both same-package and cross-package
         # targets uniformly.
         self._pending_import_records: List[Tuple[str, str, str]] = []
+        # Repository-wide victor-codegraph snapshot prepared once per indexing
+        # run.  Per-file edge projection reads from this snapshot instead of
+        # reparsing each file, and the final relation pass retains import-aware
+        # cross-file resolution rather than degrading to the legacy name index.
+        # Snapshot of persisted symbol nodes, shared by the three cross-file
+        # resolution passes. Populated lazily via _persisted_symbols().
+        self._persisted_symbol_cache: Optional[List[Any]] = None
+        self._codegraph_repository: Any = None
+        self._codegraph_owned_symbol_ids: Set[str] = set()
+        self._codegraph_owned_files: Set[str] = set()
+        # Canonical identity bridge for analysis providers that delegate their
+        # parsing to victor-codegraph but omit ``symbol_id`` from the returned
+        # dictionaries. Only unambiguous location/type tuples are retained.
+        self._codegraph_symbol_ids_by_location: Dict[Tuple[str, str, int, str], str] = {}
         # Parser cache is thread-local so each ThreadPoolExecutor worker gets
         # its own parser instance (tree-sitter parsers are not thread-safe to share).
         self._thread_local = threading.local()
@@ -421,6 +446,9 @@ class GraphIndexingPipeline:
         root = (root_path or self.config.root_path).resolve()
         stats = GraphIndexStats()
         start_time = time.time()
+        # Per-run snapshot: a reused pipeline must not resolve this run's edges
+        # against the previous run's symbols.
+        self._persisted_symbol_cache = None
 
         logger.info(f"Starting graph indexing for {root}")
 
@@ -445,6 +473,10 @@ class GraphIndexingPipeline:
         self._pending_call_records.clear()
         self._pending_relationship_records.clear()
         self._pending_import_records.clear()
+        self._codegraph_repository = None
+        self._codegraph_owned_symbol_ids.clear()
+        self._codegraph_owned_files.clear()
+        self._codegraph_symbol_ids_by_location.clear()
 
         # Resolve the analysis provider — and let it finish language-plugin
         # discovery — BEFORE the parallel parse burst. Resolution is lazy and
@@ -468,6 +500,7 @@ class GraphIndexingPipeline:
         _status("Discovering source files…")
         files = await self._discover_files(root)
         logger.info("Discovered %d indexable source files", len(files))
+        discovered_files = files
 
         _status(f"Planning: {len(files)} files found — checking mtimes…")
         planning_stats = await self._prepare_incremental_work(files, root)
@@ -485,6 +518,17 @@ class GraphIndexingPipeline:
                 len(files),
                 planning_stats.files_unchanged,
                 planning_stats.files_deleted,
+            )
+
+        # Parse one consistent repository snapshot only when at least one file
+        # will be indexed.  The snapshot still includes unchanged discovered
+        # files: a changed caller may import an unchanged target, and an
+        # unchanged caller may acquire a newly-added target.
+        if files:
+            await asyncio.to_thread(
+                self._prepare_codegraph_repository,
+                root,
+                discovered_files,
             )
 
         # Process files in batches — parse in parallel, write serially.
@@ -532,23 +576,31 @@ class GraphIndexingPipeline:
         # analyzer derives module adjacency from cross-file graph_edge rows, so
         # CALLS resolution must run first or graph_module_metric stays empty.
         if graph_changed:
+            repository_relations = await self._resolve_codegraph_repository_relations()
+            cg_calls = repository_relations.calls
+            cg_relationships = repository_relations.relationships
+            cg_imports = repository_relations.imports
+            stats.repository_relations_dropped_unmaterialized += (
+                repository_relations.dropped_unmaterialized
+            )
+
             resolved = await self._resolve_cross_file_calls(root)
-            stats.cross_file_calls_resolved = resolved
-            stats.edges_created += resolved
+            stats.cross_file_calls_resolved = cg_calls + resolved
+            stats.edges_created += cg_calls + resolved
 
             # Same pass for INHERITS/IMPLEMENTS/COMPOSITION — base classes,
             # interfaces, and composed types often live in another file, so
             # per-file resolution alone leaves these edges unresolved.
             rel_resolved = await self._resolve_cross_file_relationships(root)
-            stats.cross_file_relationships_resolved = rel_resolved
-            stats.edges_created += rel_resolved
+            stats.cross_file_relationships_resolved = cg_relationships + rel_resolved
+            stats.edges_created += cg_relationships + rel_resolved
 
             # IMPORTS edges between module nodes. The synthetic module nodes
             # were already persisted by _inject_module_node; we just emit
             # the cross-module edges here.
             imports_resolved = await self._resolve_imports(root)
-            stats.imports_resolved = imports_resolved
-            stats.edges_created += imports_resolved
+            stats.imports_resolved = cg_imports + imports_resolved
+            stats.edges_created += cg_imports + imports_resolved
 
         if getattr(self.config, "enable_module_metrics", True) and graph_changed:
             stats.module_metrics_computed = self._refresh_module_metrics(root)
@@ -561,6 +613,124 @@ class GraphIndexingPipeline:
         )
 
         return stats
+
+    def _prepare_codegraph_repository(self, root_path: Path, files: List[Path]) -> None:
+        """Prepare one filtered semantic snapshot for this indexing run.
+
+        ``victor-codegraph`` remains a soft dependency.  Any import or parse
+        failure leaves the snapshot unset and all existing provider/handler
+        resolvers continue unchanged.
+        """
+        from victor.core.graph_rag.codegraph_repository import prepare_repository_snapshot
+
+        allowed_files = (self._canonical_file_str(path) for path in files)
+        self._codegraph_repository = prepare_repository_snapshot(root_path, allowed_files)
+        self._codegraph_symbol_ids_by_location.clear()
+        repository = self._codegraph_repository
+        if repository is None:
+            return
+
+        ambiguous: Set[Tuple[str, str, int, str]] = set()
+        for symbol in repository.symbols:
+            key = (
+                str(symbol.location.file_path),
+                str(symbol.simple_name),
+                int(symbol.location.start_line),
+                str(symbol.symbol_type.name).lower(),
+            )
+            if key in self._codegraph_symbol_ids_by_location:
+                ambiguous.add(key)
+            else:
+                self._codegraph_symbol_ids_by_location[key] = str(symbol.id)
+        for key in ambiguous:
+            self._codegraph_symbol_ids_by_location.pop(key, None)
+
+    async def _resolve_codegraph_repository_relations(self) -> RepositoryRelationProjection:
+        """Project import-aware v2 repository relations into Graph-RAG edges.
+
+        Returns a ``RepositoryRelationProjection``. Only relations
+        resolved by the repository pass are projected here; in-file relations
+        remain the responsibility of ``_build_calls_edges``.  Legacy buffers
+        are removed only for sources whose v2 identities matched the Graph-RAG
+        nodes, preserving the soft fallback for mixed or absent installations.
+        """
+        from victor.core.graph_rag.codegraph_repository import (
+            RepositoryRelationProjection,
+            project_resolved_relations,
+        )
+
+        repository = self._codegraph_repository
+        if repository is None or not self._codegraph_owned_files:
+            return RepositoryRelationProjection()
+
+        from victor.storage.graph.edge_types import EdgeType
+
+        materialized_ids = {node.node_id for node in await self._persisted_symbols()}
+        projection = project_resolved_relations(
+            repository,
+            materialized_symbol_ids=materialized_ids,
+        )
+        _, GraphEdge = _get_graph_types()
+        edges = [
+            GraphEdge(src=src, dst=dst, type=EdgeType(edge_type))
+            for src, dst, edge_type in projection.edges
+        ]
+
+        if edges:
+            async with self._graph_store_write_batch():
+                await self.graph_store.upsert_edges(edges)
+
+        owned_ids = self._codegraph_owned_symbol_ids
+        self._pending_call_records = [
+            record for record in self._pending_call_records if record[0] not in owned_ids
+        ]
+        self._pending_relationship_records = [
+            record for record in self._pending_relationship_records if record[0] not in owned_ids
+        ]
+        owned_files = self._codegraph_owned_files
+        self._pending_import_records = [
+            record
+            for record in self._pending_import_records
+            if self._canonical_file_str(record[0]) not in owned_files
+        ]
+        logger.info(
+            "victor-codegraph repository resolution: %d CALLS, %d structural, "
+            "%d IMPORTS edges; %d relations dropped because an endpoint was not materialized",
+            projection.calls,
+            projection.relationships,
+            projection.imports,
+            projection.dropped_unmaterialized,
+        )
+        if projection.dropped_unmaterialized:
+            logger.warning(
+                "Dropped %d victor-codegraph repository relations with unmaterialized endpoints",
+                projection.dropped_unmaterialized,
+            )
+        return projection
+
+    async def _persisted_symbols(self) -> List[Any]:
+        """Every persisted symbol node, read through the graph store.
+
+        The cross-file resolution passes used to build their name indices with
+        raw SQL against the SQLite ``graph_node`` table. That silently produced
+        an empty index on any other backend: a ProximaDB-backed ``victor init``
+        wrote its nodes to ORION and its statements to the fragment store, left
+        ``graph_node`` empty, and so resolved **zero** CALLS / INHERITS /
+        IMPLEMENTS / COMPOSITION edges — 125 edges short of the SQLite run, with
+        no error, because these passes read backend-specific but write through
+        the backend-agnostic store.
+
+        Reading through ``get_all_nodes()`` keeps the indices correct for every
+        backend. Proxima returns its Tier-A symbols here, which is exactly the
+        population these passes bind against — statement-level nodes are never
+        call or inheritance targets.
+
+        Cached per run: three passes need the same snapshot and it does not
+        change between them.
+        """
+        if self._persisted_symbol_cache is None:
+            self._persisted_symbol_cache = await self.graph_store.get_all_nodes()
+        return self._persisted_symbol_cache
 
     async def _resolve_cross_file_calls(self, root_path: Path) -> int:
         """Resolve buffered CALLS records against project-wide name indices.
@@ -587,11 +757,6 @@ class GraphIndexingPipeline:
 
         max_fanout = int(getattr(self.config, "cross_file_call_max_fanout", 25))
 
-        from victor.core.database import ProjectDatabaseManager
-
-        db = ProjectDatabaseManager(root_path)
-        conn = db._get_raw_connection()
-
         # Leaf-name index (function/method/impl) plus per-node file map so
         # name-only resolution can prefer same-file candidates. Rust function
         # names are module-scoped, so a local helper `fn inputs(t)` called
@@ -609,34 +774,32 @@ class GraphIndexingPipeline:
         # by the impl-node signature: trait impls always contain ` for `
         # (e.g. "impl Drop for SearchState {"), inherent impls don't
         # (e.g. "impl Foo {").
+        symbols = await self._persisted_symbols()
+        by_id = {node.node_id: node for node in symbols}
+
         name_index: Dict[str, List[str]] = {}
         node_file_index: Dict[str, str] = {}
-        for row in conn.execute(
-            "SELECT m.name, m.node_id, m.file FROM graph_node m "
-            "LEFT JOIN graph_node impl ON m.parent_id = impl.node_id "
-            "AND impl.type = 'impl' "
-            "WHERE m.name IS NOT NULL "
-            "AND m.type IN ('function','method','impl') "
-            "AND (impl.signature IS NULL OR impl.signature NOT LIKE '% for %')"
-        ):
-            name, node_id, file = row[0], row[1], (row[2] if len(row) > 2 else None)
-            name_index.setdefault(name, []).append(node_id)
-            if file is not None:
-                node_file_index[node_id] = file
+        for node in symbols:
+            if not node.name or node.type not in ("function", "method", "impl"):
+                continue
+            parent = by_id.get(node.parent_id) if node.parent_id else None
+            if parent is not None and parent.type == "impl" and " for " in (parent.signature or ""):
+                continue
+            name_index.setdefault(node.name, []).append(node.node_id)
+            if node.file:
+                node_file_index[node.node_id] = node.file
 
-        # Impl-type index. The schema doesn't carry an explicit impl_type
-        # column, but methods inside `impl T` have parent_id pointing at the
-        # impl_item node (type='impl', name='T'). One join is enough.
+        # Impl-type index. There is no explicit impl_type field, but methods
+        # inside `impl T` have parent_id pointing at the impl_item node
+        # (type='impl', name='T').
         impl_method_index: Dict[Tuple[str, str], List[str]] = {}
-        for row in conn.execute(
-            "SELECT impl.name AS impl_type, m.name AS method_name, m.node_id "
-            "FROM graph_node m "
-            "JOIN graph_node impl ON m.parent_id = impl.node_id "
-            "WHERE impl.type = 'impl' "
-            "AND m.name IS NOT NULL "
-            "AND m.type IN ('function','method')"
-        ):
-            impl_method_index.setdefault((row[0], row[1]), []).append(row[2])
+        for node in symbols:
+            if not node.name or node.type not in ("function", "method"):
+                continue
+            parent = by_id.get(node.parent_id) if node.parent_id else None
+            if parent is None or parent.type != "impl" or not parent.name:
+                continue
+            impl_method_index.setdefault((parent.name, node.name), []).append(node.node_id)
 
         _, GraphEdge = _get_graph_types()
         from victor.storage.graph.edge_types import EdgeType
@@ -754,20 +917,22 @@ class GraphIndexingPipeline:
 
         max_fanout = int(getattr(self.config, "cross_file_call_max_fanout", 25))
 
-        from victor.core.database import ProjectDatabaseManager
-
-        db = ProjectDatabaseManager(root_path)
-        conn = db._get_raw_connection()
-
         # Class-like name index — restricts target binding to types that
         # actually make sense as INHERITS/IMPLEMENTS/COMPOSITION targets.
+        class_like = {
+            "class",
+            "interface",
+            "struct",
+            "impl",
+            "trait",
+            "type",
+            "type_alias",
+            "enum",
+        }
         class_name_index: Dict[str, List[str]] = {}
-        for row in conn.execute(
-            "SELECT name, node_id FROM graph_node "
-            "WHERE name IS NOT NULL "
-            "AND type IN ('class','interface','struct','impl','trait','type','type_alias','enum')"
-        ):
-            class_name_index.setdefault(row[0], []).append(row[1])
+        for node in await self._persisted_symbols():
+            if node.name and node.type in class_like:
+                class_name_index.setdefault(node.name, []).append(node.node_id)
 
         _, GraphEdge = _get_graph_types()
 
@@ -854,15 +1019,10 @@ class GraphIndexingPipeline:
         # repo-relative form in both the ``file`` column and the node_id
         # hash input. We do the same here so set membership and hash
         # derivation both agree.
-        from victor.core.database import ProjectDatabaseManager
-
-        db = ProjectDatabaseManager(root_path)
-        conn = db._get_raw_connection()
         indexed_module_files: Set[str] = {
-            row[0]
-            for row in conn.execute(
-                "SELECT file FROM graph_node WHERE type = 'module' AND file IS NOT NULL"
-            )
+            node.file
+            for node in await self._persisted_symbols()
+            if node.type == "module" and node.file
         }
 
         _, GraphEdge = _get_graph_types()
@@ -1151,7 +1311,11 @@ class GraphIndexingPipeline:
         except OSError:
             resolved = file_path.absolute()
         try:
-            return resolved.relative_to(root_path).as_posix()
+            resolved_root = root_path.resolve(strict=False)
+        except OSError:
+            resolved_root = root_path.absolute()
+        try:
+            return resolved.relative_to(resolved_root).as_posix()
         except ValueError:
             return str(resolved)
 
@@ -1422,12 +1586,25 @@ class GraphIndexingPipeline:
                 ast_kind or sym.get("symbol_type") or "unknown",
                 sym.get("symbol_type") or "unknown",
             )
-            node_id = hashlib.sha256(f"{file_str}:{name}:{line_int}".encode()).hexdigest()[:16]
+            canonical_file = self._canonical_file_str(sym.get("file_path") or file_path)
+            canonical_id = self._codegraph_symbol_ids_by_location.get(
+                (
+                    canonical_file,
+                    str(name),
+                    line_int,
+                    str(sym.get("symbol_type") or "").lower(),
+                )
+            )
+            node_id = (
+                sym.get("symbol_id")
+                or canonical_id
+                or hashlib.sha256(f"{file_str}:{name}:{line_int}".encode()).hexdigest()[:16]
+            )
             node = GraphNode(
                 node_id=node_id,
                 type=node_type,
                 name=name,
-                file=file_str,
+                file=sym.get("file_path") or file_str,
                 line=line_int,
                 end_line=int(sym.get("line_end") or line_int),
                 lang=language,
@@ -1447,6 +1624,12 @@ class GraphIndexingPipeline:
         # the ``method`` node type so the taxonomy distinguishes free
         # functions from class methods.
         for node, sym in annotated:
+            direct_parent_id = sym.get("parent_id")
+            if direct_parent_id and direct_parent_id != node.node_id:
+                node.parent_id = direct_parent_id
+                if sym.get("parent_is_class") and node.type in _FUNCTION_LIKE_NODE_TYPES:
+                    node.type = "method"
+                continue
             parent_name = sym.get("parent_symbol")
             parent_line = sym.get("parent_line")
             if not parent_name or parent_line is None:
@@ -1502,10 +1685,11 @@ class GraphIndexingPipeline:
         if enhanced and provider is not None:
             try:
                 if provider.supports_language(language):
+                    canonical_file = self._canonical_file_str(file_path)
                     symbol_dicts = provider.extract_symbols(
                         bytes(source_code, "utf-8"),
                         language,
-                        file_path=str(file_path),
+                        file_path=canonical_file,
                     )
                     nodes.extend(
                         self._provider_symbols_to_graph_nodes(symbol_dicts, file_path, language)
@@ -1519,7 +1703,7 @@ class GraphIndexingPipeline:
                             provider.extract_imports(
                                 bytes(source_code, "utf-8"),
                                 language,
-                                file_path=str(file_path),
+                                file_path=canonical_file,
                             )
                             or []
                         )
@@ -2136,15 +2320,27 @@ class GraphIndexingPipeline:
 
         # ADR-015 (Phase 1): prefer the shared victor-codegraph parser when importable —
         # real AST (functions/classes/methods, multi-language) instead of the Python-only
-        # def/class regex below. The node_id scheme (sha256 of file:name:line) is preserved
-        # so downstream edge-matching is unchanged; falls back to the regex on any failure.
+        # def/class regex below. Canonical v2 ids are preserved so downstream
+        # consumers share one identity scheme; falls back to the regex on any
+        # parser failure.
         try:
             import victor_codegraph as _vcg
         except Exception:
             _vcg = None
         if _vcg is not None:
+            canonical_file = Path(file_path).as_posix()
             try:
-                parsed = _vcg.parse(source_code, language=language, file_path=str(file_path))
+                canonical_file = self._canonical_file_str(file_path)
+            except (AttributeError, TypeError):
+                # This extraction seam is deliberately usable as a stateless
+                # fallback in isolation (including by compatibility callers).
+                pass
+            try:
+                parsed = _vcg.parse(
+                    source_code,
+                    language=language,
+                    file_path=canonical_file,
+                )
             except Exception:
                 parsed = None
             if parsed is not None and parsed.symbols:
@@ -2159,14 +2355,14 @@ class GraphIndexingPipeline:
                 for s in parsed.symbols:
                     name = s.simple_name
                     line = s.location.start_line
-                    node_id = hashlib.sha256(f"{file_path}:{name}:{line}".encode()).hexdigest()[:16]
+                    node_id = s.id
                     stype = s.symbol_type.name.lower()
                     delegated.append(
                         GraphNode(
                             node_id=node_id,
                             type=stype,
                             name=name,
-                            file=str(file_path),
+                            file=canonical_file,
                             line=line,
                             lang=language,
                             ast_kind=_AST_KIND.get(stype, "function_definition"),
@@ -2296,6 +2492,71 @@ class GraphIndexingPipeline:
         language = self._detect_language(file_path)
         if language == "unknown":
             return edges
+
+        # ADR-015/v2 canonical path: use the same relations and stable ids that
+        # produced ``nodes``. Resolved in-file edges can be emitted immediately;
+        # structured unresolved references feed the existing project-wide resolver.
+        try:
+            import victor_codegraph as _vcg
+
+            canonical_file = self._canonical_file_str(file_path)
+            repository = self._codegraph_repository
+            parsed = repository.files.get(canonical_file) if repository is not None else None
+            if parsed is None:
+                source_code = file_path.read_text(encoding="utf-8")
+                parsed = _vcg.parse(
+                    source_code,
+                    language=language,
+                    file_path=canonical_file,
+                )
+            node_ids = {node.node_id for node in nodes}
+            if {symbol.id for symbol in parsed.symbols} <= node_ids:
+                self._codegraph_owned_files.add(canonical_file)
+                self._codegraph_owned_symbol_ids.update(symbol.id for symbol in parsed.symbols)
+                structural = {
+                    "EXTENDS": EdgeType.INHERITS,
+                    "IMPLEMENTS": EdgeType.IMPLEMENTS,
+                }
+                for relation in parsed.relations:
+                    if relation.relation_type.name == "CALLS":
+                        if relation.target_ref is None and relation.to_symbol_id in node_ids:
+                            edges.append(
+                                GraphEdge(
+                                    src=relation.from_symbol_id,
+                                    dst=relation.to_symbol_id,
+                                    type=EdgeType.CALLS,
+                                )
+                            )
+                        elif relation.target_ref is not None:
+                            self._pending_call_records.append(
+                                (
+                                    relation.from_symbol_id,
+                                    relation.target_ref.name,
+                                    None,
+                                    bool(relation.target_ref.qualifier),
+                                )
+                            )
+                    elif relation.relation_type.name in structural:
+                        edge_type = structural[relation.relation_type.name]
+                        if relation.target_ref is None and relation.to_symbol_id in node_ids:
+                            edges.append(
+                                GraphEdge(
+                                    src=relation.from_symbol_id,
+                                    dst=relation.to_symbol_id,
+                                    type=edge_type,
+                                )
+                            )
+                        elif relation.target_ref is not None:
+                            self._pending_relationship_records.append(
+                                (
+                                    relation.from_symbol_id,
+                                    relation.target_ref.name,
+                                    edge_type.value,
+                                )
+                            )
+                return edges
+        except Exception as exc:
+            logger.debug("victor-codegraph edge delegation failed for %s: %s", file_path, exc)
 
         # NEW PATH: Use language-specific edge handler (2026-04-29)
         try:
@@ -2604,12 +2865,12 @@ class GraphIndexingPipeline:
     def _get_vector_provider(self) -> Any:
         """Vector store for persisting node embeddings, or None.
 
-        Proxima-style stores co-locate vectors with graph nodes via
-        ``set_node_embedding`` — they need no external provider. For the
+        Proxima-style stores co-locate graph properties and vectors via an atomic
+        ``upsert_node_record`` — they need no external provider. For the
         default sqlite store, build a provider from the store's settings-driven
         config (falls back to defaults).
         """
-        if hasattr(self.graph_store, "set_node_embedding"):
+        if hasattr(self.graph_store, "upsert_node_record"):
             return None
         try:
             from victor.storage.vector_stores.registry import EmbeddingRegistry
@@ -2639,7 +2900,7 @@ class GraphIndexingPipeline:
           batch (see ``GraphAwareEmbedder.embed_batch``).
         - Persistence: ``index_embedded_documents`` on the vector store keyed
           by node_id (default sqlite path), or the graph store's own
-          ``set_node_embedding`` (proxima co-located vectors).
+          ``upsert_node_record`` (one ProximaRecord containing graph props + vector).
 
         Returns:
             Stats for embedding generation
@@ -2711,6 +2972,8 @@ class GraphIndexingPipeline:
                 if not embeddings:
                     continue
 
+                persisted_ids: set[str] = set()
+                atomic_record_store = getattr(self.graph_store, "upsert_node_record", None)
                 try:
                     if vector_provider is not None and hasattr(
                         vector_provider, "index_embedded_documents"
@@ -2733,31 +2996,78 @@ class GraphIndexingPipeline:
                                 }
                             )
                         await vector_provider.index_embedded_documents(docs)
-                    elif hasattr(self.graph_store, "set_node_embedding"):
-                        for node_id, vector in embeddings.items():
-                            await self.graph_store.set_node_embedding(node_id, vector)
+                        persisted_ids.update(embeddings)
+                    elif atomic_record_store is not None:
+                        # Prefer the batched write: two round trips per BATCH
+                        # instead of two per NODE (the per-node loop measured as
+                        # a dominant term of repo-scale embeddings-on ingest).
+                        plural_store = getattr(self.graph_store, "upsert_node_records", None)
+                        if callable(plural_store):
+                            batch_items = [
+                                (
+                                    node_id,
+                                    vector,
+                                    {
+                                        "has_embedding": True,
+                                        "content_version": versions[node_id],
+                                    },
+                                )
+                                for node_id, vector in embeddings.items()
+                            ]
+                            try:
+                                await plural_store(batch_items)
+                                persisted_ids.update(embeddings)
+                            except Exception as e:
+                                logger.warning(
+                                    "Batched record persistence failed (%d nodes): %s",
+                                    len(batch_items),
+                                    e,
+                                )
+                                stats.error_count += 1
+                                stats.errors.append(f"Batched ProximaRecord: {e}")
+                        else:
+                            for node_id, vector in embeddings.items():
+                                try:
+                                    await atomic_record_store(
+                                        node_id,
+                                        vector,
+                                        metadata={
+                                            "has_embedding": True,
+                                            "content_version": versions[node_id],
+                                        },
+                                    )
+                                    persisted_ids.add(node_id)
+                                except Exception as e:
+                                    logger.warning(
+                                        "Atomic record persistence failed for %s: %s",
+                                        node_id,
+                                        e,
+                                    )
+                                    stats.error_count += 1
+                                    stats.errors.append(f"Atomic ProximaRecord {node_id}: {e}")
                 except Exception as e:
                     logger.warning(f"Vector persistence failed for batch: {e}")
                     stats.error_count += 1
                     stats.errors.append(f"Vector persistence: {e}")
                     continue  # don't mark nodes embedded if vectors didn't persist
 
-                for node_id in embeddings:
-                    try:
-                        await self.graph_store.update_node_metadata(
-                            node_id,
-                            {
-                                "embedding_ref": f"emb:{node_id}",
-                                "has_embedding": True,
-                                "content_version": versions[node_id],
-                            },
-                        )
-                    except Exception as e:
-                        logger.warning(f"Failed to mark embedding for {node_id}: {e}")
-                        stats.error_count += 1
-                        stats.errors.append(f"Embedding metadata failed for {node_id}: {e}")
+                if atomic_record_store is None:
+                    for node_id in persisted_ids:
+                        try:
+                            await self.graph_store.update_node_metadata(
+                                node_id,
+                                {
+                                    "embedding_ref": f"emb:{node_id}",
+                                    "has_embedding": True,
+                                    "content_version": versions[node_id],
+                                },
+                            )
+                        except Exception as e:
+                            logger.warning(f"Failed to mark embedding for {node_id}: {e}")
+                            stats.error_count += 1
+                            stats.errors.append(f"Embedding metadata failed for {node_id}: {e}")
 
-                embedded_total += len(embeddings)
+                embedded_total += len(persisted_ids)
                 logger.debug(f"Embedded batch {i // batch_size + 1}")
 
             stats.embeddings_generated = embedded_total
@@ -2811,6 +3121,9 @@ class GraphIndexingPipeline:
         target.cross_file_calls_resolved += source.cross_file_calls_resolved
         target.cross_file_relationships_resolved += source.cross_file_relationships_resolved
         target.imports_resolved += source.imports_resolved
+        target.repository_relations_dropped_unmaterialized += (
+            source.repository_relations_dropped_unmaterialized
+        )
         target.error_count += source.error_count
         target.errors.extend(source.errors)
 

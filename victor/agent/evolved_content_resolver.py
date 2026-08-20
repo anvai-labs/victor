@@ -93,6 +93,21 @@ class EvolvedContentResolver:
         Returns:
             ResolvedContent with text and metadata
         """
+        # A/B hygiene: with VICTOR_FROZEN_PROMPTS set, always serve the
+        # static fallback. Benchmark comparison arms must run on identical
+        # prompts — an auto-evolved candidate landing between arms silently
+        # confounds the comparison (observed: gen-3 -> gen-4 between the
+        # sqlite and proxima arms of the backend A/B).
+        import os
+
+        if os.environ.get("VICTOR_FROZEN_PROMPTS"):
+            return ResolvedContent(
+                text=fallback_text,
+                source="static",
+                section_name=section_name,
+                metadata={"frozen": True},
+            )
+
         cache_key = self._cache_key(section_name, provider, model, task_type)
 
         # Check cache first

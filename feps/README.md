@@ -64,13 +64,14 @@ Once accepted:
 
 ### Requires FEP
 
-Framework-level changes that affect public APIs or architecture:
+Public or cross-package contract changes that affect users, extension authors, or
+the supported ecosystem:
 
 - ✅ Changes to `victor/framework/` public APIs
 - ✅ New protocol definitions or changes to existing protocols
 - ✅ Vertical capability promotion to framework
 - ✅ Breaking changes to provider or tool interfaces
-- ✅ New core architectural patterns (agents, workflows, state management)
+- ✅ New public architectural patterns (agents, workflows, state management)
 - ✅ Deprecation of major framework components
 - ✅ Changes to workflow YAML DSL structure
 - ✅ Process changes (governance, contribution guidelines)
@@ -85,6 +86,9 @@ Vertical-specific or routine changes:
 - ❌ Bug fixes and performance optimizations
 - ❌ Documentation improvements
 - ❌ Vertical-internal changes
+- ❌ Purely internal refactors, relocations, or deletions that preserve public and
+  cross-package contracts (record the rationale in the PR and, when durable,
+  an ADR or the technical-debt register instead)
 
 ## FEP Types
 
@@ -158,7 +162,7 @@ created: 2025-01-09
 modified: 2025-01-09
 authors:
   - name: "Vijaykumar Singh"
-    email: "singhvjd@gmail.com"
+    email: "vijay@anvaiops.com"
     github: "vjsingh1984"
 reviewers:
   - "maintainer-1"

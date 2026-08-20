@@ -1,4 +1,4 @@
-# Copyright 2025 Vijaykumar Singh <singhvjd@gmail.com>
+# Copyright 2025 Vijaykumar Singh <vijay@anvaiops.com>
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -45,6 +45,7 @@ Example:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from dataclasses import dataclass, field
@@ -251,17 +252,30 @@ class PerceptionIntegration:
         """
         logger.debug(f"Perceiving: {query[:100]}...")
 
+        # Spin telemetry (loop guards): perception is called exactly once per loop
+        # iteration in healthy runs, so counting here — the single seam both the
+        # legacy and StateGraph loops share — surfaces a perception/restart spin
+        # the iteration counter and post-ACT SpinDetector cannot see.
+        from victor.framework.loop.guards import note_perception
+
+        note_perception()
+
         # REUSE: Detect intent using existing ActionIntent detector
         intent_result = detect_intent(query)
         intent = intent_result.intent
 
-        # REUSE: Analyze task complexity using existing TaskAnalyzer
-        # Pass conversation history for context-aware analysis
+        # REUSE: Analyze task complexity using existing TaskAnalyzer.
+        # Offload to a worker thread: analyze() → classify_sync → embed_text_sync
+        # (model.encode) is CPU-bound and SYNC; running it inline blocks the event
+        # loop, which is why per-turn/total timeouts could never fire on a spinning
+        # loop. to_thread keeps the loop responsive so deadlines and cancellation
+        # work. The embedding already guards model.encode with a threading.Lock,
+        # so offloading is thread-safe.
         analyzer = TaskAnalyzer()
         analysis_context = dict(context or {})
         if conversation_history:
             analysis_context["history"] = conversation_history
-        task_analysis = analyzer.analyze(query, context=analysis_context)
+        task_analysis = await asyncio.to_thread(analyzer.analyze, query, context=analysis_context)
         complexity = task_analysis.complexity
 
         # NEW: Extract requirements (if enabled)

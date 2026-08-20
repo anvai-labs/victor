@@ -7,7 +7,7 @@ created: 2026-03-05
 modified: 2026-03-05
 authors:
   - name: Vijaykumar Singh
-    email: singhvjd@gmail.com
+    email: vijay@anvaiops.com
     github: vjsingh1984
 reviewers: []
 discussion: https://github.com/anvai-labs/victor/discussions/TBD

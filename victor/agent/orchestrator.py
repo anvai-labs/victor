@@ -1,4 +1,4 @@
-# Copyright 2025 Vijaykumar Singh <singhvjd@gmail.com>
+# Copyright 2025 Vijaykumar Singh <vijay@anvaiops.com>
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -110,10 +110,15 @@ from victor.agent.argument_normalizer import ArgumentNormalizer, NormalizationSt
 from victor.agent.message_history import MessageHistory
 from victor.agent.task_report_metadata import (
     build_compaction_metadata,
-    build_continuation_metadata,
+    build_task_report_finish_metadata,
+    build_task_report_start_metadata,
     resolve_task_type,
 )
-from victor.agent.tool_supply_policy import classify_tool_supply, demote_tools_to_fit
+from victor.agent.tool_supply_policy import (
+    classify_tool_supply,
+    demote_tools_to_fit,
+    should_skip_tools_via_edge,
+)
 from victor.agent.control_plane import envelope_if_internal
 from victor.agent.conversation.store import ConversationStore
 from victor.agent.prompt_prefix import apply_turn_prefix
@@ -2309,17 +2314,16 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
     ) -> Optional[str]:
         """Start a first-class task report on the canonical chat runtime path."""
         task_type = self._resolve_task_report_task_type()
-        report_metadata = {
-            "stream": stream,
-            "provider": getattr(self.provider, "name", getattr(self, "provider_name", "unknown")),
-            "model": getattr(self, "model", "unknown"),
-        }
-        if metadata:
-            report_metadata.update(metadata)
+        provider_name = getattr(self.provider, "name", getattr(self, "provider_name", "unknown"))
         return self._metrics_coordinator.start_task_report(
             description=user_message,
             task_type=task_type,
-            metadata=report_metadata,
+            metadata=build_task_report_start_metadata(
+                stream=stream,
+                provider_name=provider_name,
+                model=getattr(self, "model", "unknown"),
+                metadata=metadata,
+            ),
         )
 
     def _finish_task_report(
@@ -2333,19 +2337,17 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
         metadata: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Finish the active task report with compaction and tool-strategy metadata."""
-        report_metadata = {
-            "stream": stream,
-            "provider": getattr(self.provider, "name", getattr(self, "provider_name", "unknown")),
-            "model": getattr(self, "model", "unknown"),
-            "task_preview": user_message[:200],
-        }
-        if response is not None and hasattr(response, "stop_reason"):
-            report_metadata["stop_reason"] = getattr(response, "stop_reason", None)
-        report_metadata.update(
-            build_continuation_metadata(getattr(self, "_current_stream_context", None))
+        stream_ctx = getattr(self, "_current_stream_context", None)
+        provider_name = getattr(self.provider, "name", getattr(self, "provider_name", "unknown"))
+        report_metadata = build_task_report_finish_metadata(
+            stream=stream,
+            provider_name=provider_name,
+            model=getattr(self, "model", "unknown"),
+            user_message=user_message,
+            response=response,
+            stream_ctx=stream_ctx,
+            metadata=metadata,
         )
-        if metadata:
-            report_metadata.update(metadata)
 
         last_tool_event = self._metrics_coordinator.get_last_tool_strategy_event() or {}
         return self._metrics_coordinator.finish_task_report(
@@ -2355,7 +2357,7 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
             error=str(error) if error else None,
             tool_schema_tokens=int(last_tool_event.get("tool_tokens", 0) or 0),
             compaction=build_compaction_metadata(
-                getattr(self, "_current_stream_context", None),
+                stream_ctx,
                 getattr(self, "_context_service", None),
             ),
         )
@@ -3435,144 +3437,42 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
         return self._tool_skip_mode(context_msg) != "tools"
 
     def _check_tool_necessity_via_edge(self, context_msg: str, heuristic_conf: float) -> bool:
-        """Consult the decision service for tool necessity.
-
-        Falls back to the heuristic when no decision service is registered or it
-        times out. The service is registered per the ``decision_backend`` enum
-        (FEP-0012); the legacy ``USE_LLM_DECISION_SERVICE`` gate was removed so a
-        registered local-classifier is honored here regardless of that flag.
-        """
-        try:
-            from victor.agent.services.protocols.decision_service import (
-                get_decision_service,
-            )
-            from victor.agent.decisions.schemas import DecisionType
-
-            service = get_decision_service(getattr(self, "_container", None))
-            if service is None:
-                return heuristic_conf >= 0.7
-
-            decision = service.decide_sync(
-                DecisionType.TOOL_NECESSITY,
-                context={"message_excerpt": context_msg[:300]},
-                heuristic_result={"requires_tools": heuristic_conf < 0.7},
-                heuristic_confidence=heuristic_conf,
-            )
-
-            if decision.source == "heuristic" or decision.result is None:
-                return heuristic_conf >= 0.7
-
-            # Edge model returned a ToolNecessityDecision
-            requires = decision.result.get("requires_tools", True)
-            conf = decision.result.get("confidence", 0.5)
-            if not requires and conf >= 0.6:
-                logger.debug(
-                    "TOOL_NECESSITY: skipping tools for Q&A turn " "(confidence=%.2f, source=%s)",
-                    conf,
-                    decision.source,
-                )
-                return True
-            return False
-
-        except Exception:
-            logger.debug("Tool necessity check failed, defaulting to provide tools")
-            return False
+        """Consult the service-backed tool-supply policy's edge decision."""
+        return should_skip_tools_via_edge(
+            context_msg,
+            heuristic_conf,
+            container=getattr(self, "_container", None),
+        )
 
     def _sort_tools_for_kv_stability(self, tools):
         """Sort tools for KV-cache stability; session-local cache is managed here."""
-        if tools is None:
-            return None
-        if self._kv_optimization_enabled:
-            stabilize_order = True
-        else:
-            stabilize_order = AgentOrchestrator._should_stabilize_tool_order(self)
-        if not stabilize_order:
-            return tools
-        current_names = frozenset(t.name for t in tools)
-        last_names = getattr(self, "_last_sorted_tool_names", None)
-        last_tools = getattr(self, "_last_sorted_tools", None)
-        if last_names == current_names and last_tools is not None:
-            return last_tools
-        sorted_tools = self._tool_service.sort_tools_for_kv_stability(
-            tools, kv_optimization_enabled=stabilize_order
-        )
-        self._last_sorted_tool_names = current_names
-        self._last_sorted_tools = sorted_tools
-        return sorted_tools
+        from victor.agent.services.tool_strategy_runtime import ToolStrategyRuntime
+
+        return ToolStrategyRuntime(self).sort_tools_for_kv_stability(tools)
 
     def _should_stabilize_tool_order(self) -> bool:
         """Return whether this turn should use byte-stable tool ordering."""
-        if self._kv_optimization_enabled:
-            return True
+        from victor.agent.services.tool_strategy_runtime import ToolStrategyRuntime
 
-        strategy = self._resolve_kv_strategy_setting()
-        if strategy in ("session_stable", "additive"):
-            return True
-        if strategy != "context_aware":
-            return False
-        return self._context_aware_profile_session_locked()
+        return ToolStrategyRuntime(self).should_stabilize_tool_order()
 
     def _resolve_kv_strategy_setting(self) -> str:
         """Read kv_tool_strategy from settings; default to 'context_aware'."""
-        try:
-            ctx = getattr(self, "settings", None)
-            if ctx is not None:
-                context = getattr(ctx, "context", None)
-                if context is not None:
-                    return getattr(context, "kv_tool_strategy", "context_aware")
-        except Exception:
-            pass
-        return "context_aware"
+        from victor.agent.services.tool_strategy_runtime import ToolStrategyRuntime
+
+        return ToolStrategyRuntime(self).resolve_kv_strategy_setting()
 
     def _apply_kv_tool_strategy(self, tools):
-        """Delegate KV tool strategy to ToolService; manage session-stable cache here."""
-        if self._is_tool_strategy_v2_enabled():
-            result = self._tool_service.apply_context_aware_strategy(
-                tools,
-                provider=self.provider,
-                model=self.model,
-                session_semantic_tools=getattr(self, "_session_semantic_tools", None),
-            )
-            if self._context_aware_profile_session_locked():
-                self._session_semantic_tools = result
-            return result
-        strategy = self._resolve_kv_strategy_setting()
-        result = self._tool_service.apply_kv_tool_strategy(
-            tools,
-            kv_optimization_enabled=self._kv_optimization_enabled,
-            provider=self.provider,
-            model=self.model,
-            session_semantic_tools=getattr(self, "_session_semantic_tools", None),
-            kv_tool_strategy=strategy,
-        )
-        # Persist the (grow-only) session-stable selection at orchestrator level
-        # (ToolService is a singleton). P4: persist EVERY turn — not just the first —
-        # so newly-added tools join the cached set and stay available next turn.
-        if strategy in ("session_stable", "additive") or (
-            strategy == "context_aware" and self._context_aware_profile_session_locked()
-        ):
-            self._session_semantic_tools = result
-        return result
+        """Delegate configured KV strategy and session caching to the strategy runtime."""
+        from victor.agent.services.tool_strategy_runtime import ToolStrategyRuntime
+
+        return ToolStrategyRuntime(self).apply_kv_tool_strategy(tools)
 
     def _context_aware_profile_session_locked(self) -> bool:
         """Whether the provider-economics profile wants session-stable tools."""
-        try:
-            from victor.config.tool_tiers import resolve_tool_supply_profile
+        from victor.agent.services.tool_strategy_runtime import ToolStrategyRuntime
 
-            context_window = self._get_context_window(self.provider, self.model)
-            fallback_max_tools = None
-            try:
-                fallback_max_tools = getattr(getattr(self.settings, "tools", None), "budget", None)
-            except Exception:
-                fallback_max_tools = None
-            profile = resolve_tool_supply_profile(
-                self.provider,
-                context_window,
-                fallback_max_tools=int(fallback_max_tools or 8),
-            )
-            return profile.session_lock != "off"
-        except Exception:
-            return False
+        return ToolStrategyRuntime(self).context_aware_profile_session_locked()
 
     def _is_tool_strategy_v2_enabled(self) -> bool:
         """Check if the context-aware tool strategy (v2) is enabled.
@@ -3581,35 +3481,15 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
         ``tool_strategy_v2_enabled`` settings field was an unreachable,
         exception-only fallback (defaulted False) and has been removed.
         """
-        try:
-            from victor.core.feature_flags import is_enabled
+        from victor.agent.services.tool_strategy_runtime import ToolStrategyRuntime
 
-            return is_enabled("tool_strategy_v2")
-        except Exception:
-            return False
+        return ToolStrategyRuntime(self).is_tool_strategy_v2_enabled()
 
     def _apply_context_aware_strategy(self, tools):
-        """Delegate context-aware selection to ToolService; emit strategy event here."""
-        result = self._tool_service.apply_context_aware_strategy(
-            tools, provider=self.provider, model=self.model
-        )
-        try:
-            from victor.config.tool_tiers import get_provider_category
+        """Delegate context-aware selection and its telemetry to the strategy runtime."""
+        from victor.agent.services.tool_strategy_runtime import ToolStrategyRuntime
 
-            context_window = self._get_context_window(self.provider, self.model)
-            provider_category = get_provider_category(context_window)
-            self._emit_tool_strategy_event(
-                strategy="context_aware",
-                tool_count=len(result),
-                tool_tokens=sum(self._estimate_tool_tokens(t, provider_category) for t in result),
-                context_window=context_window,
-                provider=self.provider,
-                reason="kv_context_aware",
-                tools=result,
-            )
-        except Exception:
-            pass
-        return result
+        return ToolStrategyRuntime(self).apply_context_aware_strategy(tools)
 
     def _get_context_window(self, provider, model: str) -> int:
         """Get context window size for provider/model.
@@ -3621,59 +3501,15 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
         Returns:
             Context window in tokens
         """
-        if hasattr(provider, "context_window"):
-            return provider.context_window(model)
+        from victor.agent.services.tool_strategy_runtime import ToolStrategyRuntime
 
-        # Fallback: safe default
-        logger.warning(
-            f"Provider {provider.name} does not support context_window(), using default 8192"
-        )
-        return 8192
+        return ToolStrategyRuntime(self).get_context_window(provider, model)
 
     def _estimate_tool_tokens(self, tool, provider_category: str = None) -> int:
         """Delegate token estimation to ToolService."""
-        return self._tool_service.estimate_tool_tokens(tool, provider_category=provider_category)
+        from victor.agent.services.tool_strategy_runtime import ToolStrategyRuntime
 
-    def _should_session_lock_all_tools(
-        self, provider, context_window: int, tool_tokens: int
-    ) -> bool:
-        """Determine if all tools should be session-locked.
-
-        Session-locking is economy-optimal when:
-        1. Provider supports API-level caching (90% discount)
-        2. Context window is large (≥32K) for KV efficiency
-        3. Tool token count is reasonable
-
-        Args:
-            provider: Provider instance
-            context_window: Context window in tokens
-            tool_tokens: Current tool token count
-
-        Returns:
-            True if session-locking is recommended
-        """
-        # Cloud providers with caching: Always session-lock
-        if hasattr(provider, "supports_prompt_caching") and provider.supports_prompt_caching():
-            return True
-
-        # Large local models (≥32K): Session-lock for KV efficiency
-        if context_window >= 32000:
-            return True
-
-        # Otherwise: Don't session-lock (use semantic selection)
-        return False
-
-    def _is_gemini_provider(self, provider) -> bool:
-        """Check if provider is Gemini.
-
-        Args:
-            provider: Provider instance
-
-        Returns:
-            True if this is a Gemini provider
-        """
-        provider_name = getattr(provider, "name", "").lower()
-        return "gemini" in provider_name or "google" in provider_name
+        return ToolStrategyRuntime(self).estimate_tool_tokens(tool, provider_category)
 
     def _demote_tools_to_fit(
         self, tools, max_tokens: int, context_window: int, provider_category: str = None
@@ -3692,9 +3528,9 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
 
     def _semantic_select_tools(self, tools, max_tokens: int, provider_category: str = None) -> list:
         """Delegate semantic tool selection to ToolService."""
-        return self._tool_service.semantic_select_tools(
-            tools, max_tokens, provider_category=provider_category
-        )
+        from victor.agent.services.tool_strategy_runtime import ToolStrategyRuntime
+
+        return ToolStrategyRuntime(self).semantic_select_tools(tools, max_tokens, provider_category)
 
     def _emit_tool_strategy_event(
         self,
@@ -3706,31 +3542,18 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
         reason: str,
         tools=None,
     ):
-        """Emit tool strategy selection event via AgentMetricsService.
+        """Delegate tool-strategy telemetry to the strategy runtime."""
+        from victor.agent.services.tool_strategy_runtime import ToolStrategyRuntime
 
-        Args:
-            strategy: Strategy name (session_lock, semantic_selection, etc.)
-            tool_count: Number of tools selected
-            tool_tokens: Total tool tokens
-            context_window: Context window size
-            provider: Provider instance or provider name
-            reason: Reason for strategy selection
-            tools: Optional list of tools for detailed metrics
-        """
-        try:
-            self._metrics_coordinator.emit_tool_strategy_event(
-                strategy=strategy,
-                tool_count=tool_count,
-                tool_tokens=tool_tokens,
-                context_window=context_window,
-                provider=provider,
-                model=self.model,
-                reason=reason,
-                tools=tools,
-                v2_enabled=self._is_tool_strategy_v2_enabled(),
-            )
-        except Exception as e:
-            logger.debug(f"Failed to emit tool strategy event: {e}")
+        ToolStrategyRuntime(self).emit_tool_strategy_event(
+            strategy,
+            tool_count,
+            tool_tokens,
+            context_window,
+            provider,
+            reason,
+            tools,
+        )
 
     # =====================================================================
     # Recovery Coordination Helper

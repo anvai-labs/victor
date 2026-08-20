@@ -1,4 +1,4 @@
-# Copyright 2025 Vijaykumar Singh <singhvjd@gmail.com>
+# Copyright 2025 Vijaykumar Singh <vijay@anvaiops.com>
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -106,6 +106,71 @@ class CostCommand(BaseSlashCommand):
             )
 
         ctx.console.print(Panel(content, title="Usage Statistics", border_style="cyan"))
+
+
+@register_command
+class GainCommand(BaseSlashCommand):
+    """Show cumulative shell-output condensation savings (rtk `gain` analogue)."""
+
+    @property
+    def metadata(self) -> CommandMetadata:
+        return CommandMetadata(
+            name="gain",
+            description="Show token savings from shell output condensation",
+            usage="/gain",
+            aliases=["savings", "condensation"],
+            category="metrics",
+        )
+
+    def execute(self, ctx: CommandContext) -> None:
+        try:
+            from victor.agent.usage_analytics import UsageAnalytics
+
+            stats = UsageAnalytics.get_instance().get_condensation_stats()
+        except Exception as e:
+            ctx.console.print(f"[red]Error fetching condensation stats:[/] {e}")
+            return
+
+        if not stats["total_events"]:
+            ctx.console.print(
+                "[dim]No condensation events yet — savings accumulate as shell "
+                "commands (pytest, git, npm, ...) run.[/]"
+            )
+            return
+
+        table = Table(title="Output Condensation Savings")
+        table.add_column("Condenser", style="cyan")
+        table.add_column("Events", justify="right")
+        table.add_column("Before", justify="right")
+        table.add_column("After", justify="right")
+        table.add_column("Saved", justify="right", style="green")
+
+        for name, s in sorted(
+            stats["per_condenser"].items(),
+            key=lambda kv: kv[1]["original_chars"] - kv[1]["condensed_chars"],
+            reverse=True,
+        ):
+            saved = s["original_chars"] - s["condensed_chars"]
+            pct = 100.0 * saved / s["original_chars"] if s["original_chars"] else 0.0
+            table.add_row(
+                name,
+                str(s["count"]),
+                f"{s['original_chars']:,}",
+                f"{s['condensed_chars']:,}",
+                f"{saved:,} ({pct:.0f}%)",
+            )
+
+        ctx.console.print(table)
+        ctx.console.print(
+            Panel(
+                f"[bold]Total saved:[/] {stats['chars_saved']:,} chars "
+                f"(~{stats['est_tokens_saved']:,} tokens, {stats['savings_pct']:.0f}%)\n"
+                f"[dim]Token estimate uses chars/4 — percentages are reliable, "
+                f"absolute numbers approximate.[/]",
+                title="Condensation Gain",
+                border_style="green",
+            )
+        )
 
 
 @register_command

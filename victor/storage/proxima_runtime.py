@@ -1,4 +1,4 @@
-# Copyright 2025 Vijaykumar Singh <singhvjd@gmail.com>
+# Copyright 2025 Vijaykumar Singh <vijay@anvaiops.com>
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -18,8 +18,11 @@ This module is the single place that knows how to:
 
 - detect whether the ``proximadb_sdk`` package is importable (optional dep),
 - start an **embedded** ProximaDB (local single-repo) instance, and
-- build the canonical ``oid`` that correlates a code symbol's relational row,
-  its ORION graph node, and its HNSW vector into **one** entity.
+- derive repository and graph names used by the storage adapters.
+
+Symbol identity and the correlated record ``oid`` are owned exclusively by
+``victor-codegraph``. Storage adapters persist that emitted ``oid`` unchanged;
+they do not derive an alternative identity from file, name, type, or position.
 
 See ``docs/architecture/proximadb-codegraph-backend.md`` (TD-11/12/13) for the
 design. The embedded path uses ProximaDB's in-RAM vector engine — the
@@ -37,7 +40,7 @@ from __future__ import annotations
 
 import asyncio
 import enum
-import hashlib
+import inspect
 import logging
 import re
 from pathlib import Path
@@ -103,7 +106,7 @@ class ProximaEmbeddingMode(str, enum.Enum):
 
 
 # ---------------------------------------------------------------------------
-# oid correlation — one identity for relational row + graph node + vector
+# Repository naming (symbol identity belongs to victor-codegraph)
 # ---------------------------------------------------------------------------
 _REPO_SANITIZE = re.compile(r"[^A-Za-z0-9_]+")
 
@@ -119,27 +122,6 @@ def repo_id_from_path(project_path: Optional[Path | str]) -> str:
     name = Path(project_path).expanduser().resolve(strict=False).name or "repo"
     sanitized = _REPO_SANITIZE.sub("_", name).strip("_").lower()
     return sanitized or "repo"
-
-
-def symbol_oid(file: str, name: str, symbol_type: Optional[str] = None) -> str:
-    """Compute the stable per-symbol id used inside an :func:`node_oid`.
-
-    Correlation is by ``(symbol_type, file, name)`` — the same implicit key the
-    SQLite/Lance pair correlate on today (``symbol:{file}:{name}``), made
-    explicit and collision-resistant via a short blake2b digest.
-    """
-    raw = f"{symbol_type or ''}:{file}:{name}"
-    return hashlib.blake2b(raw.encode("utf-8"), digest_size=12).hexdigest()
-
-
-def node_oid(repo: str, symbol: str) -> str:
-    """Build the canonical correlated id: ``graph/{repo}/node/{symbol_oid}``.
-
-    The same string is used as the ProximaDB graph node id **and** the vector
-    record id, so a vector hit maps to its graph node by identity (no join) and
-    the always-empty ``graph_node.embedding_ref`` bridge is retired.
-    """
-    return f"graph/{repo}/node/{symbol}"
 
 
 def graph_id_for_repo(repo: str) -> str:
@@ -181,7 +163,7 @@ async def start_embedded_db(
     vector_engine: str = "SST",
     graph_engine: str = "ORION",
     binary_path: Optional[str] = None,
-    timeout: float = 30.0,
+    timeout: Optional[float] = None,
     rest_port: Optional[int] = None,
     grpc_port: Optional[int] = None,
 ) -> Any:
@@ -198,7 +180,18 @@ async def start_embedded_db(
         vector_engine: Vector storage engine (SST is write-optimized for code).
         graph_engine: Graph engine (ORION = WAL + in-memory).
         binary_path: Explicit path to the ``proximadb-server`` binary (optional).
-        timeout: Seconds to wait for the server to become healthy.
+        timeout: Seconds to wait for the server to become healthy. ``None``
+            (the default) delegates to the SDK's **progress-aware** wait, which
+            watches the server's runtime-state phases and gives up only when a
+            phase *stalls* — not when a wall-clock budget expires. A fixed
+            budget cannot be right here: startup cost scales with the data
+            directory, because the server replays and rebuilds before it binds.
+            The previous hard 30 s ceiling was survivable on toy repos and
+            failed outright on a real one (a 478 MB / 93k-node graph stalled at
+            ``last phase: binding``), which is the worst shape for a default —
+            it works until the data matters. Pass a number only to bound a
+            specific call; an explicit value deliberately overrides the
+            progress-aware wait.
         rest_port: Explicit REST port (default: an OS-selected free port).
         grpc_port: Explicit gRPC port (default: an OS-selected free port).
 
@@ -248,11 +241,97 @@ async def start_embedded_db(
     return db
 
 
+_ALREADY_EXISTS_MARKERS = ("collection_exists", "already exists")
+
+
+def _is_already_exists(exc: BaseException) -> bool:
+    """True when a create failed only because the target is already there.
+
+    The embedded server surfaces this as an HTTP 500 whose body carries
+    ``error_code="COLLECTION_EXISTS"``, so there is no typed exception to catch
+    and the message is the only signal available. Matching narrowly here keeps a
+    genuine creation failure fatal.
+    """
+    text = str(exc).lower()
+    return any(marker in text for marker in _ALREADY_EXISTS_MARKERS)
+
+
+def _uds_kwargs(db: Any) -> Dict[str, str]:
+    """Return the ``uds_path`` kwarg for a portless embedded instance, if any.
+
+    Embedded ProximaDB binds Unix-domain sockets rather than TCP ports by
+    default, because fixed ports collide between concurrent instances. In that
+    mode ``rest_url`` is only a host header, so a client built from it must be
+    given the socket to connect through.
+
+    Returns an empty mapping for a TCP instance, and also when the installed SDK
+    predates ``ProximaDBClient(uds_path=...)`` — callers keep working against an
+    older SDK instead of failing on an unexpected keyword.
+    """
+    if getattr(db, "socket_dir", None) is None:
+        return {}
+    try:
+        socket_path = str(db.rest_socket_path)
+    except Exception:  # pragma: no cover - SDK without UDS support
+        return {}
+
+    from proximadb_sdk.unified_client import ProximaDBClient
+
+    if "uds_path" not in inspect.signature(ProximaDBClient.__init__).parameters:
+        logger.warning(
+            "Embedded ProximaDB is portless (UDS at %s) but the installed SDK's "
+            "ProximaDBClient has no uds_path parameter; graph operations will "
+            "fail to connect. Upgrade proximadb, or start the server with "
+            "transport='tcp'.",
+            socket_path,
+        )
+        return {}
+    return {"uds_path": socket_path}
+
+
 # ---------------------------------------------------------------------------
 # Shared per-repo connection — one embedded instance for graph + vectors
 # ---------------------------------------------------------------------------
 _CONN_REGISTRY: "Dict[str, ProximaRepoConnection]" = {}
 _CONN_LOCK = asyncio.Lock()
+
+
+async def release_all_connections() -> None:
+    """Stop every embedded server this process started, now.
+
+    The refcounted registry frees a connection when its last holder releases,
+    but a long-lived process (a benchmark harness running many iterations, a
+    daemon) can accumulate live connections whose holders were dropped without
+    closing. Call this at an iteration boundary to get back to a known-clean
+    state instead of relying on interpreter exit.
+
+    Best-effort and idempotent: teardown must never raise into a caller's
+    control flow.
+    """
+    async with _CONN_LOCK:
+        conns = list(_CONN_REGISTRY.values())
+        _CONN_REGISTRY.clear()
+    for conn in conns:
+        db = conn._db
+        conn._db = None
+        conn._client = None
+        conn._graphs.clear()
+        conn._collections.clear()
+        conn._refcount = 0
+        if db is not None:
+            try:
+                await db.stop()
+            except Exception as exc:  # pragma: no cover - teardown path
+                logger.debug("Embedded ProximaDB stop failed during drain: %s", exc)
+
+
+def live_connection_count() -> int:
+    """How many embedded connections this process currently holds.
+
+    Exposed so harnesses (and tests) can ASSERT a clean teardown rather than
+    hope for one — the property victor#911 was missing.
+    """
+    return len(_CONN_REGISTRY)
 
 
 class ProximaRepoConnection:
@@ -277,6 +356,9 @@ class ProximaRepoConnection:
         self._client: Any = None
         self._graphs: Dict[str, Any] = {}
         self._collections: Dict[str, Any] = {}
+        # Process-local mutation epochs let sibling stores sharing this
+        # connection detect that a cached collection view is stale.
+        self._collection_generations: Dict[str, int] = {}
         self._refcount = 0
 
     @classmethod
@@ -309,7 +391,18 @@ class ProximaRepoConnection:
         self._db = await start_embedded_db(self._data_dir, binary_path=self._binary_path)
         # Graph + vector ops are served over REST (the gRPC client has no graph
         # RPCs), so the shared client is pinned to the REST protocol.
-        self._client = ProximaDBClient(url=self._db.rest_url, protocol="rest")
+        #
+        # The embedded server is portless by default: it binds a Unix-domain
+        # socket and `rest_url` degrades to the host-header sentinel
+        # "http://localhost" with no port. A plain TCP client built from that
+        # URL silently targets port 80, so every graph call fails with
+        # ECONNREFUSED while ProximaRecord writes still succeed through the
+        # SDK's own UDS-aware client — a split-transport state where the
+        # authoritative record commits but its ORION projection never lands.
+        # Pass the socket through so both halves share one transport.
+        self._client = ProximaDBClient(
+            url=self._db.rest_url, protocol="rest", **_uds_kwargs(self._db)
+        )
 
     @property
     def client(self) -> Any:
@@ -342,24 +435,56 @@ class ProximaRepoConnection:
         distance_metric: str = "cosine",
         embedding_model: Any = None,
     ) -> Any:
-        """Return (and cache) a vector collection on this shared instance."""
+        """Return (and cache) a vector collection on this shared instance.
+
+        Genuinely get-or-create. The cache is per-process, so on any run after
+        the first the collection already exists on disk and ``create_collection``
+        fails with ``COLLECTION_EXISTS``. Treating that as fatal made the whole
+        ProximaRecord path work exactly once, on a fresh data directory: reopening
+        an indexed repo — a second session, an incremental reindex — raised
+        RuntimeError before a single record could be read or written.
+        """
         cached = self._collections.get(name)
         if cached is not None:
             if embedding_model is not None and not getattr(cached, "has_embedding_model", True):
                 cached.set_embedding_model(embedding_model)
             return cached
-        collection = await self._db.create_collection(
-            name,
-            dimension=dimension,
-            distance_metric=distance_metric,
-            embedding_model=embedding_model,
-        )
+
+        try:
+            collection = await self._db.create_collection(
+                name,
+                dimension=dimension,
+                distance_metric=distance_metric,
+                embedding_model=embedding_model,
+            )
+        except Exception as exc:
+            if not _is_already_exists(exc):
+                raise
+            # Adopt the existing collection rather than failing. Mirrors how
+            # `graph()` above already tolerates a pre-existing graph.
+            collection = await self._db.get_collection(name)
+            if collection is None:
+                raise
+            logger.debug("Adopted existing Proxima collection %s", name)
+            if embedding_model is not None and not getattr(collection, "has_embedding_model", True):
+                collection.set_embedding_model(embedding_model)
+
         self._collections[name] = collection
         return collection
 
     def forget_collection(self, name: str) -> None:
         """Drop a cached collection handle (e.g. after it was deleted server-side)."""
         self._collections.pop(name, None)
+
+    def collection_generation(self, name: str) -> int:
+        """Return the process-local mutation epoch for a collection."""
+        return self._collection_generations.get(name, 0)
+
+    def mark_collection_mutated(self, name: str) -> int:
+        """Advance and return a collection's process-local mutation epoch."""
+        generation = self.collection_generation(name) + 1
+        self._collection_generations[name] = generation
+        return generation
 
     async def release(self) -> None:
         """Drop one reference; stop the subprocess when the last holder releases."""
@@ -373,6 +498,7 @@ class ProximaRepoConnection:
             self._client = None
             self._graphs.clear()
             self._collections.clear()
+            self._collection_generations.clear()
         if db is not None:
             try:
                 await db.stop()

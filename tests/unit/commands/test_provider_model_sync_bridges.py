@@ -2225,8 +2225,28 @@ class TestBenchmarkSyncBridge:
             benchmark_lower="swe-bench",
             max_tasks=3,
             force_reindex=True,
+            build_graph_rag=False,
         )
         mock_run_sync.assert_called_once_with(coro)
+
+    def test_setup_benchmark_forwards_graph_rag_flag(self) -> None:
+        coro = object()
+        mock_async = Mock(return_value=coro)
+
+        with (
+            patch.object(benchmark_cmd, "_configure_log_level"),
+            patch.object(benchmark_cmd, "_setup_benchmark_async", mock_async),
+            patch.object(benchmark_cmd, "run_sync", return_value=None),
+        ):
+            benchmark_cmd.setup_benchmark(
+                benchmark="swe-bench",
+                max_tasks=3,
+                force_reindex=True,
+                graph_rag=True,
+                log_level="INFO",
+            )
+
+        assert mock_async.call_args.kwargs["build_graph_rag"] is True
 
     def test_run_prompt_suite_uses_shared_sync_bridge(self) -> None:
         runner = object()
