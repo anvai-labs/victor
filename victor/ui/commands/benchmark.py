@@ -841,7 +841,10 @@ def setup_benchmark(
             benchmark_lower=benchmark_lower,
             max_tasks=max_tasks,
             force_reindex=force_reindex,
-            build_graph_rag=graph_rag,
+            # Typer replaces this with a bool on the CLI path.  Direct Python
+            # callers that omit it receive the declaration's truthy
+            # OptionInfo object, which must still mean the declared default.
+            build_graph_rag=graph_rag is True,
         )
     )
 
