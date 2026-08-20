@@ -40,6 +40,7 @@ import argparse
 import asyncio
 import json
 import shutil
+import sqlite3
 import statistics
 import subprocess
 import sys
@@ -61,6 +62,26 @@ def _dir_bytes(path: Path) -> int:
     if not path.exists():
         return 0
     return sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
+
+
+def _checkpoint_sqlite_wals(path: Path) -> None:
+    """Fold any `-wal` sidecars back into their database before measuring.
+
+    A footprint number that includes a WAL the engine is about to delete is not
+    a footprint; it is a snapshot of mid-flight state. Opening each database and
+    running `wal_checkpoint(TRUNCATE)` makes the measurement independent of when
+    the last connection happens to close. Best-effort: a database still held
+    open elsewhere simply stays as it is, which is no worse than not trying.
+    """
+    for db in path.rglob("*.db"):
+        try:
+            conn = sqlite3.connect(db)
+            try:
+                conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            finally:
+                conn.close()
+        except sqlite3.Error:
+            continue
 
 
 def _fmt_bytes(n: int) -> str:
@@ -171,7 +192,15 @@ async def _bench_backend(
         except Exception:
             pass
 
-    # Footprint is measured after close() so buffers/WAL are flushed to disk.
+    # Footprint is measured after close() AND after checkpointing any SQLite
+    # write-ahead logs left behind. `store.close()` is not enough: Victor holds
+    # a process-global connection, so `project.db-wal` survives until the
+    # interpreter exits, and it is counted as footprint even though SQLite
+    # deletes it moments later. The error is large and one-sided — a repo-scale
+    # SQLite arm measured 196.8 MB here and 125 MB at rest, while ProximaDB
+    # measured identically both times — so it silently penalised whichever
+    # backend happens to be SQLite.
+    _checkpoint_sqlite_wals(project)
     result["footprint_bytes"] = _dir_bytes(project)
     result["footprint"] = _fmt_bytes(result["footprint_bytes"])
     if result.get("nodes"):
