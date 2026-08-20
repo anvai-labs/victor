@@ -55,6 +55,38 @@ _PARALLEL_TRAVERSAL_CEILING = 10_000
 # BFS-order-dependent prefix as though ranking had considered the neighbourhood.
 _CANDIDATE_CEILING = 10_000
 
+_VALID_DIRECTIONS = ("out", "in", "both")
+
+
+def _traversal_direction(config: Any) -> str:
+    """Resolve the edge direction a config asks the walk to follow.
+
+    Defaults to ``"out"`` so callers predating the knob keep their behaviour,
+    and falls back to it on an unrecognised value rather than letting a typo
+    reach the store as a ValueError mid-traversal.
+    """
+    direction = getattr(config, "direction", "out") or "out"
+    if direction not in _VALID_DIRECTIONS:
+        logger.warning(f"Unknown traversal direction {direction!r}; using 'out'")
+        return "out"
+    return direction
+
+
+def _neighbor_endpoint(edge: GraphEdge, node_id: str, direction: str) -> Optional[str]:
+    """Pick the endpoint of ``edge`` that is the neighbour of ``node_id``.
+
+    Reading ``edge.dst`` unconditionally is only correct for outward walks: on
+    an inward walk the neighbour is the *source*, and on a both-ways walk it is
+    whichever end we did not come from. Self-loops have no neighbour to visit.
+    """
+    if direction == "out":
+        return edge.dst
+    if direction == "in":
+        return edge.src
+    if edge.src == node_id:
+        return edge.dst if edge.dst != node_id else None
+    return edge.src
+
 
 class CandidateBudgetExceededError(RuntimeError):
     """Traversal cannot rank a complete neighbourhood within its safety budget."""
@@ -177,8 +209,13 @@ class MultiHopRetriever:
         if cache_result is not None:
             return cache_result
 
-        if self._should_use_parallel(cfg) and hasattr(
-            self.graph_store, "multi_hop_traverse_parallel"
+        # The batched primitive takes no direction argument and walks outward
+        # only, so a non-outward request must stay on the serial path rather
+        # than get outward answers to an inward question.
+        if (
+            _traversal_direction(cfg) == "out"
+            and self._should_use_parallel(cfg)
+            and hasattr(self.graph_store, "multi_hop_traverse_parallel")
         ):
             result = await self.retrieve_parallel(query, cfg)
         else:
@@ -477,6 +514,7 @@ class MultiHopRetriever:
             if distance < config.max_hops:
                 try:
                     edge_types = config.edge_types
+                    direction = _traversal_direction(config)
 
                     # Use lazy loading if enabled and available (PH4-006)
                     if use_lazy_loading and hasattr(self.graph_store, "iter_neighbors"):
@@ -485,12 +523,14 @@ class MultiHopRetriever:
                         neighbors = await self.graph_store.get_neighbors(
                             node_id,
                             edge_types=edge_types,
-                            direction="out",
+                            direction=direction,
                             max_depth=1,
                         )
 
                     for edge in neighbors:
-                        neighbor_id = edge.dst
+                        neighbor_id = _neighbor_endpoint(edge, node_id, direction)
+                        if neighbor_id is None:
+                            continue
                         if neighbor_id not in visited:
                             if len(visited) >= _CANDIDATE_CEILING:
                                 raise CandidateBudgetExceededError(
@@ -553,7 +593,7 @@ class MultiHopRetriever:
                 node_id,
                 batch_size=batch_size,
                 edge_types=edge_types if edge_types else None,
-                direction="out",
+                direction=_traversal_direction(config),
             )
 
             async for batch in iter_neighbors:
@@ -571,7 +611,7 @@ class MultiHopRetriever:
             edges = await self.graph_store.get_neighbors(
                 node_id,
                 edge_types=edge_types,
-                direction="out",
+                direction=_traversal_direction(config),
                 max_depth=1,
             )
 

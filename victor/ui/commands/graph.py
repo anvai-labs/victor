@@ -169,10 +169,13 @@ async def _query_async(
         return False
 
     # Create retriever
+    # Both directions, matching the query tool: a `victor graph query` for a
+    # symbol should surface its callers, not only what it calls.
     config = RetrievalConfig(
         seed_count=max_results,
         max_hops=max_hops,
         top_k=max_results,
+        direction="both",
     )
     retriever = MultiHopRetriever(graph_store, config)
 
