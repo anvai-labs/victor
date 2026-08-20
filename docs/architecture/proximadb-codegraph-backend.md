@@ -497,3 +497,67 @@ Vector **read** cost remains unmeasured on both sides; nothing here compares
 LanceDB similarity search against ProximaDB's vector engine, so no claim is
 made about it. That is the last unmeasured quadrant of the total-cost
 picture.
+
+## Vector read cost (2026-08-20) — the last quadrant
+
+Every prior section measured writes, storage, recovery or graph traversal.
+Vector **reads** were never compared, and they were the one axis where the
+co-located design should win: in ProximaDB a vector hit *is* a graph node,
+while the SQLite arm searches LanceDB and then joins back into SQLite to turn
+ids into nodes.
+
+Same corpus indexed into both backends, 1,350 symbol vectors at 384-d, 50
+query vectors sampled with a fixed seed and handed identically to both arms,
+top_k = 10. Reproduce with `scripts/eval_vector_read.py <workdir>`.
+
+| | LanceDB (in-process) | ProximaDB |
+|---|---|---|
+| search p50 | **4.07 ms** | 35.46 ms |
+| search p95 | 16.9 ms | 38.8 ms |
+| + join to graph nodes | 4.23 ms | not needed |
+| recall@10 vs exact cosine | 0.996 | 0.990 |
+
+**ProximaDB is ~8.4× slower at equivalent recall.** Both backends return
+essentially what exact brute-force cosine returns, so this is not a
+speed/accuracy trade.
+
+**The co-location advantage is real and small.** The join the SQLite arm
+cannot avoid — LanceDB ids back into graph nodes — costs **0.16 ms**
+(4.23 vs 4.07). That is the entire prize the single-store design was meant to
+collect on this axis. ProximaDB's search costs 31 ms more than LanceDB's.
+
+**Transport does not explain it.** The obvious suspect is the HTTP/UDS hop to
+the embedded server, but the same store over the same transport in the same
+run answers k-hop traversal at **0.68 ms** p50. Round-trip overhead is
+sub-millisecond, so ~31 ms of the 35 ms is search work. Filed upstream as
+anvai-labs/proximaDB#1690.
+
+Two measurement hazards the harness avoids, both of which would have produced
+a flattering-but-wrong number: `LanceDBProvider.search_similar` takes a
+**string** and embeds internally while `semantic_search` takes a **vector**,
+so timing those against each other charges one arm for embedding generation;
+and latency without a correctness check is meaningless, because an ANN index
+can always be fast by returning the wrong neighbours.
+
+Scale caveat, and it is not a formality: ratios in this comparison have moved
+with corpus size before — graph ingest measured 1.14× at 33k nodes and 4.4× at
+93k. This is 1,350 vectors. The gap is an order of magnitude and reproducible
+across runs, but it should be re-taken at repo scale before it is treated as
+settled.
+
+### Where this leaves the backend decision
+
+With reads measured, every axis has now been measured at least once:
+
+| axis | result |
+|---|---|
+| ingest (repo scale, embeddings) | ProximaDB **3.6× slower** |
+| storage at rest (repo scale) | **parity**, 1.10× |
+| recovery | **fixed** by proximaDB#1678 — 171 s, no longer a differentiator |
+| graph traversal | too unstable to quote; harness needs seed control and repeats |
+| vector read | ProximaDB **~8.4× slower** at equal recall |
+
+The recommendation is unchanged — SQLite remains the default for repo-scale
+graphs — but it no longer rests on a defect. It rests on there being no
+measured advantage anywhere, and a real cost on the two axes that dominate a
+first index and a query.
