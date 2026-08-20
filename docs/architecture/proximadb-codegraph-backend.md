@@ -344,21 +344,38 @@ so nothing below is a data-difference artifact. Embeddings off (Tier-A only).
 
 | | SQLite | ProximaDB | ratio |
 |---|---|---|---|
-| index time | 447 s | **3,269 s** | 7.3× slower |
-| footprint | 205.7 MB | 478.5 MB | 2.33× larger |
-| k-hop traversal p50 | 0.33 ms | 1.76 ms | 5.3× slower |
+| index time, before the fix below | 447 s | 3,269 s | 7.3× |
+| **index time, current** | **395 s** | **1,748 s** | **4.4×** |
+| footprint | 196.8 MB | 473.4 MB | 2.4× larger |
 
-**The ingest ratio is not a constant, and that is the whole point.** The same
-comparison on a 33,205-node corpus gives 379 s vs 331 s — only 1.14×. Netting
-out the parse baseline both arms share, graph-write cost goes from ~48 s to
-~2,821 s for 3.5× the data. The cost is quadratic in graph size.
+**The ingest gap was superlinear, and the cause was on the client.** The same
+comparison on a 33,205-node corpus gave 379 s vs 331 s — only 1.14×. A ratio
+that grows with the graph is the signature of per-item work scaling with graph
+size, and here it was `upsert_edges` preloading `graph.get_all_edges()` to
+dedup: the SDK implements that as per-node outgoing-edge scans, ~93k HTTP
+requests, re-paid on cache invalidation. Removing it (below) cut ProximaDB
+ingest **47%** with no server change, and the ratio fell 7.3× → 4.4×.
 
-**Root cause is server-side: `ORION` rebuilds its CSR on every edge insert**
-(`add_edge_to_csr` → `csr_out.rebuild()` + `csr_in.rebuild()`, O(E) each, so
-O(E²) overall). A batch primitive that rebuilds once, `add_edges_to_csr_batch`,
-exists in the same file and has **zero callers**. Filed as anvai-labs/proximaDB#1673
-with the measured decay curve: insert throughput falls monotonically from
-2,526/s to ~60/s within a single run as the graph fills — a 42× slowdown.
+What remains is a **constant-factor** ~4.4× on ingest — a far less alarming
+shape than the quadratic it replaced, and one nothing here has yet attributed.
+Candidates are the HTTP/UDS boundary and per-batch JSON, the canonical record
+write accompanying each edge batch, and WAL volume. `bulk_insert_edges` already
+emits `validate/wal/mempool/index/csr` timings, so the per-phase trace is cheap
+to obtain; it should be taken before anyone optimizes.
+
+**A correction worth recording:** this section first attributed the ingest gap
+to ORION rebuilding its CSR per edge insert. That was wrong. `batch_create_edges`
+already routes through `bulk_insert_edges`, which batches index creation and
+defers to a threshold-triggered compaction, so the per-edge rebuild was never on
+the ingest path. It *is* real on the **replay** path, which is why recovery
+behaves as described below; anvai-labs/proximaDB#1673 was rescoped accordingly
+and anvai-labs/proximaDB#1678 fixes it.
+
+**Traversal latency is not quoted here on purpose.** k-hop p50 measured
+SQLite 0.33 ms vs Proxima 1.76 ms in one run and SQLite 4.77 ms vs Proxima
+1.50 ms in the next — SQLite moved 14× between runs while Proxima barely moved.
+The harness samples 75 traversals with seeds re-chosen per run and no cache
+control or repeats, so it cannot support a claim in either direction yet.
 
 **Recovery inherits the same defect, and this is the adoption blocker.**
 Reopening the 478 MB data directory replays ~77k batched operations through the
@@ -367,9 +384,11 @@ recovering at 813 s when run manually on an idle machine. A graph that cannot be
 reopened in 15 minutes is unusable regardless of query speed.
 
 **Recommendation: keep SQLite as the default backend for repo-scale graphs
-until #1673 lands.** The 5.3× traversal gap does *not* justify this on its own —
-1.4 ms inside an agent turn whose LLM round-trip is measured in seconds is
-noise, as the 2026-08-06 analysis already argued. Ingest and recovery are the
+until #1673/#1678 land.** Traversal latency is not the reason and never was —
+a millisecond inside an agent turn whose LLM round-trip is measured in seconds
+is noise, as the 2026-08-06 analysis already argued, and the current numbers are
+too unstable to quote anyway. Recovery is the blocker: a graph that cannot be
+reopened is unusable at any query speed. Ingest and recovery are the
 gating axes.
 
 ### What this run fixed on the Victor side
