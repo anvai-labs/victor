@@ -455,24 +455,45 @@ With embeddings on, both arms measured after the footprint fix
 | footprint at rest | **4.9 MB** | 7.0 MB | ProximaDB **1.4× larger** |
 | bytes/node | 3,829 | 5,404 | |
 
-Two results here reverse earlier conclusions, and both reversals come from
-fixing measurement rather than from any code change:
+**The ingest result above does not survive scale — see the repo-scale table
+below, which supersedes it.** It is kept here because the contrast is the
+point: a 1,350-node corpus reported ProximaDB 2.5× *faster*, and the same
+comparison at 93,458 nodes reports it 3.6× *slower*. Small-corpus graph
+benchmarks in this repo have now inverted a conclusion twice, and should not
+be used to decide anything.
 
-- **ProximaDB wins ingest once vectors are counted.** The 2026-08-06 analysis
-  concluded the opposite ("ingest reverses under embeddings … ~3.5× slower"),
-  and the graph-only runs above show ProximaDB 4.4× *slower*. Both omitted the
-  LanceDB write the SQLite arm must pay. Including it, ProximaDB is 2.5×
-  faster, because one system holds graph and vectors while the other writes
-  twice.
-- **ProximaDB loses storage.** The 9.88× advantage previously reported was the
-  WAL artifact described above. At rest, ProximaDB is *larger* — 5,404 B/node
-  against 3,829 — at this corpus size.
+### Repo scale, embeddings on (the number that counts)
 
-Vector **read** cost is still unmeasured on both sides; nothing here compares
+Full repository, both arms identical at **93,458 nodes / 177,032 edges**,
+footprint fix in place and verified against at-rest bytes (reported
+395.7 / 437.1 MB vs measured 395 / 437 MB):
+
+| | SQLite + LanceDB | ProximaDB | ratio |
+|---|---|---|---|
+| index time | 522 s | **1,858 s** | ProximaDB **3.6× slower** |
+| footprint at rest | 395.7 MB | 437.1 MB | ProximaDB **1.10× larger** |
+| bytes/node | 4,439 | 4,904 | |
+
+**Storage is a wash, and that is the headline.** 1.10× is parity, not an
+advantage. The 9.88× ProximaDB win previously reported was the WAL artifact;
+the 1.4× penalty from the small corpus was corpus size. With vectors included
+at real scale, neither backend has a meaningful disk edge — which removes the
+premise ProximaDB was adopted on. What remains is a backend that costs ~3.6×
+on ingest, matches on disk, and today cannot reopen a repo-scale graph.
+
+**One anomaly, recorded rather than smoothed.** ProximaDB measured 473 MB
+graph-only but 437 MB with embeddings *added* — smaller with strictly more
+data. That points at variable unreclaimed WAL in its data directory
+(consistent with the retention work scoped but never built), so its footprint
+carries run-to-run noise SQLite's does not. Treat storage as "parity ±10%"
+until that is understood.
+
+**Timing caveat:** machine load ran 13–30 during this run, so 522 s and
+1,858 s are not clean absolute numbers. The 3.6× ratio is consistent with the
+4.4× measured graph-only on an idle machine, so the direction holds even if
+the seconds do not.
+
+Vector **read** cost remains unmeasured on both sides; nothing here compares
 LanceDB similarity search against ProximaDB's vector engine, so no claim is
-made about it.
-
-Scale caveat: this corpus is 1,350 nodes. The graph-only runs show ratios
-moving with scale, so these numbers should be re-taken at repo scale before
-they decide anything. They are reported now because they overturn the sign of
-two published conclusions, not because they settle the question.
+made about it. That is the last unmeasured quadrant of the total-cost
+picture.
