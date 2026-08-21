@@ -91,7 +91,7 @@ pub fn weighted_pagerank(
 
     for (key, value) in adjacency.iter() {
         let node: String = key.extract()?;
-        let neighbors: &Bound<'_, PyDict> = value.downcast()?;
+        let neighbors: &Bound<'_, PyDict> = value.cast()?;
         let mut edges: Vec<(String, f64)> = Vec::new();
         for (nk, nv) in neighbors.iter() {
             let dst: String = nk.extract()?;

@@ -32,7 +32,7 @@ victor-protocol = { path = "../protocol" }
 
 # PyO3 for Python bindings. The extension-module feature is enabled only for
 # maturin builds so cargo tests can link against libpython normally.
-pyo3 = { version = "0.22" }
+pyo3 = { version = "0.29" }
 
 # Fast hashing
 ahash = "0.8"
@@ -61,7 +61,7 @@ smallvec = "1.13"
 aho-corasick = "1.1"
 
 # LRU cache for memoization
-lru = "0.12"
+lru = "0.16"
 
 # Lazy static initialization
 once_cell = "1.19"

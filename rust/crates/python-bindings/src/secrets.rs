@@ -293,17 +293,17 @@ pub fn scan_secrets_summary(py: Python<'_>, text: &str) -> PyResult<Py<PyDict>> 
         *by_severity.entry(m.severity.clone()).or_insert(0) += 1;
     }
 
-    let dict = PyDict::new_bound(py);
+    let dict = PyDict::new(py);
     dict.set_item("total_matches", matches.len())?;
     dict.set_item("has_secrets", !matches.is_empty())?;
 
-    let by_type_dict = PyDict::new_bound(py);
+    let by_type_dict = PyDict::new(py);
     for (k, v) in by_type {
         by_type_dict.set_item(k, v)?;
     }
     dict.set_item("by_type", &by_type_dict)?;
 
-    let by_severity_dict = PyDict::new_bound(py);
+    let by_severity_dict = PyDict::new(py);
     for (k, v) in by_severity {
         by_severity_dict.set_item(k, v)?;
     }
