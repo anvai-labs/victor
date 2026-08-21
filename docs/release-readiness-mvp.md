@@ -1,25 +1,34 @@
 # Victor MVP Release Readiness
 
-Date: 2026-08-03
-Scope: repo-local review of architecture docs, packaging metadata, CI/release workflows, core runtime
-layout, and focused guardrail tests.
+Date: 2026-08-20
+Scope: v0.9.0 release closeout, including promotion CI, release automation, artifacts, and public
+registry verification.
 
 ## Decision
 
-Status: not ready to cut a release tag yet.
+Status: **v0.9.0 released.** The `develop` promotion passed the complete required matrix and merged to
+`main` as `c9736e41ddab3014479f5eaeb24e10870053b4d8`. Annotated tag `v0.9.0` triggered the
+[release workflow](https://github.com/anvai-labs/victor/actions/runs/32429452576), which completed
+successfully. The [GitHub Release](https://github.com/anvai-labs/victor/releases/tag/v0.9.0), PyPI
+wheel/sdist, native wheels, standalone binaries, VS Code extension, checksums, SBOM, and Docker image
+were produced or published successfully.
 
-The core Python framework is close: version files are aligned, canonical docs pass the drift guard,
-the distribution checklist and a Python 3.12 wheel build/install smoke pass. The remaining work is
-release discipline: repeat artifact verification on Python 3.11, make the advertised CI gates blocking
-or scope their support level, and verify the optional advertised surfaces.
+Post-publication clean-environment smokes passed on Python 3.11 and 3.12: each environment installed
+`victor-ai==0.9.0` from PyPI with its declared dependencies, imported `victor` and `Agent`, reported
+version 0.9.0, and rendered `victor --help`. The base install emitted the expected notice that the
+optional `victor-coding` plugin was not installed.
 
-## Evidence Collected
+The Docker Trivy job reported vulnerability findings and uploaded SARIF to GitHub Security. That job
+is intentionally advisory (`continue-on-error: true`) and did not block the release; triage of those
+findings is the remaining post-release security follow-up. TestPyPI was intentionally skipped for the
+stable tag.
+
+## Historical Pre-release Evidence
 
 Commands run from the repository root:
 
-The artifact-specific results below are a dated 0.8.3 baseline. The source tree
-has since advanced to 0.8.4, so those build, install, and smoke checks must be
-repeated for the release candidate rather than treated as transferable proof.
+The artifact-specific results below are the dated 0.8.3 baseline that informed the release plan.
+They are retained for provenance and are superseded by the v0.9.0 promotion and release runs above.
 
 | Check | Result |
 | --- | --- |
@@ -38,8 +47,8 @@ repeated for the release candidate rather than treated as transferable proof.
 | API/MCP import smoke | Passed 2026-08-03: `create_fastapi_app()` creates the `Victor API` application and `victor.integrations.mcp` imports. |
 | Docker image smoke | Blocked locally 2026-08-03: Docker BuildKit returns an immediate `EOF` before any Dockerfile stage is reported, including with `--load --progress=plain`. Treat Docker build/run smoke as a required CI release check. |
 
-Full unit, integration, security, Docker CI, VS Code, native Rust, and release workflows still
-require their release-run evidence.
+The v0.9.0 promotion and release workflows supplied the full unit, integration, security, Docker,
+VS Code, native Rust, packaging, and publication evidence that this baseline lacked.
 
 ## Design Document Reconciliation
 
@@ -48,7 +57,7 @@ require their release-run evidence.
 | `VISION.md` | Current and edited locally. Adds durable code memory / ProximaDB as a near-term product bet. | OK as strategic direction, but not an MVP promise. |
 | `docs/architecture.md` | Canonical architecture. Service-first runtime, 6 canonical services, provider/tool/storage layers. Adds ProximaDB direction. | Mostly current. ProximaDB section must remain clearly "planned direction." |
 | `docs/tech-stack.md` | Canonical stack and debt register. TD-11, TD-12, TD-13 added for ProximaDB CCG work. | Current if those items stay Planned. Good place to track release debt. |
-| `docs/roadmap.md` | Canonical roadmap. Release train and EVR backlog are current. | Keep its release checklist synchronized with this document at each verification run. |
+| `docs/roadmap.md` | Canonical roadmap. v0.9.0 closeout and the EVR backlog are current. | Keep its release checklist synchronized with this document at each verification run. |
 | `docs/features.md` | Canonical feature catalog. Claims 24 providers, 34 tools, 9 verticals, Chainlit UI, policy engine, sandbox. | Needs support-level tagging for optional/experimental features before release. |
 | `docs/architecture/proximadb-codegraph-backend.md` | New untracked design-intent doc. | Good design record. Not part of MVP unless implemented behind `GraphStoreProtocol`. |
 | FEP/ADR EVR docs | Evaluation-centric runtime design exists. | Q3 backlog, not MVP release criteria unless used as a release gate. |
@@ -66,28 +75,22 @@ require their release-run evidence.
 - Release automation: tag-triggered release workflow exists for PyPI, native wheels, binaries, Docker,
   checksums, and GitHub Release.
 
-## MVP Release Blockers
+## v0.9.0 Release Outcome
 
-1. Capture clean packaging proof in CI on the supported matrix.
-   Run `python -m build`, `twine check dist/*`, install the built wheel with the built
-   `victor-contracts` wheel, and run import plus CLI smoke under Python 3.11 and 3.12. Both Python
-   versions passed locally in fresh environments on 2026-08-03; the release run still needs its CI
-   artifacts and logs.
+1. **Complete — packaging and promotion proof.** The promotion passed all 36 full-suite shards across
+   Python 3.11, 3.12, and 3.13, plus the blocking integration, vertical, security, build, CLI smoke,
+   and collection gates. The release run then passed version sync, package build, and smoke checks.
 
-2. Make release-critical CI gates blocking.
-   **Core package tests and built-wheel CLI smoke are blocking as of 2026-08-03.** Before tagging,
-   decide whether the remaining advisory TestPyPI publishing, VS Code, and Rust checks are
-   release-supported or explicitly experimental; the integration and vertical compatibility suites are
-   already blocking.
+2. **Complete — release-critical gates.** Core tests, package/CLI smoke, integration, vertical
+   compatibility, artifact builds, and publication gated the stable release. TestPyPI remains optional
+   for stable tags. Trivy remains advisory and requires post-release finding triage.
 
-3. Finalize release notes.
-   The current package is `0.8.4`; the release cut still needs a final
-   support-level pass: core runtime, contracts, CLI/API/MCP, optional chat UI, external verticals,
-   native extensions, Docker/VS Code.
+3. **Complete — release notes and artifacts.** `CHANGELOG.md` contains the 0.9.0 entry and the GitHub
+   Release includes the Python wheel/sdist, native wheels, binaries, checksums, and SBOM.
 
-4. Verify optional surfaces that are advertised as MVP.
-   At minimum: `victor --help`, `victor --version`, one no-network chat/help path, API server import,
-   MCP server import, `victor ui --help` with `chat-ui` extra installed, and Docker image smoke.
+4. **Complete for the shipped release workflow.** CLI imports/help, VS Code packaging, native wheel
+   builds, and Docker build/publish passed. API/MCP and UI support continue to be covered by their
+   blocking promotion suites and documented extras.
 
 ## Not MVP
 

@@ -14,17 +14,25 @@ evaluation loop and gating every change on it over adding new capabilities.
 
 ---
 
-## Now — 0.8.4 release verification (August 2026)
+## Now — v0.9.0 release closeout (August 2026)
 
-Verify 0.8.4 with evidence, not posture. Source: [release-readiness MVP blockers](release-readiness-mvp.md).
+v0.9.0 shipped on 2026-08-20. The `develop` promotion passed the complete required matrix, and the
+tag-triggered release workflow published the Python package, native wheels, binaries, VS Code
+extension, checksums, SBOM, GitHub Release, and Docker image. Source:
+[release-readiness closeout](release-readiness-mvp.md).
 
-1. Complete clean packaging proof: build + `twine check` + wheel install/CLI smoke on Python 3.11/3.12.
-   Both versions passed locally on 2026-08-03; capture the release-run CI evidence.
-2. Decide the support level for the remaining advisory CI checks (TestPyPI publishing, VS Code, Rust).
-   Core package tests, built-wheel CLI smoke, integration, and vertical compatibility are blocking.
-3. Finalize release notes; decide external-vertical support level (preview vs blocking).
-4. Verify advertised surfaces: CLI, API/MCP import, `victor ui`, Docker.
-5. Docs governance (TD-18): this file stays committed; hygiene check that pointer targets resolve.
+1. **DONE — release evidence:** promotion CI and the tag-triggered release workflow completed
+   successfully; public PyPI and Docker registry entries were verified.
+2. **DONE — support-level enforcement:** core tests, package/CLI smoke, integration, vertical
+   compatibility, artifact builds, and publication block stable releases. TestPyPI is optional for
+   stable tags; Trivy remains advisory.
+3. **NEXT — security follow-up:** triage the v0.9.0 Trivy SARIF findings in GitHub Security and fix or
+   explicitly accept each actionable critical/high dependency or image finding.
+4. **DONE — public-install evidence:** clean Python 3.11 and 3.12 environments installed
+   `victor-ai==0.9.0` from PyPI, imported `victor`/`Agent`, reported version 0.9.0, and rendered CLI
+   help independently of the checkout and release artifacts.
+5. **ONGOING — docs governance (TD-18):** keep this file committed and verify that canonical pointer
+   targets resolve at every release cut.
 
 ## Next — Q3 2026: close the evaluation loop (EVR P0 sequence)
 
