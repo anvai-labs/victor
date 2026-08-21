@@ -123,7 +123,7 @@ pub fn cosine_similarity(a: Vec<f32>, b: Vec<f32>) -> PyResult<f32> {
 
 /// Rust-facing implementation of [`batch_cosine_similarity`] (no GIL, no
 /// `PyErr`): the wrapper releases the GIL around this, and errors are plain
-/// `String`s because a `PyErr` is `!Ungil` and cannot cross `allow_threads`.
+/// `String`s because a `PyErr` is `!Ungil` and cannot cross `Python::detach`.
 pub fn batch_cosine_similarity_impl(
     query: Vec<f32>,
     corpus: Vec<Vec<f32>>,
@@ -192,7 +192,7 @@ pub fn batch_cosine_similarity(
     query: Vec<f32>,
     corpus: Vec<Vec<f32>>,
 ) -> PyResult<Vec<f32>> {
-    py.allow_threads(|| batch_cosine_similarity_impl(query, corpus))
+    py.detach(|| batch_cosine_similarity_impl(query, corpus))
         .map_err(pyo3::exceptions::PyValueError::new_err)
 }
 
@@ -279,7 +279,7 @@ pub fn similarity_matrix(
     corpus: Vec<Vec<f32>>,
     normalize: bool,
 ) -> PyResult<Vec<Vec<f32>>> {
-    py.allow_threads(|| similarity_matrix_impl(queries, corpus, normalize))
+    py.detach(|| similarity_matrix_impl(queries, corpus, normalize))
         .map_err(pyo3::exceptions::PyValueError::new_err)
 }
 
@@ -353,7 +353,7 @@ pub fn batch_normalize_vectors_impl(vectors: Vec<Vec<f32>>) -> Vec<Vec<f32>> {
 
 #[pyfunction]
 pub fn batch_normalize_vectors(py: Python<'_>, vectors: Vec<Vec<f32>>) -> PyResult<Vec<Vec<f32>>> {
-    Ok(py.allow_threads(|| batch_normalize_vectors_impl(vectors)))
+    Ok(py.detach(|| batch_normalize_vectors_impl(vectors)))
 }
 
 /// Normalize a single vector to unit length using SIMD.
@@ -420,7 +420,7 @@ pub fn batch_cosine_similarity_normalized(
     query: Vec<f32>,
     normalized_corpus: Vec<Vec<f32>>,
 ) -> PyResult<Vec<f32>> {
-    py.allow_threads(|| batch_cosine_similarity_normalized_impl(query, normalized_corpus))
+    py.detach(|| batch_cosine_similarity_normalized_impl(query, normalized_corpus))
         .map_err(pyo3::exceptions::PyValueError::new_err)
 }
 

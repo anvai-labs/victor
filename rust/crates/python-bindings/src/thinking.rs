@@ -299,9 +299,9 @@ impl ThinkingDetector {
     }
 
     /// Get detection statistics.
-    pub fn get_stats(&self) -> PyResult<PyObject> {
-        Python::with_gil(|py| {
-            let dict = pyo3::types::PyDict::new_bound(py);
+    pub fn get_stats(&self) -> PyResult<Py<PyAny>> {
+        Python::attach(|py| {
+            let dict = pyo3::types::PyDict::new(py);
             dict.set_item("total_analyzed", self.total_analyzed)?;
             dict.set_item("loops_detected", self.loops_detected)?;
             dict.set_item("exact_matches", self.exact_matches)?;
@@ -318,7 +318,7 @@ impl ThinkingDetector {
             )?;
             dict.set_item("history_size", self.history.len())?;
             dict.set_item("unique_patterns", self.pattern_counts.len())?;
-            Ok(dict.into())
+            Ok(dict.unbind().into_any())
         })
     }
 }
@@ -613,7 +613,7 @@ mod tests {
 
     #[test]
     fn test_thinking_detector_reset() {
-        pyo3::prepare_freethreaded_python();
+        Python::initialize();
         let mut detector = ThinkingDetector::new(3, 0.65, 10, 2);
 
         detector.record_thinking("Test content");
@@ -622,8 +622,8 @@ mod tests {
         detector.reset();
 
         let stats = detector.get_stats().unwrap();
-        Python::with_gil(|py| {
-            let dict = stats.downcast_bound::<pyo3::types::PyDict>(py).unwrap();
+        Python::attach(|py| {
+            let dict = stats.bind(py).cast::<pyo3::types::PyDict>().unwrap();
             assert_eq!(
                 dict.get_item("history_size")
                     .unwrap()
