@@ -1,6 +1,6 @@
 # Rust build artifacts
 /target/
-Cargo.lock
+# Cargo.lock is tracked because this workspace ships the victor-edge binary.
 
 # macOS
 .DS_Store

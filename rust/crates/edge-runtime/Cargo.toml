@@ -19,6 +19,8 @@ edition.workspace = true
 license.workspace = true
 authors.workspace = true
 description = "Victor edge runtime — standalone agent for resource-constrained devices"
+repository = "https://github.com/anvai-labs/victor"
+homepage = "https://github.com/anvai-labs/victor"
 
 [[bin]]
 name = "victor-edge"
@@ -29,9 +31,9 @@ name = "victor_edge"
 path = "src/lib.rs"
 
 [dependencies]
-victor-protocol = { path = "../protocol" }
-victor-state = { path = "../state" }
-victor-tools = { path = "../tools" }
+victor-protocol = { path = "../protocol", version = "0.8.0" }
+victor-state = { path = "../state", version = "0.8.0" }
+victor-tools = { path = "../tools", version = "0.8.0" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tokio = { version = "1", features = ["full"] }

@@ -20,6 +20,7 @@ license.workspace = true
 authors.workspace = true
 description = "High-performance native extensions for Victor AI framework"
 readme = "../../README.md"
+publish = false
 
 [lib]
 name = "victor_native"
