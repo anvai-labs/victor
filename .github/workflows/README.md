@@ -158,6 +158,17 @@ Automated release workflow:
 
 **Triggers:** Version tags (v*)
 
+### Rust crates release (`publish-crates.yml`)
+
+Publishes the modular Rust workspace to crates.io:
+- Validate the `rust-vX.Y.Z` tag against the workspace version
+- Test the complete locked workspace
+- Publish `victor-protocol`, `victor-state`, `victor-tools`, and `victor-edge` in dependency order
+- Wait for each registry record before publishing its dependents
+- Install `victor-edge` back from crates.io as a public-consumer smoke test
+
+**Triggers:** Rust version tags (`rust-v*`) or a manual dispatch for an existing tag
+
 ## Usage Examples
 
 ### Validating FEPs Locally

@@ -31,7 +31,11 @@ extension, checksums, SBOM, GitHub Release, and Docker image. Source:
 4. **DONE — public-install evidence:** clean Python 3.11 and 3.12 environments installed
    `victor-ai==0.9.0` from PyPI, imported `victor`/`Agent`, reported version 0.9.0, and rendered CLI
    help independently of the checkout and release artifacts.
-5. **ONGOING — docs governance (TD-18):** keep this file committed and verify that canonical pointer
+5. **DONE — modular Rust distribution:** annotated tag `rust-v0.8.0` published
+   `victor-protocol`, `victor-state`, `victor-tools`, and `victor-edge` to crates.io in dependency
+   order. All four registry records and checksums were verified, docs.rs built successfully, and a
+   clean `cargo install victor-edge --version 0.8.0 --locked` smoke passed.
+6. **ONGOING — docs governance (TD-18):** keep this file committed and verify that canonical pointer
    targets resolve at every release cut.
 
 ## Next — Q3 2026: close the evaluation loop (EVR P0 sequence)

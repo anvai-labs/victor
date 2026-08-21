@@ -23,6 +23,17 @@ is intentionally advisory (`continue-on-error: true`) and did not block the rele
 findings is the remaining post-release security follow-up. TestPyPI was intentionally skipped for the
 stable tag.
 
+## Rust Distribution Closeout
+
+The independent [Rust v0.8.0 release](https://github.com/anvai-labs/victor/releases/tag/rust-v0.8.0)
+published `victor-protocol`, `victor-state`, `victor-tools`, and `victor-edge` to crates.io from
+`main` commit `382eb8335760b9c5df2c43b94e6a7c344669cfab`. The ordered
+[publishing workflow](https://github.com/anvai-labs/victor/actions/runs/32536638653) passed its
+workspace tests, published each crate only after its dependencies reached the registry, and verified
+all four public records as present and not yanked. A clean consumer-side
+`cargo install victor-edge --version 0.8.0 --locked` then downloaded all four Victor crates from
+crates.io, built the binary, and rendered its CLI help successfully.
+
 ## Historical Pre-release Evidence
 
 Commands run from the repository root:

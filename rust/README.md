@@ -133,20 +133,21 @@ version and every internal dependency version in the crate manifests, then run:
 cd rust
 cargo fmt --all --check
 cargo test --workspace --locked
-cargo package -p victor-protocol --locked --no-verify
-cargo package -p victor-state --list
-cargo package -p victor-tools --list
-cargo package -p victor-edge --list
+cargo package -p victor-protocol --locked
+cargo package -p victor-state --locked
+cargo package -p victor-tools --locked
+cargo package -p victor-edge --locked
 ```
 
-For the first release, Cargo cannot fully prepare a dependent archive until its preceding Victor
-crate is visible in the crates.io index. The workflow performs that stronger check naturally as it
-publishes and verifies each crate in order.
+All four package checks resolve the internal Victor dependencies through crates.io, providing the
+same consumer-side validation used by the release workflow.
 
 Push an annotated `rust-vX.Y.Z` tag only after the release commit reaches `main`. The
 `Publish Rust crates` workflow validates that the tag and workspace versions match, then publishes
-the dependency chain. It requires the repository Actions secret `CARGO_REGISTRY_TOKEN`. Re-running
-the workflow is safe: crate versions already present on crates.io are skipped and verified.
+the dependency chain. It requires the Actions secret `CARGO_REGISTRY_TOKEN` to be available to the
+repository. Re-running the workflow is safe: crate versions already present on crates.io are skipped
+and verified. After publication, the workflow installs `victor-edge` back from crates.io and runs
+its version command.
 
 ## Testing
 
