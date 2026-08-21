@@ -9,6 +9,7 @@ on:
     branches: [main, develop]
     paths:
       - '.github/workflows/ci-fast.yml'
+      - '.github/workflows/publish-crates.yml'
       - 'victor/**'
       - 'victor-contracts/**'
       - 'rust/**'
@@ -818,6 +819,38 @@ jobs:
           print(f"No unexcepted vulnerabilities ({len(known_cves)} accepted in allowlist).")
           PY
 
+  rust-packages:
+    name: Rust Packages
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+
+      - name: Check formatting and tests
+        working-directory: rust
+        run: |
+          cargo fmt --all --check
+          cargo test --workspace --locked
+
+      - name: Validate publishable crate archives
+        working-directory: rust
+        run: |
+          cargo package -p victor-protocol --locked --no-verify
+          # Before the first release, Cargo cannot prepare dependent archives until
+          # victor-protocol exists in the registry. Validate their archive inputs now;
+          # the ordered release workflow packages each after its dependency appears.
+          cargo package -p victor-state --list
+          cargo package -p victor-tools --list
+          cargo package -p victor-edge --list
+
   # Aggregate merge gate — mirrors ProximaDB's `CI Success` pattern (see
   # ../proximaDB/.github/workflows/ci.yml `ci-success`). A single required
   # status check that is green iff every core gate passed (or was path-skipped).
@@ -857,6 +890,7 @@ jobs:
       - secret-scan
       - code-security
       - dependency-audit
+      - rust-packages
     if: always()
     steps:
       - name: Require all required jobs green

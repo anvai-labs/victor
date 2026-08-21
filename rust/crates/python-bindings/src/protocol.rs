@@ -143,7 +143,10 @@ impl PyToolCall {
     }
 
     fn __repr__(&self) -> String {
-        format!("ToolCall(id={:?}, name={:?})", self.inner.id, self.inner.name)
+        format!(
+            "ToolCall(id={:?}, name={:?})",
+            self.inner.id, self.inner.name
+        )
     }
 }
 

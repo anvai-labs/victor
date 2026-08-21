@@ -272,7 +272,10 @@ pub fn count_tokens_fast(text: &str) -> usize {
 /// Results are identical to calling `count_tokens_fast` on each element.
 #[pyfunction]
 pub fn count_tokens_fast_batch(texts: Vec<String>) -> Vec<usize> {
-    texts.par_iter().map(|t| count_tokens_fast_impl(t)).collect()
+    texts
+        .par_iter()
+        .map(|t| count_tokens_fast_impl(t))
+        .collect()
 }
 
 /// Shared heuristic body used by both the single and batch `#[pyfunction]`

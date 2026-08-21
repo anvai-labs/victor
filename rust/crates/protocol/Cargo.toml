@@ -19,6 +19,8 @@ edition.workspace = true
 license.workspace = true
 authors.workspace = true
 description = "Portable message and protocol types for Victor AI framework (no PyO3)"
+repository = "https://github.com/anvai-labs/victor"
+homepage = "https://github.com/anvai-labs/victor"
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }

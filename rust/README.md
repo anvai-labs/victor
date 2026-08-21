@@ -1,6 +1,19 @@
-# Victor Native Extensions
+# Victor Rust Workspace
 
-High-performance Rust implementations of CPU-intensive operations for the Victor agentic AI framework.
+Rust libraries, the standalone edge runtime, and high-performance Python extensions for Victor.
+
+## Packages
+
+| Workspace member | Distribution | Purpose |
+|---|---|---|
+| `crates/protocol` | crates.io: `victor-protocol` | Portable message and tool-call contracts |
+| `crates/state` | crates.io: `victor-state` | Conversation and scoped state management |
+| `crates/tools` | crates.io: `victor-tools` | Tool schema registry and validation |
+| `crates/edge-runtime` | crates.io: `victor-edge` | Standalone edge agent runtime and binary |
+| `crates/python-bindings` | PyPI: `victor_native` | Python native extensions; never published to crates.io |
+
+`victor-edge` depends on the other three Rust crates, so crates.io publication is intentionally
+ordered as `protocol → state → tools → edge`.
 
 ## Features
 
@@ -100,16 +113,40 @@ else:
 
 ```
 rust/
-├── Cargo.toml          # Rust package configuration
+├── Cargo.toml          # Workspace configuration and shared version
 ├── pyproject.toml      # maturin build configuration
 ├── README.md           # This file
-└── src/
-    ├── lib.rs          # PyO3 module definition
-    ├── dedup.rs        # Deduplication module
-    ├── similarity.rs   # Cosine similarity module
-    ├── json_repair.rs  # JSON repair module
-    └── hashing.rs      # Signature hashing module
+└── crates/
+    ├── protocol/
+    ├── state/
+    ├── tools/
+    ├── edge-runtime/
+    └── python-bindings/
 ```
+
+## Releasing crates.io packages
+
+Rust workspace releases use their own `rust-vX.Y.Z` tags. Before tagging, update the workspace
+version and every internal dependency version in the crate manifests, then run:
+
+```bash
+cd rust
+cargo fmt --all --check
+cargo test --workspace --locked
+cargo package -p victor-protocol --locked --no-verify
+cargo package -p victor-state --list
+cargo package -p victor-tools --list
+cargo package -p victor-edge --list
+```
+
+For the first release, Cargo cannot fully prepare a dependent archive until its preceding Victor
+crate is visible in the crates.io index. The workflow performs that stronger check naturally as it
+publishes and verifies each crate in order.
+
+Push an annotated `rust-vX.Y.Z` tag only after the release commit reaches `main`. The
+`Publish Rust crates` workflow validates that the tag and workspace versions match, then publishes
+the dependency chain. It requires the repository Actions secret `CARGO_REGISTRY_TOKEN`. Re-running
+the workflow is safe: crate versions already present on crates.io are skipped and verified.
 
 ## Testing
 
