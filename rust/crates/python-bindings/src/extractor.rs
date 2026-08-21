@@ -214,7 +214,7 @@ pub fn extract_tool_call(
     text: &str,
     tool_name: &str,
     current_file: Option<&str>,
-) -> PyResult<Option<PyObject>> {
+) -> PyResult<Option<Py<PyAny>>> {
     let tool_lower = tool_name.to_lowercase();
 
     match tool_lower.as_str() {
@@ -231,7 +231,7 @@ fn extract_write_tool(
     py: Python<'_>,
     text: &str,
     current_file: Option<&str>,
-) -> PyResult<Option<PyObject>> {
+) -> PyResult<Option<Py<PyAny>>> {
     let file_path = match extract_file_path(text).or_else(|| current_file.map(|s| s.to_string())) {
         Some(p) => p,
         None => return Ok(None),
@@ -248,76 +248,76 @@ fn extract_write_tool(
         confidence = 0.95;
     }
 
-    let args = PyDict::new_bound(py);
+    let args = PyDict::new(py);
     args.set_item("path", &file_path)?;
     args.set_item("content", &content)?;
 
-    let dict = PyDict::new_bound(py);
+    let dict = PyDict::new(py);
     dict.set_item("tool", "write")?;
     dict.set_item("args", args)?;
     dict.set_item("confidence", confidence)?;
     dict.set_item("source", text.chars().take(200).collect::<String>())?;
 
-    Ok(Some(dict.into()))
+    Ok(Some(dict.unbind().into_any()))
 }
 
 /// Extract read tool call
-fn extract_read_tool(py: Python<'_>, text: &str) -> PyResult<Option<PyObject>> {
+fn extract_read_tool(py: Python<'_>, text: &str) -> PyResult<Option<Py<PyAny>>> {
     let file_path = match extract_file_path(text) {
         Some(p) => p,
         None => return Ok(None),
     };
 
-    let args = PyDict::new_bound(py);
+    let args = PyDict::new(py);
     args.set_item("path", &file_path)?;
 
-    let dict = PyDict::new_bound(py);
+    let dict = PyDict::new(py);
     dict.set_item("tool", "read")?;
     dict.set_item("args", args)?;
     dict.set_item("confidence", 0.9)?;
     dict.set_item("source", text.chars().take(100).collect::<String>())?;
 
-    Ok(Some(dict.into()))
+    Ok(Some(dict.unbind().into_any()))
 }
 
 /// Extract shell tool call
-fn extract_shell_tool(py: Python<'_>, text: &str) -> PyResult<Option<PyObject>> {
+fn extract_shell_tool(py: Python<'_>, text: &str) -> PyResult<Option<Py<PyAny>>> {
     let commands = extract_shell_commands(text);
     let command = match commands.first() {
         Some(c) => c.clone(),
         None => return Ok(None),
     };
 
-    let args = PyDict::new_bound(py);
+    let args = PyDict::new(py);
     args.set_item("command", &command)?;
 
-    let dict = PyDict::new_bound(py);
+    let dict = PyDict::new(py);
     dict.set_item("tool", "shell")?;
     dict.set_item("args", args)?;
     dict.set_item("confidence", 0.75)?;
     dict.set_item("source", text.chars().take(150).collect::<String>())?;
 
-    Ok(Some(dict.into()))
+    Ok(Some(dict.unbind().into_any()))
 }
 
 /// Extract list tool call
-fn extract_list_tool(py: Python<'_>, text: &str) -> PyResult<Option<PyObject>> {
+fn extract_list_tool(py: Python<'_>, text: &str) -> PyResult<Option<Py<PyAny>>> {
     let path = BACKTICK_PATH_PATTERN
         .captures(text)
         .and_then(|c| c.get(1))
         .map(|m| m.as_str().to_string())
         .unwrap_or_else(|| ".".to_string());
 
-    let args = PyDict::new_bound(py);
+    let args = PyDict::new(py);
     args.set_item("path", &path)?;
 
-    let dict = PyDict::new_bound(py);
+    let dict = PyDict::new(py);
     dict.set_item("tool", "ls")?;
     dict.set_item("args", args)?;
     dict.set_item("confidence", 0.8)?;
     dict.set_item("source", text.chars().take(100).collect::<String>())?;
 
-    Ok(Some(dict.into()))
+    Ok(Some(dict.unbind().into_any()))
 }
 
 /// Extract file paths from multiple texts (batch operation).
