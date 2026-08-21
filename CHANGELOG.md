@@ -5,6 +5,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased] (develop)
 
+## [Rust crates 0.8.0] - 2026-08-21
+
+### Added
+- First crates.io release of the modular Rust runtime: `victor-protocol`, `victor-state`,
+  `victor-tools`, and the standalone `victor-edge` runtime and binary.
+- Independent `rust-vX.Y.Z` release tags with ordered, idempotent crates.io publication.
+- Public-registry verification through a clean `cargo install victor-edge` smoke test.
+
+### Security
+- Removed the native-tls/OpenSSL dependency chain from `victor-edge` and upgraded PyO3, LRU,
+  and rustls-webpki to non-vulnerable releases before publication.
+
 ## [0.9.0] - 2026-08-16
 
 ### Changed
