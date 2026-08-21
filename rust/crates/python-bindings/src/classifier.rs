@@ -273,9 +273,9 @@ impl ClassificationResult {
     }
 
     /// Convert to legacy dictionary format for backward compatibility.
-    fn to_legacy_dict(&self) -> PyResult<PyObject> {
-        Python::with_gil(|py| {
-            let dict = pyo3::types::PyDict::new_bound(py);
+    fn to_legacy_dict(&self) -> PyResult<Py<PyAny>> {
+        Python::attach(|py| {
+            let dict = pyo3::types::PyDict::new(py);
 
             let coarse_type = match self.task_type {
                 TaskType::Action | TaskType::Generation | TaskType::Edit => "action",
@@ -291,7 +291,7 @@ impl ClassificationResult {
             dict.set_item("source", "native")?;
             dict.set_item("task_type", self.task_type.__str__())?;
 
-            Ok(dict.into())
+            Ok(dict.unbind().into_any())
         })
     }
 }

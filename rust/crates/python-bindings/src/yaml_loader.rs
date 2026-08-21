@@ -19,6 +19,7 @@
 
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList, PyString};
+use pyo3::IntoPyObjectExt;
 use regex::Regex;
 use std::env;
 
@@ -36,7 +37,7 @@ use std::env;
 /// # Errors
 /// * PyErr if YAML is invalid
 #[pyfunction]
-pub fn parse_yaml(py: Python<'_>, yaml_content: &str) -> PyResult<PyObject> {
+pub fn parse_yaml(py: Python<'_>, yaml_content: &str) -> PyResult<Py<PyAny>> {
     let value: serde_yaml::Value = serde_yaml::from_str(yaml_content)
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("Invalid YAML: {}", e)))?;
 
@@ -55,7 +56,7 @@ pub fn parse_yaml(py: Python<'_>, yaml_content: &str) -> PyResult<PyObject> {
 /// # Returns
 /// * Python object with env vars interpolated
 #[pyfunction]
-pub fn parse_yaml_with_env(py: Python<'_>, yaml_content: &str) -> PyResult<PyObject> {
+pub fn parse_yaml_with_env(py: Python<'_>, yaml_content: &str) -> PyResult<Py<PyAny>> {
     // First interpolate env vars in the raw YAML string
     let interpolated = interpolate_env_vars(yaml_content);
 
@@ -74,7 +75,7 @@ pub fn parse_yaml_with_env(py: Python<'_>, yaml_content: &str) -> PyResult<PyObj
 /// # Returns
 /// * Python object
 #[pyfunction]
-pub fn parse_yaml_file(py: Python<'_>, file_path: &str) -> PyResult<PyObject> {
+pub fn parse_yaml_file(py: Python<'_>, file_path: &str) -> PyResult<Py<PyAny>> {
     let content = std::fs::read_to_string(file_path)
         .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("Failed to read file: {}", e)))?;
 
@@ -83,7 +84,7 @@ pub fn parse_yaml_file(py: Python<'_>, file_path: &str) -> PyResult<PyObject> {
 
 /// Parse YAML file with environment variable interpolation.
 #[pyfunction]
-pub fn parse_yaml_file_with_env(py: Python<'_>, file_path: &str) -> PyResult<PyObject> {
+pub fn parse_yaml_file_with_env(py: Python<'_>, file_path: &str) -> PyResult<Py<PyAny>> {
     let content = std::fs::read_to_string(file_path)
         .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("Failed to read file: {}", e)))?;
 
@@ -133,35 +134,35 @@ fn interpolate_env_vars(content: &str) -> String {
 }
 
 /// Convert serde_yaml::Value to Python object.
-fn yaml_value_to_py(py: Python<'_>, value: &serde_yaml::Value) -> PyResult<PyObject> {
+fn yaml_value_to_py(py: Python<'_>, value: &serde_yaml::Value) -> PyResult<Py<PyAny>> {
     match value {
         serde_yaml::Value::Null => Ok(py.None()),
-        serde_yaml::Value::Bool(b) => Ok(b.into_py(py)),
+        serde_yaml::Value::Bool(b) => b.into_py_any(py),
         serde_yaml::Value::Number(n) => {
             if let Some(i) = n.as_i64() {
-                Ok(i.into_py(py))
+                i.into_py_any(py)
             } else if let Some(f) = n.as_f64() {
-                Ok(f.into_py(py))
+                f.into_py_any(py)
             } else {
                 Ok(py.None())
             }
         }
-        serde_yaml::Value::String(s) => Ok(PyString::new_bound(py, s).into_py(py)),
+        serde_yaml::Value::String(s) => Ok(PyString::new(py, s).unbind().into_any()),
         serde_yaml::Value::Sequence(seq) => {
-            let list = PyList::empty_bound(py);
+            let list = PyList::empty(py);
             for item in seq {
                 list.append(yaml_value_to_py(py, item)?)?;
             }
-            Ok(list.into_py(py))
+            Ok(list.unbind().into_any())
         }
         serde_yaml::Value::Mapping(map) => {
-            let dict = PyDict::new_bound(py);
+            let dict = PyDict::new(py);
             for (k, v) in map {
                 let key = yaml_value_to_py(py, k)?;
                 let val = yaml_value_to_py(py, v)?;
                 dict.set_item(key, val)?;
             }
-            Ok(dict.into_py(py))
+            Ok(dict.unbind().into_any())
         }
         serde_yaml::Value::Tagged(tagged) => {
             // Handle tagged values by extracting the value

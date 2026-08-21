@@ -139,7 +139,7 @@ jobs:
       matrix:
         include:
           # Linux x64 — maturin runs in the manylinux container, which has python3.10–3.14;
-          # name 3.11–3.13 explicitly so it never picks 3.14 (unsupported by PyO3 0.22).
+          # name 3.11–3.13 explicitly to match the project's tested native-wheel range.
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             maturin_args: "--release --out dist -i python3.11 python3.12 python3.13"
@@ -194,9 +194,8 @@ jobs:
         with:
           working-directory: rust
           target: ${{ matrix.target }}
-          # Per-OS args (see matrix): Linux pins 3.11–3.13 in the manylinux container to
-          # avoid CPython 3.14 (PyO3 0.22 max is 3.13); macOS/Windows build for the active
-          # setup-python. Previously --find-interpreter picked 3.14 and failed everywhere.
+          # Per-OS args (see matrix): Linux pins 3.11–3.13 in the manylinux container;
+          # macOS/Windows build for the active setup-python to match that tested range.
           args: ${{ matrix.maturin_args }}
           manylinux: auto
 
