@@ -88,6 +88,9 @@ jobs:
           pip install torch --index-url https://download.pytorch.org/whl/cpu
           # In-repo contracts first so victor-ai resolves it locally, not from PyPI.
           pip install --no-cache-dir -e ./victor-contracts
+          # Victor's source-analysis adapters require the in-repo codegraph package.
+          # Keep this environment aligned with the required full-suite workflow.
+          pip install --no-cache-dir -e ./victor-codegraph
           # Retry: under parallel shards PyPI intermittently returns an empty
           # index response, which pip treats as "no versions" rather than a
           # network error and does not retry itself. Mirrors ci-test.yml.
@@ -162,10 +165,13 @@ jobs:
             echo ""
             echo "_(Signal only — this does not gate merges; ci-fast still gates PRs.)_"
           } > /tmp/nightly-body.md
-          num=$(gh issue list --state open --search "Nightly develop suite is red in:title" \
+          num=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open \
+                  --search "Nightly develop suite is red in:title" \
                   --json number --jq '.[].number' | head -n1 || true)
           if [ -n "$num" ]; then
-            gh issue comment "$num" --body-file /tmp/nightly-body.md
+            gh issue comment "$num" --repo "$GITHUB_REPOSITORY" \
+              --body-file /tmp/nightly-body.md
           else
-            gh issue create --title "$title" --body-file /tmp/nightly-body.md
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" \
+              --body-file /tmp/nightly-body.md
           fi
