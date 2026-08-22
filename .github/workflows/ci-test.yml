@@ -26,23 +26,11 @@ on:
       - 'MANIFEST.in'
   pull_request:
     branches: [main]
-    paths:
-      - '.github/workflows/ci-test.yml'
-      - '.github/workflows/release.yml'
-      - 'victor/**'
-      - 'victor-contracts/**'
-      # victor-codegraph is imported by victor core (editable install) — a
-      # codegraph-only change can break core, and without this filter such PRs
-      # never run the required shards and are unmergeable into main.
-      - 'victor-codegraph/**'
-      - 'tests/**'
-      # benchmarks/ holds executable code importing victor.* — without this filter,
-      # benchmarks-only PRs never run the required checks and are unmergeable.
-      - 'benchmarks/**'
-      - 'pyproject.toml'
-      - 'requirements*.txt'
-      - 'Makefile'
-      - 'MANIFEST.in'
+    # No path filter: every shard below is a required main-branch check. GitHub
+    # leaves required checks permanently expected when a workflow is skipped,
+    # and workflow_dispatch runs do not satisfy a PR's expected contexts.
+    # Develop -> main is the release gate, so run the full suite for every
+    # promotion even when its delta is limited to docs, workflows, or Rust.
   workflow_dispatch:
 
 env:
@@ -68,7 +56,7 @@ jobs:
     # headroom unblocks promotion; the real fix remains fixture speed / fresh
     # .test_durations rebalancing (generate-test-durations.yml).
     timeout-minutes: 120
-    needs: []  # No dependencies - run in parallel with ci-fast
+    # No dependencies: run in parallel with ci-fast.
     env:
       PYTHONPATH: ${{ github.workspace }}
     strategy:
@@ -77,15 +65,15 @@ jobs:
         python-version: ["3.11", "3.12", "3.13"]
         shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: ${{ matrix.python-version }}
 
       - name: Cache pip dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             ~/.cache/pip
@@ -96,7 +84,7 @@ jobs:
             ${{ runner.os }}-pip-
 
       - name: Cache pytest cache
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: .pytest_cache
           key: ${{ runner.os }}-pytest-${{ github.run_id }}
@@ -215,7 +203,7 @@ jobs:
             $COV_FLAGS
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@b9fd7d16f6d7d1b5d2bec1a2887e65ceed900238 # v4
         if: matrix.python-version == '3.11' && matrix.shard == 1
         with:
           file: ./coverage.xml
@@ -226,7 +214,7 @@ jobs:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
       - name: Archive coverage reports
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: matrix.python-version == '3.11' && matrix.shard == 1
         with:
           name: coverage-report
@@ -243,15 +231,15 @@ jobs:
     env:
       PYTHONPATH: ${{ github.workspace }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.11"
 
       - name: Cache pip dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ~/.cache/pip
           key: ${{ runner.os }}-pip-smoke-${{ hashFiles('**/pyproject.toml') }}
