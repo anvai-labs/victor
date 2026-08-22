@@ -637,6 +637,66 @@ def check_workflow_yaml(root: Path) -> list[HygieneFinding]:
     return findings
 
 
+def check_nightly_workflow_contract(root: Path) -> list[HygieneFinding]:
+    """Keep the develop nightly aligned with its required local dependencies."""
+    rel_path = Path(".github/workflows/ci-develop-nightly.yml")
+    path = root / rel_path
+    if not path.is_file():
+        return []
+
+    try:
+        loaded = yaml.safe_load(path.read_text())
+    except yaml.YAMLError:
+        # ``check_workflow_yaml`` reports the parse failure with better context.
+        return []
+    if not isinstance(loaded, dict):
+        return []
+
+    jobs = loaded.get("jobs")
+    if not isinstance(jobs, dict):
+        return []
+
+    def step_run(job_name: str, step_name: str) -> str:
+        job = jobs.get(job_name)
+        if not isinstance(job, dict):
+            return ""
+        steps = job.get("steps")
+        if not isinstance(steps, list):
+            return ""
+        for step in steps:
+            if isinstance(step, dict) and step.get("name") == step_name:
+                run = step.get("run")
+                return run if isinstance(run, str) else ""
+        return ""
+
+    findings: list[HygieneFinding] = []
+    install_run = step_run("full-suite", "Install dependencies")
+    if "./victor-codegraph" not in install_run:
+        findings.append(
+            HygieneFinding(
+                rel_path,
+                "nightly dependency setup must install the in-repo victor-codegraph package",
+            )
+        )
+
+    notify_run = step_run("report", "Notify on failure (tracking issue)")
+    normalized_notify = notify_run.replace("\\\n", " ")
+    for command in ("gh issue list", "gh issue comment", "gh issue create"):
+        command_line = next(
+            (line for line in normalized_notify.splitlines() if command in line),
+            "",
+        )
+        if command_line and '--repo "$GITHUB_REPOSITORY"' not in command_line:
+            findings.append(
+                HygieneFinding(
+                    rel_path,
+                    f"nightly notification command `{command}` must pass an explicit repository",
+                )
+            )
+
+    return findings
+
+
 def check_banned_repo_urls(root: Path) -> list[HygieneFinding]:
     """Keep first-party operational files pointed at the canonical repo."""
     findings: list[HygieneFinding] = []
@@ -1198,6 +1258,7 @@ def run_checks(root: Path) -> list[HygieneFinding]:
     """Run all foundational repo hygiene checks."""
     findings: list[HygieneFinding] = []
     findings.extend(check_workflow_yaml(root))
+    findings.extend(check_nightly_workflow_contract(root))
     findings.extend(check_banned_repo_urls(root))
     findings.extend(check_uppercase_roadmap_links(root))
     findings.extend(check_archived_doc_banners(root))

@@ -65,6 +65,82 @@ def test_workflow_check_flags_missing_top_level_on(tmp_path: Path) -> None:
     assert any("non-empty top-level trigger" in finding.message for finding in findings)
 
 
+def _nightly_workflow(*, install_run: str, notify_run: str) -> str:
+    install = "\n".join(f"          {line}" for line in install_run.splitlines())
+    notify = "\n".join(f"          {line}" for line in notify_run.splitlines())
+    return f"""
+name: Nightly Develop Suite
+on: workflow_dispatch
+jobs:
+  full-suite:
+    steps:
+      - name: Install dependencies
+        run: |
+{install}
+  report:
+    steps:
+      - name: Notify on failure (tracking issue)
+        run: |
+{notify}
+""".lstrip()
+
+
+def test_nightly_workflow_requires_local_codegraph_install(tmp_path: Path) -> None:
+    write_file(
+        tmp_path,
+        ".github/workflows/ci-develop-nightly.yml",
+        _nightly_workflow(
+            install_run='pip install -e ".[dev,ci,api]"',
+            notify_run='gh issue list --repo "$GITHUB_REPOSITORY"',
+        ),
+    )
+
+    findings = repo_hygiene_check.check_nightly_workflow_contract(tmp_path)
+
+    assert any("must install the in-repo victor-codegraph" in item.message for item in findings)
+
+
+def test_nightly_workflow_notification_requires_explicit_repo(tmp_path: Path) -> None:
+    write_file(
+        tmp_path,
+        ".github/workflows/ci-develop-nightly.yml",
+        _nightly_workflow(
+            install_run="pip install --no-cache-dir -e ./victor-codegraph",
+            notify_run="\n".join(
+                (
+                    "gh issue list --state open",
+                    'gh issue comment "$num" --body-file /tmp/body.md',
+                    'gh issue create --title "$title"',
+                )
+            ),
+        ),
+    )
+
+    findings = repo_hygiene_check.check_nightly_workflow_contract(tmp_path)
+
+    assert len(findings) == 3
+    assert all("must pass an explicit repository" in item.message for item in findings)
+
+
+def test_nightly_workflow_contract_accepts_production_shape(tmp_path: Path) -> None:
+    write_file(
+        tmp_path,
+        ".github/workflows/ci-develop-nightly.yml",
+        _nightly_workflow(
+            install_run="pip install --no-cache-dir -e ./victor-codegraph",
+            notify_run="\n".join(
+                (
+                    'num=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open)',
+                    'gh issue comment "$num" --repo "$GITHUB_REPOSITORY"',
+                    'gh issue create --repo "$GITHUB_REPOSITORY" --title "$title"',
+                )
+            ),
+        ),
+    )
+
+    assert repo_hygiene_check.check_nightly_workflow_contract(tmp_path) == []
+
+
 def test_vertical_extras_require_real_package_dependencies(tmp_path: Path) -> None:
     write_file(tmp_path, ".github/workflows/test.yml", "name: OK\non: push\n")
     write_file(tmp_path, "Makefile", "lint:\n\tmypy victor\n")
