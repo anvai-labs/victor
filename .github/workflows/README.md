@@ -22,6 +22,12 @@ triggers: heavy workflows target `[main]`. `main` remains the strict, protected 
 merge. To run a heavy workflow against a `develop` PR on demand, use its
 **workflow_dispatch** entry.
 
+Because every `CI - Tests` shard is a required check on `main`, its
+`pull_request` trigger intentionally has no path filter. A skipped required
+workflow remains expected forever, and a manual dispatch cannot satisfy the
+PR-specific required contexts. Pushes to `main` retain path filters to avoid
+redundant post-merge runs for unrelated changes.
+
 `ci-fast` deliberately has **no `branches:` filter on `pull_request`** — it runs
 on every PR whatever its base. Restricting it to `[main, develop]` left stacked
 PRs (base = another feature branch) with *no gate at all*: no Black, Ruff,
