@@ -5,25 +5,6 @@
 name: CI - Tests
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/ci-test.yml'
-      - '.github/workflows/release.yml'
-      - 'victor/**'
-      - 'victor-contracts/**'
-      # victor-codegraph is imported by victor core (editable install) — a
-      # codegraph-only change can break core, and without this filter such PRs
-      # never run the required shards and are unmergeable into main.
-      - 'victor-codegraph/**'
-      - 'tests/**'
-      # benchmarks/ holds executable code importing victor.* — without this filter,
-      # benchmarks-only PRs never run the required checks and are unmergeable.
-      - 'benchmarks/**'
-      - 'pyproject.toml'
-      - 'requirements*.txt'
-      - 'Makefile'
-      - 'MANIFEST.in'
   pull_request:
     branches: [main]
     # No path filter: every shard below is a required main-branch check. GitHub
@@ -31,6 +12,8 @@ on:
     # and workflow_dispatch runs do not satisfy a PR's expected contexts.
     # Develop -> main is the release gate, so run the full suite for every
     # promotion even when its delta is limited to docs, workflows, or Rust.
+    # Do not repeat the same multi-hour suite on the resulting protected merge:
+    # a merge commit produced from the gated PR has the already-tested tree.
   workflow_dispatch:
 
 env:

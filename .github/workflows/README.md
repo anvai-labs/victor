@@ -10,7 +10,8 @@ To keep the runner queue free and feature work merging fast, CI is split by the 
 | Trigger | Workflows that run | Intent |
 |---------|-------------------|--------|
 | **PR → `develop`** (and pushes to `develop`) | `ci-fast` only — Black, Ruff, repo-hygiene, MyPy (advisory + strict), import checks, guards, and **changed-file unit tests** (only the mirror tests for files the PR touches — see `scripts/ci/select_changed_tests.py`) + `fep-validation` if `feps/**` changed | **Lightweight** — fast feedback + a regression signal proportional to the change, unblock development |
-| **PR → `main`** (the `develop` → `main` promotion PR) and pushes to `main` | The full battery: `ci`, `ci-test` (sharded units), `ci-integration`, `build`, `security`, `performance-tests`, `validation`, `vertical-validation`, `external-vertical-compat` | **Extensive** — full verification before promoting to the protected branch |
+| **PR → `main`** (the `develop` → `main` promotion PR) | The full battery: `ci-test` (sharded units), `ci-integration`, `build`, `security`, `performance-tests`, `validation`, `vertical-validation`, `external-vertical-compat` | **Extensive** — full verification before promoting to the protected branch |
+| **Push to `main`** (the protected merge) | Delivery and lightweight verification workflows such as `build`, `security`, docs deployment, and `ci-fast` | **Post-merge** — publish/deploy from the merge SHA without repeating the identical multi-hour test tree |
 
 > The develop gate runs only the unit tests **relevant to the PR's changed files**, not the whole suite: the full non-slow unit suite is ~7h single-process (26.8k tests) and hours even sharded, so it can't gate every PR. Full coverage runs once at **develop → main**.
 >
@@ -25,8 +26,10 @@ merge. To run a heavy workflow against a `develop` PR on demand, use its
 Because every `CI - Tests` shard is a required check on `main`, its
 `pull_request` trigger intentionally has no path filter. A skipped required
 workflow remains expected forever, and a manual dispatch cannot satisfy the
-PR-specific required contexts. Pushes to `main` retain path filters to avoid
-redundant post-merge runs for unrelated changes.
+PR-specific required contexts. The suite has no `push` trigger: protected
+merge commits have the exact tree already tested on their promotion PR, so
+repeating all 36 shards post-merge only consumes runner hours. Maintainers can
+still use `workflow_dispatch` for an explicit on-demand rerun.
 
 `ci-fast` deliberately has **no `branches:` filter on `pull_request`** — it runs
 on every PR whatever its base. Restricting it to `[main, develop]` left stacked
@@ -130,19 +133,6 @@ check — it is a signal, not a block.
 - Links to relevant documentation
 
 ## Other Workflows
-
-### CI (`ci.yml`)
-
-Main continuous integration workflow:
-- Linting (Black, Ruff, MyPy)
-- Unit tests across Python 3.11, 3.12, 3.13
-- Security scanning (Gitleaks, pip-audit)
-- Guards (legacy code protection, import checks)
-- Rust native extensions build
-- VS Code extension build
-- Package build
-
-**Triggers:** Push to `main`, pull requests targeting `main` (the `develop` → `main` promotion PR). See [CI Gating Strategy](#ci-gating-strategy-lightweight-develop-extensive-develop--main).
 
 ### Packages CI (`packages.yml`)
 
