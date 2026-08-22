@@ -594,6 +594,16 @@ class TestConfigureForProvider:
         assert manager.configs[ReminderType.EVIDENCE].frequency == 2
         assert manager.configs[ReminderType.GROUNDING].frequency == 5
 
+    def test_provider_configuration_does_not_mutate_defaults(self):
+        """Provider tuning on one manager must not affect later managers."""
+        configured_manager = ContextReminderManager()
+        configured_manager.configure_for_provider("anthropic")
+
+        fresh_manager = ContextReminderManager()
+
+        assert fresh_manager.configs[ReminderType.EVIDENCE].frequency == 3
+        assert fresh_manager.configs[ReminderType.GROUNDING].frequency == 10
+
 
 class TestGetStats:
     """Tests for get_stats method."""
