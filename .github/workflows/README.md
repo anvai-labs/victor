@@ -292,12 +292,12 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.11"
           cache: pip
@@ -313,7 +313,7 @@ jobs:
 
       - name: Post results
         if: always()
-        uses: actions/github-script@v7
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
             // Post PR comment with results
@@ -352,7 +352,7 @@ permissions:
 Check artifact retention and names:
 ```yaml
 - name: Upload artifact
-  uses: actions/upload-artifact@v4
+  uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
   with:
     name: my-artifact  # Must match download name
     path: path/to/files
