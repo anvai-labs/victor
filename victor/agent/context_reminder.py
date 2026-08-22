@@ -31,6 +31,7 @@ Design Principles:
 """
 
 import logging
+from copy import deepcopy
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set
@@ -259,7 +260,10 @@ class ContextReminderManager:
             presentation: Optional presentation adapter for icons (creates default if None)
         """
         self.provider = str(provider).lower()
-        self.configs = configs or self.DEFAULT_CONFIGS.copy()
+        # ReminderConfig is mutable (provider configuration adjusts frequencies),
+        # so a shallow dict copy would leak those adjustments into later manager
+        # instances through the shared DEFAULT_CONFIGS values.
+        self.configs = deepcopy(configs or self.DEFAULT_CONFIGS)
         self.custom_formatters = custom_formatters or {}
         self.state = ContextState()
         self._reminder_count = 0
