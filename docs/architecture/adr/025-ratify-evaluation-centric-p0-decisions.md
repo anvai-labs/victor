@@ -2,7 +2,7 @@
 
 ## Metadata
 
-- **Status**: Proposed
+- **Status**: Accepted (2026-08-23 — P0 gates shipped or resolved; ADR-009 default flip correctly stopped by failed production-distribution evidence)
 - **Date**: 2026-07-29
 - **Decision Makers**: Vijaykumar Singh
 - **Related ADRs**: 009 (rubric completion), 010 (effect-grounded completion), 011 (LLM-judge
@@ -77,6 +77,11 @@ No new FEP (FEP-0008 already governs; work is EVR-tracked). This ADR's own lifec
 
 1. On EVR-2 completion → run κ/α, record the number here, retire chance-level checks.
 2. On EVR-3 parity pass → flip ADR-009 default; note it here.
+   **Resolved NO-GO (2026-08-05):** the calibration-corpus parity result did not transfer to the
+   in-container-verified SWE-bench-lite shipping distribution (llama3.3:70b α=0.26;
+   gemma4:31b α=−0.52). The gate worked as designed: keep `enhanced` as default. A verifier-backed
+   Prong-B task-success runner subsequently shipped for future candidates, but cannot override a
+   failed judge-reliability prerequisite.
 3. On EVR-4 → flip ADR-010 to Accepted; update the ADR index Implementation column.
    **Done (2026-08-01)**: EVR-4 landed as `victor/framework/effect_gate.py` wrapping the
    EVALUATE seam (shipped opt-in, default off per the flag-graduation policy); ADR-010 is
@@ -113,3 +118,4 @@ No new FEP (FEP-0008 already governs; work is EVR-tracked). This ADR's own lifec
 | 2026-07-29 | 1.0 | Initial ADR — ratifies the evaluation-centric P0 gates (EVR-2/3/4/5) | Vijaykumar Singh |
 | 2026-08-01 | 1.1 | Lifecycle item 3 done: EVR-4 landed (effect gate, opt-in); ADR-010 flipped to Accepted | Vijaykumar Singh |
 | 2026-08-01 | 1.2 | Lifecycle item 4 done: EVR-5 landed (acceptance oracle + HTIR, promotion-gated); ADR-012 flipped to Accepted | Vijaykumar Singh |
+| 2026-08-23 | 1.3 | Accepted after all P0 gates shipped or resolved; recorded EVR-3 production-distribution no-go and retained enhanced default | Vijaykumar Singh |

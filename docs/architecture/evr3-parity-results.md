@@ -1,10 +1,11 @@
 # EVR-3 Parity Results: Rubric vs Enhanced Completion Evaluation
 
-Status: measured 2026-08-02. ADR-009's graduation condition —
-`completion_strategy=rubric` must **match-or-beat** the default
-`EnhancedCompletionEvaluator` before it can become the default — is answered
-decisively for the judge-quality prong (prong A). The end-to-end task-success
-prong (prong B) remains.
+Status: calibration-corpus result measured 2026-08-02; default decision
+superseded by the 2026-08-05 SWE-bench-lite re-gate. The result below remains
+valid for its corpus, but neither calibrated LLM judge cleared reliability on
+Victor's shipping distribution. `completion_strategy` therefore remains
+`enhanced`; rubric stays opt-in. The Prong-B task-success runner shipped later
+as future re-evaluation machinery, not as authorization for a default flip.
 
 ## How it was measured (prong A — judge quality)
 
@@ -35,25 +36,50 @@ evidence. See `docs/architecture/judge-independence-experiments.md` for the
 full ladder and [FINDINGS](../../benchmarks/judge_calibration/FINDINGS.md)
 runs 11–13.
 
-## What this unblocks and what it does not
+## What this establishes and what it does not
 
-- **Unblocks**: the ADR-009 match-or-beat condition is met — rubric does not
-  merely match enhanced, it beats it by >1.7 α with a graduated judge. Combined
-  with the ADR-011 judge-identity pin (`DEFAULT_CALIBRATED_JUDGE_MODELS` =
-  llama3.3:70b), the rubric default-flip (program PR-8) has its evidence: with
-  a calibrated judge present, `completion_strategy=rubric` is strictly better;
-  without one, the pin falls back to `enhanced` (unchanged behavior).
-- **Does not settle (prong B)**: this measures completion-verdict *agreement*,
-  not end-to-end *task success* under each strategy in a live loop. Before the
-  default flips, prong B should confirm no task-success regression and no
-  completion-latency blowout in a flag-on/flag-off A/B (the EVR-4-style battery),
-  and the streaming byte-stability batteries must stay green flag-off. Prong A
-  establishes the judge is right; prong B establishes the loop is not worse.
+- **Establishes on this corpus**: rubric+llama3.3:70b beats enhanced by >1.7 α,
+  and the ADR-011 identity pin safely falls back to `enhanced` when its premise
+  is absent.
+- **Does not clear the production gate**: the later in-container-verified
+  SWE-bench-lite stratum measured llama3.3:70b at α=0.26 and gemma4:31b at
+  α=−0.52. Both fail the ≥0.7 requirement; only the programmatic verifier
+  discriminated. See [FINDINGS](../../benchmarks/judge_calibration/FINDINGS.md)
+  and [judge independence experiments](judge-independence-experiments.md).
+- **Prong B is necessary but not sufficient**: a task-success pass cannot
+  override a failed judge-reliability prerequisite.
+
+## Prong-B executable battery
+
+`victor.evaluation.completion_strategy_ab` runs the same verifier-backed tasks
+through `enhanced` and `rubric`, preserving paired per-task outcomes plus the
+inner loop's completion claim and iteration count. The default gate requires:
+
+- 24 evaluable pairs, with at least four per task family;
+- candidate task success to match-or-beat baseline;
+- no increase in false-positive completions; and
+- mean loop iterations within 10% (or 0.25 iterations) of baseline.
+
+Example with the pinned judge on an independent endpoint:
+
+```bash
+python -m victor.evaluation.completion_strategy_ab \
+  --model qwen3-coder-tools:30b \
+  --base-url http://localhost:11434 \
+  --judge llm:llama3.3:70b@http://localhost:11434 \
+  --variants 4 --out-dir artifacts/evr3-prong-b
+```
+
+The command writes `completion_strategy_ab.json` and returns `pass` or `hold`
+for Prong B only. It never edits configuration and never reports `graduate`.
+Given the SWE-bench-lite reliability failure, a `pass` today is diagnostic;
+the default remains `enhanced`.
 
 ## Honest caveats
 
-- Single corpus (6 templates), single agent distribution. The SWE-bench stratum
-  is the named prerequisite for a beyond-corpus parity claim.
-- The rubric advantage is *judge-specific*: it holds for calibrated judges
-  (llama3.3:70b; gemma4:31b clears enhanced but not the 0.7 gate) and collapses
-  for uncalibrated models — which is exactly what the ADR-011 pin enforces.
+- Single corpus (6 templates), single agent distribution. The subsequently run
+  SWE-bench stratum failed, proving this caveat was material.
+- The rubric advantage is *judge- and distribution-specific*: llama3.3:70b
+  cleared the calibration corpus but failed SWE-bench-lite. The ADR-011 pin
+  still prevents silent use of the known-bad heuristic; it is not evidence for
+  a default flip.
