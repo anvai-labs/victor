@@ -73,7 +73,7 @@ dependencies = [
     # Async
     "httpx>=0.27",
     "aiofiles>=23.0",
-    "aiohttp>=3.9",
+    "aiohttp>=3.14.3",
 
     # CLI/UI
     # typer<0.15 (e.g. 0.12.x) is incompatible with click>=8.2: click added
@@ -92,7 +92,7 @@ dependencies = [
     # Google Gemini support uses the optional google-genai extra.
 
     # Tools
-    "gitpython>=3.1",
+    "gitpython>=3.1.58",
     "jsonschema>=4.20",
     "tiktoken>=0.7",
     "pyyaml>=6.0",
