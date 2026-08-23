@@ -271,7 +271,7 @@ Cross-referenced debt tracked in the EVR backlog (do not duplicate IDs here):
 
 | EVR ID | Description | Priority | Status |
 |--------|-------------|----------|--------|
-| EVR-5 | Regression-gated harness acceptance oracle (implements ADR-012) | P0 | Planned |
+| EVR-5 | Regression-gated harness acceptance oracle (implements ADR-012) | P0 | Done |
 | EVR-7 | Close the credit→learner loop (segment-level process reward) | P1 | Planned |
 
 ### Tech Debt Timeline
