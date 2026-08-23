@@ -584,3 +584,79 @@ The recommendation is unchanged — SQLite remains the default for repo-scale
 graphs — but it no longer rests on a defect. It rests on there being no
 measured advantage anywhere, and a real cost on the two axes that dominate a
 first index and a query.
+
+## The in-process path, measured at last (2026-08-23)
+
+Everything above measured the **subprocess** ProximaDB — a managed
+`proximadb-server` child reached over UDS+HTTP+JSON. That is the availability
+fallback, not the product `CODE_GRAPH_CORRELATED_SUBSTRATE_2026_06_22.adoc`
+specifies, which is a **PyO3 in-process** engine. The wheel became buildable
+(anvai-labs/proximaDB#1696) and then correct (#1701 typed properties, #1718
+durability), so the comparison the vision actually asks for is finally
+possible.
+
+Two defects had to be fixed before any number meant anything:
+
+- **The in-process path persisted nothing.** Ingest reported 177,046 edges,
+  `graph_stats` agreed, `flush()`/`checkpoint()`/`close()` all returned
+  success — and the graph WAL on disk was **0 bytes**, so a fresh process saw
+  `edges=0`. Both halves of durability (`flush_wal` on shutdown,
+  `recover_all_graphs` on startup) were gated on the **network server
+  object**, which port-free embedded never constructs. A transport choice
+  silently decided whether data survived. Fixed in proximaDB#1718.
+- **Typed graph properties were stringified** at the boundary, so `line: 42`
+  persisted as `"42"` and the engine's numeric index could never populate.
+  Fixed in proximaDB#1701.
+
+### Write-only comparison, identical pre-parsed payload
+
+The earlier repo-scale figures (404 s SQLite / 1,748 s ProximaDB) include
+**parsing the repository**, which both arms share. To isolate the graph
+store itself, the same 93,469 nodes / 177,046 edges are replayed from an
+existing `project.db` into each backend:
+
+| | SQLite (raw) | ProximaDB in-process |
+|---|---|---|
+| durable write | **0.92 s** | 3.14 s (2.73 s ingest + 0.41 s close) |
+| footprint at rest | 49.7 MB | **49.0 MB** |
+| traversal p50 | 0.021 ms | **0.018 ms** |
+| traversal p95 | 0.119 ms | **0.049 ms** |
+| reopen → queryable | n/a (always open) | 4.05 s, 177,046 edges recovered |
+
+**In-process ProximaDB is at rough parity with a raw SQLite graph store**:
+~3.4× slower on bulk write (2.2 s absolute across a whole repository index),
+identical footprint, and equal-or-better traversal — notably better at p95.
+
+That is a different world from the subprocess path, whose graph-write cost
+was ~1,344 s over the shared parse baseline. Moving from subprocess to
+in-process improves ProximaDB's own graph-write path by roughly **400×**, and
+it is what makes the backend viable at all.
+
+**It does not, however, beat SQLite on the graph tier.** The vision's claim
+that the embedded engine replaces SQLite+LanceDB has to be carried by the
+*vector* tier and by queries the stitch cannot express in one call
+(graph+vector fusion, impact analysis, branch/time-travel) — not by graph
+write throughput, where parity is the honest result.
+
+Caveats, stated because they bound the claim:
+
+- The SQLite arm here is a **simplified schema** (five columns, three
+  indexes) built for a write-cost comparison, so it is a *lower bound* on the
+  product's real SQLite cost; Victor's actual schema does more work.
+- Durability here means **across a clean `close()`**. Per-batch fsync is a
+  separate decision with its own throughput trade (proximaDB#1695 documented
+  the real contract rather than changing it silently).
+- Graph tier only, embeddings off, matching the arms it is compared against.
+- A second in-process instance on the same directory still blocks forever on
+  `exclusive.lock` (proximaDB#1715), so reopen must happen in a fresh
+  process — which is what an embedded application does anyway.
+
+### Recommendation
+
+Unchanged for today — SQLite remains Victor's default — but the reason has
+narrowed to something actionable rather than damning. ProximaDB in-process is
+now a *credible* backend on the graph tier (parity, not penalty), so the
+decision should be re-taken when (a) a wheel is published so consumers can
+install it without a local Rust build, and (b) the vector tier is measured
+in-process, where the single-store design has its only remaining structural
+advantage.
