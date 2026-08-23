@@ -1437,9 +1437,7 @@ class VictorAgentAdapter:
                 "outer_stop_reason": (
                     "complete"
                     if complete
-                    else "max_turns"
-                    if self._turns >= self.config.max_turns
-                    else "stopped"
+                    else "max_turns" if self._turns >= self.config.max_turns else "stopped"
                 ),
             }
         )
