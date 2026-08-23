@@ -41,13 +41,13 @@ extension, checksums, SBOM, GitHub Release, and Docker image. Source:
 ## Next — Q3 2026: close the evaluation loop (EVR P0 sequence)
 
 The gate for defaulting-on any judge-based completion is ADR-011's reliability threshold — no
-graduation without measured κ/α against human labels.
+graduation without measured κ/α against independent labels on the shipping distribution.
 
 | Order | Item | ADR | State |
 |-------|------|-----|-------|
 | 1 | EVR-1 trajectory-eval harness | — | Shipped (machinery) |
-| 2 | EVR-2 LLM-judge reliability gate — run the κ/α validation | ADR-011 | **DONE.** Verifier gold validated (annotator↔verifier κ=1.0, run 12); llama3.3:70b graduates (scripted α=1.000 run 10; real α=0.878 refactor 1.000 run 13); gemma4:31b demoted (0.694 at n=96). Judge identity pinned in the flag wiring (`DEFAULT_CALIBRATED_JUDGE_MODELS`=llama3.3:70b). See [FINDINGS](../benchmarks/judge_calibration/FINDINGS.md) runs 10–14 + `docs/architecture/judge-independence-experiments.md` |
-| 3 | EVR-3 rubric completion evaluator — must match-or-beat `EnhancedCompletionEvaluator` before becoming default | ADR-009 | **Prong A (judge quality) DONE**: on the run-12 real pack rubric-llm (llama3.3:70b) α=0.878 vs `enhanced` α=−0.837 — beats by Δα=1.72 ([evr3-parity-results](architecture/evr3-parity-results.md)). Prong B (end-to-end task-success A/B) remains before the default flip |
+| 2 | EVR-2 LLM-judge reliability gate — run the κ/α validation | ADR-011 | **DONE — gate produced a NO-GO.** Verifier gold was validated (annotator↔verifier κ=1.0, run 12) and llama3.3:70b passed scripted/calibration-corpus packs, but failed the later SWE-bench-lite shipping-distribution re-gate (α=0.26). The identity pin remains an opt-in safety/fallback guard; it does not authorize a default. See [FINDINGS](../benchmarks/judge_calibration/FINDINGS.md) and `docs/architecture/judge-independence-experiments.md`. |
+| 3 | EVR-3 rubric completion evaluator — must match-or-beat `EnhancedCompletionEvaluator` before becoming default | ADR-009 | **NO-GO / default stays `enhanced`.** The calibration-corpus result was positive (llama3.3:70b α=0.878 vs enhanced −0.837), but the later in-container-verified SWE-bench-lite re-gate failed on the shipping distribution (llama α=0.26; gemma α=−0.52). Prong-B verifier-backed A/B machinery now exists (`victor/evaluation/completion_strategy_ab.py`) for future re-evaluation, but cannot override the failed reliability prerequisite. See [evr3-parity-results](architecture/evr3-parity-results.md) and [FINDINGS](../benchmarks/judge_calibration/FINDINGS.md). |
 | 4 | EVR-4 effect-grounded completion gate | ADR-010 | Shipped opt-in (`victor/framework/effect_gate.py`; `effect_gated_completion` / `VICTOR_EFFECT_GATED_COMPLETION`, default off pending flag-graduation gate; A/B graduation battery not yet built) |
 | 5 | EVR-5 regression-gated harness acceptance oracle | ADR-012 | **Shipped** (ADR-012 Accepted; `victor/evaluation/acceptance_oracle.py` + `htir.py`, promotion-gated via `tests/integration/streaming/test_acceptance_oracle_gate.py`) |
 | 6 | EVR-6 online per-turn auditor (`TurnAuditor`, prefix-only CONTINUE/ALARM) | FEP-0008 Phase C | P1 — next after the P0 chain closes; measure offline against HTIR oracle traces before loop wiring |

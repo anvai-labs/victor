@@ -2,7 +2,7 @@
 
 ## Metadata
 
-- **Status**: Accepted (2026-07-02 — shipped opt-in via `completion_strategy=rubric` (#203/#216/#217/#223); default remains `enhanced` until the ADR-011 reliability gate passes; was Proposed)
+- **Status**: Accepted (shipped opt-in; 2026-08-05 production-distribution reliability gate failed, so the decided default remains `enhanced`)
 - **Date**: 2026-06-21
 - **Decision Makers**: Vijaykumar Singh
 - **Related ADRs**: 010 (effect-grounded completion), 011 (judge reliability), 012 (regression-gated harness)
@@ -51,4 +51,8 @@ remains the fallback and the baseline the rubric path must match-or-beat before 
 1. `RubricCompletionEvaluator` + per-task-family cache; offline unit tests with scripted dimensions.
 2. Wire into `_evaluate` behind `completion_strategy="rubric"` (default stays `enhanced`).
 3. Gate the default flip on: parity battery 14/14, characterization byte-stable-or-justified,
-   judge agreement α ≥ threshold (ADR-011), and reduced restatement on the live multi-step task.
+   judge agreement α ≥ threshold (ADR-011) on the shipping distribution, and a verifier-backed
+   task-success A/B with no false-positive or completion-latency regression.
+   **Resolved no-go (2026-08-05):** both candidate LLM judges failed the in-container-verified
+   SWE-bench-lite reliability stratum, so no default flip is authorized. The Prong-B runner
+   (`victor.evaluation.completion_strategy_ab`) remains available for future candidates.

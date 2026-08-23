@@ -14,7 +14,7 @@ S/M/L. This **integrates** the prior `../arxive` roadmap (see "Integration" belo
 |----|------|-----|-----|--------|---------|--------|
 | EVR-1 | Trajectory-eval harness in `victor/evaluation/` (planning / tool-grounding / recovery / refusal, with CI confidence bounds) | feature | **P0** | M | — | TRBench `2604.08178`, `2605.10448` |
 | EVR-2 | LLM-judge reliability gate (Krippendorff α / κ vs human-labeled set; order-swap ensemble) — ADR-011 | feature | **P0** | M | EVR-1 | AgentProp-Bench `2604.16706` |
-| EVR-3 | Rubric-based completion evaluator + DimensionAwareFilter — ADR-009, FEP-0008 Phase A | feature | **P0** | L | EVR-2 | AdaRubric `2603.21362` |
+| EVR-3 | Rubric-based completion evaluator + DimensionAwareFilter — ADR-009, FEP-0008 Phase A — **Shipped opt-in; default NO-GO after SWE-bench-lite reliability failure; Prong-B A/B runner shipped for future candidates** | feature | **P0** | L | EVR-2 | AdaRubric `2603.21362` |
 | EVR-4 | Effect-grounded completion gate (verifiable state delta) — ADR-010 — **Shipped opt-in** (`victor/framework/effect_gate.py`) | feature | **P0** | M | `tools/verification/` | HarnessFix `2606.06324`, Harness-Bench `2605.27922` |
 | EVR-5 | Regression-gated harness acceptance oracle + HTIR/ETCLOVG traces — ADR-012 — **Shipped** (`victor/evaluation/{acceptance_oracle,htir}.py`, promotion-gated) | techdebt | **P0** | M | FEP-0007 batteries | HarnessFix, Self-Harness `2606.09498` |
 | EVR-6 | Online per-turn auditor (prefix-only continue/alarm) — FEP-0008 Phase C | feature | P1 | M | edge model | AgentForesight `2605.08715` |
@@ -34,8 +34,10 @@ S/M/L. This **integrates** the prior `../arxive` roadmap (see "Integration" belo
 
 `EVR-1 → EVR-2 → (EVR-4 ∥ EVR-3) → EVR-5 → EVR-6 → EVR-7 → …`
 
-EVR-3 must **match-or-beat** `EnhancedCompletionEvaluator` on the parity + characterization batteries
-before becoming the default `completion_strategy`.
+EVR-3 must **match-or-beat** `EnhancedCompletionEvaluator` on the shipping-distribution reliability,
+parity, characterization, and verifier-backed task-success batteries before becoming the default
+`completion_strategy`. The 2026-08-05 SWE-bench-lite reliability re-gate failed, so the current
+decision is a documented no-go: keep `enhanced` default and revisit only with a new candidate.
 
 ## Integration with the prior roadmap
 

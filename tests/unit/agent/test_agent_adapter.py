@@ -345,6 +345,10 @@ class TestVictorAgentAdapter:
     @pytest.mark.asyncio
     async def test_execute_task_basic(self, adapter, mock_orchestrator):
         """Test basic task execution."""
+        mock_orchestrator.chat.return_value.metadata = {
+            "agentic_loop_success": True,
+            "agentic_loop_iterations": 3,
+        }
         task = BenchmarkTask(
             task_id="test/basic",
             benchmark=BenchmarkType.CUSTOM,
@@ -360,6 +364,9 @@ class TestVictorAgentAdapter:
             assert trace.turns >= 1
             assert trace.start_time > 0
             assert trace.end_time >= trace.start_time
+            assert trace.completion_signals["agentic_loop_success"] is True
+            assert trace.completion_signals["agentic_loop_iterations"] >= 3
+            assert "outer_completion_claimed" in trace.completion_signals
             mock_orchestrator.chat.assert_called()
 
     @pytest.mark.asyncio
