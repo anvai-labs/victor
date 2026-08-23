@@ -30,7 +30,7 @@ Status is the governance state of the *decision*. Implementation is the observed
 | [ADR-006](006-provider-integration-improvements.md) | Provider Integration Improvements for Non-Interactive Environments | Proposed | Partial | 2026-02-28 |
 | [ADR-007](007-vertical-distribution-and-sdk-boundary.md) | Vertical Distribution Model and Contracts Boundary | Accepted | Shipped (CI-guarded boundary; verticals folded into monorepo) | 2026-03-10 |
 | [ADR-008](008-registry-performance-optimization.md) | Tool Registry Performance Optimization | Accepted | Shipped | 2025-04-19 |
-| [ADR-009](009-rubric-based-completion-evaluation.md) | Rubric-Based Completion Evaluation | Accepted | Shipped, opt-in (`completion_strategy=rubric`; default remains `enhanced` pending ADR-011 gate) | 2026-06-21 |
+| [ADR-009](009-rubric-based-completion-evaluation.md) | Rubric-Based Completion Evaluation | Accepted | Shipped opt-in; production-distribution gate failed, so default remains `enhanced` | 2026-06-21 |
 | [ADR-010](010-effect-grounded-completion.md) | Effect-Grounded Completion | Accepted | Shipped, opt-in (`victor/framework/effect_gate.py`; `effect_gated_completion` / `VICTOR_EFFECT_GATED_COMPLETION`, default off pending flag-graduation gate) | 2026-06-21 |
 | [ADR-011](011-llm-judge-reliability-gating.md) | LLM-Judge Reliability Gating | Accepted | Shipped (`victor/evaluation/judge_calibration.py`, `trajectory_eval.py`); κ/α gate not yet run against human labels | 2026-06-21 |
 | [ADR-012](012-regression-gated-harness-acceptance.md) | Regression-Gated Harness Acceptance | Accepted | Done (EVR-5: acceptance oracle + HTIR in `victor/evaluation/`, promotion-gated via `test_acceptance_oracle_gate.py`) | 2026-06-21 |

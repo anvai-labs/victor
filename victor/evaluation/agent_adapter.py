@@ -1161,6 +1161,10 @@ class VictorAgentAdapter:
             f"ISSUE:\n{task_description}"
         )
 
+        complete = False
+        agentic_loop_iterations = 0
+        last_agentic_loop_success: Optional[bool] = None
+        agentic_loop_error_count = 0
         try:
             # Start heartbeat for silent hang detection
             import time as _time
@@ -1183,7 +1187,6 @@ class VictorAgentAdapter:
             _heartbeat_task = asyncio.create_task(_heartbeat())
 
             # Execute agent loop
-            complete = False
             while not complete and self._turns < self.config.max_turns:
                 # Enforce total_timeout across the whole task (previously tracked
                 # but NOT enforced): max_turns × per-turn loop iterations × slow
@@ -1266,6 +1269,17 @@ class VictorAgentAdapter:
                     break
 
                 assistant_content = response.content if response else ""
+                response_metadata = dict(getattr(response, "metadata", None) or {})
+                try:
+                    agentic_loop_iterations += int(
+                        response_metadata.get("agentic_loop_iterations", 0) or 0
+                    )
+                except (TypeError, ValueError):
+                    pass
+                if "agentic_loop_success" in response_metadata:
+                    last_agentic_loop_success = bool(response_metadata["agentic_loop_success"])
+                if response_metadata.get("agentic_loop_error"):
+                    agentic_loop_error_count += 1
 
                 # Capture and display reasoning/thinking if present
                 reasoning = None
@@ -1410,6 +1424,23 @@ class VictorAgentAdapter:
         trace.messages = self._messages.copy()
         trace.tool_calls = self._tool_calls.copy()
         trace.file_edits = self._file_edits.copy()
+        # Preserve the inner AgenticLoop's completion telemetry for end-to-end
+        # completion-strategy A/Bs. ``turns`` is the adapter's outer continuation
+        # count; this sum is the strategy-sensitive loop latency and
+        # ``agentic_loop_success`` is the claim compared with verifier truth.
+        trace.completion_signals.update(
+            {
+                "agentic_loop_iterations": agentic_loop_iterations,
+                "agentic_loop_success": last_agentic_loop_success,
+                "agentic_loop_error_count": agentic_loop_error_count,
+                "outer_completion_claimed": complete,
+                "outer_stop_reason": (
+                    "complete"
+                    if complete
+                    else "max_turns" if self._turns >= self.config.max_turns else "stopped"
+                ),
+            }
+        )
         logger.info(
             f"[AgentAdapter] Trace populated: {len(self._tool_calls)} tool calls, {self._turns} turns"
         )

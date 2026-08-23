@@ -38,7 +38,7 @@ an opt-out before removal of the old path.
 
 | Flag | Claim | Proposed gate | Fallback contract | Status |
 |------|-------|---------------|-------------------|--------|
-| `completion_strategy=rubric` | Rubric+LLM completion verdicts agree with ground truth better than `EnhancedCompletionEvaluator` | ADR-011: Krippendorff α ≥ 0.7 overall **and per family** vs programmatic verifier gold, n ≥ 16/family, integrity-clean, **judge identity pinned**; must hold on scripted AND real-agent trajectories; **plus human-label overlay validation** of the verifier gold + judge (added 2026-08-02: human↔judge α ≥ 0.7 overall and per family; human↔verifier κ ≥ 0.8 — a verifier-gold failure voids the programmatic-gold conclusions) | Judge unavailable/uncalibrated → revert to `enhanced`; heuristic fallback (measured α=−0.092) must never gate alone | **Checklist items 1–2 DONE** per [FINDINGS](../../benchmarks/judge_calibration/FINDINGS.md): gating-grade n (run 10, llama3.3:70b, α=1.000 at n=96 scripted) and real agent trajectories (run 11, gemma4:31b, α=0.865, zero false completions). Remaining: item 3 (pin judge identity in flag wiring — a code change, not a measurement) + the human-label overlay above |
+| `completion_strategy=rubric` | Rubric+LLM completion verdicts agree with ground truth better than `EnhancedCompletionEvaluator` | ADR-011: Krippendorff α ≥ 0.7 overall **and per family** vs verifier gold, n ≥ 16/family, integrity-clean, judge identity pinned; must hold on scripted, calibration-corpus real-agent, **and shipping-distribution** trajectories; verifier gold requires independent-overlay κ ≥ 0.8. Then Prong B (`completion_strategy_ab.py`) requires ≥24 paired verifier-backed tasks (≥4/family), task success match-or-beat, no false-positive increase, and no >10%/0.25-iteration latency increase. | Judge unavailable/uncalibrated → revert to `enhanced`; heuristic fallback (measured α=−0.092) must never gate alone | **NO-GO (2026-08-05): keep `enhanced` default.** Scripted/calibration-corpus checks and identity pin landed, but the in-container-verified SWE-bench-lite re-gate failed (llama3.3:70b α=0.26; gemma4:31b α=−0.52). Prong-B machinery is available for future re-evaluation, but a task-success pass cannot override the failed Prong-A production gate. |
 | `USE_POLICY_ENGINE` | ALLOW/DENY/ASK verdicts enforce governance without blocking legitimate tool use | Zero false-DENY on a recorded corpus of accepted-tool-call traces; 100% DENY on the builtin policy violation suite; latency overhead < 5 ms/call | Engine error → fail per `governance.enabled` posture (deny-closed when governance on) | No gate corpus yet — build from HTIR traces (ADR-012 machinery) |
 | `sandbox_enabled` | Subprocess/code tools run isolated with no capability loss for allowed operations | Full tool test suite green under bwrap (Linux CI) and seatbelt (macOS CI); documented escape-hatch list reviewed | Sandbox init failure → currently fail-open by design; graduation requires making fail-open an explicit, logged decision | MVP hardening gaps (seccomp/egress) noted in code; not gateable until CI runs the suite sandboxed |
 | `USE_SMART_ROUTING` (already ON) | Cost/latency-aware routing cuts spend without quality loss | **Retro-gate** (flag already default-on): C0 cost-trace shows ≥ 20% cost or latency reduction on the benchmark suite with no drop in task success rate (same harness, A/B). If unmet → flip default OFF, don't graduate. | Router error → static profile routing | Ships ON today (not in opt-in set); no measurement yet; benchmark harness exists (`victor/evaluation/`) |
@@ -47,9 +47,9 @@ an opt-out before removal of the old path.
 
 ## Precedent
 
-The `completion_strategy=rubric` row is the template working end-to-end: the flag shipped
-opt-in (ADR-009), the gate was defined before any measurement existed (ADR-011), the
-measurement infrastructure was built offline-first
-(`benchmarks/judge_calibration/`), seven runs produced a gate-passing candidate with the
-evidence artifact recorded, and graduation is now a checklist rather than a debate. Every
-other flag on this table should follow the same arc or be removed.
+The `completion_strategy=rubric` row is the template working end-to-end: the strategy shipped
+opt-in (ADR-009), the gate was defined before measurement (ADR-011), and calibration-corpus
+success was challenged on the shipping distribution. That final gate stopped an unsafe default
+flip. The lesson for every other flag is that a graduation checklist must include the production
+distribution and must be allowed to end in a documented no-go, not merely accumulate positive
+pilot evidence.
