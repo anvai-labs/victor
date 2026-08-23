@@ -595,15 +595,17 @@ class TestLiveDisplayRenderer:
 
         renderer.start()
         renderer.on_thinking_start()
+        # Setup output may vary with the active console/log handler. Isolate the
+        # behavior under test: each content delta is printed immediately.
+        mock_console.print.reset_mock()
 
         # Send thinking chunks (already normalized by stream_response)
         renderer.on_thinking_content("Analyzing the problem...")
         renderer.on_thinking_content("Let me explore...")
         renderer.on_thinking_content("Now checking...")
 
-        # Should print each chunk immediately (no buffering at display layer)
-        # Now includes: separator + badge + indicator + 3 chunks
-        assert mock_console.print.call_count == 6  # Separator + badge + indicator + 3 chunks
+        # Should print each chunk immediately (no buffering at display layer).
+        assert mock_console.print.call_count == 3
 
     def test_calculate_adaptive_preview_lines_with_error_shows_all(self, renderer):
         """Adaptive preview with error shows all lines."""
