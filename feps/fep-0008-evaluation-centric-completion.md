@@ -172,6 +172,12 @@ Each phase is independently landable, behavior-gated, and reversible.
 
 Recommended order for *measurement-first* discipline: **E → D → A → B → C.**
 
+**Phase C implementation status (2026-08-23):** the bounded, opt-in per-turn auditor and injected
+edge-model judge are wired behind `per_turn_auditor` / `VICTOR_PER_TURN_AUDITOR`, default OFF. The
+offline HTIR-oracle gate is implemented in `victor/evaluation/turn_auditor_eval.py`; an
+independently labelled real-distribution evidence artifact is still required before broader
+rollout. The gate emits PASS/HOLD only and does not flip the default.
+
 ## Unresolved Questions
 
 1. **Rubric calibration across domains**: How many per-task-family rubrics are needed? AdaRubric
