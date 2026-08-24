@@ -11,6 +11,12 @@ prerequisite for broader rollout; it does not enable `per_turn_auditor`, change
 `VICTOR_PER_TURN_AUDITOR`, or authorize a default flip. A later flag-OFF/ON real-agent A/B must
 also match-or-beat task success.
 
+`victor/evaluation/turn_auditor_evidence.py` is the corresponding evidence producer. It accepts
+only a label pack without model observations, replays every HTIR prefix through the production
+two-tier auditor, resolves the exact Ollama tag to a SHA-256 digest, disables decision caching,
+and checks that the tag still has the same digest after the battery. This keeps oracle labelling
+independent from the auditor under test.
+
 ## Evidence contract
 
 Each case contains:
@@ -25,6 +31,23 @@ The oracle label must not come from the auditor being evaluated. The evidence pr
 programmatic verifier, an independently reviewed annotation overlay, or another versioned source,
 but must record that identity in `oracle_source`. The evaluated model/build is pinned in the
 top-level `auditor_id`.
+
+The label pack uses the same schema as the evidence input except that it must omit top-level
+`auditor_id` and every case's `observations`. Each trace should retain source metadata sufficient
+to locate the original real-agent run; labels derived from the auditor's own verdicts are invalid.
+
+Produce and assess a battery with the configured edge model:
+
+```bash
+python -m victor.evaluation.turn_auditor_evidence labels.json \
+  --model qwen3.5:2b \
+  --expected-digest 324d162be6ca5629ae4517c8710434d0bd2d665bc94dbad46e9af8fbf8a2f0df \
+  --output evidence.json \
+  --report report.json
+```
+
+The producer exits nonzero when the generated report is HOLD. That is an expected experimental
+result, not permission to relax the pre-registered thresholds.
 
 ## Pre-registered gate
 
