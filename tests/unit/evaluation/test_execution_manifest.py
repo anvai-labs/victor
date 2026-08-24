@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -98,8 +99,9 @@ class _TaskResult:
 
 
 class _EvalResult:
-    def __init__(self, task_results):
+    def __init__(self, task_results, *, benchmark: str = ""):
         self.task_results = task_results
+        self.config = SimpleNamespace(benchmark=SimpleNamespace(value=benchmark))
 
 
 def _write_decisions(path: Path, mapping: dict[str, list[dict]]) -> None:
@@ -173,11 +175,12 @@ def test_build_manifest_records_joins_decisions(monkeypatch, tmp_path):
             trace={"session_id": "SF"},
         ),
     ]
-    records = build_manifest_records(tasks)
+    records = build_manifest_records(tasks, benchmark="code-fix")
     assert len(records) == 2
     by_task = {r["task_id"]: r for r in records}
 
     assert by_task["pass-task"]["reward"] == "pass"
+    assert by_task["pass-task"]["benchmark"] == "code-fix"
     assert by_task["pass-task"]["code_search_calls"] == 2
     assert len(by_task["pass-task"]["decisions"]) == 2
     assert by_task["pass-task"]["trace"]["session_id"] == "SP"
@@ -198,7 +201,8 @@ def test_emit_execution_manifest_writes_jsonl(monkeypatch, tmp_path):
                 tests_total=1,
                 trace={"tool_calls": [{"name": "code", "arguments": {"cmd": "search x"}}]},
             )
-        ]
+        ],
+        benchmark="mbpp",
     )
     out = emit_execution_manifest(eval_result, output_dir=tmp_path, run_id="run1")
     assert out is not None
@@ -207,6 +211,7 @@ def test_emit_execution_manifest_writes_jsonl(monkeypatch, tmp_path):
     assert rec["task_id"] == "t1"
     assert rec["reward"] == "pass"
     assert rec["session_id"] == "S1"
+    assert rec["benchmark"] == "mbpp"
 
 
 def test_emit_execution_manifest_empty_skips(tmp_path):
