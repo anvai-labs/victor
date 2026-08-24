@@ -202,6 +202,7 @@ class HTIRTrace:
             "task_id": self.task_id,
             "session_id": self.session_id,
             "benchmark": self.benchmark,
+            "metadata": dict(self.metadata),
             "n_steps": len(self.steps),
             "failures_by_layer": {k.value: v for k, v in self.failures_by_layer().items()},
             "steps": [s.to_dict() for s in self.steps],
