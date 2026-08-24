@@ -17,6 +17,13 @@ two-tier auditor, resolves the exact Ollama tag to a SHA-256 digest, disables de
 and checks that the tag still has the same digest after the battery. This keeps oracle labelling
 independent from the auditor under test.
 
+`victor/evaluation/turn_auditor_review_pack.py` prepares that independent label pack from real-run
+`eval_manifest_*.jsonl` files. Exported cases start in an explicit `pending` state; a null alarm
+step is not a healthy label until a reviewer changes the state to `included` and records a
+versioned `oracle_source`. Finalization refuses any pending case, permits explicit exclusions, and
+strips task/tool reviewer context before emitting the evidence-producer input. It never invokes
+the auditor.
+
 ## Evidence contract
 
 Each case contains:
@@ -35,6 +42,25 @@ top-level `auditor_id`.
 The label pack uses the same schema as the evidence input except that it must omit top-level
 `auditor_id` and every case's `observations`. Each trace should retain source metadata sufficient
 to locate the original real-agent run; labels derived from the auditor's own verdicts are invalid.
+
+Legacy manifests often lack a benchmark/family field. Assign the real task family explicitly per
+source rather than inferring it from outcomes or task text. The export contains bounded task,
+tool-argument/result, and final-response context for local review, which may contain sensitive
+repository data; keep the review pack local and use `--without-context` when reviewers will inspect
+the source manifests directly.
+
+```bash
+python -m victor.evaluation.turn_auditor_review_pack export \
+  --source code-fix=~/.victor/evaluations/eval_manifest_FIX.jsonl \
+  --source code-gen=~/.victor/evaluations/eval_manifest_GEN.jsonl \
+  --output artifacts/evr6/review-pack.json
+
+# Independently review every case: status=included|excluded. Included cases require
+# oracle_source and oracle_alarm_step (integer, or null only for a reviewed healthy trace).
+python -m victor.evaluation.turn_auditor_review_pack finalize \
+  artifacts/evr6/review-pack.json \
+  --output artifacts/evr6/labels.json
+```
 
 Produce and assess a battery with the configured edge model:
 

@@ -105,8 +105,15 @@ def load_decisions_by_session(session_ids: Iterable[str]) -> dict[str, list[dict
     return bucketed
 
 
-def build_manifest_records(task_results: Iterable[Any]) -> list[dict[str, Any]]:
-    """Build one manifest record per task, joining outcome + trace + decisions."""
+def build_manifest_records(
+    task_results: Iterable[Any], *, benchmark: str = ""
+) -> list[dict[str, Any]]:
+    """Build one manifest record per task, joining outcome + trace + decisions.
+
+    ``benchmark`` is persisted at record level because older trace producers did not always stamp
+    ``trace.benchmark``. Downstream review/evidence tooling must not guess a task family from text
+    or outcome.
+    """
     task_results = list(task_results)
     session_ids = {
         getattr(tr, "session_id", "") for tr in task_results if getattr(tr, "session_id", "")
@@ -121,6 +128,7 @@ def build_manifest_records(task_results: Iterable[Any]) -> list[dict[str, Any]]:
             {
                 "session_id": sid,
                 "task_id": getattr(tr, "task_id", ""),
+                "benchmark": str(trace.get("benchmark") or benchmark),
                 "status": _status_value(getattr(tr, "status", None)),
                 "reward": _reward(tr),
                 "tests_passed": int(getattr(tr, "tests_passed", 0) or 0),
@@ -168,7 +176,10 @@ def emit_execution_manifest(
         run_id = run_id or uuid.uuid4().hex[:12]
         manifest_path = output_dir / f"eval_manifest_{run_id}.jsonl"
 
-        records = build_manifest_records(task_results)
+        config = getattr(eval_result, "config", None)
+        raw_benchmark = getattr(config, "benchmark", "")
+        benchmark = str(getattr(raw_benchmark, "value", raw_benchmark) or "")
+        records = build_manifest_records(task_results, benchmark=benchmark)
         with manifest_path.open("w", encoding="utf-8") as fh:
             for rec in records:
                 fh.write(json.dumps(rec, default=str) + "\n")
