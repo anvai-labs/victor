@@ -121,5 +121,6 @@ def test_to_dict_is_serializable() -> None:
     payload = normalize(trace).to_dict()
     assert payload["task_id"] == "t1"
     assert payload["session_id"] == "s1"
+    assert payload["metadata"] == {"turns": 0, "tool_calls": 1}
     assert payload["n_steps"] == 1
     assert payload["steps"][0]["layer"] == "execution"
