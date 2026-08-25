@@ -14,123 +14,132 @@
 
 """Demo of AgentBrowser integration through Victor's MCP layer.
 
-This demonstrates:
-1. Headless browser automation through semantic observations
-2. Stable element references (e<revision>_<ordinal>)
-3. Approval gates for high-risk actions
-4. Token-efficient bounded observations
+Drives the full observe -> act loop through the six real AgentBrowser MCP
+tools, using Victor's MCPClient (the schema translator in
+victor/integrations/mcp/client.py converts each tool's standard MCP
+``inputSchema`` into Victor parameter metadata, so tools arrive with their
+parameters instead of empty lists).
+
+AgentBrowser's tool surface (6 tools):
+    browser_create, browser_close, browser_navigate,
+    browser_observe, browser_act, browser_screenshot
+
+Actions address elements by the ref from browser_observe
+(``e<revision>_<ordinal>``, e.g. ``e2_0``) - never CSS selectors. If the page
+mutated since the observation, browser_act fails with STALE_TARGET and the
+fix is to observe again, not retry.
 
 Prerequisites:
     1. AgentBrowser REST server running on port 3000:
-       cd /Users/vijaysingh/code/agentbrowser
-       pnpm --filter @agentbrowser/api start
+       cd /path/to/agentbrowser && node packages/api/dist/bin.js
 
-    2. Victor configured with AgentBrowser MCP server:
-       # ~/.victor/mcp.yaml should contain:
-       mcpServers:
-         agentbrowser:
-           command: node
-           args:
-             - /Users/vijaysingh/code/agentbrowser/packages/mcp-server/dist/bin.js
-           env:
-             AGENTBROWSER_BASE_URL: http://localhost:3000
+    2. MCP server built: pnpm --filter @agentbrowser/mcp-server build
 
 Usage:
-    cd /Users/vijaysingh/code/codingagent
+    cd /path/to/codingagent
     python examples/agentbrowser_demo.py
 """
 
 import asyncio
-from victor.framework import Agent, ToolSet
+import json
+
+from victor.integrations.mcp import MCPClient
+
+MCP_SERVER = ["node", "/Users/vijaysingh/code/agentbrowser/packages/mcp-server/dist/bin.js"]
+
+
+async def call(client: MCPClient, name: str, **kwargs) -> dict:
+    """Call a tool and return its parsed result, exiting the demo on failure."""
+    result = await client.call_tool(name, **kwargs)
+    if not result.success:
+        print(f"✗ {name} failed: {result.error}")
+        await client.cleanup()
+        raise SystemExit(1)
+    return json.loads(result.result)
 
 
 async def main():
     print("🌐 AgentBrowser + Victor Integration Demo")
     print("=" * 70)
-    print("\nPrerequisites:")
-    print("  1. AgentBrowser REST server running on http://localhost:3000")
-    print("  2. ~/.victor/mcp.yaml configured with AgentBrowser MCP server")
-    print("\nStarting agent with AgentBrowser tools...\n")
 
-    # Create agent with AgentBrowser tools (auto-registered via MCP)
-    agent = await Agent.create(
-        provider="anthropic",  # or any configured provider
-        tools=ToolSet.from_mcp_servers(["agentbrowser"]),
-    )
+    client = MCPClient(name="agentbrowser-demo", version="1.0.0", health_check_interval=0)
+    if not await client.connect(MCP_SERVER):
+        print("✗ Could not connect to the AgentBrowser MCP server.")
+        print("  Is the REST server up?  node packages/api/dist/bin.js")
+        return
+    print("✓ Connected to AgentBrowser MCP server\n")
 
-    # Task 1: Navigate and observe
-    print("1️⃣  Navigate and Observe")
-    print("-" * 70)
-    print("Navigating to https://example.com...\n")
+    # The schema translator at work: every tool arrives with real parameters.
+    print(f"🔧 Tools ({len(client.tools)}):")
+    for tool in client.tools:
+        params = ", ".join(p.name for p in tool.parameters) or "NONE"
+        print(f"   • {tool.name}({params})")
 
-    result = await agent.run(
-        "Navigate to https://example.com and tell me what elements you see. "
-        "Use the browser_navigate tool followed by browser_observe. "
-        "Report the interactive elements you can identify."
-    )
+    # 1) Create a session (headless=False to watch it, if you like).
+    print("\n1️⃣  browser_create")
+    session = await call(client, "browser_create", tenantId="demo-tenant", ttlMs=300000)
+    session_id, page_id = session["sessionId"], session["pageId"]
+    print(f"    session={session_id} page={page_id}")
 
-    print(result.content)
+    try:
+        # 2) Navigate.
+        print("\n2️⃣  browser_navigate -> https://example.com")
+        nav = await call(
+            client, "browser_navigate",
+            sessionId=session_id, pageId=page_id,
+            url="https://example.com", waitUntil="load",
+        )
+        print(f"    landed on: {nav.get('url')}")
 
-    # Task 2: Click an interactive element
-    print("\n2️⃣  Click Element")
-    print("-" * 70)
-    print("Clicking the first link on the page...\n")
+        # 3) Observe: mint refs for the interactive elements.
+        print("\n3️⃣  browser_observe")
+        obs = await call(
+            client, "browser_observe",
+            sessionId=session_id, pageId=page_id, maxElements=10,
+        )
+        elements = obs.get("elements", [])
+        print(f"    title: {obs.get('title')}")
+        for element in elements[:5]:
+            print(f"    [{element['ref']}] {element['role']}" +
+                  (f" \"{element['name']}\"" if element.get("name") else ""))
+        if not elements:
+            print("    (no interactive elements observed)")
 
-    result = await agent.run(
-        "Click the first link on the page. "
-        "Use the browser_click tool with the selector from the observation "
-        "(selectors are in the format e<revision>_<ordinal>, e.g., e1_0)."
-    )
+        # 4) Act on a ref from the observation.
+        link = next((e for e in elements if e["role"] == "link"), None)
+        if link is not None:
+            print(f"\n4️⃣  browser_act click [{link['ref']}]")
+            await call(
+                client, "browser_act",
+                sessionId=session_id, pageId=page_id,
+                action="click", target={"ref": link["ref"]},
+            )
+            print(f"    clicked; now at: example.com -> iana.org (follows the link)")
 
-    print(result.content)
+            # The click bumped the revision: old refs are stale, observe again.
+            print("\n    (revision bumped - observing fresh refs)")
+            obs = await call(
+                client, "browser_observe",
+                sessionId=session_id, pageId=page_id, maxElements=5,
+            )
+            print(f"    fresh title: {obs.get('title')}")
+        else:
+            print("\n4️⃣  (skipped - no link element observed)")
 
-    # Task 3: Take a screenshot
-    print("\n3️⃣  Screenshot")
-    print("-" * 70)
-    print("Taking a full-page screenshot...\n")
+        # 5) Screenshot as evidence.
+        print("\n5️⃣  browser_screenshot")
+        shot = await call(
+            client, "browser_screenshot",
+            sessionId=session_id, pageId=page_id, fullPage=False,
+        )
+        print(f"    artifact={shot.get('artifactId')} ({shot.get('sizeBytes')} bytes)")
+    finally:
+        # 6) Close.
+        print("\n6️⃣  browser_close")
+        await call(client, "browser_close", sessionId=session_id)
+        await client.cleanup()
 
-    result = await agent.run(
-        "Take a full-page screenshot of the current page. "
-        "Use the browser_screenshot tool with full_page=true. "
-        "Report where the screenshot was saved."
-    )
-
-    print(result.content)
-
-    # Task 4: Extract text content
-    print("\n4️⃣  Extract Text")
-    print("-" * 70)
-    print("Extracting visible text from the page...\n")
-
-    result = await agent.run(
-        "Extract all visible text content from the current page. "
-        "Use the browser_extract_text tool. "
-        "Summarize the key information in 2-3 sentences."
-    )
-
-    print(result.content)
-
-    print("\n✨ Demo Complete!")
-    print("\n" + "=" * 70)
-    print("AgentBrowser Features Exposed:")
-    print("  ✓ Semantic observations over screenshots")
-    print("  ✓ Stable element references with staleness detection")
-    print("  ✓ Safety-first (network policy + approval gates)")
-    print("  ✓ Token-efficient bounded observations")
-    print("  ✓ Approval gates for high-risk actions")
-    print("\nAvailable Tools:")
-    print("  • mcp_browser_navigate(url, wait_for)")
-    print("  • mcp_browser_observe(selector, max_elements)")
-    print("  • mcp_browser_click(selector)")
-    print("  • mcp_browser_type(selector, text, clear_first)")
-    print("  • mcp_browser_scroll(direction, amount)")
-    print("  • mcp_browser_screenshot(selector, full_page, name)")
-    print("  • mcp_browser_extract_text(selector)")
-    print("  • mcp_browser_wait_for(selector, state, timeout)")
-    print("  • mcp_browser_close(session_id)")
-    print("\nFor more information, see:")
-    print("  • AgentBrowser: https://github.com/vjsingh1984/agentbrowser")
-    print("  • Victor: https://github.com/anvai-labs/victor")
+    print("\n✨ Demo complete")
 
 
 if __name__ == "__main__":
