@@ -12,9 +12,40 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Browser automation tool for AI-assisted testing and debugging.
+"""LEGACY: Browser automation tool for AI-assisted testing and debugging.
 
-This module provides browser automation capabilities using Playwright,
+⚠️  DEPRECATED: Use AgentBrowser through Victor's MCP integration instead.
+
+This file is retained for reference only and will be removed in v0.8.
+Import from victor.tools.browser_tool_legacy will be removed in v0.9.
+
+✅ Recommended replacement:
+    Configure AgentBrowser MCP server in ~/.victor/mcp.yaml:
+        mcpServers:
+          agentbrowser:
+            command: node
+            args: [/path/to/agentbrowser/packages/mcp-server/dist/bin.js]
+            env:
+              AGENTBROWSER_BASE_URL: http://localhost:3000
+
+    Then use with Victor:
+        from victor.framework import Agent, ToolSet
+        agent = await Agent.create(
+            tools=ToolSet.from_mcp_servers(["agentbrowser"])
+        )
+
+AgentBrowser provides:
+- Semantic observations over screenshots
+- Stable element references with staleness detection
+- Safety-first network policy and approval gates
+- Token-efficient bounded observations
+
+See: examples/agentbrowser_demo.py
+      https://github.com/vjsingh1984/agentbrowser
+
+---
+
+This legacy module provides browser automation capabilities using Playwright,
 enabling Victor to:
 - Navigate to URLs and interact with web pages
 - Take screenshots for visual debugging

@@ -25,14 +25,23 @@ class TestRunRealBenchmarkAsync:
             parallel_tasks=3,
         )
         benchmark_runner = MagicMock()
+        eval_result = MagicMock()
+        framework_result = MagicMock()
         real_runner = MagicMock()
-        real_runner.execute_real_run = AsyncMock(return_value=(MagicMock(), MagicMock()))
+        real_runner.execute_real_run = AsyncMock(return_value=(eval_result, framework_result))
+        manifest_path = tmp_path / "eval_manifest_realrun.jsonl"
 
-        with patch(
-            "victor.evaluation.real_run_runner.RealRunBenchmarkRunner",
-            return_value=real_runner,
-        ) as runner_cls:
-            await _run_real_benchmark_async(
+        with (
+            patch(
+                "victor.evaluation.real_run_runner.RealRunBenchmarkRunner",
+                return_value=real_runner,
+            ) as runner_cls,
+            patch(
+                "victor.evaluation.manifest.emit_execution_manifest",
+                return_value=manifest_path,
+            ) as emit_manifest,
+        ):
+            result = await _run_real_benchmark_async(
                 runner=benchmark_runner,
                 config=config,
                 output_dir=tmp_path,
@@ -52,3 +61,39 @@ class TestRunRealBenchmarkAsync:
             resume=True,
             benchmark_runner=benchmark_runner,
         )
+        emit_manifest.assert_called_once_with(eval_result)
+        assert result == (eval_result, framework_result)
+
+    @pytest.mark.asyncio
+    async def test_manifest_failure_does_not_discard_real_run_result(self):
+        from victor.evaluation.protocol import BenchmarkType, EvaluationConfig
+        from victor.ui.commands.benchmark import _run_real_benchmark_async
+
+        config = EvaluationConfig(
+            benchmark=BenchmarkType.HUMAN_EVAL,
+            model="test-model",
+        )
+        eval_result = MagicMock()
+        framework_result = MagicMock()
+        real_runner = MagicMock()
+        real_runner.execute_real_run = AsyncMock(return_value=(eval_result, framework_result))
+
+        with (
+            patch(
+                "victor.evaluation.real_run_runner.RealRunBenchmarkRunner",
+                return_value=real_runner,
+            ),
+            patch(
+                "victor.evaluation.manifest.emit_execution_manifest",
+                side_effect=OSError("artifact directory is read-only"),
+            ),
+        ):
+            result = await _run_real_benchmark_async(
+                runner=MagicMock(),
+                config=config,
+                output_dir=None,
+                resume=False,
+                profile="default",
+            )
+
+        assert result == (eval_result, framework_result)

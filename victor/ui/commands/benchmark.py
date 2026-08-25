@@ -1261,11 +1261,27 @@ async def _run_real_benchmark_async(
             output_dir=output_dir,
         )
     )
-    return await real_runner.execute_real_run(
+    eval_result, framework_result = await real_runner.execute_real_run(
         config,
         resume=resume,
         benchmark_runner=runner,
     )
+
+    # The service-first path must emit the same joinable per-task artifact as
+    # ``benchmark run``.  Without it, a successful real run cannot feed trace
+    # mining or the independently labelled EVR-6 review-pack workflow.
+    # Manifest persistence remains best-effort so an artifact failure never
+    # invalidates the benchmark result itself.
+    try:
+        from victor.evaluation.manifest import emit_execution_manifest
+
+        manifest_path = emit_execution_manifest(eval_result)
+        if manifest_path is not None:
+            console.print(f"[dim]Execution manifest: {manifest_path}[/]")
+    except Exception as exc:  # never break the benchmark
+        logger.debug("Execution manifest emission skipped: %s", exc)
+
+    return eval_result, framework_result
 
 
 @benchmark_app.command("run-real")

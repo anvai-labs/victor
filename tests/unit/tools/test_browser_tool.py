@@ -20,6 +20,14 @@ from unittest import mock
 
 import pytest
 
+# Skip all tests in this file - browser_tool is deprecated
+# See: victor/tools/browser_tool_legacy.py for migration path to AgentBrowser
+pytest.skip(
+    "browser_tool is deprecated; use AgentBrowser MCP integration instead. "
+    "See examples/agentbrowser_demo.py for usage.",
+    allow_module_level=True,
+)
+
 from victor.tools.browser_tool import (
     BrowserAction,
     BrowserConfig,
