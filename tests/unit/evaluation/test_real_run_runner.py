@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from victor.evaluation.real_run_runner import RealRunBenchmarkRunner, RealRunConfig
+from victor.providers.base import CompletionResponse
 
 
 def _config(**kw) -> RealRunConfig:
@@ -34,6 +35,20 @@ def _mock_task(task_id: str = "t1", prompt: str = "fix the bug") -> MagicMock:
 
 
 class TestExecuteRealRun:
+    async def test_execute_real_run_rejects_parallel_singleton_access(self):
+        runner = RealRunBenchmarkRunner(_config(parallel_tasks=2))
+
+        with pytest.raises(ValueError, match="parallel_tasks=1"):
+            await runner.execute_real_run(MagicMock())
+
+    async def test_execute_real_run_rejects_parallel_evaluation_config(self):
+        runner = RealRunBenchmarkRunner(_config())
+        eval_config = MagicMock()
+        eval_config.parallel_tasks = 2
+
+        with pytest.raises(ValueError, match="parallel_tasks=1"):
+            await runner.execute_real_run(eval_config)
+
     async def test_execute_real_run_calls_harness_with_agent_callback(self):
         mock_eval_result = MagicMock()
         mock_eval_result.total_tasks = 1
@@ -147,13 +162,33 @@ class TestAgentCallback:
         callback = runner._make_agent_callback()
 
         mock_chat = MagicMock()
+        observed_session_ids = []
 
-        async def _fake_stream(prompt):
-            event = MagicMock()
-            event.content = "hello"
-            yield event
+        async def _fake_chat(prompt):
+            from victor.core.context import get_session_id
 
-        mock_chat.stream_response = _fake_stream
+            observed_session_ids.append(get_session_id())
+            return CompletionResponse(
+                content="hello",
+                usage={"prompt_tokens": 3, "completion_tokens": 2, "total_tokens": 5},
+            )
+
+        mock_chat.chat = AsyncMock(side_effect=_fake_chat)
+        mock_chat.get_last_task_report.return_value = {
+            "api_prompt_tokens": 7,
+            "api_completion_tokens": 4,
+            "api_total_tokens": 11,
+            "cache_read_tokens": 2,
+            "total_cost_usd": 0.000123,
+        }
+        mock_chat.get_conversation_trace.return_value = {
+            "messages": [
+                {"role": "user", "content": "fix the bug"},
+                {"role": "assistant", "content": "hello"},
+            ],
+            "tool_calls": [{"name": "read", "arguments": "a.py"}],
+            "turns": 1,
+        }
 
         with patch("victor.evaluation.real_run_runner.get_container") as mock_get:
             container = MagicMock()
@@ -161,7 +196,94 @@ class TestAgentCallback:
             mock_get.return_value = container
             result = await callback(_mock_task())
 
-        assert "hello" in result
+        mock_chat.reset_conversation.assert_called_once_with()
+        mock_chat.chat.assert_awaited_once_with("fix the bug")
+        assert observed_session_ids == [result["session_id"]]
+        assert result["code"] == "hello"
+        assert result["tokens_used"] == 11
+        assert result["cached_tokens"] == 2
+        assert result["cost_usd_micros"] == 123
+        assert result["tool_calls"] == 1
+        assert result["conversation_trace"]["task_id"] == "t1"
+        assert result["task_report"]["api_total_tokens"] == 11
+
+    async def test_agent_failure_returns_auditable_payload(self):
+        runner = RealRunBenchmarkRunner(_config())
+        callback = runner._make_agent_callback()
+        mock_chat = MagicMock()
+        mock_chat.chat = AsyncMock(side_effect=RuntimeError("provider failed"))
+        mock_chat.get_last_task_report.return_value = {"api_total_tokens": 9}
+        mock_chat.get_conversation_trace.return_value = {
+            "messages": [{"role": "user", "content": "fix the bug"}],
+            "tool_calls": [{"name": "search", "arguments": "bug"}],
+            "turns": 1,
+        }
+
+        with patch("victor.evaluation.real_run_runner.get_container") as mock_get:
+            container = MagicMock()
+            container.get_optional.return_value = mock_chat
+            mock_get.return_value = container
+            result = await callback(_mock_task())
+
+        assert result["code"] == ""
+        assert result["tokens_used"] == 9
+        assert result["tool_calls"] == 1
+        assert result["metadata"]["agent_error"] == "RuntimeError: provider failed"
+        assert callback._partial_data == result
+
+    async def test_agent_callback_raises_when_conversation_reset_fails(self):
+        runner = RealRunBenchmarkRunner(_config())
+        callback = runner._make_agent_callback()
+        mock_chat = MagicMock()
+        mock_chat.reset_conversation.side_effect = RuntimeError("locked")
+
+        with patch("victor.evaluation.real_run_runner.get_container") as mock_get:
+            container = MagicMock()
+            container.get_optional.return_value = mock_chat
+            mock_get.return_value = container
+            with pytest.raises(RuntimeError, match="could not isolate"):
+                await callback(_mock_task())
+
+    async def test_cancelled_callback_retains_partial_trace_and_restores_session(self):
+        from victor.core.context import get_session_id, set_session_id
+
+        runner = RealRunBenchmarkRunner(_config())
+        callback = runner._make_agent_callback()
+        mock_chat = MagicMock()
+        started = asyncio.Event()
+
+        async def _blocked_chat(prompt):
+            started.set()
+            await asyncio.Event().wait()
+
+        mock_chat.chat = AsyncMock(side_effect=_blocked_chat)
+        mock_chat.get_last_task_report.return_value = {"api_total_tokens": 6}
+        mock_chat.get_conversation_trace.return_value = {
+            "messages": [{"role": "user", "content": "fix the bug"}],
+            "tool_calls": [{"name": "search", "arguments": "bug"}],
+            "turns": 1,
+        }
+
+        outer_token = set_session_id("outer-session")
+        try:
+            with patch("victor.evaluation.real_run_runner.get_container") as mock_get:
+                container = MagicMock()
+                container.get_optional.return_value = mock_chat
+                mock_get.return_value = container
+                task = asyncio.create_task(callback(_mock_task()))
+                await started.wait()
+                task.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await task
+
+            assert callback._partial_data["tokens_used"] == 6
+            assert callback._partial_data["tool_calls"] == 1
+            assert callback._partial_data["session_id"] != "outer-session"
+            assert get_session_id() == "outer-session"
+        finally:
+            from victor.core.context import session_id as session_context
+
+            session_context.reset(outer_token)
 
     async def test_agent_callback_raises_when_chat_service_is_unavailable(self):
         """A run that never reached ChatService is not a measurement of it.

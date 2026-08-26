@@ -29,7 +29,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
-from typing import TYPE_CHECKING, Any, AsyncIterator, Callable, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, AsyncIterator, Callable, Dict, List, Mapping, Optional
 
 if TYPE_CHECKING:
     from victor.agent.services.protocols import (
@@ -129,6 +129,7 @@ class ChatService:
         self._context_limit_handler: Optional[Callable[..., Any]] = None
         self._task_report_start_handler: Optional[Callable[..., Any]] = None
         self._task_report_finish_handler: Optional[Callable[..., Any]] = None
+        self._last_task_report: Optional[Dict[str, Any]] = None
         self._turn_setup_handler: Optional[Callable[..., Any]] = None
         self._turn_teardown_handler: Optional[Callable[..., Any]] = None
         self._context_accepts_keyword_messages: Optional[bool] = None
@@ -422,6 +423,7 @@ class ChatService:
         a new conversation session.
         """
         self._logger.debug("Resetting conversation")
+        self._last_task_report = None
         self._context.clear_messages(retain_system=True)
         manages_controller = getattr(self._context, "manages_conversation_controller", None)
         if callable(manages_controller) and manages_controller(self._conversation):
@@ -560,6 +562,69 @@ class ChatService:
 
         return metadata
 
+    def get_last_task_report(self) -> Optional[Dict[str, Any]]:
+        """Return a copy of the most recently completed canonical task report."""
+        return dict(self._last_task_report) if self._last_task_report is not None else None
+
+    def get_conversation_trace(self) -> Dict[str, Any]:
+        """Return a bounded, JSON-safe trace of the current conversation.
+
+        Evaluation artifacts need enough evidence to audit an execution without
+        embedding raw provider responses, images, or unbounded tool output.
+        """
+        try:
+            messages = list(self._context.get_messages())[-50:]
+        except Exception:
+            messages = []
+
+        serialized_messages: List[Dict[str, str]] = []
+        serialized_tool_calls: List[Dict[str, str]] = []
+        turns = 0
+        for message in messages:
+            if isinstance(message, Mapping):
+                role = str(message.get("role", "") or "")
+                content = str(message.get("content", "") or "")
+                tool_calls = message.get("tool_calls")
+            else:
+                role = str(getattr(message, "role", "") or "")
+                content = str(getattr(message, "content", "") or "")
+                tool_calls = getattr(message, "tool_calls", None)
+
+            serialized_messages.append({"role": role, "content": content[:500]})
+            if role == "user":
+                turns += 1
+
+            if not isinstance(tool_calls, list):
+                continue
+            for tool_call in tool_calls:
+                if len(serialized_tool_calls) >= 100:
+                    break
+                if isinstance(tool_call, Mapping):
+                    function = tool_call.get("function")
+                    if isinstance(function, Mapping):
+                        name = function.get("name", "")
+                        arguments = function.get("arguments", "")
+                    else:
+                        name = tool_call.get("name", "")
+                        arguments = tool_call.get("arguments", "")
+                else:
+                    function = getattr(tool_call, "function", None)
+                    name = getattr(function, "name", getattr(tool_call, "name", ""))
+                    arguments = getattr(
+                        function,
+                        "arguments",
+                        getattr(tool_call, "arguments", ""),
+                    )
+                serialized_tool_calls.append(
+                    {"name": str(name or ""), "arguments": str(arguments or "")[:500]}
+                )
+
+        return {
+            "messages": serialized_messages,
+            "tool_calls": serialized_tool_calls[-100:],
+            "turns": turns,
+        }
+
     # ==========================================================================
     # Private Methods
     # ==========================================================================
@@ -580,16 +645,18 @@ class ChatService:
         callback: Optional[Callable[..., Any]],
         *args: Any,
         **kwargs: Any,
-    ) -> None:
+    ) -> Any:
         """Invoke sync or async runtime callbacks without breaking the chat path."""
         if callback is None:
-            return
+            return None
         try:
             result = callback(*args, **kwargs)
             if inspect.isawaitable(result):
-                await result
+                result = await result
+            return result
         except Exception as exc:
             self._logger.debug("Runtime callback failed: %s", exc)
+            return None
 
     async def _start_task_report(
         self,
@@ -599,6 +666,7 @@ class ChatService:
         metadata: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Notify the canonical runtime that a task report should begin."""
+        self._last_task_report = None
         await self._run_optional_callback(
             self._task_report_start_handler,
             user_message,
@@ -617,7 +685,7 @@ class ChatService:
         metadata: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Notify the canonical runtime that a task report finished."""
-        await self._run_optional_callback(
+        report = await self._run_optional_callback(
             self._task_report_finish_handler,
             success,
             user_message=user_message,
@@ -626,6 +694,8 @@ class ChatService:
             error=error,
             metadata=metadata or {},
         )
+        if isinstance(report, Mapping):
+            self._last_task_report = dict(report)
 
     @staticmethod
     def _response_execution_success(response: Optional[Any]) -> bool:
