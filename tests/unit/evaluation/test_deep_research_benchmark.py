@@ -75,6 +75,116 @@ class TestDeepResearchBenchmarkRunner:
         assert tasks[0].category == "deep_research"
 
     @pytest.mark.asyncio
+    async def test_load_tasks_from_official_dr3_query_manifest(self, tmp_path):
+        """Official query rows should expose every verified user file to the agent."""
+        dataset_dir = tmp_path / "datasets_en"
+        task_dir = dataset_dir / "001"
+        task_dir.mkdir(parents=True)
+        report = task_dir / "market report.pdf"
+        video = task_dir / "overview.mp4"
+        report.write_bytes(b"report")
+        video.write_bytes(b"video")
+        dataset = dataset_dir / "query.jsonl"
+        query = "Synthesize the attached market evidence."
+        dataset.write_text(
+            json.dumps(
+                {
+                    "task": "001",
+                    "query": query,
+                    "user_files": [report.name, video.name],
+                }
+            )
+            + "\n"
+        )
+
+        runner = DeepResearchBenchmarkRunner(dataset)
+        task = (
+            await runner.load_tasks(
+                EvaluationConfig(benchmark=BenchmarkType.DR3_EVAL, model="test")
+            )
+        )[0]
+
+        assert task.task_id == "001"
+        assert task.description == query
+        assert task.prompt.startswith(query)
+        assert "User-provided files" in task.prompt
+        assert str(report.resolve()) in task.prompt
+        assert str(video.resolve()) in task.prompt
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("user_files", ["report.pdf", {}, [], [""]])
+    async def test_official_dr3_user_files_fail_closed_on_invalid_shapes(
+        self, tmp_path, user_files
+    ):
+        """Malformed or empty official file lists must not become fileless tasks."""
+        dataset_dir = tmp_path / "datasets_en"
+        (dataset_dir / "001").mkdir(parents=True)
+        dataset = dataset_dir / "query.jsonl"
+        dataset.write_text(
+            json.dumps(
+                {
+                    "task": "001",
+                    "query": "Research the supplied evidence.",
+                    "user_files": user_files,
+                }
+            )
+            + "\n"
+        )
+
+        runner = DeepResearchBenchmarkRunner(dataset)
+        with pytest.raises(ValueError, match="user_files"):
+            await runner.load_tasks(
+                EvaluationConfig(benchmark=BenchmarkType.DR3_EVAL, model="test")
+            )
+
+    @pytest.mark.asyncio
+    async def test_official_dr3_user_files_fail_closed_when_file_is_missing(self, tmp_path):
+        """A manifest must not run when an official user file was not downloaded."""
+        dataset_dir = tmp_path / "datasets_en"
+        (dataset_dir / "001").mkdir(parents=True)
+        dataset = dataset_dir / "query.jsonl"
+        dataset.write_text(
+            json.dumps(
+                {
+                    "task": "001",
+                    "query": "Research the supplied evidence.",
+                    "user_files": ["missing.pdf"],
+                }
+            )
+            + "\n"
+        )
+
+        runner = DeepResearchBenchmarkRunner(dataset)
+        with pytest.raises(ValueError, match="user file not found"):
+            await runner.load_tasks(
+                EvaluationConfig(benchmark=BenchmarkType.DR3_EVAL, model="test")
+            )
+
+    @pytest.mark.asyncio
+    async def test_official_dr3_user_files_reject_task_directory_escape(self, tmp_path):
+        """User-file paths may not escape the official task directory."""
+        dataset_dir = tmp_path / "datasets_en"
+        (dataset_dir / "001").mkdir(parents=True)
+        (dataset_dir / "outside.pdf").write_bytes(b"outside")
+        dataset = dataset_dir / "query.jsonl"
+        dataset.write_text(
+            json.dumps(
+                {
+                    "task": "001",
+                    "query": "Research the supplied evidence.",
+                    "user_files": ["../outside.pdf"],
+                }
+            )
+            + "\n"
+        )
+
+        runner = DeepResearchBenchmarkRunner(dataset)
+        with pytest.raises(ValueError, match="escapes task directory"):
+            await runner.load_tasks(
+                EvaluationConfig(benchmark=BenchmarkType.DR3_EVAL, model="test")
+            )
+
+    @pytest.mark.asyncio
     async def test_run_task_passes_when_claims_and_citations_are_covered(self, tmp_path):
         """Complete deep-research reports should pass with full completion score."""
         dataset = tmp_path / "dr3_tasks.json"
