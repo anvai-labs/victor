@@ -8,7 +8,8 @@ Prerequisites:
     1. AgentBrowser REST server running with headless=False:
        AGENTBROWSER_HEADLESS=false node /path/to/agentbrowser/packages/api/dist/bin.js
 
-    2. AgentBrowser MCP server available
+    2. agentbrowser-mcp release binary on PATH, or a local checkout's
+       built dist/ as fallback
 
 Usage:
     python examples/agentbrowser_visible_demo.py
@@ -32,11 +33,19 @@ async def main():
         health_check_interval=0,
     )
 
-    # Connect to AgentBrowser MCP server
-    server_command = [
-        "node",
-        "/Users/vijaysingh/code/agentbrowser/packages/mcp-server/dist/bin.js",
-    ]
+    # Connect to AgentBrowser MCP server: prefer the released single binary
+    # (agentbrowser-mcp v1.1.0+, no Node needed); fall back to a local checkout.
+    import shutil
+
+    server_command = (
+        ["agentbrowser-mcp"]
+        if shutil.which("agentbrowser-mcp")
+        else [
+            "node",
+            "/Users/vijaysingh/code/agentbrowser/packages/mcp-server/dist/bin.js",
+        ]
+    )
+    print(f"spawn: {' '.join(server_command)}")
 
     print("📡 Connecting to AgentBrowser MCP server...")
     success = await client.connect(server_command)
@@ -44,7 +53,9 @@ async def main():
     if not success:
         print("✗ Failed to connect to AgentBrowser MCP server")
         print("\nMake sure AgentBrowser REST server is running:")
-        print("  AGENTBROWSER_HEADLESS=false node /Users/vijaysingh/code/agentbrowser/packages/api/dist/bin.js")
+        print(
+            "  AGENTBROWSER_HEADLESS=false node /Users/vijaysingh/code/agentbrowser/packages/api/dist/bin.js"
+        )
         return
 
     print("✓ Connected to AgentBrowser MCP server")
@@ -132,13 +143,13 @@ async def main():
         print(f"   Revision: {obs_result.get('revision')}")
         print(f"   Summary: {obs_result.get('summary')}")
 
-        elements = obs_result.get('elements', [])
+        elements = obs_result.get("elements", [])
         print(f"\n   Elements found ({len(elements)}):")
 
         for i, elem in enumerate(elements[:5], 1):
-            ref = elem.get('ref')
-            role = elem.get('role')
-            visible = "👁" if elem.get('visible') else "🚫"
+            ref = elem.get("ref")
+            role = elem.get("role")
+            visible = "👁" if elem.get("visible") else "🚫"
             print(f"      {i}. [{ref}] {role} {visible}")
 
         if len(elements) > 5:
@@ -207,8 +218,10 @@ async def main():
         print(f"   Title: {obs_result.get('title')}")
         print(f"   Summary: {obs_result.get('summary')}")
 
-        elements = obs_result.get('elements', [])
-        interactive = [e for e in elements if e.get('role') in ['link', 'button', 'textbox', 'combobox']]
+        elements = obs_result.get("elements", [])
+        interactive = [
+            e for e in elements if e.get("role") in ["link", "button", "textbox", "combobox"]
+        ]
         print(f"\n   Interactive elements found: {len(interactive)}")
 
     # Keep browser open for viewing
@@ -222,7 +235,7 @@ async def main():
     print("   ⏳ Watch the Chromium window on your screen!")
 
     for i in range(10, 0, -1):
-        print(f"   ⏳ {i} seconds remaining...", end='\r')
+        print(f"   ⏳ {i} seconds remaining...", end="\r")
         await asyncio.sleep(1)
 
     print("\n   ✓ Time's up!")
@@ -267,4 +280,5 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"\n\n❌ Error: {e}")
         import traceback
+
         traceback.print_exc()

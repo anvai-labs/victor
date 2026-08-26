@@ -22,7 +22,8 @@ Prerequisites:
        cd /Users/vijaysingh/code/agentbrowser
        node packages/api/dist/bin.js
 
-    2. ~/.victor/mcp.yaml configured with AgentBrowser MCP server
+    2. agentbrowser-mcp release binary on PATH (gh release download from
+       vjsingh1984/agentbrowser), or a local checkout's built dist/ as fallback
 
 Usage:
     cd /Users/vijaysingh/code/codingagent
@@ -48,11 +49,19 @@ async def main():
         health_check_interval=0,  # Disable health monitoring for demo
     )
 
-    # Connect to AgentBrowser MCP server
-    server_command = [
-        "node",
-        "/Users/vijaysingh/code/agentbrowser/packages/mcp-server/dist/bin.js",
-    ]
+    # Connect to AgentBrowser MCP server: prefer the released single binary
+    # (agentbrowser-mcp v1.1.0+, no Node needed); fall back to a local checkout.
+    import shutil
+
+    server_command = (
+        ["agentbrowser-mcp"]
+        if shutil.which("agentbrowser-mcp")
+        else [
+            "node",
+            "/Users/vijaysingh/code/agentbrowser/packages/mcp-server/dist/bin.js",
+        ]
+    )
+    print(f"spawn: {' '.join(server_command)}")
 
     success = await client.connect(server_command)
 
@@ -83,7 +92,9 @@ async def main():
 
         print(f"\n  📌 {tool.name}")
         print(f"     Description: {tool.description}")
-        print(f"     Parameters ({param_count}): {', '.join(param_names) if param_names else 'NONE'}")
+        print(
+            f"     Parameters ({param_count}): {', '.join(param_names) if param_names else 'NONE'}"
+        )
 
         # Show parameter details for first 3 tools
         if tool == client.tools[0]:
@@ -104,6 +115,7 @@ async def main():
         print(f"✓ Session created successfully")
         # Parse sessionId from result
         import json
+
         try:
             session_data = json.loads(result.result)
             session_id = session_data.get("sessionId", "unknown")
@@ -195,7 +207,9 @@ async def main():
     print("  • Tools show complete parameter information")
     print("  • LLM can properly invoke browser automation")
     print("\nFor more information, see:")
-    print("  • Integration: .claude/projects/-Users-vijaysingh-code-agentbrowser/AGENTBROWSER_VICTOR_INTEGRATION_COMPLETE.md")
+    print(
+        "  • Integration: .claude/projects/-Users-vijaysingh-code-agentbrowser/AGENTBROWSER_VICTOR_INTEGRATION_COMPLETE.md"
+    )
     print("  • AgentBrowser: https://github.com/vjsingh1984/agentbrowser")
     print("  • Victor: https://github.com/anvai-labs/victor")
 
