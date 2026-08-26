@@ -33,7 +33,9 @@ Prerequisites:
     1. AgentBrowser REST server running on port 3000:
        cd /path/to/agentbrowser && node packages/api/dist/bin.js
 
-    2. MCP server built: pnpm --filter @agentbrowser/mcp-server build
+    2. The agentbrowser-mcp release binary on PATH (see agentbrowser_command()
+       below for the one-line install). Falls back to a local checkout's
+       `pnpm --filter @agentbrowser/mcp-server build` if the binary is absent.
 
 Usage:
     cd /path/to/codingagent
@@ -42,10 +44,29 @@ Usage:
 
 import asyncio
 import json
+import shutil
 
 from victor.integrations.mcp import MCPClient
 
-MCP_SERVER = ["node", "/Users/vijaysingh/code/agentbrowser/packages/mcp-server/dist/bin.js"]
+# Dev fallback: a local AgentBrowser checkout's node build. The released
+# single binary (v1.1.0+, TD-BROWSER-5) is preferred whenever it is on PATH.
+AGENTBROWSER_FALLBACK = [
+    "node",
+    "/Users/vijaysingh/code/agentbrowser/packages/mcp-server/dist/bin.js",
+]
+
+
+def agentbrowser_command() -> list[str]:
+    """Command that spawns the AgentBrowser MCP server.
+
+    Prefers the released self-contained binary (no Node, no checkout):
+        gh release download v1.1.0 --repo vjsingh1984/agentbrowser \
+            --pattern 'agentbrowser-mcp-<target>'
+        install -m 755 agentbrowser-mcp-<target> /opt/homebrew/bin/agentbrowser-mcp
+    """
+    if shutil.which("agentbrowser-mcp"):
+        return ["agentbrowser-mcp"]
+    return AGENTBROWSER_FALLBACK
 
 
 async def call(client: MCPClient, name: str, **kwargs) -> dict:
@@ -63,7 +84,16 @@ async def main():
     print("=" * 70)
 
     client = MCPClient(name="agentbrowser-demo", version="1.0.0", health_check_interval=0)
-    if not await client.connect(MCP_SERVER):
+    command = agentbrowser_command()
+    print(
+        f"spawn: {' '.join(command)}"
+        + (
+            ""
+            if command[0] == "agentbrowser-mcp"
+            else "  (binary not on PATH; using node fallback)"
+        )
+    )
+    if not await client.connect(command):
         print("✗ Could not connect to the AgentBrowser MCP server.")
         print("  Is the REST server up?  node packages/api/dist/bin.js")
         return
@@ -85,23 +115,31 @@ async def main():
         # 2) Navigate.
         print("\n2️⃣  browser_navigate -> https://example.com")
         nav = await call(
-            client, "browser_navigate",
-            sessionId=session_id, pageId=page_id,
-            url="https://example.com", waitUntil="load",
+            client,
+            "browser_navigate",
+            sessionId=session_id,
+            pageId=page_id,
+            url="https://example.com",
+            waitUntil="load",
         )
         print(f"    landed on: {nav.get('url')}")
 
         # 3) Observe: mint refs for the interactive elements.
         print("\n3️⃣  browser_observe")
         obs = await call(
-            client, "browser_observe",
-            sessionId=session_id, pageId=page_id, maxElements=10,
+            client,
+            "browser_observe",
+            sessionId=session_id,
+            pageId=page_id,
+            maxElements=10,
         )
         elements = obs.get("elements", [])
         print(f"    title: {obs.get('title')}")
         for element in elements[:5]:
-            print(f"    [{element['ref']}] {element['role']}" +
-                  (f" \"{element['name']}\"" if element.get("name") else ""))
+            print(
+                f"    [{element['ref']}] {element['role']}"
+                + (f" \"{element['name']}\"" if element.get("name") else "")
+            )
         if not elements:
             print("    (no interactive elements observed)")
 
@@ -110,17 +148,23 @@ async def main():
         if link is not None:
             print(f"\n4️⃣  browser_act click [{link['ref']}]")
             await call(
-                client, "browser_act",
-                sessionId=session_id, pageId=page_id,
-                action="click", target={"ref": link["ref"]},
+                client,
+                "browser_act",
+                sessionId=session_id,
+                pageId=page_id,
+                action="click",
+                target={"ref": link["ref"]},
             )
             print(f"    clicked; now at: example.com -> iana.org (follows the link)")
 
             # The click bumped the revision: old refs are stale, observe again.
             print("\n    (revision bumped - observing fresh refs)")
             obs = await call(
-                client, "browser_observe",
-                sessionId=session_id, pageId=page_id, maxElements=5,
+                client,
+                "browser_observe",
+                sessionId=session_id,
+                pageId=page_id,
+                maxElements=5,
             )
             print(f"    fresh title: {obs.get('title')}")
         else:
@@ -129,8 +173,11 @@ async def main():
         # 5) Screenshot as evidence.
         print("\n5️⃣  browser_screenshot")
         shot = await call(
-            client, "browser_screenshot",
-            sessionId=session_id, pageId=page_id, fullPage=False,
+            client,
+            "browser_screenshot",
+            sessionId=session_id,
+            pageId=page_id,
+            fullPage=False,
         )
         print(f"    artifact={shot.get('artifactId')} ({shot.get('sizeBytes')} bytes)")
     finally:
