@@ -31,6 +31,8 @@ import inspect
 import logging
 from typing import TYPE_CHECKING, Any, AsyncIterator, Callable, Dict, List, Optional
 
+from victor.agent.services.chat_evidence import ChatEvidenceMixin
+
 if TYPE_CHECKING:
     from victor.agent.services.protocols import (
         ToolServiceProtocol,
@@ -66,7 +68,7 @@ class ChatServiceConfig:
         self.enable_response_caching = enable_response_caching
 
 
-class ChatService:
+class ChatService(ChatEvidenceMixin):
     """[CANONICAL] Service for managing chat operations.
 
     The target implementation for chat operations following the
@@ -422,6 +424,7 @@ class ChatService:
         a new conversation session.
         """
         self._logger.debug("Resetting conversation")
+        self._last_task_report = None
         self._context.clear_messages(retain_system=True)
         manages_controller = getattr(self._context, "manages_conversation_controller", None)
         if callable(manages_controller) and manages_controller(self._conversation):
@@ -574,70 +577,6 @@ class ChatService:
     # NOTE: Orchestrator now wires the canonical service/runtime path directly.
     # ServiceStreamingRuntime owns the streaming executor + AgenticLoop
     # integration for perception, fulfillment, and progress tracking.
-
-    async def _run_optional_callback(
-        self,
-        callback: Optional[Callable[..., Any]],
-        *args: Any,
-        **kwargs: Any,
-    ) -> None:
-        """Invoke sync or async runtime callbacks without breaking the chat path."""
-        if callback is None:
-            return
-        try:
-            result = callback(*args, **kwargs)
-            if inspect.isawaitable(result):
-                await result
-        except Exception as exc:
-            self._logger.debug("Runtime callback failed: %s", exc)
-
-    async def _start_task_report(
-        self,
-        user_message: str,
-        *,
-        stream: bool,
-        metadata: Optional[Dict[str, Any]] = None,
-    ) -> None:
-        """Notify the canonical runtime that a task report should begin."""
-        await self._run_optional_callback(
-            self._task_report_start_handler,
-            user_message,
-            stream=stream,
-            metadata=metadata or {},
-        )
-
-    async def _finish_task_report(
-        self,
-        success: bool,
-        *,
-        user_message: str,
-        stream: bool,
-        response: Optional[Any] = None,
-        error: Optional[BaseException] = None,
-        metadata: Optional[Dict[str, Any]] = None,
-    ) -> None:
-        """Notify the canonical runtime that a task report finished."""
-        await self._run_optional_callback(
-            self._task_report_finish_handler,
-            success,
-            user_message=user_message,
-            stream=stream,
-            response=response,
-            error=error,
-            metadata=metadata or {},
-        )
-
-    @staticmethod
-    def _response_execution_success(response: Optional[Any]) -> bool:
-        """Return whether a response represents successful task execution."""
-        if response is None:
-            return True
-        metadata = getattr(response, "metadata", None)
-        if isinstance(response, dict):
-            metadata = response.get("metadata", metadata)
-        if isinstance(metadata, dict) and metadata.get("agentic_loop_success") is False:
-            return False
-        return True
 
     async def _enter_turn_scope(
         self,

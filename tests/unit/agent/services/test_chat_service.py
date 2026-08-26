@@ -304,6 +304,32 @@ class TestChatServiceReset(BaseChatServiceTest):
 
         assert service._context.messages == []
         assert service._conversation.reset_count == 1
+        assert service.get_last_task_report() is None
+
+    def test_conversation_trace_is_bounded_and_flattens_tool_calls(self):
+        service = self._create_test_service()
+        service._context.messages = [
+            {"role": "user", "content": "x" * 600},
+            {
+                "role": "assistant",
+                "content": "done",
+                "tool_calls": [
+                    {
+                        "function": {
+                            "name": "read_file",
+                            "arguments": {"path": "a" * 600},
+                        }
+                    }
+                ],
+            },
+        ]
+
+        trace = service.get_conversation_trace()
+
+        assert len(trace["messages"][0]["content"]) == 500
+        assert trace["tool_calls"][0]["name"] == "read_file"
+        assert len(trace["tool_calls"][0]["arguments"]) == 500
+        assert trace["turns"] == 1
 
 
 class TestChatServiceDictBasedContext(BaseChatServiceTest):
@@ -709,6 +735,28 @@ class TestChatServiceTaskReporting(BaseChatServiceTest):
         assert finished[0][0] is True
         assert finished[0][1]["user_message"] == "hello"
         assert finished[0][1]["response"] is response
+
+    @pytest.mark.asyncio
+    async def test_chat_retains_copy_of_returned_task_report(self):
+        service = self._create_test_service()
+        response = CompletionResponse(content="done", role="assistant", stop_reason="stop")
+        report = {"api_total_tokens": 42, "metadata": {"source": "canonical"}}
+
+        class _TurnExecutor:
+            async def execute_agentic_loop(self, user_message):
+                return response
+
+        service.bind_runtime_components(
+            turn_executor=_TurnExecutor(),
+            task_report_finish_handler=lambda success, **kwargs: report,
+        )
+
+        await service.chat("hello")
+        captured = service.get_last_task_report()
+        report["api_total_tokens"] = 0
+
+        assert captured == {"api_total_tokens": 42, "metadata": {"source": "canonical"}}
+        assert service.get_last_task_report()["api_total_tokens"] == 42
 
     @pytest.mark.asyncio
     async def test_chat_invokes_task_report_finish_on_failure(self):
