@@ -181,24 +181,34 @@ class DeepResearchBenchmarkRunner(BaseBenchmarkRunner):
         )
 
     def _record_to_task(self, record: dict[str, Any], index: int) -> BenchmarkTask:
+        if not isinstance(record, dict):
+            raise ValueError(f"Task #{index} must be an object")
+
         merged = dict(self._defaults)
         merged.update(record)
 
-        prompt = str(merged.get("prompt") or merged.get("instruction") or "").strip()
-        if not prompt:
-            raise ValueError(f"Task #{index} is missing a prompt")
+        user_file_paths: list[Path] = []
+        if "query" in merged or "user_files" in merged:
+            task_id, description, user_file_paths = self._load_official_task_inputs(merged, index)
+            prompt = self._build_official_prompt(description, user_file_paths)
+        else:
+            prompt = str(merged.get("prompt") or merged.get("instruction") or "").strip()
+            if not prompt:
+                raise ValueError(f"Task #{index} is missing a prompt")
+            description = str(merged.get("description") or prompt)
+            task_id = str(merged.get("task_id") or merged.get("id") or f"dr3-eval-{index}")
 
-        task_id = str(merged.get("task_id") or merged.get("id") or f"dr3-eval-{index}")
         self._task_specs[task_id] = {
             "required_claims": self._normalize_list(merged.get("required_claims")),
             "required_citations": self._normalize_list(merged.get("required_citations")),
             "forbidden_claims": self._normalize_list(merged.get("forbidden_claims")),
+            "user_files": [str(path) for path in user_file_paths],
         }
 
         return BenchmarkTask(
             task_id=task_id,
             benchmark=BenchmarkType.DR3_EVAL,
-            description=str(merged.get("description") or prompt),
+            description=description,
             language=str(merged.get("language") or "report"),
             prompt=prompt,
             difficulty=str(merged.get("difficulty") or "medium"),
@@ -207,6 +217,77 @@ class DeepResearchBenchmarkRunner(BaseBenchmarkRunner):
             timeout_seconds=int(merged.get("timeout_seconds") or 300),
             hints=self._normalize_list(merged.get("hints")),
             solution=str(merged.get("solution") or ""),
+        )
+
+    def _load_official_task_inputs(
+        self,
+        record: dict[str, Any],
+        index: int,
+    ) -> tuple[str, str, list[Path]]:
+        """Validate and resolve one official ``task/query/user_files`` record."""
+        raw_query = record.get("query")
+        if not isinstance(raw_query, str) or not raw_query.strip():
+            raise ValueError(f"Task #{index} has an invalid or missing 'query'")
+        query = raw_query.strip()
+
+        raw_task_id = record.get("task")
+        if isinstance(raw_task_id, bool) or not isinstance(raw_task_id, (str, int)):
+            raise ValueError(f"Task #{index} has an invalid or missing 'task'")
+        task_id = str(raw_task_id).strip()
+        if not task_id or any(character in task_id for character in ("\x00", "\n", "\r")):
+            raise ValueError(f"Task #{index} has an invalid or missing 'task'")
+
+        dataset_root = self._dataset_path.parent.resolve()
+        task_dir = (dataset_root / task_id).resolve()
+        try:
+            task_dir.relative_to(dataset_root)
+        except ValueError as exc:
+            raise ValueError(f"Task #{index} directory escapes dataset root: {task_id}") from exc
+        if not task_dir.is_dir():
+            raise ValueError(f"Task #{index} directory not found: {task_dir}")
+
+        raw_user_files = record.get("user_files")
+        if not isinstance(raw_user_files, list) or not raw_user_files:
+            raise ValueError(f"Task #{index} 'user_files' must be a non-empty list")
+
+        resolved_files: list[Path] = []
+        seen: set[Path] = set()
+        for file_index, raw_file in enumerate(raw_user_files, start=1):
+            if not isinstance(raw_file, str):
+                raise ValueError(f"Task #{index} user_files entry #{file_index} must be a string")
+            file_name = raw_file.strip()
+            if not file_name or any(character in file_name for character in ("\x00", "\n", "\r")):
+                raise ValueError(
+                    f"Task #{index} user_files entry #{file_index} must be a non-empty path"
+                )
+
+            relative_path = Path(file_name)
+            if relative_path.is_absolute():
+                raise ValueError(f"Task #{index} user file escapes task directory: {file_name}")
+            candidate = (task_dir / relative_path).resolve()
+            try:
+                candidate.relative_to(task_dir)
+            except ValueError as exc:
+                raise ValueError(
+                    f"Task #{index} user file escapes task directory: {file_name}"
+                ) from exc
+            if not candidate.is_file():
+                raise ValueError(f"Task #{index} user file not found: {candidate}")
+            if candidate in seen:
+                raise ValueError(f"Task #{index} contains duplicate user file: {file_name}")
+            seen.add(candidate)
+            resolved_files.append(candidate)
+
+        return task_id, query, resolved_files
+
+    @staticmethod
+    def _build_official_prompt(query: str, user_files: list[Path]) -> str:
+        """Attach verified local evidence paths to the official user query."""
+        file_lines = "\n".join(f"- {path}" for path in user_files)
+        return (
+            f"{query}\n\n"
+            "User-provided files (inspect every file as evidence for this task):\n"
+            f"{file_lines}"
         )
 
     @staticmethod
