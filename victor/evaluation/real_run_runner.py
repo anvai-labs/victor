@@ -26,9 +26,10 @@ import json
 import logging
 import tempfile
 import time
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Optional
+from typing import Any, Awaitable, Callable, Mapping, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -133,6 +134,14 @@ class RealRunBenchmarkRunner:
             or compute_metrics_from_result is None
         ):
             raise RuntimeError("Real-run benchmark dependencies are unavailable")
+        evaluation_parallelism = getattr(eval_config, "parallel_tasks", 1)
+        if self._config.parallel_tasks != 1 or (
+            isinstance(evaluation_parallelism, int) and evaluation_parallelism != 1
+        ):
+            raise ValueError(
+                "RealRunBenchmarkRunner requires parallel_tasks=1 because the canonical "
+                "ChatService is a singleton with mutable conversation state"
+            )
 
         harness = EvaluationHarness()
         if benchmark_runner is not None:
@@ -165,11 +174,10 @@ class RealRunBenchmarkRunner:
 
         return eval_result, framework_result
 
-    def _make_agent_callback(self) -> Callable[[Any], Awaitable[str]]:
+    def _make_agent_callback(self) -> Callable[[Any], Awaitable[dict[str, Any]]]:
         """Return an async callable that submits a BenchmarkTask to a live ChatService session."""
-        timeout = self._config.timeout_per_task
 
-        async def _run_task(task: Any) -> str:
+        async def _run_task(task: Any) -> dict[str, Any]:
             try:
                 chat_service = _resolve_chat_service()
             except Exception as exc:
@@ -187,38 +195,176 @@ class RealRunBenchmarkRunner:
                     "an agent. Use `victor benchmark run` for the adapter path."
                 ) from exc
 
-            prompt = getattr(task, "prompt", None) or str(task)
+            prompt = str(getattr(task, "prompt", None) or task)
+            task_id = str(getattr(task, "task_id", "") or "")
+            session_id = str(uuid.uuid4())
+            benchmark = getattr(self._config.benchmark, "value", str(self._config.benchmark))
+
             try:
-                return await asyncio.wait_for(
-                    self._invoke_chat_service(chat_service, prompt),
-                    timeout=timeout,
-                )
-            except asyncio.TimeoutError:
-                logger.warning(
-                    "RealRunBenchmarkRunner: task timed out after %ss (task_id=%s)",
-                    timeout,
-                    getattr(task, "task_id", "?"),
-                )
-                return ""
+                chat_service.reset_conversation()
             except Exception as exc:
-                logger.warning("RealRunBenchmarkRunner: task failed: %s", exc)
-                return ""
+                raise RuntimeError(
+                    "RealRunBenchmarkRunner could not isolate the canonical ChatService "
+                    f"for task {task_id or '?'} ({exc})"
+                ) from exc
+
+            from victor.core.context import session_id as session_context
+            from victor.core.context import set_session_id
+
+            session_token = set_session_id(session_id)
+            response: Any = None
+            failure: Optional[BaseException] = None
+            initial_payload = self._build_callback_payload(
+                chat_service=chat_service,
+                prompt=prompt,
+                task_id=task_id,
+                session_id=session_id,
+                benchmark=benchmark,
+                response=None,
+                failure=None,
+            )
+            _run_task._partial_data = initial_payload  # type: ignore[attr-defined]
+            try:
+                response = await self._invoke_chat_service(chat_service, prompt)
+            except asyncio.CancelledError as exc:
+                failure = exc
+                raise
+            except Exception as exc:
+                failure = exc
+                logger.warning(
+                    "RealRunBenchmarkRunner: task failed (task_id=%s): %s",
+                    task_id or "?",
+                    exc,
+                )
+            finally:
+                try:
+                    payload = self._build_callback_payload(
+                        chat_service=chat_service,
+                        prompt=prompt,
+                        task_id=task_id,
+                        session_id=session_id,
+                        benchmark=benchmark,
+                        response=response,
+                        failure=failure,
+                    )
+                    _run_task._partial_data = payload  # type: ignore[attr-defined]
+                finally:
+                    session_context.reset(session_token)
+
+            return payload
 
         return _run_task
 
-    async def _invoke_chat_service(self, chat_service: Any, prompt: str) -> str:
-        """Submit a single prompt to ChatService and collect the text response."""
-        chunks: list[str] = []
+    async def _invoke_chat_service(self, chat_service: Any, prompt: str) -> Any:
+        """Submit one prompt through the canonical buffered ChatService path."""
+        return await chat_service.chat(prompt)
+
+    @staticmethod
+    def _safe_int(value: Any) -> int:
         try:
-            async for event in chat_service.stream_response(prompt):
-                content = getattr(event, "content", None) or getattr(event, "text", None)
-                if content:
-                    chunks.append(str(content))
-        except Exception:
-            # Fallback: try synchronous-style chat if stream not available
-            result = await chat_service.chat(prompt)
-            return str(result)
-        return "".join(chunks)
+            return int(value or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    def _build_callback_payload(
+        self,
+        *,
+        chat_service: Any,
+        prompt: str,
+        task_id: str,
+        session_id: str,
+        benchmark: str,
+        response: Any,
+        failure: Optional[BaseException],
+    ) -> dict[str, Any]:
+        """Build the harness payload, retaining best-effort evidence on failure."""
+        diagnostics: list[str] = []
+
+        task_report: dict[str, Any] = {}
+        report_getter = getattr(chat_service, "get_last_task_report", None)
+        if callable(report_getter):
+            try:
+                report = report_getter()
+                if isinstance(report, Mapping):
+                    task_report = dict(report)
+            except Exception as exc:
+                diagnostics.append(f"task report capture failed: {exc}")
+
+        trace: dict[str, Any] = {}
+        trace_getter = getattr(chat_service, "get_conversation_trace", None)
+        if callable(trace_getter):
+            try:
+                captured_trace = trace_getter()
+                if isinstance(captured_trace, Mapping):
+                    trace = dict(captured_trace)
+            except Exception as exc:
+                diagnostics.append(f"conversation trace capture failed: {exc}")
+
+        if isinstance(response, Mapping):
+            content = str(response.get("content", "") or "")
+            usage = response.get("usage")
+        else:
+            content = str(getattr(response, "content", "") or "")
+            usage = getattr(response, "usage", None)
+        usage = dict(usage) if isinstance(usage, Mapping) else {}
+        if not trace.get("messages"):
+            trace["messages"] = [
+                {"role": "user", "content": prompt[:500]},
+                {"role": "assistant", "content": content[:500]},
+            ]
+            trace["turns"] = 1
+        trace.setdefault("tool_calls", [])
+        trace["session_id"] = session_id
+        trace["task_id"] = task_id
+        trace["benchmark"] = benchmark
+        trace.setdefault("turns", 1)
+
+        tokens_input = self._safe_int(
+            task_report.get("api_prompt_tokens", usage.get("prompt_tokens"))
+        )
+        tokens_output = self._safe_int(
+            task_report.get("api_completion_tokens", usage.get("completion_tokens"))
+        )
+        tokens_used = self._safe_int(task_report.get("api_total_tokens", usage.get("total_tokens")))
+        if tokens_used == 0:
+            tokens_used = tokens_input + tokens_output
+
+        total_cost = task_report.get("total_cost_usd")
+        try:
+            cost_usd_micros = round(float(total_cost) * 1_000_000) if total_cost is not None else 0
+        except (TypeError, ValueError):
+            cost_usd_micros = 0
+
+        metadata: dict[str, Any] = {
+            "source": "real_run",
+            "benchmark": benchmark,
+        }
+        if failure is not None:
+            metadata["agent_error"] = f"{type(failure).__name__}: {failure}"
+        if diagnostics:
+            metadata["capture_diagnostics"] = diagnostics
+
+        tool_calls = trace.get("tool_calls")
+        return {
+            "code": content,
+            "tokens_input": tokens_input,
+            "tokens_output": tokens_output,
+            "tokens_used": tokens_used,
+            "cached_tokens": self._safe_int(
+                task_report.get(
+                    "cache_read_tokens",
+                    usage.get("cached_tokens", usage.get("cache_read_input_tokens")),
+                )
+            ),
+            "reasoning_tokens": self._safe_int(usage.get("reasoning_tokens")),
+            "cost_usd_micros": cost_usd_micros,
+            "tool_calls": len(tool_calls) if isinstance(tool_calls, list) else 0,
+            "turns": self._safe_int(trace.get("turns")),
+            "metadata": metadata,
+            "session_id": session_id,
+            "conversation_trace": trace,
+            "task_report": task_report,
+        }
 
     def _maybe_save_bundle(self, eval_result: Any, framework_result: Any) -> None:
         """Attempt to persist the framework result as a publication bundle."""
