@@ -69,6 +69,28 @@ def resolve_ollama_identity(
     return OllamaModelIdentity(model, digest)
 
 
+def warm_ollama_model(*, base_url: str, model: str, timeout_seconds: float = 60.0) -> None:
+    """Load the pinned model before latency measurements without recording an observation."""
+    import httpx
+
+    response = httpx.post(
+        f"{base_url.rstrip('/')}/api/generate",
+        json={
+            "model": model,
+            "prompt": "Reply READY.",
+            "stream": False,
+            "think": False,
+            "keep_alive": "15m",
+            "options": {"num_predict": 8, "temperature": 0},
+        },
+        timeout=timeout_seconds,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    if payload.get("model") != model or not str(payload.get("response", "")).strip():
+        raise RuntimeError(f"Ollama warmup for {model!r} returned an invalid response")
+
+
 def _action_result(case: HTIRAuditorCase, step_index: int) -> SimpleNamespace:
     """Adapt one HTIR step to the runtime's TurnResult-shaped auditor input."""
     step = case.trace.steps[step_index]
@@ -158,11 +180,20 @@ def _main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--expected-digest", help="Optional required sha256 digest")
     args = parser.parse_args(argv)
 
+    labels = json.loads(Path(args.labels).read_text(encoding="utf-8"))
+    raw_cases = labels.get("cases", [])
+    prefix_count = sum(
+        len(raw_case.get("trace", {}).get("steps", []))
+        for raw_case in raw_cases
+        if isinstance(raw_case, Mapping)
+    )
+
     identity = resolve_ollama_identity(
         base_url=args.base_url,
         model=args.model,
         expected_digest=args.expected_digest,
     )
+    warm_ollama_model(base_url=args.base_url, model=args.model)
 
     from victor.agent.edge_model import EdgeModelConfig, create_edge_decision_service
     from victor.agent.edge_turn_judge import EdgeTurnJudge
@@ -174,12 +205,13 @@ def _main(argv: Optional[list[str]] = None) -> int:
             base_url=args.base_url,
             timeout_ms=args.timeout_ms,
             cache_ttl=0,
+            max_tokens=128,
+            micro_budget=max(20, prefix_count),
         )
     )
     if service is None:
         raise RuntimeError(f"could not create edge decision service for {args.model!r}")
     auditor = PerTurnAuditor(PerTurnAuditorConfig(enabled=True), judge=EdgeTurnJudge(service))
-    labels = json.loads(Path(args.labels).read_text(encoding="utf-8"))
     evidence = produce_evidence_payload(
         labels,
         auditor=auditor,

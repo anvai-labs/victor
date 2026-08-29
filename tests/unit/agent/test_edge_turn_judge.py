@@ -81,6 +81,28 @@ def test_passes_turn_signals_in_context():
     assert context["all_tools_failed"] is True
 
 
+def test_passes_bounded_recent_prefix_in_context():
+    svc = _service(_decision("continue"))
+    prefix = [
+        {
+            "index": index,
+            "role": "tool",
+            "tool_name": "read",
+            "status": "ok",
+            "effect": "grounded_claim",
+            "summary": f"read {index}",
+        }
+        for index in range(10)
+    ]
+    EdgeTurnJudge(svc).judge(_turn(), {"task_id": "HumanEval/0", "htir_prefix": prefix})
+    context = svc.decide_sync.call_args[0][1]
+    assert context["task_context"] == "HumanEval/0"
+    assert "0:tool" not in context["recent_prefix"]
+    assert "1:tool" not in context["recent_prefix"]
+    assert "2:tool:read:ok:grounded_claim: read 2" in context["recent_prefix"]
+    assert "9:tool:read:ok:grounded_claim: read 9" in context["recent_prefix"]
+
+
 def test_turn_audit_registered_in_prompts():
     from victor.agent.decisions.prompts import DECISION_PROMPTS
 
