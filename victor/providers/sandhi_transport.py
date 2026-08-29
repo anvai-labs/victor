@@ -927,6 +927,16 @@ class SandhiNeutralProviderMixin(SandhiTypedProviderMixin):
             # Drop it; the typed fields carry what those encoders honor.
             if native and slug not in _NATIVE_ENCODER_SLUGS:
                 request["extensions"] = {slug: native}
+        # Sandhi's native Ollama encoder intentionally does not interpret the
+        # portable ``thinking`` field. Ollama does expose a native top-level
+        # ``think`` switch, however, and reasoning models can otherwise spend
+        # the complete micro-decision output budget on hidden reasoning. Keep
+        # the exception narrow and native-shaped so no OpenAI bucket is ever
+        # relabelled as an Ollama request body.
+        if slug == "ollama":
+            thinking = _normalize_thinking(kwargs.get("thinking"))
+            if thinking is not None:
+                request["extensions"] = {"ollama": {"think": thinking["enabled"]}}
         return request
 
     async def chat(

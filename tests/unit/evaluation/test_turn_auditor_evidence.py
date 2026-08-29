@@ -11,6 +11,7 @@ import pytest
 from victor.evaluation.turn_auditor_evidence import (
     produce_evidence_payload,
     resolve_ollama_identity,
+    warm_ollama_model,
 )
 from victor.evaluation.turn_auditor_eval import assess_evidence_payload
 from victor.framework.per_turn_auditor import AuditSignal, AuditVerdict
@@ -125,3 +126,25 @@ def test_resolve_ollama_identity_requires_exact_tag_and_digest(monkeypatch) -> N
         resolve_ollama_identity(
             base_url="http://ollama", model="qwen3.5:2b", expected_digest="b" * 64
         )
+
+
+def test_warm_ollama_model_disables_thinking_and_keeps_model_loaded(monkeypatch) -> None:
+    calls = []
+
+    class _Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"model": "qwen3.5:2b", "response": "READY"}
+
+    def _post(url, **kwargs):
+        calls.append((url, kwargs))
+        return _Response()
+
+    monkeypatch.setattr("httpx.post", _post)
+    warm_ollama_model(base_url="http://ollama/", model="qwen3.5:2b")
+    url, kwargs = calls[0]
+    assert url == "http://ollama/api/generate"
+    assert kwargs["json"]["think"] is False
+    assert kwargs["json"]["keep_alive"] == "15m"

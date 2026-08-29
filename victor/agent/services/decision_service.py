@@ -433,14 +433,15 @@ class LLMDecisionService:
         provider_instance = provider or self._provider
 
         # Disable thinking/reasoning for edge decisions — we need raw JSON,
-        # not reasoning text. Ollama's "think" is a top-level parameter.
+        # not reasoning text. ``thinking`` is Victor's portable transport
+        # field; the Sandhi Ollama adapter maps it to native ``think``.
         response = await provider_instance.chat(
             messages=messages,
             model=self._model,
             temperature=self._config.temperature,
             max_tokens=max_tokens,
             tools=None,
-            think=False,
+            thinking=False,
         )
 
         # Extract text content from response
