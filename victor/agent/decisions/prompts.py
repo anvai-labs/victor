@@ -254,6 +254,8 @@ DECISION_PROMPTS: Dict[DecisionType, DecisionPrompt] = {
         ),
         user_template=(
             "Judge the agent's latest turn.\n\n"
+            "Task context: {task_context}\n\n"
+            "Recent trace prefix (oldest to newest):\n{recent_prefix}\n\n"
             "Turn output (tail):\n{turn_tail}\n\n"
             "Made tool calls: {has_tool_calls}\n"
             "All tool calls failed: {all_tools_failed}\n\n"
@@ -263,6 +265,6 @@ DECISION_PROMPTS: Dict[DecisionType, DecisionPrompt] = {
             '"reason": "brief reason if alarm"}}'
         ),
         schema=TurnAuditDecision,
-        max_tokens=40,
+        max_tokens=128,
     ),
 }

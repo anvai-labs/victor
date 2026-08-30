@@ -881,3 +881,25 @@ def test_neutral_mixin_drops_bucket_for_native_encoder_families(monkeypatch):
     # An openai-compat local (lmstudio): bucket re-labeled, not dropped.
     local_req = _Stub("lmstudio")._neutral_request(msgs, "m", 0.7, 100, None, top_p=0.9)
     assert local_req.get("extensions", {}).get("lmstudio", {}).get("top_p") == 0.9
+
+
+def test_neutral_mixin_maps_disabled_thinking_to_native_ollama_switch(monkeypatch):
+    from victor.providers.base import Message
+
+    monkeypatch.setattr(st, "_wire_contract_checked", True)
+    monkeypatch.setattr(st, "_installed_contract_minor", 4)
+
+    class _Stub(st.SandhiNeutralProviderMixin):
+        def _sandhi_slug(self):
+            return "ollama"
+
+    request = _Stub()._neutral_request(
+        [Message(role="user", content="hi")],
+        "qwen3.5:2b",
+        0.0,
+        128,
+        None,
+        thinking=False,
+    )
+    assert request["thinking"] == {"enabled": False}
+    assert request["extensions"] == {"ollama": {"think": False}}

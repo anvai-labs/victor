@@ -103,6 +103,19 @@ class TestLLMDecisionServiceProtocol:
         service = LLMDecisionService(provider=provider, model="test")
         assert isinstance(service, LLMDecisionServiceProtocol)
 
+    async def test_provider_call_disables_portable_thinking(self):
+        provider = _make_provider({"is_complete": True, "confidence": 0.9, "phase": "done"})
+        service = LLMDecisionService(provider=provider, model="test")
+
+        await service.decide(
+            DecisionType.TASK_COMPLETION,
+            context={"response_tail": "done", "deliverable_count": 1, "signal_count": 1},
+            heuristic_confidence=0.1,
+        )
+
+        assert provider.chat.call_args.kwargs["thinking"] is False
+        assert "think" not in provider.chat.call_args.kwargs
+
 
 class TestHeuristicFastPath:
     """Test that heuristic results are returned when confidence is high."""

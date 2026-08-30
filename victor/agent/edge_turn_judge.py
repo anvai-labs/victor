@@ -36,6 +36,33 @@ logger = logging.getLogger(__name__)
 
 #: How much of the turn's output tail the judge sees — small, to keep the edge call cheap.
 _TAIL_CHARS = 500
+_PREFIX_STEPS = 8
+_PREFIX_SUMMARY_CHARS = 160
+
+
+def _recent_prefix(state: Optional[dict]) -> str:
+    """Render a bounded HTIR prefix when the caller has one available."""
+    if not isinstance(state, dict):
+        return "(not available)"
+    prefix = state.get("htir_prefix")
+    if not isinstance(prefix, list) or not prefix:
+        return "(not available)"
+    rendered: list[str] = []
+    for raw_step in prefix[-_PREFIX_STEPS:]:
+        if not isinstance(raw_step, Mapping):
+            continue
+        summary = str(raw_step.get("summary", ""))[-_PREFIX_SUMMARY_CHARS:]
+        rendered.append(
+            "{index}:{role}:{tool}:{status}:{effect}: {summary}".format(
+                index=raw_step.get("index", "?"),
+                role=raw_step.get("role", "unknown"),
+                tool=raw_step.get("tool_name", "-"),
+                status=raw_step.get("status", "unknown"),
+                effect=raw_step.get("effect", "unknown"),
+                summary=summary,
+            )
+        )
+    return "\n".join(rendered) or "(not available)"
 
 
 class EdgeTurnJudge:
@@ -59,6 +86,8 @@ class EdgeTurnJudge:
             decision = self._service.decide_sync(
                 DecisionType.TURN_AUDIT,
                 {
+                    "task_context": str((state or {}).get("task_id", "unknown")),
+                    "recent_prefix": _recent_prefix(state),
                     "turn_tail": content[-_TAIL_CHARS:],
                     "has_tool_calls": has_tools,
                     "all_tools_failed": all_failed,
@@ -84,7 +113,9 @@ class EdgeTurnJudge:
         return None
 
 
-def build_edge_turn_judge(*, timeout_ms: int = 2000) -> Optional[EdgeTurnJudge]:
+def build_edge_turn_judge(
+    *, timeout_ms: int = 2000, max_tokens: int = 128
+) -> Optional[EdgeTurnJudge]:
     """Build an :class:`EdgeTurnJudge`, or ``None`` when no edge model is available.
 
     Cheap-to-call and safe: :func:`create_edge_decision_service` returns ``None`` when Ollama /
@@ -92,7 +123,9 @@ def build_edge_turn_judge(*, timeout_ms: int = 2000) -> Optional[EdgeTurnJudge]:
     """
     from victor.agent.edge_model import EdgeModelConfig, create_edge_decision_service
 
-    service = create_edge_decision_service(EdgeModelConfig(timeout_ms=timeout_ms))
+    service = create_edge_decision_service(
+        EdgeModelConfig(timeout_ms=timeout_ms, max_tokens=max_tokens)
+    )
     if service is None:
         return None
     return EdgeTurnJudge(service)

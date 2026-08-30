@@ -55,6 +55,7 @@ class EdgeModelConfig:
         max_tokens: Max response tokens (micro-decisions need 30-60)
         cache_ttl: Cache TTL in seconds for identical decisions
         confidence_threshold: Below this, fall back to heuristic
+        micro_budget: Maximum uncached decisions before budget fallback
         base_url: Ollama server URL
         tool_selection_enabled: Use edge model for tool ranking
         prompt_focus_enabled: Use edge model for system prompt trimming
@@ -68,6 +69,7 @@ class EdgeModelConfig:
     max_tokens: int = 50
     cache_ttl: int = 120
     confidence_threshold: float = 0.6
+    micro_budget: int = 20
     base_url: str = "http://localhost:11434"
     tool_selection_enabled: bool = True
     prompt_focus_enabled: bool = True
@@ -186,7 +188,7 @@ def create_edge_decision_service(
 
         decision_config = LLMDecisionServiceConfig(
             confidence_threshold=config.confidence_threshold,
-            micro_budget=20,  # Higher budget — edge calls are free
+            micro_budget=config.micro_budget,
             timeout_ms=config.timeout_ms,
             cache_ttl=config.cache_ttl,
             temperature=0.0,

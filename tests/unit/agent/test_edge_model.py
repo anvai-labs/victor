@@ -39,6 +39,7 @@ class TestEdgeModelConfig:
         assert config.model == "qwen3.5:2b"
         assert config.timeout_ms == 4000
         assert config.max_tokens == 50
+        assert config.micro_budget == 20
         assert config.max_tools == 6
 
     def test_disabled(self):
@@ -69,6 +70,7 @@ class TestCreateEdgeDecisionService:
 
         service = create_edge_decision_service(EdgeModelConfig())
         assert service is not None
+        assert service._config.micro_budget == 20
 
     @patch("victor.agent.edge_model._check_model_available", return_value=False)
     def test_returns_none_when_model_missing(self, mock_check):
