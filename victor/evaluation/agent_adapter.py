@@ -559,7 +559,15 @@ class VictorAgentAdapter:
             last_call = self._tool_calls[-1]
             if hasattr(result, "success"):
                 last_call.success = result.success
-                last_call.result = str(result.result) if hasattr(result, "result") else None
+                error = getattr(result, "error", None)
+                output = getattr(result, "output", None)
+                legacy_result = getattr(result, "result", None)
+                rendered = legacy_result if result.success else error
+                if rendered is None:
+                    rendered = error if result.success else legacy_result
+                if rendered is None:
+                    rendered = output
+                last_call.result = str(rendered) if rendered is not None else None
             elif hasattr(result, "tool_name"):
                 last_call.success = getattr(result, "success", True)
                 last_call.result = getattr(result, "result", None)

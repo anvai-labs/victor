@@ -281,6 +281,18 @@ class TestVictorAgentAdapter:
         assert adapter._tool_calls[0].success is True
         assert adapter._tool_calls[0].result == "test output"
 
+    def test_on_tool_complete_preserves_tool_result_error(self, adapter):
+        """Circuit breaking must distinguish real tool errors, not 'unknown'."""
+        from victor.tools.base import ToolResult
+
+        adapter._on_tool_start("shell", {"cmd": "pdftotext input.pdf -"})
+        adapter._on_tool_complete(
+            ToolResult(success=False, output=None, error="pdftotext unavailable")
+        )
+
+        assert adapter._tool_calls[0].result == "pdftotext unavailable"
+        assert adapter._tool_failure_counts["shell"] == 1
+
     def test_completion_detector_exists(self, adapter):
         """Test that adapter has completion detector initialized."""
         # Adapter uses _completion_detector for task completion detection
