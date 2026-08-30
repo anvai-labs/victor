@@ -425,6 +425,9 @@ class TestVictorAgentAdapter:
         assert "deep-research report" in prompt
         assert "Fix the following issue" not in prompt
         assert "report.md" in prompt
+        assert "pdftotext" in prompt
+        assert "ffmpeg" in prompt
+        assert "tesseract" in prompt
         assert trace.generated_code == "# Findings\n\nEvidence-backed report.\n"
         enabled_tools = mock_orchestrator.set_enabled_tools.call_args_list[0].args[0]
         assert "web_search" in enabled_tools
