@@ -10,20 +10,8 @@ name: Verticals
 on:
   push:
     branches: [develop, main]
-    paths:
-      - 'verticals/**'
-      - 'victor/**'
-      - 'victor-contracts/**'
-      - 'scripts/ci/check_extracted_vertical_boundaries.py'
-      - '.github/workflows/verticals.yml'
   pull_request:
     branches: [develop, main]
-    paths:
-      - 'verticals/**'
-      - 'victor/**'
-      - 'victor-contracts/**'
-      - 'scripts/ci/check_extracted_vertical_boundaries.py'
-      - '.github/workflows/verticals.yml'
   workflow_dispatch:
 
 concurrency:
@@ -57,7 +45,31 @@ jobs:
       - name: Install framework + contracts + verticals (editable)
         run: make install-verticals
       - name: Run vertical test suites
-        run: make test-verticals
+        run: |
+          if [ "${{ matrix.python-version }}" != "3.12" ]; then
+            make test-verticals
+            exit 0
+          fi
+
+          # Each vertical owns a top-level `tests` package, so execute them in
+          # isolated pytest processes.  Per-package floors preserve honest
+          # baselines while coding/RAG coverage debt is paid down.
+          for spec in \
+            "coding victor_coding 33" \
+            "devops victor_devops 80" \
+            "rag victor_rag 20" \
+            "dataanalysis victor_dataanalysis 75" \
+            "research victor_research 80"; do
+            read -r vertical module floor <<< "$spec"
+            (
+              cd "verticals/victor-${vertical}"
+              pytest tests -q --tb=short \
+                --cov="$module" \
+                --cov-report=term-missing \
+                --cov-fail-under="$floor"
+            )
+          done
+          make check-vertical-test-floor
 
   lint:
     name: Vertical lint
@@ -74,3 +86,18 @@ jobs:
       - name: Black + mypy (advisory)
         continue-on-error: true  # advisory while the folded verticals' format/type debt is cleared
         run: make lint-verticals-fmt-types
+
+  summary:
+    name: Verticals Summary
+    runs-on: ubuntu-latest
+    needs: [boundaries, test, lint]
+    if: always()
+    steps:
+      - name: Require boundaries, test floors, tests, and blocking lint
+        run: |
+          if [ "${{ needs.boundaries.result }}" != "success" ] || \
+             [ "${{ needs.test.result }}" != "success" ] || \
+             [ "${{ needs.lint.result }}" != "success" ]; then
+            echo "::error::Vertical boundaries, tests, test-count floors, or blocking lint did not pass."
+            exit 1
+          fi

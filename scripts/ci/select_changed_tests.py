@@ -13,16 +13,16 @@ mirrored layout (``tests/unit`` mirrors ``victor``):
 - A changed **source** file (``victor/<rel>/<name>.py``) -> run its mirror tests
   ``tests/unit/<rel>/test_<name>.py`` and ``tests/unit/<rel>/test_<name>_*.py`` (when they exist).
 
-Prints existing pytest targets (one per line, deduped, sorted). Empty output means "nothing
-relevant to run" — the caller should treat that as a pass (the full sharded suite at
-develop->main is the safety net). This keeps the per-PR gate proportional to the change instead
-of running the ~7h single-process suite.
+Prints existing pytest targets (one per line, deduped, sorted). Empty output is valid only when
+no core Python source changed. A changed ``victor/**.py`` file without a mirror test is an error:
+silently deferring it to the later develop-to-main promotion leaves develop untested.
 
 Usage: ``select_changed_tests.py <changed_file> [<changed_file> ...]``
 """
 
 from __future__ import annotations
 
+import argparse
 import sys
 from pathlib import Path
 
@@ -39,8 +39,13 @@ ROOT = Path(__file__).resolve().parents[2]
 MAX_SELECTED_TARGETS = 200
 
 
+class SelectionError(ValueError):
+    """The changed core source cannot be covered safely by the fast gate."""
+
+
 def select(changed: list[str]) -> list[str]:
     targets: set[str] = set()
+    unmapped_sources: list[str] = []
     for raw in changed:
         p = raw.strip()
         if not p.endswith(".py"):
@@ -56,24 +61,53 @@ def select(changed: list[str]) -> list[str]:
         if p.startswith("victor/"):
             rel = path.relative_to("victor")
             test_dir = ROOT / "tests" / "unit" / rel.parent
-            if not test_dir.is_dir():
-                continue
-            for cand in list(test_dir.glob(f"test_{rel.stem}.py")) + list(
-                test_dir.glob(f"test_{rel.stem}_*.py")
-            ):
+            candidates: list[Path] = []
+            if test_dir.is_dir():
+                candidates = list(test_dir.glob(f"test_{rel.stem}.py")) + list(
+                    test_dir.glob(f"test_{rel.stem}_*.py")
+                )
+            # Some older suites flatten one source directory level (for
+            # example benchmarks/deep_research.py is covered by
+            # evaluation/test_deep_research_benchmark.py). Preserve those
+            # explicit stem matches before declaring the source untested.
+            if not candidates:
+                unit_root = ROOT / "tests" / "unit"
+                candidates = list(unit_root.rglob(f"test_{rel.stem}.py")) + list(
+                    unit_root.rglob(f"test_{rel.stem}_*.py")
+                )
+            for cand in candidates:
                 targets.add(str(cand.relative_to(ROOT)))
+            if not candidates:
+                unmapped_sources.append(p)
+    if unmapped_sources:
+        joined = "\n  - ".join(unmapped_sources)
+        raise SelectionError(
+            "changed core source has no mirrored unit test; add a test target before merging:\n"
+            f"  - {joined}"
+        )
     result = sorted(targets)
     if len(result) > MAX_SELECTED_TARGETS:
-        print(
+        raise SelectionError(
             f"select_changed_tests: {len(result)} targets exceed the "
             f"{MAX_SELECTED_TARGETS} cap — treating as a sweeping/mechanical change; "
-            "selecting nothing and deferring to the develop->main full suite.",
-            file=sys.stderr,
+            "split the change or run it through an explicitly sharded full-suite gate."
         )
-        return []
     return result
 
 
 if __name__ == "__main__":
-    for target in select(sys.argv[1:]):
-        print(target)
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("files", nargs="*")
+    parser.add_argument(
+        "--stdin",
+        action="store_true",
+        help="read one changed path per line from stdin (safe for spaces and leading dashes)",
+    )
+    args = parser.parse_args()
+    changed = [line.rstrip("\n") for line in sys.stdin] if args.stdin else args.files
+    try:
+        for target in select(changed):
+            print(target)
+    except SelectionError as exc:
+        print(f"select_changed_tests: {exc}", file=sys.stderr)
+        raise SystemExit(2) from exc

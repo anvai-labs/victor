@@ -8,9 +8,6 @@ on:
     # Extensive validation runs on the develop -> main promotion PR; develop PRs
     # stay lightweight (ci-fast only) so the runner queue keeps merging fast.
     branches: [main]
-    paths:
-      - 'feps/**'
-      - 'victor/**'
   workflow_dispatch:
 
 env:
@@ -212,4 +209,9 @@ jobs:
                   body: body,
                 });
               }
+            }
+
+            if (!['success', 'skipped'].includes(fepResult) ||
+                !['success', 'skipped'].includes(verticalResult)) {
+              core.setFailed('FEP or vertical validation did not pass');
             }
