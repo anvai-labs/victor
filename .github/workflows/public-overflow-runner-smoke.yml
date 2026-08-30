@@ -1,7 +1,7 @@
 name: Public-overflow runner smoke
 
 # SECURITY: this workflow's trigger set is deliberately restricted to events
-# that a fork pull request cannot cause (push to a reviewed branch,
+# that a fork pull request cannot cause (push to the reviewed main branch,
 # workflow_dispatch, schedule). Never add `pull_request` or
 # `pull_request_target` here -- that would let a fork's PR execute code on
 # this self-hosted runner. This repo's branches require 1 approving review
@@ -10,7 +10,10 @@ name: Public-overflow runner smoke
 # and rollout rationale (shared across the anvai-labs public-overflow pool).
 on:
   push:
-    branches: [main, develop]
+    # The public-overflow runner group allowlists this exact workflow only at
+    # refs/heads/main. Do not add develop or feature refs: those jobs cannot be
+    # scheduled by the group and would remain queued indefinitely.
+    branches: [main]
     paths:
       - '.github/workflows/public-overflow-runner-smoke.yml'
   workflow_dispatch: {}
