@@ -1,0 +1,69 @@
+name: Public-overflow runner smoke
+
+# SECURITY: this workflow's trigger set is deliberately restricted to events
+# that a fork pull request cannot cause (push to a reviewed branch,
+# workflow_dispatch, schedule). Never add `pull_request` or
+# `pull_request_target` here -- that would let a fork's PR execute code on
+# this self-hosted runner. This repo's branches require 1 approving review
+# (admin-bypassable) as of 2026-08-30, which is the precondition this
+# design depends on. See proximaDB's TD-CI-3 for the full threat model
+# and rollout rationale (shared across the anvai-labs public-overflow pool).
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - '.github/workflows/public-overflow-runner-smoke.yml'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: Verify isolated public-overflow runner
+    runs-on: [self-hosted, Linux, X64, public-overflow]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify this is a self-hosted runner with the expected labels
+        run: |
+          # No fallback: if RUNNER_ENVIRONMENT is unset or "github-hosted",
+          # this must fail, not silently pass.
+          test "${RUNNER_ENVIRONMENT}" = "self-hosted"
+          echo "runner name: ${RUNNER_NAME}"
+
+      - name: Verify NO Docker socket is mounted (no host Docker access)
+        run: |
+          if [ -S /var/run/docker.sock ]; then
+            echo "FAIL: /var/run/docker.sock is present — this pool must not have host Docker access"
+            exit 1
+          fi
+          echo "OK: no docker.sock on this runner"
+
+      - name: Verify resource cgroup caps are applied (hard assertion, not just logged)
+        run: |
+          # Provisioned as `docker run --cpus=2 --memory=4g` -- assert the exact
+          # values, not just that some cap exists. A dropped flag in the
+          # provisioning script must fail this, not pass silently.
+          RUNNER_CGROUP=$(awk -F: '$1 == "0" { print $3 }' /proc/self/cgroup)
+          test -n "$RUNNER_CGROUP"
+          test "$RUNNER_CGROUP" != "/"
+          CPU_MAX="$(cat "/sys/fs/cgroup${RUNNER_CGROUP}/cpu.max")"
+          MEM_MAX="$(cat "/sys/fs/cgroup${RUNNER_CGROUP}/memory.max")"
+          echo "cpu.max: $CPU_MAX"
+          echo "memory.max: $MEM_MAX"
+          test "$CPU_MAX" = "200000 100000"
+          test "$MEM_MAX" = "4294967296"
+
+      - name: Confirm trigger event is one we intended
+        # This is a canary, not a preventive control: by the time this step
+        # runs, the job has already executed on the runner. Its job is to
+        # fail loudly if a future edit ever adds
+        # `pull_request`/`pull_request_target` to `on:` above, not to stop
+        # that job from having run.
+        run: |
+          case "${GITHUB_EVENT_NAME}" in
+            push|workflow_dispatch|schedule) echo "OK: event=${GITHUB_EVENT_NAME}" ;;
+            *) echo "FAIL: unexpected trigger event ${GITHUB_EVENT_NAME}"; exit 1 ;;
+          esac
