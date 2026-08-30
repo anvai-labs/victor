@@ -56,7 +56,7 @@ from victor.evaluation.agentic_harness import (
 from victor.evaluation.correction.metrics import (
     CorrectionMetricsCollector,
 )
-from victor.evaluation.protocol import BenchmarkTask
+from victor.evaluation.protocol import BenchmarkTask, BenchmarkType
 from victor.providers.registry import ProviderRegistry
 
 logger = logging.getLogger(__name__)
@@ -559,7 +559,15 @@ class VictorAgentAdapter:
             last_call = self._tool_calls[-1]
             if hasattr(result, "success"):
                 last_call.success = result.success
-                last_call.result = str(result.result) if hasattr(result, "result") else None
+                error = getattr(result, "error", None)
+                output = getattr(result, "output", None)
+                legacy_result = getattr(result, "result", None)
+                rendered = legacy_result if result.success else error
+                if rendered is None:
+                    rendered = error if result.success else legacy_result
+                if rendered is None:
+                    rendered = output
+                last_call.result = str(rendered) if rendered is not None else None
             elif hasattr(result, "tool_name"):
                 last_call.success = getattr(result, "success", True)
                 last_call.result = getattr(result, "result", None)
@@ -988,8 +996,12 @@ class VictorAgentAdapter:
         # decision fatigue — models default to text responses instead of tool use.
         # A minimal set forces decisive tool use at each stage. ``graph`` is
         # added when the optional victor-coding graph tool resolves.
-        benchmark_tools = set(self.benchmark_tool_allowlist())
-        graph_enabled = "graph" in benchmark_tools
+        is_deep_research = task.benchmark == BenchmarkType.DR3_EVAL
+        if is_deep_research:
+            benchmark_tools = {"read", "write", "shell", "web_search", "web_fetch"}
+        else:
+            benchmark_tools = set(self.benchmark_tool_allowlist())
+        graph_enabled = not is_deep_research and "graph" in benchmark_tools
         # Register demand-only curated tools (e.g. graph) into the live ToolRegistry
         # before set_enabled_tools. graph is in DEMAND_TOOL_SPECS (not BOOTSTRAP),
         # so it's never registered at init — _union_curated_enabled() can't find it
@@ -1117,49 +1129,68 @@ class VictorAgentAdapter:
             if graph_enabled
             else ""
         )
-        prompt = (
-            "Fix the following issue by editing the source code in this repository.\n\n"
-            "WORKSPACE: the repository source is at your current working directory "
-            "(the workspace root). All source, tests, and files you need are UNDER "
-            "it. NEVER search outside the workspace — do NOT look in host paths "
-            "like `.venv`, `~/.victor`, `site-packages`, or `/Users/...`; those are "
-            "blocked and won't help. Use the `code` tool (search/grep) to locate "
-            "files within the workspace.\n\n"
-            "IMPORTANT: You have separate tools — `read`, `edit`, `write`, `code`, "
-            "and `shell`. Call each as its own tool with named parameters.\n\n"
-            "BE EFFICIENT — you have a limited budget of tool calls and turns.\n"
-            "Most fixes need only 2-3 reads/searches before you can edit. The most "
-            "common failure mode is reading too many files and running out of time "
-            "before editing. Act with conviction:\n"
-            "- SEARCH once or twice (grep/code) to locate the right file.\n"
-            "- READ only the relevant function/method (use offset/limit).\n"
-            "- EDIT as soon as you understand the fix — do NOT read the whole file.\n"
-            "- Make a best-effort fix rather than over-researching; you can iterate "
-            "after seeing the test result.\n\n"
-            "TOOL USAGE:\n"
-            "- To READ a file: call `read(path='path/to/file')`\n"
-            "- To EDIT a file: call `edit(ops=[{'type':'replace','path':'...','old_str':'...','new_str':'...'}])`\n"
-            "- To WRITE a new file: call `write(path='...', content='...')`\n"
-            "- To SEARCH code: call `code` with cmd='search <query>' or 'grep <pattern>'\n"
-            "- To RUN commands (pip install, pytest, build): call `shell` with cmd='<command>'\n"
-            + graph_guidance
-            + "\nWORKFLOW:\n"
-            "1. Use `code` (search or grep) to find relevant files in this repository\n"
-            + graph_workflow
-            + "2. Use `read` to examine the code (use offset/limit for large files)\n"
-            "3. Use `edit` to apply your fix — COPY old_str EXACTLY from the read "
-            "output, character-by-character. Do NOT type it from memory.\n"
-            "4. If an edit fails, re-read the file and try again with the exact text.\n"
-            "5. VERIFY: call `shell` with cmd='python -m pytest <test_file> -x'. "
-            "Iterate until the test passes.\n"
-            "6. When the test passes, state 'The fix is complete and verified.'\n\n"
-            "CONSTRAINTS:\n"
-            "- Stay within the workspace directory. NEVER run 'find /' or search "
-            "outside the project.\n"
-            "- The `edit` old_str must match file content EXACTLY (whitespace, "
-            "quotes, line breaks). Always copy from the most recent read output.\n\n"
-            f"ISSUE:\n{task_description}"
-        )
+        if is_deep_research:
+            prompt = (
+                "Produce a rigorous deep-research report that answers the request below.\n\n"
+                "WORKSPACE: all user-provided attachments are under the workspace-local "
+                "`attachments/` directory. Inspect every listed attachment. You may also "
+                "use web research tools when available. Do not modify the attachments.\n\n"
+                "ATTACHMENT TOOLS: `read` is text-only. For PDFs, use `pdftotext FILE -`; "
+                "if a PDF is scanned, render a page with `pdftocairo` and pipe it to "
+                "`tesseract stdin stdout`. For images, use `tesseract FILE stdout`. For "
+                "video, use `ffprobe` plus `ffmpeg` to sample representative frames, piping "
+                "frames to `tesseract stdin stdout`. Inspect content, not only file metadata, "
+                "before moving on to web research.\n\n"
+                "DELIVERABLE: write the complete final report to `report.md` with `write`. "
+                "Support material claims with inline citations and include a source list. "
+                "Clearly distinguish evidence, synthesis, and uncertainty. When the file is "
+                "complete, state `The report is complete.`\n\n"
+                f"REQUEST:\n{task_description}"
+            )
+        else:
+            prompt = (
+                "Fix the following issue by editing the source code in this repository.\n\n"
+                "WORKSPACE: the repository source is at your current working directory "
+                "(the workspace root). All source, tests, and files you need are UNDER "
+                "it. NEVER search outside the workspace — do NOT look in host paths "
+                "like `.venv`, `~/.victor`, `site-packages`, or `/Users/...`; those are "
+                "blocked and won't help. Use the `code` tool (search/grep) to locate "
+                "files within the workspace.\n\n"
+                "IMPORTANT: You have separate tools — `read`, `edit`, `write`, `code`, "
+                "and `shell`. Call each as its own tool with named parameters.\n\n"
+                "BE EFFICIENT — you have a limited budget of tool calls and turns.\n"
+                "Most fixes need only 2-3 reads/searches before you can edit. The most "
+                "common failure mode is reading too many files and running out of time "
+                "before editing. Act with conviction:\n"
+                "- SEARCH once or twice (grep/code) to locate the right file.\n"
+                "- READ only the relevant function/method (use offset/limit).\n"
+                "- EDIT as soon as you understand the fix — do NOT read the whole file.\n"
+                "- Make a best-effort fix rather than over-researching; you can iterate "
+                "after seeing the test result.\n\n"
+                "TOOL USAGE:\n"
+                "- To READ a file: call `read(path='path/to/file')`\n"
+                "- To EDIT a file: call `edit(ops=[{'type':'replace','path':'...','old_str':'...','new_str':'...'}])`\n"
+                "- To WRITE a new file: call `write(path='...', content='...')`\n"
+                "- To SEARCH code: call `code` with cmd='search <query>' or 'grep <pattern>'\n"
+                "- To RUN commands (pip install, pytest, build): call `shell` with cmd='<command>'\n"
+                + graph_guidance
+                + "\nWORKFLOW:\n"
+                "1. Use `code` (search or grep) to find relevant files in this repository\n"
+                + graph_workflow
+                + "2. Use `read` to examine the code (use offset/limit for large files)\n"
+                "3. Use `edit` to apply your fix — COPY old_str EXACTLY from the read "
+                "output, character-by-character. Do NOT type it from memory.\n"
+                "4. If an edit fails, re-read the file and try again with the exact text.\n"
+                "5. VERIFY: call `shell` with cmd='python -m pytest <test_file> -x'. "
+                "Iterate until the test passes.\n"
+                "6. When the test passes, state 'The fix is complete and verified.'\n\n"
+                "CONSTRAINTS:\n"
+                "- Stay within the workspace directory. NEVER run 'find /' or search "
+                "outside the project.\n"
+                "- The `edit` old_str must match file content EXACTLY (whitespace, "
+                "quotes, line breaks). Always copy from the most recent read output.\n\n"
+                f"ISSUE:\n{task_description}"
+            )
 
         complete = False
         agentic_loop_iterations = 0
@@ -1217,6 +1248,18 @@ class VictorAgentAdapter:
                     current_message = prompt
                 elif self._made_edit_tool_call:
                     current_message = "Continue."
+                elif is_deep_research:
+                    n = self._exploration_calls
+                    if n >= 8:
+                        current_message = (
+                            "You have enough evidence. Stop researching and write the complete "
+                            "report to `report.md` now using `write`."
+                        )
+                    else:
+                        current_message = (
+                            "Continue the research, then write the complete final report to "
+                            "`report.md` using `write`."
+                        )
                 else:
                     n = self._exploration_calls
                     if n >= 8:
@@ -1463,7 +1506,9 @@ class VictorAgentAdapter:
         # Python source. Handing them a diff makes line 3 of solution.py read
         # "@@ -0,0 +1,27 @@" — a SyntaxError before a single test runs, which is
         # why MBPP scored 0 on all 135 real tasks it has ever been given.
-        trace.generated_code = self._capture_solution_source()
+        trace.generated_code = (
+            self._capture_report_source() if is_deep_research else self._capture_solution_source()
+        )
 
         # Populate correction metrics if tracking is enabled
         if self._metrics_collector:
@@ -1485,6 +1530,32 @@ class VictorAgentAdapter:
                     )
 
         return trace
+
+    def _capture_report_source(self) -> str:
+        """Capture a DR3 report while its ephemeral workspace still exists."""
+        if self.config.working_dir:
+            report_path = Path(self.config.working_dir) / "report.md"
+            if report_path.is_file():
+                try:
+                    report = report_path.read_text(errors="replace")
+                    if report.strip():
+                        return report
+                except OSError:
+                    pass
+
+        for edit in reversed(self._file_edits):
+            if Path(edit.path).suffix.lower() not in {".md", ".txt"}:
+                continue
+            if edit.after_content.strip():
+                return edit.after_content
+
+        for message in reversed(self._messages):
+            if message.get("role") != "assistant":
+                continue
+            content = str(message.get("content") or "").strip()
+            if content and not content.startswith("VICTOR_"):
+                return content
+        return ""
 
     def _capture_solution_source(self) -> str:
         """Concatenated source of the Python files the agent wrote.

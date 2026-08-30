@@ -281,6 +281,18 @@ class TestVictorAgentAdapter:
         assert adapter._tool_calls[0].success is True
         assert adapter._tool_calls[0].result == "test output"
 
+    def test_on_tool_complete_preserves_tool_result_error(self, adapter):
+        """Circuit breaking must distinguish real tool errors, not 'unknown'."""
+        from victor.tools.base import ToolResult
+
+        adapter._on_tool_start("shell", {"cmd": "pdftotext input.pdf -"})
+        adapter._on_tool_complete(
+            ToolResult(success=False, output=None, error="pdftotext unavailable")
+        )
+
+        assert adapter._tool_calls[0].result == "pdftotext unavailable"
+        assert adapter._tool_failure_counts["shell"] == 1
+
     def test_completion_detector_exists(self, adapter):
         """Test that adapter has completion detector initialized."""
         # Adapter uses _completion_detector for task completion detection
@@ -398,6 +410,41 @@ class TestVictorAgentAdapter:
 
         prompt = mock_orchestrator.chat.await_args_list[0].args[0]
         assert "Use graph to inspect callers, callees, dependencies, and impact" in prompt
+
+    @pytest.mark.asyncio
+    async def test_execute_dr3_uses_research_prompt_and_captures_report(
+        self,
+        adapter,
+        mock_orchestrator,
+    ):
+        """DR3 runs should produce report text rather than a coding patch."""
+        mock_orchestrator.chat.return_value = MagicMock(content="The report is complete.")
+        task = BenchmarkTask(
+            task_id="dr3/1",
+            benchmark=BenchmarkType.DR3_EVAL,
+            description="Research the supplied evidence",
+            prompt="Research the supplied evidence\n\n- attachments/01-evidence.pdf",
+            complexity_override="analysis",
+            task_type_hint="analyze",
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            workspace = Path(tmpdir)
+            (workspace / "report.md").write_text("# Findings\n\nEvidence-backed report.\n")
+            trace = await adapter.execute_task(task, workspace)
+
+        prompt = mock_orchestrator.chat.await_args_list[0].args[0]
+        assert "deep-research report" in prompt
+        assert "Fix the following issue" not in prompt
+        assert "report.md" in prompt
+        assert "pdftotext" in prompt
+        assert "pdftocairo" in prompt
+        assert "ffmpeg" in prompt
+        assert "tesseract" in prompt
+        assert trace.generated_code == "# Findings\n\nEvidence-backed report.\n"
+        enabled_tools = mock_orchestrator.set_enabled_tools.call_args_list[0].args[0]
+        assert "web_search" in enabled_tools
+        assert "graph" not in enabled_tools
 
     @pytest.mark.asyncio
     async def test_execute_task_max_turns_limit(self, adapter, mock_orchestrator):

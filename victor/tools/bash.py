@@ -87,6 +87,14 @@ READONLY_COMMANDS_UNIX: Set[str] = {
     "hexdump",
     "xxd",
     "od",
+    # Document/media inspection. Commands with output-capable modes receive
+    # additional argument validation in _validate_single_readonly_command.
+    "pdfinfo",
+    "pdftotext",
+    "pdftocairo",
+    "tesseract",
+    "ffprobe",
+    "ffmpeg",
     # Text search & processing (readonly)
     "grep",
     "egrep",
@@ -803,6 +811,56 @@ def _validate_single_readonly_command(cmd: str) -> tuple[bool, str]:
     # containing the text "-i" is not misclassified.
     if base_cmd == "sed" and any(t == "-i" or t.startswith("-i") for t in _tokens[1:]):
         return False, "sed -i"
+
+    # Binary evidence inspection for research tasks. These tools can also
+    # write files, so readonly mode permits only stdout-oriented forms.
+    if base_cmd == "pdftotext":
+        if _tokens[-1:] == ["-"]:
+            return True, ""
+        return False, "pdftotext (file output)"
+
+    if base_cmd == "pdftocairo":
+        if _tokens[-1:] == ["-"]:
+            return True, ""
+        return False, "pdftocairo (file output)"
+
+    if base_cmd == "tesseract":
+        if len(_tokens) >= 3 and _tokens[2].lower() == "stdout":
+            return True, ""
+        return False, "tesseract (file output)"
+
+    if base_cmd == "ffprobe":
+        if any(token in {"-o", "-output"} for token in _tokens[1:]):
+            return False, "ffprobe (file output)"
+        return True, ""
+
+    if base_cmd == "ffmpeg":
+        value_options = {
+            "-loglevel",
+            "-ss",
+            "-i",
+            "-frames:v",
+            "-vf",
+            "-f",
+            "-vcodec",
+            "-pix_fmt",
+        }
+        flag_options = {"-hide_banner"}
+        if _tokens[-1:] != ["-"] or _tokens.count("-i") != 1:
+            return False, "ffmpeg (file output)"
+        if "image2pipe" not in _tokens:
+            return False, "ffmpeg (non-image stream)"
+        index = 1
+        while index < len(_tokens) - 1:
+            token = _tokens[index]
+            if token in value_options:
+                index += 2
+                continue
+            if token in flag_options:
+                index += 1
+                continue
+            return False, f"ffmpeg ({token})"
+        return True, ""
 
     if len(_tokens) <= 2 and any(t in _bare_info for t in _tokens[1:]):
         return True, ""

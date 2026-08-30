@@ -278,6 +278,12 @@ class BenchmarkTask:
     prompt: str = ""
     context_code: str = ""
     test_code: str = ""
+    # Read-only local inputs that must be staged into an ephemeral benchmark
+    # workspace. Keys are workspace-relative destination paths; values are
+    # validated source file paths. Unlike ``seed_files``, these may be binary
+    # attachments (PDFs, images, videos), so they are copied rather than read
+    # into memory as text.
+    input_files: dict[str, str] = field(default_factory=dict)
     # SWE-bench FAIL_TO_PASS: the specific test node IDs that must pass after
     # the fix. The test runner uses these to build a targeted test command
     # (rather than scanning test_code), and the closed-loop verify gate (P1)

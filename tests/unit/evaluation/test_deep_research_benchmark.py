@@ -108,8 +108,14 @@ class TestDeepResearchBenchmarkRunner:
         assert task.description == query
         assert task.prompt.startswith(query)
         assert "User-provided files" in task.prompt
-        assert str(report.resolve()) in task.prompt
-        assert str(video.resolve()) in task.prompt
+        assert "attachments/01-market report.pdf" in task.prompt
+        assert "attachments/02-overview.mp4" in task.prompt
+        assert task.input_files == {
+            "attachments/01-market report.pdf": str(report.resolve()),
+            "attachments/02-overview.mp4": str(video.resolve()),
+        }
+        assert task.complexity_override == "analysis"
+        assert task.task_type_hint == "analyze"
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("user_files", ["report.pdf", {}, [], [""]])

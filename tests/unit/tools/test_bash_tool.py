@@ -274,6 +274,36 @@ class TestReadonlyCompoundCommands:
     @pytest.mark.parametrize(
         "cmd",
         [
+            "pdfinfo attachments/report.pdf",
+            "pdftotext attachments/report.pdf - | sed -n '1,20p'",
+            "pdftocairo -f 1 -l 1 -singlefile -png attachments/scan.pdf - | "
+            "tesseract stdin stdout",
+            "tesseract attachments/image.jpg stdout",
+            "ffprobe -v error -show_format -show_streams attachments/video.mp4",
+            "ffmpeg -loglevel error -ss 00:00:05 -i attachments/video.mp4 "
+            "-frames:v 1 -f image2pipe -vcodec png - | tesseract stdin stdout",
+        ],
+    )
+    def test_readonly_media_inspection_allowed(self, cmd):
+        assert self._valid(cmd) is True
+
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            "pdftotext attachments/report.pdf report.txt",
+            "pdftocairo -png attachments/report.pdf page",
+            "tesseract attachments/image.jpg extracted",
+            "ffprobe -o metadata.json attachments/video.mp4",
+            "ffmpeg -i attachments/video.mp4 output.mp4",
+            "ffmpeg -i attachments/video.mp4 output.mp4 -f image2pipe -",
+        ],
+    )
+    def test_readonly_media_file_outputs_rejected(self, cmd):
+        assert self._valid(cmd) is False
+
+    @pytest.mark.parametrize(
+        "cmd",
+        [
             "cat README.md > /tmp/readme.copy",
             "git status > status.txt",
             "grep -rn readonly victor 2> errors.txt",

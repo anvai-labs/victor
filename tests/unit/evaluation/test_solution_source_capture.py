@@ -105,6 +105,11 @@ class TestWhichBenchmarksGetSource:
 
         assert _SOURCE_BENCHMARKS == {"mbpp", "human_eval"}
 
+    def test_dr3_is_a_direct_report_output_benchmark(self):
+        from victor.ui.commands.benchmark import _REPORT_BENCHMARKS
+
+        assert _REPORT_BENCHMARKS == {"dr3_eval"}
+
     def test_swe_bench_is_not_opted_in(self):
         """It applies the diff to a fresh clone; source would be wrong for it."""
         from victor.evaluation.protocol import BenchmarkType
