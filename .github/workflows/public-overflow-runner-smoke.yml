@@ -46,11 +46,18 @@ jobs:
           # Provisioned as `docker run --cpus=2 --memory=4g` -- assert the exact
           # values, not just that some cap exists. A dropped flag in the
           # provisioning script must fail this, not pass silently.
-          RUNNER_CGROUP=$(awk -F: '$1 == "0" { print $3 }' /proc/self/cgroup)
-          test -n "$RUNNER_CGROUP"
-          test "$RUNNER_CGROUP" != "/"
-          CPU_MAX="$(cat "/sys/fs/cgroup${RUNNER_CGROUP}/cpu.max")"
-          MEM_MAX="$(cat "/sys/fs/cgroup${RUNNER_CGROUP}/memory.max")"
+          #
+          # Docker on native Linux gives each container a PRIVATE cgroup
+          # namespace by default, so from inside the container
+          # /proc/self/cgroup reads "0::/" and /sys/fs/cgroup IS ALREADY the
+          # container's own cgroup root -- no nested host-side path to
+          # compute. (Verified empirically 2026-08-30: an earlier version of
+          # this check assumed a host-visible nested path -- copied from a
+          # macOS/Docker-Desktop runner pattern with different cgroup
+          # semantics -- and failed on this pool's native-Linux hosts even
+          # though the actual caps were applied correctly.)
+          CPU_MAX="$(cat /sys/fs/cgroup/cpu.max)"
+          MEM_MAX="$(cat /sys/fs/cgroup/memory.max)"
           echo "cpu.max: $CPU_MAX"
           echo "memory.max: $MEM_MAX"
           test "$CPU_MAX" = "200000 100000"
