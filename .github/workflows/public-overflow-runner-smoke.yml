@@ -24,7 +24,7 @@ jobs:
     runs-on: [self-hosted, Linux, X64, public-overflow]
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Verify this is a self-hosted runner with the expected labels
         run: |
@@ -48,9 +48,16 @@ jobs:
           # provisioning script must fail this, not pass silently.
           RUNNER_CGROUP=$(awk -F: '$1 == "0" { print $3 }' /proc/self/cgroup)
           test -n "$RUNNER_CGROUP"
-          test "$RUNNER_CGROUP" != "/"
-          CPU_MAX="$(cat "/sys/fs/cgroup${RUNNER_CGROUP}/cpu.max")"
-          MEM_MAX="$(cat "/sys/fs/cgroup${RUNNER_CGROUP}/memory.max")"
+          # A private cgroup namespace presents the container's own cgroup as
+          # `/`; that is expected and its limits live at the cgroupfs root.
+          # A host namespace exposes a non-root relative path instead.
+          if [ "$RUNNER_CGROUP" = "/" ]; then
+            CGROUP_BASE="/sys/fs/cgroup"
+          else
+            CGROUP_BASE="/sys/fs/cgroup${RUNNER_CGROUP}"
+          fi
+          CPU_MAX="$(cat "${CGROUP_BASE}/cpu.max")"
+          MEM_MAX="$(cat "${CGROUP_BASE}/memory.max")"
           echo "cpu.max: $CPU_MAX"
           echo "memory.max: $MEM_MAX"
           test "$CPU_MAX" = "200000 100000"
