@@ -400,6 +400,37 @@ class TestVictorAgentAdapter:
         assert "Use graph to inspect callers, callees, dependencies, and impact" in prompt
 
     @pytest.mark.asyncio
+    async def test_execute_dr3_uses_research_prompt_and_captures_report(
+        self,
+        adapter,
+        mock_orchestrator,
+    ):
+        """DR3 runs should produce report text rather than a coding patch."""
+        mock_orchestrator.chat.return_value = MagicMock(content="The report is complete.")
+        task = BenchmarkTask(
+            task_id="dr3/1",
+            benchmark=BenchmarkType.DR3_EVAL,
+            description="Research the supplied evidence",
+            prompt="Research the supplied evidence\n\n- attachments/01-evidence.pdf",
+            complexity_override="analysis",
+            task_type_hint="analyze",
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            workspace = Path(tmpdir)
+            (workspace / "report.md").write_text("# Findings\n\nEvidence-backed report.\n")
+            trace = await adapter.execute_task(task, workspace)
+
+        prompt = mock_orchestrator.chat.await_args_list[0].args[0]
+        assert "deep-research report" in prompt
+        assert "Fix the following issue" not in prompt
+        assert "report.md" in prompt
+        assert trace.generated_code == "# Findings\n\nEvidence-backed report.\n"
+        enabled_tools = mock_orchestrator.set_enabled_tools.call_args_list[0].args[0]
+        assert "web_search" in enabled_tools
+        assert "graph" not in enabled_tools
+
+    @pytest.mark.asyncio
     async def test_execute_task_max_turns_limit(self, adapter, mock_orchestrator):
         """Test that max turns limit is enforced."""
         adapter.config.max_turns = 2
