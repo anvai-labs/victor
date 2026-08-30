@@ -7,13 +7,7 @@ name: CI - codegraph
 on:
   push:
     branches: [develop, main]
-    paths:
-      - 'victor-codegraph/**'
-      - '.github/workflows/ci-codegraph.yml'
   pull_request:
-    paths:
-      - 'victor-codegraph/**'
-      - '.github/workflows/ci-codegraph.yml'
 
 jobs:
   test:
@@ -37,6 +31,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ./victor-contracts
           pip install -e "./victor-codegraph[dev]"
+          pip install pytest-cov
 
       - name: Lint (ruff)
         working-directory: victor-codegraph
@@ -44,4 +39,26 @@ jobs:
 
       - name: Test
         working-directory: victor-codegraph
-        run: pytest tests -v --tb=short
+        run: |
+          if [ "${{ matrix.python-version }}" = "3.12" ]; then
+            pytest tests -v --tb=short \
+              --cov=victor_codegraph \
+              --cov-report=term-missing \
+              --cov-report=xml:coverage.xml \
+              --cov-fail-under=90
+          else
+            pytest tests -v --tb=short
+          fi
+
+  summary:
+    name: Codegraph Summary
+    runs-on: ubuntu-latest
+    needs: test
+    if: always()
+    steps:
+      - name: Require every supported Python and the coverage floor
+        run: |
+          if [ "${{ needs.test.result }}" != "success" ]; then
+            echo "::error::Codegraph tests or coverage did not pass."
+            exit 1
+          fi
