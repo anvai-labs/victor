@@ -1128,7 +1128,7 @@ class VictorAgentAdapter:
                 "`attachments/` directory. Inspect every listed attachment. You may also "
                 "use web research tools when available. Do not modify the attachments.\n\n"
                 "ATTACHMENT TOOLS: `read` is text-only. For PDFs, use `pdftotext FILE -`; "
-                "if a PDF is scanned, render a page with `pdftoppm` and pipe it to "
+                "if a PDF is scanned, render a page with `pdftocairo` and pipe it to "
                 "`tesseract stdin stdout`. For images, use `tesseract FILE stdout`. For "
                 "video, use `ffprobe` plus `ffmpeg` to sample representative frames, piping "
                 "frames to `tesseract stdin stdout`. Inspect content, not only file metadata, "

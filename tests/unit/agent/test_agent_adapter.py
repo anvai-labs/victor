@@ -426,6 +426,7 @@ class TestVictorAgentAdapter:
         assert "Fix the following issue" not in prompt
         assert "report.md" in prompt
         assert "pdftotext" in prompt
+        assert "pdftocairo" in prompt
         assert "ffmpeg" in prompt
         assert "tesseract" in prompt
         assert trace.generated_code == "# Findings\n\nEvidence-backed report.\n"
