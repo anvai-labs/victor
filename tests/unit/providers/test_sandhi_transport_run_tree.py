@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import json
 from types import SimpleNamespace
+from typing import Optional
 
 import pytest
 
@@ -42,9 +43,11 @@ from victor.providers.deepseek_provider import DeepSeekProvider
 class FakeTypedProvider:
     def __init__(self) -> None:
         self.requests: list[dict] = []
+        self.wire_headers: list[Optional[str]] = []
 
-    async def complete_json(self, request_json: str) -> str:
+    async def complete_json(self, request_json: str, wire_headers_json=None) -> str:
         self.requests.append(json.loads(request_json))
+        self.wire_headers.append(wire_headers_json)
         return json.dumps(
             {
                 "schema_version": "1",
@@ -60,6 +63,29 @@ class FakeTypedProvider:
                 },
             }
         )
+
+    def stream_json(self, request_json: str, wire_headers_json=None):
+        self.requests.append(json.loads(request_json))
+        self.wire_headers.append(wire_headers_json)
+
+        async def events():
+            for event in (
+                {"event": "response_start", "id": "r2", "model": "deepseek-chat"},
+                {"event": "text_delta", "delta": "he"},
+                {
+                    "event": "usage",
+                    "usage": {
+                        "tokens_in": 6,
+                        "tokens_out": 5,
+                        "cache_creation_tokens": 0,
+                        "cache_read_tokens": 0,
+                    },
+                },
+                {"event": "finish", "finish_reason": "stop"},
+            ):
+                yield json.dumps(event)
+
+        return events()
 
 
 class FakeRuntime:
@@ -161,6 +187,113 @@ async def test_session_affinity_rides_neutral_metadata_in_both_modes(monkeypatch
     headers = json.loads(kwargs["headers_json"])
     # On the proxy path the ingress header is what the proxy reads for affinity.
     assert headers["x-sandhi-session"] == bound_session
+
+
+@pytest.fixture
+def bound_turn():
+    import victor.core.context as ctx
+
+    token = ctx.turn_id.set("turn-aaa-111")
+    try:
+        yield "turn-aaa-111"
+    finally:
+        ctx.turn_id.reset(token)
+
+
+@pytest.mark.asyncio
+async def test_gateway_mode_stamps_step_id_per_call(monkeypatch, bound_turn):
+    """TD-0022 D1 consumer side: the turn id rides the PER-CALL wire_headers_json, not
+    handle-static headers — so the transport handle is reused across turns while the
+    step id changes every call. This is what makes sandhi's run cost tree step-aware."""
+    runtime = install_runtime(monkeypatch)
+    provider = make_gateway_provider()
+
+    await provider.chat([Message(role="user", content="hi")], model="deepseek-chat")
+
+    assert runtime.handle.wire_headers == [json.dumps({"x-sandhi-step-id": bound_turn})]
+
+
+@pytest.mark.asyncio
+async def test_step_id_changes_per_turn_without_handle_rebuild(monkeypatch):
+    """Two turns, two distinct step ids — and ONE runtime.provider() invocation: the
+    handle cache is untouched by per-call headers (pool + circuit state survive)."""
+    import victor.core.context as ctx
+
+    runtime = install_runtime(monkeypatch)
+    provider = make_gateway_provider()
+
+    token = ctx.turn_id.set("turn-1")
+    try:
+        await provider.chat([Message(role="user", content="a")], model="deepseek-chat")
+        ctx.turn_id.set("turn-2")
+        await provider.chat([Message(role="user", content="b")], model="deepseek-chat")
+    finally:
+        ctx.turn_id.reset(token)
+
+    assert len(runtime.calls) == 1, "per-call headers must NOT rebuild the handle"
+    assert runtime.handle.wire_headers == [
+        json.dumps({"x-sandhi-step-id": "turn-1"}),
+        json.dumps({"x-sandhi-step-id": "turn-2"}),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_stream_path_stamps_step_id_per_call(monkeypatch, bound_turn):
+    """The stream seam carries the per-call step id exactly like complete — a future
+    edit to one branch only must not silently drop the other (review finding)."""
+    import victor.core.context as ctx
+
+    runtime = install_runtime(monkeypatch)
+    provider = make_gateway_provider()
+
+    async def collect():
+        async for _ in provider.stream([Message(role="user", content="hi")], model="deepseek-chat"):
+            pass
+
+    await collect()
+    assert runtime.handle.wire_headers == [json.dumps({"x-sandhi-step-id": bound_turn})]
+
+    # Second turn: header changes, handle still reused.
+    token = ctx.turn_id.set("turn-bbb-222")
+    try:
+        await collect()
+    finally:
+        ctx.turn_id.reset(token)
+    assert runtime.handle.wire_headers[-1] == json.dumps({"x-sandhi-step-id": "turn-bbb-222"})
+
+
+@pytest.mark.asyncio
+async def test_direct_mode_sends_no_step_header(monkeypatch, bound_turn):
+    """Direct (non-gateway) mode stays byte-identical: no per-call tree headers."""
+    runtime = install_runtime(monkeypatch)
+    provider = DeepSeekProvider(api_key="k", base_url="https://api.deepseek.com/v1")
+
+    await provider.chat([Message(role="user", content="hi")], model="deepseek-chat")
+
+    assert runtime.handle.wire_headers[0] is None
+
+
+@pytest.mark.asyncio
+async def test_gateway_without_bound_turn_sends_no_step_header(monkeypatch):
+    runtime = install_runtime(monkeypatch)
+    provider = make_gateway_provider()
+
+    await provider.chat([Message(role="user", content="hi")], model="deepseek-chat")
+
+    assert runtime.handle.wire_headers[0] is None
+
+
+@pytest.mark.asyncio
+async def test_step_id_never_rides_neutral_metadata(monkeypatch, bound_turn, bound_session):
+    """The KV-cache invariant: metadata maps onto vendor affinity headers, so a per-turn
+    value there would change the cache key every turn. metadata carries session_id ONLY."""
+    runtime = install_runtime(monkeypatch)
+    provider = make_gateway_provider()
+
+    await provider.chat([Message(role="user", content="hi")], model="deepseek-chat")
+
+    request = runtime.handle.requests[0]
+    assert set(request.get("metadata", {}).keys()) == {"session_id"}
 
 
 @pytest.mark.asyncio

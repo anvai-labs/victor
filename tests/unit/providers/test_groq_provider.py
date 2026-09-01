@@ -77,7 +77,7 @@ async def test_chat_executes_through_typed_ffi(monkeypatch: pytest.MonkeyPatch) 
     requests: list[dict] = []
 
     class Handle:
-        async def complete_json(self, request_json: str) -> str:
+        async def complete_json(self, request_json: str, wire_headers_json=None) -> str:
             request = json.loads(request_json)
             requests.append(request)
             return json.dumps(

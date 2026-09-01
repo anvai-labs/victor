@@ -33,7 +33,7 @@ class FakeTypedProvider:
         self.requests: list[dict] = []
         self.complete_error = complete_error
 
-    async def complete_json(self, request_json: str) -> str:
+    async def complete_json(self, request_json: str, wire_headers_json=None) -> str:
         self.requests.append(json.loads(request_json))
         if self.complete_error:
             raise self.complete_error
@@ -68,7 +68,7 @@ class FakeTypedProvider:
             }
         )
 
-    def stream_json(self, request_json: str):
+    def stream_json(self, request_json: str, wire_headers_json=None):
         self.requests.append(json.loads(request_json))
 
         async def events():

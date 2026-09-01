@@ -159,7 +159,7 @@ async def test_direct_policy_instances_execute_only_through_typed_ffi(
     calls: list[dict] = []
 
     class Handle:
-        async def complete_json(self, request_json: str) -> str:
+        async def complete_json(self, request_json: str, wire_headers_json=None) -> str:
             calls.append(json.loads(request_json))
             return json.dumps(
                 {

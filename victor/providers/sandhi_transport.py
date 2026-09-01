@@ -312,11 +312,6 @@ def _gateway_run_id() -> str:
     the execution-context correlation spine (``victor.core.context``) — the
     same id the orchestrator binds for the whole agent run. Empty when no
     session is bound (bare provider usage outside an agent run).
-
-    ``x-sandhi-step-id`` is a deliberate follow-up: wire headers are fixed at
-    FFI-handle construction and the handle is cached per run, while a step/turn
-    id changes per agentic-loop turn — attaching it here would force a fresh
-    transport handle (pooling, circuit state) every turn.
     """
     try:
         from victor.core.context import get_session_id
@@ -324,6 +319,35 @@ def _gateway_run_id() -> str:
         return str(get_session_id() or "")
     except Exception:  # pragma: no cover - attribution must never block transport
         return ""
+
+
+def _wire_call_headers() -> Dict[str, str]:
+    """Per-call gateway wire headers (sandhi TD-0022 D1) — the step dimension.
+
+    The turn/step id changes every agentic-loop turn, so it rides the PER-CALL
+    ``wire_headers_json`` argument of ``complete_json``/``stream_json`` (sandhi
+    >= 0.3.0), never the handle-static headers and never neutral ``metadata``:
+
+    - handle-static would rebuild the transport handle (pool, circuit state)
+      every turn — the exact cost the old deferral was avoiding;
+    - ``request["metadata"]`` maps onto catalog-declared vendor affinity
+      headers (InferFlux ``x-inferflux-session-id``); a per-turn value there
+      would change the KV/prefix-cache key every turn and destroy cache reuse.
+
+    Empty dict when no turn is bound. The call sites gate on gateway mode and
+    pass ``None`` when this returns nothing — direct mode evaluates the helper
+    but discards the result (a contextvar read + cached import, negligible), so
+    its wire bytes are unchanged by construction.
+    """
+    try:
+        from victor.core.context import get_turn_id
+
+        turn_id = str(get_turn_id() or "")
+    except Exception:  # pragma: no cover - attribution must never block transport
+        return {}
+    if not turn_id:
+        return {}
+    return {"x-sandhi-step-id": turn_id}
 
 
 def _include_native_response() -> bool:
@@ -711,9 +735,16 @@ class SandhiTypedProviderMixin:
     async def _sandhi_complete(self, request: Dict[str, Any]) -> Dict[str, Any]:
         provider = self._typed_provider(str(request.get("model", "")))
         timeout = self._sandhi_timeout()
+        # Per-call step headers (gateway mode only — direct mode stays byte-identical).
+        call_headers = _wire_call_headers()
+        wire_headers = (
+            json.dumps(call_headers)
+            if self._gateway_overrides() is not None and call_headers
+            else None
+        )
         try:
             value = await asyncio.wait_for(
-                provider.complete_json(json.dumps(request)),
+                provider.complete_json(json.dumps(request), wire_headers),
                 timeout=timeout + self._SANDHI_WAIT_GRACE_SECS,
             )
             return json.loads(str(value))
@@ -775,12 +806,18 @@ class SandhiTypedProviderMixin:
     async def _sandhi_stream(self, request: Dict[str, Any]) -> AsyncIterator[StreamChunk]:
         provider = self._typed_provider(str(request.get("model", "")))
         timeout = self._sandhi_timeout()
+        call_headers = _wire_call_headers()
+        wire_headers = (
+            json.dumps(call_headers)
+            if self._gateway_overrides() is not None and call_headers
+            else None
+        )
         calls: Dict[int, Dict[str, Any]] = {}
         finish_reason: Optional[str] = None
         usage: Optional[Dict[str, int]] = None
         usage_diagnostics: Optional[Dict[str, Any]] = None
         try:
-            async for event_json in provider.stream_json(json.dumps(request)):
+            async for event_json in provider.stream_json(json.dumps(request), wire_headers):
                 event = json.loads(str(event_json))
                 kind = event.get("event")
                 if kind == "text_delta":
