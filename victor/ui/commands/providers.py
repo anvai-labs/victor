@@ -74,6 +74,7 @@ def _list_providers_impl() -> None:
         "cerebras": ("✅ Ready", "Ultra-fast inference, Free tier, Qwen/Llama"),
         # Local inference
         "llamacpp": ("✅ Ready", "Local GGUF models, CPU/GPU"),
+        "inferflux": ("✅ Ready", "Self-hosted, Batched decode, KV-prefix reuse, Sandhi-metered"),
         # Tested providers
         "mistral": ("✅ Ready", "Mistral Large/Codestral, 500K tokens/min free"),
         # Known but untested providers
@@ -168,7 +169,9 @@ def _format_configured_provider(
 @providers_app.command("check")
 def check_provider(
     provider: str = typer.Argument(..., help="Provider name (e.g., deepseek, anthropic, ollama)"),
-    model: str = typer.Option("deepseek-chat", help="Model to check"),
+    model: str = typer.Option(
+        None, help="Model to check (default: the provider's own policy default)"
+    ),
     connectivity: bool = typer.Option(
         False, "--connectivity", "-c", help="Perform connectivity test (slower)"
     ),
@@ -182,6 +185,8 @@ def check_provider(
         victor providers check anthropic --connectivity
         victor providers check ollama
     """
+    if model is None:
+        model = _default_check_model(provider)
     run_sync(
         _check_provider_async(
             provider=provider,
@@ -191,6 +196,28 @@ def check_provider(
             json_output=json_output,
         )
     )
+
+
+def _default_check_model(provider: str) -> str:
+    """The provider's own policy default, not one hardcoded vendor's model.
+
+    OpenAI-compat providers read their YAML policy tier's ``default_model``;
+    everything else keeps the historical deepseek default only when the
+    provider has no policy entry.
+    """
+    key = provider.strip().lower()
+    try:
+        from victor.providers.openai_compat_model_policy import (
+            get_openai_compat_provider_spec,
+        )
+
+        spec = get_openai_compat_provider_spec(key)
+        default = getattr(spec, "default_model", None)
+        if default:
+            return str(default)
+    except Exception:
+        pass
+    return "deepseek-chat"
 
 
 async def _check_provider_async(
