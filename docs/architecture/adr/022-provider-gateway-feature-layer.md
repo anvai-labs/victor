@@ -13,7 +13,7 @@
 
 ## Context
 
-Victor has 24 provider adapters behind `BaseProvider`, cost/latency `smart_router.py` (on by
+Victor has 25 provider adapters behind `BaseProvider`, cost/latency `smart_router.py` (on by
 default per TD-17's correction), resilience (circuit breaker + retry, `resilience.py`), and
 prompt/KV-prefix caching. The typed *transport + usage-metering* layer is being homed in `sandhi`
 (Rust; TD-21, ADR-018) — retries, HTTP/SSE, structured errors, and `UsageV2` move under FFI.

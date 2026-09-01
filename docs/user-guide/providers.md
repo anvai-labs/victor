@@ -1,6 +1,6 @@
 # Provider Guide
 
-Complete guide to using LLM providers in Victor. Victor supports 24 providers, from local inference to cloud APIs, with seamless mid-conversation switching.
+Complete guide to using LLM providers in Victor. Victor supports 25 providers, from local inference to cloud APIs, with seamless mid-conversation switching.
 
 ## What is a Provider?
 
@@ -17,7 +17,7 @@ This abstraction enables Victor's signature feature: **switching providers mid-c
 
 | Category | Providers | Best For |
 |----------|-----------|----------|
-| **Local** | Ollama, LM Studio, vLLM, llama.cpp | Privacy, no API costs, offline use |
+| **Local** | Ollama, LM Studio, vLLM, llama.cpp, InferFlux | Privacy, no API costs, offline use |
 | **Cloud** | Anthropic, OpenAI, Google, xAI, DeepSeek, Mistral, Groq, Cerebras, Together, Fireworks, OpenRouter, Moonshot | Best quality, fastest inference, latest models |
 | **Enterprise** | Azure OpenAI, AWS Bedrock, Vertex AI | Compliance, security, enterprise integrations |
 | **Platforms** | Hugging Face, Replicate | Model variety, research models |
@@ -49,7 +49,7 @@ capabilities from a validated per-provider spec rather than hard-coding them
 (`victor/providers/sandhi_openai_compat_policy.py`).
 
 Cost tiers are indicative ($ = budget, $$$ = premium); check current provider pricing.
-This is a subset — Victor ships **24 provider adapters**. For the full list run
+This is a subset — Victor ships **25 provider adapters**. For the full list run
 `victor providers`, or see the [Provider Reference](../reference/providers/) and the
 detailed per-provider sections below.
 

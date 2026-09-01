@@ -1,6 +1,6 @@
 # MkDocs Configuration for Victor Documentation
 site_name: Victor
-site_description: Contract-first agentic AI framework supporting 24 LLM providers with 34 tool modules across 9 verticals (5 domain + 4 utility)
+site_description: Contract-first agentic AI framework supporting 25 LLM providers with 34 tool modules across 9 verticals (5 domain + 4 utility)
 site_author: Vijaykumar Singh
 site_url: https://anvai-labs.github.io/victor/
 repo_url: https://github.com/anvai-labs/victor
