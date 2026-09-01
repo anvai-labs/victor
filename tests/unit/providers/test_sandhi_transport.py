@@ -359,7 +359,9 @@ async def test_gateway_mode_points_ffi_handle_at_proxy_with_virtual_key(monkeypa
     # The slug is preserved so the proxy still speaks the openai-compat dialect;
     # the virtual key replaces the credential; the proxy URL replaces the endpoint.
     assert args[:3] == ("deepseek", "deepseek-chat", "vk_test_123")
-    assert kwargs["base_url"] == "http://localhost:8600"
+    # deepseek is openai-compat: the transport derives root + /v1 (the adapter
+    # appends /chat/completions; the proxy serves it under /v1).
+    assert kwargs["base_url"] == "http://localhost:8600/v1"
     # sandhi >= 0.1.5 (victor's floor) accepts "bearer" family-wide as a no-op,
     # so gateway mode presents it unconditionally for the virtual key.
     assert kwargs["auth_scheme"] == "bearer"
@@ -377,7 +379,7 @@ async def test_gateway_mode_preserves_protocol_alongside_overrides(monkeypatch):
 
     _, kwargs = runtime.calls[0]
     assert kwargs["protocol"] == "chatgpt_responses"
-    assert kwargs["base_url"] == "http://localhost:8600"
+    assert kwargs["base_url"] == "http://localhost:8600/v1"
     assert kwargs["auth_scheme"] == "bearer"
 
 
@@ -903,3 +905,66 @@ def test_neutral_mixin_maps_disabled_thinking_to_native_ollama_switch(monkeypatc
     )
     assert request["thinking"] == {"enabled": False}
     assert request["extensions"] == {"ollama": {"think": False}}
+
+
+# =============================================================================
+# Gateway URL normalization (per-family base derivation + root canonicalization)
+# =============================================================================
+
+
+class _Probe:
+    """Capture the base_url each family's gateway branch derives."""
+
+    pass
+
+
+@pytest.mark.parametrize(
+    "slug,root,expected",
+    [
+        ("deepseek", "http://gw:8600", "http://gw:8600/v1"),
+        ("inferflux", "http://gw:8600", "http://gw:8600/v1"),
+        ("anthropic", "http://gw:8600", "http://gw:8600"),
+        ("claude", "http://gw:8600", "http://gw:8600"),
+        ("gemini", "http://gw:8600", "http://gw:8600/v1beta"),
+        ("google", "http://gw:8600", "http://gw:8600/v1beta"),
+        # Trailing slash and explicit /v1 in the configured root both canonicalize.
+        ("deepseek", "http://gw:8600/", "http://gw:8600/v1"),
+        ("gemini", "http://gw:8600/v1beta", "http://gw:8600/v1beta"),
+    ],
+)
+def test_gateway_family_base_derivation(slug, root, expected):
+    from victor.providers.sandhi_transport import _gateway_family_base
+
+    assert _gateway_family_base(root, slug) == expected
+
+
+def test_gateway_root_normalization_strips_v1_and_v1beta():
+    from victor.config.provider_config_registry import _normalize_gateway_root
+
+    assert _normalize_gateway_root("http://gw:8600") == "http://gw:8600"
+    assert _normalize_gateway_root("http://gw:8600/") == "http://gw:8600"
+    assert _normalize_gateway_root("http://gw:8600/v1") == "http://gw:8600"
+    assert _normalize_gateway_root("http://gw:8600/v1/") == "http://gw:8600"
+    assert _normalize_gateway_root("http://gw:8600/v1beta") == "http://gw:8600"
+    # A path that merely ends in v1-ish text is not a prefix.
+    assert _normalize_gateway_root("http://gw:8600/somev1") == "http://gw:8600/somev1"
+
+
+def test_resolve_provider_gateway_uses_url_env_fallback(monkeypatch):
+    from victor.config.provider_config_registry import resolve_provider_gateway
+
+    monkeypatch.setenv("SANDHI_GATEWAY_URL", "http://env-gw:8600")
+    monkeypatch.delenv("SANDHI_GATEWAY_VIRTUAL_KEY", raising=False)
+    monkeypatch.delenv("SANDHI_GATEWAY_VIRTUAL_KEY_ACME", raising=False)
+    settings: dict = {"gateway": {"virtual_key": "vk_x"}}
+    resolve_provider_gateway(settings, "acme")
+    assert settings["gateway"]["url"] == "http://env-gw:8600"
+
+
+def test_resolve_provider_gateway_canonicalizes_v1_suffix(monkeypatch):
+    from victor.config.provider_config_registry import resolve_provider_gateway
+
+    monkeypatch.delenv("SANDHI_GATEWAY_URL", raising=False)
+    settings: dict = {"gateway": {"url": "http://gw:8600/v1/", "virtual_key": "vk_x"}}
+    resolve_provider_gateway(settings, "acme")
+    assert settings["gateway"]["url"] == "http://gw:8600"

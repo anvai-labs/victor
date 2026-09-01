@@ -342,7 +342,14 @@ class ProviderGatewayConfig(BaseModel):
     provider in direct FFI mode (unchanged behavior).
     """
 
-    url: str = Field(..., description="Sandhi proxy URL, e.g. http://localhost:8600")
+    url: str = Field(
+        ...,
+        description=(
+            "Sandhi proxy ROOT, e.g. http://localhost:8600 — a trailing /v1 or "
+            "/v1beta is accepted and stripped (the transport derives the "
+            "per-family prefix). Falls back to the SANDHI_GATEWAY_URL env var."
+        ),
+    )
     virtual_key: Optional[SecretStr] = Field(
         default=None,
         description=(
