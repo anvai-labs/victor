@@ -295,6 +295,13 @@ def auth_add(
     auth = AuthConfig(method=auth_method, source=source)
     if source == "sentinelpass":
         auth.value = sentinelpass_domain or provider
+        lookup_domain = sentinelpass_domain or provider
+        console.print(
+            "[dim]SentinelPass grant onboarding:[/dim]\n"
+            f"  sentinelpass secret allow --client-id victor --domain {lookup_domain} --field password\n"
+            "  export SENTINELPASS_CLIENT_TOKEN=spt_...   # printed once by the allow command\n"
+            f"  sentinelpass secret get --client-id victor --domain {lookup_domain} --field password  # verify"
+        )
     elif api_key:
         auth.value = api_key
 
