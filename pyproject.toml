@@ -59,7 +59,7 @@ dependencies = [
     "typing-extensions>=4.9",  # For typing.Self on Python 3.10
     "orjson>=3.9.0",  # Fast JSON serialization (Rust-backed, 5-10x faster than stdlib)
     # Typed provider runtime and wire transport; Sandhi is a core boundary, not an extra.
-    "sandhi-gateway==0.1.6",
+    "sandhi-gateway==0.3.0",
     # Imported on the `import victor` path (core.verticals.version_matrix) and for
     # vertical version gating. Previously satisfied only transitively via dev tools —
     # a bare `pip install victor-ai` could land in an env without it.

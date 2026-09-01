@@ -433,3 +433,27 @@ providers:
       qwen-turbo-latest: {description: Qwen Turbo - Fast and cost-effective, context_window: 131072, supports_tools: true}
       qwen-plus-latest: {description: Qwen Plus - Balanced performance, context_window: 131072, supports_tools: true}
       qwen-max-latest: {description: Qwen Max - Maximum capability, context_window: 131072, supports_tools: true}
+
+  # Self-hosted InferFlux (OpenAI Chat Completions dialect; anonymous when the server has
+  # no API keys configured). Wire facts and the default base URL come from Sandhi's catalog
+  # descriptor (ADR-0008). Model ids are OPERATOR config on the InferFlux side (its
+  # registry.yaml) — the catalog deliberately carries no lineup, so this YAML tier serves.
+  # Replace the placeholder below with your real model ids; the prefix routes catch any id
+  # you load (context windows follow the model you actually serve).
+  inferflux:
+    default_model: llama3-8b
+    timeout: 300
+    max_retries: 2
+    cache: {supported: false, kv_prefix_caching: false}
+    default_context_window: 8192
+    context_window_routes:
+      - {model_prefix: llama3, tokens: 8192}
+      - {model_prefix: mistral, tokens: 32768}
+      - {model_prefix: qwen, tokens: 32768}
+    models:
+      llama3-8b:
+        description: Placeholder - replace with your InferFlux registry.yaml model id
+        context_window: 8192
+        max_output: 4096
+        supports_tools: true
+        supports_thinking: false

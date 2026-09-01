@@ -431,6 +431,15 @@ def _typed_request_from_openai_payload(payload: Dict[str, Any]) -> Dict[str, Any
     native = {key: value for key, value in payload.items() if key not in excluded}
     if native:
         request["extensions"] = {"openai": native}
+
+    # Conversation affinity (sandhi ADR-0008 D3): the same execution-context session
+    # id the run cost tree keys on (`_gateway_run_id`, above) rides in neutral
+    # metadata — never the body, where it would break prompt-cache byte-stability.
+    # The typed runtime maps it onto catalog-declared vendor affinity headers (e.g.
+    # InferFlux's ``x-inferflux-session-id`` KV/prefix-cache key).
+    session_id = _gateway_run_id()
+    if session_id:
+        request["metadata"] = {"session_id": session_id}
     return request
 
 
@@ -683,6 +692,11 @@ class SandhiTypedProviderMixin:
             if run_id:
                 # An explicit caller-set header wins; never clobber it.
                 wire_headers.setdefault("x-sandhi-run-id", run_id)
+                # Conversation affinity on the proxy path (sandhi ADR-0008 D3): the
+                # proxy derives its session from ``x-sandhi-session`` and maps it onto
+                # catalog-declared vendor affinity headers (InferFlux KV/prefix-cache
+                # reuse). Same value as the run id, different consumer.
+                wire_headers.setdefault("x-sandhi-session", run_id)
             if wire_headers:
                 kwargs["headers_json"] = json.dumps(wire_headers)
             if auth_scheme:
