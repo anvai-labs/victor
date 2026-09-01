@@ -438,15 +438,26 @@ def resolve_provider_gateway(base_settings: Dict[str, Any], provider: str) -> No
     """
     gateway = base_settings.get("gateway")
     if gateway is None:
-        return
+        # No block at all: gateway mode is off unless the env supplies a URL.
+        # Materialize a block from SANDHI_GATEWAY_URL so env-only configs
+        # (SANDHI_GATEWAY_URL + SANDHI_GATEWAY_VIRTUAL_KEY) work without any
+        # per-provider YAML.
+        if not os.environ.get("SANDHI_GATEWAY_URL", "").strip():
+            return
+        gateway = {}
     if isinstance(gateway, dict):
         url = str(gateway.get("url") or "").strip()
     else:
         url = str(getattr(gateway, "url", "") or "").strip()
     if not url:
+        # Required-field validation aside, an explicit empty url also means
+        # "take the env".
         url = os.environ.get("SANDHI_GATEWAY_URL", "").strip()
     if not url:
-        base_settings.pop("gateway", None)
+        if isinstance(gateway, dict) and gateway:
+            base_settings.pop("gateway", None)
+        else:
+            base_settings.pop("gateway", None)
         return
     url = _normalize_gateway_root(url)
     if isinstance(gateway, dict):

@@ -338,9 +338,10 @@ def _gateway_family_base(root: str, slug: str) -> str:
     =============== =========================== ==============================
 
     Cohere/ollama have no proxy ingress dialect yet (upstream only, always the
-    translation plane) — they return the root; the proxy will answer 404 for
-    their paths rather than mis-route. Mirrors ``GatewayRoute.openai_kwargs``,
-    which encodes the openai-compat row for the admin path.
+    translation plane) — they take the openai-compat form; neither their
+    cohere (/v2/chat) nor ollama (/api/chat) path matches any proxy route, so
+    the proxy answers 404 rather than mis-routing either way. Mirrors
+    ``GatewayRoute.openai_kwargs`` for the admin path.
     """
     root = root.rstrip("/")
     for suffix in ("/v1", "/v1beta"):
@@ -721,8 +722,9 @@ class SandhiTypedProviderMixin:
             # construction conformance suite (test_sandhi_binding_construction.py)
             # covers this.
             auth_scheme = "bearer"
-            # Explicit for the cache key: the derived family base, so handles are
-            # cached per family route even though the configured URL is one root.
+            # The derived family base: distinct from the configured root so the
+            # FFI dials the right ingress path (the cache key already leads
+            # with the slug; this keeps the dialed URL itself correct).
             explicit_base_url = base_url
         else:
             base_url = str(getattr(self, "base_url", "") or "")

@@ -343,11 +343,12 @@ class ProviderGatewayConfig(BaseModel):
     """
 
     url: str = Field(
-        ...,
+        default="",
         description=(
             "Sandhi proxy ROOT, e.g. http://localhost:8600 — a trailing /v1 or "
             "/v1beta is accepted and stripped (the transport derives the "
-            "per-family prefix). Falls back to the SANDHI_GATEWAY_URL env var."
+            "per-family prefix). May be omitted entirely when "
+            "SANDHI_GATEWAY_URL is set."
         ),
     )
     virtual_key: Optional[SecretStr] = Field(
