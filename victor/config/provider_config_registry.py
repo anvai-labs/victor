@@ -400,28 +400,66 @@ class ZAIConfig(ProviderConfigStrategy):
 # =============================================================================
 
 
+def _normalize_gateway_root(url: str) -> str:
+    """Canonicalize a configured gateway URL to its ROOT (no /v1, no /v1beta).
+
+    The proxy serves the AI routes under its own path prefixes
+    (``/v1/chat/completions``, ``/v1/messages``, ``/v1beta/models/...``), and the
+    sandhi adapters append those prefixes themselves — so the base the transport
+    holds must be the bare root. Config authors naturally paste either the root
+    or the ``/v1`` form (both appear in victor's own docs and tests); every
+    accepted spelling collapses to one canonical root here, and the per-family
+    derivation happens at the one place that knows the family
+    (``sandhi_transport._typed_provider``). Mirrors the rule
+    ``GatewayRoute.openai_kwargs`` already encodes for the OpenAI case.
+    """
+    root = url.rstrip("/")
+    for suffix in ("/v1", "/v1beta"):
+        if root.endswith(suffix):
+            root = root[: -len(suffix)]
+            break
+    return root.rstrip("/")
+
+
 def resolve_provider_gateway(base_settings: Dict[str, Any], provider: str) -> None:
     """Normalize and env-resolve a per-provider Sandhi gateway block in place.
 
     The ``gateway`` block (loaded from ``profiles.yaml`` providers section as a
     ``ProviderGatewayConfig``) is normalized to a plain dict ``{"url", "virtual_key"}``
     so it can flow through ``**kwargs`` into the provider's ``extra_config`` and be
-    read by the Sandhi transport. The virtual key is resolved from the block, else
-    from a per-provider env var (``SANDHI_GATEWAY_VIRTUAL_KEY_<PROVIDER>``), else the
-    global ``SANDHI_GATEWAY_VIRTUAL_KEY``. A block without a URL is dropped (gateway
-    mode stays off); a URL with no resolvable key is kept as an empty string so the
-    transport can fail closed with a clear error.
+    read by the Sandhi transport. The URL falls back to ``SANDHI_GATEWAY_URL`` when
+    the block omits it, and is canonicalized to the proxy ROOT (a trailing ``/v1``
+    or ``/v1beta`` is accepted and stripped — the transport derives the per-family
+    prefix). The virtual key is resolved from the block, else from a per-provider
+    env var (``SANDHI_GATEWAY_VIRTUAL_KEY_<PROVIDER>``), else the global
+    ``SANDHI_GATEWAY_VIRTUAL_KEY``. A block with no URL anywhere is dropped
+    (gateway mode stays off); a URL with no resolvable key is kept as an empty
+    string so the transport can fail closed with a clear error.
     """
     gateway = base_settings.get("gateway")
     if gateway is None:
-        return
+        # No block at all: gateway mode is off unless the env supplies a URL.
+        # Materialize a block from SANDHI_GATEWAY_URL so env-only configs
+        # (SANDHI_GATEWAY_URL + SANDHI_GATEWAY_VIRTUAL_KEY) work without any
+        # per-provider YAML.
+        if not os.environ.get("SANDHI_GATEWAY_URL", "").strip():
+            return
+        gateway = {}
     if isinstance(gateway, dict):
         url = str(gateway.get("url") or "").strip()
     else:
         url = str(getattr(gateway, "url", "") or "").strip()
     if not url:
-        base_settings.pop("gateway", None)
+        # Required-field validation aside, an explicit empty url also means
+        # "take the env".
+        url = os.environ.get("SANDHI_GATEWAY_URL", "").strip()
+    if not url:
+        if isinstance(gateway, dict) and gateway:
+            base_settings.pop("gateway", None)
+        else:
+            base_settings.pop("gateway", None)
         return
+    url = _normalize_gateway_root(url)
     if isinstance(gateway, dict):
         virtual_key = gateway.get("virtual_key")
     else:

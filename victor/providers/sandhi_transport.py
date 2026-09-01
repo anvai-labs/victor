@@ -321,6 +321,41 @@ def _gateway_run_id() -> str:
         return ""
 
 
+def _gateway_family_base(root: str, slug: str) -> str:
+    """Derive the transport base_url for a gateway'd family from the proxy ROOT.
+
+    The proxy terminates four ingress dialects at fixed paths, and each sandhi
+    adapter appends its own path prefix — so the base the FFI handle holds is
+    family-specific even though the configured URL is one root:
+
+    =============== =========================== ==============================
+    family          adapter appends             base
+    =============== =========================== ==============================
+    openai-compat   ``/chat/completions``       root + ``/v1``
+    responses       ``/responses``              root + ``/v1``
+    anthropic       ``/v1/messages``            root
+    gemini          ``/models/{m}:{method}``    root + ``/v1beta``
+    =============== =========================== ==============================
+
+    Cohere/ollama have no proxy ingress dialect yet (upstream only, always the
+    translation plane) — they take the openai-compat form; neither their
+    cohere (/v2/chat) nor ollama (/api/chat) path matches any proxy route, so
+    the proxy answers 404 rather than mis-routing either way. Mirrors
+    ``GatewayRoute.openai_kwargs`` for the admin path.
+    """
+    root = root.rstrip("/")
+    for suffix in ("/v1", "/v1beta"):
+        if root.endswith(suffix):
+            root = root[: -len(suffix)]
+            break
+    root = root.rstrip("/")
+    if slug in {"gemini", "google"}:
+        return root + "/v1beta"
+    if slug in {"anthropic", "claude"}:
+        return root
+    return root + "/v1"
+
+
 def _wire_call_headers() -> Dict[str, str]:
     """Per-call gateway wire headers (sandhi TD-0022 D1) — the step dimension.
 
@@ -676,7 +711,7 @@ class SandhiTypedProviderMixin:
                     "SANDHI_GATEWAY_VIRTUAL_KEY env var)",
                     provider=slug,
                 )
-            base_url = proxy_url
+            base_url = _gateway_family_base(proxy_url, slug)
             api_key = virtual_key
             # sandhi >= 0.3.0 (victor's floor) accepts "bearer" family-wide as a
             # no-op for the gateway virtual key (TD-0008 rule 5: reject
@@ -687,7 +722,10 @@ class SandhiTypedProviderMixin:
             # construction conformance suite (test_sandhi_binding_construction.py)
             # covers this.
             auth_scheme = "bearer"
-            explicit_base_url = proxy_url
+            # The derived family base: distinct from the configured root so the
+            # FFI dials the right ingress path (the cache key already leads
+            # with the slug; this keeps the dialed URL itself correct).
+            explicit_base_url = base_url
         else:
             base_url = str(getattr(self, "base_url", "") or "")
             # A catalog default is not an override. Omitting it lets Sandhi apply authoritative
