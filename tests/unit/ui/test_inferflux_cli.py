@@ -87,10 +87,20 @@ async def test_list_inferflux_models_live_discovery_with_fallback(capsys):
 
 
 def test_inferflux_provider_row_exists():
-    from victor.ui.commands.providers import _list_providers_impl  # noqa: F401
-    from victor.ui.commands import providers as providers_mod
+    """Asserts the data the table renders from, not the module's source text."""
+    from victor.ui.commands.providers import PROVIDER_INFO
 
+    status, features = PROVIDER_INFO["inferflux"]
+    assert status.startswith("\u2705")
+    assert "Batched decode" in features
+
+
+def test_cli_default_base_matches_provider_constant():
+    from victor.providers.inferflux_provider import DEFAULT_BASE_URL
+    from victor.ui.commands.models import _list_inferflux_models
     import inspect
 
-    src = inspect.getsource(providers_mod)
-    assert '"inferflux"' in src and "Batched decode" in src
+    src = inspect.getsource(_list_inferflux_models)
+    assert "127.0.0.1:8080" not in src  # no duplicated literal
+    assert "DEFAULT_BASE_URL" in src
+    assert DEFAULT_BASE_URL.endswith("/v1")

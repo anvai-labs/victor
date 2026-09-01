@@ -431,10 +431,10 @@ async def _list_inferflux_models(settings, endpoint: str = None) -> None:
     """
     import httpx
 
-    from victor.providers.inferflux_provider import INFERFLUX_MODELS
+    from victor.providers.inferflux_provider import DEFAULT_BASE_URL, INFERFLUX_MODELS
 
     provider_settings = settings.get_provider_settings("inferflux")
-    base_url = endpoint or provider_settings.get("base_url", "http://127.0.0.1:8080/v1")
+    base_url = endpoint or provider_settings.get("base_url", DEFAULT_BASE_URL)
     base_url = base_url.rstrip("/")
     if not base_url.endswith("/v1"):
         base_url = base_url + "/v1"
