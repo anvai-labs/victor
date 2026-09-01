@@ -64,6 +64,29 @@ class FakeTypedProvider:
             }
         )
 
+    def stream_json(self, request_json: str, wire_headers_json=None):
+        self.requests.append(json.loads(request_json))
+        self.wire_headers.append(wire_headers_json)
+
+        async def events():
+            for event in (
+                {"event": "response_start", "id": "r2", "model": "deepseek-chat"},
+                {"event": "text_delta", "delta": "he"},
+                {
+                    "event": "usage",
+                    "usage": {
+                        "tokens_in": 6,
+                        "tokens_out": 5,
+                        "cache_creation_tokens": 0,
+                        "cache_read_tokens": 0,
+                    },
+                },
+                {"event": "finish", "finish_reason": "stop"},
+            ):
+                yield json.dumps(event)
+
+        return events()
+
 
 class FakeRuntime:
     def __init__(self, handle: FakeTypedProvider) -> None:
@@ -212,6 +235,31 @@ async def test_step_id_changes_per_turn_without_handle_rebuild(monkeypatch):
         json.dumps({"x-sandhi-step-id": "turn-1"}),
         json.dumps({"x-sandhi-step-id": "turn-2"}),
     ]
+
+
+@pytest.mark.asyncio
+async def test_stream_path_stamps_step_id_per_call(monkeypatch, bound_turn):
+    """The stream seam carries the per-call step id exactly like complete — a future
+    edit to one branch only must not silently drop the other (review finding)."""
+    import victor.core.context as ctx
+
+    runtime = install_runtime(monkeypatch)
+    provider = make_gateway_provider()
+
+    async def collect():
+        async for _ in provider.stream([Message(role="user", content="hi")], model="deepseek-chat"):
+            pass
+
+    await collect()
+    assert runtime.handle.wire_headers == [json.dumps({"x-sandhi-step-id": bound_turn})]
+
+    # Second turn: header changes, handle still reused.
+    token = ctx.turn_id.set("turn-bbb-222")
+    try:
+        await collect()
+    finally:
+        ctx.turn_id.reset(token)
+    assert runtime.handle.wire_headers[-1] == json.dumps({"x-sandhi-step-id": "turn-bbb-222"})
 
 
 @pytest.mark.asyncio

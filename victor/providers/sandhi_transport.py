@@ -334,9 +334,10 @@ def _wire_call_headers() -> Dict[str, str]:
       headers (InferFlux ``x-inferflux-session-id``); a per-turn value there
       would change the KV/prefix-cache key every turn and destroy cache reuse.
 
-    Empty dict when no turn is bound or the binding predates the seam; callers
-    pass ``None`` then, and direct (non-gateway) mode never calls this at all —
-    it stays byte-identical by construction.
+    Empty dict when no turn is bound. The call sites gate on gateway mode and
+    pass ``None`` when this returns nothing — direct mode evaluates the helper
+    but discards the result (a contextvar read + cached import, negligible), so
+    its wire bytes are unchanged by construction.
     """
     try:
         from victor.core.context import get_turn_id
