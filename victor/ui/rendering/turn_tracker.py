@@ -85,6 +85,11 @@ class TurnMetrics:
     start_time: float = 0.0
     end_time: float = 0.0
     tool_durations_ms: Dict[str, float] = field(default_factory=dict)
+    # Wire truth from the sandhi run cost tree (ADR-0005 D7), when reachable.
+    # Neutral units (ADR-0001): the cache split and billable come straight from
+    # the metered events; None means no tree was available this turn.
+    wire_cache_read_tokens: Optional[int] = None
+    wire_billable_tokens: Optional[int] = None
 
 
 @dataclass
@@ -142,6 +147,37 @@ class TurnTracker:
 
     # ── Turn Lifecycle ────────────────────────────────────────────
 
+    def _overlay_wire_truth(self) -> None:
+        """Best-effort: stamp this turn's metrics from the sandhi run cost tree.
+
+        Reads the step row the proxy folded for this turn's step id (own, not
+        rollup) and records the neutral split — cache read and billable — next
+        to the price-table estimate. Never raises, never blocks: every failure
+        path (no gateway route, no admin token, unknown run, fetch error)
+        leaves the estimate standing and the wire fields None.
+        """
+        if self._current_turn is None:
+            return
+        try:
+            from victor.core.context import get_session_id, get_turn_id
+
+            run_id = str(get_session_id() or "")
+            step_id = str(get_turn_id() or "")
+            if not run_id or not step_id:
+                return
+            from victor.observability.sandhi_admin import fetch_run_cost_tree, find_step
+
+            tree = fetch_run_cost_tree(run_id)
+            if tree is None:
+                return
+            row = find_step(tree, step_id)
+            if row is None:
+                return
+            self._current_turn.wire_cache_read_tokens = int(row["cache_read_tokens"])
+            self._current_turn.wire_billable_tokens = int(row["billable_tokens"])
+        except Exception:  # pragma: no cover - display must never block on metering
+            return
+
     def start_turn(self) -> int:
         """Begin a new conversation turn.
 
@@ -187,13 +223,14 @@ class TurnTracker:
             self._current_turn.end_time - self._current_turn.start_time
         ) * 1000
 
-        # Estimate cost
+        # Estimate cost (fallback — replaced by wire truth below when a tree exists)
         input_cost, output_cost = ESTIMATED_COST_PER_1K.get(
             self._model, ESTIMATED_COST_PER_1K["default"]
         )
         self._current_turn.cost_estimate_usd = (input_tokens / 1000) * input_cost + (
             output_tokens / 1000
         ) * output_cost
+        self._overlay_wire_truth()
 
         metrics = self._finalize_current_turn()
         logger.debug(
