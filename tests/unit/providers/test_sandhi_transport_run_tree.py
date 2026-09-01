@@ -137,6 +137,33 @@ async def test_direct_mode_never_sends_run_header(monkeypatch, bound_session):
 
 
 @pytest.mark.asyncio
+async def test_session_affinity_rides_neutral_metadata_in_both_modes(monkeypatch, bound_session):
+    """Conversation affinity (sandhi ADR-0008 D3) is request metadata, never a body field.
+
+    In direct mode there is no gateway header to carry it, so the session id rides
+    the typed request's neutral ``metadata`` block — the typed runtime maps it onto
+    catalog-declared vendor affinity headers (e.g. InferFlux's KV/prefix-cache key).
+    """
+    runtime = install_runtime(monkeypatch)
+
+    provider = DeepSeekProvider(api_key="k", base_url="https://api.deepseek.com/v1")
+    await provider.chat([Message(role="user", content="hi")], model="deepseek-chat")
+    request = runtime.handle.requests[0]
+    assert request["metadata"]["session_id"] == bound_session
+    assert "session_id" not in request  # never a top-level wire-body field
+
+    runtime2 = install_runtime(monkeypatch)
+    provider2 = make_gateway_provider()
+    await provider2.chat([Message(role="user", content="hi")], model="deepseek-chat")
+    request2 = runtime2.handle.requests[0]
+    assert request2["metadata"]["session_id"] == bound_session
+    _, kwargs = runtime2.calls[0]
+    headers = json.loads(kwargs["headers_json"])
+    # On the proxy path the ingress header is what the proxy reads for affinity.
+    assert headers["x-sandhi-session"] == bound_session
+
+
+@pytest.mark.asyncio
 async def test_gateway_mode_preserves_existing_wire_headers(monkeypatch, bound_session):
     runtime = install_runtime(monkeypatch)
     provider = make_gateway_provider()

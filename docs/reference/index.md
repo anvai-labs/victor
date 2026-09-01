@@ -6,7 +6,7 @@ Complete reference documentation for Victor AI Assistant.
 
 | Reference | Description |
 |-----------|-------------|
-| [**Providers**](providers/) | All 24 LLM providers with setup, models, and configuration |
+| [**Providers**](providers/) | All 25 LLM providers with setup, models, and configuration |
 | [**Tools**](tools/) | 34 tool modules organized by category |
 | [**Configuration**](configuration/) | Complete configuration reference (profiles, API keys, MCP) |
 | [**API**](api/) | HTTP API, MCP server, Python package API |

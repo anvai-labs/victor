@@ -76,7 +76,7 @@ class StreamMetrics:
 
     # Wire-truth latency from sandhi's typed boundary (W3b) — preferred over
     # client wall-clock when present (absent on non-sandhi providers; carried by
-    # every sandhi-gateway at victor's >= 0.1.5 floor).
+    # every sandhi-gateway at victor's >= 0.3.0 floor).
     wire_duration_ms: Optional[int] = None
     wire_ttft_ms: Optional[int] = None
 

@@ -30,7 +30,7 @@
 
 Victor is a contract-first agentic AI framework in Python 3.11+ providing a typed,
 service-first runtime for building agents that reason, call tools, execute DAG
-workflows, and coordinate multi-agent teams across 24 LLM providers.
+workflows, and coordinate multi-agent teams across 25 LLM providers.
 
 ```mermaid
 flowchart TB
@@ -296,7 +296,7 @@ bootstraps the DI container, creates the orchestrator, and wires observability.
 
 ## Provider System
 
-24 LLM provider adapters behind a unified interface with circuit breaker,
+25 LLM provider adapters behind a unified interface with circuit breaker,
 retry, and smart routing (multi-provider selection/fallback via
 `victor/providers/smart_router.py`). The consolidated provider gateway
 feature layer — semantic caching, budget guardrails, routing-performance

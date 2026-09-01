@@ -9,7 +9,7 @@
 
 ## Context
 
-Victor has a **heavy, mostly-optional dependency surface**: native Rust extensions (`rust/`, the `_NATIVE_AVAILABLE` PyO3 pattern), ML/embedding stacks (`sentence-transformers`, `torch`, `lancedb`), per-language tree-sitter grammars (`[lang-core]`/`[lang-all]` extras), the `swebench` eval harness, and 24 LLM provider adapters. None of these are required to *import* victor, but a host without them gets a degraded agent (no embeddings, no graph for non-Python, no containerized eval).
+Victor has a **heavy, mostly-optional dependency surface**: native Rust extensions (`rust/`, the `_NATIVE_AVAILABLE` PyO3 pattern), ML/embedding stacks (`sentence-transformers`, `torch`, `lancedb`), per-language tree-sitter grammars (`[lang-core]`/`[lang-all]` extras), the `swebench` eval harness, and 25 LLM provider adapters. None of these are required to *import* victor, but a host without them gets a degraded agent (no embeddings, no graph for non-Python, no containerized eval).
 
 The recurring pain this causes:
 - **Hosts without the right deps can't run victor fully** — installing the full matrix (torch + grammars + native ext + swebench) is heavy and version-fragile.

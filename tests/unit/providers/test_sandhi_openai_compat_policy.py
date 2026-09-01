@@ -74,6 +74,7 @@ def test_specs_are_immutable_and_combine_sandhi_wire_with_victor_model_policy() 
         "mistral",
         "zai",
         "qwen",
+        "inferflux",
     }
     assert specs["together"].base_url == "https://api.together.xyz/v1"
     assert specs["fireworks"].base_url == "https://api.fireworks.ai/inference/v1"

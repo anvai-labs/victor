@@ -102,7 +102,7 @@ def resolve_transport_class(
         return native_cls
     if not sandhi_transport_available():
         raise ProviderConnectionError(
-            "sandhi-gateway 0.1.5 is required for provider transport",
+            "sandhi-gateway 0.3.0 is required for provider transport",
             provider=name,
         )
     return variant
@@ -431,6 +431,15 @@ def _typed_request_from_openai_payload(payload: Dict[str, Any]) -> Dict[str, Any
     native = {key: value for key, value in payload.items() if key not in excluded}
     if native:
         request["extensions"] = {"openai": native}
+
+    # Conversation affinity (sandhi ADR-0008 D3): the same execution-context session
+    # id the run cost tree keys on (`_gateway_run_id`, above) rides in neutral
+    # metadata — never the body, where it would break prompt-cache byte-stability.
+    # The typed runtime maps it onto catalog-declared vendor affinity headers (e.g.
+    # InferFlux's ``x-inferflux-session-id`` KV/prefix-cache key).
+    session_id = _gateway_run_id()
+    if session_id:
+        request["metadata"] = {"session_id": session_id}
     return request
 
 
@@ -490,7 +499,7 @@ def _native_only_usage(raw_usage: Any) -> Dict[str, int]:
 def _latency_fields(usage: Any) -> Dict[str, int]:
     """Wire-truth latency measured at sandhi's typed boundary (W3b).
 
-    Present from contract minor 3, so guaranteed at victor's >= 0.1.5 floor;
+    Present from contract minor 3, so guaranteed at victor's >= 0.3.0 floor;
     the field-shape checks below stay tolerant-absent defensively. Carried on
     every run (unlike the non-routine diagnostics) so stream metrics can prefer
     wire truth over client wall-clock.
@@ -617,7 +626,7 @@ class SandhiTypedProviderMixin:
     def _typed_provider(self, model: str) -> Any:
         if not sandhi_transport_available():
             raise ProviderConnectionError(
-                "sandhi-gateway 0.1.5 typed runtime is unavailable",
+                "sandhi-gateway 0.3.0 typed runtime is unavailable",
                 provider=self._sandhi_slug(),
             )
         _verify_wire_contract()
@@ -645,7 +654,7 @@ class SandhiTypedProviderMixin:
                 )
             base_url = proxy_url
             api_key = virtual_key
-            # sandhi >= 0.1.5 (victor's floor) accepts "bearer" family-wide as a
+            # sandhi >= 0.3.0 (victor's floor) accepts "bearer" family-wide as a
             # no-op for the gateway virtual key (TD-0008 rule 5: reject
             # contradictions, accept redundancy), so gateway mode presents it
             # unconditionally. Earlier bindings that REJECTED an explicit
@@ -683,6 +692,11 @@ class SandhiTypedProviderMixin:
             if run_id:
                 # An explicit caller-set header wins; never clobber it.
                 wire_headers.setdefault("x-sandhi-run-id", run_id)
+                # Conversation affinity on the proxy path (sandhi ADR-0008 D3): the
+                # proxy derives its session from ``x-sandhi-session`` and maps it onto
+                # catalog-declared vendor affinity headers (InferFlux KV/prefix-cache
+                # reuse). Same value as the run id, different consumer.
+                wire_headers.setdefault("x-sandhi-session", run_id)
             if wire_headers:
                 kwargs["headers_json"] = json.dumps(wire_headers)
             if auth_scheme:

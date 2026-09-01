@@ -125,7 +125,7 @@ class ProviderHealthChecker:
     }
 
     # Providers that don't need API keys
-    LOCAL_PROVIDERS = {"ollama", "lmstudio", "vllm"}
+    LOCAL_PROVIDERS = {"ollama", "lmstudio", "vllm", "inferflux"}
 
     def __init__(self, non_interactive: Optional[bool] = None):
         """Initialize health checker.

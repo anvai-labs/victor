@@ -69,7 +69,7 @@ VS Code, native Rust, packaging, and publication evidence that this baseline lac
 | `docs/architecture.md` | Canonical architecture. Service-first runtime, 6 canonical services, provider/tool/storage layers. Adds ProximaDB direction. | Mostly current. ProximaDB section must remain clearly "planned direction." |
 | `docs/tech-stack.md` | Canonical stack and debt register. TD-11, TD-12, TD-13 added for ProximaDB CCG work. | Current if those items stay Planned. Good place to track release debt. |
 | `docs/roadmap.md` | Canonical roadmap. v0.9.0 closeout and the EVR backlog are current. | Keep its release checklist synchronized with this document at each verification run. |
-| `docs/features.md` | Canonical feature catalog. Claims 24 providers, 34 tools, 9 verticals, Chainlit UI, policy engine, sandbox. | Needs support-level tagging for optional/experimental features before release. |
+| `docs/features.md` | Canonical feature catalog. Claims 25 providers, 34 tools, 9 verticals, Chainlit UI, policy engine, sandbox. | Needs support-level tagging for optional/experimental features before release. |
 | `docs/architecture/proximadb-codegraph-backend.md` | New untracked design-intent doc. | Good design record. Not part of MVP unless implemented behind `GraphStoreProtocol`. |
 | FEP/ADR EVR docs | Evaluation-centric runtime design exists. | Q3 backlog, not MVP release criteria unless used as a release gate. |
 | `docs/development/releasing/publishing.md` | Release process exists but includes old example versions and manual version-edit guidance. | Needs update to current process: `VERSION` + `sync_version`, clean build, twine check, CLI smoke. |
@@ -79,7 +79,7 @@ VS Code, native Rust, packaging, and publication evidence that this baseline lac
 - Public Python API: `victor.framework.Agent`, `StateGraph`, `WorkflowEngine`, tools, events.
 - Service-first runtime: `ChatService`, `ToolService`, `SessionService`, `ContextService`,
   `ProviderService`, `RecoveryService` are present and guard-tested.
-- Provider layer: 24 provider adapter files are present and docs drift check derives that count.
+- Provider layer: 25 provider adapter files are present and docs drift check derives that count.
 - Tool layer: documented 34 tool-module canon is enforced by docs drift.
 - Contract boundary: `victor-contracts` exists as an independently versioned package and contract tests pass.
 - Packaging metadata: `pyproject.toml`, root `VERSION`, and `victor-contracts/VERSION` are internally aligned.

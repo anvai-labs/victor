@@ -94,6 +94,16 @@ providers:
     rate_limit_rpm: 0
     rate_limit_tpm: 0
 
+  # Self-hosted InferFlux: model ids are operator config, so this is a conservative
+  # backstop — the policy tier's context_window_routes (openai_compat_model_policy.yaml)
+  # resolves the real value per loaded model.
+  inferflux:
+    context_window: 8192
+    response_reserve: 4096
+    supports_extended_context: true
+    rate_limit_rpm: 0
+    rate_limit_tpm: 0
+
 # Model-specific overrides
 # These take precedence over provider defaults
 # Pattern format: fnmatch patterns (supports *, ?)
