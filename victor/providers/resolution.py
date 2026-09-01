@@ -524,7 +524,22 @@ class UnifiedApiKeyResolver:
         except Exception as e:
             logger.debug(f"Config file check failed: {e}")
 
-        # No key found
+        # No key found. Local providers are keyless BY DESIGN (anonymous local
+        # servers): fall through to the EMPTY key rather than None, so policy shells
+        # don't raise and sandhi's empty-secret convention applies (0.3.0 sends no
+        # Authorization header at all for an empty key — ADR-0008 D1).
+        from victor.config.api_keys import LOCAL_PROVIDERS as _LOCAL_PROVIDERS
+
+        if provider in _LOCAL_PROVIDERS:
+            result = APIKeyResult(
+                key="",
+                source="local",
+                source_detail="Local provider: keyless by design",
+                sources_attempted=sources,
+                non_interactive=self.non_interactive,
+                confidence="high",
+            )
+            return self._cache_result(provider, result)
         result = APIKeyResult(
             key=None,
             source="none",

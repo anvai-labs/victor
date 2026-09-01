@@ -49,3 +49,20 @@ async def test_model_listing_falls_back_to_local_policy(
     # ids), so `_models_from_sandhi()` yields nothing and the YAML tier serves.
     monkeypatch.setattr(type(provider), "_models_from_sandhi", lambda self: None)
     assert {entry["id"] for entry in await provider.list_models()} == set(INFERFLUX_MODELS)
+
+
+def test_keyless_local_construction_needs_no_credential(monkeypatch) -> None:
+    """An anonymous InferFlux server is the documented default: constructing the
+    provider with no env key must yield the EMPTY key (sandhi 0.3.0 then sends no
+    Authorization header at all — ADR-0008 D1), never APIKeyNotFoundError."""
+    monkeypatch.delenv("INFERFLUX_API_KEY", raising=False)
+    provider = InferfluxProvider()
+    assert provider._api_key == ""
+
+
+def test_inferflux_api_key_env_var_is_live(monkeypatch) -> None:
+    """A secured deployment sets INFERFLUX_API_KEY; the registry-YAML mapping (the
+    source of truth) must resolve it, not just the fallback dict."""
+    monkeypatch.setenv("INFERFLUX_API_KEY", "secret123")
+    provider = InferfluxProvider()
+    assert provider._api_key == "secret123"

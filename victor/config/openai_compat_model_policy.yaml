@@ -440,11 +440,17 @@ providers:
   # registry.yaml) — the catalog deliberately carries no lineup, so this YAML tier serves.
   # Replace the placeholder below with your real model ids; the prefix routes catch any id
   # you load (context windows follow the model you actually serve).
+  # NOTE: the provider_context_limits.yaml `models:` overrides are GLOBAL (fnmatch,
+  # provider-agnostic) — a broad pattern like qwen3* overrides this provider's routes in
+  # the limits tier. The policy-tier routes here are authoritative for inferflux.
   inferflux:
     default_model: llama3-8b
     timeout: 300
     max_retries: 2
-    cache: {supported: false, kv_prefix_caching: false}
+    # kv_prefix_caching is latency-only (nothing billed), matching the local
+    # trio; it keeps the prompt pipeline's prefixes stable so inferflux's
+    # session-handle KV reuse (sandhi ADR-0008 D3) pays off.
+    cache: {supported: false, kv_prefix_caching: true}
     default_context_window: 8192
     context_window_routes:
       - {model_prefix: llama3, tokens: 8192}

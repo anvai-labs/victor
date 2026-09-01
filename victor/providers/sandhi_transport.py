@@ -102,7 +102,7 @@ def resolve_transport_class(
         return native_cls
     if not sandhi_transport_available():
         raise ProviderConnectionError(
-            "sandhi-gateway 0.1.5 is required for provider transport",
+            "sandhi-gateway 0.3.0 is required for provider transport",
             provider=name,
         )
     return variant
@@ -499,7 +499,7 @@ def _native_only_usage(raw_usage: Any) -> Dict[str, int]:
 def _latency_fields(usage: Any) -> Dict[str, int]:
     """Wire-truth latency measured at sandhi's typed boundary (W3b).
 
-    Present from contract minor 3, so guaranteed at victor's >= 0.1.5 floor;
+    Present from contract minor 3, so guaranteed at victor's >= 0.3.0 floor;
     the field-shape checks below stay tolerant-absent defensively. Carried on
     every run (unlike the non-routine diagnostics) so stream metrics can prefer
     wire truth over client wall-clock.
@@ -626,7 +626,7 @@ class SandhiTypedProviderMixin:
     def _typed_provider(self, model: str) -> Any:
         if not sandhi_transport_available():
             raise ProviderConnectionError(
-                "sandhi-gateway 0.1.5 typed runtime is unavailable",
+                "sandhi-gateway 0.3.0 typed runtime is unavailable",
                 provider=self._sandhi_slug(),
             )
         _verify_wire_contract()
@@ -654,7 +654,7 @@ class SandhiTypedProviderMixin:
                 )
             base_url = proxy_url
             api_key = virtual_key
-            # sandhi >= 0.1.5 (victor's floor) accepts "bearer" family-wide as a
+            # sandhi >= 0.3.0 (victor's floor) accepts "bearer" family-wide as a
             # no-op for the gateway virtual key (TD-0008 rule 5: reject
             # contradictions, accept redundancy), so gateway mode presents it
             # unconditionally. Earlier bindings that REJECTED an explicit
