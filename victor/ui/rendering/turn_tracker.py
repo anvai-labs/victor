@@ -167,10 +167,19 @@ class TurnTracker:
                 return
             from victor.observability.sandhi_admin import fetch_run_cost_tree, find_step
 
-            tree = fetch_run_cost_tree(run_id)
-            if tree is None:
-                return
-            row = find_step(tree, step_id)
+            # The proxy persists through a buffered writer when SANDHI_STORE is
+            # set, so the just-finished turn's row can land a beat after the
+            # response returns. Two short retries cover the common backlog;
+            # after that the estimate stands.
+            row = None
+            for attempt in range(3):
+                tree = fetch_run_cost_tree(run_id)
+                if tree is not None:
+                    row = find_step(tree, step_id)
+                    if row is not None:
+                        break
+                if attempt < 2:
+                    time.sleep(0.05)
             if row is None:
                 return
             self._current_turn.wire_cache_read_tokens = int(row["cache_read_tokens"])
@@ -436,6 +445,13 @@ class TurnTracker:
             parts.append(" | ".join(c.capitalize() for c in m.tool_categories))
         if m.input_tokens or m.output_tokens:
             parts.append(f"Tokens: {m.input_tokens} in / {m.output_tokens} out")
+        if m.wire_billable_tokens is not None:
+            # Wire truth from the sandhi run cost tree: billable (fresh +
+            # cache-read + out, ADR-0005 D4) and the cache share. Shown in
+            # preference to the dollar estimate, which stays as the fallback.
+            cache = m.wire_cache_read_tokens or 0
+            share = f", {cache} cached" if cache else ""
+            parts.append(f"Metered: {m.wire_billable_tokens} billable{share}")
         if m.cost_estimate_usd > 0:
             parts.append(f"Cost: ~${m.cost_estimate_usd:.4f}")
         if m.duration_ms > 0:

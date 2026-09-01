@@ -54,8 +54,19 @@ def _admin_token() -> str:
 
 
 def _gateway_root() -> str:
-    """The proxy root (``SANDHI_GATEWAY_URL``), no trailing slash; empty when unset."""
-    return os.environ.get("SANDHI_GATEWAY_URL", "").rstrip("/")
+    """The proxy ROOT from ``SANDHI_GATEWAY_URL`` — ``/v1``/``/v1beta`` stripped.
+
+    Operators naturally paste either the root or the ``/v1`` form; the admin
+    routes live at the root (``/admin/usage/...``), so a suffixed value would
+    404 silently. Mirrors ``provider_config_registry._normalize_gateway_root``
+    — the two readers of this env must canonicalize identically. Empty unset.
+    """
+    root = os.environ.get("SANDHI_GATEWAY_URL", "").rstrip("/")
+    for suffix in ("/v1", "/v1beta"):
+        if root.endswith(suffix):
+            root = root[: -len(suffix)]
+            break
+    return root.rstrip("/")
 
 
 def fetch_run_cost_tree(
@@ -82,16 +93,22 @@ def fetch_run_cost_tree(
             headers={"Authorization": f"Bearer {token}"},
             timeout=_ADMIN_TIMEOUT_SECONDS,
         )
-    except httpx.HTTPError as exc:
+    except Exception as exc:
+        # HTTPError covers transport faults; InvalidURL (a malformed
+        # SANDHI_GATEWAY_URL) is NOT an HTTPError subclass and must not
+        # escape — the contract is "never raises into the turn path".
         logger.debug("run cost tree fetch failed for %s: %s", run_id, exc)
         return None
     if response.status_code != 200:
-        # 403/404/503 are expected operator states, not errors to surface.
+        # 401 (wrong token) / 403 (no admin configured) / 404 (unknown run) /
+        # 503 (no store) are expected operator states, not errors to surface.
         logger.debug("run cost tree fetch for %s returned %d", run_id, response.status_code)
         return None
     try:
         payload = response.json()
     except ValueError:
+        return None
+    if not isinstance(payload, dict):
         return None
     tree = payload.get("run")
     return tree if isinstance(tree, dict) else None

@@ -144,3 +144,41 @@ def test_step_rows_use_own_not_rollup():
 def test_find_step_and_missing():
     assert find_step(TREE, "turn-b")["parent_id"] == "turn-a"
     assert find_step(TREE, "nope") is None
+
+
+def test_gateway_root_strips_v1_suffixes(monkeypatch):
+    from victor.observability.sandhi_admin import _gateway_root
+
+    for raw, expected in [
+        ("http://gw:8600", "http://gw:8600"),
+        ("http://gw:8600/v1", "http://gw:8600"),
+        ("http://gw:8600/v1beta/", "http://gw:8600"),
+        ("", ""),
+    ]:
+        monkeypatch.setenv("SANDHI_GATEWAY_URL", raw)
+        assert _gateway_root() == expected, raw
+
+
+def test_non_dict_json_200_maps_to_none(monkeypatch):
+    monkeypatch.setenv("SANDHI_GATEWAY_URL", "http://gw.example")
+    monkeypatch.setenv("SANDHI_ADMIN_TOKEN", "tok")
+
+    def fake_get(url, headers=None, timeout=None):
+        return httpx.Response(200, content=b'"just a string"')
+
+    monkeypatch.setattr(httpx, "get", fake_get)
+    assert fetch_run_cost_tree("run-1") is None
+
+
+def test_malformed_url_does_not_raise(monkeypatch):
+    monkeypatch.setenv("SANDHI_GATEWAY_URL", "not a url")
+    monkeypatch.setenv("SANDHI_ADMIN_TOKEN", "tok")
+
+    def real_get(url, **kw):
+        # Delegate to real httpx so InvalidURL genuinely fires.
+        import httpx as _h
+
+        return _h.get(url, **kw)
+
+    monkeypatch.setattr(httpx, "get", real_get)
+    assert fetch_run_cost_tree("run-1") is None
