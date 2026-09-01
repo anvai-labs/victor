@@ -137,9 +137,7 @@ async def test_direct_mode_never_sends_run_header(monkeypatch, bound_session):
 
 
 @pytest.mark.asyncio
-async def test_session_affinity_rides_neutral_metadata_in_both_modes(
-    monkeypatch, bound_session
-):
+async def test_session_affinity_rides_neutral_metadata_in_both_modes(monkeypatch, bound_session):
     """Conversation affinity (sandhi ADR-0008 D3) is request metadata, never a body field.
 
     In direct mode there is no gateway header to carry it, so the session id rides
