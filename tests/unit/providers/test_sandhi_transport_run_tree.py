@@ -24,6 +24,12 @@ Contract:
 - direct mode -> never sends the header (no gateway to consume it);
 - gateway mode without a bound session -> no header (nothing to attribute);
 - existing wire headers are preserved; an explicit caller-set run id wins.
+
+The per-call headers also mint an ``Idempotency-Key`` per LOGICAL call (sandhi
+TD-0021 P4 sender half): gateway mode -> always present, fresh per invocation,
+so transport retries inside the Rust handle reuse one key and the gateway's
+meter counts the logical call once; direct mode -> never sent (no gateway
+ledger to dedup against).
 """
 
 from __future__ import annotations
@@ -189,6 +195,13 @@ async def test_session_affinity_rides_neutral_metadata_in_both_modes(monkeypatch
     assert headers["x-sandhi-session"] == bound_session
 
 
+def _is_idempotency_key(value: object) -> bool:
+    """A per-logical-call key as minted by ``_wire_call_headers``: uuid4().hex."""
+    return (
+        isinstance(value, str) and len(value) == 32 and all(c in "0123456789abcdef" for c in value)
+    )
+
+
 @pytest.fixture
 def bound_turn():
     import victor.core.context as ctx
@@ -210,7 +223,9 @@ async def test_gateway_mode_stamps_step_id_per_call(monkeypatch, bound_turn):
 
     await provider.chat([Message(role="user", content="hi")], model="deepseek-chat")
 
-    assert runtime.handle.wire_headers == [json.dumps({"x-sandhi-step-id": bound_turn})]
+    (headers,) = (json.loads(h) for h in runtime.handle.wire_headers)
+    assert headers["x-sandhi-step-id"] == bound_turn
+    assert _is_idempotency_key(headers["Idempotency-Key"])
 
 
 @pytest.mark.asyncio
@@ -231,10 +246,11 @@ async def test_step_id_changes_per_turn_without_handle_rebuild(monkeypatch):
         ctx.turn_id.reset(token)
 
     assert len(runtime.calls) == 1, "per-call headers must NOT rebuild the handle"
-    assert runtime.handle.wire_headers == [
-        json.dumps({"x-sandhi-step-id": "turn-1"}),
-        json.dumps({"x-sandhi-step-id": "turn-2"}),
-    ]
+    first, second = (json.loads(h) for h in runtime.handle.wire_headers)
+    assert first["x-sandhi-step-id"] == "turn-1"
+    assert second["x-sandhi-step-id"] == "turn-2"
+    # The idempotency key is minted per LOGICAL call — the two turns are two calls.
+    assert first["Idempotency-Key"] != second["Idempotency-Key"]
 
 
 @pytest.mark.asyncio
@@ -251,7 +267,9 @@ async def test_stream_path_stamps_step_id_per_call(monkeypatch, bound_turn):
             pass
 
     await collect()
-    assert runtime.handle.wire_headers == [json.dumps({"x-sandhi-step-id": bound_turn})]
+    headers = json.loads(runtime.handle.wire_headers[0])
+    assert headers["x-sandhi-step-id"] == bound_turn
+    assert _is_idempotency_key(headers["Idempotency-Key"])
 
     # Second turn: header changes, handle still reused.
     token = ctx.turn_id.set("turn-bbb-222")
@@ -259,12 +277,15 @@ async def test_stream_path_stamps_step_id_per_call(monkeypatch, bound_turn):
         await collect()
     finally:
         ctx.turn_id.reset(token)
-    assert runtime.handle.wire_headers[-1] == json.dumps({"x-sandhi-step-id": "turn-bbb-222"})
+    headers_b = json.loads(runtime.handle.wire_headers[-1])
+    assert headers_b["x-sandhi-step-id"] == "turn-bbb-222"
+    assert headers_b["Idempotency-Key"] != headers["Idempotency-Key"]
 
 
 @pytest.mark.asyncio
 async def test_direct_mode_sends_no_step_header(monkeypatch, bound_turn):
-    """Direct (non-gateway) mode stays byte-identical: no per-call tree headers."""
+    """Direct (non-gateway) mode stays byte-identical: no per-call headers at all —
+    neither the step id nor the idempotency key (no gateway ledger to dedup against)."""
     runtime = install_runtime(monkeypatch)
     provider = DeepSeekProvider(api_key="k", base_url="https://api.deepseek.com/v1")
 
@@ -274,19 +295,44 @@ async def test_direct_mode_sends_no_step_header(monkeypatch, bound_turn):
 
 
 @pytest.mark.asyncio
+async def test_gateway_mode_mints_fresh_idempotency_key_per_logical_call(monkeypatch, bound_turn):
+    """TD-0021 P4 sender half: the key is minted per LOGICAL call, not per turn —
+    two invocations under the SAME turn (e.g. a tool round after a first answer)
+    mint two distinct keys. Retries of one invocation happen inside the Rust
+    handle and see this one header value, so the gateway's meter counts each
+    logical call once (meter counts logical; enforcement counts physical)."""
+    runtime = install_runtime(monkeypatch)
+    provider = make_gateway_provider()
+
+    await provider.chat([Message(role="user", content="a")], model="deepseek-chat")
+    await provider.chat([Message(role="user", content="b")], model="deepseek-chat")
+
+    first, second = (json.loads(h) for h in runtime.handle.wire_headers)
+    assert first["x-sandhi-step-id"] == second["x-sandhi-step-id"] == bound_turn
+    assert _is_idempotency_key(first["Idempotency-Key"])
+    assert _is_idempotency_key(second["Idempotency-Key"])
+    assert first["Idempotency-Key"] != second["Idempotency-Key"]
+
+
+@pytest.mark.asyncio
 async def test_gateway_without_bound_turn_sends_no_step_header(monkeypatch):
+    """No turn -> no step header, but the idempotency key still rides: dedup is
+    transport-retry protection, orthogonal to turn attribution."""
     runtime = install_runtime(monkeypatch)
     provider = make_gateway_provider()
 
     await provider.chat([Message(role="user", content="hi")], model="deepseek-chat")
 
-    assert runtime.handle.wire_headers[0] is None
+    headers = json.loads(runtime.handle.wire_headers[0])
+    assert "x-sandhi-step-id" not in headers
+    assert _is_idempotency_key(headers["Idempotency-Key"])
 
 
 @pytest.mark.asyncio
 async def test_step_id_never_rides_neutral_metadata(monkeypatch, bound_turn, bound_session):
     """The KV-cache invariant: metadata maps onto vendor affinity headers, so a per-turn
-    value there would change the cache key every turn. metadata carries session_id ONLY."""
+    value there would change the cache key every turn. metadata carries session_id ONLY —
+    neither the step id nor the idempotency key ever enters the request body."""
     runtime = install_runtime(monkeypatch)
     provider = make_gateway_provider()
 
