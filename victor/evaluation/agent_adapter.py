@@ -1746,7 +1746,11 @@ class VictorAgentAdapter:
         Returns:
             VictorAgentAdapter instance
         """
-        settings = load_settings()
+        # fresh=True, NOT the shared snapshot: this path writes provider env
+        # overrides below (OLLAMA_HOST etc.) and passes the instance into
+        # ProviderRegistry/Orchestrator — a process-wide snapshot would
+        # freeze pre-override values.
+        settings = load_settings(fresh=True)
         profiles = settings.load_profiles()
 
         if profile not in profiles:

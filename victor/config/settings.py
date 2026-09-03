@@ -2570,16 +2570,49 @@ class Settings(BaseSettings):
         return registry.get_settings(provider, self, profile_overrides, account_data)
 
 
-def load_settings() -> Settings:
-    """Load application settings.
+_settings_snapshot: Optional["Settings"] = None
+
+
+def load_settings(fresh: bool = False) -> Settings:
+    """Load application settings (process-cached snapshot by default).
+
+    ``Settings()`` construction parses .env, scans os.environ twice through
+    legacy mapping validators, and validates 155 pydantic fields (~5 ms) —
+    previously paid per LLM request (sandhi transport) and per graph
+    invocation (co-design review U3-F1 / U2-F3).
+
+    The cached instance is shared across the process: treat it as
+    READ-ONLY. Callers that will MUTATE the returned settings (Agent.create,
+    VictorClient, config overlays) must pass ``fresh=True`` — that returns a
+    new uncached instance without disturbing the snapshot. Tests that change
+    os.environ and expect new reads should call ``reset_settings_cache()``
+    first.
+
+    Args:
+        fresh: Build and return a new instance, bypassing (and not
+            updating) the cache — for callers that mutate the result.
 
     Returns:
-        Settings instance
+        Settings instance (shared snapshot unless ``fresh=True``).
     """
-    return Settings()
+    if fresh:
+        return Settings()
+    global _settings_snapshot
+    if _settings_snapshot is None:
+        _settings_snapshot = Settings()
+    return _settings_snapshot
 
 
-# Alias for compatibility with packages/victor-core
+def reset_settings_cache() -> None:
+    """Drop the cached settings snapshot so the next ``load_settings()``
+    rebuilds from current environment/config sources."""
+    global _settings_snapshot
+    _settings_snapshot = None
+
+
+# Alias for compatibility with packages/victor-core.
+# NOTE: kept as a module attribute (not a def) so tests can monkeypatch the
+# symbol — test_sandhi_transport patches victor.config.settings.get_settings.
 get_settings = load_settings
 
 
