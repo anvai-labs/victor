@@ -150,10 +150,15 @@ def _fit_context_python(
 ) -> FitResult:
     """Pure Python context fitting implementation.
 
+    A faithful port of the Rust algorithms (context_fitter.rs: fit_fifo /
+    fit_priority / fit_smart) so both backends select identical messages —
+    previously the fallback used drop-lowest heuristics with no smart
+    pinning, diverging from the native path (co-design review U8-F1).
+
     Args:
         messages: List of message dicts
         budget: Maximum token budget
-        strategy: Fitting strategy
+        strategy: One of "smart", "priority", "fifo"
         preserve_system: Whether to preserve system messages
 
     Returns:
@@ -162,64 +167,87 @@ def _fit_context_python(
     if not messages:
         return FitResult(kept_indices=[], total_tokens=0, dropped_count=0, freed_tokens=0)
 
-    # Calculate token counts for each message
-    token_counts = []
-    for msg in messages:
-        count = msg.get("token_count", len(msg.get("content", "").split()) * 13 // 10)
-        token_counts.append(count)
-
+    token_counts = [
+        msg.get("token_count", len(msg.get("content", "").split()) * 13 // 10) for msg in messages
+    ]
     total_all_tokens = sum(token_counts)
+    n = len(messages)
 
-    # Identify system messages
-    system_indices = set()
-    if preserve_system:
-        for i, msg in enumerate(messages):
-            if msg.get("role") == "system":
-                system_indices.add(i)
+    def _recency(i: int) -> float:
+        return float(i) / max(n, 1)
 
-    # Build candidate list (non-system messages that can be dropped)
-    candidates = []
-    for i in range(len(messages)):
-        if i not in system_indices:
-            priority = _coerce_priority(messages[i].get("priority", _DEFAULT_PRIORITY))
-            recency = float(i) / max(len(messages), 1)
-            candidates.append((i, token_counts[i], priority, recency))
+    def _score(i: int) -> float:
+        priority = _coerce_priority(messages[i].get("priority", _DEFAULT_PRIORITY))
+        return (priority / 100.0) * 0.4 + _recency(i) * 0.6
 
-    # Sort candidates by drop priority (what to drop first). Scoring matches
-    # the documented formula (score = 0.4 * priority/100 + 0.6 * recency) and
-    # the Rust implementation — the previous fallback used raw float priority
-    # on a 0-1 scale with a 0.5/0.5 mix (U8-F1/U8-F2 scale drift).
+    def _finalize(kept: set) -> FitResult:
+        kept_indices = sorted(kept)
+        kept_tokens = sum(token_counts[i] for i in kept_indices)
+        return FitResult(
+            kept_indices=kept_indices,
+            total_tokens=kept_tokens,
+            dropped_count=n - len(kept_indices),
+            freed_tokens=total_all_tokens - kept_tokens,
+        )
+
+    if total_all_tokens <= budget:
+        return _finalize(set(range(n)))
+
     if strategy == "fifo":
-        # Drop oldest first (lowest index = oldest)
-        candidates.sort(key=lambda x: x[3])  # ascending recency
-    elif strategy == "priority":
-        # Drop lowest priority first
-        candidates.sort(key=lambda x: x[2])  # ascending priority
-    else:
-        # smart: combine normalized priority and recency
-        candidates.sort(key=lambda x: (x[2] / 100.0) * 0.4 + x[3] * 0.6)
+        # Mirror fit_fifo: pin system when preserving; walk the rest newest
+        # first and keep until the remaining budget is exhausted.
+        pinned = {i for i in range(n) if preserve_system and messages[i].get("role") == "system"}
+        remaining = budget - sum(token_counts[i] for i in pinned)
+        kept = set(pinned)
+        used = 0
+        for i in reversed(range(n)):
+            if i in pinned:
+                continue
+            if used + token_counts[i] <= remaining:
+                kept.add(i)
+                used += token_counts[i]
+        return _finalize(kept)
 
-    # Start with all messages, drop from front of sorted candidates
-    kept = set(range(len(messages)))
-    current_tokens = total_all_tokens
+    if strategy == "priority":
+        # Mirror fit_priority: pin system when preserving; score the rest
+        # (0.4 * priority/100 + 0.6 * recency) and greedily keep the
+        # highest-scoring messages that fit.
+        pinned = {i for i in range(n) if preserve_system and messages[i].get("role") == "system"}
+        remaining = budget - sum(token_counts[i] for i in pinned)
+        rest = sorted((i for i in range(n) if i not in pinned), key=_score, reverse=True)
+        kept = set(pinned)
+        used = 0
+        for i in rest:
+            if used + token_counts[i] <= remaining:
+                kept.add(i)
+                used += token_counts[i]
+        return _finalize(kept)
 
-    for idx, tc, _pri, _rec in candidates:
-        if current_tokens <= budget:
+    # smart: mirror fit_smart — pin system messages, the first user message,
+    # and the last 2 messages; score the rest and greedily keep what fits.
+    pinned = {i for i in range(n) if messages[i].get("role") == "system"}
+    for i in range(n):
+        if messages[i].get("role") == "user":
+            pinned.add(i)
             break
-        kept.discard(idx)
-        current_tokens -= tc
+    if n >= 1:
+        pinned.add(n - 1)
+    if n >= 2:
+        pinned.add(n - 2)
 
-    kept_indices = sorted(kept)
-    kept_tokens = sum(token_counts[i] for i in kept_indices)
-    dropped = len(messages) - len(kept_indices)
-    freed = total_all_tokens - kept_tokens
+    pinned_cost = sum(token_counts[i] for i in pinned)
+    if pinned_cost >= budget:
+        return _finalize(pinned)
 
-    return FitResult(
-        kept_indices=kept_indices,
-        total_tokens=kept_tokens,
-        dropped_count=dropped,
-        freed_tokens=freed,
-    )
+    remaining = budget - pinned_cost
+    rest = sorted((i for i in range(n) if i not in pinned), key=_score, reverse=True)
+    kept = set(pinned)
+    used = 0
+    for i in rest:
+        if used + token_counts[i] <= remaining:
+            kept.add(i)
+            used += token_counts[i]
+    return _finalize(kept)
 
 
 def truncate_message(

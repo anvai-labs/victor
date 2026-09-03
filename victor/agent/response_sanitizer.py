@@ -430,10 +430,6 @@ class _NativeFilterWrapper:
     def is_thinking(self) -> bool:
         return self._inner.get_state() != "normal"
 
-    def flush(self) -> StreamingChunkResult:
-        # Native filter has no buffering — flush is a no-op.
-        return StreamingChunkResult(content="", is_thinking=self.is_thinking)
-
 
 def create_streaming_filter(
     suppress_thinking: bool = False, max_thinking_content: Optional[int] = None

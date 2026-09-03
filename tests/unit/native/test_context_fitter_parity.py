@@ -52,7 +52,10 @@ def _stale_wheel() -> bool:
     if not _NATIVE_AVAILABLE:
         return False
     try:
-        _native.fit_context([], 100, "bogus_strategy_name", True)
+        # Non-empty list with a forcing budget so the strategy match runs
+        # (an empty list short-circuits before validation).
+        slot = _native.MessageSlot(0, 100, 50, "user", 1.0)
+        _native.fit_context([slot], 0, "bogus_strategy_name", True)
         return True  # old wheel: unknown names silently meant smart
     except ValueError:
         return False
@@ -61,8 +64,11 @@ def _stale_wheel() -> bool:
 class TestStrategyVocabulary:
     @pytest.mark.parametrize("strategy", ["smart", "priority", "fifo"])
     def test_canonical_strategies_accepted_by_fallback(self, strategy):
-        result = cf._fit_context_python(_messages([50] * 8), 300, strategy, True)
-        assert result.total_tokens <= 300
+        # Budget 800 = everything fits; smart's pins (system + first user +
+        # last 2) can legitimately EXCEED a smaller budget, so use a
+        # no-drop budget here and drop-forcing budgets in the parity matrix.
+        result = cf._fit_context_python(_messages([50] * 8), 800, strategy, True)
+        assert result.total_tokens == 800
 
     def test_legacy_aliases_map_to_canonical(self):
         msgs = _messages([10, 90, 30, 70, 20, 80, 40, 60])
@@ -109,12 +115,14 @@ class TestPriorityCoercion:
             cf._native = original
 
         assert calls["n"] == 1, "native path must not silently fall back"
-        assert result.total_tokens <= 300
+        # smart pins (system + first user + last 2 = 400 tokens) may exceed
+        # the 300 budget — that is the native algorithm's contract.
+        assert result.kept_indices == [0, 1, 6, 7]
 
     @pytest.mark.parametrize("priority", [0, 50, 100, 255])
     def test_int_priorities_accepted(self, priority):
-        result = cf._fit_context_python(_messages([priority] * 8), 300, "smart", True)
-        assert result.total_tokens <= 300
+        result = cf._fit_context_python(_messages([priority] * 8), 800, "smart", True)
+        assert result.total_tokens == 800
 
 
 class TestNativeFallbackParity:
