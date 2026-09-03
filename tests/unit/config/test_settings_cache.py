@@ -23,6 +23,8 @@ directly; reset_settings_cache() is the invalidation hook.
 
 from __future__ import annotations
 
+import threading
+
 import pytest
 
 import victor.config.settings as settings_module
@@ -83,3 +85,56 @@ class TestSettingsSnapshotCache:
         a, b = load_settings(), get_settings()
         assert type(a) is Settings
         assert a is b
+
+
+class TestAdversarialGuarantees:
+    """Negative tests from adversarial review of this PR."""
+
+    def test_mutating_fresh_instance_does_not_leak_into_snapshot(self):
+        """Negative: run-scoped mutation must stay off the shared snapshot —
+        the exact cross-run bleed the adversarial reviewer reproduced via
+        FrameworkSessionRunner."""
+        snapshot = load_settings()
+        fresh = load_settings(fresh=True)
+        fresh.max_context_chars = 12345
+        assert load_settings() is snapshot
+        assert snapshot.max_context_chars != 12345
+
+    def test_threaded_cold_start_yields_one_shared_instance(self):
+        """Negative: an unlocked cache let 8 threads build 8 distinct
+        instances; the lock must restore one shared snapshot."""
+        reset_settings_cache()
+        try:
+            seen = []
+            barrier = threading.Barrier(8)
+
+            def worker():
+                barrier.wait()
+                seen.append(load_settings())
+
+            threads = [threading.Thread(target=worker) for _ in range(8)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+            assert (
+                len({id(s) for s in seen}) == 1
+            ), f"cold-start race: {len({id(s) for s in seen})} distinct instances"
+        finally:
+            reset_settings_cache()
+
+    def test_session_runner_overrides_stay_off_snapshot(self):
+        """Negative end-to-end: FrameworkSessionRunner.prepare_state applies
+        sticky session overrides (headless/tool-budget) — they must not land
+        on the process snapshot."""
+        from victor.framework.session_config import SessionConfig
+        from victor.framework.session_runner import FrameworkSessionRunner
+
+        snapshot = load_settings()
+        config = SessionConfig.from_cli_flags(mode="default")
+        runner = FrameworkSessionRunner(load_settings(), config)
+        assert runner.settings is not snapshot, "runner must adopt a private copy"
+
+        # Whatever prepare_state writes stays on the runner's copy.
+        runner.settings.max_context_chars = 54321
+        assert snapshot.max_context_chars != 54321

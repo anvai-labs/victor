@@ -16,6 +16,7 @@ from __future__ import annotations
 
 """Configuration management for CodingAgent."""
 
+import threading
 import logging
 import os
 import warnings
@@ -2571,6 +2572,7 @@ class Settings(BaseSettings):
 
 
 _settings_snapshot: Optional["Settings"] = None
+_settings_snapshot_lock = threading.Lock()
 
 
 def load_settings(fresh: bool = False) -> Settings:
@@ -2599,7 +2601,14 @@ def load_settings(fresh: bool = False) -> Settings:
         return Settings()
     global _settings_snapshot
     if _settings_snapshot is None:
-        _settings_snapshot = Settings()
+        # Lock-guarded cold start: an unlocked global let N concurrent
+        # threads each build their own instance (measured 8/8 distinct),
+        # silently breaking the shared-snapshot contract (adversarial-
+        # review finding). Settings construction cannot await, so a plain
+        # threading lock is safe inside async code.
+        with _settings_snapshot_lock:
+            if _settings_snapshot is None:
+                _settings_snapshot = Settings()
     return _settings_snapshot
 
 
