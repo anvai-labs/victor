@@ -536,17 +536,19 @@ class ProviderRetryStrategy:
         while isinstance(current, Exception) and id(current) not in seen:
             seen.add(id(current))
 
-            # Circuit-breaker errors are never retryable, no matter how the
-            # fuzzy classifiers below would score them: an open circuit must
-            # fail fast into the fallback chain. The message-substring and
-            # status-code checks would otherwise re-admit them whenever the
-            # breaker NAME (which embeds base_url) or the retry_after value
-            # contains a retryable-looking number (e.g. localhost:5000), and
-            # the cause-chain walk would re-admit them when the breaker
-            # error was raised from a retryable transport error
-            # (adversarial-review finding).
+            # Circuit-breaker errors are never retryable via the FUZZY
+            # classifiers below: an open circuit must fail fast into the
+            # fallback chain. The message-substring and status-code checks
+            # would otherwise re-admit them whenever the breaker NAME (which
+            # embeds base_url) or the retry_after value contains a
+            # retryable-looking number (e.g. localhost:5000), and the
+            # cause-chain walk would re-admit them when the breaker error
+            # was raised from a retryable transport error
+            # (adversarial-review finding). An EXPLICIT opt-in — the config
+            # listing the breaker error in retryable_exceptions — still
+            # wins, preserving the retry-after-cooldown capability.
             if isinstance(current, (CanonicalCircuitBreakerError, CircuitOpenError)):
-                return False
+                return isinstance(current, self.config.retryable_exceptions)
 
             # Check exception type
             if isinstance(current, self.config.retryable_exceptions):
