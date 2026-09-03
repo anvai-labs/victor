@@ -160,3 +160,119 @@ class TestNativeFallbackParity:
         # for what fits after that.
         assert 0 in result.kept_indices
         assert 6 in result.kept_indices and 7 in result.kept_indices
+
+
+class TestAdversarialParity:
+    """Negatives from adversarial review of this PR."""
+
+    @pytest.mark.parametrize("strategy", ["priority", "smart"])
+    def test_score_collisions_select_identically(self, strategy):
+        """f32-vs-f64 divergence repro: priorities [80,70,10,10,50] produce
+        mathematically-equal scores that were bit-equal in f32 (stable ties)
+        but strictly ordered in f64 — native kept [1,4] while fallback kept
+        [3,4]. Both sides now compute in f64 with f32-rounded recency."""
+        if not _NATIVE_AVAILABLE or _stale_wheel():
+            pytest.skip("native wheel unavailable or stale")
+
+        msgs = [
+            {"role": "assistant", "content": f"m{i}", "token_count": 100, "priority": p}
+            for i, p in enumerate([80, 70, 10, 10, 50])
+        ]
+        native = cf.fit_context(msgs, 200, strategy)
+        fallback = cf._fit_context_python(msgs, 200, strategy, True)
+        assert (
+            native.kept_indices == fallback.kept_indices
+        ), f"{strategy}: native {native.kept_indices} != fallback {fallback.kept_indices}"
+
+    def test_native_rejects_unknown_strategy_even_when_everything_fits(self):
+        """The Rust early-return (everything fits) previously skipped
+        validation — bogus names accepted on the no-drop path."""
+        if not _NATIVE_AVAILABLE or _stale_wheel():
+            pytest.skip("native wheel unavailable or stale")
+        slot = _native.MessageSlot(0, 10, 50, "user", 1.0)
+        with pytest.raises(ValueError):
+            _native.fit_context([slot], 10_000, "bogus", True)
+
+    def test_rust_shim_accepts_legacy_aliases(self):
+        """RustContextFitter must accept the same aliases as the processing
+        wrapper (recency->fifo) — two entry points, one contract."""
+        from victor.native.rust.context_fitter import RustContextFitter
+
+        fitter = RustContextFitter.__new__(RustContextFitter)
+        fitter._timed_call = lambda label: _nullcontext()
+        msgs = [
+            {"role": "user", "content": "m0", "token_count": 100},
+            {"role": "user", "content": "m1", "token_count": 100},
+        ]
+        assert fitter.fit_context(msgs, 5000, "recency").total_tokens == 200
+
+    def test_python_protocol_fitter_uses_canonical_vocabulary(self):
+        """PythonContextFitter previously spoke only recency/priority/
+        balanced — 'smart' silently meant its balanced branch."""
+        from victor.native.python.context_fitter import PythonContextFitter
+
+        fitter = PythonContextFitter.__new__(PythonContextFitter)
+        fitter._timed_call = lambda label: _nullcontext()
+        msgs = [
+            {"role": "user", "content": "m0", "token_count": 100},
+            {"role": "user", "content": "m1", "token_count": 100},
+        ]
+        assert fitter.fit_context(msgs, 5000, "smart").total_tokens == 200
+        assert fitter.fit_context(msgs, 5000, "fifo").total_tokens == 200
+        with pytest.raises(ValueError):
+            fitter.fit_context(msgs, 5000, "balanced-cascade")
+
+    def test_panic_exception_falls_back_but_interrupts_propagate(self, monkeypatch):
+        """pyo3's PanicException derives from BaseException — the plain
+        except-Exception clause never caught it. A PanicException-shaped
+        BaseException must degrade to the fallback; KeyboardInterrupt must
+        still propagate."""
+
+        class _Panic(BaseException):
+            pass
+
+        _Panic.__name__ = "PanicException"
+        _Panic.__qualname__ = "PanicException"
+
+        class _FakeNative:
+            MessageSlot = getattr(_native, "MessageSlot", object)
+
+            @staticmethod
+            def fit_context(*args, **kwargs):
+                raise _Panic("rust panic")
+
+        msgs = [
+            {"role": "user", "content": "m0", "token_count": 100},
+            {"role": "user", "content": "m1", "token_count": 100},
+        ]
+        original = cf._native
+        monkeypatch.setattr(cf, "_native", _FakeNative())
+        result = cf.fit_context(msgs, 5000, "smart")
+        assert result.total_tokens == 200  # fallback engaged
+
+        class _Interrupt(BaseException):
+            pass
+
+        _Interrupt.__name__ = "KeyboardInterrupt"
+
+        class _InterruptingNative(_FakeNative):
+            @staticmethod
+            def fit_context(*args, **kwargs):
+                raise _Interrupt("ctrl-c")
+
+        monkeypatch.setattr(cf, "_native", _InterruptingNative())
+        with pytest.raises(_Interrupt):
+            cf.fit_context(msgs, 5000, "smart")
+        monkeypatch.setattr(cf, "_native", original)
+
+
+class _NullContext:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+def _nullcontext():
+    return _NullContext()

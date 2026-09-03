@@ -358,8 +358,16 @@ class StreamingContentFilter:
         Returns:
             StreamingChunkResult with any remaining content
         """
+        # When suppressing thinking and the stream ends inside a thinking
+        # block, the residual buffer is thinking content and must stay
+        # suppressed (previously leaked — adversarial-review finding).
+        content = (
+            ""
+            if (self._suppress_thinking and self._state == ThinkingState.IN_THINKING)
+            else self._strip_inline_tokens(self._buffer)
+        )
         result = StreamingChunkResult(
-            content=self._strip_inline_tokens(self._buffer),
+            content=content,
             is_thinking=self._state == ThinkingState.IN_THINKING,
         )
         self._buffer = ""

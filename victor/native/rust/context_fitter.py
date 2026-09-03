@@ -91,6 +91,14 @@ class RustContextFitter(InstrumentedAccelerator):
             FitResult with indices of kept messages and statistics
         """
         with self._timed_call("context_fitting"):
+            # Normalize strategy FIRST: the processing wrapper accepts legacy
+            # aliases (recency->fifo, balanced->smart) but the Rust side
+            # rejects them — two public entry points must not have two
+            # contracts (adversarial-review finding).
+            from victor.processing.native.context_fitter import _normalize_strategy
+
+            strategy = _normalize_strategy(strategy)
+
             # Build MessageSlot objects for Rust
             slots = []
             for i, msg in enumerate(messages):

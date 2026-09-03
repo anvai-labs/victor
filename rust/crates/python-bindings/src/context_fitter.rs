@@ -130,6 +130,16 @@ pub fn fit_context(
     strategy: &str,
     preserve_system: bool,
 ) -> PyResult<FitResult> {
+    // Validate the strategy FIRST — the early returns below (empty list,
+    // everything-fits) previously skipped validation entirely, so unknown
+    // names were silently accepted whenever no drops were needed
+    // (adversarial-review finding).
+    if !matches!(strategy, "fifo" | "priority" | "smart") {
+        return Err(PyValueError::new_err(format!(
+            "unknown fit strategy '{strategy}' (expected 'fifo', 'priority', or 'smart')"
+        )));
+    }
+
     if messages.is_empty() {
         return Ok(FitResult {
             kept_indices: Vec::new(),
@@ -151,18 +161,10 @@ pub fn fit_context(
         });
     }
 
-    // Unknown strategy names are an error, not a silent default — the
-    // Python fallback previously mapped unknown names to "balanced" while
-    // this side mapped them to smart (co-design review U8-F1).
     let kept_indices = match strategy {
         "fifo" => fit_fifo(&messages, budget, preserve_system),
         "priority" => fit_priority(&messages, budget, preserve_system),
-        "smart" => fit_smart(&messages, budget),
-        other => {
-            return Err(PyValueError::new_err(format!(
-                "unknown fit strategy '{other}' (expected 'fifo', 'priority', or 'smart')"
-            )));
-        }
+        _ => fit_smart(&messages, budget),
     };
 
     let total_tokens: usize = kept_indices
@@ -224,10 +226,13 @@ fn fit_priority(messages: &[MessageSlot], budget: usize, preserve_system: bool) 
     let remaining_budget = budget.saturating_sub(pinned_cost);
 
     // Score and sort descending
-    let mut scored: Vec<(&MessageSlot, f32)> = rest
+    let mut scored: Vec<(&MessageSlot, f64)> = rest
         .iter()
         .map(|m| {
-            let score = (m.priority as f32 / 100.0) * 0.4 + m.recency * 0.6;
+            // f64 to match the Python fallback bit-for-bit: f32 rounded
+            // equal scores into stable-sort ties while f64 ordered them,
+            // diverging native vs fallback selection on collisions.
+            let score = (m.priority as f64 / 100.0) * 0.4 + (m.recency as f64) * 0.6;
             (*m, score)
         })
         .collect();
@@ -295,11 +300,11 @@ fn fit_smart(messages: &[MessageSlot], budget: usize) -> Vec<usize> {
     let remaining_budget = budget - pinned_cost;
 
     // Score the rest (same normalized formula as fit_priority)
-    let mut scored: Vec<(&MessageSlot, f32)> = messages
+    let mut scored: Vec<(&MessageSlot, f64)> = messages
         .iter()
         .filter(|m| !pinned_set.contains(&m.index))
         .map(|m| {
-            let score = (m.priority as f32 / 100.0) * 0.4 + m.recency * 0.6;
+            let score = (m.priority as f64 / 100.0) * 0.4 + (m.recency as f64) * 0.6;
             (m, score)
         })
         .collect();

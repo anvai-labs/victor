@@ -19,6 +19,7 @@ Uses Rust implementation when available for high-performance fitting,
 falling back to pure Python implementation.
 """
 
+import struct
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
@@ -137,6 +138,15 @@ def fit_context(
             )
         except Exception:
             pass  # Fall through to Python implementation
+        except BaseException as e:
+            # pyo3's PanicException derives from BaseException (like
+            # SystemExit), so the except-Exception clause above never sees
+            # it — catch it by name so a Rust panic degrades to the Python
+            # fallback instead of unwinding the process. Real control-flow
+            # BaseExceptions (KeyboardInterrupt/SystemExit) still propagate.
+            if type(e).__name__ != "PanicException":
+                raise
+            pass  # Fall through to Python implementation
 
     # Pure Python fallback
     return _fit_context_python(messages, budget, strategy, preserve_system)
@@ -174,7 +184,12 @@ def _fit_context_python(
     n = len(messages)
 
     def _recency(i: int) -> float:
-        return float(i) / max(n, 1)
+        # Round through f32 to match the native path: MessageSlot.recency is
+        # an f32 field, so the Rust side scores f32-rounded recency cast to
+        # f64 — an unrounded f64 recency here diverged selection on
+        # near-ties (adversarial-review finding, same class as the f32/f64
+        # score divergence).
+        return struct.unpack("<f", struct.pack("<f", float(i) / max(n, 1)))[0]
 
     def _score(i: int) -> float:
         priority = _coerce_priority(messages[i].get("priority", _DEFAULT_PRIORITY))
