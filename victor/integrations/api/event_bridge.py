@@ -150,6 +150,7 @@ class MetricsCollector:
         self._client_send_success_count = 0
         self._client_send_failure_count = 0
         self._events_dispatched_count = 0
+        self._queue_drop_count = 0
         self._delivery_success_slo = 0.999
         self._dispatch_latency_p95_slo_ms = 200.0
         self._last_slo_breach_log_ts = 0.0
@@ -166,6 +167,7 @@ class MetricsCollector:
         self._client_send_success_count = 0
         self._client_send_failure_count = 0
         self._events_dispatched_count = 0
+        self._queue_drop_count = 0
         self._last_slo_breach_log_ts = 0.0
         self._adhoc_metrics.clear()
 
@@ -216,6 +218,7 @@ class MetricsCollector:
             "total_send_attempts": total_send_attempts,
             "send_successes": send_successes,
             "send_failures": self._client_send_failure_count,
+            "queue_dropped_events": self._queue_drop_count,
             "delivery_success_rate": delivery_success_rate,
             "dispatch_latency_p95_ms": dispatch_latency_p95_ms,
             "slo_thresholds": {
@@ -357,6 +360,12 @@ class DeliveryEngine:
     loop-aware: a different/closed loop triggers dispose-and-rebind.
     """
 
+    # Bound for both the engine event queue and per-client sender queues.
+    # 10k sits comfortably above the largest legitimate burst (reliability
+    # tests exercise 1000-event bursts) while capping memory when a consumer
+    # stalls; overflow drops oldest (see broadcast_sync / _send_to_clients).
+    MAX_QUEUE_SIZE = 10_000
+
     def __init__(self, registry: ClientRegistry, metrics: MetricsCollector) -> None:
         self._registry = registry
         self._metrics = metrics
@@ -386,7 +395,10 @@ class DeliveryEngine:
 
         self._loop = current_loop
         if self._event_queue is None:
-            self._event_queue = asyncio.Queue()
+            # Bounded: a stalled consumer must not grow memory without limit.
+            # Overflow policy is drop-oldest (see broadcast_sync) — comfortably
+            # above the largest test burst (1000 events).
+            self._event_queue = asyncio.Queue(maxsize=self.MAX_QUEUE_SIZE)
 
         # Drop a stale broadcast task bound to a now-defunct loop.
         if self._broadcast_task is not None:
@@ -494,7 +506,19 @@ class DeliveryEngine:
         try:
             self._event_queue.put_nowait(event)
         except asyncio.QueueFull:
-            logger.warning("Event queue full, dropping event")
+            # Drop-oldest: keep the newest event (carries current state) and
+            # count the drop — sync producers must never block.
+            try:
+                self._event_queue.get_nowait()
+            except asyncio.QueueEmpty:
+                pass
+            try:
+                self._event_queue.put_nowait(event)
+                self._metrics._queue_drop_count += 1
+                logger.warning("Event queue full; dropped oldest event")
+            except asyncio.QueueFull:
+                self._metrics._queue_drop_count += 1
+                logger.warning("Event queue full; dropped event")
 
     async def _broadcast_loop(self) -> None:
         """Main broadcast loop."""
@@ -523,9 +547,22 @@ class DeliveryEngine:
                         queue.put_nowait(event_json)
                         continue
                     except asyncio.QueueFull:
-                        logger.warning(f"Client queue full for {client_id}")
+                        # Slow consumer: drop the client's OLDEST queued event
+                        # and enqueue the newest. Disconnecting on overflow
+                        # (the previous dead-code behavior, unreachable while
+                        # queues were unbounded) is punitive — a momentarily
+                        # slow UI should not lose its subscription.
+                        try:
+                            queue.get_nowait()
+                        except asyncio.QueueEmpty:
+                            pass
+                        try:
+                            queue.put_nowait(event_json)
+                        except asyncio.QueueFull:
+                            pass
+                        self._metrics._queue_drop_count += 1
                         self._metrics._client_send_failure_count += 1
-                        disconnected.append(client_id)
+                        logger.warning(f"Client queue full for {client_id}; dropped oldest")
                         continue
 
                 try:
@@ -580,7 +617,7 @@ class DeliveryEngine:
         if client.sender_queue is not None and client.sender_task is not None:
             if not client.sender_task.done():
                 return client.sender_queue
-        client.sender_queue = asyncio.Queue()
+        client.sender_queue = asyncio.Queue(maxsize=self.MAX_QUEUE_SIZE)
         client.sender_task = self._loop.create_task(self._client_sender_loop(client_id))
         return client.sender_queue
 

@@ -40,6 +40,7 @@ from typing import TYPE_CHECKING, Any, AsyncIterator, Dict, List, Optional
 
 from fastapi import (
     Body,
+    Depends,
     FastAPI,
     HTTPException,
     Query,
@@ -50,6 +51,7 @@ from fastapi import (
 )
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.routing import APIWebSocketRoute
 from pydantic import BaseModel, Field, field_validator
 
 from victor.integrations.search_types import CodeSearchResult
@@ -504,7 +506,12 @@ class VictorFastAPIServer:
         self._workflow_executions: Dict[str, Dict[str, Any]] = {}
         self._shutting_down = False
 
-        # Create FastAPI app with lifespan
+        # Create FastAPI app with lifespan. Auth is enforced per-HTTP-router
+        # in _setup_routes/_setup_router_plugins (co-design review U7-F1..F3:
+        # auth was previously opt-in per handler — only /chat* verified, so
+        # git/config/agents/terminal were open). An app-level dependency is
+        # NOT usable here: it would also run for websocket routes, where
+        # FastAPI's solver cannot supply a Request parameter at all.
         self.app = FastAPI(
             title="Victor API",
             description="AI Coding Assistant API for IDE integrations",
@@ -548,7 +555,11 @@ class VictorFastAPIServer:
 
                 schema = create_graphql_schema(self)
                 graphql_router = GraphQLRouter(schema)
-                self.app.include_router(graphql_router, prefix="/graphql")
+                self.app.include_router(
+                    graphql_router,
+                    prefix="/graphql",
+                    dependencies=[Depends(self._make_auth_dependency())],
+                )
                 logger.info("GraphQL endpoint enabled at /graphql")
             except ImportError:
                 logger.debug("strawberry-graphql not installed, GraphQL disabled")
@@ -567,6 +578,27 @@ class VictorFastAPIServer:
             if api_key in self.api_keys:
                 return self.api_keys[api_key]
         raise HTTPException(status_code=401, detail="Invalid or missing API key")
+
+    # Paths reachable without an API key: health/status probes (docs/openapi
+    # are app-native and carry no dependency). /ws is mounted without the
+    # auth dependency and authenticates at the message level; HITL routes
+    # mount their own token auth.
+    AUTH_EXEMPT_PATHS = frozenset({"/health", "/status"})
+
+    def _make_auth_dependency(self):
+        """Build the router-level auth dependency (closure over this server)."""
+
+        async def _enforce_api_auth(request: Request) -> None:
+            """Auth gate for HTTP routes: a valid API key is required when
+            keys are configured. Keyless servers (local dev, most tests) are
+            unaffected — the gate short-circuits without keys."""
+            if not self.api_keys:
+                return
+            if request.url.path in self.AUTH_EXEMPT_PATHS:
+                return
+            await self._verify_api_key(request)
+
+        return _enforce_api_auth
 
     @asynccontextmanager
     async def _lifespan(self, app: FastAPI) -> AsyncIterator[None]:
@@ -602,11 +634,25 @@ class VictorFastAPIServer:
         logger.info("Victor FastAPI server shutdown complete")
 
     def _setup_routes(self) -> None:
-        """Set up API routes by including extracted APIRouter modules."""
+        """Set up API routes by including extracted APIRouter modules.
+
+        HTTP routers mount with the auth dependency so every route requires
+        a key when keys are configured. The websocket router mounts WITHOUT
+        it (FastAPI cannot supply a Request in websocket scope) — WS clients
+        authenticate at the message level (auth frame, gated in
+        _handle_ws_message).
+        """
         from victor.integrations.api.routes import create_all_routers
 
+        auth_dependency = Depends(self._make_auth_dependency())
         for router in create_all_routers(self):
-            self.app.include_router(router)
+            has_websocket_route = any(
+                isinstance(route, APIWebSocketRoute) for route in router.routes
+            )
+            if has_websocket_route:
+                self.app.include_router(router)
+            else:
+                self.app.include_router(router, dependencies=[auth_dependency])
 
     def _setup_router_plugins(self) -> None:
         """Load optional FastAPI routers from vertical packages.
@@ -614,9 +660,14 @@ class VictorFastAPIServer:
         Routers are discovered via `victor.api_routers` entry points.
         """
         registrations = load_fastapi_router_registrations(workspace_root=self.workspace_root)
+        auth_dependency = Depends(self._make_auth_dependency())
         for registration in registrations:
             try:
-                self.app.include_router(registration.router, prefix=registration.prefix)
+                self.app.include_router(
+                    registration.router,
+                    prefix=registration.prefix,
+                    dependencies=[auth_dependency],
+                )
             except Exception as exc:
                 logger.warning(
                     "Failed to include router from entry point '%s' (%s): %s",
@@ -866,6 +917,14 @@ class VictorFastAPIServer:
             messages = data.get("messages", [])
             if not messages:
                 await ws.send_json({"type": "error", "message": "No messages"})
+                return
+
+            # Auth gate: when API keys are configured, chat turns require a
+            # prior successful `auth` message. Previously the flag was set
+            # but never enforced — an unauthenticated WS client got full
+            # agent execution (co-design review U7-F1).
+            if self.api_keys and not getattr(getattr(ws, "state", None), "authenticated", False):
+                await ws.send_json({"type": "error", "message": "Not authenticated"})
                 return
 
             client = await self._get_victor_client()
