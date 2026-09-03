@@ -154,9 +154,7 @@ class ProximaDBProvider(BaseEmbeddingProvider):
         )
 
         # Create or get collection
-        collection_name = self.config.extra_config.get(
-            "collection_name", "code_embeddings"
-        )
+        collection_name = self.config.extra_config.get("collection_name", "code_embeddings")
         await self._ensure_collection(collection_name, dimension)
 
         self._initialized = True
@@ -271,10 +269,7 @@ class ProximaDBProvider(BaseEmbeddingProvider):
         elif "null_value" in sql_value:
             return None
         elif "array_value" in sql_value:
-            return [
-                self._extract_sql_value(v)
-                for v in sql_value["array_value"].get("values", [])
-            ]
+            return [self._extract_sql_value(v) for v in sql_value["array_value"].get("values", [])]
         return sql_value
 
     def _extract_metadata(self, metadata: Dict[str, Any]) -> Dict[str, Any]:
@@ -462,9 +457,7 @@ class ProximaDBProvider(BaseEmbeddingProvider):
                         content=metadata.get("content", ""),
                         score=score,
                         line_number=metadata.get("line_number"),
-                        metadata={
-                            k: v for k, v in metadata.items() if k not in ["content"]
-                        },
+                        metadata={k: v for k, v in metadata.items() if k not in ["content"]},
                     )
                 )
 
@@ -551,9 +544,7 @@ class ProximaDBProvider(BaseEmbeddingProvider):
             "total_documents": count,
             "embedding_model_type": self.config.embedding_model_type,
             "embedding_model_name": self.config.embedding_model_name,
-            "dimension": (
-                self.embedding_model.get_dimension() if self.embedding_model else 384
-            ),
+            "dimension": (self.embedding_model.get_dimension() if self.embedding_model else 384),
             "distance_metric": self.config.distance_metric,
             "collection_name": self._collection_name,
             "persist_directory": str(self._data_dir),

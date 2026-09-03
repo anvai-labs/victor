@@ -42,7 +42,6 @@ Phase 1: Extract TurnExecutor
 from __future__ import annotations
 
 import asyncio
-import copy
 import hashlib
 import inspect
 import logging
@@ -66,37 +65,6 @@ if TYPE_CHECKING:
         StatePassedExplorationProtocol,
         ToolContextProtocol,
     )
-
-
-def _selector_history_projection(messages: List[Any]) -> List[Dict[str, Any]]:
-    """Project Message objects to exactly the keys the tool selector reads.
-
-    Replaces a per-iteration ``model_dump()`` of the entire history, which
-    pydantic-serialized every message on every model turn while the selector
-    only ever accesses ``role``, full ``content``, and ``tool_calls`` names
-    (co-design review U1-1). Content must remain untruncated here — the
-    selection cache-key builder applies its own truncation downstream.
-
-    Args:
-        messages: Live Message objects from the chat context.
-
-    Returns:
-        Plain dicts with role/content (+ tool_calls when present, list-copied
-        so the projection cannot be used to mutate the live history).
-    """
-    projected: List[Dict[str, Any]] = []
-    for msg in messages:
-        entry: Dict[str, Any] = {
-            "role": getattr(msg, "role", None),
-            "content": getattr(msg, "content", ""),
-        }
-        tool_calls = getattr(msg, "tool_calls", None)
-        if tool_calls:
-            # Deep-copied: a shallow list copy left the inner tool_call dicts
-            # aliased to the live history (adversarial-review finding).
-            entry["tool_calls"] = copy.deepcopy(tool_calls)
-        projected.append(entry)
-    return projected
 
 
 @dataclass
@@ -1639,6 +1607,8 @@ class TurnExecutor:
             List of tool definitions or None
         """
         conversation_depth = self._chat_context.conversation.message_count()
+        from victor.agent.tool_selection.history_projection import _selector_history_projection
+
         conversation_history = (
             _selector_history_projection(self._chat_context.messages)
             if self._chat_context.messages

@@ -29,7 +29,7 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel
 
 from victor.agent.conversation.types import ConversationMessage
-from victor.agent.services.turn_execution_runtime import _selector_history_projection
+from victor.agent.tool_selection.history_projection import _selector_history_projection
 from victor.storage.cache.generic_result_cache import _create_tool_selection_cache_key
 
 
