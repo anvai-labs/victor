@@ -70,9 +70,7 @@ class TestBreakerKeying:
         assert after - before == 1
 
     def test_trip_via_one_instance_visible_to_the_next(self):
-        a = _BreakerProbeProvider(
-            base_url="http://trip:3", circuit_breaker_failure_threshold=1
-        )
+        a = _BreakerProbeProvider(base_url="http://trip:3", circuit_breaker_failure_threshold=1)
         a._circuit_breaker.record_failure(RuntimeError("probe failure"))
 
         b = _BreakerProbeProvider(base_url="http://trip:3")

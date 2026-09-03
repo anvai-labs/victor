@@ -72,9 +72,7 @@ class TestBaseProvider:
 
     def test_unknown_model_returns_default_constant(self):
         provider = _WindowProbeProvider()
-        assert (
-            provider.context_window("unknown-model-x") == BaseProvider.DEFAULT_CONTEXT_WINDOW
-        )
+        assert provider.context_window("unknown-model-x") == BaseProvider.DEFAULT_CONTEXT_WINDOW
 
     def test_known_model_hits_table_or_yaml(self):
         provider = _WindowProbeProvider()
