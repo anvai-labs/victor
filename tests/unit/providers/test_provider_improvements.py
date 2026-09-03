@@ -1500,3 +1500,35 @@ class TestSharedInfrastructureIntegration:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+class TestCircuitOpenNeverRetryable:
+    """Adversarial-review negatives: circuit errors must be non-retryable
+    regardless of what the fuzzy classifiers would score."""
+
+    def test_breaker_message_with_url_status_substring_not_retryable(self):
+        """The breaker NAME embeds base_url — a URL containing 5000 (or a
+        retry_after of 503.0s) must not make the error retryable via the
+        message/status-code substring checks."""
+        strategy = ProviderRetryStrategy(ProviderRetryConfig())
+        error = CircuitOpenError(
+            "Circuit breaker 'provider_X_http://localhost:5000' is open. " "Retry after 503.0s"
+        )
+        assert strategy._is_retryable(error) is False
+
+    def test_breaker_error_with_retryable_cause_not_retryable(self):
+        """A circuit error raised from a retryable transport error must not
+        become retryable through the cause-chain walk."""
+        cause = ConnectionError("connection reset")
+        error = CircuitOpenError("circuit open")
+        error.__cause__ = cause
+        assert ProviderRetryStrategy(ProviderRetryConfig())._is_retryable(error) is False
+
+    def test_retryable_transport_error_still_retryable(self):
+        """Positive control: the short-circuit must not over-reach."""
+        assert (
+            ProviderRetryStrategy(ProviderRetryConfig())._is_retryable(
+                ConnectionError("plain transport failure")
+            )
+            is True
+        )

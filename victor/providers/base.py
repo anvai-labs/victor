@@ -224,26 +224,41 @@ class BaseProvider(ABC):
         self._rate_limit_suppressed_until_monotonic: Optional[float] = None
         self._rate_limit_suppression_error: Optional[ProviderRateLimitError] = None
 
-        # Circuit breaker for resilience
+        # Circuit breaker for resilience. Created LAZILY on first access
+        # (see the circuit_breaker property): subclasses like LlamaCpp and
+        # VLLM resolve their default base_url AFTER super().__init__, so an
+        # eager breaker here keyed the registry on the pre-resolution value
+        # and fragmented state between default-URL and explicit-URL
+        # instances of the same server (adversarial-review finding).
         self._use_circuit_breaker = use_circuit_breaker
         self._circuit_breaker: Optional[CircuitBreaker] = None
-        if use_circuit_breaker:
-            # Stable key: state aggregates across instances of the same
-            # provider class + endpoint. Never embed id(self) — it fragments
-            # breaker state per instance and leaks one registry entry per
-            # object ever created.
+        self._circuit_breaker_config = (
+            circuit_breaker_failure_threshold,
+            circuit_breaker_recovery_timeout,
+        )
+
+    @property
+    def circuit_breaker(self) -> Optional[CircuitBreaker]:
+        """Get the circuit breaker for this provider.
+
+        Lazily created so the registry key is
+        ``provider_{class}_{base_url}`` with the provider's FINAL base_url —
+        state aggregates across instances of the same provider class +
+        endpoint. Never embeds id(self) (per-instance state fragmentation,
+        one registry leak per object ever created).
+        """
+        if not self._use_circuit_breaker:
+            return None
+        if self._circuit_breaker is None:
+            threshold, recovery = self._circuit_breaker_config
             base_url = getattr(self, "base_url", None) or "default"
             breaker_name = f"provider_{self.__class__.__name__}_{base_url}"
             self._circuit_breaker = CircuitBreakerRegistry.get_or_create(
                 name=breaker_name,
-                failure_threshold=circuit_breaker_failure_threshold,
-                recovery_timeout=circuit_breaker_recovery_timeout,
+                failure_threshold=threshold,
+                recovery_timeout=recovery,
                 excluded_exceptions=(ProviderAuthError,),
             )
-
-    @property
-    def circuit_breaker(self) -> Optional[CircuitBreaker]:
-        """Get the circuit breaker for this provider."""
         return self._circuit_breaker
 
     def supports_tools(self) -> bool:
@@ -413,8 +428,8 @@ class BaseProvider(ABC):
 
     def get_circuit_breaker_stats(self) -> Optional[Dict[str, Any]]:
         """Get circuit breaker statistics for monitoring."""
-        if self._circuit_breaker:
-            return self._circuit_breaker.get_stats()
+        if self.circuit_breaker:
+            return self.circuit_breaker.get_stats()
         return None
 
     def _iter_exception_chain(self, error: Exception) -> List[Exception]:
@@ -1097,9 +1112,8 @@ class BaseProvider(ABC):
         Returns:
             True if circuit is open and requests will be rejected
         """
-        if self._circuit_breaker:
-            return self._circuit_breaker.is_open
-        return False
+        breaker = self.circuit_breaker
+        return bool(breaker and breaker.is_open)
 
     async def _execute_with_circuit_breaker(
         self,
@@ -1131,8 +1145,9 @@ class BaseProvider(ABC):
         self._raise_if_rate_limit_suppressed(model=model_name)
 
         async def _call() -> Any:
-            if self._circuit_breaker:
-                return await self._circuit_breaker.execute(func, *args, **kwargs)
+            breaker = self.circuit_breaker
+            if breaker:
+                return await breaker.execute(func, *args, **kwargs)
             return await func(*args, **kwargs)
 
         try:
@@ -1168,5 +1183,5 @@ class BaseProvider(ABC):
 
     def reset_circuit_breaker(self) -> None:
         """Manually reset the circuit breaker to closed state."""
-        if self._circuit_breaker:
-            self._circuit_breaker.reset()
+        if self.circuit_breaker:
+            self.circuit_breaker.reset()

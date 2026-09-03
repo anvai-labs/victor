@@ -52,26 +52,45 @@ class TestBreakerKeying:
     def test_same_class_and_url_share_breaker(self):
         a = _BreakerProbeProvider(base_url="http://one:1", circuit_breaker_failure_threshold=1)
         b = _BreakerProbeProvider(base_url="http://one:1", circuit_breaker_failure_threshold=1)
-        assert a._circuit_breaker is b._circuit_breaker
+        assert a.circuit_breaker is b.circuit_breaker
 
     def test_different_url_independent_breakers(self):
         a = _BreakerProbeProvider(base_url="http://one:1")
         c = _BreakerProbeProvider(base_url="http://two:2")
-        assert a._circuit_breaker is not c._circuit_breaker
+        assert a.circuit_breaker is not c.circuit_breaker
 
     def test_registry_bounded_across_instances(self):
         # Unique url for this test: registry dict entries persist across
         # reset_all() (which resets state, not membership).
         before = len(CircuitBreakerRegistry._breakers)
         for _ in range(25):
-            _BreakerProbeProvider(base_url="http://bounded:9")
+            _BreakerProbeProvider(base_url="http://bounded:9").circuit_breaker
         after = len(CircuitBreakerRegistry._breakers)
         # One entry per (class, url) — not one per instance ever created.
         assert after - before == 1
 
     def test_trip_via_one_instance_visible_to_the_next(self):
         a = _BreakerProbeProvider(base_url="http://trip:3", circuit_breaker_failure_threshold=1)
-        a._circuit_breaker.record_failure(RuntimeError("probe failure"))
+        a.circuit_breaker.record_failure(RuntimeError("probe failure"))
 
         b = _BreakerProbeProvider(base_url="http://trip:3")
-        assert b._circuit_breaker.is_open
+        assert b.circuit_breaker.is_open
+
+
+class TestLazyBreakerKeying:
+    def test_post_init_base_url_resolution_shares_state(self):
+        """LlamaCpp/VLLM resolve their default base_url AFTER super().__init__
+        — the lazy key must reflect the final value, so a default-constructed
+        provider that then resolves its URL shares state with one constructed
+        with the explicit URL (adversarial-review finding)."""
+        CircuitBreakerRegistry.reset_all()
+        a = _BreakerProbeProvider()  # base_url=None at init (like llamacpp)
+        a.base_url = "http://localhost:8080"  # post-init resolution
+        b = _BreakerProbeProvider(base_url="http://localhost:8080")
+        assert a.circuit_breaker is b.circuit_breaker
+
+    def test_lazy_creation_deferred_until_first_access(self):
+        CircuitBreakerRegistry.reset_all()
+        provider = _BreakerProbeProvider(base_url="http://lazy:1")
+        assert provider._circuit_breaker is None  # not yet created
+        assert provider.circuit_breaker is not None  # created on access
