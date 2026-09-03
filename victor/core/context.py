@@ -42,10 +42,14 @@ request_id: contextvars.ContextVar[str] = contextvars.ContextVar("request_id", d
 # Logical model-call ID for the current single provider invocation (sandhi TD-0021 P4
 # sender half). One logical call = every retry AND fallback of one request through the
 # resilience layer; they share this id so the gateway's idempotency dedup counts the
-# call once at the meter. Bound by the retry owner (ResilientProvider) — the outermost
-# binding wins — and consumed by the sandhi transport as the ``Idempotency-Key`` wire
-# header. Deliberately NOT ``request_id``: that is per tool-operation, and two distinct
-# model calls inside one request context must never share a dedup key.
+# call once at the meter. Bound by the retry owner (ResilientProvider.chat — the
+# outermost binding wins) and consumed by the sandhi transport as the
+# ``Idempotency-Key`` wire header. CHAT ONLY: an async generator cannot bind safely
+# (ContextVar.set in a generator frame lands in the resumer's context, and a
+# non-aclosing early break would leak the binding — see ResilientProvider.stream),
+# so the stream path mints per invocation instead. Deliberately NOT ``request_id``:
+# that is per tool-operation, and two distinct model calls inside one request
+# context must never share a dedup key.
 call_id: contextvars.ContextVar[str] = contextvars.ContextVar("call_id", default="")
 
 # Authenticated attribution identity (FEP-0020). Bound at the API-server auth

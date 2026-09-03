@@ -375,16 +375,20 @@ def _wire_call_headers() -> Dict[str, str]:
       identity, so the gateway's dedup counts one logical call once — the METER
       counts logical calls, ENFORCEMENT still counts every physical settlement.
       Preferred source is the ``call_id`` correlation var, bound by the retry
-      owner (``ResilientProvider`` — default on via ``SmartRoutingProvider``):
-      every Python-level retry AND fallback of one logical call re-enters this
-      helper under the same binding and carries the same key. Retries inside the
-      Rust handle (``max_retries`` on the provider factory) likewise see this
-      one header value. With no retry owner bound — a bare provider used
-      directly — a fresh key is minted per invocation, each invocation being
-      its own logical call. Note the asymmetry with ``x-sandhi-run-id``: a
-      caller-set STATIC ``Idempotency-Key`` in the handle headers is
-      deliberately overridden here, because a static key would dedup every call
-      of the dedup window into one metered event.
+      owner (``ResilientProvider.chat`` — default on via
+      ``SmartRoutingProvider``): every Python-level retry AND fallback of one
+      logical call re-enters this helper under the same binding and carries the
+      same key. Retries inside the Rust handle (``max_retries`` on the provider
+      factory) likewise see this one header value. STREAMS bind nothing (an
+      async generator cannot ContextVar-bind safely — see
+      ``ResilientProvider.stream``), so each stream invocation mints its own
+      key and stream-setup retries count per attempt: fail-toward-counting,
+      the direction sandhi specifies (ADR-0005 D3). With no retry owner bound
+      — a bare provider used directly — a fresh key is minted per invocation,
+      each invocation being its own logical call. Note the asymmetry with
+      ``x-sandhi-run-id``: a caller-set STATIC ``Idempotency-Key`` in the
+      handle headers is deliberately overridden here, because a static key
+      would dedup every call of the dedup window into one metered event.
 
     The key is minted even when no turn is bound: dedup is transport-retry
     protection, orthogonal to turn attribution. The call sites gate on gateway

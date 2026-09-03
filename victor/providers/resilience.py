@@ -785,7 +785,9 @@ class ResilientProvider:
         (sandhi TD-0021 P4): the logical-call id is bound here — outermost
         binding wins — so every retry and every fallback of this call carries
         the same ``Idempotency-Key`` and the gateway's meter counts the call
-        once (enforcement still counts every physical settlement).
+        once (enforcement still counts every physical settlement). Only a
+        plain coroutine gets this treatment — see ``stream`` for why an async
+        generator cannot.
 
         Args:
             messages: List of messages
@@ -798,7 +800,10 @@ class ResilientProvider:
         Raises:
             ProviderUnavailableError: If all providers fail
         """
-        token = bind_call_id_once(uuid.uuid4().hex)
+        try:
+            token = bind_call_id_once(uuid.uuid4().hex)
+        except Exception:  # pragma: no cover - os.urandom failure must not block transport
+            token = None  # unbound: the transport mints per invocation instead
         try:
             return await self._chat_with_retry(messages, model=model, **kwargs)
         finally:
@@ -951,9 +956,16 @@ class ResilientProvider:
     ):
         """Stream chat with resilience features.
 
-        Like ``chat``: one invocation is one logical call — the logical-call id
-        is bound for the duration so connection retries (the only retries
-        streaming makes) share one ``Idempotency-Key``.
+        Deliberately does NOT bind the logical-call id, unlike ``chat``: this is
+        an async GENERATOR, and a ``ContextVar.set()`` in a generator frame
+        executes in the resumer's context — an early consumer break without
+        ``aclosing`` would leak the binding into the caller's context (every
+        later logical call in that task reusing a stale ``Idempotency-Key`` and
+        being dropped by the gateway's dedup = silent under-metering), and the
+        asyncgen finalizer resets the token from a different context
+        (``ValueError``). The transport therefore mints a per-invocation key on
+        the stream path; stream-setup retries are counted per attempt — the
+        fail-toward-counting direction sandhi specifies (ADR-0005 D3).
 
         Note: Streaming has limited retry capability. If the stream fails
         midway, it cannot be resumed.
@@ -966,27 +978,6 @@ class ResilientProvider:
         Yields:
             Stream chunks
         """
-        token = bind_call_id_once(uuid.uuid4().hex)
-        try:
-            # aclosing is load-bearing here too: a plain ``async for`` would leave
-            # the inner generator orphaned on an early consumer break (the same
-            # finalization hazard _stream_with_retry guards against one level down).
-            async with contextlib.aclosing(
-                self._stream_with_retry(messages, model=model, **kwargs)
-            ) as inner:
-                async for chunk in inner:
-                    yield chunk
-        finally:
-            if token is not None:
-                call_id.reset(token)
-
-    async def _stream_with_retry(
-        self,
-        messages: List[Any],
-        *,
-        model: str,
-        **kwargs,
-    ):
         self._stats["total_requests"] += 1
         partial_content: list = []
 

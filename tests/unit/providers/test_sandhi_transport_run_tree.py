@@ -27,12 +27,13 @@ Contract:
 
 The per-call headers also carry an ``Idempotency-Key`` — the LOGICAL-call
 identity (sandhi TD-0021 P4 sender half): its preferred source is the ``call_id``
-correlation var bound by the retry owner (ResilientProvider), so every
-Python-level retry AND fallback of one logical call shares one key and the
-gateway's meter counts the call once; with no binding, a fresh key per
-invocation (each invocation its own logical call); direct mode -> never sent
-(no gateway ledger to dedup against). The Rust-internal retry reuse is pinned
-sandhi-side (resilience.rs re-sends the same HeaderMap), not here.
+correlation var bound by the retry owner (ResilientProvider.chat — streams bind
+nothing by design: an async generator cannot ContextVar-bind safely), so every
+Python-level retry AND fallback of one logical CHAT call shares one key and the
+gateway's meter counts the call once; with no binding (bare provider, or the
+stream path), a fresh key per invocation; direct mode -> never sent (no gateway
+ledger to dedup against). The Rust-internal retry reuse is pinned sandhi-side
+(resilience.rs re-sends the same HeaderMap), not here.
 """
 
 from __future__ import annotations

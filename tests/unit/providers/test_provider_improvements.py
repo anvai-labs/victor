@@ -896,29 +896,48 @@ class TestResilientProvider:
         assert ctx.get_call_id() == "", "inner layer must not reset the outer binding"
 
     @pytest.mark.asyncio
-    async def test_stream_binds_the_logical_call_id(self):
-        """The stream wrapper binds the same logical-call identity as chat."""
-        from victor.core.context import get_call_id
+    async def test_stream_never_binds_the_logical_call_id(self):
+        """The stream path deliberately binds NOTHING (adversarial-review HIGH/MED):
+        a ContextVar.set in an async-generator frame lands in the resumer's
+        context, so an early consumer break without aclosing would leak the
+        binding — every later logical call in the task reusing a stale
+        Idempotency-Key and being dropped by the gateway's dedup (silent
+        under-metering) — and the asyncgen finalizer would reset the token from
+        a different context (ValueError). Pin the safe behavior: even an
+        UNDISCIPLINED early break leaves the caller's context clean."""
+        import victor.core.context as ctx
 
-        seen: list = []
-
-        def recording_stream(messages, *, model, **kwargs):
+        def plain_stream(messages, *, model, **kwargs):
             async def _chunks():
-                seen.append(get_call_id())
-                yield "chunk"
+                yield "chunk1"
+                yield "chunk2"
 
             return _chunks()
 
         inner = MagicMock()
         inner.name = "streamer"
-        inner.stream = recording_stream
+        inner.stream = plain_stream
         resilient = ResilientProvider(inner)
 
-        chunks = [c async for c in resilient.stream(messages=[], model="m")]
+        # Early break WITHOUT aclosing — the exact footgun scenario.
+        async for _chunk in resilient.stream(messages=[], model="m"):
+            break
 
-        assert chunks == ["chunk"]
-        assert seen and seen[0], "stream must run under a bound call id"
-        assert get_call_id() == "", "binding must be reset after the stream ends"
+        assert ctx.get_call_id() == "", "stream must not leak a call-id binding"
+
+        # And the next chat still binds fresh (no stale key reuse).
+        seen: list = []
+
+        async def recording_chat(messages, *, model, **kwargs):
+            seen.append(ctx.get_call_id())
+            return "ok"
+
+        inner2 = MagicMock()
+        inner2.name = "recorder"
+        inner2.chat = recording_chat
+        resilient2 = ResilientProvider(inner2)
+        await resilient2.chat(messages=[], model="m")
+        assert seen and seen[0] and ctx.get_call_id() == ""
 
     @pytest.mark.asyncio
     async def test_fallback_on_failure(self, mock_provider, mock_fallback):
