@@ -323,8 +323,9 @@ class VictorClient:
             except Exception:  # approval is best-effort; chat still works without it
                 logger.debug("approval handler registration skipped", exc_info=True)
 
-        # Load base settings
-        settings = load_settings()
+        # Load base settings. fresh=True: mutated immediately below by
+        # SessionConfig.apply_to_settings — must not disturb the snapshot.
+        settings = load_settings(fresh=True)
 
         # Apply SessionConfig overrides to settings (ONLY place where settings is mutated)
         self._config.apply_to_settings(settings)

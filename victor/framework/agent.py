@@ -242,12 +242,14 @@ class Agent:
             # With vertical (domain-specific assistant)
             agent = await Agent.create(vertical="coding")
         """
-        from victor.config.settings import Settings, load_settings
+        from victor.config.settings import load_settings
         from victor.framework.agent_factory import AgentFactory, InitializationError
         from victor.framework.session_config import SessionConfig
 
-        # Load settings (or use config overrides)
-        settings = load_settings()
+        # Load settings (or use config overrides). fresh=True: mutated below
+        # (workspace/config/session overlays) — must not disturb the shared
+        # process-wide snapshot.
+        settings = load_settings(fresh=True)
         if workspace:
             settings.working_directory = workspace
 
