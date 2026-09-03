@@ -73,7 +73,10 @@ Respond with just the command to run."""
                 "dd if=",
                 "sudo rm",
                 ":(){",
-                "chmod -R 777",
+                # Matched against the lowercased command — keep the pattern
+                # lowercase too (the previous "chmod -R 777" could never
+                # match; same bug fixed in /terminal/execute).
+                "chmod -r 777",
                 "curl | sh",
                 "wget | sh",
             ]
@@ -104,7 +107,12 @@ Respond with just the command to run."""
 
         resolved_dir = Path(working_dir).resolve()
         workspace_resolved = Path(server.workspace_root).resolve()
-        if not str(resolved_dir).startswith(str(workspace_resolved)):
+        # True path containment (not string-prefix): a sibling directory
+        # like /ws/victor-evil beside workspace /ws/victor passed the old
+        # startswith check (adversarial-review finding).
+        try:
+            resolved_dir.relative_to(workspace_resolved)
+        except ValueError:
             return TerminalCommandResponse(
                 command_id=cmd_id,
                 command=request.command,

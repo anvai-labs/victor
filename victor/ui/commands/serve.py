@@ -1,6 +1,8 @@
-import typer
 import logging
-from typing import Optional
+import os
+
+import typer
+from typing import Dict, Optional
 from rich.console import Console
 from rich.panel import Panel
 
@@ -126,6 +128,28 @@ def _serve(
     run_sync(_run_fastapi_server(host, port, profile, mode, enable_hitl, hitl_auth_token))
 
 
+def _api_keys_from_env() -> Dict[str, str]:
+    """Parse VICTOR_API_KEYS into the server's api_keys mapping.
+
+    Comma-separated entries of ``key`` or ``key:client_id``; entries without
+    an explicit client_id get ``client{i}``. Without this wiring the API-key
+    auth gate was unreachable from `victor serve` (adversarial-review
+    finding): the command never passed api_keys, so binding 0.0.0.0 served
+    an unauthenticated API regardless of the server's support for keys.
+    """
+    raw = os.environ.get("VICTOR_API_KEYS", "").strip()
+    if not raw:
+        return {}
+    keys: Dict[str, str] = {}
+    for i, entry in enumerate(raw.split(",")):
+        entry = entry.strip()
+        if not entry:
+            continue
+        key, sep, client_id = entry.partition(":")
+        keys[key.strip()] = client_id.strip() if sep and client_id.strip() else f"client{i}"
+    return keys
+
+
 async def _run_fastapi_server(
     host: str,
     port: int,
@@ -143,14 +167,21 @@ async def _run_fastapi_server(
         from victor.integrations.api.fastapi_server import VictorFastAPIServer
         from victor.framework.session_config import SessionConfig
 
+        api_keys = _api_keys_from_env()
         server = VictorFastAPIServer(
             host=host,
             port=port,
             workspace_root=str(Path.cwd()),
             enable_hitl=enable_hitl,
             hitl_auth_token=hitl_auth_token,
+            api_keys=api_keys or None,
             session_config=SessionConfig.from_cli_flags(agent_profile=profile, mode=mode),
         )
+        if api_keys:
+            console.print(
+                f"[green]API-key auth enabled for {len(api_keys)} key(s) "
+                f"(VICTOR_API_KEYS); docs endpoints disabled.[/]"
+            )
 
         config = uvicorn.Config(
             server.app,

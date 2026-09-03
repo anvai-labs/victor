@@ -103,3 +103,19 @@ def test_working_dir_outside_workspace_rejected(monkeypatch, tmp_path):
     body = response.json()
     assert body["status"] == "failed"
     assert "within workspace" in body.get("output", "")
+
+
+def test_sibling_prefix_working_dir_rejected(monkeypatch, tmp_path):
+    """Negative: string-prefix containment admitted a sibling directory
+    (/ws/victor-evil beside workspace /ws/victor). Found by adversarial
+    review."""
+    server = _create_server(monkeypatch, tmp_path)
+    server._orchestrator = _FakeOrchestrator()
+    client = TestClient(server.app)
+
+    sibling = tmp_path.parent / (tmp_path.name + "-evil")
+    response = _execute(client, "pwd", working_dir=str(sibling))
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "failed"
+    assert "within workspace" in body.get("output", "")

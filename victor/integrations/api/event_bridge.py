@@ -561,6 +561,11 @@ class DeliveryEngine:
                         except asyncio.QueueFull:
                             pass
                         self._metrics._queue_drop_count += 1
+                        # Intentionally also counted as a send failure: the
+                        # dropped-oldest event was dispatched by the engine
+                        # and will never reach the client, so the delivery
+                        # SLO must dip. queue_dropped_events is the dedicated
+                        # drop counter; send_failures keeps the SLO honest.
                         self._metrics._client_send_failure_count += 1
                         logger.warning(f"Client queue full for {client_id}; dropped oldest")
                         continue

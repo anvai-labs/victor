@@ -107,3 +107,73 @@ async def test_keyless_server_leaves_routes_open(monkeypatch, tmp_path):
         assert response.status_code in (200, 404)
         response = await client.get("/agents")
         assert response.status_code != 401, "keyless server must not auth-gate"
+
+
+@pytest.mark.asyncio
+async def test_invalid_key_rejected_on_non_chat_route(monkeypatch, tmp_path):
+    """Negative: attacker-shaped auth material (wrong Bearer, raw key,
+    X-API-Key scheme, empty Bearer) must 401 on a non-chat route — the
+    original auth seam only ever tested missing headers on /chat."""
+    server = _create_server(monkeypatch, tmp_path, api_keys={"sk-alice": "alice"})
+    transport = ASGITransport(app=server.app)
+
+    attack_headers = [
+        {"Authorization": "Bearer sk-mallory"},
+        {"Authorization": "sk-alice"},  # raw key, no scheme
+        {"X-API-Key": "sk-alice"},  # unsupported scheme
+        {"Authorization": "Bearer "},
+    ]
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        for headers in attack_headers:
+            response = await client.get("/agents", headers=headers)
+            assert response.status_code == 401, f"{headers} must not authenticate"
+
+
+@pytest.mark.asyncio
+async def test_workflow_routes_require_auth(monkeypatch, tmp_path):
+    """Negative: the workflow router mixes a websocket stream with nine HTTP
+    routes (incl. POST /workflows/execute) — router-level sniffing used to
+    exempt ALL of them. Found by adversarial review of this PR."""
+    server = _create_server(monkeypatch, tmp_path, api_keys={"sk-alice": "alice"})
+    transport = ASGITransport(app=server.app)
+
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get("/workflows/executions")
+        assert response.status_code == 401
+        response = await client.get("/workflows/templates")
+        assert response.status_code == 401
+        response = await client.post("/workflows/execute", json={"name": "x"})
+        assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_hitl_routes_require_auth_when_api_keys_set(monkeypatch, tmp_path):
+    """Negative: HITL mounts its own token auth only when a HITL token is
+    configured; with API keys set and no HITL token the routes must fall
+    back to the API-key gate (previously open — unauthenticated approval of
+    agent tool gates). Found by adversarial review."""
+    server = _create_server(monkeypatch, tmp_path, api_keys={"sk-alice": "alice"}, enable_hitl=True)
+    transport = ASGITransport(app=server.app)
+
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get("/hitl/requests")
+        assert response.status_code == 401
+        response = await client.get("/hitl/requests", headers={"Authorization": "Bearer sk-alice"})
+        assert response.status_code != 401  # key-authed request reaches the handler
+
+
+@pytest.mark.asyncio
+async def test_docs_disabled_on_keyed_server(monkeypatch, tmp_path):
+    """Negative: the docs/openapi surfaces disclose the full route tree —
+    disabled when API keys are configured."""
+    server = _create_server(monkeypatch, tmp_path, api_keys={"sk-alice": "alice"})
+    transport = ASGITransport(app=server.app)
+
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        for path in ["/docs", "/redoc", "/openapi.json"]:
+            response = await client.get(path)
+            assert response.status_code == 404, f"{path} must be disabled on keyed servers"
+
+    keyless = _create_server(monkeypatch, tmp_path)
+    async with AsyncClient(transport=ASGITransport(app=keyless.app), base_url="http://test") as c:
+        assert (await c.get("/docs")).status_code == 200

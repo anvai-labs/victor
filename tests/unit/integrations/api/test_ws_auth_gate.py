@@ -21,6 +21,8 @@ keys were configured (co-design review U7-F1).
 
 from __future__ import annotations
 
+import pytest
+
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -106,3 +108,59 @@ def test_ws_chat_open_on_keyless_server(monkeypatch, tmp_path):
             assert msg["type"] == "done", msg
 
     assert orchestrator.streamed == ["hi"]
+
+
+def test_ws_wrong_key_then_chat_rejected(monkeypatch, tmp_path):
+    """Negative: a failed auth attempt must not count as authenticated."""
+    orchestrator = _FakeOrchestrator()
+    server = _create_server(monkeypatch, tmp_path, orchestrator, api_keys={"sk-alice": "alice"})
+
+    with TestClient(server.app) as client:
+        with client.websocket_connect("/ws") as ws:
+            ws.send_json({"type": "auth", "api_key": "sk-mallory"})
+            assert ws.receive_json()["type"] == "auth_failed"
+
+            ws.send_json({"type": "chat", "messages": [{"role": "user", "content": "hi"}]})
+            response = ws.receive_json()
+    assert response["type"] == "error"
+    assert orchestrator.streamed == []
+
+
+def test_ws_auth_state_not_shared_across_connections(monkeypatch, tmp_path):
+    """Negative: authenticating on connection A must not authenticate
+    connection B (state is per-socket)."""
+    orchestrator = _FakeOrchestrator()
+    server = _create_server(monkeypatch, tmp_path, orchestrator, api_keys={"sk-alice": "alice"})
+
+    with TestClient(server.app) as client:
+        with client.websocket_connect("/ws") as ws_a:
+            ws_a.send_json({"type": "auth", "api_key": "sk-alice"})
+            assert ws_a.receive_json()["type"] == "auth_success"
+
+        with client.websocket_connect("/ws") as ws_b:
+            ws_b.send_json({"type": "chat", "messages": [{"role": "user", "content": "hi"}]})
+            response = ws_b.receive_json()
+    assert response["type"] == "error"
+    assert "auth" in response["message"].lower()
+    assert orchestrator.streamed == []
+
+
+def test_ws_events_guarded_when_keys_configured(monkeypatch, tmp_path):
+    """Negative: the /ws/events observability stream must not accept
+    unauthenticated subscriptions on a keyed server. Found by adversarial
+    review."""
+    server = _create_server(
+        monkeypatch, tmp_path, _FakeOrchestrator(), api_keys={"sk-alice": "alice"}
+    )
+
+    with TestClient(server.app) as client:
+        with pytest.raises(Exception):
+            with client.websocket_connect("/ws/events") as ws:
+                ws.send_json({"type": "subscribe", "categories": ["all"]})
+                ws.receive_json()
+
+        # With a key, the socket is accepted.
+        with client.websocket_connect("/ws/events?api_key=sk-alice") as ws:
+            ws.send_json({"type": "subscribe", "categories": ["all"]})
+            ack = ws.receive_json()
+            assert ack.get("type") == "subscribed"
