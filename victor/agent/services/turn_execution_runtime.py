@@ -42,6 +42,7 @@ Phase 1: Extract TurnExecutor
 from __future__ import annotations
 
 import asyncio
+import copy
 import hashlib
 import inspect
 import logging
@@ -91,7 +92,9 @@ def _selector_history_projection(messages: List[Any]) -> List[Dict[str, Any]]:
         }
         tool_calls = getattr(msg, "tool_calls", None)
         if tool_calls:
-            entry["tool_calls"] = list(tool_calls)
+            # Deep-copied: a shallow list copy left the inner tool_call dicts
+            # aliased to the live history (adversarial-review finding).
+            entry["tool_calls"] = copy.deepcopy(tool_calls)
         projected.append(entry)
     return projected
 

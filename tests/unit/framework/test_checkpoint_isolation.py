@@ -95,3 +95,19 @@ class TestCheckpointIsolation:
         assert len(history) == 2
         assert history[0].state["context"]["nested"]["value"] == 1
         assert history[1].state["context"]["nested"]["value"] == 2
+
+
+class TestListIsolation:
+    """Negative from adversarial review: list() handed out the stored
+    snapshots by reference — get_checkpoints/replay_from could corrupt the
+    store through them."""
+
+    async def test_list_returns_copies(self):
+        store = MemoryCheckpointer()
+        await store.save(_checkpoint("node_a", 1))
+
+        listed = await store.list("thread-1")
+        listed[0].state["counter"] = 777
+
+        again = await store.list("thread-1")
+        assert again[0].state["counter"] == 1

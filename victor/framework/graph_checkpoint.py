@@ -85,7 +85,10 @@ class MemoryCheckpointer:
         return copy.deepcopy(checkpoints[-1]) if checkpoints else None
 
     async def list(self, thread_id: str) -> List[WorkflowCheckpoint]:
-        return self._checkpoints.get(thread_id, [])
+        # Copies: callers (get_checkpoints, replay_from) must not be able to
+        # mutate the stored snapshots through the returned list
+        # (adversarial-review finding — save/load were isolated, list was not).
+        return [copy.deepcopy(c) for c in self._checkpoints.get(thread_id, [])]
 
 
 class RLCheckpointerAdapter:

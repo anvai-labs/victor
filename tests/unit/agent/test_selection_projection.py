@@ -108,3 +108,36 @@ class TestSelectorHistoryProjection:
             pass
 
         assert _selector_history_projection([_Bare()]) == [{"role": None, "content": ""}]
+
+
+class TestAdversarialProjectionGuarantees:
+    """Negatives from adversarial review of this PR."""
+
+    def test_inner_tool_call_dicts_not_aliased(self):
+        """Mutating a projected tool_call dict must not touch the live
+        message (the outer list was copied; inner dicts were not)."""
+        msgs = [
+            _PydanticMessage(
+                role="assistant",
+                content="running",
+                tool_calls=[{"function": {"name": "web_search", "arguments": "{}"}}],
+            )
+        ]
+        projection = _selector_history_projection(msgs)
+        projection[0]["tool_calls"][0]["function"]["name"] = "injected"
+        assert msgs[0].tool_calls[0]["function"]["name"] == "web_search"
+
+    def test_cache_key_changes_when_history_changes(self):
+        """Anti-collapse: different history must produce a different cache
+        key (guards against a projection that collapses all inputs)."""
+        key_a = _create_tool_selection_cache_key(
+            "q", conversation_history=_selector_history_projection(_fixture()), conversation_depth=5
+        )
+        key_b = _create_tool_selection_cache_key(
+            "q",
+            conversation_history=_selector_history_projection(
+                _fixture()[:-1] + [_PydanticMessage(role="user", content="different")]
+            ),
+            conversation_depth=5,
+        )
+        assert key_a != key_b

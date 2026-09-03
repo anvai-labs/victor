@@ -31,12 +31,26 @@ import victor.agent.services.turn_execution_runtime as turn_execution_runtime
 
 
 def test_no_literal_backslash_n_escapes_in_message_templates():
+    """Scan the background-task message template lines (not the whole module
+    — legitimate regex/path literals exist elsewhere) for the escape class."""
     source = Path(turn_execution_runtime.__file__).read_text(encoding="utf-8")
-    # A double backslash followed by 'n' in source renders as literal "\n"
-    # text — never intended in user/model-visible message templates.
-    assert "\\\\n" not in source, (
-        "turn_execution_runtime regressed: found literal backslash-n escapes "
-        "('\\\\n') in string templates — messages must contain real newlines"
+    template_markers = (
+        "### STDOUT",
+        "### STDERR",
+        "### ❌ ERROR",
+        "### 💡 SYSTEM HINT",
+        "finished with result:",
+    )
+    offending = [
+        line.strip()
+        for line in source.splitlines()
+        if any(marker in line for marker in template_markers)
+        # Source-level backslash-backslash-n renders as a LITERAL backslash-n
+        # in the message (the bug); single backslash-n is a real newline (ok).
+        and "\\\\n" in line
+    ]
+    assert not offending, (
+        "message templates regressed to literal backslash-n escapes: " f"{offending[:3]}"
     )
 
 
