@@ -782,6 +782,145 @@ class TestResilientProvider:
         mock_provider.chat.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_retries_share_one_logical_call_id(self):
+        """One ResilientProvider.chat = one logical call (sandhi TD-0021 P4): every
+        retry re-enters the inner provider under the SAME call_id binding, so the
+        sandhi transport stamps one Idempotency-Key and the gateway's meter counts
+        the call once. TimeoutError is the retryable may-have-billed case."""
+        from victor.core.context import get_call_id
+
+        seen: list = []
+
+        async def flaky_chat(messages, *, model, **kwargs):
+            seen.append(get_call_id())
+            if len(seen) == 1:
+                raise asyncio.TimeoutError("simulated may-have-billed timeout")
+            return "recovered"
+
+        inner = MagicMock()
+        inner.name = "flaky"
+        inner.chat = flaky_chat
+        resilient = ResilientProvider(
+            inner,
+            retry_config=ProviderRetryConfig(max_retries=1, base_delay_seconds=0.01),
+        )
+
+        result = await resilient.chat(messages=[], model="m")
+
+        assert result == "recovered"
+        assert len(seen) == 2
+        assert seen[0] and seen[0] == seen[1], "retries of one logical call must share one id"
+
+    @pytest.mark.asyncio
+    async def test_fallback_shares_the_logical_call_id(self, mock_fallback):
+        """A fallback is still the SAME logical call — the user asked once — so it
+        re-enters under the primary's call_id, not a fresh one."""
+        from victor.core.context import get_call_id
+
+        primary_seen: list = []
+        fallback_seen: list = []
+
+        async def failing_chat(messages, *, model, **kwargs):
+            primary_seen.append(get_call_id())
+            raise ConnectionError("primary down")
+
+        async def fallback_chat(messages, *, model, **kwargs):
+            fallback_seen.append(get_call_id())
+            return "fallback_response"
+
+        mock_fallback.chat = fallback_chat
+        primary = MagicMock()
+        primary.name = "primary"
+        primary.chat = failing_chat
+
+        resilient = ResilientProvider(
+            primary,
+            fallback_providers=[mock_fallback],
+            circuit_config=CircuitBreakerConfig(failure_threshold=1),
+            retry_config=ProviderRetryConfig(max_retries=0),
+        )
+
+        result = await resilient.chat(messages=[], model="m")
+
+        assert result == "fallback_response"
+        assert primary_seen[0] == fallback_seen[0], "fallback is the same logical call"
+
+    @pytest.mark.asyncio
+    async def test_call_id_is_fresh_per_logical_call(self):
+        """Two logical calls (two chat invocations) bind two distinct ids — a shared
+        id would wrongly dedup two genuinely separate metered calls."""
+        from victor.core.context import get_call_id
+
+        seen: list = []
+
+        async def recording_chat(messages, *, model, **kwargs):
+            seen.append(get_call_id())
+            return "ok"
+
+        inner = MagicMock()
+        inner.name = "recorder"
+        inner.chat = recording_chat
+        resilient = ResilientProvider(inner)
+
+        await resilient.chat(messages=[], model="m")
+        await resilient.chat(messages=[], model="m")
+
+        assert len(seen) == 2
+        assert seen[0] and seen[0] != seen[1]
+
+    @pytest.mark.asyncio
+    async def test_outermost_call_id_binding_wins(self):
+        """A caller that already bound a call id (a stacked resilience layer) keeps
+        the OUTER logical-call identity; the inner binding is a no-op and resets
+        nothing."""
+        import victor.core.context as ctx
+
+        seen: list = []
+
+        async def recording_chat(messages, *, model, **kwargs):
+            seen.append(ctx.get_call_id())
+            return "ok"
+
+        inner = MagicMock()
+        inner.name = "recorder"
+        inner.chat = recording_chat
+        resilient = ResilientProvider(inner)
+
+        token = ctx.set_call_id("outer-logical-call")
+        try:
+            await resilient.chat(messages=[], model="m")
+        finally:
+            ctx.call_id.reset(token)
+
+        assert seen == ["outer-logical-call"]
+        assert ctx.get_call_id() == "", "inner layer must not reset the outer binding"
+
+    @pytest.mark.asyncio
+    async def test_stream_binds_the_logical_call_id(self):
+        """The stream wrapper binds the same logical-call identity as chat."""
+        from victor.core.context import get_call_id
+
+        seen: list = []
+
+        def recording_stream(messages, *, model, **kwargs):
+            async def _chunks():
+                seen.append(get_call_id())
+                yield "chunk"
+
+            return _chunks()
+
+        inner = MagicMock()
+        inner.name = "streamer"
+        inner.stream = recording_stream
+        resilient = ResilientProvider(inner)
+
+        chunks = [c async for c in resilient.stream(messages=[], model="m")]
+
+        assert chunks == ["chunk"]
+        assert seen and seen[0], "stream must run under a bound call id"
+        assert get_call_id() == "", "binding must be reset after the stream ends"
+
+    @pytest.mark.asyncio
     async def test_fallback_on_failure(self, mock_provider, mock_fallback):
         """Test fallback provider is used on failure."""
         mock_provider.chat = AsyncMock(side_effect=ConnectionError("Failed"))

@@ -371,23 +371,41 @@ def _wire_call_headers() -> Dict[str, str]:
       catalog-declared vendor affinity headers (InferFlux
       ``x-inferflux-session-id``), where a per-turn value would change the
       KV/prefix-cache key every turn and destroy cache reuse.
-    - ``Idempotency-Key`` (sandhi TD-0021 P4, gateway >= 0.5.0): minted fresh
-      for every LOGICAL call. Retries of that call happen inside the Rust handle
-      (``max_retries`` on the provider factory) and reuse this one header value,
-      so the gateway's meter counts the logical call once even when a retry
-      settles twice — the documented logical/physical split: the METER counts
-      logical calls, ENFORCEMENT still counts every physical settlement. A new
-      Python-level invocation is a new logical call and mints a new key — victor
-      owns retry ownership (TD-0008 rule 3), so it never re-invokes a call it
-      believes billed.
+    - ``Idempotency-Key`` (sandhi TD-0021 P4, gateway >= 0.5.0): the LOGICAL-call
+      identity, so the gateway's dedup counts one logical call once — the METER
+      counts logical calls, ENFORCEMENT still counts every physical settlement.
+      Preferred source is the ``call_id`` correlation var, bound by the retry
+      owner (``ResilientProvider`` — default on via ``SmartRoutingProvider``):
+      every Python-level retry AND fallback of one logical call re-enters this
+      helper under the same binding and carries the same key. Retries inside the
+      Rust handle (``max_retries`` on the provider factory) likewise see this
+      one header value. With no retry owner bound — a bare provider used
+      directly — a fresh key is minted per invocation, each invocation being
+      its own logical call. Note the asymmetry with ``x-sandhi-run-id``: a
+      caller-set STATIC ``Idempotency-Key`` in the handle headers is
+      deliberately overridden here, because a static key would dedup every call
+      of the dedup window into one metered event.
 
     The key is minted even when no turn is bound: dedup is transport-retry
     protection, orthogonal to turn attribution. The call sites gate on gateway
     mode and pass ``None`` when appropriate — direct mode evaluates the helper
-    but discards the result (a contextvar read + cached import + a uuid mint,
-    negligible), so its wire bytes are unchanged by construction.
+    but discards the result (contextvar reads + a cached import + at most one
+    uuid mint, negligible), so its wire bytes are unchanged by construction.
     """
-    headers: Dict[str, str] = {"Idempotency-Key": uuid.uuid4().hex}
+    headers: Dict[str, str] = {}
+    try:
+        from victor.core.context import get_call_id
+
+        call_id = str(get_call_id() or "")
+    except Exception:  # pragma: no cover - dedup must never block transport
+        call_id = ""
+    if call_id:
+        headers["Idempotency-Key"] = call_id
+    else:
+        try:
+            headers["Idempotency-Key"] = uuid.uuid4().hex
+        except Exception:  # pragma: no cover - os.urandom failure must not block transport
+            pass  # proceed without a key; the gateway meters each attempt separately
     try:
         from victor.core.context import get_turn_id
 

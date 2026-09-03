@@ -25,11 +25,14 @@ Contract:
 - gateway mode without a bound session -> no header (nothing to attribute);
 - existing wire headers are preserved; an explicit caller-set run id wins.
 
-The per-call headers also mint an ``Idempotency-Key`` per LOGICAL call (sandhi
-TD-0021 P4 sender half): gateway mode -> always present, fresh per invocation,
-so transport retries inside the Rust handle reuse one key and the gateway's
-meter counts the logical call once; direct mode -> never sent (no gateway
-ledger to dedup against).
+The per-call headers also carry an ``Idempotency-Key`` — the LOGICAL-call
+identity (sandhi TD-0021 P4 sender half): its preferred source is the ``call_id``
+correlation var bound by the retry owner (ResilientProvider), so every
+Python-level retry AND fallback of one logical call shares one key and the
+gateway's meter counts the call once; with no binding, a fresh key per
+invocation (each invocation its own logical call); direct mode -> never sent
+(no gateway ledger to dedup against). The Rust-internal retry reuse is pinned
+sandhi-side (resilience.rs re-sends the same HeaderMap), not here.
 """
 
 from __future__ import annotations
@@ -296,11 +299,9 @@ async def test_direct_mode_sends_no_step_header(monkeypatch, bound_turn):
 
 @pytest.mark.asyncio
 async def test_gateway_mode_mints_fresh_idempotency_key_per_logical_call(monkeypatch, bound_turn):
-    """TD-0021 P4 sender half: the key is minted per LOGICAL call, not per turn —
-    two invocations under the SAME turn (e.g. a tool round after a first answer)
-    mint two distinct keys. Retries of one invocation happen inside the Rust
-    handle and see this one header value, so the gateway's meter counts each
-    logical call once (meter counts logical; enforcement counts physical)."""
+    """With no retry owner binding a call id (a bare provider used directly), each
+    invocation is its own logical call and mints a fresh key — two invocations
+    under the SAME turn must not share one."""
     runtime = install_runtime(monkeypatch)
     provider = make_gateway_provider()
 
@@ -312,6 +313,31 @@ async def test_gateway_mode_mints_fresh_idempotency_key_per_logical_call(monkeyp
     assert _is_idempotency_key(first["Idempotency-Key"])
     assert _is_idempotency_key(second["Idempotency-Key"])
     assert first["Idempotency-Key"] != second["Idempotency-Key"]
+
+
+@pytest.mark.asyncio
+async def test_bound_call_id_pins_the_idempotency_key_across_retries(monkeypatch, bound_turn):
+    """TD-0021 P4 sender half: when the retry owner (ResilientProvider) has bound a
+    call id, EVERY re-entry into the transport under that binding — a Python-level
+    retry or fallback of one logical call — carries the SAME Idempotency-Key, so
+    the gateway's meter counts the logical call once (meter counts logical;
+    enforcement counts physical). This is exactly what a resilience retry does:
+    re-invoke provider.chat inside one chat() boundary."""
+    import victor.core.context as ctx
+
+    runtime = install_runtime(monkeypatch)
+    provider = make_gateway_provider()
+
+    token = ctx.set_call_id("call-xyz-1")
+    try:
+        # Two transport invocations under one logical call (attempt + retry).
+        await provider.chat([Message(role="user", content="a")], model="deepseek-chat")
+        await provider.chat([Message(role="user", content="a")], model="deepseek-chat")
+    finally:
+        ctx.call_id.reset(token)
+
+    first, second = (json.loads(h) for h in runtime.handle.wire_headers)
+    assert first["Idempotency-Key"] == second["Idempotency-Key"] == "call-xyz-1"
 
 
 @pytest.mark.asyncio
@@ -368,6 +394,23 @@ async def test_gateway_mode_explicit_run_header_wins(monkeypatch, bound_session)
     _, kwargs = runtime.calls[0]
     headers = json.loads(kwargs["headers_json"])
     assert headers["x-sandhi-run-id"] == "explicit-run"
+
+
+@pytest.mark.asyncio
+async def test_per_call_idempotency_key_overrides_a_static_one(monkeypatch, bound_turn):
+    """The deliberate precedence asymmetry with x-sandhi-run-id: a STATIC
+    caller-set Idempotency-Key is overridden by the per-call key — a static key
+    would dedup every call of the dedup window into one metered event. Pinned so
+    the asymmetry is a decision, not an accident."""
+    runtime = install_runtime(monkeypatch)
+    provider = make_gateway_provider()
+    provider._wire_headers = {"Idempotency-Key": "caller-static-key"}
+
+    await provider.chat([Message(role="user", content="hi")], model="deepseek-chat")
+
+    headers = json.loads(runtime.handle.wire_headers[0])
+    assert headers["Idempotency-Key"] != "caller-static-key"
+    assert _is_idempotency_key(headers["Idempotency-Key"])
 
 
 @pytest.mark.asyncio

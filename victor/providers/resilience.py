@@ -43,6 +43,7 @@ import contextlib
 import logging
 import random
 import re
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -71,6 +72,7 @@ from victor.core.circuit_breaker import (
     CircuitBreakerConfig,
     CircuitBreakerError as CanonicalCircuitBreakerError,
 )
+from victor.core.context import bind_call_id_once, call_id
 
 # Import the canonical CircuitBreaker for composition
 from victor.providers.circuit_breaker import CircuitBreaker as CanonicalCircuitBreaker
@@ -779,6 +781,12 @@ class ResilientProvider:
     ) -> Any:
         """Execute chat with resilience features.
 
+        One invocation of this method is ONE logical call for gateway metering
+        (sandhi TD-0021 P4): the logical-call id is bound here — outermost
+        binding wins — so every retry and every fallback of this call carries
+        the same ``Idempotency-Key`` and the gateway's meter counts the call
+        once (enforcement still counts every physical settlement).
+
         Args:
             messages: List of messages
             model: Model identifier
@@ -790,6 +798,20 @@ class ResilientProvider:
         Raises:
             ProviderUnavailableError: If all providers fail
         """
+        token = bind_call_id_once(uuid.uuid4().hex)
+        try:
+            return await self._chat_with_retry(messages, model=model, **kwargs)
+        finally:
+            if token is not None:
+                call_id.reset(token)
+
+    async def _chat_with_retry(
+        self,
+        messages: List[Any],
+        *,
+        model: str,
+        **kwargs,
+    ) -> Any:
         self._stats["total_requests"] += 1
         primary_retry_events: List[Dict[str, Any]] = []
 
@@ -929,6 +951,10 @@ class ResilientProvider:
     ):
         """Stream chat with resilience features.
 
+        Like ``chat``: one invocation is one logical call — the logical-call id
+        is bound for the duration so connection retries (the only retries
+        streaming makes) share one ``Idempotency-Key``.
+
         Note: Streaming has limited retry capability. If the stream fails
         midway, it cannot be resumed.
 
@@ -940,6 +966,27 @@ class ResilientProvider:
         Yields:
             Stream chunks
         """
+        token = bind_call_id_once(uuid.uuid4().hex)
+        try:
+            # aclosing is load-bearing here too: a plain ``async for`` would leave
+            # the inner generator orphaned on an early consumer break (the same
+            # finalization hazard _stream_with_retry guards against one level down).
+            async with contextlib.aclosing(
+                self._stream_with_retry(messages, model=model, **kwargs)
+            ) as inner:
+                async for chunk in inner:
+                    yield chunk
+        finally:
+            if token is not None:
+                call_id.reset(token)
+
+    async def _stream_with_retry(
+        self,
+        messages: List[Any],
+        *,
+        model: str,
+        **kwargs,
+    ):
         self._stats["total_requests"] += 1
         partial_content: list = []
 
