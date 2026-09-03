@@ -72,7 +72,7 @@ class RustContextFitter(InstrumentedAccelerator):
         self,
         messages: List[Dict[str, Any]],
         budget: int,
-        strategy: str = "recency",
+        strategy: str = "smart",
         preserve_system: bool = True,
     ) -> FitResult:
         """Fit messages into a token budget.
@@ -83,7 +83,8 @@ class RustContextFitter(InstrumentedAccelerator):
             messages: List of message dicts with 'role', 'content', and
                       optionally 'token_count' and 'priority' fields
             budget: Maximum token budget
-            strategy: Fitting strategy ("recency", "priority", "balanced")
+            strategy: One of "smart", "priority", "fifo" (Rust raises
+                      ValueError on unknown names)
             preserve_system: Whether to always preserve system messages
 
         Returns:
@@ -94,7 +95,11 @@ class RustContextFitter(InstrumentedAccelerator):
             slots = []
             for i, msg in enumerate(messages):
                 token_count = msg.get("token_count", len(msg.get("content", "").split()) * 13 // 10)
-                priority = msg.get("priority", 1.0)
+                # MessageSlot.priority is u8 — pyo3 rejects floats, which
+                # previously raised TypeError for every message without an
+                # explicit int priority (co-design review U8-F4).
+                raw_priority = msg.get("priority", 50)
+                priority = max(0, min(255, int(raw_priority)))
                 role = msg.get("role", "user")
                 recency = float(i) / max(len(messages), 1)
                 slot = victor_native.MessageSlot(

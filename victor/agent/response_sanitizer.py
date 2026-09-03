@@ -370,10 +370,11 @@ class _NativeFilterWrapper:
     """Python wrapper around the native Rust StreamingFilter.
 
     The Rust extension exposes ``process_chunk`` / ``should_abort`` /
-    ``get_state`` but lacks ``is_thinking``, ``abort_reason``, and
-    ``flush`` — all used by ``handler.py``.  This thin wrapper fills those
-    gaps so callers see a uniform interface regardless of which backend is
-    active.
+    ``get_state`` but lacks ``is_thinking`` and ``abort_reason`` — used by
+    ``handler.py``.  This thin wrapper fills those gaps so callers see a
+    uniform interface regardless of which backend is active. ``flush``
+    delegates to the native implementation when the wheel provides it
+    (releases after U8-F7); older wheels keep the previous behavior.
     """
 
     def __init__(self, inner: Any, max_thinking_content: int) -> None:
@@ -381,6 +382,18 @@ class _NativeFilterWrapper:
         self._max_thinking_content = max_thinking_content
         self._should_abort = False
         self._abort_reason: Optional[str] = None
+
+    def flush(self) -> StreamingChunkResult:
+        """Flush any remaining buffered content.
+
+        The native filter buffers a potential partial thinking-tag at the end
+        of each chunk; at end-of-stream those bytes belong to the output and
+        must be emitted (previously dropped — U8-F7).
+        """
+        native_flush = getattr(self._inner, "flush", None)
+        if native_flush is not None:
+            return native_flush()
+        return StreamingChunkResult(content="", is_thinking=self.is_thinking)
 
     def process_chunk(self, text: str) -> StreamingChunkResult:
         result = self._inner.process_chunk(text)

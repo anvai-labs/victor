@@ -32,7 +32,11 @@ authors = ["Vijaykumar Singh <vijay@anvaiops.com>"]
 opt-level = 3
 lto = "fat"
 codegen-units = 1
-panic = "abort"
+# unwind, not abort: pyo3 converts panics in #[pymethods] into catchable
+# PanicException, so the Python-side `except Exception -> fallback` wrappers
+# are a real safety net. With abort, any Rust panic killed the whole Python
+# process despite those wrappers (co-design review U8-F3).
+panic = "unwind"
 
 [profile.release-with-debug]
 inherits = "release"

@@ -24,6 +24,43 @@ from typing import Any, Dict, List, Optional
 
 from victor.processing.native._base import _NATIVE_AVAILABLE, _native
 
+# Canonical strategy vocabulary — must match the Rust implementation's
+# accepted set (rust/crates/python-bindings/src/context_fitter.rs). The
+# Python fallback previously accepted a DISJOINT vocabulary
+# (recency/priority/balanced), so "smart" silently meant "balanced" and
+# "recency" silently meant Rust's fit_smart (co-design review U8-F1).
+CANONICAL_STRATEGIES = frozenset({"smart", "priority", "fifo"})
+_LEGACY_STRATEGY_ALIASES = {"recency": "fifo", "balanced": "smart"}
+_DEFAULT_PRIORITY = 50
+
+
+def _normalize_strategy(strategy: str) -> str:
+    """Map legacy strategy names to the canonical vocabulary; raise on unknown.
+
+    Raises loudly BEFORE any native call so a typo is visible regardless of
+    whether the Rust wheel is installed.
+    """
+    canonical = _LEGACY_STRATEGY_ALIASES.get(strategy, strategy)
+    if canonical not in CANONICAL_STRATEGIES:
+        raise ValueError(
+            f"unknown fit strategy {strategy!r} "
+            f"(expected one of {sorted(CANONICAL_STRATEGIES)})"
+        )
+    return canonical
+
+
+def _coerce_priority(value: Any) -> int:
+    """Coerce a message priority to the u8 scale Rust expects (0-255).
+
+    Floats previously raised TypeError inside PyO3 for every message lacking
+    an explicit int priority, silently disabling the native path (U8-F4).
+    """
+    try:
+        priority = int(value)
+    except (TypeError, ValueError):
+        priority = _DEFAULT_PRIORITY
+    return max(0, min(255, priority))
+
 
 @dataclass
 class FitResult:
@@ -45,7 +82,7 @@ class FitResult:
 def fit_context(
     messages: List[Dict[str, Any]],
     budget: int,
-    strategy: str = "recency",
+    strategy: str = "smart",
     preserve_system: bool = True,
 ) -> FitResult:
     """Fit messages into a token budget.
@@ -58,20 +95,28 @@ def fit_context(
         messages: List of message dicts with 'role', 'content', and
                   optionally 'token_count' and 'priority' fields
         budget: Maximum token budget
-        strategy: Fitting strategy - "recency" (keep newest),
-                  "priority" (keep highest priority), or "balanced"
+        strategy: One of "smart", "priority", or "fifo" (default "smart").
+                  Legacy names "recency" (-> fifo) and "balanced" (-> smart)
+                  are accepted for backwards compatibility.
         preserve_system: Whether to always preserve system messages
 
     Returns:
         FitResult with indices of kept messages and statistics
+
+    Raises:
+        ValueError: On an unknown strategy name — validated before the
+            native call so the error does not depend on whether the Rust
+            wheel is installed.
     """
+    strategy = _normalize_strategy(strategy)
+
     if _NATIVE_AVAILABLE and hasattr(_native, "fit_context"):
         try:
             # Build MessageSlot objects for Rust
             slots = []
             for i, msg in enumerate(messages):
                 token_count = msg.get("token_count", len(msg.get("content", "").split()) * 13 // 10)
-                priority = msg.get("priority", 1.0)
+                priority = _coerce_priority(msg.get("priority", _DEFAULT_PRIORITY))
                 role = msg.get("role", "user")
                 recency = float(i) / max(len(messages), 1)
                 slot = _native.MessageSlot(
@@ -136,20 +181,23 @@ def _fit_context_python(
     candidates = []
     for i in range(len(messages)):
         if i not in system_indices:
-            priority = messages[i].get("priority", 1.0)
+            priority = _coerce_priority(messages[i].get("priority", _DEFAULT_PRIORITY))
             recency = float(i) / max(len(messages), 1)
             candidates.append((i, token_counts[i], priority, recency))
 
-    # Sort candidates by drop priority (what to drop first)
-    if strategy == "recency":
+    # Sort candidates by drop priority (what to drop first). Scoring matches
+    # the documented formula (score = 0.4 * priority/100 + 0.6 * recency) and
+    # the Rust implementation — the previous fallback used raw float priority
+    # on a 0-1 scale with a 0.5/0.5 mix (U8-F1/U8-F2 scale drift).
+    if strategy == "fifo":
         # Drop oldest first (lowest index = oldest)
         candidates.sort(key=lambda x: x[3])  # ascending recency
     elif strategy == "priority":
         # Drop lowest priority first
         candidates.sort(key=lambda x: x[2])  # ascending priority
     else:
-        # Balanced: combine priority and recency
-        candidates.sort(key=lambda x: x[2] * 0.5 + x[3] * 0.5)
+        # smart: combine normalized priority and recency
+        candidates.sort(key=lambda x: (x[2] / 100.0) * 0.4 + x[3] * 0.6)
 
     # Start with all messages, drop from front of sorted candidates
     kept = set(range(len(messages)))
