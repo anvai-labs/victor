@@ -101,8 +101,7 @@ class TestSelectorHistoryProjection:
         assert projection[1]["tool_calls"] == [{"name": "shell"}]
 
     def test_empty_and_missing_fields(self):
-        projection = _selector_history_projection([])
-        assert projection == []
+        assert _selector_history_projection([]) is None
 
         class _Bare:
             pass

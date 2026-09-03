@@ -23,10 +23,10 @@ from __future__ import annotations
 
 import copy
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 
-def _selector_history_projection(messages: List[Any]) -> List[Dict[str, Any]]:
+def _selector_history_projection(messages: List[Any]) -> Optional[List[Dict[str, Any]]]:
     """Project Message objects to exactly the keys the tool selector reads.
 
     Replaces a per-iteration ``model_dump()`` of the entire history, which
@@ -42,6 +42,8 @@ def _selector_history_projection(messages: List[Any]) -> List[Dict[str, Any]]:
         Plain dicts with role/content (+ tool_calls when present, list-copied
         so the projection cannot be used to mutate the live history).
     """
+    if not messages:
+        return None  # matches the call site's previous `else None` branch
     projected: List[Dict[str, Any]] = []
     for msg in messages:
         entry: Dict[str, Any] = {

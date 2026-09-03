@@ -1609,11 +1609,7 @@ class TurnExecutor:
         conversation_depth = self._chat_context.conversation.message_count()
         from victor.agent.tool_selection.history_projection import _selector_history_projection
 
-        conversation_history = (
-            _selector_history_projection(self._chat_context.messages)
-            if self._chat_context.messages
-            else None
-        )
+        conversation_history = _selector_history_projection(self._chat_context.messages)
 
         tools = await self._tool_context.tool_selector.select_tools(
             user_message,
