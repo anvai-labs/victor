@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import uuid
 from json import JSONDecodeError
 from typing import Any, AsyncIterator, Dict, List, Optional, Tuple, Type
 
@@ -357,32 +358,67 @@ def _gateway_family_base(root: str, slug: str) -> str:
 
 
 def _wire_call_headers() -> Dict[str, str]:
-    """Per-call gateway wire headers (sandhi TD-0022 D1) — the step dimension.
+    """Per-call gateway wire headers — the step and logical-call dimensions.
 
-    The turn/step id changes every agentic-loop turn, so it rides the PER-CALL
+    Two values change faster than the transport handle, so they ride the PER-CALL
     ``wire_headers_json`` argument of ``complete_json``/``stream_json`` (sandhi
     >= 0.3.0), never the handle-static headers and never neutral ``metadata``:
 
-    - handle-static would rebuild the transport handle (pool, circuit state)
-      every turn — the exact cost the old deferral was avoiding;
-    - ``request["metadata"]`` maps onto catalog-declared vendor affinity
-      headers (InferFlux ``x-inferflux-session-id``); a per-turn value there
-      would change the KV/prefix-cache key every turn and destroy cache reuse.
+    - ``x-sandhi-step-id`` (sandhi TD-0022 D1): the agentic-loop turn id, so the
+      proxy's run cost tree is step-aware. Handle-static would rebuild the
+      transport handle (pool, circuit state) every turn — the exact cost the old
+      deferral was avoiding — and ``request["metadata"]`` maps onto
+      catalog-declared vendor affinity headers (InferFlux
+      ``x-inferflux-session-id``), where a per-turn value would change the
+      KV/prefix-cache key every turn and destroy cache reuse.
+    - ``Idempotency-Key`` (sandhi TD-0021 P4, gateway >= 0.5.0): the LOGICAL-call
+      identity, so the gateway's dedup counts one logical call once — the METER
+      counts logical calls, ENFORCEMENT still counts every physical settlement.
+      Preferred source is the ``call_id`` correlation var, bound by the retry
+      owner (``ResilientProvider.chat`` — default on via
+      ``SmartRoutingProvider``): every Python-level retry AND fallback of one
+      logical call re-enters this helper under the same binding and carries the
+      same key. Retries inside the Rust handle (``max_retries`` on the provider
+      factory) likewise see this one header value. STREAMS bind nothing (an
+      async generator cannot ContextVar-bind safely — see
+      ``ResilientProvider.stream``), so each stream invocation mints its own
+      key and stream-setup retries count per attempt: fail-toward-counting,
+      the direction sandhi specifies (ADR-0005 D3). With no retry owner bound
+      — a bare provider used directly — a fresh key is minted per invocation,
+      each invocation being its own logical call. Note the asymmetry with
+      ``x-sandhi-run-id``: a caller-set STATIC ``Idempotency-Key`` in the
+      handle headers is deliberately overridden here, because a static key
+      would dedup every call of the dedup window into one metered event.
 
-    Empty dict when no turn is bound. The call sites gate on gateway mode and
-    pass ``None`` when this returns nothing — direct mode evaluates the helper
-    but discards the result (a contextvar read + cached import, negligible), so
-    its wire bytes are unchanged by construction.
+    The key is minted even when no turn is bound: dedup is transport-retry
+    protection, orthogonal to turn attribution. The call sites gate on gateway
+    mode and pass ``None`` when appropriate — direct mode evaluates the helper
+    but discards the result (contextvar reads + a cached import + at most one
+    uuid mint, negligible), so its wire bytes are unchanged by construction.
     """
+    headers: Dict[str, str] = {}
+    try:
+        from victor.core.context import get_call_id
+
+        call_id = str(get_call_id() or "")
+    except Exception:  # pragma: no cover - dedup must never block transport
+        call_id = ""
+    if call_id:
+        headers["Idempotency-Key"] = call_id
+    else:
+        try:
+            headers["Idempotency-Key"] = uuid.uuid4().hex
+        except Exception:  # pragma: no cover - os.urandom failure must not block transport
+            pass  # proceed without a key; the gateway meters each attempt separately
     try:
         from victor.core.context import get_turn_id
 
         turn_id = str(get_turn_id() or "")
     except Exception:  # pragma: no cover - attribution must never block transport
-        return {}
-    if not turn_id:
-        return {}
-    return {"x-sandhi-step-id": turn_id}
+        return headers
+    if turn_id:
+        headers["x-sandhi-step-id"] = turn_id
+    return headers
 
 
 def _include_native_response() -> bool:
