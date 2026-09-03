@@ -67,6 +67,35 @@ if TYPE_CHECKING:
     )
 
 
+def _selector_history_projection(messages: List[Any]) -> List[Dict[str, Any]]:
+    """Project Message objects to exactly the keys the tool selector reads.
+
+    Replaces a per-iteration ``model_dump()`` of the entire history, which
+    pydantic-serialized every message on every model turn while the selector
+    only ever accesses ``role``, full ``content``, and ``tool_calls`` names
+    (co-design review U1-1). Content must remain untruncated here — the
+    selection cache-key builder applies its own truncation downstream.
+
+    Args:
+        messages: Live Message objects from the chat context.
+
+    Returns:
+        Plain dicts with role/content (+ tool_calls when present, list-copied
+        so the projection cannot be used to mutate the live history).
+    """
+    projected: List[Dict[str, Any]] = []
+    for msg in messages:
+        entry: Dict[str, Any] = {
+            "role": getattr(msg, "role", None),
+            "content": getattr(msg, "content", ""),
+        }
+        tool_calls = getattr(msg, "tool_calls", None)
+        if tool_calls:
+            entry["tool_calls"] = list(tool_calls)
+        projected.append(entry)
+    return projected
+
+
 @dataclass
 class TurnResult:
     """Result of a single execution turn (one LLM call + tool execution).
@@ -439,22 +468,22 @@ class TurnExecutor:
                             stderr = task_res.get("stderr", "").strip()
                             out = []
                             if stdout:
-                                out.append(f"### STDOUT\\n```text\\n{stdout}\\n```")
+                                out.append(f"### STDOUT\n```text\n{stdout}\n```")
                             if stderr:
-                                out.append(f"### STDERR\\n```text\\n{stderr}\\n```")
+                                out.append(f"### STDERR\n```text\n{stderr}\n```")
                             msg = (
-                                "\\n\\n".join(out)
+                                "\n\n".join(out)
                                 if out
                                 else "Command executed successfully with no output."
                             )
                         else:
                             msg = str(task_res)
                     except asyncio.CancelledError:
-                        msg = "### ❌ ERROR\\nBackground task was cancelled."
+                        msg = "### ❌ ERROR\nBackground task was cancelled."
                     except Exception as e:
-                        msg = f"### ❌ ERROR\\nBackground task failed: {e}"
+                        msg = f"### ❌ ERROR\nBackground task failed: {e}"
 
-                    content = f"Background task {task_id} ({raw_result.context}) finished with result:\\n\\n{msg}"
+                    content = f"Background task {task_id} ({raw_result.context}) finished with result:\n\n{msg}"
                     self._chat_context.add_message(role="system", content=content)
 
                 # The task is already executing in the background, just attach the callback
@@ -463,7 +492,7 @@ class TurnExecutor:
 
                 tool_results[i][
                     "result"
-                ] = f"### 💡 SYSTEM HINT\\nTask is running in the background.\\nTask ID: {task_id}\\n\\nThe watcher will notify you when it completes."
+                ] = f"### 💡 SYSTEM HINT\nTask is running in the background.\nTask ID: {task_id}\n\nThe watcher will notify you when it completes."
 
         return tool_results
 
@@ -1608,7 +1637,7 @@ class TurnExecutor:
         """
         conversation_depth = self._chat_context.conversation.message_count()
         conversation_history = (
-            [msg.model_dump() for msg in self._chat_context.messages]
+            _selector_history_projection(self._chat_context.messages)
             if self._chat_context.messages
             else None
         )
