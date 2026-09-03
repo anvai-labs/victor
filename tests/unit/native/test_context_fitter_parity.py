@@ -196,6 +196,8 @@ class TestAdversarialParity:
     def test_rust_shim_accepts_legacy_aliases(self):
         """RustContextFitter must accept the same aliases as the processing
         wrapper (recency->fifo) — two entry points, one contract."""
+        if not _NATIVE_AVAILABLE:
+            pytest.skip("requires the native wheel (CI does not install it)")
         from victor.native.rust.context_fitter import RustContextFitter
 
         fitter = RustContextFitter.__new__(RustContextFitter)
@@ -227,6 +229,8 @@ class TestAdversarialParity:
         except-Exception clause never caught it. A PanicException-shaped
         BaseException must degrade to the fallback; KeyboardInterrupt must
         still propagate."""
+        if not _NATIVE_AVAILABLE:
+            pytest.skip("exercises the native try-path; wheel not installed")
 
         class _Panic(BaseException):
             pass
