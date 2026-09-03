@@ -296,12 +296,14 @@ class ProviderRetryConfig:
     jitter_factor: float = 0.1
 
     # Retryable error conditions
+    # CircuitBreakerError/CircuitOpenError are deliberately NOT retryable:
+    # an open circuit must fail fast into the fallback chain instead of being
+    # slept through for retries × timeout (matches BaseProvider's own retry
+    # set, which excludes them with the same fail-fast intent).
     retryable_exceptions: tuple = (
         ConnectionError,
         TimeoutError,
         asyncio.TimeoutError,
-        CanonicalCircuitBreakerError,
-        CircuitOpenError,
         # httpx transport errors: RemoteProtocolError, ReadError, etc.
         # "Server disconnected without sending a response"
     )
