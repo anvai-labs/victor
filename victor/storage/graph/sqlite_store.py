@@ -16,6 +16,7 @@ from typing import (
     List,
     Optional,
     Set,
+    Tuple,
 )
 
 from victor.core.schema import Tables
@@ -1098,6 +1099,57 @@ class SqliteGraphStore(GraphStoreProtocol):
             _apply(conn)
             conn.commit()
 
+    async def update_nodes_metadata(self, pairs: List[Tuple[str, Dict[str, Any]]]) -> None:
+        """Batched ``update_node_metadata``: one SELECT + one executemany UPDATE
+        instead of N round trips (co-design review item 20a). Unknown node ids
+        are skipped, same as the single-node path. Callers should pass distinct
+        node ids — patches for a repeated id all merge against the same
+        pre-fetch snapshot rather than compounding sequentially.
+        """
+        if not pairs:
+            return
+
+        def _apply(conn: sqlite3.Connection) -> None:
+            node_ids = [node_id for node_id, _ in pairs]
+            placeholders = ",".join("?" for _ in node_ids)
+            cur = conn.execute(
+                f"SELECT node_id, metadata FROM {_NODE_TABLE} WHERE node_id IN ({placeholders})",
+                node_ids,
+            )
+            existing = {str(row[0]): row[1] for row in cur.fetchall()}
+            embed_rows = []
+            plain_rows = []
+            for node_id, metadata in pairs:
+                if node_id not in existing:
+                    continue
+                merged = json.loads(existing[node_id]) if existing[node_id] else {}
+                patch = dict(metadata or {})
+                embedding_ref = patch.pop("embedding_ref", None)
+                merged.update(patch)
+                if embedding_ref is not None:
+                    embed_rows.append((json.dumps(merged), embedding_ref, node_id))
+                else:
+                    plain_rows.append((json.dumps(merged), node_id))
+            if embed_rows:
+                conn.executemany(
+                    f"UPDATE {_NODE_TABLE} SET metadata = ?, embedding_ref = ? WHERE node_id = ?",
+                    embed_rows,
+                )
+            if plain_rows:
+                conn.executemany(
+                    f"UPDATE {_NODE_TABLE} SET metadata = ? WHERE node_id = ?",
+                    plain_rows,
+                )
+
+        batch_conn = self._get_active_write_batch_connection()
+        if batch_conn is not None:
+            _apply(batch_conn)
+            return
+        async with self._lock:
+            conn = self._connect()
+            _apply(conn)
+            conn.commit()
+
     async def update_file_mtime(
         self, file: str, mtime: float, content_hash: str | None = None
     ) -> None:
@@ -1113,43 +1165,45 @@ class SqliteGraphStore(GraphStoreProtocol):
             conn.commit()
 
     async def get_file_hashes(self, files: List[str]) -> Dict[str, str]:
-        """Stored content hashes for the given files (files without a hash omitted)."""
-        hashes: Dict[str, str] = {}
+        """Stored content hashes for the given files (files without a hash omitted).
+
+        Loads the mtime table once instead of one SELECT per file (co-design
+        review item 20a) — `file` is the table's primary key, so the load is
+        a plain dict; variant matching happens in Python afterward.
+        """
         async with self._lock:
             conn = self._connect()
-            for file in files:
-                file_variants = self._file_path_variants(file)
-                placeholders = ",".join("?" for _ in file_variants)
-                cur = conn.execute(
-                    f"""
-                    SELECT content_hash FROM {_MTIME_TABLE}
-                    WHERE file IN ({placeholders}) AND content_hash IS NOT NULL
-                    LIMIT 1
-                    """,
-                    file_variants,
-                )
-                row = cur.fetchone()
-                if row is not None and row[0]:
-                    hashes[file] = str(row[0])
+            cur = conn.execute(f"SELECT file, content_hash FROM {_MTIME_TABLE}")
+            stored_hashes = {str(row[0]): row[1] for row in cur.fetchall()}
+        hashes: Dict[str, str] = {}
+        for file in files:
+            for variant in self._file_path_variants(file):
+                value = stored_hashes.get(variant)
+                if value:
+                    hashes[file] = str(value)
+                    break
         return hashes
 
     async def get_stale_files(self, file_mtimes: Dict[str, float]) -> List[str]:
-        """Get files that have changed since last index."""
-        stale = []
+        """Get files that have changed since last index.
+
+        Loads the mtime table once instead of one SELECT per file (co-design
+        review item 20a).
+        """
         async with self._lock:
             conn = self._connect()
-            for file, current_mtime in file_mtimes.items():
-                file_variants = self._file_path_variants(file)
-                placeholders = ",".join("?" for _ in file_variants)
-                cur = conn.execute(
-                    f"SELECT MAX(mtime) FROM {_MTIME_TABLE} WHERE file IN ({placeholders})",
-                    file_variants,
-                )
-                row = cur.fetchone()
-                recorded_mtime = None if row is None else row[0]
-                if recorded_mtime is None or recorded_mtime < current_mtime:
-                    stale.append(file)
-            return stale
+            cur = conn.execute(f"SELECT file, mtime FROM {_MTIME_TABLE}")
+            stored_mtimes = {str(row[0]): row[1] for row in cur.fetchall()}
+        stale = []
+        for file, current_mtime in file_mtimes.items():
+            recorded_mtime = None
+            for variant in self._file_path_variants(file):
+                candidate = stored_mtimes.get(variant)
+                if candidate is not None and (recorded_mtime is None or candidate > recorded_mtime):
+                    recorded_mtime = candidate
+            if recorded_mtime is None or recorded_mtime < current_mtime:
+                stale.append(file)
+        return stale
 
     async def get_indexed_files(self) -> List[str]:
         """Get the set of files currently tracked for graph staleness."""

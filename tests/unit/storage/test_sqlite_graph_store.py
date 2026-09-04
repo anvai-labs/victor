@@ -216,3 +216,109 @@ async def test_sqlite_graph_store_write_batch_rolls_back_on_error(tmp_path):
     assert stats["nodes"] == 0
     assert stats["edges"] == 0
     assert stats["indexed_files"] == 0
+
+
+@pytest.mark.asyncio
+async def test_get_stale_files_issues_single_query_regardless_of_file_count(tmp_path):
+    """Co-design review item 20a: one full-table SELECT, not one per file."""
+    store = SqliteGraphStore(tmp_path)
+    files = [f"pkg/mod_{i}.py" for i in range(50)]
+    for f in files:
+        await store.update_file_mtime(f, 100.0)
+
+    conn = store._connect()
+    queries = []
+    conn.set_trace_callback(queries.append)
+    try:
+        stale = await store.get_stale_files(dict.fromkeys(files, 100.0))
+    finally:
+        conn.set_trace_callback(None)
+
+    select_queries = [q for q in queries if q.strip().upper().startswith("SELECT")]
+    assert len(select_queries) == 1
+    assert stale == []
+
+
+@pytest.mark.asyncio
+async def test_get_file_hashes_issues_single_query_regardless_of_file_count(tmp_path):
+    store = SqliteGraphStore(tmp_path)
+    files = [f"pkg/mod_{i}.py" for i in range(50)]
+    for f in files:
+        await store.update_file_mtime(f, 100.0, content_hash=f"hash-{f}")
+
+    conn = store._connect()
+    queries = []
+    conn.set_trace_callback(queries.append)
+    try:
+        hashes = await store.get_file_hashes(files)
+    finally:
+        conn.set_trace_callback(None)
+
+    select_queries = [q for q in queries if q.strip().upper().startswith("SELECT")]
+    assert len(select_queries) == 1
+    assert hashes == {f: f"hash-{f}" for f in files}
+
+
+@pytest.mark.asyncio
+async def test_get_stale_files_batched_matches_per_file_semantics(tmp_path):
+    """Batched rewrite must still detect staleness and freshness per file."""
+    store = SqliteGraphStore(tmp_path)
+    await store.update_file_mtime("fresh.py", 200.0)
+    await store.update_file_mtime("old.py", 100.0)
+    # "unknown.py" never indexed.
+
+    stale = await store.get_stale_files({"fresh.py": 200.0, "old.py": 150.0, "unknown.py": 1.0})
+
+    assert set(stale) == {"old.py", "unknown.py"}
+
+
+@pytest.mark.asyncio
+async def test_get_file_hashes_batched_omits_files_without_hash(tmp_path):
+    store = SqliteGraphStore(tmp_path)
+    await store.update_file_mtime("hashed.py", 1.0, content_hash="abc123")
+    await store.update_file_mtime("unhashed.py", 1.0)
+
+    hashes = await store.get_file_hashes(["hashed.py", "unhashed.py", "missing.py"])
+
+    assert hashes == {"hashed.py": "abc123"}
+
+
+@pytest.mark.asyncio
+async def test_update_nodes_metadata_batches_write_and_skips_unknown_ids(tmp_path):
+    store = SqliteGraphStore(tmp_path)
+    await store.upsert_nodes(
+        [
+            GraphNode(node_id="n1", type="function", name="a", file="a.py", line=1),
+            GraphNode(node_id="n2", type="function", name="b", file="b.py", line=1),
+        ]
+    )
+
+    conn = store._connect()
+    queries = []
+    conn.set_trace_callback(queries.append)
+    try:
+        await store.update_nodes_metadata(
+            [
+                ("n1", {"embedding_ref": "emb:n1", "has_embedding": True}),
+                ("n2", {"has_embedding": True}),
+                ("does-not-exist", {"has_embedding": True}),
+            ]
+        )
+    finally:
+        conn.set_trace_callback(None)
+
+    select_queries = [q for q in queries if q.strip().upper().startswith("SELECT")]
+    assert len(select_queries) == 1
+
+    nodes = await store.get_nodes_by_file("a.py")
+    assert nodes[0].metadata.get("has_embedding") is True
+    assert nodes[0].embedding_ref == "emb:n1"
+
+    nodes_b = await store.get_nodes_by_file("b.py")
+    assert nodes_b[0].metadata.get("has_embedding") is True
+
+
+@pytest.mark.asyncio
+async def test_update_nodes_metadata_empty_pairs_is_noop(tmp_path):
+    store = SqliteGraphStore(tmp_path)
+    await store.update_nodes_metadata([])
