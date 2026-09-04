@@ -247,6 +247,13 @@ class CheckpointConfig:
         checkpointer: Optional checkpointer for persistence
         checkpoint_at_start: Whether to checkpoint before execution (default: False)
         checkpoint_at_end: Whether to checkpoint after execution (default: True)
+        record_state_history: Whether to record a per-node state snapshot on
+            ``GraphExecutionResult.state_history`` (default: False). Off by
+            default because each snapshot is a deep copy of the full state —
+            a second one per node beyond what checkpointing already does
+            (co-design review item 11). The agentic StateGraph executor
+            turns this on explicitly since it reconstructs legacy
+            per-iteration results from these snapshots.
 
     Example:
         from victor.storage.checkpointing import MemoryCheckpointer
@@ -259,6 +266,7 @@ class CheckpointConfig:
     checkpointer: Optional["CheckpointerProtocol"] = None
     checkpoint_at_start: bool = False
     checkpoint_at_end: bool = True
+    record_state_history: bool = False
 
 
 @dataclass
@@ -410,6 +418,7 @@ class GraphConfig:
                 - max_iterations: int
                 - timeout: Optional[float]
                 - checkpointer: Optional[CheckpointerProtocol]
+                - record_state_history: bool
                 - recursion_limit: int
                 - interrupt_before: List[str]
                 - interrupt_after: List[str]
@@ -438,6 +447,7 @@ class GraphConfig:
                 # Legacy didn't have these, use defaults
                 checkpoint_at_start=False,
                 checkpoint_at_end=True,
+                record_state_history=kwargs.get("record_state_history", False),
             ),
             interrupt=InterruptConfig(
                 interrupt_before=kwargs.get("interrupt_before", []),
