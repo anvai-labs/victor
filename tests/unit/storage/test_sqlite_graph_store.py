@@ -322,3 +322,101 @@ async def test_update_nodes_metadata_batches_write_and_skips_unknown_ids(tmp_pat
 async def test_update_nodes_metadata_empty_pairs_is_noop(tmp_path):
     store = SqliteGraphStore(tmp_path)
     await store.update_nodes_metadata([])
+
+
+@pytest.mark.asyncio
+async def test_update_nodes_metadata_compounds_duplicate_node_id_patches(tmp_path):
+    """A repeated node id in one batch must compound like sequential calls to
+    update_node_metadata, not let the last patch silently win."""
+    store = SqliteGraphStore(tmp_path)
+    await store.upsert_nodes(
+        [GraphNode(node_id="n1", type="function", name="a", file="a.py", line=1)]
+    )
+
+    await store.update_nodes_metadata(
+        [
+            ("n1", {"embedding_ref": "emb:n1", "patch_a": 1}),
+            ("n1", {"patch_b": 2}),
+        ]
+    )
+
+    node = (await store.get_nodes_by_file("a.py"))[0]
+    assert node.metadata.get("patch_a") == 1
+    assert node.metadata.get("patch_b") == 2
+    # A later patch that omits embedding_ref must not clear the earlier value
+    # (the single-node path only ever touches that column when supplied).
+    assert node.embedding_ref == "emb:n1"
+
+
+@pytest.mark.asyncio
+async def test_update_nodes_metadata_later_embedding_ref_overrides_earlier(tmp_path):
+    store = SqliteGraphStore(tmp_path)
+    await store.upsert_nodes(
+        [GraphNode(node_id="n1", type="function", name="a", file="a.py", line=1)]
+    )
+
+    await store.update_nodes_metadata(
+        [
+            ("n1", {"embedding_ref": "emb:old"}),
+            ("n1", {"embedding_ref": "emb:new"}),
+        ]
+    )
+
+    node = (await store.get_nodes_by_file("a.py"))[0]
+    assert node.embedding_ref == "emb:new"
+
+
+@pytest.mark.asyncio
+async def test_update_nodes_metadata_matches_sequential_single_node_calls(tmp_path):
+    """The batched compounding result must equal applying the same patches one
+    at a time via update_node_metadata, for both a fresh and pre-existing node."""
+    store_batched = SqliteGraphStore(tmp_path / "batched")
+    store_sequential = SqliteGraphStore(tmp_path / "sequential")
+    for store in (store_batched, store_sequential):
+        await store.upsert_nodes(
+            [GraphNode(node_id="n1", type="function", name="a", file="a.py", line=1)]
+        )
+
+    patches = [
+        ("n1", {"embedding_ref": "emb:1", "has_embedding": True}),
+        ("n1", {"content_version": "v1"}),
+        ("n1", {"embedding_ref": "emb:2"}),
+    ]
+
+    await store_batched.update_nodes_metadata(patches)
+    for node_id, metadata in patches:
+        await store_sequential.update_node_metadata(node_id, metadata)
+
+    batched_node = (await store_batched.get_nodes_by_file("a.py"))[0]
+    sequential_node = (await store_sequential.get_nodes_by_file("a.py"))[0]
+    assert batched_node.metadata == sequential_node.metadata
+    assert batched_node.embedding_ref == sequential_node.embedding_ref
+
+
+@pytest.mark.asyncio
+async def test_update_nodes_metadata_rolls_back_whole_batch_on_write_batch_error(tmp_path):
+    """When wrapped in write_batch() (as the real caller does), a failure
+    partway through must roll back every node's metadata mark, not just the
+    failing one — pins the atomicity trade-off the batched rewrite makes."""
+    store = SqliteGraphStore(tmp_path)
+    await store.upsert_nodes(
+        [
+            GraphNode(node_id="n1", type="function", name="a", file="a.py", line=1),
+            GraphNode(node_id="n2", type="function", name="b", file="b.py", line=1),
+        ]
+    )
+
+    with pytest.raises(RuntimeError, match="boom"):
+        async with store.write_batch():
+            await store.update_nodes_metadata(
+                [
+                    ("n1", {"has_embedding": True}),
+                    ("n2", {"has_embedding": True}),
+                ]
+            )
+            raise RuntimeError("boom")
+
+    node_a = (await store.get_nodes_by_file("a.py"))[0]
+    node_b = (await store.get_nodes_by_file("b.py"))[0]
+    assert not node_a.metadata.get("has_embedding")
+    assert not node_b.metadata.get("has_embedding")

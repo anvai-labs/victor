@@ -1102,32 +1102,47 @@ class SqliteGraphStore(GraphStoreProtocol):
     async def update_nodes_metadata(self, pairs: List[Tuple[str, Dict[str, Any]]]) -> None:
         """Batched ``update_node_metadata``: one SELECT + one executemany UPDATE
         instead of N round trips (co-design review item 20a). Unknown node ids
-        are skipped, same as the single-node path. Callers should pass distinct
-        node ids — patches for a repeated id all merge against the same
-        pre-fetch snapshot rather than compounding sequentially.
+        are skipped, same as the single-node path. A repeated node id compounds
+        its patches in call order (matching sequential update_node_metadata
+        calls) rather than the last one silently winning; an ``embedding_ref``
+        omitted from a later patch for the same id leaves the earlier one in
+        place, same as the single-node path only ever touching that column
+        when a patch explicitly supplies it.
         """
         if not pairs:
             return
 
         def _apply(conn: sqlite3.Connection) -> None:
-            node_ids = [node_id for node_id, _ in pairs]
-            placeholders = ",".join("?" for _ in node_ids)
+            combined_metadata: Dict[str, Dict[str, Any]] = {}
+            combined_embedding_ref: Dict[str, str] = {}
+            order: List[str] = []
+            for node_id, metadata in pairs:
+                if node_id not in combined_metadata:
+                    combined_metadata[node_id] = {}
+                    order.append(node_id)
+                patch = dict(metadata or {})
+                embedding_ref = patch.pop("embedding_ref", None)
+                combined_metadata[node_id].update(patch)
+                if embedding_ref is not None:
+                    combined_embedding_ref[node_id] = embedding_ref
+
+            placeholders = ",".join("?" for _ in order)
             cur = conn.execute(
                 f"SELECT node_id, metadata FROM {_NODE_TABLE} WHERE node_id IN ({placeholders})",
-                node_ids,
+                order,
             )
             existing = {str(row[0]): row[1] for row in cur.fetchall()}
             embed_rows = []
             plain_rows = []
-            for node_id, metadata in pairs:
+            for node_id in order:
                 if node_id not in existing:
                     continue
                 merged = json.loads(existing[node_id]) if existing[node_id] else {}
-                patch = dict(metadata or {})
-                embedding_ref = patch.pop("embedding_ref", None)
-                merged.update(patch)
-                if embedding_ref is not None:
-                    embed_rows.append((json.dumps(merged), embedding_ref, node_id))
+                merged.update(combined_metadata[node_id])
+                if node_id in combined_embedding_ref:
+                    embed_rows.append(
+                        (json.dumps(merged), combined_embedding_ref[node_id], node_id)
+                    )
                 else:
                     plain_rows.append((json.dumps(merged), node_id))
             if embed_rows:
