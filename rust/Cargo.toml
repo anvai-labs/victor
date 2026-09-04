@@ -32,7 +32,13 @@ authors = ["Vijaykumar Singh <vijay@anvaiops.com>"]
 opt-level = 3
 lto = "fat"
 codegen-units = 1
-panic = "abort"
+# unwind, not abort: with abort, any Rust panic KILLED the whole Python
+# process. With unwind, pyo3 converts #[pymethods] panics into a
+# PanicException that derives from BaseException (like SystemExit), so the
+# process survives — and the Python-side shims catch it BY NAME to degrade
+# to the fallback (a plain `except Exception` never sees it; adversarial-
+# review finding).
+panic = "unwind"
 
 [profile.release-with-debug]
 inherits = "release"
