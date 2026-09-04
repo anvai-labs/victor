@@ -57,6 +57,7 @@ async def run_graph_execution(
     snapshot_state: Callable[[Any], Any],
     get_next_node: Callable[[str, Any], Union[str, List[Any]]],
     execute_parallel: Callable[[List[Any], Any, Any, Any], Awaitable[Any]],
+    record_state_history: bool = False,
 ) -> GraphRuntimeOutcome:
     """Run compiled graph execution using focused collaborators."""
     return await _run_graph_execution_loop(
@@ -77,6 +78,7 @@ async def run_graph_execution(
         snapshot_state=snapshot_state,
         get_next_node=get_next_node,
         execute_parallel=execute_parallel,
+        record_state_history=record_state_history,
         on_node_complete=None,
     )
 
@@ -100,6 +102,7 @@ async def stream_graph_execution(
     snapshot_state: Callable[[Any], Any],
     get_next_node: Callable[[str, Any], Union[str, List[Any]]],
     execute_parallel: Callable[[List[Any], Any, Any, Any], Awaitable[Any]],
+    record_state_history: bool = False,
 ):
     """Stream compiled graph execution using the same runtime path as invoke()."""
     queue: asyncio.Queue[Any] = asyncio.Queue()
@@ -128,6 +131,7 @@ async def stream_graph_execution(
                 snapshot_state=snapshot_state,
                 get_next_node=get_next_node,
                 execute_parallel=execute_parallel,
+                record_state_history=record_state_history,
                 on_node_complete=_on_node_complete,
             )
         finally:
@@ -164,6 +168,7 @@ async def _run_graph_execution_loop(
     get_next_node: Callable[[str, Any], Union[str, List[Any]]],
     execute_parallel: Callable[[List[Any], Any, Any, Any], Awaitable[Any]],
     on_node_complete: Optional[Callable[[str, Any], Awaitable[None]]],
+    record_state_history: bool = False,
 ) -> GraphRuntimeOutcome:
     """Shared compiled graph execution loop for invoke() and stream()."""
     timeout_manager.start()
@@ -248,7 +253,8 @@ async def _run_graph_execution_loop(
             logger.debug("Executed node: %s", current_node)
             node_history.append(current_node)
             await checkpoint_manager.save_checkpoint(thread_id, current_node, state)
-            state_history.append((current_node, snapshot_state(state)))
+            if record_state_history:
+                state_history.append((current_node, snapshot_state(state)))
             if on_node_complete is not None:
                 await on_node_complete(current_node, state)
 

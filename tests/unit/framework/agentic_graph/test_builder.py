@@ -502,3 +502,32 @@ class TestGraphIntegration:
         assert result.state.stage == "evaluate"
         assert result.state.iteration == 1
         assert result.node_history == ["perceive", "plan", "act", "evaluate"]
+
+    @pytest.mark.asyncio
+    async def test_executor_opts_into_state_history(self):
+        """AgenticLoopGraphExecutor is the one production consumer of
+        state_history (it reconstructs legacy per-iteration results from it),
+        so it must opt in explicitly now that the default is off (item 11)."""
+        mock_context = MagicMock()
+        executor = AgenticLoopGraphExecutor(
+            execution_context=mock_context,
+            max_iterations=3,
+        )
+
+        assert executor.compiled._config.checkpoint.record_state_history is True
+
+    @pytest.mark.asyncio
+    async def test_executor_compiled_graph_records_state_history_end_to_end(self):
+        """A real invoke through the executor's compiled graph must populate
+        state_history — the actual iteration-reconstruction dependency."""
+        compiled = create_agentic_loop_graph(max_iterations=1).compile(record_state_history=True)
+
+        result = await compiled.invoke({"query": "Hello from dict input"})
+
+        assert result.state_history != []
+        assert [node_id for node_id, _ in result.state_history] == [
+            "perceive",
+            "plan",
+            "act",
+            "evaluate",
+        ]

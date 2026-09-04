@@ -422,6 +422,7 @@ class CompiledGraph(Generic[StateType]):
                 timeout_manager=timeout_mgr,
                 base_state=base_state,
             ),
+            record_state_history=exec_config.checkpoint.record_state_history,
         )
         return GraphExecutionResult(
             state=runtime_outcome.state,
@@ -582,6 +583,7 @@ class CompiledGraph(Generic[StateType]):
                 timeout_manager=timeout_mgr,
                 base_state=base_state,
             ),
+            record_state_history=exec_config.checkpoint.record_state_history,
         ):
             yield node_id, node_state
 

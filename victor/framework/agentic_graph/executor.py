@@ -192,7 +192,11 @@ class AgenticLoopGraphExecutor:
             include_prompt_node=True,
             dependencies=self.dependencies,
         )
-        self.compiled: CompiledGraph = self.graph.compile()
+        # record_state_history=True: this executor reconstructs legacy
+        # per-iteration LoopResult data from GraphExecutionResult.state_history
+        # (see LoopResult.from_graph_result below) — the one production
+        # consumer of state_history, which is opt-in elsewhere (item 11).
+        self.compiled: CompiledGraph = self.graph.compile(record_state_history=True)
 
     async def run(
         self,
