@@ -93,7 +93,7 @@ class TestEstimateCache:
 
         assert stub_tool.to_schema_calls == 1
         # The cache holds exactly the un-patched estimate...
-        assert list(service._tool_estimate_cache.values()) == [base]
+        assert list(service._tool_estimate_cache._entries.values()) == [base]
         # ...which still serves the un-patched tool.
         again = service.estimate_tool_tokens(normal)
         assert again == base
@@ -148,7 +148,7 @@ class TestAdversarialGuarantees:
         service.estimate_tool_tokens(tool)
         service.estimate_tool_tokens(tool)
         assert tool.to_schema_calls == 2
-        assert service._tool_estimate_cache == {}
+        assert service._tool_estimate_cache._entries == {}
 
     def test_demote_policy_stub_probe_uses_bypass_estimator(self):
         """demote_tools_to_fit's STUB probe must call the provided
