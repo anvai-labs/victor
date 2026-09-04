@@ -75,6 +75,7 @@ from victor.core.circuit_breaker import (
 from victor.core.context import bind_call_id_once, call_id
 
 # Import the canonical CircuitBreaker for composition
+from victor.providers import failure_taxonomy
 from victor.providers.circuit_breaker import CircuitBreaker as CanonicalCircuitBreaker
 
 
@@ -309,17 +310,7 @@ class ProviderRetryConfig:
     )
 
     # Extended patterns that catch httpx transport errors by class name
-    retryable_exception_names: tuple = (
-        "APIConnectionError",
-        "RemoteProtocolError",
-        "ProtocolError",
-        "TransportError",
-        "ConnectTimeout",
-        "ReadError",
-        "ReadTimeout",
-        "ConnectError",
-        "WriteError",
-    )
+    retryable_exception_names: tuple = failure_taxonomy.RETRYABLE_EXCEPTION_NAMES
 
     retryable_status_codes: tuple = (429, 500, 502, 503, 504)
 
@@ -583,20 +574,6 @@ class ProviderRetryStrategy:
 
     def _is_hard_rate_limit(self, error: Exception) -> bool:
         """Check whether a 429 is a quota/billing failure rather than a transient limit."""
-        hard_limit_tokens = (
-            "billing",
-            "credit balance",
-            "credits exhausted",
-            "current quota",
-            "hard limit",
-            "insufficient balance",
-            "insufficient credits",
-            "insufficient quota",
-            "payment required",
-            "quota exceeded",
-            "quota exhausted",
-            "resource exhausted",
-        )
         seen: set[int] = set()
         current: Optional[BaseException] = error
 
@@ -615,7 +592,7 @@ class ProviderRetryStrategy:
                 if isinstance(response_text, str) and response_text:
                     error_text_parts.append(response_text)
                 error_text = " ".join(error_text_parts).lower()
-                if any(token in error_text for token in hard_limit_tokens):
+                if any(token in error_text for token in failure_taxonomy.HARD_RATE_LIMIT_TOKENS):
                     return True
 
             current = getattr(current, "__cause__", None) or getattr(current, "__context__", None)
