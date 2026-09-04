@@ -6,32 +6,8 @@ name: Security Scanning
 on:
   push:
     branches: [main]
-    paths:
-      - '.github/workflows/security.yml'
-      - 'victor/**'
-      - 'victor-contracts/**'
-      - 'rust/**'
-      - 'scripts/**'
-      - 'tests/**'
-      - 'pyproject.toml'
-      - 'requirements*.txt'
-      - 'Dockerfile'
-      - 'docker/**'
-      - 'docker-compose*.yml'
   pull_request:
     branches: [main]
-    paths:
-      - '.github/workflows/security.yml'
-      - 'victor/**'
-      - 'victor-contracts/**'
-      - 'rust/**'
-      - 'scripts/**'
-      - 'tests/**'
-      - 'pyproject.toml'
-      - 'requirements*.txt'
-      - 'Dockerfile'
-      - 'docker/**'
-      - 'docker-compose*.yml'
   schedule:
     # Run weekly on Monday at 2 AM UTC (backstop for newly-disclosed advisories;
     # per-PR Trivy gates CRITICAL deps and develop->main runs the full scan)
@@ -345,3 +321,27 @@ jobs:
           name: license-report
           path: license-report.json
           retention-days: 30
+
+  security-summary:
+    name: Security Summary
+    runs-on: ubuntu-latest
+    needs: [secret-scan, trivy-critical, dependency-audit, code-security, sast-scan, license-scan]
+    if: always()
+    steps:
+      - name: Require every security job to complete
+        run: |
+          results=(
+            "${{ needs.secret-scan.result }}"
+            "${{ needs.trivy-critical.result }}"
+            "${{ needs.dependency-audit.result }}"
+            "${{ needs.code-security.result }}"
+            "${{ needs.sast-scan.result }}"
+            "${{ needs.license-scan.result }}"
+          )
+          printf 'Security job result: %s\n' "${results[@]}"
+          for result in "${results[@]}"; do
+            if [ "$result" != "success" ]; then
+              echo "::error::At least one security job failed, was cancelled, or was skipped."
+              exit 1
+            fi
+          done

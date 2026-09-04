@@ -23,6 +23,13 @@ export default defineConfig({
         '**/*.d.ts',
         'src/extension.ts',
       ],
+      thresholds: {
+        // Measured hosted-CI baseline (2026-08-26): lines 4.17%, functions
+        // 18.75%, branches 60.77%. Ratchet these upward as tests are added.
+        lines: 4,
+        functions: 18,
+        branches: 60,
+      },
     },
   },
 });

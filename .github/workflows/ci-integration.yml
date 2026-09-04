@@ -6,24 +6,8 @@ name: CI - Integration Tests
 on:
   push:
     branches: [main]
-    paths:
-      - '.github/workflows/ci-integration.yml'
-      - 'victor/**'
-      - 'victor-contracts/**'
-      - 'examples/external_vertical/**'
-      - 'tests/integration/**'
-      - 'tests/e2e/**'
-      - 'pyproject.toml'
   pull_request:
     branches: [main]
-    paths:
-      - '.github/workflows/ci-integration.yml'
-      - 'victor/**'
-      - 'victor-contracts/**'
-      - 'examples/external_vertical/**'
-      - 'tests/integration/**'
-      - 'tests/e2e/**'
-      - 'pyproject.toml'
   workflow_dispatch:
 
 env:
@@ -75,20 +59,9 @@ jobs:
 
       - name: Run integration tests
         run: |
-          rc=0
           pytest ${{ matrix.test-suite.path }} \
             -v \
-            --tb=short \
-            -m integration \
-            || rc=$?
-          # pytest exit 5 = no tests matched the marker in this suite
-          # (e.g. tests/integration/tools has no integration-marked tests) —
-          # treat as pass, fail on anything else.
-          if [ "$rc" -eq 5 ]; then
-            echo "No integration-marked tests in ${{ matrix.test-suite.path }} (pytest exit 5) — treating as pass."
-            rc=0
-          fi
-          exit $rc
+            --tb=short
 
   # Test with external vertical packages installed
   verticals-integration:
@@ -146,11 +119,11 @@ jobs:
       - name: Verify vertical packages are installed
         run: |
           echo "=== Checking vertical package installations ==="
-          python -c "from victor_coding import CodingAssistant; print('✓ victor-coding installed')" || echo "✗ victor-coding not found"
-          python -c "from victor_rag import RAGAssistant; print('✓ victor-rag installed')" || echo "✗ victor-rag not found"
-          python -c "from victor_research import ResearchAssistant; print('✓ victor-research installed')" || echo "✗ victor-research not found"
-          python -c "from victor_devops import DevOpsAssistant; print('✓ victor-devops installed')" || echo "✗ victor-devops not found"
-          python -c "from victor_dataanalysis import DataAnalysisAssistant; print('✓ victor-dataanalysis installed')" || echo "✗ victor-dataanalysis not found"
+          python -c "from victor_coding import CodingAssistant; print('✓ victor-coding installed')"
+          python -c "from victor_rag import RAGAssistant; print('✓ victor-rag installed')"
+          python -c "from victor_research import ResearchAssistant; print('✓ victor-research installed')"
+          python -c "from victor_devops import DevOpsAssistant; print('✓ victor-devops installed')"
+          python -c "from victor_dataanalysis import DataAnalysisAssistant; print('✓ victor-dataanalysis installed')"
 
       - name: Verify vertical entry points are discoverable
         run: |
@@ -207,7 +180,6 @@ jobs:
     name: VS Code Extension
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    if: github.event_name == 'push' || contains(github.event.head_commit.message, '[vscode]')
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -249,7 +221,6 @@ jobs:
       - name: Run tests
         working-directory: vscode-victor
         run: xvfb-run -a npm test
-        continue-on-error: true
 
       - name: Package VSIX
         working-directory: vscode-victor
@@ -293,3 +264,25 @@ jobs:
       - name: Clippy lints
         run: cd rust && cargo clippy --all-targets -- -D warnings
         continue-on-error: true
+
+  integration-summary:
+    name: Integration Summary
+    runs-on: ubuntu-latest
+    needs: [integration, verticals-integration, vscode-extension, rust-native]
+    if: always()
+    steps:
+      - name: Require every integration surface green
+        run: |
+          results=(
+            "${{ needs.integration.result }}"
+            "${{ needs.verticals-integration.result }}"
+            "${{ needs.vscode-extension.result }}"
+            "${{ needs.rust-native.result }}"
+          )
+          printf 'Integration job result: %s\n' "${results[@]}"
+          for result in "${results[@]}"; do
+            if [ "$result" != "success" ]; then
+              echo "::error::At least one integration surface did not pass."
+              exit 1
+            fi
+          done

@@ -9,21 +9,21 @@ To keep the runner queue free and feature work merging fast, CI is split by the 
 
 | Trigger | Workflows that run | Intent |
 |---------|-------------------|--------|
-| **PR → `develop`** (and pushes to `develop`) | `ci-fast` only — Black, Ruff, repo-hygiene, MyPy (advisory + strict), import checks, guards, and **changed-file unit tests** (only the mirror tests for files the PR touches — see `scripts/ci/select_changed_tests.py`) + `fep-validation` if `feps/**` changed | **Lightweight** — fast feedback + a regression signal proportional to the change, unblock development |
-| **PR → `main`** (the `develop` → `main` promotion PR) | The full battery: `ci-test` (sharded units), `ci-integration`, `build`, `security`, `performance-tests`, `validation`, `vertical-validation`, `external-vertical-compat` | **Extensive** — full verification before promoting to the protected branch |
+| **PR → `develop`** (and pushes to `develop`) | `ci-fast` plus always-present contracts, codegraph, and vertical summaries. Core Python changes run mirror tests with **80% changed-line coverage**; unmapped source and zero-test selections fail closed. | **Proportional** — focused core tests plus complete modular-package gates |
+| **PR → `main`** (the `develop` → `main` promotion PR) | The full battery: all 36 Python-version/shard jobs, aggregate coverage, integration, builds, security, performance, validation, contracts, codegraph, verticals, Rust, and extension tests | **Extensive** — full verification before promoting to the protected branch |
 | **Push to `main`** (the protected merge) | Delivery and lightweight verification workflows such as `build`, `security`, docs deployment, and `ci-fast` | **Post-merge** — publish/deploy from the merge SHA without repeating the identical multi-hour test tree |
 
-> The develop gate runs only the unit tests **relevant to the PR's changed files**, not the whole suite: the full non-slow unit suite is ~7h single-process (26.8k tests) and hours even sharded, so it can't gate every PR. Full coverage runs once at **develop → main**.
+> The core develop gate runs only unit tests **relevant to the PR's changed files**, not the whole suite: the full non-slow unit suite collects 29,834 tests and takes hours even sharded. A core source file without a mirrored test is rejected, and selected tests must cover at least 80% of changed lines. Complete suite coverage runs once at **develop → main**.
 >
 > On the **develop → main** promotion PR the changed-file unit job is **skipped** (`ci-fast.yml` → `quick-tests` `if: base_ref != 'main'`): there the diff spans the whole release delta and would map to the entire mirror-test set, blowing the job's timeout every time. Coverage isn't lost — the full sharded suite runs on that same PR via `ci-test`.
 
 This is enforced by the `branches:` filter on each workflow's `push`/`pull_request`
-triggers: heavy workflows target `[main]`. `main` remains the strict, protected branch
-(required checks + admin enforcement), so the extensive suite always gates a release-bound
-merge. To run a heavy workflow against a `develop` PR on demand, use its
+triggers: heavy workflows target `[main]`. `main` remains the strict, protected branch;
+administrators retain a recovery bypass but the operational rule is to merge only after every
+required aggregate is green. To run a heavy workflow against a `develop` PR on demand, use its
 **workflow_dispatch** entry.
 
-Because every `CI - Tests` shard is a required check on `main`, its
+`Test Summary` and `Coverage Gate` fail unless every `CI - Tests` shard succeeds. Their
 `pull_request` trigger intentionally has no path filter. A skipped required
 workflow remains expected forever, and a manual dispatch cannot satisfy the
 PR-specific required contexts. The suite has no `push` trigger: protected
@@ -42,12 +42,24 @@ feature-base PR is informational and blocks nothing.
 
 ### Two things the develop gate does not do
 
-**It does not prove your branch works against current `develop`.** Branch
-protection has `strict_up_to_date: false`, so a PR can merge with CI that ran
-against an older `develop`. GitHub's `CLEAN`/`MERGEABLE` means "no merge
-conflict", *not* "tested against the tip". Before merging anything non-trivial,
-merge `develop` in and let CI re-run — especially if another PR touching the
-same modules landed meanwhile.
+**Branches must be tested against current `develop`.** Branch protection uses strict
+up-to-date status checks. A stale PR must update/rebase and rerun the required summaries before
+merge; GitHub's `CLEAN`/`MERGEABLE` alone is not treated as a test signal.
+
+### Measured test and coverage gates
+
+| Surface | Gate |
+|---------|------|
+| Core Python | 29,834 tests collected per supported Python; all 12 Python 3.11 coverage shards must be present; complete line coverage cannot fall below 40% |
+| Changed core Python | A mirror test is mandatory and changed-line coverage must be at least 80% |
+| victor-contracts | 337 tests across Python 3.10–3.13; line coverage cannot fall below 50%; wheel build/install smoke test |
+| victor-codegraph | 106 tests across Python 3.10–3.12; line coverage cannot fall below 90% |
+| Verticals | Isolated suites on Python 3.11/3.12, per-package collection-count floors, and measured line-coverage ratchets: coding 33%, devops 80%, RAG 20%, data-analysis 75%, research 80% |
+| Rust workspace | 250 unit/doc tests, 68% line-coverage ratchet (69.26% measured), formatting, locked workspace test, and publishable-crate archive validation |
+| VS Code extension | Measured Vitest/c8 ratchets (4% lines, 18% functions, 60% branches) plus blocking Electron/package integration in the main promotion gate |
+
+Floors are ratchets, not targets. Raise them after adding coverage; lowering one requires an
+explicitly reviewed change to the gate and its rationale.
 
 **It does not run merged PRs against each other.** Each PR is verified against
 the `develop` of its moment and nothing re-runs afterwards, so a set of
