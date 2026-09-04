@@ -61,15 +61,13 @@ class TestImportDoesNotPullAgent:
     def test_importing_slash_package_does_not_import_agent(self):
         """The regression this PR fixes: importing victor.ui.slash alone
         must not drag in victor.agent or victor.framework.rl."""
-        output = _run_probe(
-            """
+        output = _run_probe("""
             import sys
             import victor.ui.slash
             agent_mods = [m for m in sys.modules if m.startswith("victor.agent")]
             rl_mods = [m for m in sys.modules if "framework.rl" in m]
             print(len(agent_mods), len(rl_mods))
-            """
-        )
+            """)
         agent_count, rl_count = (int(x) for x in output.split())
         assert agent_count == 0, "victor.ui.slash import must not pull victor.agent"
         assert rl_count == 0, "victor.ui.slash import must not pull framework.rl"
@@ -77,12 +75,10 @@ class TestImportDoesNotPullAgent:
     def test_slash_commands_submodule_still_directly_importable(self):
         """Tests/tooling that want the heavy chain explicitly can still get
         it — laziness is about the DEFAULT path, not removing the module."""
-        output = _run_probe(
-            """
+        output = _run_probe("""
             import victor.ui.slash.commands.bayesian  # noqa: F401
             print("ok")
-            """
-        )
+            """)
         assert output == "ok"
 
 
@@ -168,11 +164,30 @@ class TestRegistryLazyDiscovery:
         """victor/ui/tui/palette.py reads get_command_registry() directly —
         the one production call site that bypassed both
         SlashCommandHandler's and chat.py's own discovery guards."""
-        output = _run_probe(
-            """
+        output = _run_probe("""
             from victor.ui.tui.palette import load_commands
             rows = load_commands()
             print(len(rows))
-            """
-        )
+            """)
         assert int(output) > 0
+
+
+class TestAdversarialRobustness:
+    """Self-review finding: discover_commands() wraps BOTH the commands
+    package import and each submodule import in try/except — a behavior
+    the old eager `from victor.ui.slash import commands` in __init__.py
+    did NOT have (a single broken submodule would raise ImportError and
+    crash the whole `victor.ui.slash` import). The lazy path inherits
+    this robustness for free; pinned here so it isn't silently lost."""
+
+    def test_broken_commands_package_degrades_gracefully(self, monkeypatch):
+        import victor.ui.slash.registry as registry_mod
+
+        def _boom(name):
+            raise ImportError("simulated broken command module")
+
+        monkeypatch.setattr(registry_mod.importlib, "import_module", _boom)
+        registry = CommandRegistry()
+        # Must not raise — discover_commands()'s outer except catches it.
+        assert registry.get("help") is None
+        assert registry.list_commands() == []
