@@ -248,6 +248,7 @@ def demote_tools_to_fit(
     *,
     estimate_tokens: Callable[..., int],
     provider_category: Optional[str] = None,
+    stub_estimate_tokens: Optional[Callable[..., int]] = None,
 ) -> List[Any]:
     """Demote or drop low-priority tools until within budget.
 
@@ -257,6 +258,11 @@ def demote_tools_to_fit(
         context_window: Context window size.
         estimate_tokens: ``(tool[, provider_category]) -> int`` token estimator.
         provider_category: Provider category for tier selection.
+        stub_estimate_tokens: estimator for the temporary STUB probe; defaults
+            to ``estimate_tokens``. Callers whose estimator caches by
+            (tool, tier) must pass a cache-bypassing variant — the probe's
+            temporary ``_schema_level`` patch makes its estimate
+            unrepresentative of the real tier (adversarial-review finding).
 
     Returns:
         Filtered list of tools that fit within budget.
@@ -286,7 +292,8 @@ def demote_tools_to_fit(
                 # Temporarily override schema level to STUB
                 original_schema = getattr(tool, "_schema_level", None)
                 tool._schema_level = SchemaLevel.STUB
-                stub_cost = estimate_tokens(tool)
+                stub_fn = stub_estimate_tokens or estimate_tokens
+                stub_cost = stub_fn(tool)
                 tool._schema_level = original_schema  # Restore
 
                 if current_tokens + stub_cost <= max_tokens:

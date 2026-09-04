@@ -68,7 +68,6 @@ class TestEstimateCache:
 
         assert first == second
         assert tool.to_schema_calls == 2, "same (name, tier, category) must hit"
-        assert third != first or True  # distinct key; independent build
 
     def test_registry_mutation_invalidates(self):
         """register/unregister/batch bump the version — the cache must drop."""
@@ -124,3 +123,73 @@ class TestEstimateCache:
         with reg.batch_update():
             reg.register_dict({"name": "probe2", "description": "d", "parameters": {}})
         assert reg.schema_cache_version > v2
+
+
+class TestAdversarialGuarantees:
+    """Negatives from adversarial review of this PR."""
+
+    def test_empty_registry_still_caches(self):
+        """`or` wiring treated an EMPTY ToolRegistry as falsy and silently
+        disabled the cache — exactly during startup estimation storms."""
+        reg = ToolRegistry()  # empty but real
+        service = _service(reg)
+        tool = _FakeTool("search", {"parameters": {}})
+        service.estimate_tool_tokens(tool)
+        service.estimate_tool_tokens(tool)
+        assert tool.to_schema_calls == 1, "empty registry must still cache"
+
+    def test_non_int_version_disables_cache_not_thrashes(self):
+        """A Mock wiring exposing a non-int version must degrade to uncached
+        (not write a garbage version key that thrashes per call)."""
+        reg = MagicMock()
+        reg.schema_cache_version = "not-an-int"
+        service = _service(reg)
+        tool = _FakeTool("search", {"parameters": {}})
+        service.estimate_tool_tokens(tool)
+        service.estimate_tool_tokens(tool)
+        assert tool.to_schema_calls == 2
+        assert service._tool_estimate_cache == {}
+
+    def test_demote_policy_stub_probe_uses_bypass_estimator(self):
+        """demote_tools_to_fit's STUB probe must call the provided
+        stub_estimate_tokens (cache-bypassing), not the caching estimator."""
+        from victor.agent.tool_supply_policy import demote_tools_to_fit
+
+        calls = {"normal": 0, "stub": 0}
+
+        def normal_estimator(tool, provider_category=None):
+            calls["normal"] += 1
+            return 500
+
+        def stub_estimator(tool, provider_category=None):
+            calls["stub"] += 1
+            return 50
+
+        tool = SimpleNamespace(
+            name="critical", priority=SimpleNamespace(value=0), _schema_level=None
+        )
+        # priority CRITICAL == 0? Use a real Priority enum value instead:
+        from victor.tools.enums import Priority
+
+        tool.priority = Priority.CRITICAL
+        result = demote_tools_to_fit(
+            [tool],
+            max_tokens=100,
+            context_window=4000,
+            estimate_tokens=normal_estimator,
+            stub_estimate_tokens=stub_estimator,
+        )
+        assert calls["stub"] == 1, "STUB probe must use the bypass estimator"
+        assert calls["normal"] == 1
+        assert result == [tool], "critical tool demoted to fit"
+        assert tool._schema_level is None, "schema level restored"
+
+    def test_distinct_tier_keys_do_not_shadow(self):
+        """Removes the earlier tautology: distinct (category) keys must
+        build independently."""
+        service = _service(_registry_with_version(1))
+        tool = _FakeTool("search", {"parameters": {"q": "s"}})
+        with_cat = service.estimate_tool_tokens(tool, provider_category="anthropic")
+        without_cat = service.estimate_tool_tokens(tool)
+        assert with_cat != without_cat or tool.to_schema_calls == 2
+        assert tool.to_schema_calls == 2

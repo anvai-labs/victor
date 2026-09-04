@@ -3511,6 +3511,14 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
 
         return ToolStrategyRuntime(self).estimate_tool_tokens(tool, provider_category)
 
+    def _estimate_tool_tokens_uncached(self, tool, provider_category=None) -> int:
+        """Cache-bypassing estimator for temporary-schema-level probes."""
+        from victor.agent.services.tool_strategy_runtime import ToolStrategyRuntime
+
+        return ToolStrategyRuntime(self).estimate_tool_tokens(
+            tool, provider_category, _use_cache=False
+        )
+
     def _demote_tools_to_fit(
         self, tools, max_tokens: int, context_window: int, provider_category: str = None
     ) -> list:
@@ -3524,6 +3532,7 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
             context_window,
             estimate_tokens=self._estimate_tool_tokens,
             provider_category=provider_category,
+            stub_estimate_tokens=self._estimate_tool_tokens_uncached,
         )
 
     def _semantic_select_tools(self, tools, max_tokens: int, provider_category: str = None) -> list:

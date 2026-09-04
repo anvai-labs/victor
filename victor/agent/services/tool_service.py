@@ -2817,9 +2817,16 @@ class ToolService:
         registry_version = None
         if _use_cache:
             # _registrar is the canonical attr; _registry is accepted for
-            # alternate wirings.
-            registry = getattr(self, "_registrar", None) or getattr(self, "_registry", None)
-            registry_version = getattr(registry, "schema_cache_version", None)
+            # alternate wirings. Explicit None checks: `or` treated an EMPTY
+            # registry as falsy and silently disabled the cache
+            # (adversarial-review finding); non-int versions (Mock wirings)
+            # would thrash per call.
+            registry = getattr(self, "_registrar", None)
+            if registry is None:
+                registry = getattr(self, "_registry", None)
+            version = getattr(registry, "schema_cache_version", None)
+            if isinstance(version, int):
+                registry_version = version
             if registry_version != self._tool_estimate_cache_version:
                 self._tool_estimate_cache = {}
                 self._tool_estimate_cache_version = registry_version
