@@ -1,6 +1,6 @@
 # EVR-6 Per-Turn Auditor: Offline HTIR Gate
 
-**Status:** gate machinery shipped; real-distribution evidence pending; runtime default OFF
+**Status:** attempt 1 HOLD; runtime default OFF
 **Tracks:** FEP-0008 Phase C, EVR-6, flag-graduation policy
 
 ## Decision boundary
@@ -91,6 +91,23 @@ result, not permission to relax the pre-registered thresholds.
 An alarm is a true positive only when its first occurrence is at or before the oracle alarm step.
 An alarm after that point is reported as late and counted as a false negative. This prevents a
 post-failure detector from being described as early warning.
+
+## Real-distribution attempt 1
+
+The first independently reviewed real-distribution run completed on 2026-09-04 and produced a
+preregistered **HOLD**. The exact 28-case reviewed pack was recovered from the original four
+source manifests plus the independent reviewer's recorded edits, then verified against the
+review-time SHA-256 before finalization. The replay used 245 ordered prefixes with decision
+caching disabled and pinned `qwen3.5:2b` to
+`sha256:324d162be6ca5629ae4517c8710434d0bd2d665bc94dbad46e9af8fbf8a2f0df` before and after
+the battery.
+
+The pack itself forces HOLD because `deep-research-dr3` has six alarm-positive traces and no
+healthy trace. Model quality also missed the gate: precision and recall were both 0.0, recall was
+0.0 in every family, and p95 latency was 1,639.2016 ms. The healthy false-alarm rate was 0.0.
+See the [attempt 1 result](evr6-auditor-results-2026-09-04.md) for provenance, artifact digests,
+and the evaluator's exact reasons. This result does not authorize a runtime-default change or a
+flag-OFF/ON A/B.
 
 ## Run
 
