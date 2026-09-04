@@ -2781,24 +2781,16 @@ class ToolService:
             ),
         )
 
-    def estimate_tool_tokens(self, tool, *, provider_category: Optional[str] = None) -> int:
-        """Estimate token cost for a tool at its current schema level.
+    def estimate_tool_tokens(
+        self, tool, *, provider_category: Optional[str] = None, _use_cache: bool = True
+    ) -> int:
+        """Estimate token cost for a tool; see tool_estimate_cache for the
+        caching contract (co-design review U4-F1)."""
+        from victor.agent.services.tool_estimate_cache import estimate_tool_tokens
 
-        Falls back to a name-length heuristic when the tool's schema cannot be
-        generated (e.g. missing ``to_schema`` implementation).
-        """
-        from victor.config.tool_tiers import get_provider_tool_tier, get_tool_tier
-
-        try:
-            tier = (
-                get_provider_tool_tier(tool.name, provider_category)
-                if provider_category
-                else get_tool_tier(tool.name)
-            )
-            schema = tool.to_schema(tier)
-            return len(str(schema)) // 4
-        except Exception:
-            return len(tool.name) + 50
+        return estimate_tool_tokens(
+            self, tool, provider_category=provider_category, use_cache=_use_cache
+        )
 
     def apply_kv_tool_strategy(
         self,
@@ -3006,7 +2998,7 @@ class ToolService:
                 try:
                     original = getattr(tool, "_schema_level", None)
                     tool._schema_level = SchemaLevel.STUB
-                    stub_cost = self.estimate_tool_tokens(tool)
+                    stub_cost = self.estimate_tool_tokens(tool, _use_cache=False)
                     tool._schema_level = original
                     if used + stub_cost <= max_tokens:
                         result.append(tool)
