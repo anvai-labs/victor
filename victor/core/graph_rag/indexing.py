@@ -3052,20 +3052,38 @@ class GraphIndexingPipeline:
                     continue  # don't mark nodes embedded if vectors didn't persist
 
                 if atomic_record_store is None:
-                    for node_id in persisted_ids:
+                    pairs = [
+                        (
+                            node_id,
+                            {
+                                "embedding_ref": f"emb:{node_id}",
+                                "has_embedding": True,
+                                "content_version": versions[node_id],
+                            },
+                        )
+                        for node_id in persisted_ids
+                    ]
+                    batch_update = getattr(self.graph_store, "update_nodes_metadata", None)
+                    if callable(batch_update):
                         try:
-                            await self.graph_store.update_node_metadata(
-                                node_id,
-                                {
-                                    "embedding_ref": f"emb:{node_id}",
-                                    "has_embedding": True,
-                                    "content_version": versions[node_id],
-                                },
-                            )
+                            async with self._graph_store_write_batch():
+                                await batch_update(pairs)
                         except Exception as e:
-                            logger.warning(f"Failed to mark embedding for {node_id}: {e}")
+                            logger.warning(
+                                "Batched embedding metadata update failed (%d nodes): %s",
+                                len(pairs),
+                                e,
+                            )
                             stats.error_count += 1
-                            stats.errors.append(f"Embedding metadata failed for {node_id}: {e}")
+                            stats.errors.append(f"Batched embedding metadata: {e}")
+                    else:
+                        for node_id, metadata in pairs:
+                            try:
+                                await self.graph_store.update_node_metadata(node_id, metadata)
+                            except Exception as e:
+                                logger.warning(f"Failed to mark embedding for {node_id}: {e}")
+                                stats.error_count += 1
+                                stats.errors.append(f"Embedding metadata failed for {node_id}: {e}")
 
                 embedded_total += len(persisted_ids)
                 logger.debug(f"Embedded batch {i // batch_size + 1}")

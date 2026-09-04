@@ -210,6 +210,64 @@ async def test_atomic_record_persists_vector_and_staleness_in_one_call(tmp_path,
 
 
 @pytest.mark.asyncio
+async def test_generate_embeddings_marks_nodes_via_single_batched_query(
+    store_and_root, monkeypatch
+):
+    """Co-design review item 20a: the mark-embedded loop issues one SELECT for
+    the whole batch of persisted nodes, not one SELECT per node."""
+    store, root = store_and_root
+    await store.upsert_nodes(
+        [_node("n1", "a.py", "alpha"), _node("n2", "b.py", "beta"), _node("n3", "c.py", "gamma")]
+    )
+
+    provider = MagicMock()
+    provider.index_embedded_documents = AsyncMock()
+    _patch_embedding_stack(monkeypatch, provider)
+
+    conn = store._connect()
+    queries = []
+    conn.set_trace_callback(queries.append)
+    try:
+        stats = await _pipeline(store, root)._generate_embeddings()
+    finally:
+        conn.set_trace_callback(None)
+
+    assert stats.embeddings_generated == 3
+    metadata_selects = [
+        q for q in queries if q.strip().upper().startswith("SELECT NODE_ID, METADATA")
+    ]
+    assert len(metadata_selects) == 1
+
+    nodes = await store.get_all_nodes()
+    for n in nodes:
+        assert n.metadata.get("has_embedding") is True
+        assert n.embedding_ref == f"emb:{n.node_id}"
+
+
+@pytest.mark.asyncio
+async def test_generate_embeddings_falls_back_to_per_node_update_without_batched_method(
+    store_and_root, monkeypatch
+):
+    """Stores that don't implement update_nodes_metadata still work (duck-typed
+    fallback to the original per-node update_node_metadata loop)."""
+    store, root = store_and_root
+    await store.upsert_nodes([_node("n1", "a.py", "alpha")])
+
+    provider = MagicMock()
+    provider.index_embedded_documents = AsyncMock()
+    _patch_embedding_stack(monkeypatch, provider)
+
+    monkeypatch.delattr(type(store), "update_nodes_metadata", raising=True)
+
+    stats = await _pipeline(store, root)._generate_embeddings()
+
+    assert stats.embeddings_generated == 1
+    node = (await store.get_all_nodes())[0]
+    assert node.metadata.get("has_embedding") is True
+    assert node.embedding_ref == "emb:n1"
+
+
+@pytest.mark.asyncio
 async def test_update_node_metadata_merges_and_sets_embedding_ref(store_and_root):
     store, _root = store_and_root
     await store.upsert_nodes([_node("n1", "a.py", "alpha")])

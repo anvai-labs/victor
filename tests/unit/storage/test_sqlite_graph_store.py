@@ -216,3 +216,207 @@ async def test_sqlite_graph_store_write_batch_rolls_back_on_error(tmp_path):
     assert stats["nodes"] == 0
     assert stats["edges"] == 0
     assert stats["indexed_files"] == 0
+
+
+@pytest.mark.asyncio
+async def test_get_stale_files_issues_single_query_regardless_of_file_count(tmp_path):
+    """Co-design review item 20a: one full-table SELECT, not one per file."""
+    store = SqliteGraphStore(tmp_path)
+    files = [f"pkg/mod_{i}.py" for i in range(50)]
+    for f in files:
+        await store.update_file_mtime(f, 100.0)
+
+    conn = store._connect()
+    queries = []
+    conn.set_trace_callback(queries.append)
+    try:
+        stale = await store.get_stale_files(dict.fromkeys(files, 100.0))
+    finally:
+        conn.set_trace_callback(None)
+
+    select_queries = [q for q in queries if q.strip().upper().startswith("SELECT")]
+    assert len(select_queries) == 1
+    assert stale == []
+
+
+@pytest.mark.asyncio
+async def test_get_file_hashes_issues_single_query_regardless_of_file_count(tmp_path):
+    store = SqliteGraphStore(tmp_path)
+    files = [f"pkg/mod_{i}.py" for i in range(50)]
+    for f in files:
+        await store.update_file_mtime(f, 100.0, content_hash=f"hash-{f}")
+
+    conn = store._connect()
+    queries = []
+    conn.set_trace_callback(queries.append)
+    try:
+        hashes = await store.get_file_hashes(files)
+    finally:
+        conn.set_trace_callback(None)
+
+    select_queries = [q for q in queries if q.strip().upper().startswith("SELECT")]
+    assert len(select_queries) == 1
+    assert hashes == {f: f"hash-{f}" for f in files}
+
+
+@pytest.mark.asyncio
+async def test_get_stale_files_batched_matches_per_file_semantics(tmp_path):
+    """Batched rewrite must still detect staleness and freshness per file."""
+    store = SqliteGraphStore(tmp_path)
+    await store.update_file_mtime("fresh.py", 200.0)
+    await store.update_file_mtime("old.py", 100.0)
+    # "unknown.py" never indexed.
+
+    stale = await store.get_stale_files({"fresh.py": 200.0, "old.py": 150.0, "unknown.py": 1.0})
+
+    assert set(stale) == {"old.py", "unknown.py"}
+
+
+@pytest.mark.asyncio
+async def test_get_file_hashes_batched_omits_files_without_hash(tmp_path):
+    store = SqliteGraphStore(tmp_path)
+    await store.update_file_mtime("hashed.py", 1.0, content_hash="abc123")
+    await store.update_file_mtime("unhashed.py", 1.0)
+
+    hashes = await store.get_file_hashes(["hashed.py", "unhashed.py", "missing.py"])
+
+    assert hashes == {"hashed.py": "abc123"}
+
+
+@pytest.mark.asyncio
+async def test_update_nodes_metadata_batches_write_and_skips_unknown_ids(tmp_path):
+    store = SqliteGraphStore(tmp_path)
+    await store.upsert_nodes(
+        [
+            GraphNode(node_id="n1", type="function", name="a", file="a.py", line=1),
+            GraphNode(node_id="n2", type="function", name="b", file="b.py", line=1),
+        ]
+    )
+
+    conn = store._connect()
+    queries = []
+    conn.set_trace_callback(queries.append)
+    try:
+        await store.update_nodes_metadata(
+            [
+                ("n1", {"embedding_ref": "emb:n1", "has_embedding": True}),
+                ("n2", {"has_embedding": True}),
+                ("does-not-exist", {"has_embedding": True}),
+            ]
+        )
+    finally:
+        conn.set_trace_callback(None)
+
+    select_queries = [q for q in queries if q.strip().upper().startswith("SELECT")]
+    assert len(select_queries) == 1
+
+    nodes = await store.get_nodes_by_file("a.py")
+    assert nodes[0].metadata.get("has_embedding") is True
+    assert nodes[0].embedding_ref == "emb:n1"
+
+    nodes_b = await store.get_nodes_by_file("b.py")
+    assert nodes_b[0].metadata.get("has_embedding") is True
+
+
+@pytest.mark.asyncio
+async def test_update_nodes_metadata_empty_pairs_is_noop(tmp_path):
+    store = SqliteGraphStore(tmp_path)
+    await store.update_nodes_metadata([])
+
+
+@pytest.mark.asyncio
+async def test_update_nodes_metadata_compounds_duplicate_node_id_patches(tmp_path):
+    """A repeated node id in one batch must compound like sequential calls to
+    update_node_metadata, not let the last patch silently win."""
+    store = SqliteGraphStore(tmp_path)
+    await store.upsert_nodes(
+        [GraphNode(node_id="n1", type="function", name="a", file="a.py", line=1)]
+    )
+
+    await store.update_nodes_metadata(
+        [
+            ("n1", {"embedding_ref": "emb:n1", "patch_a": 1}),
+            ("n1", {"patch_b": 2}),
+        ]
+    )
+
+    node = (await store.get_nodes_by_file("a.py"))[0]
+    assert node.metadata.get("patch_a") == 1
+    assert node.metadata.get("patch_b") == 2
+    # A later patch that omits embedding_ref must not clear the earlier value
+    # (the single-node path only ever touches that column when supplied).
+    assert node.embedding_ref == "emb:n1"
+
+
+@pytest.mark.asyncio
+async def test_update_nodes_metadata_later_embedding_ref_overrides_earlier(tmp_path):
+    store = SqliteGraphStore(tmp_path)
+    await store.upsert_nodes(
+        [GraphNode(node_id="n1", type="function", name="a", file="a.py", line=1)]
+    )
+
+    await store.update_nodes_metadata(
+        [
+            ("n1", {"embedding_ref": "emb:old"}),
+            ("n1", {"embedding_ref": "emb:new"}),
+        ]
+    )
+
+    node = (await store.get_nodes_by_file("a.py"))[0]
+    assert node.embedding_ref == "emb:new"
+
+
+@pytest.mark.asyncio
+async def test_update_nodes_metadata_matches_sequential_single_node_calls(tmp_path):
+    """The batched compounding result must equal applying the same patches one
+    at a time via update_node_metadata, for both a fresh and pre-existing node."""
+    store_batched = SqliteGraphStore(tmp_path / "batched")
+    store_sequential = SqliteGraphStore(tmp_path / "sequential")
+    for store in (store_batched, store_sequential):
+        await store.upsert_nodes(
+            [GraphNode(node_id="n1", type="function", name="a", file="a.py", line=1)]
+        )
+
+    patches = [
+        ("n1", {"embedding_ref": "emb:1", "has_embedding": True}),
+        ("n1", {"content_version": "v1"}),
+        ("n1", {"embedding_ref": "emb:2"}),
+    ]
+
+    await store_batched.update_nodes_metadata(patches)
+    for node_id, metadata in patches:
+        await store_sequential.update_node_metadata(node_id, metadata)
+
+    batched_node = (await store_batched.get_nodes_by_file("a.py"))[0]
+    sequential_node = (await store_sequential.get_nodes_by_file("a.py"))[0]
+    assert batched_node.metadata == sequential_node.metadata
+    assert batched_node.embedding_ref == sequential_node.embedding_ref
+
+
+@pytest.mark.asyncio
+async def test_update_nodes_metadata_rolls_back_whole_batch_on_write_batch_error(tmp_path):
+    """When wrapped in write_batch() (as the real caller does), a failure
+    partway through must roll back every node's metadata mark, not just the
+    failing one — pins the atomicity trade-off the batched rewrite makes."""
+    store = SqliteGraphStore(tmp_path)
+    await store.upsert_nodes(
+        [
+            GraphNode(node_id="n1", type="function", name="a", file="a.py", line=1),
+            GraphNode(node_id="n2", type="function", name="b", file="b.py", line=1),
+        ]
+    )
+
+    with pytest.raises(RuntimeError, match="boom"):
+        async with store.write_batch():
+            await store.update_nodes_metadata(
+                [
+                    ("n1", {"has_embedding": True}),
+                    ("n2", {"has_embedding": True}),
+                ]
+            )
+            raise RuntimeError("boom")
+
+    node_a = (await store.get_nodes_by_file("a.py"))[0]
+    node_b = (await store.get_nodes_by_file("b.py"))[0]
+    assert not node_a.metadata.get("has_embedding")
+    assert not node_b.metadata.get("has_embedding")
