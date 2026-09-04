@@ -62,6 +62,14 @@ class TurnBoundaryContextAssembler:
         # history). Wired only when USE_TOOL_RESULT_DEDUP is enabled, so the
         # assembler itself stays flag-agnostic: presence == active.
         self._tool_result_deduplicator = tool_result_deduplicator
+        # Per-turn raw-score cache (co-design review U1-5): the raw score_fn
+        # result over the unchanged older-message prefix is recomputed every
+        # turn; key = (identity of first older message, prefix length, query).
+        # Append-only turns hit; compaction/replacement (new object ids) and
+        # query changes miss. Only the RAW scores are cached — temperature
+        # multipliers depend on current_turn and are applied fresh per call.
+        self._score_cache_key: Optional[tuple] = None
+        self._score_cache_value: Optional[list] = None
 
     @property
     def config(self) -> ContextAssemblerConfig:
@@ -336,9 +344,23 @@ class TurnBoundaryContextAssembler:
         # 4. Score and select older messages
         older_chars = 0
         if older_messages and self._score_fn and older_budget > 0:
-            scored = self._score_fn(older_messages, current_query)
+            # Raw-score cache (see __init__): the older-message prefix is
+            # append-only between turns, so identical (first-msg identity,
+            # prefix length, query) means the raw scores are unchanged.
+            cache_key = (id(older_messages[0]), len(older_messages), current_query)
+            if self._score_cache_key == cache_key and self._score_cache_value is not None:
+                scored = self._score_cache_value
+            else:
+                scored = self._score_fn(older_messages, current_query)
+                self._score_cache_key = cache_key
+                self._score_cache_value = scored
             # scored should be list of (message, score) or similar
             if scored and isinstance(scored[0], tuple):
+                # Index map (co-design review U1-5): older_messages.index(msg)
+                # was an O(n) scan with value-equality per selected message —
+                # O(n^2) per turn on long histories. Keyed by id() because the
+                # temperature multipliers below also key on object identity.
+                index_by_id = {id(m): i for i, m in enumerate(older_messages)}
                 # Apply temperature multipliers if classifier is available
                 if self._temperature_classifier is not None:
                     try:
@@ -356,13 +378,14 @@ class TurnBoundaryContextAssembler:
                             ]
                     except Exception as _te:
                         logger.debug(f"Context temperature classification skipped: {_te}")
+                scored = list(scored)
                 scored.sort(key=lambda x: x[1], reverse=True)
                 selected_older = []
                 older_chars = 0
                 for msg, score in scored:
                     msg_len = len(msg.content)
                     if older_chars + msg_len <= older_budget:
-                        selected_older.append((msg, score, older_messages.index(msg)))
+                        selected_older.append((msg, score, index_by_id[id(msg)]))
                         older_chars += msg_len
                 # Sort by original order
                 selected_older.sort(key=lambda x: x[2])
