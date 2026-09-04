@@ -238,7 +238,10 @@ class GraphCheckpointManager:
             checkpoint = await self.checkpointer.load(thread_id)
             if checkpoint:
                 logger.info("Resuming from checkpoint at node: %s", checkpoint.node_id)
-                return checkpoint.state.copy(), checkpoint.node_id
+                # Deep copy: shallow copy() would alias nested dicts with the
+                # stored checkpoint, and the execution loop mutates state
+                # in place as it runs.
+                return copy.deepcopy(checkpoint.state), checkpoint.node_id
         return copy.deepcopy(input_state), entry_point
 
     async def save_checkpoint(
