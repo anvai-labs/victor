@@ -16,7 +16,6 @@ from __future__ import annotations
 
 """Bash command execution tool with readonly mode support."""
 
-import asyncio
 import logging
 import os
 import platform
@@ -24,6 +23,7 @@ import re
 import shlex
 import shutil
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Dict, List, Optional, Set
 
 logger = logging.getLogger(__name__)
@@ -1350,41 +1350,6 @@ def _is_dangerous(command: str) -> bool:
 _PROGRESS_TOOL_NAME = "shell"
 
 
-async def _stream_subprocess_output(process: Any, tool_name: str) -> tuple[bytes, bytes]:
-    """Read a subprocess's stdout/stderr concurrently, emitting live progress.
-
-    Returns the full accumulated (stdout, stderr) bytes so the existing result
-    contract (truncation, caching) is unchanged. Used only when a UI progress
-    sink is active; otherwise the caller uses the cheaper ``communicate()``.
-    """
-    from victor.framework.tool_progress import emit_tool_progress
-
-    out_buf = bytearray()
-    err_buf = bytearray()
-
-    async def _drain(stream: Any, buf: bytearray, is_stderr: bool) -> None:
-        if stream is None:
-            return
-        while True:
-            chunk = await stream.read(4096)
-            if not chunk:
-                break
-            buf.extend(chunk)
-            text = chunk.decode("utf-8", "replace")
-            emit_tool_progress(
-                name=tool_name,
-                stdout="" if is_stderr else text,
-                stderr=text if is_stderr else "",
-            )
-
-    await asyncio.gather(
-        _drain(process.stdout, out_buf, False),
-        _drain(process.stderr, err_buf, True),
-    )
-    await process.wait()
-    return bytes(out_buf), bytes(err_buf)
-
-
 # --- Shell git-commit attribution interceptor -------------------------------------------
 # Closes the bypass where an LLM issues ``git commit -m "..."`` via the raw
 # ``shell`` tool instead of the domain ``git`` tool (which already attributes).
@@ -1859,59 +1824,62 @@ async def shell(
                 # If caching fails, fall through to normal execution
                 logger.warning(f"Cache lookup failed, executing directly: {cache_error}")
 
-        # Create subprocess (apply OS sandbox if active; default off = no change).
-        from victor.tools.subprocess_executor import _resolve_default_sandbox
+        # Create subprocess and run it to completion or timeout via the shared
+        # runner (co-design review item 15): spawn/kill/timeout are
+        # centralized in run_managed_process, which spawns in its own POSIX
+        # process group and kills the WHOLE group on timeout — a child the
+        # shell command backgrounded (e.g. ``sleep 100 &``) is no longer
+        # orphaned past the timeout the way a plain process.kill() left it.
+        # (apply OS sandbox if active; default off = no change).
+        from victor.tools.subprocess_executor import _resolve_default_sandbox, run_managed_process
 
         _sandbox = _resolve_default_sandbox()
-        if _sandbox.type_name != "none":
-            _wrapped = _sandbox.wrap_argv(["/bin/sh", "-c", cmd], Path(cwd) if cwd else None)
-            process = await asyncio.create_subprocess_exec(
-                *_wrapped,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=cwd,
-            )
-        else:
-            process = await asyncio.create_subprocess_shell(
-                cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=cwd,
-            )
+        _wrapped = (
+            _sandbox.wrap_argv(["/bin/sh", "-c", cmd], Path(cwd) if cwd else None)
+            if _sandbox.type_name != "none"
+            else None
+        )
 
-        # Wait for completion with timeout. When a live progress sink is active,
-        # stream stdout/stderr incrementally so the UI shows output as it is
-        # produced; otherwise use the cheaper single communicate() call.
+        # When a live progress sink is active, stream stdout/stderr chunks to
+        # it as they arrive so the UI shows output as it is produced.
         from victor.framework.tool_progress import emit_tool_progress, has_progress_sink
 
         _streaming_progress = has_progress_sink()
-        try:
-            if _streaming_progress:
-                stdout, stderr = await asyncio.wait_for(
-                    _stream_subprocess_output(process, _PROGRESS_TOOL_NAME),
-                    timeout=timeout,
-                )
-            else:
-                stdout, stderr = await asyncio.wait_for(
-                    process.communicate(),
-                    timeout=timeout,
-                )
-        except asyncio.TimeoutError:
-            process.kill()
-            await process.wait()
+
+        def _emit_chunk(is_stderr: bool, chunk: bytes) -> None:
+            text = chunk.decode("utf-8", "replace")
+            emit_tool_progress(
+                name=_PROGRESS_TOOL_NAME,
+                stdout="" if is_stderr else text,
+                stderr=text if is_stderr else "",
+            )
+
+        stdout, stderr, _return_code, _timed_out, _capped = await run_managed_process(
+            command=cmd if _wrapped is None else None,
+            argv=_wrapped,
+            cwd=cwd,
+            timeout=timeout,
+            on_chunk=_emit_chunk if _streaming_progress else None,
+        )
+        # Lightweight stand-in preserving the process.returncode reads below
+        # (condensation, cache write, error summary) without a real Process
+        # object — run_managed_process already reaped the real one.
+        process = SimpleNamespace(returncode=_return_code)
+
+        if _timed_out:
             return {
                 "success": False,
                 "error": f"Command timed out after {timeout} seconds",
-                "stdout": "",
-                "stderr": "",
+                "stdout": stdout.decode("utf-8", "replace") if stdout else "",
+                "stderr": stderr.decode("utf-8", "replace") if stderr else "",
                 "return_code": -1,
             }
 
         if _streaming_progress:
             emit_tool_progress(name=_PROGRESS_TOOL_NAME, is_final=True)
 
-        stdout_str = stdout.decode("utf-8") if stdout else ""
-        stderr_str = stderr.decode("utf-8") if stderr else ""
+        stdout_str = stdout.decode("utf-8", "replace") if stdout else ""
+        stderr_str = stderr.decode("utf-8", "replace") if stderr else ""
         raw_stdout_str, raw_stderr_str = stdout_str, stderr_str
 
         # Condense recognized command output before generic truncation so the

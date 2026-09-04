@@ -324,3 +324,97 @@ class TestVariableInterpolation:
 
             finally:
                 os.chdir(old_cwd)
+
+
+class TestScaffoldInitGitTimeout:
+    """Co-design review item 15: init-git previously had NO timeout at all
+    on any of its three git invocations — a hook or a locked filesystem
+    could hang the tool call forever. Now routed through run_managed_process
+    with a bounded timeout."""
+
+    @pytest.mark.asyncio
+    async def test_init_git_reports_timeout_without_hanging(self, monkeypatch):
+        async def _fake_run_managed_process(*, argv, timeout):
+            return (b"", b"", -1, True, False)  # timed_out=True
+
+        monkeypatch.setattr(
+            "victor.tools.subprocess_executor.run_managed_process",
+            _fake_run_managed_process,
+        )
+
+        result = await scaffold(operation="init-git")
+
+        assert result["success"] is False
+        assert "timed out" in result["error"].lower()
+        assert "git init" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_init_git_reports_failure_with_stderr(self, monkeypatch):
+        calls = []
+
+        async def _fake_run_managed_process(*, argv, timeout):
+            calls.append(argv)
+            if argv == ["git", "init"]:
+                return (b"", b"fatal: not a git repository", 128, False, False)
+            return (b"", b"", 0, False, False)
+
+        monkeypatch.setattr(
+            "victor.tools.subprocess_executor.run_managed_process",
+            _fake_run_managed_process,
+        )
+
+        result = await scaffold(operation="init-git")
+
+        assert result["success"] is False
+        assert "fatal: not a git repository" in result["error"]
+        # Only the first (failing) step ran — add/commit never dispatched.
+        assert calls == [["git", "init"]]
+
+    @pytest.mark.asyncio
+    async def test_init_git_runs_all_three_steps_on_success(self, monkeypatch):
+        calls = []
+
+        async def _fake_run_managed_process(*, argv, timeout):
+            calls.append(argv)
+            return (b"", b"", 0, False, False)
+
+        monkeypatch.setattr(
+            "victor.tools.subprocess_executor.run_managed_process",
+            _fake_run_managed_process,
+        )
+
+        result = await scaffold(operation="init-git")
+
+        assert result["success"] is True
+        assert calls == [
+            ["git", "init"],
+            ["git", "add", "."],
+            ["git", "commit", "-m", "Initial commit"],
+        ]
+
+    @pytest.mark.asyncio
+    async def test_init_git_nothing_to_commit_is_not_a_failure(self, monkeypatch):
+        """git commit failing with 'nothing to commit' (e.g. init-git run on
+        an already-committed or still-empty directory) must not be reported
+        as a tool failure — the repo is still correctly initialized."""
+        calls = []
+
+        async def _fake_run_managed_process(*, argv, timeout):
+            calls.append(argv)
+            if argv == ["git", "commit", "-m", "Initial commit"]:
+                return (b"", b"nothing to commit, working tree clean", 1, False, False)
+            return (b"", b"", 0, False, False)
+
+        monkeypatch.setattr(
+            "victor.tools.subprocess_executor.run_managed_process",
+            _fake_run_managed_process,
+        )
+
+        result = await scaffold(operation="init-git")
+
+        assert result["success"] is True
+        assert calls == [
+            ["git", "init"],
+            ["git", "add", "."],
+            ["git", "commit", "-m", "Initial commit"],
+        ]

@@ -31,12 +31,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import shutil
+import signal
 import subprocess
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 
 if TYPE_CHECKING:
     from victor.tools.sandbox import SandboxBackend
@@ -554,6 +556,142 @@ def run_command(
 # =============================================================================
 
 
+def _process_group_kwargs() -> Dict[str, Any]:
+    """``start_new_session=True`` on POSIX so a timeout/cap kill can reach
+    every process a spawned shell command starts (e.g. ``sleep 100 &``), not
+    just the direct child — that child would otherwise be orphaned and keep
+    running past the timeout. A no-op dict on platforms without
+    ``os.killpg``/``os.getpgid`` (co-design review item 15)."""
+    if hasattr(os, "killpg") and hasattr(os, "getpgid"):
+        return {"start_new_session": True}
+    return {}
+
+
+def kill_process_group(process: "asyncio.subprocess.Process") -> None:
+    """Kill ``process`` and, on POSIX, its whole process group.
+
+    Falls back to killing just the direct child when ``os.killpg``/
+    ``os.getpgid`` are unavailable (non-POSIX) or the group lookup fails
+    (process already reaped). Never raises.
+
+    Checks ``process.returncode`` first, mirroring the guard
+    ``subprocess.Popen.send_signal()`` itself applies before signaling
+    (bpo-38630): once asyncio has observed the child exit, its pid may
+    already have been recycled by the OS for an unrelated process, and
+    ``killpg``/``kill`` on a stale pid would land on that.
+    """
+    if process.returncode is not None:
+        return
+    if hasattr(os, "killpg") and hasattr(os, "getpgid"):
+        try:
+            pgid = os.getpgid(process.pid)
+            os.killpg(pgid, signal.SIGKILL)
+            return
+        except (ProcessLookupError, PermissionError, OSError):
+            pass
+    try:
+        process.kill()
+    except (ProcessLookupError, PermissionError, OSError):
+        pass
+
+
+async def run_managed_process(
+    command: Optional[str] = None,
+    *,
+    argv: Optional[Sequence[str]] = None,
+    cwd: Optional[Path] = None,
+    env: Optional[Dict[str, str]] = None,
+    preexec_fn: Optional[Callable[[], None]] = None,
+    timeout: int = 60,
+    max_output_bytes: int = 0,
+    on_chunk: Optional[Callable[[bool, bytes], None]] = None,
+) -> Tuple[bytes, bytes, int, bool, bool]:
+    """Spawn a command and run it to completion or ``timeout``, whichever
+    comes first. The single runner underneath every async subprocess call in
+    this module (co-design review item 15).
+
+    Exactly one of ``command`` (run through the shell) or ``argv`` (exec'd
+    directly, no shell) must be given.
+
+    stdout/stderr are read incrementally into caller-owned buffers as they
+    arrive — never via a single ``communicate()`` — so whatever was produced
+    before a timeout or a ``max_output_bytes`` cap survives the kill instead
+    of being discarded.
+
+    Returns:
+        ``(stdout, stderr, return_code, timed_out, capped)``. ``stdout``/
+        ``stderr`` are the FULL output on a clean exit, or PARTIAL output
+        (everything read before the kill) when ``timed_out`` or ``capped``
+        is True. ``return_code`` is 0 for a killed process (no exit was
+        observed to report). On POSIX, both timeout and cap kills reach the
+        whole process group, not just the direct child.
+    """
+    if (command is None) == (argv is None):
+        raise ValueError("run_managed_process requires exactly one of command or argv")
+
+    spawn_kwargs: Dict[str, Any] = {
+        "stdout": asyncio.subprocess.PIPE,
+        "stderr": asyncio.subprocess.PIPE,
+        "cwd": cwd,
+        "env": env,
+    }
+    if preexec_fn is not None:
+        spawn_kwargs["preexec_fn"] = preexec_fn
+    spawn_kwargs.update(_process_group_kwargs())
+
+    if argv is not None:
+        process = await asyncio.create_subprocess_exec(*argv, **spawn_kwargs)
+    else:
+        process = await asyncio.create_subprocess_shell(command, **spawn_kwargs)
+
+    out_buf = bytearray()
+    err_buf = bytearray()
+    capped = False
+
+    async def _drain(stream: Any, buf: bytearray, is_stderr: bool) -> None:
+        nonlocal capped
+        if stream is None:
+            return
+        while True:
+            chunk = await stream.read(4096)
+            if not chunk:
+                return
+            buf.extend(chunk)
+            if on_chunk is not None:
+                on_chunk(is_stderr, chunk)
+            if max_output_bytes > 0 and len(buf) >= max_output_bytes:
+                capped = True
+                kill_process_group(process)
+                return
+
+    drain = asyncio.gather(
+        _drain(process.stdout, out_buf, False),
+        _drain(process.stderr, err_buf, True),
+    )
+
+    timed_out = False
+    try:
+        await asyncio.wait_for(drain, timeout=timeout)
+    except asyncio.TimeoutError:
+        timed_out = True
+        kill_process_group(process)
+    except BaseException:
+        # Guarantee cleanup no matter WHY the drain failed — not just on the
+        # expected timeout path. Without this, an unexpected exception from
+        # a future on_chunk callback (or anywhere else in _drain) would skip
+        # the kill entirely and leave `await process.wait()` below blocking
+        # until the process exits naturally: the exact unbounded-hang bug
+        # this runner exists to eliminate, reachable through a different
+        # door. Re-raised after cleanup — this is not error handling, only
+        # cleanup ordering.
+        kill_process_group(process)
+        raise
+    finally:
+        await process.wait()
+
+    return bytes(out_buf), bytes(err_buf), (process.returncode or 0), timed_out, capped
+
+
 async def run_command_async(
     command: str,
     working_dir: Optional[Union[str, Path]] = None,
@@ -617,68 +755,62 @@ async def run_command_async(
     backend = sandbox if sandbox is not None else _resolve_default_sandbox()
 
     try:
+        run_kwargs: Dict[str, Any] = {
+            "cwd": cwd,
+            "env": env,
+            "preexec_fn": preexec_fn,
+            "timeout": timeout,
+            "max_output_bytes": max_output_bytes,
+        }
         if backend.type_name != "none":
             wrapped = backend.wrap_argv(["/bin/sh", "-c", command], cwd)
             logger.debug("Executing command via %s sandbox: %.200s", backend.type_name, command)
-            process = await asyncio.create_subprocess_exec(
-                *wrapped,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=cwd,
-                env=env,
-                preexec_fn=preexec_fn,
+            stdout, stderr, return_code, timed_out, capped = await run_managed_process(
+                argv=wrapped, **run_kwargs
             )
         else:
             logger.debug("Executing command via shell: %.200s", command)
-            process = await asyncio.create_subprocess_shell(
-                command,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=cwd,
-                env=env,
-                preexec_fn=preexec_fn,
+            stdout, stderr, return_code, timed_out, capped = await run_managed_process(
+                command=command, **run_kwargs
             )
 
-        try:
-            stdout, stderr = await asyncio.wait_for(
-                process.communicate(),
-                timeout=timeout,
+        duration_ms = (time.time() - start_time) * 1000
+        stdout_str = stdout.decode("utf-8", errors="replace") if stdout else ""
+        stderr_str = stderr.decode("utf-8", errors="replace") if stderr else ""
+
+        was_truncated = capped
+        if max_output_bytes > 0:
+            stdout_str, t1, _ = _truncate_output_by_lines(
+                stdout_str, None, max_bytes=max_output_bytes, stream_name="stdout"
             )
-        except asyncio.TimeoutError:
-            process.kill()
-            await process.wait()
+            stderr_str, t2, _ = _truncate_output_by_lines(
+                stderr_str, None, max_bytes=max_output_bytes, stream_name="stderr"
+            )
+            was_truncated = was_truncated or t1 or t2
+
+        if timed_out:
             return CommandResult(
                 success=False,
-                stdout="",
-                stderr="",
+                stdout=stdout_str,
+                stderr=stderr_str,
                 return_code=-1,
                 error_type=CommandErrorType.TIMEOUT,
                 error_message=f"Command timed out after {timeout} seconds",
                 command=command,
                 working_dir=str(working_dir) if working_dir else None,
+                duration_ms=duration_ms,
+                truncated=was_truncated,
             )
 
-        duration_ms = (time.time() - start_time) * 1000
-        stdout_str = stdout.decode("utf-8") if stdout else ""
-        stderr_str = stderr.decode("utf-8") if stderr else ""
-
-        was_truncated = False
-        if max_output_bytes > 0:
-            stdout_str, t1 = _truncate_output(stdout_str, max_output_bytes)
-            stderr_str, t2 = _truncate_output(stderr_str, max_output_bytes)
-            was_truncated = t1 or t2
-
         return CommandResult(
-            success=process.returncode == 0,
+            success=return_code == 0,
             stdout=stdout_str,
             stderr=stderr_str,
-            return_code=process.returncode or 0,
+            return_code=return_code,
             error_type=(
-                CommandErrorType.SUCCESS
-                if process.returncode == 0
-                else CommandErrorType.EXECUTION_ERROR
+                CommandErrorType.SUCCESS if return_code == 0 else CommandErrorType.EXECUTION_ERROR
             ),
-            error_message=stderr_str if process.returncode != 0 else None,
+            error_message=stderr_str if return_code != 0 else None,
             command=command,
             working_dir=str(working_dir) if working_dir else None,
             duration_ms=duration_ms,
