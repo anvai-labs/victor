@@ -25,6 +25,8 @@ from __future__ import annotations
 
 import time
 
+import pytest
+
 from victor.agent.conversation.assembler import TurnBoundaryContextAssembler
 from victor.agent.session_ledger import SessionLedger
 from victor.providers.base import Message
@@ -152,3 +154,92 @@ class TestScoreCache:
         non_system = [m for m in msgs if m.role != "system"]
         expected = [(m.content, float(i)) for i, m in enumerate(non_system)][: len(cached)]
         assert cached_pairs == expected
+
+
+class TestAdversarialCacheSafety:
+    """Negatives from adversarial review of this PR."""
+
+    def test_mid_history_replacement_does_not_crash(self):
+        """Replacing a middle older message between same-query assemblies
+        used to serve the stale cached list and KeyError on the index map —
+        a crash where base develop cleanly rescored."""
+        calls = []
+        assembler = TurnBoundaryContextAssembler(
+            session_ledger=SessionLedger(), score_fn=_score_spy(calls)
+        )
+        msgs = _conversation(10)
+        assembler.assemble(msgs, max_context_chars=100000, current_query="q")
+
+        # Replace a middle older message (same length prefix).
+        msgs[5] = _msg("assistant", "rewritten answer")
+        result = assembler.assemble(msgs, max_context_chars=100000, current_query="q")
+        contents = [m.content for m in result]
+        assert "rewritten answer" in contents, "replacement must be rescored in"
+        assert len(calls) == 2
+
+    def test_in_place_length_change_invalidates(self):
+        """Length-changing in-place edit must miss the cache (content
+        fingerprint)."""
+        calls = []
+        assembler = TurnBoundaryContextAssembler(
+            session_ledger=SessionLedger(), score_fn=_score_spy(calls)
+        )
+        msgs = _conversation(10)
+        assembler.assemble(msgs, max_context_chars=100000, current_query="q")
+        msgs[4].content = "a much longer rewritten answer " * 3
+        assembler.assemble(msgs, max_context_chars=100000, current_query="q")
+        assert len(calls) == 2
+
+    def test_foreign_score_fn_object_preserves_valueerror_semantics(self):
+        """A score_fn returning objects outside the prefix previously raised
+        ValueError from list.index; the map must not turn that into KeyError
+        — the legacy fallback keeps the exception class contract."""
+
+        def foreign_fn(messages, query):
+            return [(_msg("user", "ghost"), 1.0)]
+
+        assembler = TurnBoundaryContextAssembler(
+            session_ledger=SessionLedger(), score_fn=foreign_fn
+        )
+        msgs = _conversation(6)
+        with pytest.raises(ValueError):
+            assembler.assemble(msgs, max_context_chars=100000, current_query="q")
+
+    def test_temperature_multiplier_path_with_cache_hit(self):
+        """The multiplier list rebuild must not mutate the cached raw list,
+        and multipliers must apply per-call (current_turn-dependent)."""
+        multipliers_applied = []
+
+        class RecordingClassifier:
+            def classify(self, messages, current_turn, recent_tool_names):
+                multipliers_applied.append(current_turn)
+                return {}
+
+            def get_score_multipliers(self, classified):
+                # Boost the FIRST older message every call.
+                return None  # exercised via classified-empty path
+
+        class BoostClassifier:
+            def __init__(self):
+                self.calls = 0
+
+            def classify(self, messages, current_turn, recent_tool_names):
+                self.calls += 1
+                return {id(messages[0]): 2.0}
+
+            def get_score_multipliers(self, classified):
+                return classified
+
+        calls = []
+        classifier = BoostClassifier()
+        assembler = TurnBoundaryContextAssembler(
+            session_ledger=SessionLedger(),
+            score_fn=_score_spy(calls),
+            temperature_classifier=classifier,
+        )
+        msgs = _conversation(10)
+        assembler.assemble(msgs, max_context_chars=100000, current_query="q")
+        assembler.assemble(msgs, max_context_chars=100000, current_query="q")
+        # Classifier ran per call (fresh multipliers), score_fn ran once (cache).
+        assert classifier.calls == 2
+        assert len(calls) == 1
