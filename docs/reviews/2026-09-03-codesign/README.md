@@ -74,20 +74,25 @@ The graph DB is defined as derived/rebuildable, yet it is the largest file in th
 
 Sequenced by (severity × leverage ÷ effort). IDs reference unit reports. FEP-gated items marked.
 
-**Wave 1 — immediate, small, high severity (days):**
+**Wave 1 — immediate, small, high severity (days): DONE 2026-09-03, PRs #994–#998 (+#993 artifacts).**
+Each PR passed an adversarial review pass before merge; findings fixed in-PR with negative tests.
+Known accepted gaps: terminal blocklist remains substring-based (API-key auth is the real gate);
+`/ws` broadcast push unauthenticated on keyed servers (chat is message-gated; header-gating would
+break the vscode flow); fallback drops thinking content sharing a chunk with an entering
+transition (pre-existing); bootstrap container shares the settings snapshot by design.
 
-| # | Item | Ref | Effort |
-|---|------|-----|--------|
-| 1 | API auth: router-level `_verify_api_key` dependency, WS accept-time auth, terminal route auth + server-side approval | U7-F1/F2/F3 | S–M |
-| 2 | Process-cached Settings snapshot + invalidation (kills T1 everywhere) | U3-F1, U2-F3, U5-09 | S–M |
-| 3 | Context-fitter: shared Strategy enum + int priority default (restores native path) | U8-F1/F4 | S |
-| 4 | Literal `\n` in background-task messages (5 sites) | U1-3 | S |
-| 5 | Delete duplicate `context_window` on BaseProvider (dead contract branch) | U3-F5 | S |
-| 6 | Checkpoint aliasing: deep-copy at save/resume boundaries | U2-F5, U6-F9 | S |
-| 7 | Rust streaming flush + `panic="unwind"` for the extension | U8-F7/F3 | S |
-| 8 | CircuitOpen non-retryable in ResilientProvider; breaker keying by (name, base_url) + registry eviction | U3-F3 | S–M |
-| 9 | Stop full-history `model_dump()` at the tool-selection seam | U1-1 | S |
-| 10 | Bounded event queues on API bridge | U7-F7 | S |
+| # | Item | Ref | PR |
+|---|------|-----|----|
+| 1 | API auth on all HTTP routes (per-route split-child-router), WS chat gate + WS event guard, terminal server-side approval, bounded event queues | U7-F1/F2/F3/F7 | #996 |
+| 2 | Process-cached Settings snapshot (`load_settings()`, `fresh=True` mutators, lock, session-runner private copy) | U3-F1, U2-F3, U5-09 | #997 |
+| 3 | Context-fitter: unified strategy vocabulary + int priority + /100 scoring in f64 on both sides | U8-F1/F2/F4 | #998 |
+| 4 | Literal `\n` in background-task messages (7 sites) | U1-3 | #995 |
+| 5 | Delete duplicate `context_window` on BaseProvider (dead contract branch) | U3-F5 | #994 |
+| 6 | Checkpoint aliasing: deep-copy at save/load/list boundaries | U2-F5, U6-F9 | #995 |
+| 7 | Rust streaming flush + `panic="unwind"` (PanicException caught by name in shims) | U8-F7/F3 | #998 |
+| 8 | CircuitOpen non-retryable (explicit opt-in preserved); breaker keying by (class, base_url), lazily resolved | U3-F3 | #994 |
+| 9 | Tool-selection history projection replaces per-turn `model_dump()` | U1-1 | #995 |
+| 10 | (folded into #1/#996) | U7-F7 | #996 |
 
 **Wave 2 — hot-path & structural perf (1–2 sprints):**
 
