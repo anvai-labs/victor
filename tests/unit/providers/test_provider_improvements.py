@@ -480,11 +480,22 @@ class TestRetryStrategy:
         assert attempts[0] == 1
 
     @pytest.mark.asyncio
-    async def test_retries_open_circuit_breaker(self, retry, monkeypatch):
-        """Open circuits should be retried after their cooldown."""
+    async def test_retries_open_circuit_breaker(self, monkeypatch):
+        """Open circuits CAN be retried after their cooldown when the breaker
+        error is explicitly opted into retryable_exceptions — the capability is
+        preserved even though the DEFAULT config now fails fast (see
+        test_circuit_open_fails_fast_to_fallback)."""
         from victor.providers.circuit_breaker import (
             CircuitBreakerError as CanonicalCircuitBreakerError,
         )
+
+        config = ProviderRetryConfig(
+            max_retries=2,
+            base_delay_seconds=0.01,
+            max_delay_seconds=0.1,
+            retryable_exceptions=(CanonicalCircuitBreakerError,),
+        )
+        retry = ProviderRetryStrategy(config)
 
         attempts = [0]
         sleeps: list[float] = []
@@ -810,6 +821,34 @@ class TestResilientProvider:
         assert result == "recovered"
         assert len(seen) == 2
         assert seen[0] and seen[0] == seen[1], "retries of one logical call must share one id"
+
+    @pytest.mark.asyncio
+    async def test_circuit_open_fails_fast_to_fallback(self, mock_fallback):
+        """CircuitOpenError is not retryable by default: the primary is called
+        exactly once and the fallback engages immediately — an open circuit must
+        not be slept through retries x backoff."""
+        calls = {"n": 0}
+
+        async def open_circuit_chat(messages, *, model, **kwargs):
+            calls["n"] += 1
+            raise CircuitOpenError("circuit open")
+
+        inner = MagicMock()
+        inner.name = "open-circuit"
+        inner.chat = open_circuit_chat
+        resilient = ResilientProvider(
+            inner,
+            fallback_providers=[mock_fallback],
+            retry_config=ProviderRetryConfig(max_retries=3, base_delay_seconds=0.5),
+        )
+
+        t0 = time.monotonic()
+        result = await resilient.chat(messages=[], model="m")
+        elapsed = time.monotonic() - t0
+
+        assert result == "fallback_response"
+        assert calls["n"] == 1, "open circuit must not be retried"
+        assert elapsed < 1.0, "fail-over to fallback must be immediate"
 
     @pytest.mark.asyncio
     async def test_fallback_shares_the_logical_call_id(self, mock_fallback):
@@ -1461,3 +1500,35 @@ class TestSharedInfrastructureIntegration:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+class TestCircuitOpenNeverRetryable:
+    """Adversarial-review negatives: circuit errors must be non-retryable
+    regardless of what the fuzzy classifiers would score."""
+
+    def test_breaker_message_with_url_status_substring_not_retryable(self):
+        """The breaker NAME embeds base_url — a URL containing 5000 (or a
+        retry_after of 503.0s) must not make the error retryable via the
+        message/status-code substring checks."""
+        strategy = ProviderRetryStrategy(ProviderRetryConfig())
+        error = CircuitOpenError(
+            "Circuit breaker 'provider_X_http://localhost:5000' is open. " "Retry after 503.0s"
+        )
+        assert strategy._is_retryable(error) is False
+
+    def test_breaker_error_with_retryable_cause_not_retryable(self):
+        """A circuit error raised from a retryable transport error must not
+        become retryable through the cause-chain walk."""
+        cause = ConnectionError("connection reset")
+        error = CircuitOpenError("circuit open")
+        error.__cause__ = cause
+        assert ProviderRetryStrategy(ProviderRetryConfig())._is_retryable(error) is False
+
+    def test_retryable_transport_error_still_retryable(self):
+        """Positive control: the short-circuit must not over-reach."""
+        assert (
+            ProviderRetryStrategy(ProviderRetryConfig())._is_retryable(
+                ConnectionError("plain transport failure")
+            )
+            is True
+        )

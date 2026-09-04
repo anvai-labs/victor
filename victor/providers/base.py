@@ -224,21 +224,41 @@ class BaseProvider(ABC):
         self._rate_limit_suppressed_until_monotonic: Optional[float] = None
         self._rate_limit_suppression_error: Optional[ProviderRateLimitError] = None
 
-        # Circuit breaker for resilience
+        # Circuit breaker for resilience. Created LAZILY on first access
+        # (see the circuit_breaker property): subclasses like LlamaCpp and
+        # VLLM resolve their default base_url AFTER super().__init__, so an
+        # eager breaker here keyed the registry on the pre-resolution value
+        # and fragmented state between default-URL and explicit-URL
+        # instances of the same server (adversarial-review finding).
         self._use_circuit_breaker = use_circuit_breaker
         self._circuit_breaker: Optional[CircuitBreaker] = None
-        if use_circuit_breaker:
-            breaker_name = f"provider_{self.__class__.__name__}_{id(self):x}"
-            self._circuit_breaker = CircuitBreakerRegistry.get_or_create(
-                name=breaker_name,
-                failure_threshold=circuit_breaker_failure_threshold,
-                recovery_timeout=circuit_breaker_recovery_timeout,
-                excluded_exceptions=(ProviderAuthError,),
-            )
+        self._circuit_breaker_config = (
+            circuit_breaker_failure_threshold,
+            circuit_breaker_recovery_timeout,
+        )
 
     @property
     def circuit_breaker(self) -> Optional[CircuitBreaker]:
-        """Get the circuit breaker for this provider."""
+        """Get the circuit breaker for this provider.
+
+        Lazily created so the registry key is
+        ``provider_{class}_{base_url}`` with the provider's FINAL base_url —
+        state aggregates across instances of the same provider class +
+        endpoint. Never embeds id(self) (per-instance state fragmentation,
+        one registry leak per object ever created).
+        """
+        if not self._use_circuit_breaker:
+            return None
+        if self._circuit_breaker is None:
+            threshold, recovery = self._circuit_breaker_config
+            base_url = getattr(self, "base_url", None) or "default"
+            breaker_name = f"provider_{self.__class__.__name__}_{base_url}"
+            self._circuit_breaker = CircuitBreakerRegistry.get_or_create(
+                name=breaker_name,
+                failure_threshold=threshold,
+                recovery_timeout=recovery,
+                excluded_exceptions=(ProviderAuthError,),
+            )
         return self._circuit_breaker
 
     def supports_tools(self) -> bool:
@@ -375,25 +395,9 @@ class BaseProvider(ABC):
 
     Triggers semantic_select_capped strategy in the tool broadcaster, which
     is safe for any model. Override per-provider with a model lookup table.
+    The single ``context_window`` definition below returns this as its
+    unknown-model fallback.
     """
-
-    def context_window(self, model: Optional[str] = None) -> int:
-        """Return effective context window in tokens for the given model.
-
-        Used by the tool broadcasting strategy picker to decide whether all
-        tools fit in the cacheable prefix or whether per-turn semantic
-        selection is required.
-
-        Default implementation returns DEFAULT_CONTEXT_WINDOW. Providers
-        should override with a per-model lookup table.
-
-        Args:
-            model: Model identifier. If None, uses provider's current model.
-
-        Returns:
-            Context window in tokens. Never returns 0 or negative.
-        """
-        return self.DEFAULT_CONTEXT_WINDOW
 
     def get_tool_output_format(self) -> Any:
         """Get preferred tool output format for this provider.
@@ -424,8 +428,8 @@ class BaseProvider(ABC):
 
     def get_circuit_breaker_stats(self) -> Optional[Dict[str, Any]]:
         """Get circuit breaker statistics for monitoring."""
-        if self._circuit_breaker:
-            return self._circuit_breaker.get_stats()
+        if self.circuit_breaker:
+            return self.circuit_breaker.get_stats()
         return None
 
     def _iter_exception_chain(self, error: Exception) -> List[Exception]:
@@ -1074,27 +1078,20 @@ class BaseProvider(ABC):
             "gemma:7b": 8192,
         }
 
-        # Try direct lookup
+        # Try direct lookup. (Pattern/wildcard matching lives in the YAML
+        # provider-limits path above; the hardcoded table has no "*" keys.)
         if model in CONTEXT_WINDOWS:
             return CONTEXT_WINDOWS[model]
 
-        # Try pattern matching (e.g., "qwen2.5-*" or "llama-3*")
-        for pattern, cw in CONTEXT_WINDOWS.items():
-            if "*" in pattern:
-                prefix = pattern[:-1]
-                if model.startswith(prefix):
-                    logger.debug(
-                        f"Model {model} matched pattern {pattern}, using context window {cw}"
-                    )
-                    return cw
-
         # Safe default for unknown models
-        # Use 8192 (8K) as conservative default that fits even smallest models
+        # Use DEFAULT_CONTEXT_WINDOW (8K) as conservative default that fits
+        # even smallest models
         logger.warning(
-            f"Unknown model {model}, using default context window of 8192 tokens. "
+            f"Unknown model {model}, using default context window of "
+            f"{self.DEFAULT_CONTEXT_WINDOW} tokens. "
             f"Consider adding context_window mapping for this model."
         )
-        return 8192
+        return self.DEFAULT_CONTEXT_WINDOW
 
     @abstractmethod
     async def close(self) -> None:
@@ -1115,9 +1112,8 @@ class BaseProvider(ABC):
         Returns:
             True if circuit is open and requests will be rejected
         """
-        if self._circuit_breaker:
-            return self._circuit_breaker.is_open
-        return False
+        breaker = self.circuit_breaker
+        return bool(breaker and breaker.is_open)
 
     async def _execute_with_circuit_breaker(
         self,
@@ -1149,8 +1145,9 @@ class BaseProvider(ABC):
         self._raise_if_rate_limit_suppressed(model=model_name)
 
         async def _call() -> Any:
-            if self._circuit_breaker:
-                return await self._circuit_breaker.execute(func, *args, **kwargs)
+            breaker = self.circuit_breaker
+            if breaker:
+                return await breaker.execute(func, *args, **kwargs)
             return await func(*args, **kwargs)
 
         try:
@@ -1186,5 +1183,5 @@ class BaseProvider(ABC):
 
     def reset_circuit_breaker(self) -> None:
         """Manually reset the circuit breaker to closed state."""
-        if self._circuit_breaker:
-            self._circuit_breaker.reset()
+        if self.circuit_breaker:
+            self.circuit_breaker.reset()
