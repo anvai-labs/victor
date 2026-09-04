@@ -40,6 +40,7 @@ from victor.providers.circuit_breaker import (
     CircuitBreaker,
     CircuitBreakerRegistry,
 )
+from victor.providers import failure_taxonomy
 from victor.providers.runtime_capabilities import ProviderRuntimeCapabilities
 
 # -----------------------------------------------------------------------------
@@ -451,68 +452,34 @@ class BaseProvider(ABC):
 
     def _is_connection_error_like(self, error: Exception) -> bool:
         """Check whether an exception looks like a transient transport failure."""
-        connection_exception_names = {
-            "APIConnectionError",
-            "ConnectError",
-            "ConnectTimeout",
-            "ReadError",
-            "ReadTimeout",
-            "RemoteProtocolError",
-            "TransportError",
-            "WriteError",
-        }
-        connection_tokens = (
-            "bad record mac",
-            "broken pipe",
-            "connection aborted",
-            "connection error",
-            "connection refused",
-            "connection reset",
-            "remote protocol error",
-            "server disconnected",
-            "ssl",
-            "tls",
-        )
-
         for candidate in self._iter_exception_chain(error):
             if isinstance(candidate, (ConnectionError, ssl.SSLError)):
                 return True
 
             if any(
-                parent.__name__ in connection_exception_names for parent in type(candidate).__mro__
+                parent.__name__ in failure_taxonomy.CONNECTION_EXCEPTION_NAMES
+                for parent in type(candidate).__mro__
             ):
                 return True
 
-            candidate_str = str(candidate).lower()
-            if any(token in candidate_str for token in connection_tokens):
+            if failure_taxonomy.looks_like_connection_error(str(candidate)):
                 return True
 
         return False
 
     def _is_timeout_error_like(self, error: Exception) -> bool:
         """Check whether an exception looks like a timeout failure."""
-        timeout_exception_names = {
-            "APITimeoutError",
-            "ConnectTimeout",
-            "PoolTimeout",
-            "ReadTimeout",
-            "TimeoutException",
-            "TimeoutError",
-            "WriteTimeout",
-        }
-        timeout_tokens = ("timeout", "timed out")
-
         for candidate in self._iter_exception_chain(error):
             if isinstance(candidate, TimeoutError):
                 return True
 
             if any(
-                parent.__name__ in timeout_exception_names for parent in type(candidate).__mro__
+                parent.__name__ in failure_taxonomy.TIMEOUT_EXCEPTION_NAMES
+                for parent in type(candidate).__mro__
             ):
                 return True
 
-            candidate_str = str(candidate).lower()
-            if any(token in candidate_str for token in timeout_tokens):
+            if failure_taxonomy.looks_like_timeout_error(str(candidate)):
                 return True
 
         return False
@@ -552,21 +519,6 @@ class BaseProvider(ABC):
 
     def _looks_like_hard_rate_limit(self, error: Exception) -> bool:
         """Check whether a rate-limit error is a quota/billing exhaustion failure."""
-        hard_limit_tokens = (
-            "billing",
-            "credit balance",
-            "credits exhausted",
-            "current quota",
-            "hard limit",
-            "insufficient balance",
-            "insufficient credits",
-            "insufficient quota",
-            "payment required",
-            "quota exceeded",
-            "quota exhausted",
-            "resource exhausted",
-        )
-
         for candidate in self._iter_exception_chain(error):
             if self._extract_error_status_code(candidate) != 429 and not isinstance(
                 candidate, ProviderRateLimitError
@@ -579,7 +531,10 @@ class BaseProvider(ABC):
             if isinstance(response_text, str) and response_text:
                 text_parts.append(response_text)
 
-            if any(token in " ".join(text_parts).lower() for token in hard_limit_tokens):
+            if any(
+                token in " ".join(text_parts).lower()
+                for token in failure_taxonomy.HARD_RATE_LIMIT_TOKENS
+            ):
                 return True
 
         return False
