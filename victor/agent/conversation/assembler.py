@@ -62,6 +62,16 @@ class TurnBoundaryContextAssembler:
         # history). Wired only when USE_TOOL_RESULT_DEDUP is enabled, so the
         # assembler itself stays flag-agnostic: presence == active.
         self._tool_result_deduplicator = tool_result_deduplicator
+        # Per-turn raw-score cache (co-design review U1-5): the raw score_fn
+        # result over the unchanged older-message prefix is recomputed every
+        # turn; key = (identity of first older message, prefix length, query,
+        # total content length). Append-only turns hit; replacement and
+        # length-changing in-place edits miss; equal-length in-place rewrites
+        # are invisible but bounded to selection ordering (budget accounting
+        # reads fresh lengths). Only the RAW scores are cached — temperature
+        # multipliers depend on current_turn and are applied fresh per call.
+        self._score_cache_key: Optional[tuple] = None
+        self._score_cache_value: Optional[list] = None
 
     @property
     def config(self) -> ContextAssemblerConfig:
@@ -336,7 +346,35 @@ class TurnBoundaryContextAssembler:
         # 4. Score and select older messages
         older_chars = 0
         if older_messages and self._score_fn and older_budget > 0:
-            scored = self._score_fn(older_messages, current_query)
+            # Index map (co-design review U1-5): older_messages.index(msg)
+            # was an O(n) scan with value-equality per selected message —
+            # O(n^2) per turn on long histories. Keyed by id() because the
+            # temperature multipliers below also key on object identity.
+            index_by_id = {id(m): i for i, m in enumerate(older_messages)}
+            # Raw-score cache (see __init__). The key is (first-msg identity,
+            # prefix length, query) PLUS a cheap content fingerprint that
+            # catches mid-prefix replacement and length-changing in-place
+            # edits — the id/len pair alone could not (adversarial-review
+            # finding: a replaced middle message kept the key stable and the
+            # stale cached list then missed the index map with a KeyError).
+            content_fingerprint = sum(len(m.content) for m in older_messages)
+            cache_key = (
+                id(older_messages[0]),
+                len(older_messages),
+                current_query,
+                content_fingerprint,
+            )
+            cached = (
+                self._score_cache_value
+                if self._score_cache_key == cache_key and self._score_cache_value is not None
+                else None
+            )
+            if cached is not None and all(id(m) in index_by_id for m, _ in cached):
+                scored = cached
+            else:
+                scored = self._score_fn(older_messages, current_query)
+                self._score_cache_key = cache_key
+                self._score_cache_value = scored
             # scored should be list of (message, score) or similar
             if scored and isinstance(scored[0], tuple):
                 # Apply temperature multipliers if classifier is available
@@ -356,13 +394,22 @@ class TurnBoundaryContextAssembler:
                             ]
                     except Exception as _te:
                         logger.debug(f"Context temperature classification skipped: {_te}")
+                scored = list(scored)
                 scored.sort(key=lambda x: x[1], reverse=True)
                 selected_older = []
                 older_chars = 0
                 for msg, score in scored:
                     msg_len = len(msg.content)
                     if older_chars + msg_len <= older_budget:
-                        selected_older.append((msg, score, older_messages.index(msg)))
+                        # Foreign objects (a misbehaving score_fn returning
+                        # messages outside the prefix) fall back to the
+                        # legacy linear scan, preserving its ValueError
+                        # semantics instead of raising KeyError
+                        # (adversarial-review finding).
+                        pos = index_by_id.get(id(msg))
+                        if pos is None:
+                            pos = older_messages.index(msg)
+                        selected_older.append((msg, score, pos))
                         older_chars += msg_len
                 # Sort by original order
                 selected_older.sort(key=lambda x: x[2])
