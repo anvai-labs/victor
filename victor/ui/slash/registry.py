@@ -46,6 +46,23 @@ class CommandRegistry:
         self._commands: Dict[str, SlashCommandProtocol] = {}
         self._aliases: Dict[str, str] = {}  # alias -> primary name
         self._categories: Dict[str, List[str]] = {}  # category -> command names
+        self._auto_discover_attempted = False
+
+    def _ensure_discovered(self) -> None:
+        """Lazily discover commands on first read (co-design review item 21).
+
+        Discovery previously ran unconditionally at package-import time
+        (``victor.ui.slash.__init__`` eagerly importing ``commands``),
+        pulling in the framework/RL/agent import chain (~0.9s measured)
+        even for ``victor --help``. Read paths now trigger discovery
+        exactly once, memoized, so callers that bypass
+        SlashCommandHandler's own auto_discover logic (e.g. the TUI
+        command palette) still see a populated registry.
+        """
+        if self._auto_discover_attempted or self._commands:
+            return
+        self._auto_discover_attempted = True
+        self.discover_commands()
 
     def register(self, command: SlashCommandProtocol) -> None:
         """Register a command instance.
@@ -122,6 +139,7 @@ class CommandRegistry:
         Returns:
             Command instance if found, None otherwise.
         """
+        self._ensure_discovered()
         name_lower = name.lower()
 
         # Direct lookup
@@ -137,6 +155,7 @@ class CommandRegistry:
 
     def has(self, name: str) -> bool:
         """Check if command exists."""
+        self._ensure_discovered()
         name_lower = name.lower()
         return name_lower in self._commands or name_lower in self._aliases
 
@@ -146,6 +165,7 @@ class CommandRegistry:
         Returns:
             List of (name, metadata) tuples, sorted by name.
         """
+        self._ensure_discovered()
         return sorted(
             [(name, cmd.metadata) for name, cmd in self._commands.items()],
             key=lambda x: x[0],
@@ -160,16 +180,19 @@ class CommandRegistry:
         Returns:
             List of command instances in the category.
         """
+        self._ensure_discovered()
         category = category.lower()
         names = self._categories.get(category, [])
         return [self._commands[name] for name in names if name in self._commands]
 
     def categories(self) -> List[str]:
         """Get all registered categories."""
+        self._ensure_discovered()
         return sorted(self._categories.keys())
 
     def iter_commands(self) -> Iterator[SlashCommandProtocol]:
         """Iterate over all registered commands."""
+        self._ensure_discovered()
         return iter(self._commands.values())
 
     def discover_commands(self, package_path: str = "victor.ui.slash.commands") -> int:
