@@ -731,6 +731,12 @@ class ToolService:
         self._executor = tool_executor
         self._registrar = tool_registrar
         self._logger = logging.getLogger(f"{__name__}.{id(self)}")
+        # (tool_name, tier, provider_category) -> token estimate, validated
+        # against the registry's schema_cache_version (co-design review
+        # U4-F1): estimate_tool_tokens ran to_schema + str(schema)//4 per
+        # tool per strategy pass, every turn.
+        self._tool_estimate_cache: dict = {}
+        self._tool_estimate_cache_version: Optional[int] = None
         self._budget_manager = BudgetManager(config.default_tool_budget)
         self._budget_runtime = ToolBudgetRuntime(
             self._budget_manager,
@@ -2781,22 +2787,58 @@ class ToolService:
             ),
         )
 
-    def estimate_tool_tokens(self, tool, *, provider_category: Optional[str] = None) -> int:
+    def estimate_tool_tokens(
+        self,
+        tool,
+        *,
+        provider_category: Optional[str] = None,
+        _use_cache: bool = True,
+    ) -> int:
         """Estimate token cost for a tool at its current schema level.
 
         Falls back to a name-length heuristic when the tool's schema cannot be
         generated (e.g. missing ``to_schema`` implementation).
+
+        Cached by (tool name, tier, provider category) and validated against
+        the registry's schema_cache_version — every registry mutation
+        (register/unregister/enable/disable/batch) bumps it, so stale
+        estimates are dropped wholesale instead of leaking across turns.
+        ``_use_cache=False`` bypasses both read and write: the
+        _demote_tools_to_fit_budget stub probe temporarily patches
+        ``tool._schema_level``, making its estimate unrepresentative.
         """
         from victor.config.tool_tiers import get_provider_tool_tier, get_tool_tier
 
+        # Lazy cache init: some construction paths (test fixtures via
+        # __new__, partial binds) bypass __init__.
+        if not hasattr(self, "_tool_estimate_cache"):
+            self._tool_estimate_cache = {}
+            self._tool_estimate_cache_version = None
+        registry_version = None
+        if _use_cache:
+            # _registrar is the canonical attr; _registry is accepted for
+            # alternate wirings.
+            registry = getattr(self, "_registrar", None) or getattr(self, "_registry", None)
+            registry_version = getattr(registry, "schema_cache_version", None)
+            if registry_version != self._tool_estimate_cache_version:
+                self._tool_estimate_cache = {}
+                self._tool_estimate_cache_version = registry_version
         try:
             tier = (
                 get_provider_tool_tier(tool.name, provider_category)
                 if provider_category
                 else get_tool_tier(tool.name)
             )
+            cache_key = (tool.name, tier, provider_category)
+            if _use_cache and registry_version is not None:
+                cached = self._tool_estimate_cache.get(cache_key)
+                if cached is not None:
+                    return cached
             schema = tool.to_schema(tier)
-            return len(str(schema)) // 4
+            estimate = len(str(schema)) // 4
+            if _use_cache and registry_version is not None:
+                self._tool_estimate_cache[cache_key] = estimate
+            return estimate
         except Exception:
             return len(tool.name) + 50
 
@@ -3006,7 +3048,7 @@ class ToolService:
                 try:
                     original = getattr(tool, "_schema_level", None)
                     tool._schema_level = SchemaLevel.STUB
-                    stub_cost = self.estimate_tool_tokens(tool)
+                    stub_cost = self.estimate_tool_tokens(tool, _use_cache=False)
                     tool._schema_level = original
                     if used + stub_cost <= max_tokens:
                         result.append(tool)
