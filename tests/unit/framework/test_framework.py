@@ -296,7 +296,10 @@ class TestAgentConfig:
         config = AgentConfig.default()
         assert config.tool_budget == 50
         assert config.max_iterations == 25
-        assert config.enable_parallel_tools
+        # Default OFF (co-design review item 16): the read-only allowlist
+        # gate makes it sound to enable, but it still changes execution
+        # ordering/timing for a broad swath of tool calls, so it's opt-in.
+        assert not config.enable_parallel_tools
 
     def test_minimal_config(self):
         """Minimal config should have reduced budgets."""

@@ -150,7 +150,10 @@ class TestUnifiedAgentConfig:
         assert settings_dict["tool_call_budget"] == 100
         assert settings_dict["max_iterations"] == 50
         assert settings_dict["streaming_timeout"] == 600.0
-        assert settings_dict["parallel_tool_execution"] is True
+        # Default OFF (co-design review item 16): the read-only allowlist
+        # gate makes it sound to enable, but it still changes execution
+        # ordering/timing for a broad swath of tool calls, so it's opt-in.
+        assert settings_dict["parallel_tool_execution"] is False
 
     def test_mode_specific_fields_foreground(self):
         """Test foreground-specific configuration fields."""
