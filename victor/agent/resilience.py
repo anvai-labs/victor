@@ -132,7 +132,6 @@ class MultiCircuitBreaker:
     Renamed from CircuitBreaker to be semantically distinct:
     - CircuitBreaker (victor.providers.circuit_breaker): Standalone with decorator/context manager
     - MultiCircuitBreaker (here): Manages multiple named circuits (Dict[str, CircuitStats])
-    - ObservableCircuitBreaker (victor.observability.resilience): Metrics/callback focused
     - ProviderCircuitBreaker (victor.providers.resilience): ResilientProvider workflow
 
     Thread-safe implementation using asyncio locks.
@@ -302,7 +301,6 @@ class AgentRetryConfig:
     Renamed from RetryConfig to be semantically distinct:
     - AgentRetryConfig (here): Agent-specific with jitter flag
     - ProviderRetryConfig (victor.providers.resilience): Provider-specific with retryable_patterns
-    - ObservabilityRetryConfig (victor.observability.resilience): With BackoffStrategy
 
     Attributes:
         max_retries: Maximum retry attempts

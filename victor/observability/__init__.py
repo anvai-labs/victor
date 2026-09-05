@@ -87,22 +87,6 @@ from victor.observability.metrics import (
     MetricsRegistry,
     Timer,
 )
-from victor.observability.resilience import (
-    BackoffStrategy,
-    Bulkhead,
-    BulkheadFullError,
-    CircuitBreaker,
-    CircuitBreakerError,
-    ConstantBackoff,
-    DecorrelatedJitterBackoff,
-    ExponentialBackoff,
-    LinearBackoff,
-    RateLimiter,
-    ResiliencePolicy,
-    ObservabilityRetryConfig,
-    retry_with_backoff,
-    with_timeout,
-)
 from victor.observability.otel_exporter import (
     AsyncBatchingExporter,
     create_otel_exporter,
@@ -169,21 +153,6 @@ __all__ = [
     "Timer",
     "MetricsRegistry",
     "MetricsCollector",
-    # Resilience
-    "BackoffStrategy",
-    "ExponentialBackoff",
-    "LinearBackoff",
-    "ConstantBackoff",
-    "DecorrelatedJitterBackoff",
-    "ObservabilityRetryConfig",
-    "retry_with_backoff",
-    "CircuitBreaker",
-    "CircuitBreakerError",
-    "Bulkhead",
-    "BulkheadFullError",
-    "RateLimiter",
-    "ResiliencePolicy",
-    "with_timeout",
 ] + _OTEL_EXPORTS
 
 # Submodules - access via victor.observability.analytics, etc.
