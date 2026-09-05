@@ -76,7 +76,10 @@ class AgentConfig:
     # Tool execution
     tool_budget: int = 50
     max_iterations: int = 25
-    enable_parallel_tools: bool = True
+    # Default OFF (co-design review item 16): a read-only allowlist gate
+    # makes this sound to enable, but it still changes execution
+    # ordering/timing for a broad swath of tool calls, so it ships opt-in.
+    enable_parallel_tools: bool = False
     max_concurrent_tools: int = 5
 
     # Context management
