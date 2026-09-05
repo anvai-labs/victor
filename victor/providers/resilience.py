@@ -278,7 +278,6 @@ class ProviderRetryConfig:
     Renamed from RetryConfig to be semantically distinct:
     - ProviderRetryConfig (here): Provider-specific with retryable_patterns
     - AgentRetryConfig (victor.agent.resilience): Agent-specific with jitter flag
-    - ObservabilityRetryConfig (victor.observability.resilience): With BackoffStrategy
 
     Attributes:
         max_retries: Maximum number of retry attempts
