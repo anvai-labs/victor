@@ -94,23 +94,38 @@ transition (pre-existing); bootstrap container shares the settings snapshot by d
 | 9 | Tool-selection history projection replaces per-turn `model_dump()` | U1-1 | #995 |
 | 10 | (folded into #1/#996) | U7-F7 | #996 |
 
-**Wave 2 — hot-path & structural perf (1–2 sprints):**
+**Wave 2 — hot-path & structural perf (1–2 sprints): DONE 2026-09-04/05, PRs #1000–#1010.**
+Risk-ramped order (mechanical items W1–W4 reviewed after CI green; structural/behavioral items
+W5–W10 reviewed before requesting merge — CLAUDE.md rule), one worktree at a time, removed
+immediately after merge. Every PR passed an adversarial review pass; W5, W9, and W10 (the
+highest-risk items — cache correctness, subprocess process-group handling, and concurrent tool
+dispatch respectively) got a dedicated review-agent pass that found and fixed real issues pre-merge
+(a callable-identity cache-key collision on W5; a PID-reuse signal race and an unguarded
+gather-exception orphan risk on W9/W10; a budget-accounting timing bug and a byte-for-byte
+behavior regression for budget-exhausted tail calls on W10, both caught and fixed before merge).
+Item 16 shipped as a strict read-only allowlist (idempotent-tools ∩ ¬write-tools, shell hard-excluded)
+with **default OFF** per an explicit scope decision — the allowlist makes it sound to enable, but it
+still changes execution ordering/timing broadly enough to ship opt-in. Items 17 and 20's
+"writer off the event loop" half (listed here as item 20b) are **deferred to Wave 3** — same
+explicit scope decision, both are structural changes better suited to a dedicated proposal;
+20a (batched staleness/metadata queries) shipped in Wave 2.
 
-| # | Item | Ref | Effort |
-|---|------|-----|--------|
-| 11 | state_history opt-in via GraphConfig (default no copy) | U2-F2, U6-F3 | M |
-| 12 | Tool schema/token cache keyed by registry version; consume or delete `get_tool_schemas` | U4-F1 | M |
-| 13 | CompiledGraph cache keyed by definition hash + factory version | U6-F2 | M |
-| 14 | Batched observability sink (usage logger behind BufferedExporter) | U10-F2 | M |
-| 15 | Shared subprocess runner: process groups, killpg, capped incremental reads, partial output | U4-F2/F3 | M |
-| 16 | Parallel tool execution behind action_authorizer intent gate | U1-2 | M |
-| 17 | Native↔fallback parity harness in CI (+ BPE ranks for exact counting) | U8-F2/F5 opp.5/6 | M |
-| 18 | One shared failure-taxonomy module (classify/retry/health) + TimeoutProfile | U3-F9/F6 | M |
-| 19 | Assembler O(n²) fix + per-turn score caching | U1-5 | S |
-| 20 | SQLite: batched staleness query, batched node-metadata updates, writer off the event loop | U5-03/04/05 | M |
-| 21 | Lazy slash import (1.7s CLI startup → gate with importtime CI check) | U7-F8 | S |
+| # | Item | Ref | PR |
+|---|------|-----|----|
+| 11 | state_history opt-in via GraphConfig (default no copy) | U2-F2, U6-F3 | #1006 |
+| 12 | Tool schema/token cache keyed by registry version; consume or delete `get_tool_schemas` | U4-F1 | #1001 |
+| 13 | CompiledGraph cache keyed by definition hash + factory version | U6-F2 | #1005 |
+| 14 | Batched observability sink (usage logger behind BufferedExporter) | U10-F2 | #1007 |
+| 15 | Shared subprocess runner: process groups, killpg, capped incremental reads, partial output | U4-F2/F3 | #1009 |
+| 16 | Parallel tool execution behind a read-only allowlist gate, default OFF | U1-2 | #1010 |
+| 17 | Native↔fallback parity harness in CI (+ BPE ranks for exact counting) | U8-F2/F5 opp.5/6 | deferred → Wave 3 |
+| 18 | One shared failure-taxonomy module (classify/retry/health) + TimeoutProfile | U3-F9/F6 | #1008 |
+| 19 | Assembler O(n²) fix + per-turn score caching | U1-5 | #1000 |
+| 20a | SQLite: batched staleness query, batched node-metadata updates | U5-03/04 | #1004 |
+| 20b | SQLite writer off the event loop | U5-05 | deferred → Wave 3 |
+| 21 | Lazy slash import (1.7s CLI startup → gate with importtime CI check) | U7-F8 | #1002 |
 
-**Wave 3 — structural, multi-PR (FEPs where noted):**
+**Wave 3 — structural, multi-PR (FEPs where noted). Also carries items 17 and 20b deferred from Wave 2:**
 
 | # | Item | Ref | Effort |
 |---|------|-----|--------|
