@@ -1782,7 +1782,15 @@ class Settings(BaseSettings):
     # Parallel Tool Execution (from VictorSettings merge)
     # ==========================================================================
     parallel_tool_execution: bool = Field(
-        default=True, description="Enable parallel execution of independent tools"
+        default=False,
+        description=(
+            "Enable concurrent execution of read-only-allowlisted tool calls "
+            "within a batch (co-design review item 16). Off by default — the "
+            "allowlist gate (registry write-tools complement intersected with "
+            "the idempotent-tools set; shell is never eligible) is the "
+            "soundness floor, but this still changes execution ordering/timing "
+            "for a broad swath of tool calls, so it ships opt-in."
+        ),
     )
     max_concurrent_tools: int = Field(
         default=5, ge=1, description="Maximum tools to execute concurrently"
