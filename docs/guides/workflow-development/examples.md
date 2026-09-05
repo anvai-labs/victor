@@ -263,7 +263,7 @@ class CompiledGraph(Generic[StateType]):
 - `victor/framework/graph.py` - Add event emission to streaming
 
 ### Deprecated (Remove in v1.0)
-- `victor/workflows/adapters.py:WorkflowState` - Use ExecutionContext
+- `victor/workflows/adapters.py:WorkflowState` - Removed (dead code, co-design review item 25c); use ExecutionContext
 - `victor/workflows/yaml_to_graph_compiler.py:WorkflowState` - Use ExecutionContext
 - `victor/workflows/executor.py:WorkflowContext` - Use ExecutionContext
 
