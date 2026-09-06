@@ -9,6 +9,7 @@ As decomposition work lands (TD-14 orchestrator, TD-15 services sprawl),
 lower the caps to the new audited sizes.
 """
 
+import ast
 from pathlib import Path
 
 import pytest
@@ -62,6 +63,125 @@ HOTSPOT_LINE_CAPS = {
     # sprawl the way the orchestrator facade did.
     "victor/agent/services/chat_service.py": 1739,
 }
+
+
+# Structural ratchet (co-design review item 22d): orchestrator.py's method
+# count and self-probe counts, audited 2026-09-06 on develop. All values are
+# AST-derived (not regex/formatting-dependent): def_count is every
+# FunctionDef/AsyncFunctionDef in the module; the probe counts are
+# getattr(...)/hasattr(...) call sites whose first argument is rooted at
+# ``self``. The probes are how a facade papers over missing structure — every
+# ``hasattr(self, "x")`` is a field the orchestrator isn't sure it owns — so
+# their count is the leading indicator of facade re-accretion, the exact
+# failure mode (U1-11) that regrew this file after TD-R1 decomposed it.
+# Caps may only be lowered, never raised: route growth into the owning
+# service instead. Item 27 (ChatService inversion) should drive these down.
+ORCHESTRATOR_STRUCTURAL_CAPS = {
+    "def_count": 226,
+    "getattr_self_probes": 136,
+    "hasattr_self_probes": 24,
+}
+
+
+def _count_structural_metrics(tree: ast.Module) -> dict:
+    """AST-derived structural metrics for a parsed module."""
+
+    def rooted_at_self(expr: ast.expr) -> bool:
+        while isinstance(expr, ast.Attribute):
+            expr = expr.value
+        return isinstance(expr, ast.Name) and expr.id == "self"
+
+    metrics = {
+        "def_count": 0,
+        "getattr_self_probes": 0,
+        "hasattr_self_probes": 0,
+    }
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            metrics["def_count"] += 1
+        elif (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id in ("getattr", "hasattr")
+            and node.args
+            and rooted_at_self(node.args[0])
+        ):
+            metrics[f"{node.func.id}_self_probes"] += 1
+    return metrics
+
+
+def _orchestrator_structural_metrics() -> dict:
+    """AST-derived structural metrics for orchestrator.py."""
+    path = REPO_ROOT / "victor" / "agent" / "orchestrator.py"
+    return _count_structural_metrics(ast.parse(path.read_text(encoding="utf-8")))
+
+
+class TestOrchestratorStructuralGuard:
+    """Ratchet orchestrator.py's structural surface, not just its line count.
+
+    The line-count ratchet above can be satisfied while the file's *shape*
+    keeps degrading — swap a delegation for an inline helper and the line
+    count stays flat while def_count grows; replace a constructor-injected
+    dependency with a lazy ``getattr(self, "x", None)`` probe and the line
+    count drops while the probe count grows. These caps bind the shape.
+    """
+
+    @pytest.mark.parametrize("metric,cap", sorted(ORCHESTRATOR_STRUCTURAL_CAPS.items()))
+    def test_orchestrator_structure_does_not_regrow(self, metric: str, cap: int) -> None:
+        actual = _orchestrator_structural_metrics()[metric]
+        assert actual <= cap, (
+            f"orchestrator.py {metric} is {actual} (ratchet cap {cap}). "
+            f"This facade already regrew once after being decomposed (TD-R1 → TD-14); "
+            f"new behavior belongs in the owning service, and new optional "
+            f"dependencies belong in the service layer — not as another self-probe. "
+            f"If a cap must move, lower it — never raise it."
+        )
+
+    def test_metric_counter_detects_growth(self) -> None:
+        """Negative test for the counter itself: a synthetic module with one
+        method and one self-rooted getattr probe must count as exactly that —
+        proving the ratchet above isn't a tautology that passes regardless of
+        orchestrator contents.
+        """
+        import textwrap
+
+        tree = ast.parse(textwrap.dedent("""
+                class Foo:
+                    def probe(self):
+                        return getattr(self, "thing", None)
+                """))
+        metrics = _count_structural_metrics(tree)
+        assert metrics == {
+            "def_count": 1,
+            "getattr_self_probes": 1,
+            "hasattr_self_probes": 0,
+        }
+
+    def test_probe_counter_ignores_non_self_roots(self) -> None:
+        """Probes rooted at something other than ``self`` (a local, a bare
+        string call) must not inflate the self-probe counts — otherwise
+        unrelated refactors would trip the ratchet. A probe on a *chain*
+        rooted at self (``self._svc``) intentionally counts: probing an
+        attribute of self is still the facade being unsure of its own
+        structure, and the audited cap values include such probes.
+        """
+        import textwrap
+
+        tree = ast.parse(textwrap.dedent("""
+                class Foo:
+                    def probe(self, other):
+                        getattr(other, "x", None)
+                        hasattr(self._svc, "y")
+                        getattr("not_self", "z")
+                        real = self._delegate()
+                        return real
+                """))
+        metrics = _count_structural_metrics(tree)
+        assert metrics == {
+            "def_count": 1,
+            "getattr_self_probes": 0,
+            "hasattr_self_probes": 1,
+        }
 
 
 class TestHotspotSizeGuard:
