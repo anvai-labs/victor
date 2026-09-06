@@ -157,8 +157,9 @@ class StreamingActProvider(Protocol):
     for live delivery, and write the produced ``TurnResult`` to ``outcome``. Letting the loop
     depend on this narrow seam keeps PERCEIVE/PLAN/EVALUATE/DECIDE shared while the I/O shape
     differs only in ACT. The concrete implementation — an adapter over the service-layer
-    ``StreamingChatExecutor.execute_turn_streaming`` — is wired at cutover; until then
-    ``run_streaming`` is unwired (no default provider).
+    ``StreamingChatExecutor.execute_turn_streaming`` (``StreamingActAdapter``) — is wired at the
+    FEP-0007 step-3 cutover: ``StreamingChatExecutor.run_unified`` builds the loop with this
+    adapter, making ``run_streaming`` the live streaming loop body.
     """
 
     def stream_turn_act(
@@ -1781,12 +1782,14 @@ class AgenticLoop:
         ``TurnResult`` the shared EVALUATE phase consumes. Streaming thus becomes a pure I/O mode
         of the one research-rooted loop rather than a separate, thinner loop.
 
-        NOT yet wired into the live streaming path: it requires an injected ``streaming_act_port``
-        and currently covers the core phase loop. The run()-only preamble bands (fast-slow
-        planning gate, semantic response cache, paradigm/topology routing) and the richer DECIDE
-        bands (content-repetition controller, adaptive termination) are reconciled into this shared
-        path at cutover; until then ``StreamingChatExecutor.run()`` remains the single live
-        streaming loop body.
+        This is the LIVE streaming path as of the FEP-0007 step-3 cutover: ``run_streaming`` is
+        driven via ``StreamingChatExecutor.run_unified`` (``ChatStreamRuntime``'s stream entry
+        point), with the service-layer ``StreamingActAdapter`` wired as the ``streaming_act_port``.
+        Still owned by the buffered ``run()``'s preamble only (reconciling them here is the
+        remaining FEP-0007 follow-up): the fast-slow planning gate, the semantic response cache,
+        paradigm/topology routing, the content-repetition controller feed, and adaptive
+        termination. Run/stream behavioral parity is pinned by
+        ``tests/integration/streaming/test_run_stream_parity.py``.
 
         Args:
             query: User's natural language query.

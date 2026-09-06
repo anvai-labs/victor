@@ -2,9 +2,9 @@
 fep: 0007
 title: "Unified Agentic Loop (single loop, two I/O modes)"
 type: Standards Track
-status: Draft
+status: Implemented
 created: 2026-06-21
-modified: 2026-06-21
+modified: 2026-09-06
 authors:
   - name: Vijaykumar Singh
     email: vijay@anvaiops.com
@@ -85,6 +85,10 @@ single PPAED loop for both modes via a symmetric streaming-ACT port, so the UI p
 PERCEIVE/PLAN/DECIDE and the research-rooted gates it currently lacks. The owner decided on
 2026-06-21 to pursue this (framing **B**) rather than close the FEP; the concrete architecture,
 phased plan, and the revised run/stream behavioral-parity acceptance bar are in **Addendum A**.
+*(2026-09-06 refresh: the capability-leveling unification has landed — see the status update at
+the end of Addendum A. The FEP is marked Implemented; the only remnant is removal of the
+deprecated `StreamingChatExecutor.run()` compatibility alias, tracked as Stage C item-23
+cleanup.)*
 
 ## Proposed Change
 
@@ -347,6 +351,59 @@ driver once cutover lands.
 
 Streaming under the StateGraph executor (`USE_STATEGRAPH_AGENTIC_LOOP`); changes to the public
 `StreamChunk` / `AgentExecutionEvent` types; any provider-level streaming changes.
+
+### Status update — 2026-09-06 refresh (co-design review Wave 3, Stage B item 1)
+
+Verified against current `victor/framework/agentic_loop.py` and
+`victor/agent/services/chat_stream_executor.py`: **steps 1–4 of the implementation plan have
+landed.** The acceptance bar's primary gate (the run/stream behavioral-parity battery) is met and
+the FEP is marked **Implemented** (implementation merged to the integration branch `develop`;
+`main` promotion follows the release train as usual).
+
+| Step | Status | Evidence |
+|---|---|---|
+| 1. Streaming-ACT port | ✅ landed | `StreamingChatExecutor.execute_turn_streaming` (protocol `chat_stream_executor.py:186`, impl `:1418`), assembled per-run into a `StreamingActAdapter` session (`victor/agent/services/streaming_act_adapter.py`) |
+| 2. `AgenticLoop.run_streaming()` | ✅ landed | `agentic_loop.py:1768` — full PPAED sequence, drives the injected `streaming_act_port.stream_turn_act(...)` |
+| 3. Cut the UI over | ✅ landed | `ChatStreamRuntime`'s stream path drives `executor.run_unified(...)` (`chat_stream_runtime.py:410`); `run_unified` (`chat_stream_executor.py:1518`) builds the `AgenticLoop` over the orchestrator's own collaborators with the ACT adapter; the legacy `run()` body was removed — it is now an LTS-deprecated thin alias delegating to `run_unified` with **zero production callers** |
+| 4. Governance & recovery reconciliation | ✅ landed | `run_unified` runs the per-run REQUEST gate (`_message_policy_gate.gate_request` → `is_final` chunk), the judge-calibration completion-strategy gate (ADR-011, same as buffered), and the effect gate; recovery/stream-context setup is captured in the ACT adapter session. Streaming correctly has no buffered RESPONSE post-gate (per the risk note above) |
+| 5. StateGraph executor | ⏸ still deferred | `USE_STATEGRAPH_AGENTIC_LOOP` / `use_stategraph_executor()` remains buffered-only, as this addendum specifies |
+
+The **run/stream behavioral parity battery** the acceptance bar required now exists —
+`tests/integration/streaming/test_run_stream_parity.py` + `parity_harness.py` drive BOTH real
+loops from one scripted script across the QA scenarios and assert tool-sequence and answer
+parity — and it passes. Its harness also recorded the root cause of the pre-cutover divergence:
+a latent buffered-`run()` bug (a tool-only turn's empty content fell through to a
+`CompletionResponse` and crashed the content-repetition check), not PPAED eagerness.
+
+**Remaining before the acceptance bar is fully literal** (small, tracked as Stage C item-23
+cleanup, not new design):
+
+1. **Reconcile the run()-only preamble/DECIDE bands into `run_streaming`.** The fast-slow
+   planning gate, semantic response cache, paradigm/topology routing, the content-repetition
+   controller feed, and adaptive termination each still have their sole production call site in
+   the buffered `run()`'s inline body — the streaming path shares PERCEIVE/ACT/EVALUATE
+   (fulfillment, effect gate, auditor, backslide/verify) but not yet those bands.
+2. Delete the deprecated `StreamingChatExecutor.run()` alias (zero production callers; the only
+   remaining reachability is the duck-typed `hasattr(..., "run_unified")` fallback in
+   `AgenticLoop.stream_chat`, which exists for test executors).
+3. Truth-up the docstrings still describing the pre-cutover state: `AgenticLoop.run_streaming`
+   ("NOT yet wired into the live streaming path" — it *is* the live path),
+   `StreamingChatExecutor.run_unified` ("DRAFT / not yet wired as the sole live path" — it is),
+   the `run()` alias's caller list, and the `StreamingActProvider` protocol ("until then
+   `run_streaming` is unwired"). *(Fixed in the same PR as this refresh.)*
+4. Decide the fate of `AgenticLoop.stream_chat` (`agentic_loop.py:1964`) — an older
+   partial-unification wrapper (PERCEIVE/EVALUATE around a driven executor) that predates
+   `run_streaming`; production streaming no longer routes through it. Candidate for removal or
+   explicit keep-with-rationale. Also truth-up `parity_harness.py`'s comments claiming it drives
+   "the genuine `StreamingChatExecutor.run()`" (it drives `orch.stream_chat` → `run_unified`).
+   *(Harness comments fixed in the same PR as this refresh.)*
+
+**What the cutover already delivers:** the UI path runs the same per-turn PERCEIVE, the same
+structured EVALUATE with requirement-driven completion (EnhancedCompletion/fulfillment), the
+effect gate, and the auditor; streaming differs from buffered in ACT I/O plus the still-buffered
+preamble bands listed above. The acceptance bar's "single canonical loop" clause is met as a
+single live code path (the deprecated alias delegates to `run_unified` — there is no second
+implementation); its final literal clause (no retained legacy driver) completes with items 1–2.
 
 ## References
 
