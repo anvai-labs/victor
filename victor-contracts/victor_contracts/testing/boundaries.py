@@ -14,15 +14,15 @@
 
 """Tiered import-boundary manifests shared by contract auditors and SDK test helpers.
 
-Co-design review item 22a: this module is the single source of truth that the
-repo's import-boundary guards should converge on, replacing independently
+Co-design review item 22a/22b: this module is the single source of truth that
+the repo's import-boundary guards should converge on, replacing independently
 maintained forbidden-prefix lists of differing strictness. Two tiers, by scope:
 
 - ``DEFINITION_LAYER_FORBIDDEN_PREFIXES``: strictest tier, for a vertical's pure
   definition files (``assistant.py``, ``plugin.py``) that declare capabilities
-  and must stay free of any runtime import. Mirrors the set already enforced by
+  and must stay free of any runtime import. Consumed by
   ``tests/unit/contracts/test_contracts_import_boundaries.py`` in the victor
-  monorepo (not yet migrated onto this constant; see co-design review item 22b).
+  monorepo.
 - ``RUNTIME_LAYER_FORBIDDEN_PREFIXES``: looser tier, for a vertical's runtime/tool
   code, which may legitimately touch a documented extension surface (see
   ``ALLOWED_RUNTIME_IMPORT_PREFIXES`` in ``victor.core.verticals.contract_audit``).
@@ -33,6 +33,15 @@ maintained forbidden-prefix lists of differing strictness. Two tiers, by scope:
   only ever adds forbidden prefixes relative to either source list, so
   migrating a consumer from its local list onto this one can only tighten
   enforcement, never loosen it.
+
+``KNOWN_VERTICAL_PACKAGE_NAMES`` is a separate, orthogonal list: the set of
+first-party vertical *package names* (not ``victor.*`` prefixes) recognized by
+the monorepo's own boundary guards. It replaces three independently
+maintained copies of the same 6 names that existed across
+``tests/unit/contracts/test_core_vertical_import_boundary.py``,
+``tests/unit/contracts/test_contracts_import_boundaries.py``, and
+``tests/unit/core/verticals/test_external_vertical_import_boundaries.py`` (the
+last of which had drifted stale at only 3 of the 6 names).
 """
 
 from __future__ import annotations
@@ -61,4 +70,13 @@ RUNTIME_LAYER_FORBIDDEN_PREFIXES: tuple[str, ...] = (
     "victor.storage",
     "victor.config.settings",
     "victor.config.api_keys",
+)
+
+KNOWN_VERTICAL_PACKAGE_NAMES: tuple[str, ...] = (
+    "victor_coding",
+    "victor_devops",
+    "victor_research",
+    "victor_rag",
+    "victor_dataanalysis",
+    "victor_invest",
 )
