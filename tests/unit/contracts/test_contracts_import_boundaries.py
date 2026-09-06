@@ -16,7 +16,10 @@ from typing import List, Tuple
 
 import pytest
 
-from victor_contracts.testing.boundaries import DEFINITION_LAYER_FORBIDDEN_PREFIXES
+from victor_contracts.testing.boundaries import (
+    DEFINITION_LAYER_FORBIDDEN_PREFIXES,
+    KNOWN_VERTICAL_PACKAGE_NAMES,
+)
 
 # Sourced from the tiered manifest (co-design review item 22b) rather than a
 # locally maintained list, so this stays in sync with the definition-layer
@@ -25,14 +28,9 @@ BANNED_PREFIXES = DEFINITION_LAYER_FORBIDDEN_PREFIXES
 
 DEFINITION_FILES = {"assistant.py", "plugin.py"}
 
-VERTICALS = [
-    "victor_invest",
-    "victor_coding",
-    "victor_research",
-    "victor_devops",
-    "victor_rag",
-    "victor_dataanalysis",
-]
+# Sourced from the shared manifest (co-design review item 22b) rather than a
+# locally maintained list.
+VERTICALS = list(KNOWN_VERTICAL_PACKAGE_NAMES)
 
 
 def _find_source(pkg: str) -> Path:
