@@ -32,6 +32,11 @@ import pytest
 import victor.processing.native.context_fitter as cf
 from victor.processing.native._base import _NATIVE_AVAILABLE, _native
 
+# Selected by the native-parity CI job (`pytest -m native_parity`), which
+# builds the Rust extension first; in ordinary unit runs these still execute
+# and skip themselves when the wheel is missing/stale.
+pytestmark = pytest.mark.native_parity
+
 _ROLES = ["system", "user", "assistant", "user", "assistant", "user", "user", "assistant"]
 
 

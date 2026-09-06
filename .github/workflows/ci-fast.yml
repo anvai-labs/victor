@@ -848,6 +848,56 @@ jobs:
           cargo package -p victor-tools --locked
           cargo package -p victor-edge --locked
 
+  # Native parity (co-design review item 17b): build the Rust extension with
+  # maturin, then run the native-vs-fallback parity suites (context fitter +
+  # tokenizer, pytest -m native_parity) against the fresh wheel. Every other
+  # CI job runs these suites without a native wheel, where they skip — this
+  # is the only place the parity contract actually executes, so a Rust change
+  # that drifts from its Python fallback fails here instead of silently.
+  #
+  # Deliberately NOT in the ci-success needs list yet: prove stability first
+  # (fresh release builds can flake on runner capacity/timeouts), then
+  # promote it to the required aggregate once it has a green history.
+  native-parity:
+    name: Native Parity
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          workspaces: rust
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install Python dependencies + maturin
+        run: |
+          pip install --upgrade pip "maturin>=1.4"
+          # victor-contracts first, then victor-ai — mirroring the guard job's
+          # editable install (dev extra brings pytest + pytest-timeout, and
+          # tiktoken for the parity ranks) so pytest can collect conftest.
+          pip install -e ./victor-contracts
+          pip install -e ".[dev]"
+
+      - name: Build native extension
+        working-directory: rust
+        # `maturin develop` needs a virtualenv (absent on runners), so build
+        # a wheel and install it instead.
+        run: maturin build --release --out dist
+
+      - name: Install native wheel
+        run: pip install rust/dist/victor_native-*.whl
+
+      - name: Run native parity suites
+        run: |
+          python -m pytest tests/unit/native -m native_parity -q --tb=short --timeout=300
+
   # Aggregate merge gate — mirrors ProximaDB's `CI Success` pattern (see
   # ../proximaDB/.github/workflows/ci.yml `ci-success`). A single required
   # status check that is green iff every core gate passed (or was path-skipped).

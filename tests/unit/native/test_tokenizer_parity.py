@@ -42,6 +42,11 @@ from victor.processing.native.tokenizer import (
     count_tokens_batch,
 )
 
+# Selected by the native-parity CI job (`pytest -m native_parity`), which
+# builds the Rust extension first; in ordinary unit runs these still execute
+# and skip themselves when the wheel is missing/stale.
+pytestmark = pytest.mark.native_parity
+
 # Corpus agreed on by both engines (verified empirically): prose, code,
 # unicode, contractions, numbers, newline runs, trailing single whitespace.
 _PARITY_CORPUS = [
