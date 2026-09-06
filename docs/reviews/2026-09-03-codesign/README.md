@@ -125,21 +125,54 @@ explicit scope decision, both are structural changes better suited to a dedicate
 | 20b | SQLite writer off the event loop | U5-05 | deferred → Wave 3 |
 | 21 | Lazy slash import (1.7s CLI startup → gate with importtime CI check) | U7-F8 | #1002 |
 
-**Wave 3 — structural, multi-PR (FEPs where noted). Also carries items 17 and 20b deferred from Wave 2:**
+**Wave 3 — structural, multi-PR (FEPs where noted). Also carries items 17 and 20b deferred from Wave 2.**
+
+**Stage A — ready-now items, no FEP required: DONE 2026-09-05/06, PRs #1013, #1015–#1028** (#1014 closed: opened against the wrong base, superseded by #1015). One worktree at a time, removed immediately after merge; boundary-manifest items (A7–A11) and the SQLite writer thread (A14) got dedicated adversarial-review passes before their merge requests per the CLAUDE.md risk rule, the rest after CI. The reviews caught real issues that were fixed in the same PRs: A10's initial AST rewrite of the feature-flag-guard check would have silently missed the call/comparison operand shapes the old substring check caught (fixed with per-shape regression tests); A14's executor-only version introduced a reproducible batch-atomicity regression — all stores shared the project manager's single thread-local connection, so a co-writer could commit a batch's partial transaction mid-flight (fixed with per-store dedicated connections; 14/15-run repro in the review). Two scope corrections surfaced real dead-vs-alive complexity the backlog understated: A6's judge-era files turned out to be load-bearing for the concluded-but-unremoved `benchmarks/judge_calibration` + `benchmarks/judge_training` research apparatus (deleted wholesale per explicit scope decision, along with the orphaned `judge-training` extras group); A7's full manifest migration of `contract_audit.py` would have flipped currently-green CI red on 28 real pre-existing violations (deferred with a documented follow-up). A9 found the backlog's premise half-wrong: `test_architectural_boundaries.py` has no vertical-boundary content to migrate (and its `ui_layer_files` extension to `victor/integrations/*` breaks CI on 2 real sites — deferred), so A9 instead consolidated the three independently-drifting vertical-package-name lists (one had silently shrunk to 3 of 6 verticals) onto a new manifest constant. Item 17 shipped as the full pair: A12 wired the previously-dead Rust `BpeTokenizer` into `count_tokens` (which had been misrouted to the heuristic — the "exact" API returned approximate counts whenever the native wheel was installed) with a parity suite pinning the documented regex-divergence edge case, and A13 added the non-blocking `native-parity` CI job (builds the wheel via maturin, runs `pytest -m native_parity` — promote to required after a green history).
+
+| # | Item | Ref | PR |
+|---|------|-----|----|
+| 25a | Dead code: `victor/ui/commands` (chat_lazy/chat_refactored/optimization) + `victor/commands` | T8 | #1013 |
+| 25b | Dead code: `victor/context` manager/manifest/parser + `incremental_indexing_simple` | T8 | #1015 |
+| 25c | Dead code: `victor/workflows` adapters/metrics | T8 | #1016 |
+| 25d | Dead code: `victor/observability/resilience.py` | T8 | #1017 |
+| 25e | Dead code: `browser_tool_legacy.py` (superseded by AgentBrowser MCP) | T8 | #1018 |
+| 25f | Dead code: judge-era modules + concluded benchmark apparatus (scope widened per decision) | T8 | #1019 |
+| 22a | Tiered boundary manifest in `victor_contracts.testing.boundaries` + Makefile target dedup | T5 | #1020 |
+| 22b | Migrate definition-layer guard onto manifest (+ regression pins) | U9-F6 | #1021 |
+| 22b | Vertical-package-name manifest constant; fix stale 3-of-6 vertical scan; consolidate 3 copies | U9-F6 | #1022 |
+| 22c | AST-based facade guard + `bind_runtime_components` kwarg ratchet (item 27 prerequisite) | U1-11 | #1023 |
+| 22d | Structural ratchet: orchestrator def/probe counts (may only shrink) | U1-11 | #1024 |
+| 17a | Exact token counting via Rust `BpeTokenizer` + real ranks; parity suite | U8-F5 | #1025 |
+| 17b | Non-blocking `native-parity` CI job (maturin build + `-m native_parity`) | U8-F2 | #1026 |
+| 20b | SQLite writer off the event loop: dedicated single-worker executor + per-store connection | U5-05 | #1027 |
+| 26a | Derived-state reclamation: post-rebuild `maintain()` + one-time auto_vacuum migration | U5-07 | #1028 |
+
+Deferred follow-ups surfaced by Stage A reviews (each small, none blocking):
+migrate `contract_audit.py` onto the full runtime manifest after fixing the 28 real
+`victor.config`/`victor.storage` violations in victor-coding/victor-rag (#1020 note);
+`ui_layer_files` extension to `victor/integrations/*` after fixing the 2 real
+orchestrator-import sites (#1022 note); offload the remaining `fetchall()` materializations
+in 7 read methods (#1023 review A2); promote `native-parity` to the required aggregate
+after a green history (#1026).
+
+**Stage B/C — remaining Wave 3 items (design-first: FEPs/ADRs per the large-epic flow; see FEP tracker):**
 
 | # | Item | Ref | Effort |
 |---|------|-----|--------|
-| 22 | Single boundary manifest consumed by all guards; AST-based facade guard; ratchet on orchestrator | T5, U1-11, U9-F6 | M |
 | 23 | Engine unification: WorkflowExecutor as facade over CompiledGraph; AgenticLoop graduation (FEP-0007) | U6-F1, U2-F1 | L |
 | 24 | Interrupt/resume semantics: `interrupted` field, resume-at vs completed-at (FEP) | U6-F4 | M |
-| 25 | Dead-code sweep (~15k LOC across 7 units; record negative A/B verdicts in PRs) | T8 | S each |
-| 26 | Manifest-aware `parse_repo` + derived-state reclamation (vacuum/WAL) + Tier-A/B on SQLite | U5-01/02/07 | M–L |
-| 27 | ChatService inversion: own the turn lifecycle; guard-test upgrade first | U1-4/7 | L |
+| 26b | Manifest-aware `parse_repo` (U5-02) + Tier-A/B storage protocol split (U5-07 remainder) | U5-01/02 | L |
+| 27 | ChatService inversion: own the turn lifecycle (A10/A11 guards landed as prerequisites) | U1-4/7 | L |
 | 28 | Contrib bases → `victor_contracts.verticals`; de-template the 4 small verticals (~12k LOC) | U9-F5 | M–L |
-| 29 | RL/prompt-evolution out of `victor/framework` (FEP-0025 Phase 6) | U2-F4 | L |
+| 29 | RL/prompt-evolution out of `victor/framework` (no FEP-0025 Phase 6 exists — new FEP; 60-site fan-out) | U2-F4 | L |
 | 30 | Coordinator split: WorktreeMergeService + DelegateContractBuilder | U6-F7 | L |
 | 31 | One benchmark stack on the BenchmarkRunner protocol; single agent-creation path in evals | U10-F1/F8 | L |
 | 32 | REPL/`/completions` through VictorClient; session-aware API contract | U7-F5/F6/F10 | M |
+
+Also deferred out of Stage A (from the planning pass, not silently dropped): effect-gate
+aftermath cleanup (⅔ live wiring, needs its own M-effort PR), `code_search_tool.py` stub
+(sequence after a U9-F2 fix), observability emitters consolidation (2,056 LOC, live via
+`bridge.py`), and item 28's vertical-de-templating half (follows 28's bases promotion).
 
 ## 5. Dogfood & validation (graph pipeline as measured)
 
