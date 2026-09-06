@@ -1516,7 +1516,7 @@ class StreamingChatExecutor:
         )
 
     async def run_unified(self, user_message: str, **kwargs: Any) -> AsyncIterator[StreamChunk]:
-        """Unified streaming run — drive ``AgenticLoop.run_streaming`` (FEP-0007 cutover, DRAFT).
+        """Unified streaming run — drive ``AgenticLoop.run_streaming`` (FEP-0007 step-3 cutover).
 
         Makes the streaming UI path run the SAME research-rooted PERCEIVE -> PLAN -> ACT ->
         EVALUATE -> DECIDE loop as the buffered path, emitting ``StreamChunk``s via the streaming
@@ -1525,11 +1525,9 @@ class StreamingChatExecutor:
         own collaborators (the same ``turn_executor`` + ``runtime_intelligence`` the buffered loop
         uses), and yields ``run_streaming``'s chunks.
 
-        DRAFT / not yet wired as the sole live path into ``ChatStreamRuntime``
-        (``chat_stream_runtime.py`` already calls ``run_unified``; the legacy
-        ``run()`` entry point is preserved as a thin alias delegating here so the
-        callers that still reference it — notably ``AgenticLoop.run_streaming`` —
-        keep working during the cutover). **Behavior change vs the removed legacy
+        This is the SOLE live streaming entry point: ``ChatStreamRuntime``'s stream path calls
+        ``run_unified`` directly, and the legacy ``run()`` entry point is an LTS-deprecated thin
+        alias delegating here (no second code path). **Behavior change vs the removed legacy
         run() body:** the UI path adopts the unified loop's EVALUATE — including
         its requirement-driven completion (EnhancedCompletion / fulfillment) —
         so it may complete earlier on multi-step tasks than the old streaming
@@ -1623,12 +1621,15 @@ class StreamingChatExecutor:
 
         .. deprecated:: 0.8.0
             Use :meth:`run_unified` instead. ``run()`` is a thin alias retained
-            only for the FEP-0007 cutover period so the one remaining internal
-            caller (``AgenticLoop.run_streaming``) and the streaming parity test
-            battery keep working. It delegates directly to ``run_unified`` so
-            there is a single live code path, and will be removed once the last
-            caller migrates. Do NOT add new callers of ``run()`` — that re-opens
-            the wrong (legacy) streaming seam the unification closed.
+            only for the FEP-0007 cutover period; it has zero production callers
+            left (``AgenticLoop.run_streaming`` drives the streaming ACT port
+            directly, not this alias) and is reachable only via the duck-typed
+            ``hasattr(..., "run_unified")`` fallback in
+            ``AgenticLoop.stream_chat`` for test executors. It delegates
+            directly to ``run_unified`` so there is a single live code path,
+            and will be removed as Stage C item-23 cleanup. Do NOT add new
+            callers of ``run()`` — that re-opens the wrong (legacy) streaming
+            seam the unification closed.
         """
         import warnings
 
