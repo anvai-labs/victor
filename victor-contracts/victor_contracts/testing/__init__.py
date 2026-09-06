@@ -36,16 +36,12 @@ import ast
 from pathlib import Path
 from typing import Any, List, Optional, Tuple, Type
 
-# Default forbidden import prefixes for external verticals
-_DEFAULT_FORBIDDEN_PREFIXES = (
-    "victor.agent.",
-    "victor.core.container",
-    "victor.core.bootstrap",
-    "victor.evaluation.",
-    "victor.storage.",
-    "victor.config.settings",
-    "victor.config.api_keys",
-)
+from victor_contracts.testing.boundaries import RUNTIME_LAYER_FORBIDDEN_PREFIXES
+
+# Default forbidden import prefixes for external verticals. Sourced from the
+# tiered manifest (co-design review item 22a) rather than a locally maintained
+# list, so it stays in sync with victor.core.verticals.contract_audit's list.
+_DEFAULT_FORBIDDEN_PREFIXES = RUNTIME_LAYER_FORBIDDEN_PREFIXES
 
 # Allowed import prefixes (safe for external verticals)
 _ALLOWED_PREFIXES = (
