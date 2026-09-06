@@ -751,6 +751,7 @@ markers = [
     "agents: marks multi-agent tests",
     "hitl: marks human-in-the-loop tests",
     "monte_carlo: marks tests as Monte Carlo statistical tests",
+    "native_parity: marks native-vs-fallback parity tests (require the Rust extension built via maturin; selected by the native-parity CI job)",
 ]
 filterwarnings = [
     # Ignore PytestCollectionWarning for non-test classes in victor module
