@@ -58,7 +58,11 @@ class RustTokenCounter(InstrumentedAccelerator):
     def count_tokens(self, text: str) -> int:
         """Count tokens using exact BPE tokenization.
 
-        Delegates to Rust BPE implementation.
+        Delegates to the native BpeTokenizer (real BPE over tiktoken's
+        cl100k_base ranks) when available — the module-level
+        ``count_tokens_fast`` this used to call is a heuristic, not the
+        exact BPE count this method's contract promises. Falls back to the
+        heuristic when tiktoken ranks can't be loaded.
 
         Args:
             text: Text to count tokens for
@@ -67,7 +71,9 @@ class RustTokenCounter(InstrumentedAccelerator):
             Number of tokens
         """
         with self._timed_call("token_counting"):
-            return victor_native.count_tokens_fast(text)
+            from victor.processing.native.tokenizer import count_tokens
+
+            return count_tokens(text)
 
     def count_tokens_fast(self, text: str) -> int:
         """Count tokens using fast approximate method.
@@ -86,10 +92,10 @@ class RustTokenCounter(InstrumentedAccelerator):
     def count_tokens_batch(self, texts: List[str]) -> List[int]:
         """Count tokens for multiple texts in batch.
 
-        Uses the native ``count_tokens_fast_batch`` so the FFI boundary is
-        crossed once for the whole batch (rayon-parallel internally), rather
-        than once per text. Falls back to the per-element loop when the batch
-        symbol is unavailable (older native build / version skew).
+        Delegates to the exact BpeTokenizer batch (rayon-parallel) when
+        available, so batch counts match count_tokens(). Falls back to the
+        heuristic ``count_tokens_fast_batch``/per-element loop when tiktoken
+        ranks can't be loaded.
 
         Args:
             texts: List of texts to count tokens for
@@ -98,7 +104,6 @@ class RustTokenCounter(InstrumentedAccelerator):
             List of token counts, one per input text
         """
         with self._timed_call("token_counting_batch"):
-            batch_fn = getattr(victor_native, "count_tokens_fast_batch", None)
-            if batch_fn is not None:
-                return list(batch_fn(list(texts)))
-            return [victor_native.count_tokens_fast(text) for text in texts]
+            from victor.processing.native.tokenizer import count_tokens_batch
+
+            return count_tokens_batch(list(texts))
