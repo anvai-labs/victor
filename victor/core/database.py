@@ -1618,6 +1618,10 @@ class ProjectDatabaseManager(_DatabaseManagerBase):
         self.db_path = db_path
         self._migration_lock = threading.Lock()
         self._migrated = False
+        # One-time auto_vacuum activation (co-design review item 26a): legacy
+        # project DBs predate the auto_vacuum pragma, which only takes effect
+        # on them after a VACUUM. See _configure_connection.
+        self._auto_vacuum_migration_done = False
 
         # Ensure database exists
         self._ensure_database()
@@ -1644,6 +1648,33 @@ class ProjectDatabaseManager(_DatabaseManagerBase):
         # so a long stall is worse than a skipped undo record. This overrides the
         # 30000ms busy handler sqlite3.connect(timeout=30.0) installs.
         conn.execute("PRAGMA busy_timeout = 5000")
+
+        # One-time migration (co-design review item 26a): auto_vacuum is a
+        # persistent database property, but on a legacy DB created before the
+        # pragma above existed the INCREMENTAL request is a silent no-op until
+        # a VACUUM runs. Detect that pending state (read-back still reports
+        # NONE) and run the activating VACUUM once, so incremental vacuuming
+        # works from here on without a manual `victor db maintain`. Attempted
+        # at most once per manager instance even on failure (a busy failure
+        # would just fail again); `victor db maintain` remains the manual
+        # fallback. Runs outside any transaction (fresh connection, PRAGMAs
+        # only so far), as VACUUM requires.
+        mode = conn.execute("PRAGMA auto_vacuum").fetchone()[0]
+        if mode == 0 and not self._auto_vacuum_migration_done:
+            self._auto_vacuum_migration_done = True
+            try:
+                logger.info(
+                    "Legacy project database detected: running one-time VACUUM "
+                    "to activate auto_vacuum=INCREMENTAL (%s)",
+                    self.db_path,
+                )
+                conn.execute("VACUUM")
+            except sqlite3.Error:
+                logger.warning(
+                    "One-time auto_vacuum VACUUM failed; run `victor db maintain` "
+                    "to complete the migration",
+                    exc_info=True,
+                )
 
     def _ensure_database(self) -> None:
         """Ensure database exists and is up to date."""
