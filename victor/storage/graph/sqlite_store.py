@@ -5,18 +5,21 @@ import asyncio
 import json
 import logging
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import (
     TYPE_CHECKING,
     Any,
     AsyncIterator,
+    Callable,
     Dict,
     Iterable,
     List,
     Optional,
     Set,
     Tuple,
+    TypeVar,
 )
 
 from victor.core.schema import Tables
@@ -32,6 +35,8 @@ if TYPE_CHECKING:
     from victor.core.database import ProjectDatabaseManager
 
 logger = logging.getLogger(__name__)
+
+T = TypeVar("T")
 
 # Table names from centralized schema
 _NODE_TABLE = Tables.GRAPH_NODE
@@ -140,6 +145,7 @@ class SqliteGraphStore(GraphStoreProtocol):
         self._db = get_project_database(project_path)
         self.db_path = self._db.db_path
         self._project_root = Path(self._db.project_root).resolve()
+        self._conn: sqlite3.Connection | None = None
         self._ensure_schema()
         self._record_project_metadata()
         self._lock = asyncio.Lock()
@@ -147,10 +153,65 @@ class SqliteGraphStore(GraphStoreProtocol):
         self._write_batch_owner: asyncio.Task[Any] | None = None
         self._write_batch_depth = 0
         self._edge_has_file_column: bool | None = None
+        # Dedicated single-worker executor for all synchronous SQLite work
+        # (co-design review item 20b). Single-worker, NOT the default shared
+        # pool: this store's dedicated connection (see _open_dedicated_connection)
+        # is operated from the worker thread, and a shared pool would give each
+        # pool thread a different thread-local connection with no single-owner
+        # story at all. One worker keeps every operation on one stable thread
+        # and serializes anything the asyncio lock doesn't already gate.
+        # Created lazily so merely constructing a store doesn't spawn a thread.
+        self._db_executor: ThreadPoolExecutor | None = None
+
+    def _open_dedicated_connection(self) -> sqlite3.Connection:
+        """Open this store's dedicated connection (adversarial-review F1 fix).
+
+        The project database manager's ``get_connection()`` returns one shared
+        per-thread connection also used by unrelated components (GraphRAG
+        query cache, other store instances). Offloading this store's work to a
+        worker thread dissolves the event-loop serialization that accidentally
+        protected a shared connection: a co-writer committing mid-``write_batch``
+        would commit the batch's partial transaction out from under it. A
+        dedicated connection — used only by this store and its single worker —
+        degrades cross-writer interference to the standard WAL + busy_timeout
+        model, where SQLite's own write lock (BEGIN IMMEDIATE) is the boundary.
+
+        Settings mirror the manager's (row factory, ``check_same_thread=False``,
+        30s connect timeout, and its ``_configure_connection`` pragmas) by
+        reusing the manager's configurator so the values cannot drift.
+        """
+        conn = sqlite3.connect(
+            str(self.db_path),
+            check_same_thread=False,
+            timeout=30.0,
+        )
+        conn.row_factory = sqlite3.Row
+        self._db._configure_connection(conn)
+        return conn
+
+    def _get_db_executor(self) -> ThreadPoolExecutor:
+        """Lazily create the dedicated single-worker SQLite executor."""
+        if self._db_executor is None:
+            self._db_executor = ThreadPoolExecutor(
+                max_workers=1,
+                thread_name_prefix="sqlite-graph",
+            )
+        return self._db_executor
+
+    async def _run_db(self, fn: Callable[[], T]) -> T:
+        """Run a synchronous database operation on the dedicated worker thread.
+
+        The callable must be self-contained (its arguments, including any
+        connection, are resolved on the event-loop thread before offloading —
+        this is what keeps write_batch's task-identity connection routing
+        intact: ``asyncio.current_task()`` is only meaningful on the loop).
+        """
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(self._get_db_executor(), fn)
 
     async def initialize(self) -> None:
         """Ensure schema exists for compatibility with higher-level stores."""
-        self._ensure_schema()
+        await self._run_db(self._ensure_schema)
 
     async def close(self) -> None:
         """Release store resources without closing the shared project database.
@@ -158,7 +219,17 @@ class SqliteGraphStore(GraphStoreProtocol):
         ``ProjectDatabaseManager`` is a shared singleton per project path.
         Closing it here invalidates other live components on the same thread.
         Test isolation and process shutdown already clean up the shared manager.
+
+        Shuts down the dedicated SQLite worker thread (``wait=False`` lets an
+        in-flight operation finish without blocking the caller) and closes
+        this store's dedicated connection; a later operation lazily reopens it.
         """
+        if self._db_executor is not None:
+            self._db_executor.shutdown(wait=False)
+            self._db_executor = None
+        if self._conn is not None:
+            self._conn.close()
+            self._conn = None
         logger.debug("SqliteGraphStore close skipped shared project database shutdown")
 
     @property
@@ -167,8 +238,11 @@ class SqliteGraphStore(GraphStoreProtocol):
         return self._project_root
 
     def _connect(self) -> sqlite3.Connection:
-        """Get database connection."""
-        return self._db.get_connection()
+        """Get this store's dedicated database connection (lazily reopened
+        after close(), preserving the previous ops-after-close behavior)."""
+        if self._conn is None:
+            self._conn = self._open_dedicated_connection()
+        return self._conn
 
     def _get_active_write_batch_connection(self) -> sqlite3.Connection | None:
         """Return the active write-batch connection for the current task, if any."""
@@ -386,11 +460,11 @@ class SqliteGraphStore(GraphStoreProtocol):
             self._write_batch_conn = conn
             self._write_batch_depth = 1
             try:
-                conn.execute("BEGIN IMMEDIATE")
+                await self._run_db(lambda: conn.execute("BEGIN IMMEDIATE"))
                 yield
-                conn.commit()
+                await self._run_db(conn.commit)
             except Exception:
-                conn.rollback()
+                await self._run_db(conn.rollback)
                 raise
             finally:
                 self._write_batch_owner = None
@@ -693,18 +767,23 @@ class SqliteGraphStore(GraphStoreProtocol):
             return
         batch_conn = self._get_active_write_batch_connection()
         if batch_conn is not None:
-            self._upsert_nodes_rows(batch_conn, rows)
+            await self._run_db(lambda: self._upsert_nodes_rows(batch_conn, rows))
             return
         async with self._lock:
             conn = self._connect()
-            self._upsert_nodes_rows(conn, rows)
-            conn.commit()
+
+            def _work() -> None:
+                self._upsert_nodes_rows(conn, rows)
+                conn.commit()
+
+            await self._run_db(_work)
 
     async def upsert_edges(self, edges: Iterable[GraphEdge]) -> None:
         has_file_column = self._edge_has_file_column
         if has_file_column is None:
-            conn = self._connect()
-            has_file_column = self._has_table_column(conn, _EDGE_TABLE, "file")
+            has_file_column = await self._run_db(
+                lambda: self._has_table_column(self._connect(), _EDGE_TABLE, "file")
+            )
             self._edge_has_file_column = has_file_column
 
         if has_file_column:
@@ -736,12 +815,16 @@ class SqliteGraphStore(GraphStoreProtocol):
             return
         batch_conn = self._get_active_write_batch_connection()
         if batch_conn is not None:
-            self._upsert_edges_rows(batch_conn, rows)
+            await self._run_db(lambda: self._upsert_edges_rows(batch_conn, rows))
             return
         async with self._lock:
             conn = self._connect()
-            self._upsert_edges_rows(conn, rows)
-            conn.commit()
+
+            def _work() -> None:
+                self._upsert_edges_rows(conn, rows)
+                conn.commit()
+
+            await self._run_db(_work)
 
     async def get_neighbors(
         self,
@@ -768,22 +851,26 @@ class SqliteGraphStore(GraphStoreProtocol):
 
                 if direction in {"out", "both"}:
                     traversed_edges.extend(
-                        self._select_frontier_edges(
-                            conn,
-                            frontier=frontier,
-                            edge_types=allowed_types,
-                            node_column="src",
-                            neighbor_column="dst",
+                        await self._run_db(
+                            lambda: self._select_frontier_edges(
+                                conn,
+                                frontier=frontier,
+                                edge_types=allowed_types,
+                                node_column="src",
+                                neighbor_column="dst",
+                            )
                         )
                     )
                 if direction in {"in", "both"}:
                     traversed_edges.extend(
-                        self._select_frontier_edges(
-                            conn,
-                            frontier=frontier,
-                            edge_types=allowed_types,
-                            node_column="dst",
-                            neighbor_column="src",
+                        await self._run_db(
+                            lambda: self._select_frontier_edges(
+                                conn,
+                                frontier=frontier,
+                                edge_types=allowed_types,
+                                node_column="dst",
+                                neighbor_column="src",
+                            )
                         )
                     )
 
@@ -902,7 +989,7 @@ class SqliteGraphStore(GraphStoreProtocol):
         query = f"SELECT {self._NODE_COLS} FROM {_NODE_TABLE} WHERE {where}"
         async with self._lock:
             conn = self._connect()
-            cur = conn.execute(query, params)
+            cur = await self._run_db(lambda: conn.execute(query, params))
             return [self._row_to_node(row) for row in cur.fetchall()]
 
     async def delete_by_repo(self, clear_embeddings: bool = False) -> None:
@@ -918,16 +1005,20 @@ class SqliteGraphStore(GraphStoreProtocol):
         """
         batch_conn = self._get_active_write_batch_connection()
         if batch_conn is not None:
-            self._delete_by_repo_conn(batch_conn)
+            await self._run_db(lambda: self._delete_by_repo_conn(batch_conn))
         else:
             async with self._lock:
                 conn = self._connect()
-                self._enable_bulk_load_mode(conn)
-                try:
-                    self._delete_by_repo_conn(conn)
-                    conn.commit()
-                finally:
-                    self._disable_bulk_load_mode(conn)
+
+                def _work() -> None:
+                    self._enable_bulk_load_mode(conn)
+                    try:
+                        self._delete_by_repo_conn(conn)
+                        conn.commit()
+                    finally:
+                        self._disable_bulk_load_mode(conn)
+
+                await self._run_db(_work)
 
         if clear_embeddings:
             await self._clear_all_embeddings()
@@ -952,25 +1043,29 @@ class SqliteGraphStore(GraphStoreProtocol):
     async def stats(self) -> Dict[str, Any]:
         async with self._lock:
             conn = self._connect()
-            try:
-                cur = conn.execute(f"SELECT COUNT(*) FROM {_NODE_TABLE}")
-                node_count = cur.fetchone()[0]
-                cur = conn.execute(f"SELECT COUNT(*) FROM {_EDGE_TABLE}")
-                edge_count = cur.fetchone()[0]
-                cur = conn.execute(f"SELECT COUNT(*) FROM {_MTIME_TABLE}")
-                file_count = cur.fetchone()[0]
-                return {
-                    "nodes": node_count,
-                    "edges": edge_count,
-                    "indexed_files": file_count,
-                    "path": str(self.db_path),
-                }
-            except sqlite3.OperationalError:
-                return {
-                    "nodes": node_count,
-                    "edges": edge_count,
-                    "path": str(self.db_path),
-                }
+
+            def _work() -> Dict[str, Any]:
+                try:
+                    cur = conn.execute(f"SELECT COUNT(*) FROM {_NODE_TABLE}")
+                    node_count = cur.fetchone()[0]
+                    cur = conn.execute(f"SELECT COUNT(*) FROM {_EDGE_TABLE}")
+                    edge_count = cur.fetchone()[0]
+                    cur = conn.execute(f"SELECT COUNT(*) FROM {_MTIME_TABLE}")
+                    file_count = cur.fetchone()[0]
+                    return {
+                        "nodes": node_count,
+                        "edges": edge_count,
+                        "indexed_files": file_count,
+                        "path": str(self.db_path),
+                    }
+                except sqlite3.OperationalError:
+                    return {
+                        "nodes": node_count,
+                        "edges": edge_count,
+                        "path": str(self.db_path),
+                    }
+
+            return await self._run_db(_work)
 
     async def search_symbols(
         self,
@@ -982,56 +1077,62 @@ class SqliteGraphStore(GraphStoreProtocol):
         """Full-text search across symbol names, signatures, and docstrings."""
         async with self._lock:
             conn = self._connect()
-            # Try FTS5 first
-            try:
+
+            def _work() -> List[GraphNode]:
+                # Try FTS5 first
+                try:
+                    type_clause = ""
+                    params: list[Any] = [query, limit]
+                    if symbol_types:
+                        types = list(symbol_types)
+                        type_clause = f"AND n.type IN ({','.join('?' for _ in types)})"
+                        params = [query] + types + [limit]
+
+                    fts_query = f"""
+                        SELECT n.node_id, n.type, n.name, n.file, n.line, n.end_line, n.lang,
+                               n.signature, n.docstring, n.parent_id, n.embedding_ref, n.metadata
+                        FROM {_FTS_TABLE} fts
+                        JOIN {_NODE_TABLE} n ON fts.node_id = n.node_id
+                        WHERE {_FTS_TABLE} MATCH ?
+                        {type_clause}
+                        ORDER BY rank
+                        LIMIT ?
+                    """
+                    cur = conn.execute(fts_query, params)
+                    return [self._row_to_node(row) for row in cur.fetchall()]
+                except sqlite3.OperationalError:
+                    pass
+
+                # Fallback: LIKE search
+                like_pattern = f"%{query}%"
                 type_clause = ""
-                params: list[Any] = [query, limit]
+                params = [like_pattern, like_pattern, like_pattern, limit]
                 if symbol_types:
                     types = list(symbol_types)
-                    type_clause = f"AND n.type IN ({','.join('?' for _ in types)})"
-                    params = [query] + types + [limit]
+                    type_clause = f"AND type IN ({','.join('?' for _ in types)})"
+                    params = [like_pattern, like_pattern, like_pattern] + types + [limit]
 
-                fts_query = f"""
-                    SELECT n.node_id, n.type, n.name, n.file, n.line, n.end_line, n.lang,
-                           n.signature, n.docstring, n.parent_id, n.embedding_ref, n.metadata
-                    FROM {_FTS_TABLE} fts
-                    JOIN {_NODE_TABLE} n ON fts.node_id = n.node_id
-                    WHERE {_FTS_TABLE} MATCH ?
+                like_query = f"""
+                    SELECT {self._NODE_COLS}
+                    FROM {_NODE_TABLE}
+                    WHERE (name LIKE ? OR signature LIKE ? OR docstring LIKE ?)
                     {type_clause}
-                    ORDER BY rank
                     LIMIT ?
                 """
-                cur = conn.execute(fts_query, params)
+                cur = conn.execute(like_query, params)
                 return [self._row_to_node(row) for row in cur.fetchall()]
-            except sqlite3.OperationalError:
-                pass
 
-            # Fallback: LIKE search
-            like_pattern = f"%{query}%"
-            type_clause = ""
-            params = [like_pattern, like_pattern, like_pattern, limit]
-            if symbol_types:
-                types = list(symbol_types)
-                type_clause = f"AND type IN ({','.join('?' for _ in types)})"
-                params = [like_pattern, like_pattern, like_pattern] + types + [limit]
-
-            like_query = f"""
-                SELECT {self._NODE_COLS}
-                FROM {_NODE_TABLE}
-                WHERE (name LIKE ? OR signature LIKE ? OR docstring LIKE ?)
-                {type_clause}
-                LIMIT ?
-            """
-            cur = conn.execute(like_query, params)
-            return [self._row_to_node(row) for row in cur.fetchall()]
+            return await self._run_db(_work)
 
     async def get_node_by_id(self, node_id: str) -> Optional[GraphNode]:
         """Get a single node by its ID."""
         async with self._lock:
             conn = self._connect()
-            cur = conn.execute(
-                f"SELECT {self._NODE_COLS} FROM {_NODE_TABLE} WHERE node_id = ?",
-                (node_id,),
+            cur = await self._run_db(
+                lambda: conn.execute(
+                    f"SELECT {self._NODE_COLS} FROM {_NODE_TABLE} WHERE node_id = ?",
+                    (node_id,),
+                )
             )
             row = cur.fetchone()
             return self._row_to_node(row) if row else None
@@ -1040,8 +1141,10 @@ class SqliteGraphStore(GraphStoreProtocol):
         """Get all nodes in the graph."""
         async with self._lock:
             conn = self._connect()
-            cur = conn.execute(
-                f"SELECT {self._NODE_COLS} FROM {_NODE_TABLE} ORDER BY file, line, name"
+            cur = await self._run_db(
+                lambda: conn.execute(
+                    f"SELECT {self._NODE_COLS} FROM {_NODE_TABLE} ORDER BY file, line, name"
+                )
             )
             return [self._row_to_node(row) for row in cur.fetchall()]
 
@@ -1051,14 +1154,16 @@ class SqliteGraphStore(GraphStoreProtocol):
         placeholders = ",".join("?" for _ in file_variants)
         async with self._lock:
             conn = self._connect()
-            cur = conn.execute(
-                f"""
-                SELECT {self._NODE_COLS}
-                FROM {_NODE_TABLE}
-                WHERE file IN ({placeholders})
-                ORDER BY line
-                """,
-                file_variants,
+            cur = await self._run_db(
+                lambda: conn.execute(
+                    f"""
+                    SELECT {self._NODE_COLS}
+                    FROM {_NODE_TABLE}
+                    WHERE file IN ({placeholders})
+                    ORDER BY line
+                    """,
+                    file_variants,
+                )
             )
             return [self._row_to_node(row) for row in cur.fetchall()]
 
@@ -1092,12 +1197,12 @@ class SqliteGraphStore(GraphStoreProtocol):
 
         batch_conn = self._get_active_write_batch_connection()
         if batch_conn is not None:
-            _apply(batch_conn)
+            await self._run_db(lambda: _apply(batch_conn))
             return
         async with self._lock:
             conn = self._connect()
-            _apply(conn)
-            conn.commit()
+            await self._run_db(lambda: _apply(conn))
+            await self._run_db(conn.commit)
 
     async def update_nodes_metadata(self, pairs: List[Tuple[str, Dict[str, Any]]]) -> None:
         """Batched ``update_node_metadata``: one SELECT + one executemany UPDATE
@@ -1158,12 +1263,12 @@ class SqliteGraphStore(GraphStoreProtocol):
 
         batch_conn = self._get_active_write_batch_connection()
         if batch_conn is not None:
-            _apply(batch_conn)
+            await self._run_db(lambda: _apply(batch_conn))
             return
         async with self._lock:
             conn = self._connect()
-            _apply(conn)
-            conn.commit()
+            await self._run_db(lambda: _apply(conn))
+            await self._run_db(conn.commit)
 
     async def update_file_mtime(
         self, file: str, mtime: float, content_hash: str | None = None
@@ -1172,12 +1277,18 @@ class SqliteGraphStore(GraphStoreProtocol):
         file = self._canonical_file_path(file)
         batch_conn = self._get_active_write_batch_connection()
         if batch_conn is not None:
-            self._update_file_mtime_conn(batch_conn, file, mtime, content_hash)
+            await self._run_db(
+                lambda: self._update_file_mtime_conn(batch_conn, file, mtime, content_hash)
+            )
             return
         async with self._lock:
             conn = self._connect()
-            self._update_file_mtime_conn(conn, file, mtime, content_hash)
-            conn.commit()
+
+            def _work() -> None:
+                self._update_file_mtime_conn(conn, file, mtime, content_hash)
+                conn.commit()
+
+            await self._run_db(_work)
 
     async def get_file_hashes(self, files: List[str]) -> Dict[str, str]:
         """Stored content hashes for the given files (files without a hash omitted).
@@ -1188,7 +1299,9 @@ class SqliteGraphStore(GraphStoreProtocol):
         """
         async with self._lock:
             conn = self._connect()
-            cur = conn.execute(f"SELECT file, content_hash FROM {_MTIME_TABLE}")
+            cur = await self._run_db(
+                lambda: conn.execute(f"SELECT file, content_hash FROM {_MTIME_TABLE}")
+            )
             stored_hashes = {str(row[0]): row[1] for row in cur.fetchall()}
         hashes: Dict[str, str] = {}
         for file in files:
@@ -1207,7 +1320,9 @@ class SqliteGraphStore(GraphStoreProtocol):
         """
         async with self._lock:
             conn = self._connect()
-            cur = conn.execute(f"SELECT file, mtime FROM {_MTIME_TABLE}")
+            cur = await self._run_db(
+                lambda: conn.execute(f"SELECT file, mtime FROM {_MTIME_TABLE}")
+            )
             stored_mtimes = {str(row[0]): row[1] for row in cur.fetchall()}
         stale = []
         for file, current_mtime in file_mtimes.items():
@@ -1224,7 +1339,9 @@ class SqliteGraphStore(GraphStoreProtocol):
         """Get the set of files currently tracked for graph staleness."""
         async with self._lock:
             conn = self._connect()
-            cur = conn.execute(f"SELECT file FROM {_MTIME_TABLE} ORDER BY file")
+            cur = await self._run_db(
+                lambda: conn.execute(f"SELECT file FROM {_MTIME_TABLE} ORDER BY file")
+            )
             return [str(row[0]) for row in cur.fetchall()]
 
     async def delete_by_file(self, file: str) -> None:
@@ -1236,12 +1353,16 @@ class SqliteGraphStore(GraphStoreProtocol):
         # Delete graph nodes and edges
         batch_conn = self._get_active_write_batch_connection()
         if batch_conn is not None:
-            self._delete_by_file_conn(batch_conn, file)
+            await self._run_db(lambda: self._delete_by_file_conn(batch_conn, file))
         else:
             async with self._lock:
                 conn = self._connect()
-                self._delete_by_file_conn(conn, file)
-                conn.commit()
+
+                def _work() -> None:
+                    self._delete_by_file_conn(conn, file)
+                    conn.commit()
+
+                await self._run_db(_work)
 
         # Clean up embeddings from vector store
         await self._delete_embeddings_for_file(file, node_ids)
@@ -1250,17 +1371,21 @@ class SqliteGraphStore(GraphStoreProtocol):
         """Get all edges in the graph (bulk retrieval for loading into memory)."""
         async with self._lock:
             conn = self._connect()
-            cur = conn.execute(f"SELECT src, dst, type, weight, metadata FROM {_EDGE_TABLE}")
-            return [
-                GraphEdge(
-                    src=row[0],
-                    dst=row[1],
-                    type=row[2],
-                    weight=row[3],
-                    metadata=json.loads(row[4]) if row[4] else {},
-                )
-                for row in cur.fetchall()
-            ]
+
+            def _work() -> List[GraphEdge]:
+                cur = conn.execute(f"SELECT src, dst, type, weight, metadata FROM {_EDGE_TABLE}")
+                return [
+                    GraphEdge(
+                        src=row[0],
+                        dst=row[1],
+                        type=row[2],
+                        weight=row[3],
+                        metadata=json.loads(row[4]) if row[4] else {},
+                    )
+                    for row in cur.fetchall()
+                ]
+
+            return await self._run_db(_work)
 
     # ===========================================
     # v5: Lazy loading methods (PH4-006)
@@ -1293,10 +1418,10 @@ class SqliteGraphStore(GraphStoreProtocol):
 
         async with self._lock:
             conn = self._connect()
-            cur = conn.execute(query, params)
+            cur = await self._run_db(lambda: conn.execute(query, params))
 
             while True:
-                rows = cur.fetchmany(batch_size)
+                rows = await self._run_db(lambda: cur.fetchmany(batch_size))
                 if not rows:
                     break
                 yield [self._row_to_node(row) for row in rows]
@@ -1321,10 +1446,10 @@ class SqliteGraphStore(GraphStoreProtocol):
 
         async with self._lock:
             conn = self._connect()
-            cur = conn.execute(query, params)
+            cur = await self._run_db(lambda: conn.execute(query, params))
 
             while True:
-                rows = cur.fetchmany(batch_size)
+                rows = await self._run_db(lambda: cur.fetchmany(batch_size))
                 if not rows:
                     break
                 yield [
@@ -1400,10 +1525,10 @@ class SqliteGraphStore(GraphStoreProtocol):
 
         async with self._lock:
             conn = self._connect()
-            cur = conn.execute(query, params)
+            cur = await self._run_db(lambda: conn.execute(query, params))
 
             while True:
-                rows = cur.fetchmany(batch_size)
+                rows = await self._run_db(lambda: cur.fetchmany(batch_size))
                 if not rows:
                     break
                 yield [
