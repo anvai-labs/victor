@@ -989,8 +989,12 @@ class SqliteGraphStore(GraphStoreProtocol):
         query = f"SELECT {self._NODE_COLS} FROM {_NODE_TABLE} WHERE {where}"
         async with self._lock:
             conn = self._connect()
-            cur = await self._run_db(lambda: conn.execute(query, params))
-            return [self._row_to_node(row) for row in cur.fetchall()]
+
+            def _work() -> List[GraphNode]:
+                cur = conn.execute(query, params)
+                return [self._row_to_node(row) for row in cur.fetchall()]
+
+            return await self._run_db(_work)
 
     async def delete_by_repo(self, clear_embeddings: bool = False) -> None:
         """Clear all nodes, edges, and file mtimes for this repo (full rebuild).
@@ -1128,25 +1132,29 @@ class SqliteGraphStore(GraphStoreProtocol):
         """Get a single node by its ID."""
         async with self._lock:
             conn = self._connect()
-            cur = await self._run_db(
-                lambda: conn.execute(
+
+            def _work() -> Optional[GraphNode]:
+                cur = conn.execute(
                     f"SELECT {self._NODE_COLS} FROM {_NODE_TABLE} WHERE node_id = ?",
                     (node_id,),
                 )
-            )
-            row = cur.fetchone()
-            return self._row_to_node(row) if row else None
+                row = cur.fetchone()
+                return self._row_to_node(row) if row else None
+
+            return await self._run_db(_work)
 
     async def get_all_nodes(self) -> List[GraphNode]:
         """Get all nodes in the graph."""
         async with self._lock:
             conn = self._connect()
-            cur = await self._run_db(
-                lambda: conn.execute(
+
+            def _work() -> List[GraphNode]:
+                cur = conn.execute(
                     f"SELECT {self._NODE_COLS} FROM {_NODE_TABLE} ORDER BY file, line, name"
                 )
-            )
-            return [self._row_to_node(row) for row in cur.fetchall()]
+                return [self._row_to_node(row) for row in cur.fetchall()]
+
+            return await self._run_db(_work)
 
     async def get_nodes_by_file(self, file: str) -> List[GraphNode]:
         """Get all symbols in a specific file."""
@@ -1154,8 +1162,9 @@ class SqliteGraphStore(GraphStoreProtocol):
         placeholders = ",".join("?" for _ in file_variants)
         async with self._lock:
             conn = self._connect()
-            cur = await self._run_db(
-                lambda: conn.execute(
+
+            def _work() -> List[GraphNode]:
+                cur = conn.execute(
                     f"""
                     SELECT {self._NODE_COLS}
                     FROM {_NODE_TABLE}
@@ -1164,8 +1173,9 @@ class SqliteGraphStore(GraphStoreProtocol):
                     """,
                     file_variants,
                 )
-            )
-            return [self._row_to_node(row) for row in cur.fetchall()]
+                return [self._row_to_node(row) for row in cur.fetchall()]
+
+            return await self._run_db(_work)
 
     async def update_node_metadata(self, node_id: str, metadata: Dict[str, Any]) -> None:
         """Merge ``metadata`` into a node's metadata JSON (read-modify-write).
@@ -1299,10 +1309,12 @@ class SqliteGraphStore(GraphStoreProtocol):
         """
         async with self._lock:
             conn = self._connect()
-            cur = await self._run_db(
-                lambda: conn.execute(f"SELECT file, content_hash FROM {_MTIME_TABLE}")
-            )
-            stored_hashes = {str(row[0]): row[1] for row in cur.fetchall()}
+
+            def _work() -> Dict[str, str]:
+                cur = conn.execute(f"SELECT file, content_hash FROM {_MTIME_TABLE}")
+                return {str(row[0]): row[1] for row in cur.fetchall()}
+
+            stored_hashes = await self._run_db(_work)
         hashes: Dict[str, str] = {}
         for file in files:
             for variant in self._file_path_variants(file):
@@ -1320,10 +1332,12 @@ class SqliteGraphStore(GraphStoreProtocol):
         """
         async with self._lock:
             conn = self._connect()
-            cur = await self._run_db(
-                lambda: conn.execute(f"SELECT file, mtime FROM {_MTIME_TABLE}")
-            )
-            stored_mtimes = {str(row[0]): row[1] for row in cur.fetchall()}
+
+            def _work() -> Dict[str, Any]:
+                cur = conn.execute(f"SELECT file, mtime FROM {_MTIME_TABLE}")
+                return {str(row[0]): row[1] for row in cur.fetchall()}
+
+            stored_mtimes = await self._run_db(_work)
         stale = []
         for file, current_mtime in file_mtimes.items():
             recorded_mtime = None
@@ -1339,10 +1353,12 @@ class SqliteGraphStore(GraphStoreProtocol):
         """Get the set of files currently tracked for graph staleness."""
         async with self._lock:
             conn = self._connect()
-            cur = await self._run_db(
-                lambda: conn.execute(f"SELECT file FROM {_MTIME_TABLE} ORDER BY file")
-            )
-            return [str(row[0]) for row in cur.fetchall()]
+
+            def _work() -> List[str]:
+                cur = conn.execute(f"SELECT file FROM {_MTIME_TABLE} ORDER BY file")
+                return [str(row[0]) for row in cur.fetchall()]
+
+            return await self._run_db(_work)
 
     async def delete_by_file(self, file: str) -> None:
         """Delete all nodes, edges, and embeddings for a specific file (for incremental reindex)."""
