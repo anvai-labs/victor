@@ -26,7 +26,7 @@
 
 Victor (`victor-ai`) is a **contract-first, service-first agentic AI framework**
 in Python 3.11+ for building autonomous agents that reason, call tools, execute
-DAG workflows, and coordinate multi-agent teams across **24 LLM providers**.
+DAG workflows, and coordinate multi-agent teams across **25 LLM providers**.
 
 Three packages compose the ecosystem:
 
@@ -236,7 +236,7 @@ flowchart TB
 | `AgentOrchestrator` | `victor/agent/orchestrator.py` | Central facade (delegates, no logic) |
 | `ChatService` | `victor/agent/services/chat_service.py` | Primary chat entry |
 | `ToolService` | `victor/agent/services/tool_service.py` | Tool registration/execution |
-| `BaseProvider` | `victor/providers/base.py` | Abstract base for all 24 providers |
+| `BaseProvider` | `victor/providers/base.py` | Abstract base for all 25 providers |
 | `BaseTool` | `victor/tools/base.py` | Foundation for all 55+ tools |
 | `VerticalBase` | `victor_contracts/verticals/protocols/base.py` | Core abstraction for 101+ plugins |
 | `VictorAPIServer` | `victor/integrations/api/server.py` | FastAPI REST endpoint |

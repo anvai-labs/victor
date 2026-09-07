@@ -18,6 +18,7 @@ SUPPORTED_PROVIDERS = [
     "lmstudio",
     "llamacpp",
     "vllm",
+    "inferflux",
     "anthropic",
     "openai",
     "google",
@@ -80,6 +81,8 @@ async def list_models_async(provider: str, endpoint: str = None) -> None:
             await _list_llamacpp_models(settings, endpoint)
         elif provider == "vllm":
             await _list_vllm_models(settings, endpoint)
+        elif provider == "inferflux":
+            await _list_inferflux_models(settings, endpoint)
         elif provider == "anthropic":
             await _list_anthropic_models(settings)
         elif provider == "openai":
@@ -415,6 +418,64 @@ async def _list_vllm_models(settings, endpoint: str = None) -> None:
         console.print(f"[red]Error listing models:[/] {e}")
     finally:
         await vllm.close()
+
+
+async def _list_inferflux_models(settings, endpoint: str = None) -> None:
+    """List InferFlux server models (live discovery with static fallback).
+
+    Model ids are OPERATOR config in InferFlux's own registry.yaml — sandhi's
+    catalog deliberately carries no lineup — so the live ``GET /v1/models``
+    (OpenAI shape) is the source of truth when the server is up, and the
+    static policy tier stands in when it is not. A keyless server needs no
+    credentials; a secured one resolves INFERFLUX_API_KEY.
+    """
+    import httpx
+
+    from victor.providers.inferflux_provider import DEFAULT_BASE_URL, INFERFLUX_MODELS
+
+    provider_settings = settings.get_provider_settings("inferflux")
+    base_url = endpoint or provider_settings.get("base_url", DEFAULT_BASE_URL)
+    base_url = base_url.rstrip("/")
+    if not base_url.endswith("/v1"):
+        base_url = base_url + "/v1"
+
+    import os
+
+    api_key = os.environ.get("INFERFLUX_API_KEY", "")
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+
+    console.print(f"[dim]Connecting to InferFlux at {base_url}...[/]")
+    entries = []
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.get(f"{base_url}/models", headers=headers)
+            response.raise_for_status()
+            payload = response.json()
+        for item in payload.get("data") or []:
+            if isinstance(item, dict) and item.get("id"):
+                entries.append(str(item["id"]))
+    except Exception:
+        console.print(
+            "[yellow]InferFlux server unreachable — showing the static policy "
+            "tier (edit victor/config/openai_compat_model_policy.yaml or start "
+            "inferfluxd).[/]"
+        )
+        entries = []
+
+    if not entries:
+        entries = list(INFERFLUX_MODELS.keys())
+
+    table = Table(title=f"InferFlux Models ({base_url})")
+    table.add_column("Model", style="cyan")
+    table.add_column("Context", justify="right")
+    for model_id in entries:
+        meta = INFERFLUX_MODELS.get(model_id, {})
+        table.add_row(model_id, str(meta.get("context_window", "-")))
+    console.print(table)
+    console.print(
+        "[dim]Model ids come from inferflux's registry.yaml; context windows "
+        "follow the policy tier's prefix routes.[/]"
+    )
 
 
 async def _list_anthropic_models(settings) -> None:

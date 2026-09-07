@@ -79,13 +79,15 @@ async def test_shell_with_working_dir():
 
 @pytest.mark.asyncio
 async def test_shell_timeout():
-    """Test bash command timeout."""
-    with patch("asyncio.create_subprocess_shell") as mock_subprocess:
-        mock_process = AsyncMock()
-        mock_process.communicate = AsyncMock(side_effect=asyncio.TimeoutError())
-        mock_process.kill = MagicMock()
-        mock_process.wait = AsyncMock(return_value=None)
-        mock_subprocess.return_value = mock_process
+    """Test bash command timeout.
+
+    Mocked at run_managed_process (the shared spawn/kill/timeout runner,
+    co-design review item 15) rather than asyncio.create_subprocess_shell:
+    shell() no longer calls process.communicate() directly, so mocking that
+    call would silently stop exercising shell()'s timeout-handling path.
+    """
+    with patch("victor.tools.subprocess_executor.run_managed_process") as mock_run:
+        mock_run.return_value = (b"", b"", -1, True, False)  # timed_out=True
 
         result = await shell(cmd="sleep 100", timeout=1, readonly=False)
 
@@ -270,6 +272,36 @@ class TestReadonlyCompoundCommands:
     )
     def test_observed_readonly_chains_allowed(self, cmd):
         assert self._valid(cmd) is True
+
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            "pdfinfo attachments/report.pdf",
+            "pdftotext attachments/report.pdf - | sed -n '1,20p'",
+            "pdftocairo -f 1 -l 1 -singlefile -png attachments/scan.pdf - | "
+            "tesseract stdin stdout",
+            "tesseract attachments/image.jpg stdout",
+            "ffprobe -v error -show_format -show_streams attachments/video.mp4",
+            "ffmpeg -loglevel error -ss 00:00:05 -i attachments/video.mp4 "
+            "-frames:v 1 -f image2pipe -vcodec png - | tesseract stdin stdout",
+        ],
+    )
+    def test_readonly_media_inspection_allowed(self, cmd):
+        assert self._valid(cmd) is True
+
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            "pdftotext attachments/report.pdf report.txt",
+            "pdftocairo -png attachments/report.pdf page",
+            "tesseract attachments/image.jpg extracted",
+            "ffprobe -o metadata.json attachments/video.mp4",
+            "ffmpeg -i attachments/video.mp4 output.mp4",
+            "ffmpeg -i attachments/video.mp4 output.mp4 -f image2pipe -",
+        ],
+    )
+    def test_readonly_media_file_outputs_rejected(self, cmd):
+        assert self._valid(cmd) is False
 
     @pytest.mark.parametrize(
         "cmd",

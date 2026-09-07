@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import uuid
 from json import JSONDecodeError
 from typing import Any, AsyncIterator, Dict, List, Optional, Tuple, Type
 
@@ -102,7 +103,7 @@ def resolve_transport_class(
         return native_cls
     if not sandhi_transport_available():
         raise ProviderConnectionError(
-            "sandhi-gateway 0.1.5 is required for provider transport",
+            "sandhi-gateway 0.3.0 is required for provider transport",
             provider=name,
         )
     return variant
@@ -312,11 +313,6 @@ def _gateway_run_id() -> str:
     the execution-context correlation spine (``victor.core.context``) — the
     same id the orchestrator binds for the whole agent run. Empty when no
     session is bound (bare provider usage outside an agent run).
-
-    ``x-sandhi-step-id`` is a deliberate follow-up: wire headers are fixed at
-    FFI-handle construction and the handle is cached per run, while a step/turn
-    id changes per agentic-loop turn — attaching it here would force a fresh
-    transport handle (pooling, circuit state) every turn.
     """
     try:
         from victor.core.context import get_session_id
@@ -324,6 +320,105 @@ def _gateway_run_id() -> str:
         return str(get_session_id() or "")
     except Exception:  # pragma: no cover - attribution must never block transport
         return ""
+
+
+def _gateway_family_base(root: str, slug: str) -> str:
+    """Derive the transport base_url for a gateway'd family from the proxy ROOT.
+
+    The proxy terminates four ingress dialects at fixed paths, and each sandhi
+    adapter appends its own path prefix — so the base the FFI handle holds is
+    family-specific even though the configured URL is one root:
+
+    =============== =========================== ==============================
+    family          adapter appends             base
+    =============== =========================== ==============================
+    openai-compat   ``/chat/completions``       root + ``/v1``
+    responses       ``/responses``              root + ``/v1``
+    anthropic       ``/v1/messages``            root
+    gemini          ``/models/{m}:{method}``    root + ``/v1beta``
+    =============== =========================== ==============================
+
+    Cohere/ollama have no proxy ingress dialect yet (upstream only, always the
+    translation plane) — they take the openai-compat form; neither their
+    cohere (/v2/chat) nor ollama (/api/chat) path matches any proxy route, so
+    the proxy answers 404 rather than mis-routing either way. Mirrors
+    ``GatewayRoute.openai_kwargs`` for the admin path.
+    """
+    root = root.rstrip("/")
+    for suffix in ("/v1", "/v1beta"):
+        if root.endswith(suffix):
+            root = root[: -len(suffix)]
+            break
+    root = root.rstrip("/")
+    if slug in {"gemini", "google"}:
+        return root + "/v1beta"
+    if slug in {"anthropic", "claude"}:
+        return root
+    return root + "/v1"
+
+
+def _wire_call_headers() -> Dict[str, str]:
+    """Per-call gateway wire headers — the step and logical-call dimensions.
+
+    Two values change faster than the transport handle, so they ride the PER-CALL
+    ``wire_headers_json`` argument of ``complete_json``/``stream_json`` (sandhi
+    >= 0.3.0), never the handle-static headers and never neutral ``metadata``:
+
+    - ``x-sandhi-step-id`` (sandhi TD-0022 D1): the agentic-loop turn id, so the
+      proxy's run cost tree is step-aware. Handle-static would rebuild the
+      transport handle (pool, circuit state) every turn — the exact cost the old
+      deferral was avoiding — and ``request["metadata"]`` maps onto
+      catalog-declared vendor affinity headers (InferFlux
+      ``x-inferflux-session-id``), where a per-turn value would change the
+      KV/prefix-cache key every turn and destroy cache reuse.
+    - ``Idempotency-Key`` (sandhi TD-0021 P4, gateway >= 0.5.0): the LOGICAL-call
+      identity, so the gateway's dedup counts one logical call once — the METER
+      counts logical calls, ENFORCEMENT still counts every physical settlement.
+      Preferred source is the ``call_id`` correlation var, bound by the retry
+      owner (``ResilientProvider.chat`` — default on via
+      ``SmartRoutingProvider``): every Python-level retry AND fallback of one
+      logical call re-enters this helper under the same binding and carries the
+      same key. Retries inside the Rust handle (``max_retries`` on the provider
+      factory) likewise see this one header value. STREAMS bind nothing (an
+      async generator cannot ContextVar-bind safely — see
+      ``ResilientProvider.stream``), so each stream invocation mints its own
+      key and stream-setup retries count per attempt: fail-toward-counting,
+      the direction sandhi specifies (ADR-0005 D3). With no retry owner bound
+      — a bare provider used directly — a fresh key is minted per invocation,
+      each invocation being its own logical call. Note the asymmetry with
+      ``x-sandhi-run-id``: a caller-set STATIC ``Idempotency-Key`` in the
+      handle headers is deliberately overridden here, because a static key
+      would dedup every call of the dedup window into one metered event.
+
+    The key is minted even when no turn is bound: dedup is transport-retry
+    protection, orthogonal to turn attribution. The call sites gate on gateway
+    mode and pass ``None`` when appropriate — direct mode evaluates the helper
+    but discards the result (contextvar reads + a cached import + at most one
+    uuid mint, negligible), so its wire bytes are unchanged by construction.
+    """
+    headers: Dict[str, str] = {}
+    try:
+        from victor.core.context import get_call_id
+
+        call_id = str(get_call_id() or "")
+    except Exception:  # pragma: no cover - dedup must never block transport
+        call_id = ""
+    if call_id:
+        headers["Idempotency-Key"] = call_id
+    else:
+        try:
+            headers["Idempotency-Key"] = uuid.uuid4().hex
+        except Exception:  # pragma: no cover - os.urandom failure must not block transport
+            pass  # proceed without a key; the gateway meters each attempt separately
+    try:
+        from victor.core.context import get_turn_id
+
+        turn_id = str(get_turn_id() or "")
+    except Exception:  # pragma: no cover - attribution must never block transport
+        return headers
+    if turn_id:
+        headers["x-sandhi-step-id"] = turn_id
+    return headers
 
 
 def _include_native_response() -> bool:
@@ -431,6 +526,15 @@ def _typed_request_from_openai_payload(payload: Dict[str, Any]) -> Dict[str, Any
     native = {key: value for key, value in payload.items() if key not in excluded}
     if native:
         request["extensions"] = {"openai": native}
+
+    # Conversation affinity (sandhi ADR-0008 D3): the same execution-context session
+    # id the run cost tree keys on (`_gateway_run_id`, above) rides in neutral
+    # metadata — never the body, where it would break prompt-cache byte-stability.
+    # The typed runtime maps it onto catalog-declared vendor affinity headers (e.g.
+    # InferFlux's ``x-inferflux-session-id`` KV/prefix-cache key).
+    session_id = _gateway_run_id()
+    if session_id:
+        request["metadata"] = {"session_id": session_id}
     return request
 
 
@@ -490,7 +594,7 @@ def _native_only_usage(raw_usage: Any) -> Dict[str, int]:
 def _latency_fields(usage: Any) -> Dict[str, int]:
     """Wire-truth latency measured at sandhi's typed boundary (W3b).
 
-    Present from contract minor 3, so guaranteed at victor's >= 0.1.5 floor;
+    Present from contract minor 3, so guaranteed at victor's >= 0.3.0 floor;
     the field-shape checks below stay tolerant-absent defensively. Carried on
     every run (unlike the non-routine diagnostics) so stream metrics can prefer
     wire truth over client wall-clock.
@@ -617,7 +721,7 @@ class SandhiTypedProviderMixin:
     def _typed_provider(self, model: str) -> Any:
         if not sandhi_transport_available():
             raise ProviderConnectionError(
-                "sandhi-gateway 0.1.5 typed runtime is unavailable",
+                "sandhi-gateway 0.3.0 typed runtime is unavailable",
                 provider=self._sandhi_slug(),
             )
         _verify_wire_contract()
@@ -643,9 +747,9 @@ class SandhiTypedProviderMixin:
                     "SANDHI_GATEWAY_VIRTUAL_KEY env var)",
                     provider=slug,
                 )
-            base_url = proxy_url
+            base_url = _gateway_family_base(proxy_url, slug)
             api_key = virtual_key
-            # sandhi >= 0.1.5 (victor's floor) accepts "bearer" family-wide as a
+            # sandhi >= 0.3.0 (victor's floor) accepts "bearer" family-wide as a
             # no-op for the gateway virtual key (TD-0008 rule 5: reject
             # contradictions, accept redundancy), so gateway mode presents it
             # unconditionally. Earlier bindings that REJECTED an explicit
@@ -654,7 +758,10 @@ class SandhiTypedProviderMixin:
             # construction conformance suite (test_sandhi_binding_construction.py)
             # covers this.
             auth_scheme = "bearer"
-            explicit_base_url = proxy_url
+            # The derived family base: distinct from the configured root so the
+            # FFI dials the right ingress path (the cache key already leads
+            # with the slug; this keeps the dialed URL itself correct).
+            explicit_base_url = base_url
         else:
             base_url = str(getattr(self, "base_url", "") or "")
             # A catalog default is not an override. Omitting it lets Sandhi apply authoritative
@@ -683,6 +790,11 @@ class SandhiTypedProviderMixin:
             if run_id:
                 # An explicit caller-set header wins; never clobber it.
                 wire_headers.setdefault("x-sandhi-run-id", run_id)
+                # Conversation affinity on the proxy path (sandhi ADR-0008 D3): the
+                # proxy derives its session from ``x-sandhi-session`` and maps it onto
+                # catalog-declared vendor affinity headers (InferFlux KV/prefix-cache
+                # reuse). Same value as the run id, different consumer.
+                wire_headers.setdefault("x-sandhi-session", run_id)
             if wire_headers:
                 kwargs["headers_json"] = json.dumps(wire_headers)
             if auth_scheme:
@@ -697,9 +809,16 @@ class SandhiTypedProviderMixin:
     async def _sandhi_complete(self, request: Dict[str, Any]) -> Dict[str, Any]:
         provider = self._typed_provider(str(request.get("model", "")))
         timeout = self._sandhi_timeout()
+        # Per-call step headers (gateway mode only — direct mode stays byte-identical).
+        call_headers = _wire_call_headers()
+        wire_headers = (
+            json.dumps(call_headers)
+            if self._gateway_overrides() is not None and call_headers
+            else None
+        )
         try:
             value = await asyncio.wait_for(
-                provider.complete_json(json.dumps(request)),
+                provider.complete_json(json.dumps(request), wire_headers),
                 timeout=timeout + self._SANDHI_WAIT_GRACE_SECS,
             )
             return json.loads(str(value))
@@ -761,12 +880,18 @@ class SandhiTypedProviderMixin:
     async def _sandhi_stream(self, request: Dict[str, Any]) -> AsyncIterator[StreamChunk]:
         provider = self._typed_provider(str(request.get("model", "")))
         timeout = self._sandhi_timeout()
+        call_headers = _wire_call_headers()
+        wire_headers = (
+            json.dumps(call_headers)
+            if self._gateway_overrides() is not None and call_headers
+            else None
+        )
         calls: Dict[int, Dict[str, Any]] = {}
         finish_reason: Optional[str] = None
         usage: Optional[Dict[str, int]] = None
         usage_diagnostics: Optional[Dict[str, Any]] = None
         try:
-            async for event_json in provider.stream_json(json.dumps(request)):
+            async for event_json in provider.stream_json(json.dumps(request), wire_headers):
                 event = json.loads(str(event_json))
                 kind = event.get("event")
                 if kind == "text_delta":

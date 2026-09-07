@@ -13,6 +13,15 @@ try:
 except ImportError:  # pragma: no cover - Python < 3.11 fallback
     import tomli as tomllib
 
+# NOTE (co-design review item 22a): victor_contracts.testing.boundaries now
+# defines a RUNTIME_LAYER_FORBIDDEN_PREFIXES manifest that is a strict
+# superset of this list (it additionally forbids victor.config.settings,
+# victor.config.api_keys, victor.evaluation, and victor.storage). Migrating
+# this auditor onto that manifest is deferred until the ~28 real violations
+# it would surface in verticals/victor-coding and verticals/victor-rag
+# (direct victor.config.settings / victor.storage.* imports) are fixed in a
+# follow-up PR — landing the fuller list here today would flip the
+# currently-green Vertical Contract Boundaries CI check red.
 FORBIDDEN_RUNTIME_IMPORT_PREFIXES = (
     "victor.framework",
     "victor.core",

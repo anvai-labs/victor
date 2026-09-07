@@ -168,7 +168,8 @@ class ScriptedTool(BaseTool):
 
 
 # ---------------------------------------------------------------------------
-# Orchestrator wiring (drives the REAL StreamingChatExecutor.run())
+# Orchestrator wiring (drives the REAL unified streaming loop: orch.stream_chat
+# -> ChatStreamRuntime -> StreamingChatExecutor.run_unified -> AgenticLoop.run_streaming)
 # ---------------------------------------------------------------------------
 
 
@@ -199,7 +200,9 @@ def build_streaming_orchestrator(
 ) -> AgentOrchestrator:
     """Build a real orchestrator wired to the scripted provider + scripted tools.
 
-    The returned orchestrator drives the genuine ``StreamingChatExecutor.run()`` loop. The
+    The returned orchestrator drives the genuine unified streaming loop
+    (``orch.stream_chat`` -> ``ChatStreamRuntime`` -> ``StreamingChatExecutor.run_unified`` ->
+    ``AgenticLoop.run_streaming``). The
     ordered list of executed tool names is recorded on ``orch._parity_tool_log`` for the
     transcript. Semantic selection is bypassed (``_select_tools`` returns the scripted tools)
     so behavior is deterministic and offline. Tools named in ``failing_tool_names`` return an

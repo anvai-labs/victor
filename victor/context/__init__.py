@@ -15,13 +15,7 @@
 """Context management for Victor.
 
 Handles:
-- Token counting
-- Context window budgeting
-- Automatic context pruning
 - Smart file selection
-- Message prioritization
+- Instruction discovery
+- Project context assembly
 """
-
-from victor.context.manager import ProjectContextLoader, ContextWindow, PruningStrategy
-
-__all__ = ["ProjectContextLoader", "ContextWindow", "PruningStrategy"]

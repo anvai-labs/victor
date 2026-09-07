@@ -58,6 +58,7 @@ class DefaultProviderClassificationStrategy(IProviderClassificationStrategy):
             "ollama",
             "lmstudio",
             "vllm",
+            "inferflux",
         }
 
     def is_cloud_provider(self, provider_name: str) -> bool:

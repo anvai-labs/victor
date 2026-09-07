@@ -233,6 +233,66 @@ class TestLifecycleManager:
         assert result["session_ended"] is True
 
     @pytest.mark.asyncio
+    async def test_graceful_shutdown_closes_usage_logger(self, lifecycle_manager):
+        """Co-design review item 14: graceful_shutdown must drain any
+        buffered usage-logger events before process exit."""
+        usage_logger = MagicMock()
+        lifecycle_manager._usage_logger = usage_logger
+
+        lifecycle_manager._flush_analytics = MagicMock(return_value={})
+        lifecycle_manager._stop_health_monitoring = AsyncMock(return_value=True)
+
+        result = await lifecycle_manager.graceful_shutdown()
+
+        usage_logger.close.assert_called_once()
+        assert result["usage_logger_closed"] is True
+
+    @pytest.mark.asyncio
+    async def test_graceful_shutdown_without_usage_logger(self, lifecycle_manager):
+        """No usage logger configured: shutdown must not fail and must
+        report the step as trivially successful."""
+        lifecycle_manager._usage_logger = None
+
+        lifecycle_manager._flush_analytics = MagicMock(return_value={})
+        lifecycle_manager._stop_health_monitoring = AsyncMock(return_value=True)
+
+        result = await lifecycle_manager.graceful_shutdown()
+
+        assert result["usage_logger_closed"] is True
+
+    @pytest.mark.asyncio
+    async def test_graceful_shutdown_usage_logger_without_close(self, lifecycle_manager):
+        """A usage logger lacking a close() method must not crash shutdown
+        (hasattr guard) and must be reported as a no-op success."""
+        usage_logger = MagicMock(spec=[])  # no attributes at all, including close
+        lifecycle_manager._usage_logger = usage_logger
+
+        lifecycle_manager._flush_analytics = MagicMock(return_value={})
+        lifecycle_manager._stop_health_monitoring = AsyncMock(return_value=True)
+
+        result = await lifecycle_manager.graceful_shutdown()
+
+        assert result["usage_logger_closed"] is True
+
+    @pytest.mark.asyncio
+    async def test_graceful_shutdown_usage_logger_close_raises(self, lifecycle_manager):
+        """A usage logger whose close() raises must not abort the rest of
+        shutdown, and must be reported as a failed (not successful) step."""
+        usage_logger = MagicMock()
+        usage_logger.close.side_effect = RuntimeError("disk full")
+        lifecycle_manager._usage_logger = usage_logger
+
+        lifecycle_manager._flush_analytics = MagicMock(return_value={})
+        lifecycle_manager._stop_health_monitoring = AsyncMock(return_value=True)
+
+        result = await lifecycle_manager.graceful_shutdown()
+
+        usage_logger.close.assert_called_once()
+        assert result["usage_logger_closed"] is False
+        # The rest of shutdown still completed.
+        assert result["session_ended"] is True
+
+    @pytest.mark.asyncio
     async def test_shutdown(
         self,
         lifecycle_manager,

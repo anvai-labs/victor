@@ -1,6 +1,6 @@
 # Provider Comparison
 
-**Victor supports 24 LLM providers with unified interfaces.**
+**Victor supports 25 LLM providers with unified interfaces.**
 
 ## Quick Comparison
 

@@ -50,6 +50,33 @@ def is_ollama_available() -> bool:
 runner = CliRunner()
 
 
+class TestBenchmarkInputStaging:
+    """Tests for binary-safe ephemeral-workspace input staging."""
+
+    def test_stages_binary_input_at_declared_relative_path(self, tmp_path):
+        source = tmp_path / "source.pdf"
+        source.write_bytes(b"%PDF-test\x00payload")
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        task = SimpleNamespace(
+            input_files={"attachments/01-source.pdf": str(source)},
+        )
+
+        benchmark_cmd._stage_benchmark_input_files(task, workspace)
+
+        assert (workspace / "attachments/01-source.pdf").read_bytes() == source.read_bytes()
+
+    def test_rejects_input_destination_escape(self, tmp_path):
+        source = tmp_path / "source.txt"
+        source.write_text("evidence")
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        task = SimpleNamespace(input_files={"../escape.txt": str(source)})
+
+        with pytest.raises(ValueError, match="escapes workspace"):
+            benchmark_cmd._stage_benchmark_input_files(task, workspace)
+
+
 class TestBenchmarkGlobalPaths:
     """Tests for canonical global benchmark path resolution."""
 

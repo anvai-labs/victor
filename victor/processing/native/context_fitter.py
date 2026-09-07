@@ -19,10 +19,48 @@ Uses Rust implementation when available for high-performance fitting,
 falling back to pure Python implementation.
 """
 
+import struct
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 from victor.processing.native._base import _NATIVE_AVAILABLE, _native
+
+# Canonical strategy vocabulary — must match the Rust implementation's
+# accepted set (rust/crates/python-bindings/src/context_fitter.rs). The
+# Python fallback previously accepted a DISJOINT vocabulary
+# (recency/priority/balanced), so "smart" silently meant "balanced" and
+# "recency" silently meant Rust's fit_smart (co-design review U8-F1).
+CANONICAL_STRATEGIES = frozenset({"smart", "priority", "fifo"})
+_LEGACY_STRATEGY_ALIASES = {"recency": "fifo", "balanced": "smart"}
+_DEFAULT_PRIORITY = 50
+
+
+def _normalize_strategy(strategy: str) -> str:
+    """Map legacy strategy names to the canonical vocabulary; raise on unknown.
+
+    Raises loudly BEFORE any native call so a typo is visible regardless of
+    whether the Rust wheel is installed.
+    """
+    canonical = _LEGACY_STRATEGY_ALIASES.get(strategy, strategy)
+    if canonical not in CANONICAL_STRATEGIES:
+        raise ValueError(
+            f"unknown fit strategy {strategy!r} "
+            f"(expected one of {sorted(CANONICAL_STRATEGIES)})"
+        )
+    return canonical
+
+
+def _coerce_priority(value: Any) -> int:
+    """Coerce a message priority to the u8 scale Rust expects (0-255).
+
+    Floats previously raised TypeError inside PyO3 for every message lacking
+    an explicit int priority, silently disabling the native path (U8-F4).
+    """
+    try:
+        priority = int(value)
+    except (TypeError, ValueError):
+        priority = _DEFAULT_PRIORITY
+    return max(0, min(255, priority))
 
 
 @dataclass
@@ -45,7 +83,7 @@ class FitResult:
 def fit_context(
     messages: List[Dict[str, Any]],
     budget: int,
-    strategy: str = "recency",
+    strategy: str = "smart",
     preserve_system: bool = True,
 ) -> FitResult:
     """Fit messages into a token budget.
@@ -58,20 +96,28 @@ def fit_context(
         messages: List of message dicts with 'role', 'content', and
                   optionally 'token_count' and 'priority' fields
         budget: Maximum token budget
-        strategy: Fitting strategy - "recency" (keep newest),
-                  "priority" (keep highest priority), or "balanced"
+        strategy: One of "smart", "priority", or "fifo" (default "smart").
+                  Legacy names "recency" (-> fifo) and "balanced" (-> smart)
+                  are accepted for backwards compatibility.
         preserve_system: Whether to always preserve system messages
 
     Returns:
         FitResult with indices of kept messages and statistics
+
+    Raises:
+        ValueError: On an unknown strategy name — validated before the
+            native call so the error does not depend on whether the Rust
+            wheel is installed.
     """
+    strategy = _normalize_strategy(strategy)
+
     if _NATIVE_AVAILABLE and hasattr(_native, "fit_context"):
         try:
             # Build MessageSlot objects for Rust
             slots = []
             for i, msg in enumerate(messages):
                 token_count = msg.get("token_count", len(msg.get("content", "").split()) * 13 // 10)
-                priority = msg.get("priority", 1.0)
+                priority = _coerce_priority(msg.get("priority", _DEFAULT_PRIORITY))
                 role = msg.get("role", "user")
                 recency = float(i) / max(len(messages), 1)
                 slot = _native.MessageSlot(
@@ -92,6 +138,15 @@ def fit_context(
             )
         except Exception:
             pass  # Fall through to Python implementation
+        except BaseException as e:
+            # pyo3's PanicException derives from BaseException (like
+            # SystemExit), so the except-Exception clause above never sees
+            # it — catch it by name so a Rust panic degrades to the Python
+            # fallback instead of unwinding the process. Real control-flow
+            # BaseExceptions (KeyboardInterrupt/SystemExit) still propagate.
+            if type(e).__name__ != "PanicException":
+                raise
+            pass  # Fall through to Python implementation
 
     # Pure Python fallback
     return _fit_context_python(messages, budget, strategy, preserve_system)
@@ -105,10 +160,15 @@ def _fit_context_python(
 ) -> FitResult:
     """Pure Python context fitting implementation.
 
+    A faithful port of the Rust algorithms (context_fitter.rs: fit_fifo /
+    fit_priority / fit_smart) so both backends select identical messages —
+    previously the fallback used drop-lowest heuristics with no smart
+    pinning, diverging from the native path (co-design review U8-F1).
+
     Args:
         messages: List of message dicts
         budget: Maximum token budget
-        strategy: Fitting strategy
+        strategy: One of "smart", "priority", "fifo"
         preserve_system: Whether to preserve system messages
 
     Returns:
@@ -117,61 +177,92 @@ def _fit_context_python(
     if not messages:
         return FitResult(kept_indices=[], total_tokens=0, dropped_count=0, freed_tokens=0)
 
-    # Calculate token counts for each message
-    token_counts = []
-    for msg in messages:
-        count = msg.get("token_count", len(msg.get("content", "").split()) * 13 // 10)
-        token_counts.append(count)
-
+    token_counts = [
+        msg.get("token_count", len(msg.get("content", "").split()) * 13 // 10) for msg in messages
+    ]
     total_all_tokens = sum(token_counts)
+    n = len(messages)
 
-    # Identify system messages
-    system_indices = set()
-    if preserve_system:
-        for i, msg in enumerate(messages):
-            if msg.get("role") == "system":
-                system_indices.add(i)
+    def _recency(i: int) -> float:
+        # Round through f32 to match the native path: MessageSlot.recency is
+        # an f32 field, so the Rust side scores f32-rounded recency cast to
+        # f64 — an unrounded f64 recency here diverged selection on
+        # near-ties (adversarial-review finding, same class as the f32/f64
+        # score divergence).
+        return struct.unpack("<f", struct.pack("<f", float(i) / max(n, 1)))[0]
 
-    # Build candidate list (non-system messages that can be dropped)
-    candidates = []
-    for i in range(len(messages)):
-        if i not in system_indices:
-            priority = messages[i].get("priority", 1.0)
-            recency = float(i) / max(len(messages), 1)
-            candidates.append((i, token_counts[i], priority, recency))
+    def _score(i: int) -> float:
+        priority = _coerce_priority(messages[i].get("priority", _DEFAULT_PRIORITY))
+        return (priority / 100.0) * 0.4 + _recency(i) * 0.6
 
-    # Sort candidates by drop priority (what to drop first)
-    if strategy == "recency":
-        # Drop oldest first (lowest index = oldest)
-        candidates.sort(key=lambda x: x[3])  # ascending recency
-    elif strategy == "priority":
-        # Drop lowest priority first
-        candidates.sort(key=lambda x: x[2])  # ascending priority
-    else:
-        # Balanced: combine priority and recency
-        candidates.sort(key=lambda x: x[2] * 0.5 + x[3] * 0.5)
+    def _finalize(kept: set) -> FitResult:
+        kept_indices = sorted(kept)
+        kept_tokens = sum(token_counts[i] for i in kept_indices)
+        return FitResult(
+            kept_indices=kept_indices,
+            total_tokens=kept_tokens,
+            dropped_count=n - len(kept_indices),
+            freed_tokens=total_all_tokens - kept_tokens,
+        )
 
-    # Start with all messages, drop from front of sorted candidates
-    kept = set(range(len(messages)))
-    current_tokens = total_all_tokens
+    if total_all_tokens <= budget:
+        return _finalize(set(range(n)))
 
-    for idx, tc, _pri, _rec in candidates:
-        if current_tokens <= budget:
+    if strategy == "fifo":
+        # Mirror fit_fifo: pin system when preserving; walk the rest newest
+        # first and keep until the remaining budget is exhausted.
+        pinned = {i for i in range(n) if preserve_system and messages[i].get("role") == "system"}
+        remaining = budget - sum(token_counts[i] for i in pinned)
+        kept = set(pinned)
+        used = 0
+        for i in reversed(range(n)):
+            if i in pinned:
+                continue
+            if used + token_counts[i] <= remaining:
+                kept.add(i)
+                used += token_counts[i]
+        return _finalize(kept)
+
+    if strategy == "priority":
+        # Mirror fit_priority: pin system when preserving; score the rest
+        # (0.4 * priority/100 + 0.6 * recency) and greedily keep the
+        # highest-scoring messages that fit.
+        pinned = {i for i in range(n) if preserve_system and messages[i].get("role") == "system"}
+        remaining = budget - sum(token_counts[i] for i in pinned)
+        rest = sorted((i for i in range(n) if i not in pinned), key=_score, reverse=True)
+        kept = set(pinned)
+        used = 0
+        for i in rest:
+            if used + token_counts[i] <= remaining:
+                kept.add(i)
+                used += token_counts[i]
+        return _finalize(kept)
+
+    # smart: mirror fit_smart — pin system messages, the first user message,
+    # and the last 2 messages; score the rest and greedily keep what fits.
+    pinned = {i for i in range(n) if messages[i].get("role") == "system"}
+    for i in range(n):
+        if messages[i].get("role") == "user":
+            pinned.add(i)
             break
-        kept.discard(idx)
-        current_tokens -= tc
+    if n >= 1:
+        pinned.add(n - 1)
+    if n >= 2:
+        pinned.add(n - 2)
 
-    kept_indices = sorted(kept)
-    kept_tokens = sum(token_counts[i] for i in kept_indices)
-    dropped = len(messages) - len(kept_indices)
-    freed = total_all_tokens - kept_tokens
+    pinned_cost = sum(token_counts[i] for i in pinned)
+    if pinned_cost >= budget:
+        return _finalize(pinned)
 
-    return FitResult(
-        kept_indices=kept_indices,
-        total_tokens=kept_tokens,
-        dropped_count=dropped,
-        freed_tokens=freed,
-    )
+    remaining = budget - pinned_cost
+    rest = sorted((i for i in range(n) if i not in pinned), key=_score, reverse=True)
+    kept = set(pinned)
+    used = 0
+    for i in rest:
+        if used + token_counts[i] <= remaining:
+            kept.add(i)
+            used += token_counts[i]
+    return _finalize(kept)
 
 
 def truncate_message(

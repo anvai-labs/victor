@@ -3,7 +3,6 @@ from __future__ import annotations
 import pytest
 
 from victor.agent.conversation.store import ConversationStore
-from victor.context.manager import ProjectContextLoader
 from victor.providers.base import BaseProvider, CompletionResponse, Message, StreamChunk
 
 
@@ -40,22 +39,6 @@ class DummyProvider(BaseProvider):
 
     async def close(self) -> None:
         return None
-
-
-def test_project_context_loader_uses_native_tokenizer(monkeypatch):
-    calls: list[str] = []
-
-    def fake_count_tokens(text: str) -> int:
-        calls.append(text)
-        return 17
-
-    monkeypatch.setattr("victor.processing.native.tokenizer.count_tokens", fake_count_tokens)
-
-    loader = ProjectContextLoader()
-
-    assert loader.encoder is None
-    assert loader.count_tokens("hello world") == 17
-    assert calls == ["hello world"]
 
 
 def test_conversation_store_uses_fast_native_tokenizer(monkeypatch, tmp_path):

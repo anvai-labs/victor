@@ -58,7 +58,9 @@ import copy
 import hashlib
 import json
 import logging
+import re
 import time
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import (
@@ -466,6 +468,20 @@ class UnifiedWorkflowCompiler:
         self._definition_validator: Optional[Any] = None
         self._definition_graph_compiler: Optional[Any] = None
 
+        # Compiled-graph cache: skips both parse AND compile/validate on a
+        # hit (co-design review item 13). Keyed on the existing definition
+        # cache key plus a content-hash of every $ref-expanded file, since
+        # mtime alone is unreliable across checkouts (see
+        # _generate_yaml_cache_key's docstring and the review's 72%
+        # false-stale reindex finding). Bounded LRU AND TTL-bounded (shares
+        # cache_ttl with the definition cache) — some staleness classes
+        # (e.g. a condition/transform function redefined under an unchanged
+        # registry name) have no content-based invalidation signal at all.
+        self._graph_cache: "OrderedDict[str, Tuple[CompiledGraph, WorkflowDefinition, float]]" = (
+            OrderedDict()
+        )
+        self._graph_cache_max_entries = 32
+
         # Compilation stats
         self._compile_stats = {
             "yaml_compiles": 0,
@@ -473,6 +489,7 @@ class UnifiedWorkflowCompiler:
             "definition_compiles": 0,
             "graph_compiles": 0,
             "cache_hits": 0,
+            "graph_cache_hits": 0,
         }
 
     def _get_default_tool_registry(self) -> Optional["ToolRegistry"]:
@@ -686,8 +703,35 @@ class UnifiedWorkflowCompiler:
         except (OSError, FileNotFoundError):
             source_mtime = None
 
-        # Check definition cache
+        graph_cache_key: Optional[str] = None
+        has_refs = False
         if self._config.enable_caching:
+            ref_files_hash = self._hash_ref_files(path)
+            has_refs = bool(ref_files_hash)
+            graph_cache_key = f"yaml:{cache_key}:{config_hash}:{ref_files_hash}"
+            cached_graph = self._get_cached_graph(graph_cache_key)
+            if cached_graph is not None:
+                compiled, workflow_def = cached_graph
+                logger.debug(f"Compiled-graph cache hit for {path}:{workflow_name}")
+                return CachedCompiledGraph(
+                    compiled_graph=compiled,
+                    workflow_name=name,
+                    source_path=path,
+                    source_mtime=source_mtime,
+                    cache_key=cache_key,
+                    max_execution_timeout_seconds=workflow_def.max_execution_timeout_seconds,
+                    default_node_timeout_seconds=workflow_def.default_node_timeout_seconds,
+                    max_iterations=workflow_def.max_iterations,
+                    max_retries=workflow_def.max_retries,
+                )
+
+        # Check definition cache. Skipped for $ref-using files: this cache's
+        # key is mtime-only on the main file, with no visibility into
+        # referenced-file content, so it would serve a stale parsed
+        # definition after only a referenced file changes. The graph cache
+        # above (whose key does hash referenced files) is the sole cache
+        # layer for $ref-using workflows.
+        if self._config.enable_caching and not has_refs:
             cache = self._get_definition_cache()
             cached_def = cache.get(path, name, config_hash)
             if cached_def is not None:
@@ -699,6 +743,8 @@ class UnifiedWorkflowCompiler:
                     workflow_name=name,
                     source_path=path,
                 )
+                if graph_cache_key is not None:
+                    self._store_cached_graph(graph_cache_key, compiled, cached_def)
                 return CachedCompiledGraph(
                     compiled_graph=compiled,
                     workflow_name=name,
@@ -720,8 +766,9 @@ class UnifiedWorkflowCompiler:
         )
         workflow_def = parsed.workflow
 
-        # Cache the definition if enabled
-        if self._config.enable_caching:
+        # Cache the definition if enabled (skipped for $ref-using files —
+        # see the read-side comment above).
+        if self._config.enable_caching and not has_refs:
             cache = self._get_definition_cache()
             cache.put(path, name, config_hash, workflow_def)
             logger.debug(f"Cached workflow definition: {name} from {path}")
@@ -735,6 +782,8 @@ class UnifiedWorkflowCompiler:
             workflow_name=name,
             source_path=parsed.source_path or path,
         )
+        if graph_cache_key is not None:
+            self._store_cached_graph(graph_cache_key, compiled, workflow_def)
         return CachedCompiledGraph(
             compiled_graph=compiled,
             workflow_name=name,
@@ -823,6 +872,51 @@ class UnifiedWorkflowCompiler:
         if not cache_key:
             cache_key = self._generate_definition_cache_key(definition)
 
+        # The graph cache always keys off the definition's own content, never
+        # a caller-supplied cache_key — an arbitrary caller key isn't
+        # guaranteed to change when the definition does, which would let a
+        # stale compiled graph leak across genuinely different definitions.
+        # A definition that can't be fingerprinted (e.g. a custom node
+        # subclass whose to_dict() isn't fully compatible) degrades to no
+        # graph caching for this call rather than failing the compile.
+        graph_cache_key: Optional[str] = None
+        if self._config.enable_caching:
+            try:
+                content_key = self._generate_definition_cache_key(definition)
+                # to_dict() intentionally drops behavior — TransformNode's
+                # transform and ConditionNode's condition aren't JSON
+                # serializable — so two structurally-identical definitions
+                # that differ only in node callables would otherwise hash
+                # identically and collide in the cache. id() is safe here:
+                # this cache holds a strong reference to every cached
+                # definition (keeping its callables alive) for as long as
+                # the entry survives, so two simultaneously-reachable
+                # callables can never share an id().
+                callable_fingerprint = self._definition_callable_fingerprint(definition)
+                graph_cache_key = f"definition:{content_key}:{callable_fingerprint}"
+            except Exception:
+                logger.debug(
+                    "Definition not fingerprintable for graph cache key; "
+                    "compiling without graph cache: %s",
+                    definition.name,
+                )
+
+            cached_graph = (
+                self._get_cached_graph(graph_cache_key) if graph_cache_key is not None else None
+            )
+            if cached_graph is not None:
+                compiled, _cached_definition = cached_graph
+                logger.debug(f"Compiled-graph cache hit for definition:{definition.name}")
+                return CachedCompiledGraph(
+                    compiled_graph=compiled,
+                    workflow_name=definition.name,
+                    cache_key=cache_key,
+                    max_execution_timeout_seconds=definition.max_execution_timeout_seconds,
+                    default_node_timeout_seconds=definition.default_node_timeout_seconds,
+                    max_iterations=definition.max_iterations,
+                    max_retries=definition.max_retries,
+                )
+
         self._compile_stats["definition_compiles"] += 1
 
         # Compile to CompiledGraph
@@ -831,6 +925,8 @@ class UnifiedWorkflowCompiler:
             source=f"definition://{definition.name}",
             workflow_name=definition.name,
         )
+        if graph_cache_key is not None:
+            self._store_cached_graph(graph_cache_key, compiled, definition)
         return CachedCompiledGraph(
             compiled_graph=compiled,
             workflow_name=definition.name,
@@ -890,6 +986,10 @@ class UnifiedWorkflowCompiler:
         """
         total = 0
 
+        # Clear the compiled-graph cache
+        total += len(self._graph_cache)
+        self._graph_cache.clear()
+
         # Clear definition cache
         if self._definition_cache is not None:
             total += self._definition_cache.clear()
@@ -918,6 +1018,10 @@ class UnifiedWorkflowCompiler:
         stats: Dict[str, Any] = {
             "compilation": dict(self._compile_stats),
             "caching_enabled": self._config.enable_caching,
+            "graph_cache": {
+                "size": len(self._graph_cache),
+                "max_entries": self._graph_cache_max_entries,
+            },
         }
 
         # Get definition cache stats
@@ -1027,6 +1131,21 @@ class UnifiedWorkflowCompiler:
         key_data = json.dumps(definition.to_dict(), sort_keys=True, default=str)
         return hashlib.sha256(key_data.encode()).hexdigest()
 
+    def _definition_callable_fingerprint(self, definition: "WorkflowDefinition") -> str:
+        """Identity fingerprint for node callables the content hash can't see.
+
+        Covers any node attribute that's callable (TransformNode.transform,
+        ConditionNode.condition today) without hardcoding field names, so a
+        future node type with its own callable field is covered too.
+        """
+        parts = []
+        for node_id in sorted(definition.nodes.keys()):
+            node = definition.nodes[node_id]
+            for attr_name, value in sorted(vars(node).items()):
+                if callable(value):
+                    parts.append(f"{node_id}.{attr_name}:{id(value)}")
+        return ":".join(parts)
+
     def _generate_graph_cache_key(
         self,
         graph: "WorkflowGraph",
@@ -1041,6 +1160,77 @@ class UnifiedWorkflowCompiler:
         ]
         key_data = ":".join(key_parts)
         return hashlib.sha256(key_data.encode()).hexdigest()
+
+    _REF_PATTERN = re.compile(r"\$ref:\s*['\"]?([^'\"\s#]+)")
+
+    def _hash_ref_files(self, yaml_path: Path) -> str:
+        """Content-hash every ``$ref``-expanded file a YAML workflow points at.
+
+        Quick-scans the raw text for ``$ref:`` targets (single level — the
+        loader's ``_resolve_ref`` doesn't itself recursively expand refs
+        inside a referenced file, so one scan of the root file is enough)
+        instead of parsing, so this stays cheap enough to run on every
+        compiled-graph cache lookup. Content, not mtime: mtime is unreliable
+        across checkouts/clones (co-design review's 72% false-stale finding).
+        """
+        try:
+            text = yaml_path.read_text()
+        except OSError:
+            return ""
+
+        refs = sorted(set(self._REF_PATTERN.findall(text)))
+        if not refs:
+            # No $ref present: an empty string, distinct from any real
+            # digest (including hashlib.sha256().hexdigest() on zero
+            # updates), so callers can cheaply test "has refs at all".
+            return ""
+
+        hasher = hashlib.sha256()
+        for ref in refs:
+            candidate = Path(ref)
+            if not candidate.is_absolute():
+                candidate = yaml_path.parent / candidate
+            try:
+                resolved = candidate.resolve()
+                content = resolved.read_bytes()
+            except OSError:
+                continue
+            hasher.update(str(resolved).encode())
+            hasher.update(content)
+        return hasher.hexdigest()
+
+    def _get_cached_graph(self, key: str) -> Optional[Tuple["CompiledGraph", "WorkflowDefinition"]]:
+        """Bounded-LRU, TTL-bounded lookup for a previously compiled graph.
+
+        The TTL matches ``cache_ttl`` (same knob the definition cache uses)
+        so a stale entry self-heals within the same bound callers already
+        expect, rather than staying valid indefinitely once warm — some
+        staleness classes (e.g. a condition/transform registered under an
+        unchanged name but different behavior) have no other invalidation
+        signal at all.
+        """
+        entry = self._graph_cache.get(key)
+        if entry is None:
+            return None
+        compiled, definition, stored_at = entry
+        if time.time() - stored_at > self._config.cache_ttl:
+            del self._graph_cache[key]
+            return None
+        self._graph_cache.move_to_end(key)
+        self._compile_stats["graph_cache_hits"] += 1
+        return compiled, definition
+
+    def _store_cached_graph(
+        self,
+        key: str,
+        compiled: "CompiledGraph",
+        definition: "WorkflowDefinition",
+    ) -> None:
+        """Store a compiled graph, evicting the least-recently-used entry."""
+        self._graph_cache[key] = (compiled, definition, time.time())
+        self._graph_cache.move_to_end(key)
+        while len(self._graph_cache) > self._graph_cache_max_entries:
+            self._graph_cache.popitem(last=False)
 
 
 # =============================================================================

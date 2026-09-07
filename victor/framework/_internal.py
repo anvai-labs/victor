@@ -148,8 +148,8 @@ async def create_orchestrator_from_options(
     from victor.core.bootstrap import ensure_bootstrapped
     from victor.providers.registry import ProviderRegistry
 
-    # Load settings
-    settings = load_settings()
+    # Load settings. fresh=True: mutated below by config overlays.
+    settings = load_settings(fresh=True)
 
     config = normalize_agent_config(config)
 

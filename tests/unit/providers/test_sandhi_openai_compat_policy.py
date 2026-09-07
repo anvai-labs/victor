@@ -74,6 +74,7 @@ def test_specs_are_immutable_and_combine_sandhi_wire_with_victor_model_policy() 
         "mistral",
         "zai",
         "qwen",
+        "inferflux",
     }
     assert specs["together"].base_url == "https://api.together.xyz/v1"
     assert specs["fireworks"].base_url == "https://api.fireworks.ai/inference/v1"
@@ -158,7 +159,7 @@ async def test_direct_policy_instances_execute_only_through_typed_ffi(
     calls: list[dict] = []
 
     class Handle:
-        async def complete_json(self, request_json: str) -> str:
+        async def complete_json(self, request_json: str, wire_headers_json=None) -> str:
             calls.append(json.loads(request_json))
             return json.dumps(
                 {

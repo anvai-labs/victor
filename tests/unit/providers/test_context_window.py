@@ -52,14 +52,33 @@ class TestLookupTable:
         assert cw.lookup(table, "claude-sonnet-4-5", default=8192) == 200_000
 
 
-class TestBaseProvider:
-    """Default implementation behavior."""
+class _WindowProbeProvider(BaseProvider):
+    """Concrete minimal provider — context_window needs no provider state."""
 
-    def test_default_returns_default_constant(self):
-        # BaseProvider has abstract methods (chat/stream/close) so we exercise
-        # context_window via the unbound function form.
-        assert BaseProvider.context_window(object(), None) == BaseProvider.DEFAULT_CONTEXT_WINDOW
-        assert BaseProvider.context_window(object(), "any") == BaseProvider.DEFAULT_CONTEXT_WINDOW
+    name = "window_probe"
+
+    async def chat(self, messages, model=None, **kwargs):  # pragma: no cover
+        return {}
+
+    async def stream(self, messages, model=None, **kwargs):  # pragma: no cover
+        yield {}
+
+    async def close(self):  # pragma: no cover
+        return None
+
+
+class TestBaseProvider:
+    """Default implementation behavior (single context_window definition)."""
+
+    def test_unknown_model_returns_default_constant(self):
+        provider = _WindowProbeProvider()
+        assert provider.context_window("unknown-model-x") == BaseProvider.DEFAULT_CONTEXT_WINDOW
+
+    def test_known_model_hits_table_or_yaml(self):
+        provider = _WindowProbeProvider()
+        cw = provider.context_window("claude-sonnet-4-20250514")
+        assert isinstance(cw, int)
+        assert cw >= 200_000
 
     def test_default_is_8192(self):
         assert BaseProvider.DEFAULT_CONTEXT_WINDOW == 8192

@@ -22,7 +22,6 @@ Features:
 """
 
 import re
-import subprocess
 from victor.core.json_utils import json_loads
 from pathlib import Path
 from typing import Any, Dict, List
@@ -238,50 +237,52 @@ async def scan(
 
         if req_path.exists():
             try:
-                # Use asyncio subprocess to avoid blocking event loop
-                import asyncio
+                # Route through the shared subprocess runner (co-design
+                # review item 15) instead of a bare communicate(): this
+                # previously had NO timeout at all, so pip-audit hanging
+                # (network lookup, huge dependency tree) hung the tool call.
+                from victor.config.timeouts import ProcessTimeouts
+                from victor.tools.subprocess_executor import run_managed_process
 
-                proc = await asyncio.create_subprocess_exec(
-                    "pip-audit",
-                    "-r",
-                    str(req_path),
-                    "-f",
-                    "json",
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
+                stdout, stderr, returncode, timed_out, _capped = await run_managed_process(
+                    argv=["pip-audit", "-r", str(req_path), "-f", "json"],
+                    timeout=ProcessTimeouts.BASH_LONG,
                 )
-                stdout, stderr = await proc.communicate()
-                if proc.returncode != 0:
-                    raise subprocess.CalledProcessError(proc.returncode, "pip-audit", stderr)
-                audit = json_loads(stdout.decode("utf-8"))
-                vulns = []
-                for item in audit.get("dependencies", []):
-                    for vuln in item.get("vulns", []):
-                        vulns.append(
-                            {
-                                "type": "dependency_vulnerability",
-                                "package": item.get("name"),
-                                "version": item.get("version"),
-                                "id": vuln.get("id"),
-                                "fix_versions": vuln.get("fix_versions"),
-                                "severity": vuln.get("severity", "medium"),
-                                "message": vuln.get("description", "Vulnerability detected"),
-                            }
-                        )
-                results["dependencies"] = {
-                    "packages_checked": len(audit.get("dependencies", [])),
-                    "vulnerabilities": vulns,
-                    "count": len(vulns),
-                }
-                all_findings.extend(vulns)
+                if timed_out:
+                    results["dependencies"] = {
+                        "error": f"pip-audit timed out after {ProcessTimeouts.BASH_LONG}s",
+                        "count": 0,
+                    }
+                elif returncode != 0:
+                    results["dependencies"] = {
+                        "error": f"pip-audit failed: {stderr.decode('utf-8', 'replace')}",
+                        "count": 0,
+                    }
+                else:
+                    audit = json_loads(stdout.decode("utf-8"))
+                    vulns = []
+                    for item in audit.get("dependencies", []):
+                        for vuln in item.get("vulns", []):
+                            vulns.append(
+                                {
+                                    "type": "dependency_vulnerability",
+                                    "package": item.get("name"),
+                                    "version": item.get("version"),
+                                    "id": vuln.get("id"),
+                                    "fix_versions": vuln.get("fix_versions"),
+                                    "severity": vuln.get("severity", "medium"),
+                                    "message": vuln.get("description", "Vulnerability detected"),
+                                }
+                            )
+                    results["dependencies"] = {
+                        "packages_checked": len(audit.get("dependencies", [])),
+                        "vulnerabilities": vulns,
+                        "count": len(vulns),
+                    }
+                    all_findings.extend(vulns)
             except FileNotFoundError:
                 results["dependencies"] = {
                     "error": "pip-audit not installed. Install with: pip install pip-audit",
-                    "count": 0,
-                }
-            except subprocess.CalledProcessError as exc:
-                results["dependencies"] = {
-                    "error": f"pip-audit failed: {exc.stderr}",
                     "count": 0,
                 }
         else:
@@ -293,44 +294,44 @@ async def scan(
     # IaC scan (optional, semgrep or bandit)
     if "config" in scan_types and iac_scan:
         try:
-            # Use asyncio subprocess to avoid blocking event loop
-            import asyncio
+            # Route through the shared subprocess runner (co-design review
+            # item 15) instead of a bare communicate(): this previously had
+            # NO timeout at all, so bandit hanging on a huge tree hung the
+            # tool call.
+            from victor.config.timeouts import ProcessTimeouts
+            from victor.tools.subprocess_executor import run_managed_process
 
-            proc = await asyncio.create_subprocess_exec(
-                "bandit",
-                "-r",
-                str(path_obj),
-                "-f",
-                "json",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+            stdout, stderr, returncode, timed_out, _capped = await run_managed_process(
+                argv=["bandit", "-r", str(path_obj), "-f", "json"],
+                timeout=ProcessTimeouts.BASH_LONG,
             )
-            stdout, stderr = await proc.communicate()
-            if proc.returncode != 0:
-                raise subprocess.CalledProcessError(proc.returncode, "bandit", stderr)
-            bandit = json_loads(stdout.decode("utf-8"))
-            findings = []
-            for res in bandit.get("results", []):
-                findings.append(
-                    {
-                        "type": "iac_issue",
-                        "file": res.get("filename"),
-                        "line": res.get("line_number"),
-                        "severity": res.get("issue_severity", "medium").lower(),
-                        "message": res.get("issue_text"),
-                        "test_id": res.get("test_id"),
-                    }
-                )
-            results.setdefault("config", {"findings": [], "count": 0})
-            results["config"]["findings"].extend(findings)
-            results["config"]["count"] = len(results["config"]["findings"])
-            all_findings.extend(findings)
+            if timed_out:
+                results.setdefault("config", {})
+                results["config"]["error"] = f"bandit timed out after {ProcessTimeouts.BASH_LONG}s"
+            elif returncode != 0:
+                results.setdefault("config", {})
+                results["config"]["error"] = f"bandit failed: {stderr.decode('utf-8', 'replace')}"
+            else:
+                bandit = json_loads(stdout.decode("utf-8"))
+                findings = []
+                for res in bandit.get("results", []):
+                    findings.append(
+                        {
+                            "type": "iac_issue",
+                            "file": res.get("filename"),
+                            "line": res.get("line_number"),
+                            "severity": res.get("issue_severity", "medium").lower(),
+                            "message": res.get("issue_text"),
+                            "test_id": res.get("test_id"),
+                        }
+                    )
+                results.setdefault("config", {"findings": [], "count": 0})
+                results["config"]["findings"].extend(findings)
+                results["config"]["count"] = len(results["config"]["findings"])
+                all_findings.extend(findings)
         except FileNotFoundError:
             results.setdefault("config", {})
             results["config"]["error"] = "bandit not installed. Install with: pip install bandit"
-        except subprocess.CalledProcessError as exc:
-            results.setdefault("config", {})
-            results["config"]["error"] = f"bandit failed: {exc.stderr}"
 
     # Filter by severity threshold
     severity_levels = {"low": 0, "medium": 1, "high": 2}

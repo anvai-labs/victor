@@ -439,22 +439,22 @@ class TurnExecutor:
                             stderr = task_res.get("stderr", "").strip()
                             out = []
                             if stdout:
-                                out.append(f"### STDOUT\\n```text\\n{stdout}\\n```")
+                                out.append(f"### STDOUT\n```text\n{stdout}\n```")
                             if stderr:
-                                out.append(f"### STDERR\\n```text\\n{stderr}\\n```")
+                                out.append(f"### STDERR\n```text\n{stderr}\n```")
                             msg = (
-                                "\\n\\n".join(out)
+                                "\n\n".join(out)
                                 if out
                                 else "Command executed successfully with no output."
                             )
                         else:
                             msg = str(task_res)
                     except asyncio.CancelledError:
-                        msg = "### ❌ ERROR\\nBackground task was cancelled."
+                        msg = "### ❌ ERROR\nBackground task was cancelled."
                     except Exception as e:
-                        msg = f"### ❌ ERROR\\nBackground task failed: {e}"
+                        msg = f"### ❌ ERROR\nBackground task failed: {e}"
 
-                    content = f"Background task {task_id} ({raw_result.context}) finished with result:\\n\\n{msg}"
+                    content = f"Background task {task_id} ({raw_result.context}) finished with result:\n\n{msg}"
                     self._chat_context.add_message(role="system", content=content)
 
                 # The task is already executing in the background, just attach the callback
@@ -463,7 +463,7 @@ class TurnExecutor:
 
                 tool_results[i][
                     "result"
-                ] = f"### 💡 SYSTEM HINT\\nTask is running in the background.\\nTask ID: {task_id}\\n\\nThe watcher will notify you when it completes."
+                ] = f"### 💡 SYSTEM HINT\nTask is running in the background.\nTask ID: {task_id}\n\nThe watcher will notify you when it completes."
 
         return tool_results
 
@@ -1607,11 +1607,9 @@ class TurnExecutor:
             List of tool definitions or None
         """
         conversation_depth = self._chat_context.conversation.message_count()
-        conversation_history = (
-            [msg.model_dump() for msg in self._chat_context.messages]
-            if self._chat_context.messages
-            else None
-        )
+        from victor.agent.tool_selection.history_projection import _selector_history_projection
+
+        conversation_history = _selector_history_projection(self._chat_context.messages)
 
         tools = await self._tool_context.tool_selector.select_tools(
             user_message,

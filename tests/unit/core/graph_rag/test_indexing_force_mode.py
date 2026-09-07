@@ -238,3 +238,69 @@ class TestDeleteByRepoIntegration:
 
         # Verify mtimes are cleared
         assert len(store.file_mtimes) == 0
+
+
+class TestPostRebuildMaintenance:
+    """Co-design review item 26a: a force rebuild must run the project DB
+    manager's maintain() (WAL checkpoint + VACUUM) automatically, instead of
+    requiring a manual `victor db maintain`."""
+
+    def _make_pipeline(self, incremental: bool, root: Path) -> GraphIndexingPipeline:
+        return GraphIndexingPipeline(
+            _RecordingGraphStore(),
+            GraphIndexConfig(
+                root_path=root,
+                enable_ccg=False,
+                enable_embeddings=False,
+                incremental=incremental,
+                chunk_size=10,
+            ),
+        )
+
+    async def test_force_mode_runs_post_rebuild_maintenance(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """incremental=False + graph changes -> maintain() called exactly once."""
+        (tmp_path / "mod.py").write_text("x = 1\n", encoding="utf-8")
+        maintain = MagicMock(return_value={"path": "/fake/project.db"})
+        fake_db = MagicMock()
+        fake_db.maintain = maintain
+        monkeypatch.setattr("victor.core.database.get_project_database", lambda _root: fake_db)
+
+        pipeline = self._make_pipeline(incremental=False, root=tmp_path)
+        stats = await pipeline.index_repository()
+
+        assert stats.files_processed > 0, "precondition: the rebuild did something"
+        maintain.assert_called_once()
+
+    async def test_incremental_mode_skips_post_rebuild_maintenance(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """Incremental refreshes must not pay the VACUUM cost."""
+        (tmp_path / "mod.py").write_text("x = 1\n", encoding="utf-8")
+        maintain = MagicMock()
+        fake_db = MagicMock()
+        fake_db.maintain = maintain
+        monkeypatch.setattr("victor.core.database.get_project_database", lambda _root: fake_db)
+
+        pipeline = self._make_pipeline(incremental=True, root=tmp_path)
+        await pipeline.index_repository()
+
+        maintain.assert_not_called()
+
+    async def test_maintenance_failure_never_fails_the_rebuild(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """maintain() blowing up must be swallowed — an otherwise-successful
+        rebuild stays successful."""
+        (tmp_path / "mod.py").write_text("x = 1\n", encoding="utf-8")
+        maintain = MagicMock(side_effect=RuntimeError("disk gone"))
+        fake_db = MagicMock()
+        fake_db.maintain = maintain
+        monkeypatch.setattr("victor.core.database.get_project_database", lambda _root: fake_db)
+
+        pipeline = self._make_pipeline(incremental=False, root=tmp_path)
+        stats = await pipeline.index_repository()  # must not raise
+
+        maintain.assert_called_once()
+        assert stats.files_processed > 0

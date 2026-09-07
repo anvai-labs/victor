@@ -32,7 +32,7 @@ import yaml
 try:
     import sandhi_gateway as _sandhi_gateway  # type: ignore[import-untyped]
 except Exception as exc:  # pragma: no cover - installation is validated by provider creation
-    raise RuntimeError("sandhi-gateway 0.1.5 is required for provider policy") from exc
+    raise RuntimeError("sandhi-gateway 0.3.0 is required for provider policy") from exc
 
 
 class OpenAICompatConfigError(ValueError):

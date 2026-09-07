@@ -58,14 +58,41 @@ benchmark_app = typer.Typer(
 console = Console()
 
 # Benchmarks whose runner executes ``agent_output + test_code`` as one Python
-# file, so the agent's *source* is the artifact. Every other benchmark keeps
-# receiving a patch, which is what SWE-bench applies to a fresh clone.
+# file, so the agent's *source* is the artifact.
 #
 # Opt-in rather than opt-out on purpose: only these two have been read and
 # confirmed to concatenate-and-run, so nothing else changes behaviour.
 # Slugs, not the enum: BenchmarkType is imported lazily inside functions here,
 # so a module-level reference to it would break the import.
 _SOURCE_BENCHMARKS = frozenset({"mbpp", "human_eval"})
+
+# Report benchmarks also consume direct output, but keeping them separate from
+# executable-source benchmarks makes the routing contract explicit.
+_REPORT_BENCHMARKS = frozenset({"dr3_eval"})
+
+
+def _stage_benchmark_input_files(task: Any, work_dir: Path) -> None:
+    """Copy validated binary/text task inputs into an ephemeral workspace."""
+    import shutil
+
+    workspace = work_dir.resolve()
+    for relative_name, source_name in (getattr(task, "input_files", None) or {}).items():
+        relative_path = Path(relative_name)
+        if relative_path.is_absolute() or ".." in relative_path.parts:
+            raise ValueError(f"Benchmark input destination escapes workspace: {relative_name}")
+        destination = (workspace / relative_path).resolve()
+        try:
+            destination.relative_to(workspace)
+        except ValueError as exc:
+            raise ValueError(
+                f"Benchmark input destination escapes workspace: {relative_name}"
+            ) from exc
+
+        source = Path(source_name).resolve()
+        if not source.is_file():
+            raise FileNotFoundError(f"Benchmark input file not found: {source}")
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, destination)
 
 
 def _get_global_evaluations_dir() -> Path:
@@ -2042,6 +2069,7 @@ async def _run_benchmark_async(
                         (temp_work_dir / "solution.py").write_text(benchmark_task.context_code)
                     if benchmark_task.test_code:
                         (temp_work_dir / "test_solution.py").write_text(benchmark_task.test_code)
+                    _stage_benchmark_input_files(benchmark_task, temp_work_dir)
                     work_dir = temp_work_dir
                     console.print(
                         f"  [dim]Using ephemeral workspace for {benchmark_task.task_id}[/]"
@@ -2216,7 +2244,7 @@ async def _run_benchmark_async(
                 benchmark_slug = getattr(
                     benchmark_task.benchmark, "value", benchmark_task.benchmark
                 )
-                if benchmark_slug in _SOURCE_BENCHMARKS:
+                if benchmark_slug in _SOURCE_BENCHMARKS | _REPORT_BENCHMARKS:
                     solution = trace.generated_code or patch
                 else:
                     solution = patch

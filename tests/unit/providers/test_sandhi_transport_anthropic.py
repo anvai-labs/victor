@@ -17,7 +17,7 @@ class FakeAnthropicHandle:
     def __init__(self) -> None:
         self.requests: list[dict] = []
 
-    async def complete_json(self, request_json: str) -> str:
+    async def complete_json(self, request_json: str, wire_headers_json=None) -> str:
         self.requests.append(json.loads(request_json))
         return json.dumps(
             {
@@ -44,7 +44,7 @@ class FakeAnthropicHandle:
             }
         )
 
-    def stream_json(self, request_json: str):
+    def stream_json(self, request_json: str, wire_headers_json=None):
         self.requests.append(json.loads(request_json))
 
         async def events():
@@ -191,7 +191,7 @@ async def test_stream_assembles_parallel_tool_calls(runtime):
         yield json.dumps({"event": "tool_call_arguments_delta", "index": 1, "delta": '{"x": 2}'})
         yield json.dumps({"event": "finish", "reason": "tool_calls"})
 
-    runtime.handle.stream_json = lambda request_json: tool_events()
+    runtime.handle.stream_json = lambda request_json, wire_headers_json=None: tool_events()
     provider = make_provider()
     chunks = [
         chunk

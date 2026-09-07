@@ -9,12 +9,6 @@ import pytest
 # Import subagents module to ensure it's loaded before monkeypatching
 from victor.agent.subagents import orchestrator as subagents_orchestrator_module
 
-from victor.workflows.adapters import (
-    AdapterWorkflowState,
-    WorkflowState as AdapterWorkflowStateAlias,
-)
-from victor.workflows.adapters import WorkflowToGraphAdapter
-from victor.core.async_utils import run_sync as shared_run_sync, run_sync_in_thread
 from victor.core.container import ServiceContainer
 from victor.workflows.definition import (
     AgentNode,
@@ -268,10 +262,6 @@ async def test_hitl_executor_records_response_and_rejection() -> None:
     assert node_result.output["response"]["status"] == "rejected"
 
 
-def test_adapter_workflow_state_alias_remains_available() -> None:
-    assert AdapterWorkflowStateAlias is AdapterWorkflowState
-
-
 def test_executor_package_exports_team_step_aliases() -> None:
     with pytest.warns(DeprecationWarning, match="TeamNodeExecutor"):
         from victor.workflows.executors import TeamNodeExecutor
@@ -326,53 +316,6 @@ def test_package_alias_warnings_publish_removal_milestone() -> None:
     assert "v0.9.0" in executor_message
     assert "2027-03-31" in executor_message
     assert "TeamStepExecutor" in executor_message
-
-
-def test_adapter_execution_handler_uses_shared_sync_bridge_without_running_loop() -> None:
-    adapter = WorkflowToGraphAdapter()
-    executor = SimpleNamespace()
-
-    async def execute_node(node, context):
-        return {"status": "ok", "context": context}
-
-    executor.execute_node = execute_node
-    node = TransformNode(id="transform", name="Transform", transform=lambda state: {})
-    handler = adapter._create_execution_handler(node, executor)
-
-    with patch(
-        "victor.workflows.adapters.run_sync",
-        side_effect=lambda coro: shared_run_sync(coro),
-    ) as mock_run_sync:
-        result = handler({"context": {"value": 1}})
-
-    assert result["current_node"] == "Transform"
-    assert result["results"]["Transform"] == {"status": "ok", "context": {"value": 1}}
-    assert result["visited_nodes"] == ["Transform"]
-    mock_run_sync.assert_called_once()
-
-
-@pytest.mark.asyncio
-async def test_adapter_execution_handler_uses_thread_bridge_with_running_loop() -> None:
-    adapter = WorkflowToGraphAdapter()
-    executor = SimpleNamespace()
-
-    async def execute_node(node, context):
-        return {"status": "ok", "context": context}
-
-    executor.execute_node = execute_node
-    node = TransformNode(id="transform", name="Transform", transform=lambda state: {})
-    handler = adapter._create_execution_handler(node, executor)
-
-    with patch(
-        "victor.workflows.adapters.run_sync_in_thread",
-        side_effect=lambda coro: run_sync_in_thread(coro),
-    ) as mock_run_sync_in_thread:
-        result = handler({"context": {"value": 2}})
-
-    assert result["current_node"] == "Transform"
-    assert result["results"]["Transform"] == {"status": "ok", "context": {"value": 2}}
-    assert result["visited_nodes"] == ["Transform"]
-    mock_run_sync_in_thread.assert_called_once()
 
 
 def test_node_executor_factory_prefers_registered_executor_classes() -> None:

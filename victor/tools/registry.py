@@ -432,6 +432,16 @@ class ToolRegistry(BaseRegistry[str, _ToolType]):
         with self._schema_cache_lock:
             self._schema_cache_version += 1
 
+    @property
+    def schema_cache_version(self) -> int:
+        """Current schema-cache version — bumps on EVERY registry mutation.
+
+        Consumers (e.g. ToolService.estimate_tool_tokens) validate their
+        (tool, tier) -> schema/estimate caches against this counter instead
+        of re-deriving schemas per call (co-design review U4-F1).
+        """
+        return self._schema_cache_version
+
     def _wrap_hook(
         self, hook: Union[Hook, Callable], critical: bool = False, name: str = ""
     ) -> Hook:

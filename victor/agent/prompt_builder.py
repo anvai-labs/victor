@@ -68,7 +68,7 @@ CLOUD_PROVIDERS: Set[str] = {
     "kimi",
     "deepseek",
 }
-LOCAL_PROVIDERS: Set[str] = {"ollama", "lmstudio", "vllm"}
+LOCAL_PROVIDERS: Set[str] = {"ollama", "lmstudio", "vllm", "inferflux"}
 
 # Task-type hints are now in vertical prompt contributors (E5 M3).
 # Use get_task_type_hint(task_type, prompt_contributors=[...]) instead.

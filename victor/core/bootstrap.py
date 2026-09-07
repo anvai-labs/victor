@@ -947,6 +947,12 @@ def _create_usage_logger(log_file: Path, settings: Settings) -> Any:
             backup_count=5,
             compress_rotated=True,
             sampling_filter=sampling_filter,
+            # Batches writes instead of a rotation-check + disk write per
+            # event (co-design review item 14). LifecycleManager.
+            # graceful_shutdown() flushes on the way out; the crash window
+            # is <=100 events / 5s, acceptable since consumers (query
+            # service, benchmark mining) are offline readers.
+            buffered=True,
         )
     except Exception as e:
         logger.warning(f"Failed to create enhanced logger: {e}")

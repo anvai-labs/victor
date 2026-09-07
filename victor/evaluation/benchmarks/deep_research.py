@@ -190,13 +190,18 @@ class DeepResearchBenchmarkRunner(BaseBenchmarkRunner):
         user_file_paths: list[Path] = []
         if "query" in merged or "user_files" in merged:
             task_id, description, user_file_paths = self._load_official_task_inputs(merged, index)
-            prompt = self._build_official_prompt(description, user_file_paths)
+            input_files = {
+                f"attachments/{file_index:02d}-{path.name}": str(path)
+                for file_index, path in enumerate(user_file_paths, start=1)
+            }
+            prompt = self._build_official_prompt(description, list(input_files))
         else:
             prompt = str(merged.get("prompt") or merged.get("instruction") or "").strip()
             if not prompt:
                 raise ValueError(f"Task #{index} is missing a prompt")
             description = str(merged.get("description") or prompt)
             task_id = str(merged.get("task_id") or merged.get("id") or f"dr3-eval-{index}")
+            input_files = {}
 
         self._task_specs[task_id] = {
             "required_claims": self._normalize_list(merged.get("required_claims")),
@@ -211,12 +216,15 @@ class DeepResearchBenchmarkRunner(BaseBenchmarkRunner):
             description=description,
             language=str(merged.get("language") or "report"),
             prompt=prompt,
+            input_files=input_files,
             difficulty=str(merged.get("difficulty") or "medium"),
             category=str(merged.get("category") or "deep_research"),
             tags=self._normalize_list(merged.get("tags")),
             timeout_seconds=int(merged.get("timeout_seconds") or 300),
             hints=self._normalize_list(merged.get("hints")),
             solution=str(merged.get("solution") or ""),
+            complexity_override="analysis",
+            task_type_hint="analyze",
         )
 
     def _load_official_task_inputs(
@@ -281,8 +289,8 @@ class DeepResearchBenchmarkRunner(BaseBenchmarkRunner):
         return task_id, query, resolved_files
 
     @staticmethod
-    def _build_official_prompt(query: str, user_files: list[Path]) -> str:
-        """Attach verified local evidence paths to the official user query."""
+    def _build_official_prompt(query: str, user_files: list[str]) -> str:
+        """Attach workspace-local evidence paths to the official user query."""
         file_lines = "\n".join(f"- {path}" for path in user_files)
         return (
             f"{query}\n\n"

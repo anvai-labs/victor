@@ -67,8 +67,17 @@ from victor.ui.slash.registry import (
     register_command,
 )
 
-# Import commands to trigger registration
-from victor.ui.slash import commands  # noqa: F401
+# NOTE: commands are intentionally NOT imported here (co-design review
+# item 21). `from victor.ui.slash import commands` pulled the heaviest
+# command module's import chain (bayesian -> framework.rl.monitoring ->
+# victor.agent, ~0.9s measured) into every `victor.ui.slash` import,
+# including `victor --help`. Registration now happens lazily: the first
+# read on a CommandRegistry (get/has/list_commands/iter_commands/
+# categories/list_by_category) triggers CommandRegistry._ensure_discovered
+# (registry.py), and SlashCommandHandler.__init__ discovers eagerly at
+# handler-construction time regardless. `victor.ui.slash.commands` and
+# its submodules remain directly importable for tests/tooling that want
+# them explicitly.
 
 __all__ = [
     # Main handler

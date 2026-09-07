@@ -112,7 +112,7 @@ class ResourceAvailabilityDetector:
     """
 
     # Local providers that require GPU
-    LOCAL_PROVIDERS = {"ollama", "lmstudio", "vllm"}
+    LOCAL_PROVIDERS = {"ollama", "lmstudio", "vllm", "inferflux"}
 
     # Cloud providers that use API quotas
     CLOUD_PROVIDERS = {

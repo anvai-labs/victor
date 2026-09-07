@@ -103,24 +103,3 @@ def test_orchestrator_import_succeeds_without_optional_embedding_dependencies():
         """)
 
     assert "ok-orchestrator" in output
-
-
-def test_context_manager_import_does_not_eagerly_import_tiktoken():
-    output = _run_blocked_import_script("""
-        import builtins
-
-        real_import = builtins.__import__
-
-        def guarded(name, globals=None, locals=None, fromlist=(), level=0):
-            if name.split(".")[0] == "tiktoken":
-                raise ImportError(f"blocked {name}")
-            return real_import(name, globals, locals, fromlist, level)
-
-        builtins.__import__ = guarded
-
-        import victor.context.manager
-
-        print("ok-context-manager")
-        """)
-
-    assert "ok-context-manager" in output

@@ -38,6 +38,40 @@ def list_providers() -> None:
     _list_providers_impl()
 
 
+# Provider info: (status, features)
+PROVIDER_INFO = {
+    # Tested and working providers
+    "ollama": ("✅ Ready", "Local models, Free, Tool calling"),
+    "anthropic": ("✅ Ready", "Claude 3.5/4, Tool calling, Streaming"),
+    "openai": ("✅ Ready", "GPT-4.1/4o/o1/o3, Function calling, Vision"),
+    "google": ("✅ Ready", "Gemini 2.5, 1M context, Multimodal"),
+    "xai": ("✅ Ready", "Grok, Real-time info, Vision"),
+    "lmstudio": ("✅ Ready", "Local models via LMStudio"),
+    "vllm": ("✅ Ready", "High-throughput local inference"),
+    "moonshot": ("✅ Ready", "Kimi K2, 256K context, Reasoning"),
+    "deepseek": ("✅ Ready", "DeepSeek-V3, 128K, Cheap"),
+    "groqcloud": ("✅ Ready", "Ultra-fast LPU, Free tier, Llama/GPT-OSS"),
+    "cerebras": ("✅ Ready", "Ultra-fast inference, Free tier, Qwen/Llama"),
+    # Local inference
+    "llamacpp": ("✅ Ready", "Local GGUF models, CPU/GPU"),
+    "inferflux": ("✅ Ready", "Self-hosted, Batched decode, KV-prefix reuse, Sandhi-metered"),
+    # Tested providers
+    "mistral": ("✅ Ready", "Mistral Large/Codestral, 500K tokens/min free"),
+    # Known but untested providers
+    "together": ("⚠️ Untested", "Together AI, $25 free credits"),
+    "openrouter": ("✅ Ready", "Unified gateway, 350+ models, Free tier"),
+    "fireworks": ("✅ Ready", "Fast inference, $1 free credits, Tool calling"),
+    "zai": ("✅ Ready", "GLM-5/4.7, Coding Plan, Thinking mode, OpenAI-compat"),
+    "qwen": ("✅ Ready", "Qwen3.5, OAuth + API-key, Coding Plan, OpenAI-compat"),
+    "huggingface": ("⚠️ Untested", "HuggingFace Inference API"),
+    "replicate": ("⚠️ Untested", "Replicate, Open models"),
+    # Enterprise providers (require setup)
+    "vertex": ("🏢 Enterprise", "Google Cloud Vertex AI"),
+    "azure": ("🏢 Enterprise", "Azure OpenAI Service"),
+    "bedrock": ("🏢 Enterprise", "AWS Bedrock (Claude, Llama, Titan)"),
+}
+
+
 def _list_providers_impl() -> None:
     available_providers = ProviderRegistry.list_providers()
     raw_aliases = ProviderRegistry.get_aliases()
@@ -58,37 +92,7 @@ def _list_providers_impl() -> None:
     if not primary_providers:
         primary_providers = set(available_providers)
 
-    # Provider info: (status, features)
-    provider_info = {
-        # Tested and working providers
-        "ollama": ("✅ Ready", "Local models, Free, Tool calling"),
-        "anthropic": ("✅ Ready", "Claude 3.5/4, Tool calling, Streaming"),
-        "openai": ("✅ Ready", "GPT-4.1/4o/o1/o3, Function calling, Vision"),
-        "google": ("✅ Ready", "Gemini 2.5, 1M context, Multimodal"),
-        "xai": ("✅ Ready", "Grok, Real-time info, Vision"),
-        "lmstudio": ("✅ Ready", "Local models via LMStudio"),
-        "vllm": ("✅ Ready", "High-throughput local inference"),
-        "moonshot": ("✅ Ready", "Kimi K2, 256K context, Reasoning"),
-        "deepseek": ("✅ Ready", "DeepSeek-V3, 128K, Cheap"),
-        "groqcloud": ("✅ Ready", "Ultra-fast LPU, Free tier, Llama/GPT-OSS"),
-        "cerebras": ("✅ Ready", "Ultra-fast inference, Free tier, Qwen/Llama"),
-        # Local inference
-        "llamacpp": ("✅ Ready", "Local GGUF models, CPU/GPU"),
-        # Tested providers
-        "mistral": ("✅ Ready", "Mistral Large/Codestral, 500K tokens/min free"),
-        # Known but untested providers
-        "together": ("⚠️ Untested", "Together AI, $25 free credits"),
-        "openrouter": ("✅ Ready", "Unified gateway, 350+ models, Free tier"),
-        "fireworks": ("✅ Ready", "Fast inference, $1 free credits, Tool calling"),
-        "zai": ("✅ Ready", "GLM-5/4.7, Coding Plan, Thinking mode, OpenAI-compat"),
-        "qwen": ("✅ Ready", "Qwen3.5, OAuth + API-key, Coding Plan, OpenAI-compat"),
-        "huggingface": ("⚠️ Untested", "HuggingFace Inference API"),
-        "replicate": ("⚠️ Untested", "Replicate, Open models"),
-        # Enterprise providers (require setup)
-        "vertex": ("🏢 Enterprise", "Google Cloud Vertex AI"),
-        "azure": ("🏢 Enterprise", "Azure OpenAI Service"),
-        "bedrock": ("🏢 Enterprise", "AWS Bedrock (Claude, Llama, Titan)"),
-    }
+    provider_info = PROVIDER_INFO
 
     table = Table(title="Available Providers", show_header=True)
     table.add_column("Provider", style="cyan", no_wrap=True)
@@ -168,7 +172,9 @@ def _format_configured_provider(
 @providers_app.command("check")
 def check_provider(
     provider: str = typer.Argument(..., help="Provider name (e.g., deepseek, anthropic, ollama)"),
-    model: str = typer.Option("deepseek-chat", help="Model to check"),
+    model: str = typer.Option(
+        None, help="Model to check (default: the provider's own policy default)"
+    ),
     connectivity: bool = typer.Option(
         False, "--connectivity", "-c", help="Perform connectivity test (slower)"
     ),
@@ -182,6 +188,8 @@ def check_provider(
         victor providers check anthropic --connectivity
         victor providers check ollama
     """
+    if model is None:
+        model = _default_check_model(provider)
     run_sync(
         _check_provider_async(
             provider=provider,
@@ -191,6 +199,28 @@ def check_provider(
             json_output=json_output,
         )
     )
+
+
+def _default_check_model(provider: str) -> str:
+    """The provider's own policy default, not one hardcoded vendor's model.
+
+    OpenAI-compat providers read their YAML policy tier's ``default_model``;
+    everything else keeps the historical deepseek default only when the
+    provider has no policy entry.
+    """
+    key = provider.strip().lower()
+    try:
+        from victor.providers.openai_compat_model_policy import (
+            get_openai_compat_provider_spec,
+        )
+
+        spec = get_openai_compat_provider_spec(key)
+        default = getattr(spec, "default_model", None)
+        if default:
+            return str(default)
+    except Exception:
+        pass
+    return "deepseek-chat"
 
 
 async def _check_provider_async(

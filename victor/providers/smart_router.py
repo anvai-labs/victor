@@ -47,6 +47,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
+from victor.providers import failure_taxonomy
 from victor.providers.base import BaseProvider, CompletionResponse, Message
 from victor.providers.health import ProviderHealthChecker
 from victor.providers.performance_tracker import (
@@ -455,12 +456,26 @@ class RoutingDecisionEngine:
         if health_result.healthy:
             return 1.0
         else:
+            issues_text = str(health_result.issues).lower()
+
             # Check if issues are critical
             critical_issues = ["api_key", "authentication", "auth"]
-            if any(issue in str(health_result.issues).lower() for issue in critical_issues):
+            if any(issue in issues_text for issue in critical_issues):
                 return 0.0  # Critical failure
-            else:
-                return 0.3  # Non-critical issues
+
+            # Connection/timeout issues (co-design review item 18: shared
+            # taxonomy) mean the provider is actively failing calls right
+            # now, but transport blips are usually transient and unlike an
+            # auth failure don't need operator intervention to clear — score
+            # them below the generic non-critical case but above 0.0 so
+            # routing still prefers a provider without an active failure
+            # signal, while giving this one a chance to recover.
+            if failure_taxonomy.looks_like_connection_error(
+                issues_text
+            ) or failure_taxonomy.looks_like_timeout_error(issues_text):
+                return 0.15
+
+            return 0.3  # Non-critical issues
 
     async def _score_resources(self, provider: str) -> float:
         """Score resource availability (0.0 to 1.0).

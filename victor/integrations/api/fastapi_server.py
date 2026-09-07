@@ -39,7 +39,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, AsyncIterator, Dict, List, Optional
 
 from fastapi import (
+    APIRouter,
     Body,
+    Depends,
     FastAPI,
     HTTPException,
     Query,
@@ -50,6 +52,7 @@ from fastapi import (
 )
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.routing import APIRoute, APIWebSocketRoute
 from pydantic import BaseModel, Field, field_validator
 
 from victor.integrations.search_types import CodeSearchResult
@@ -504,12 +507,20 @@ class VictorFastAPIServer:
         self._workflow_executions: Dict[str, Dict[str, Any]] = {}
         self._shutting_down = False
 
-        # Create FastAPI app with lifespan
+        # Create FastAPI app with lifespan. Auth is enforced per-route in
+        # _setup_routes/_setup_router_plugins (co-design review U7-F1..F3:
+        # auth was previously opt-in per handler — only /chat* verified, so
+        # git/config/agents/terminal were open). An app-level dependency is
+        # NOT usable: it also runs for websocket routes, where FastAPI's
+        # solver cannot supply a Request parameter (it crashes the socket).
+        # On keyed servers the docs surfaces are disabled — they disclose the
+        # full route tree and add nothing for authenticated clients.
         self.app = FastAPI(
             title="Victor API",
             description="AI Coding Assistant API for IDE integrations",
             version="0.5.1",
             lifespan=self._lifespan,
+            **({"docs_url": None, "redoc_url": None, "openapi_url": None} if self.api_keys else {}),
         )
 
         # Configure CORS with secure defaults
@@ -548,7 +559,9 @@ class VictorFastAPIServer:
 
                 schema = create_graphql_schema(self)
                 graphql_router = GraphQLRouter(schema)
-                self.app.include_router(graphql_router, prefix="/graphql")
+                # HTTP queries/mutations get the API-key dependency;
+                # subscriptions (websocket) get the WS guard.
+                self._include_with_auth(graphql_router, prefix="/graphql")
                 logger.info("GraphQL endpoint enabled at /graphql")
             except ImportError:
                 logger.debug("strawberry-graphql not installed, GraphQL disabled")
@@ -567,6 +580,96 @@ class VictorFastAPIServer:
             if api_key in self.api_keys:
                 return self.api_keys[api_key]
         raise HTTPException(status_code=401, detail="Invalid or missing API key")
+
+    # Paths reachable without an API key: health/status probes. The /ws chat
+    # socket authenticates at the message level (auth frame, gated in
+    # _handle_ws_message); HITL keeps its own optional token auth.
+    AUTH_EXEMPT_PATHS = frozenset({"/health", "/status"})
+
+    def _make_auth_dependency(self):
+        """Build the HTTP-route auth dependency (closure over this server)."""
+
+        async def _enforce_api_auth(request: Request) -> None:
+            """Auth gate for HTTP routes: a valid API key is required when
+            keys are configured. Keyless servers (local dev, most tests) are
+            unaffected — the gate short-circuits without keys."""
+            if not self.api_keys:
+                return
+            if request.url.path in self.AUTH_EXEMPT_PATHS:
+                return
+            await self._verify_api_key(request)
+
+        return _enforce_api_auth
+
+    def _make_ws_auth_dependency(self):
+        """Build the websocket-route auth dependency (closure over server)."""
+
+        async def _enforce_ws_auth(websocket: WebSocket) -> None:
+            """Auth gate for websocket routes: Bearer header or ?api_key=
+            query parameter. The /ws chat socket is exempt (message-level
+            auth); this guards event streams (/ws/events, workflow streams,
+            GraphQL subscriptions)."""
+            if not self.api_keys:
+                return
+            header = websocket.headers.get("Authorization", "")
+            if header.startswith("Bearer ") and header[7:] in self.api_keys:
+                return
+            if websocket.query_params.get("api_key") in self.api_keys:
+                return
+            # In websocket scope FastAPI closes the connection when a
+            # dependency raises HTTPException.
+            raise HTTPException(status_code=403, detail="Not authenticated")
+
+        return _enforce_ws_auth
+
+    def _include_with_auth(
+        self, router: APIRouter, *, prefix: str = "", guard_websockets: bool = True
+    ) -> None:
+        """Include ``router`` with auth attached per route class, WITHOUT
+        mutating the (possibly module-shared) router object.
+
+        HTTP routes get the API-key dependency; websocket routes get the WS
+        guard, except the message-authenticated /ws chat socket. Splitting
+        into fresh child routers is load-bearing twice over:
+
+        - A router-level include dependency applies to websocket routes too,
+          and a Request-taking dependency crashes websocket scope — so
+          mixed routers (workflow_routes: one WS stream + nine HTTP routes
+          incl. POST /workflows/execute; GraphQL subscriptions) need HTTP
+          and WS handled separately.
+        - Appending to ``route.dependencies`` of a module-level shared
+          router (the observability router is a singleton) binds THIS
+          server's key-closure onto every later server that includes it —
+          cross-server/cross-test auth pollution (found by adversarial
+          review). include_router copies routes; fresh child routers keep
+          those copies per-server.
+        """
+        http_dep = Depends(self._make_auth_dependency())
+        ws_dep = Depends(self._make_ws_auth_dependency())
+        http_routes, plain_ws_routes, guarded_ws_routes = [], [], []
+        for route in router.routes:
+            if isinstance(route, APIRoute):
+                http_routes.append(route)
+            elif isinstance(route, APIWebSocketRoute):
+                if not guard_websockets or route.path == "/ws":
+                    plain_ws_routes.append(route)  # /ws: message-level auth
+                else:
+                    guarded_ws_routes.append(route)
+
+        if http_routes:
+            child = APIRouter()
+            child.routes.extend(http_routes)
+            self.app.include_router(child, prefix=prefix, dependencies=[http_dep])
+        if plain_ws_routes:
+            child = APIRouter()
+            child.routes.extend(plain_ws_routes)
+            self.app.include_router(child, prefix=prefix)
+        if guarded_ws_routes:
+            child = APIRouter()
+            child.routes.extend(guarded_ws_routes)
+            self.app.include_router(child, prefix=prefix, dependencies=[ws_dep])
+        if not (http_routes or plain_ws_routes or guarded_ws_routes):
+            self.app.include_router(router, prefix=prefix)
 
     @asynccontextmanager
     async def _lifespan(self, app: FastAPI) -> AsyncIterator[None]:
@@ -602,11 +705,16 @@ class VictorFastAPIServer:
         logger.info("Victor FastAPI server shutdown complete")
 
     def _setup_routes(self) -> None:
-        """Set up API routes by including extracted APIRouter modules."""
+        """Set up API routes by including extracted APIRouter modules.
+
+        Auth attaches per-route (see _attach_route_auth) so mixed
+        HTTP+websocket routers get HTTP gating without breaking their
+        websocket routes.
+        """
         from victor.integrations.api.routes import create_all_routers
 
         for router in create_all_routers(self):
-            self.app.include_router(router)
+            self._include_with_auth(router)
 
     def _setup_router_plugins(self) -> None:
         """Load optional FastAPI routers from vertical packages.
@@ -616,7 +724,7 @@ class VictorFastAPIServer:
         registrations = load_fastapi_router_registrations(workspace_root=self.workspace_root)
         for registration in registrations:
             try:
-                self.app.include_router(registration.router, prefix=registration.prefix)
+                self._include_with_auth(registration.router, prefix=registration.prefix)
             except Exception as exc:
                 logger.warning(
                     "Failed to include router from entry point '%s' (%s): %s",
@@ -691,7 +799,14 @@ class VictorFastAPIServer:
                 require_auth=bool(self.hitl_auth_token),
                 auth_token=self.hitl_auth_token,
             )
-            self.app.include_router(hitl_router, prefix="/hitl")
+            if self.api_keys and not self.hitl_auth_token:
+                # API keys configured but no dedicated HITL token: the HITL
+                # routes must not stay open (approving agent tool gates
+                # unauthenticated — adversarial-review finding). Gate them
+                # with the API key.
+                self._include_with_auth(hitl_router, prefix="/hitl", guard_websockets=False)
+            else:
+                self.app.include_router(hitl_router, prefix="/hitl")
 
             logger.info("HITL endpoints enabled at /hitl/*")
 
@@ -866,6 +981,14 @@ class VictorFastAPIServer:
             messages = data.get("messages", [])
             if not messages:
                 await ws.send_json({"type": "error", "message": "No messages"})
+                return
+
+            # Auth gate: when API keys are configured, chat turns require a
+            # prior successful `auth` message. Previously the flag was set
+            # but never enforced — an unauthenticated WS client got full
+            # agent execution (co-design review U7-F1).
+            if self.api_keys and not getattr(getattr(ws, "state", None), "authenticated", False):
+                await ws.send_json({"type": "error", "message": "Not authenticated"})
                 return
 
             client = await self._get_victor_client()

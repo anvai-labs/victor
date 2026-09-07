@@ -37,7 +37,7 @@ class _FakeTyped:
     def __init__(self, events):
         self._events = events
 
-    def stream_json(self, request_json):
+    def stream_json(self, request_json, wire_headers_json=None):
         events = self._events
 
         async def _gen():

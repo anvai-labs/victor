@@ -480,11 +480,22 @@ class TestRetryStrategy:
         assert attempts[0] == 1
 
     @pytest.mark.asyncio
-    async def test_retries_open_circuit_breaker(self, retry, monkeypatch):
-        """Open circuits should be retried after their cooldown."""
+    async def test_retries_open_circuit_breaker(self, monkeypatch):
+        """Open circuits CAN be retried after their cooldown when the breaker
+        error is explicitly opted into retryable_exceptions — the capability is
+        preserved even though the DEFAULT config now fails fast (see
+        test_circuit_open_fails_fast_to_fallback)."""
         from victor.providers.circuit_breaker import (
             CircuitBreakerError as CanonicalCircuitBreakerError,
         )
+
+        config = ProviderRetryConfig(
+            max_retries=2,
+            base_delay_seconds=0.01,
+            max_delay_seconds=0.1,
+            retryable_exceptions=(CanonicalCircuitBreakerError,),
+        )
+        retry = ProviderRetryStrategy(config)
 
         attempts = [0]
         sleeps: list[float] = []
@@ -780,6 +791,192 @@ class TestResilientProvider:
 
         assert result == "response"
         mock_provider.chat.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_retries_share_one_logical_call_id(self):
+        """One ResilientProvider.chat = one logical call (sandhi TD-0021 P4): every
+        retry re-enters the inner provider under the SAME call_id binding, so the
+        sandhi transport stamps one Idempotency-Key and the gateway's meter counts
+        the call once. TimeoutError is the retryable may-have-billed case."""
+        from victor.core.context import get_call_id
+
+        seen: list = []
+
+        async def flaky_chat(messages, *, model, **kwargs):
+            seen.append(get_call_id())
+            if len(seen) == 1:
+                raise asyncio.TimeoutError("simulated may-have-billed timeout")
+            return "recovered"
+
+        inner = MagicMock()
+        inner.name = "flaky"
+        inner.chat = flaky_chat
+        resilient = ResilientProvider(
+            inner,
+            retry_config=ProviderRetryConfig(max_retries=1, base_delay_seconds=0.01),
+        )
+
+        result = await resilient.chat(messages=[], model="m")
+
+        assert result == "recovered"
+        assert len(seen) == 2
+        assert seen[0] and seen[0] == seen[1], "retries of one logical call must share one id"
+
+    @pytest.mark.asyncio
+    async def test_circuit_open_fails_fast_to_fallback(self, mock_fallback):
+        """CircuitOpenError is not retryable by default: the primary is called
+        exactly once and the fallback engages immediately — an open circuit must
+        not be slept through retries x backoff."""
+        calls = {"n": 0}
+
+        async def open_circuit_chat(messages, *, model, **kwargs):
+            calls["n"] += 1
+            raise CircuitOpenError("circuit open")
+
+        inner = MagicMock()
+        inner.name = "open-circuit"
+        inner.chat = open_circuit_chat
+        resilient = ResilientProvider(
+            inner,
+            fallback_providers=[mock_fallback],
+            retry_config=ProviderRetryConfig(max_retries=3, base_delay_seconds=0.5),
+        )
+
+        t0 = time.monotonic()
+        result = await resilient.chat(messages=[], model="m")
+        elapsed = time.monotonic() - t0
+
+        assert result == "fallback_response"
+        assert calls["n"] == 1, "open circuit must not be retried"
+        assert elapsed < 1.0, "fail-over to fallback must be immediate"
+
+    @pytest.mark.asyncio
+    async def test_fallback_shares_the_logical_call_id(self, mock_fallback):
+        """A fallback is still the SAME logical call — the user asked once — so it
+        re-enters under the primary's call_id, not a fresh one."""
+        from victor.core.context import get_call_id
+
+        primary_seen: list = []
+        fallback_seen: list = []
+
+        async def failing_chat(messages, *, model, **kwargs):
+            primary_seen.append(get_call_id())
+            raise ConnectionError("primary down")
+
+        async def fallback_chat(messages, *, model, **kwargs):
+            fallback_seen.append(get_call_id())
+            return "fallback_response"
+
+        mock_fallback.chat = fallback_chat
+        primary = MagicMock()
+        primary.name = "primary"
+        primary.chat = failing_chat
+
+        resilient = ResilientProvider(
+            primary,
+            fallback_providers=[mock_fallback],
+            circuit_config=CircuitBreakerConfig(failure_threshold=1),
+            retry_config=ProviderRetryConfig(max_retries=0),
+        )
+
+        result = await resilient.chat(messages=[], model="m")
+
+        assert result == "fallback_response"
+        assert primary_seen[0] == fallback_seen[0], "fallback is the same logical call"
+
+    @pytest.mark.asyncio
+    async def test_call_id_is_fresh_per_logical_call(self):
+        """Two logical calls (two chat invocations) bind two distinct ids — a shared
+        id would wrongly dedup two genuinely separate metered calls."""
+        from victor.core.context import get_call_id
+
+        seen: list = []
+
+        async def recording_chat(messages, *, model, **kwargs):
+            seen.append(get_call_id())
+            return "ok"
+
+        inner = MagicMock()
+        inner.name = "recorder"
+        inner.chat = recording_chat
+        resilient = ResilientProvider(inner)
+
+        await resilient.chat(messages=[], model="m")
+        await resilient.chat(messages=[], model="m")
+
+        assert len(seen) == 2
+        assert seen[0] and seen[0] != seen[1]
+
+    @pytest.mark.asyncio
+    async def test_outermost_call_id_binding_wins(self):
+        """A caller that already bound a call id (a stacked resilience layer) keeps
+        the OUTER logical-call identity; the inner binding is a no-op and resets
+        nothing."""
+        import victor.core.context as ctx
+
+        seen: list = []
+
+        async def recording_chat(messages, *, model, **kwargs):
+            seen.append(ctx.get_call_id())
+            return "ok"
+
+        inner = MagicMock()
+        inner.name = "recorder"
+        inner.chat = recording_chat
+        resilient = ResilientProvider(inner)
+
+        token = ctx.set_call_id("outer-logical-call")
+        try:
+            await resilient.chat(messages=[], model="m")
+        finally:
+            ctx.call_id.reset(token)
+
+        assert seen == ["outer-logical-call"]
+        assert ctx.get_call_id() == "", "inner layer must not reset the outer binding"
+
+    @pytest.mark.asyncio
+    async def test_stream_never_binds_the_logical_call_id(self):
+        """The stream path deliberately binds NOTHING (adversarial-review HIGH/MED):
+        a ContextVar.set in an async-generator frame lands in the resumer's
+        context, so an early consumer break without aclosing would leak the
+        binding — every later logical call in the task reusing a stale
+        Idempotency-Key and being dropped by the gateway's dedup (silent
+        under-metering) — and the asyncgen finalizer would reset the token from
+        a different context (ValueError). Pin the safe behavior: even an
+        UNDISCIPLINED early break leaves the caller's context clean."""
+        import victor.core.context as ctx
+
+        def plain_stream(messages, *, model, **kwargs):
+            async def _chunks():
+                yield "chunk1"
+                yield "chunk2"
+
+            return _chunks()
+
+        inner = MagicMock()
+        inner.name = "streamer"
+        inner.stream = plain_stream
+        resilient = ResilientProvider(inner)
+
+        # Early break WITHOUT aclosing — the exact footgun scenario.
+        async for _chunk in resilient.stream(messages=[], model="m"):
+            break
+
+        assert ctx.get_call_id() == "", "stream must not leak a call-id binding"
+
+        # And the next chat still binds fresh (no stale key reuse).
+        seen: list = []
+
+        async def recording_chat(messages, *, model, **kwargs):
+            seen.append(ctx.get_call_id())
+            return "ok"
+
+        inner2 = MagicMock()
+        inner2.name = "recorder"
+        inner2.chat = recording_chat
+        resilient2 = ResilientProvider(inner2)
+        await resilient2.chat(messages=[], model="m")
+        assert seen and seen[0] and ctx.get_call_id() == ""
 
     @pytest.mark.asyncio
     async def test_fallback_on_failure(self, mock_provider, mock_fallback):
@@ -1303,3 +1500,35 @@ class TestSharedInfrastructureIntegration:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+class TestCircuitOpenNeverRetryable:
+    """Adversarial-review negatives: circuit errors must be non-retryable
+    regardless of what the fuzzy classifiers would score."""
+
+    def test_breaker_message_with_url_status_substring_not_retryable(self):
+        """The breaker NAME embeds base_url — a URL containing 5000 (or a
+        retry_after of 503.0s) must not make the error retryable via the
+        message/status-code substring checks."""
+        strategy = ProviderRetryStrategy(ProviderRetryConfig())
+        error = CircuitOpenError(
+            "Circuit breaker 'provider_X_http://localhost:5000' is open. " "Retry after 503.0s"
+        )
+        assert strategy._is_retryable(error) is False
+
+    def test_breaker_error_with_retryable_cause_not_retryable(self):
+        """A circuit error raised from a retryable transport error must not
+        become retryable through the cause-chain walk."""
+        cause = ConnectionError("connection reset")
+        error = CircuitOpenError("circuit open")
+        error.__cause__ = cause
+        assert ProviderRetryStrategy(ProviderRetryConfig())._is_retryable(error) is False
+
+    def test_retryable_transport_error_still_retryable(self):
+        """Positive control: the short-circuit must not over-reach."""
+        assert (
+            ProviderRetryStrategy(ProviderRetryConfig())._is_retryable(
+                ConnectionError("plain transport failure")
+            )
+            is True
+        )

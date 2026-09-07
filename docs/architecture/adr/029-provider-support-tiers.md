@@ -17,7 +17,7 @@
 
 ## Context
 
-Victor ships 24 provider adapters (`victor/providers/*_provider.py`, derived
+Victor ships 25 provider adapters (`victor/providers/*_provider.py`, derived
 automatically by `scripts/ci/check_docs_drift.py`). All of them are unit-tested, but
 the implied support promise has been uniform and therefore dishonest: a single
 maintainer cannot give every adapter the same depth of integration testing, issue

@@ -46,10 +46,6 @@ from typing import Any, Callable, Dict, List, Mapping, Optional, Set, TYPE_CHECK
 
 from victor.agent.argument_normalizer import ArgumentNormalizer, NormalizationStrategy
 from victor.agent.tool_executor import ToolExecutor, ToolExecutionResult
-from victor.agent.parallel_executor import (
-    ParallelToolExecutor,
-    ParallelExecutionConfig,
-)
 from victor.agent.parameter_enforcer import (
     get_enforcer_for_tool,
     ParameterInferenceError,
@@ -73,6 +69,7 @@ from victor.tools.core_tool_aliases import (
     canonicalize_core_tool_name,
     normalize_model_tool_name,
 )
+from victor.agent.safety import get_write_tool_names
 
 # Import native compute_signature for 10-20x faster signature generation
 try:
@@ -112,11 +109,12 @@ class ToolPipelineConfig:
     # Increased from 30 to 60 seconds for semantic search (code_search, etc.)
     per_tool_timeout_seconds: float = 60.0
 
-    # Parallel execution settings
-    enable_parallel_execution: bool = True
+    # Parallel execution settings (co-design review item 16).
+    # Default OFF: the read-only allowlist gate (see _is_parallel_eligible)
+    # makes this sound to enable, but it still changes execution
+    # ordering/timing for a broad swath of tool calls, so it ships opt-in.
+    parallel_tool_execution: bool = False
     max_concurrent_tools: int = ToolPipelineDefaults.MAX_CONCURRENT_TOOLS
-    parallel_batch_size: int = ToolPipelineDefaults.PARALLEL_BATCH_SIZE
-    parallel_timeout_per_tool: float = ToolPipelineDefaults.PARALLEL_TIMEOUT_PER_TOOL
 
     # Session-level result caching for idempotent tools
     # This prevents re-reading same files during a session (helps DeepSeek, Ollama)
@@ -179,6 +177,57 @@ CROSS_TURN_DEDUP_TOOLS = frozenset(
         "git",  # git status/log/diff are read-only
     }
 )
+
+# Candidate names for parallel-eligible dispatch (co-design review item 16):
+# the filesystem-read/search/grep/ls/web-search class. This is a CANDIDATE
+# set only — _compute_parallel_eligible_tools() below intersects it against
+# the write-tools complement before it becomes the actual allowlist, so a
+# name here that's also independently classified as a write tool (e.g.
+# "git", present in both this set's spirit and _STATIC_WRITE_TOOL_NAMES) is
+# still excluded.
+#
+# Eligibility is checked against the LOWERCASE-normalized name (see
+# _is_parallel_eligible / _normalize_valid_tool_name), so a capitalized-only
+# entry can never match — "graph" (lowercase) is added explicitly here
+# rather than relying on IDEMPOTENT_TOOLS's "Graph" alias, which is
+# normalized away before the lookup and would otherwise silently make the
+# graph code-query tool never parallel-eligible.
+_PARALLEL_CANDIDATE_TOOLS = IDEMPOTENT_TOOLS | frozenset({"web_search", "web_fetch", "graph"})
+
+# Tool names NEVER eligible for parallel dispatch regardless of classification.
+# Matches action_authorizer.SHELL_TOOL_ALIASES: an arbitrary shell command's
+# side effects can't be statically verified, so no read-only classification
+# (including should_allow_shell_for_read_only_intent's message-based one) is
+# trusted here.
+_PARALLEL_INELIGIBLE_TOOLS = frozenset({"shell", "execute_bash", "bash"})
+
+
+def _compute_parallel_eligible_tools() -> frozenset:
+    """Read-only allowlist for parallel tool dispatch.
+
+    Deliberately the INVERSE of the authorizer's blocked-set check (unsound
+    for this purpose: unknown tools there classify READ_ONLY, which is fine
+    for a permission gate but wrong for a parallelism gate). Built as an
+    INTERSECTION of two independently-maintained sources so an unknown or
+    ambiguously-classified tool defaults to sequential, safer execution:
+      - _PARALLEL_CANDIDATE_TOOLS: the existing read-only/deterministic
+        classification already used for idempotent-result caching, plus
+        the web-search class (network reads, safe to run concurrently but
+        not idempotent-cacheable across turns the same way).
+      - The complement of get_write_tool_names() (registry-driven + static
+        fallback), recomputed on every call rather than cached at module
+        import time since the registry can still be growing as verticals
+        finish loading.
+    Computed fresh (not memoized) for the same reason — correctness over a
+    cheap set-membership call's negligible cost.
+    """
+    write_tools = get_write_tool_names()
+    return frozenset(
+        name
+        for name in _PARALLEL_CANDIDATE_TOOLS
+        if name not in write_tools and name.lower() not in _PARALLEL_INELIGIBLE_TOOLS
+    )
+
 
 GRAPH_TOOL_ARGUMENTS = frozenset(
     {
@@ -336,6 +385,29 @@ class LRUToolCache:
         self._timestamps: Dict[str, float] = {}
         self._max_size = max_size
         self._ttl_seconds = ttl_seconds
+        # Co-design review item 16: concurrent tool dispatch means multiple
+        # coroutines can now call get()/set() around the SAME cache instance
+        # without an intervening await inside either method, so CPython's
+        # GIL already makes each individual call atomic — no torn
+        # OrderedDict state is possible. This lock exists for a caller that
+        # needs an atomic read-check-then-write span ACROSS an await
+        # boundary (e.g. "miss the cache, run the tool, then populate it"
+        # without a duplicate concurrent run for the same key).
+        #
+        # NOTE this is NOT guaranteed today by upstream batch deduplication:
+        # deduplicate_tool_calls() signatures raw, pre-normalization
+        # arguments, while get_cached_result()/cache_result() signature
+        # fully-normalized arguments (post parameter-enforcement defaults,
+        # post search-routing rewrite) — two calls with different raw args
+        # can still converge on the same cache signature after
+        # normalization and land in the same parallel gather batch. Without
+        # this lock actually being used by those two methods, that race is
+        # merely wasteful (both miss, both execute the same idempotent
+        # operation, one cache write clobbers the other) rather than
+        # corrupting, because both sides of the race represent the exact
+        # same operation by construction — but it is a real race, not one
+        # dedup rules out.
+        self.lock = asyncio.Lock()
 
     def _is_expired(self, key: str) -> bool:
         """Check if a cache entry has expired.
@@ -827,8 +899,10 @@ class ToolPipeline:
         # Analytics
         self._tool_stats: Dict[str, Dict[str, Any]] = {}
 
-        # Parallel executor (lazy initialized)
-        self._parallel_executor: Optional[ParallelToolExecutor] = None
+        # Parallel-dispatch observability (co-design review item 16),
+        # refreshed by every _dispatch_unique_calls() call.
+        self._last_dispatch_used_parallelism: bool = False
+        self._last_dispatch_speedup: float = 1.0
 
         # Session-level idempotent tool result cache with LRU eviction (Workstream E fix)
         # Prevents DeepSeek/Ollama from re-reading same files multiple times
@@ -918,30 +992,6 @@ class ToolPipeline:
         if amount < 0:
             raise ValueError(f"Cannot consume negative tool budget: {amount}")
         self._calls_used += amount
-
-    @property
-    def parallel_executor(self) -> ParallelToolExecutor:
-        """Get or create the parallel executor (lazy initialization)."""
-        if self._parallel_executor is None:
-            parallel_config = ParallelExecutionConfig(
-                max_concurrent=self.config.max_concurrent_tools,
-                enable_parallel=self.config.enable_parallel_execution,
-                timeout_per_tool=self.config.parallel_timeout_per_tool,
-            )
-            self._parallel_executor = ParallelToolExecutor(
-                tool_executor=self.executor,
-                config=parallel_config,
-                progress_callback=self._parallel_progress_callback,
-            )
-        return self._parallel_executor
-
-    def _parallel_progress_callback(self, tool_name: str, status: str, success: bool) -> None:
-        """Progress callback for parallel execution."""
-        if status == "started" and self.on_tool_start:
-            try:
-                self.on_tool_start(tool_name, {})
-            except Exception as e:
-                logger.warning(f"on_tool_start callback failed: {e}")
 
     def reset(self) -> None:
         """Reset pipeline state for new conversation."""
@@ -2205,6 +2255,213 @@ class ToolPipeline:
 
         return unique_calls, duplicate_indices
 
+    async def _compute_one_call_result(
+        self, tool_call: Any, context: Dict[str, Any]
+    ) -> ToolCallResult:
+        """Compute the ToolCallResult for one already-deduplicated call.
+
+        Matches the pre-parallel-dispatch inline logic exactly: a
+        coordinator-marked ``_invalid`` (hallucinated name) call short-
+        circuits to a skip result without reaching ``_execute_single_call``,
+        with a tool_call_id generated up front when the provider gave none
+        — unlike other skip paths, this one always gets an id even though
+        it's marked skipped, so response-coverage matching still finds it.
+        """
+        if isinstance(tool_call, dict) and tool_call.get("_invalid"):
+            tool_name = tool_call.get("name", "unknown")
+            tc_id = tool_call.get("id")
+            if tc_id is None:
+                tc_id = self._generate_tool_call_id(tool_name)
+            return _build_skip_result(
+                tool_name=tool_name,
+                arguments={},
+                success=False,
+                error=tool_call.get("_error", "Unknown tool"),
+                skip_reason=tool_call.get("_error"),
+                outcome_kind="invalid_tool_name",
+                block_source="tool_validation",
+                retryable=False,
+                tool_call_id=tc_id,
+            )
+        return await self._execute_single_call(tool_call, context)
+
+    def _is_parallel_eligible(self, tool_call: Any, eligible_tools: frozenset) -> bool:
+        """True iff ``tool_call`` may run concurrently with other eligible
+        calls in the same batch (co-design review item 16)."""
+        if not isinstance(tool_call, dict) or tool_call.get("_invalid"):
+            return False
+        name = self._normalize_valid_tool_name(tool_call.get("name", ""))
+        return bool(name) and name in eligible_tools
+
+    def _budget_exhausted_skip(self, tool_call: Any) -> ToolCallResult:
+        """Build the tail-skip result for a call never dispatched because
+        the batch's admitted-call count already met the remaining budget.
+
+        Matches the pre-parallelism inline tail-skip exactly (retryable,
+        with an explicit user-facing message) rather than the internal
+        check inside ``_execute_single_call`` (used only when a call is
+        actually dispatched and discovers budget was exhausted by a
+        same-batch predecessor it couldn't have known about in advance —
+        see the docstring on ``_dispatch_unique_calls``).
+        """
+        tool_name = (
+            self._normalize_valid_tool_name(tool_call.get("name", ""))
+            if isinstance(tool_call, dict)
+            else ""
+        ) or "unknown"
+        return _build_skip_result(
+            tool_name=tool_name,
+            arguments={},
+            success=False,
+            skip_reason="Tool budget exhausted — call not executed",
+            outcome_kind="budget_exhausted",
+            block_source="tool_budget",
+            retryable=True,
+            user_message="The tool budget was exhausted before this call could be executed.",
+        )
+
+    async def _dispatch_unique_calls(
+        self, unique_calls_iter: List[Any], context: Dict[str, Any]
+    ) -> List[ToolCallResult]:
+        """Compute call results for every entry in ``unique_calls_iter``, in
+        order (co-design review item 16).
+
+        Both the sequential (default) and parallel paths compute the
+        budget-skip decision BEFORE dispatching a call, via the same
+        ``admitted`` vs. ``remaining_budget`` check, rather than relying on
+        ``_execute_single_call``'s own internal check-and-skip — so a call
+        that will certainly be skipped never pays for normalization,
+        path-redirect, or permission-policy work, and always gets the
+        explicit, retryable tail-skip result
+        (``_budget_exhausted_skip``) instead of whatever
+        ``_execute_single_call`` happens to produce internally. This keeps
+        the sequential default path byte-identical to the pre-parallelism
+        behavior (the old inline loop's tail-skip-and-break), which relying
+        on ``_execute_single_call``'s internal check alone would not: that
+        internal check exists as a defensive fallback for budget already
+        exhausted by a PRIOR turn, not as the primary decision point within
+        a batch.
+
+        When ``config.parallel_tool_execution`` is on, contiguous runs of
+        parallel-eligible calls (read-only allowlist; shell, write tools,
+        and unknown/unclassified tools always excluded — see
+        ``_compute_parallel_eligible_tools``) dispatch concurrently under a
+        ``max_concurrent_tools`` semaphore, reassembled back into original
+        call order. Computing the budget-skip decision before dispatch
+        matters most here: several concurrent calls could otherwise all
+        pass a stale "budget not yet exhausted" check before any of them
+        increments the shared counter, overshooting the budget by up to
+        ``max_concurrent_tools - 1``.
+
+        The ``admitted`` count treats every dispatched call as consuming one
+        budget unit even though a handful of edge cases (a cache hit, a
+        call skipped for an unrelated reason after admission) don't
+        actually increment ``self._calls_used`` — an intentionally
+        conservative approximation: it can only under-admit relative to the
+        true remaining budget, never overshoot it.
+        """
+        n = len(unique_calls_iter)
+        results: List[Optional[ToolCallResult]] = [None] * n
+        self._last_dispatch_used_parallelism = False
+        self._last_dispatch_speedup = 1.0
+
+        remaining_budget = max(0, self.config.tool_budget - self._calls_used)
+
+        def _may_dispatch(admitted_count: int) -> bool:
+            # The very first call this dispatch attempts ALWAYS gets to
+            # actually run, even if remaining_budget is already 0 — matching
+            # the pre-parallelism behavior, where the outer bookkeeping loop
+            # only ever tail-skipped calls AFTER at least one call had
+            # already gone through _execute_single_call and its own
+            # internal budget check (which fires immediately, before any
+            # real tool invocation, when budget was already exhausted by a
+            # PRIOR turn). Skipping the first call here too — without ever
+            # giving _execute_single_call a chance to run — would silently
+            # change its result from a defensive-fallback skip
+            # (retryable=False) to this method's tail-skip (retryable=True),
+            # which is read by callers deciding whether to retry.
+            return admitted_count == 0 or admitted_count < remaining_budget
+
+        if not self.config.parallel_tool_execution:
+            admitted = 0
+            for idx, tool_call in enumerate(unique_calls_iter):
+                if not _may_dispatch(admitted):
+                    results[idx] = self._budget_exhausted_skip(tool_call)
+                    continue
+                results[idx] = await self._compute_one_call_result(tool_call, context)
+                admitted += 1
+            return results  # type: ignore[return-value]
+
+        eligible_tools = _compute_parallel_eligible_tools()
+        semaphore = asyncio.Semaphore(max(1, self.config.max_concurrent_tools))
+        admitted = 0
+
+        async def _run(idx: int, tool_call: Any) -> None:
+            async with semaphore:
+                results[idx] = await self._compute_one_call_result(tool_call, context)
+
+        i = 0
+        parallel_calls_run = 0
+        parallel_rounds = 0
+        while i < n:
+            if not _may_dispatch(admitted):
+                results[i] = self._budget_exhausted_skip(unique_calls_iter[i])
+                i += 1
+                continue
+
+            if self._is_parallel_eligible(unique_calls_iter[i], eligible_tools):
+                batch_indices = []
+                while (
+                    i < n
+                    and _may_dispatch(admitted)
+                    and self._is_parallel_eligible(unique_calls_iter[i], eligible_tools)
+                ):
+                    batch_indices.append(i)
+                    admitted += 1
+                    i += 1
+                # return_exceptions=True: a raise from one gathered call (e.g.
+                # an unguarded ParameterInferenceError from the enforcer, or a
+                # permission-policy failure — _execute_single_call's own
+                # try/except only wraps the actual tool invocation) must not
+                # propagate and orphan its still-running siblings in this
+                # same gather group as abandoned, unawaited background tasks.
+                gather_outcomes = await asyncio.gather(
+                    *(_run(idx, unique_calls_iter[idx]) for idx in batch_indices),
+                    return_exceptions=True,
+                )
+                for idx, outcome in zip(batch_indices, gather_outcomes):
+                    if isinstance(outcome, BaseException):
+                        tool_call = unique_calls_iter[idx]
+                        tool_name = (
+                            self._normalize_valid_tool_name(tool_call.get("name", ""))
+                            if isinstance(tool_call, dict)
+                            else ""
+                        ) or "unknown"
+                        logger.error(
+                            "[pipeline] Parallel dispatch of %s raised unexpectedly: %s",
+                            tool_name,
+                            outcome,
+                        )
+                        results[idx] = ToolCallResult(
+                            tool_name=tool_name,
+                            arguments={},
+                            success=False,
+                            error=str(outcome),
+                        )
+                if len(batch_indices) > 1:
+                    parallel_calls_run += len(batch_indices)
+                    parallel_rounds += 1
+            else:
+                results[i] = await self._compute_one_call_result(unique_calls_iter[i], context)
+                admitted += 1
+                i += 1
+
+        if parallel_rounds > 0:
+            self._last_dispatch_used_parallelism = True
+            self._last_dispatch_speedup = parallel_calls_run / parallel_rounds
+
+        return results  # type: ignore[return-value]
+
     async def execute_tool_calls(
         self,
         tool_calls: List[Dict[str, Any]],
@@ -2233,29 +2490,21 @@ class ToolPipeline:
         tool_history: List[Dict[str, Any]] = []
 
         unique_calls_iter = list(unique_calls)
+
+        # Compute every call's result up front (co-design review item 16):
+        # sequential and byte-identical to the prior inline per-iteration
+        # logic when parallel_tool_execution is off (the default); when on,
+        # contiguous runs of read-only-allowlisted calls dispatch
+        # concurrently. See _dispatch_unique_calls for the full contract.
+        call_results = await self._dispatch_unique_calls(unique_calls_iter, context)
+        result.parallel_execution_used = self._last_dispatch_used_parallelism
+        result.parallel_speedup = self._last_dispatch_speedup
+
         for unique_call_idx, tool_call in enumerate(unique_calls_iter):
             # Capture tool_call_id BEFORE execution so it's set even if the call fails
             tc_id = tool_call.get("id") if isinstance(tool_call, dict) else None
 
-            # Handle pre-invalidated tool calls (hallucinated names marked by coordinator)
-            if isinstance(tool_call, dict) and tool_call.get("_invalid"):
-                tool_name = tool_call.get("name", "unknown")
-                # Generate tool_call_id if not provided
-                if tc_id is None:
-                    tc_id = self._generate_tool_call_id(tool_name)
-                call_result = _build_skip_result(
-                    tool_name=tool_name,
-                    arguments={},
-                    success=False,
-                    error=tool_call.get("_error", "Unknown tool"),
-                    skip_reason=tool_call.get("_error"),
-                    outcome_kind="invalid_tool_name",
-                    block_source="tool_validation",
-                    retryable=False,
-                    tool_call_id=tc_id,
-                )
-            else:
-                call_result = await self._execute_single_call(tool_call, context)
+            call_result = call_results[unique_call_idx]
             # Propagate tool_call_id from provider's tool_calls[].id per OpenAI spec.
             # Only auto-generate an ID for executed calls — internally-skipped calls
             # without a provider ID have no corresponding tool_call entry, so they
@@ -2311,35 +2560,24 @@ class ToolPipeline:
             else:
                 result.failed_calls += 1
 
-            # Check if budget exhausted
-            if self._calls_used >= self.config.tool_budget:
-                result.budget_exhausted = True
-                # Emit skip results for remaining unprocessed calls so that
-                # _ensure_tool_response_coverage can match every provider-assigned
-                # tool_call_id and doesn't log a spurious coverage-gap ERROR.
-                for remaining_call in unique_calls_iter[unique_call_idx + 1 :]:
-                    rem_tc_id = (
-                        remaining_call.get("id") if isinstance(remaining_call, dict) else None
-                    )
-                    rem_name = (
-                        remaining_call.get("name", "unknown")
-                        if isinstance(remaining_call, dict)
-                        else "unknown"
-                    )
-                    skip = _build_skip_result(
-                        tool_name=rem_name,
-                        arguments={},
-                        success=False,
-                        skip_reason="Tool budget exhausted — call not executed",
-                        outcome_kind="budget_exhausted",
-                        block_source="tool_budget",
-                        retryable=True,
-                        user_message="The tool budget was exhausted before this call could be executed.",
-                        tool_call_id=rem_tc_id,
-                    )
-                    result.results.append(skip)
-                    result.skipped_calls += 1
-                break
+        # Budget exhaustion is now determined by _dispatch_unique_calls having
+        # already produced a "budget exhausted" skip result (co-design review
+        # item 16) for every call from the exhaustion point onward — computed
+        # BEFORE dispatch in both the sequential and parallel paths (see
+        # _dispatch_unique_calls's docstring). A separate post-hoc tail-skip
+        # pass here would be not just redundant but WRONG: since the whole
+        # batch is now dispatched before this bookkeeping loop runs at all,
+        # self._calls_used already reflects its final, post-batch value from
+        # the very first iteration — checking it per-iteration would
+        # spuriously flag budget exhaustion starting at index 0 and overwrite
+        # already-successful results with duplicate skips.
+        #
+        # Only set the flag when this batch actually had calls to run: an
+        # empty (or fully pre-deduplicated-away) batch on an
+        # already-exhausted session budget didn't itself exhaust anything,
+        # so it must not report budget_exhausted=True.
+        if unique_calls_iter and self._calls_used >= self.config.tool_budget:
+            result.budget_exhausted = True
 
         # Add skipped results for duplicates (reuse first occurrence's result)
         for original_idx, signature in duplicate_info:
@@ -2443,157 +2681,6 @@ class ToolPipeline:
                     result.synthesis_prompt = self._output_aggregator.get_synthesis_prompt()
 
         result.total_time_ms = (time.monotonic() - start_time) * 1000
-        return result
-
-    async def execute_tool_calls_parallel(
-        self,
-        tool_calls: List[Dict[str, Any]],
-        context: Optional[Dict[str, Any]] = None,
-        force_parallel: bool = False,
-    ) -> PipelineExecutionResult:
-        """[POTENTIALLY OBSOLETE] Execute tool calls with parallelization.
-
-        Note: The main execute_tool_calls() method now handles internal
-        parallelization via AsyncToolExecutor. This method may be removed.
-
-        Args:
-            tool_calls: List of tool call requests
-            context: Execution context passed to tools
-            force_parallel: Override automatic decision (for testing)
-
-        Returns:
-            PipelineExecutionResult with parallel metrics
-        """
-        context = context or {}
-        start_time = time.monotonic()
-
-        # Check if parallelization is worthwhile
-        should_parallelize = self.config.enable_parallel_execution and (
-            force_parallel or len(tool_calls) > 1
-        )
-
-        if not should_parallelize:
-            # Fall back to sequential execution
-            return await self.execute_tool_calls(tool_calls, context)
-
-        # Pre-validate and normalize tool calls
-        validated_calls = []
-        skipped_results = []
-
-        for tc in tool_calls:
-            raw_tool_name = tc.get("name", "")
-            tool_name = self._normalize_valid_tool_name(raw_tool_name)
-
-            # Quick validation checks
-            if not tool_name:
-                skipped_results.append(
-                    _build_skip_result(
-                        tool_name=str(raw_tool_name or "unknown"),
-                        arguments={},
-                        success=False,
-                        skip_reason=f"Invalid tool name: {raw_tool_name}",
-                        outcome_kind="invalid_tool_name",
-                        block_source="validation",
-                        retryable=False,
-                    )
-                )
-                continue
-
-            raw_args = tc.get("arguments", {})
-            tool_name, normalized_args, _ = self._normalize_tool_call(
-                tool_name, raw_args, context=context
-            )
-
-            if not self.tools.is_tool_enabled(tool_name):
-                skipped_results.append(
-                    _build_skip_result(
-                        tool_name=tool_name,
-                        arguments=normalized_args,
-                        success=False,
-                        skip_reason=f"Unknown or disabled tool: {tool_name}",
-                        outcome_kind="tool_unavailable",
-                        block_source="tool_registry",
-                        retryable=False,
-                    )
-                )
-                continue
-
-            # Check for repeated failures
-            if self.config.enable_failed_signature_tracking:
-                signature = self._get_call_signature(tool_name, normalized_args)
-                if signature in self._failed_signatures:
-                    skipped_results.append(
-                        _build_skip_result(
-                            tool_name=tool_name,
-                            arguments=normalized_args,
-                            success=False,
-                            skip_reason="Repeated failing call with same arguments",
-                            outcome_kind="repeated_failure",
-                            block_source="failed_signature_tracker",
-                            retryable=True,
-                            user_message=(
-                                "This exact tool call already failed recently. Change the "
-                                "arguments or choose a different tool."
-                            ),
-                        )
-                    )
-                    continue
-
-            validated_calls.append({"name": tool_name, "arguments": normalized_args})
-
-        # Execute validated calls in parallel
-        parallel_result = await self.parallel_executor.execute_parallel(validated_calls, context)
-
-        # Build pipeline result
-        result = PipelineExecutionResult(
-            total_calls=len(tool_calls),
-            parallel_execution_used=True,
-            parallel_speedup=parallel_result.parallel_speedup,
-        )
-
-        # Add skipped results first
-        for skipped in skipped_results:
-            result.results.append(skipped)
-            result.skipped_calls += 1
-
-        # Convert parallel results to pipeline results
-        for exec_result in parallel_result.results:
-            call_result = ToolCallResult(
-                tool_name=exec_result.tool_name,
-                arguments={},  # Arguments already logged
-                success=exec_result.success,
-                result=exec_result.result,
-                error=exec_result.error,
-                execution_time_ms=exec_result.execution_time * 1000,
-            )
-            result.results.append(call_result)
-
-            if exec_result.success:
-                result.successful_calls += 1
-                self._executed_tools.append(exec_result.tool_name)
-            else:
-                result.failed_calls += 1
-                # Track failed signature
-                if self.config.enable_failed_signature_tracking:
-                    # We need to get arguments back - use tool name + error as key
-                    self._failed_signatures.add((exec_result.tool_name, exec_result.error or ""))
-
-            # Update call count
-            self._calls_used += 1
-
-            # Check budget
-            if self._calls_used >= self.config.tool_budget:
-                result.budget_exhausted = True
-                break
-
-        result.total_time_ms = (time.monotonic() - start_time) * 1000
-
-        logger.info(
-            f"Parallel pipeline: {len(validated_calls)} tools, "
-            f"speedup={parallel_result.parallel_speedup:.2f}x, "
-            f"time={result.total_time_ms:.1f}ms"
-        )
-
         return result
 
     def _emit_tool_intent(self, tool_name: str, arguments: Dict[str, Any]) -> None:

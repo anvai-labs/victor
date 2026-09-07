@@ -622,9 +622,12 @@ class TestCompilationWithCaching:
         _ = compiler.compile_yaml(yaml_workflow_file, workflow_name="test_workflow")
         _ = compiler.compile_yaml(yaml_workflow_file, workflow_name="test_workflow")
 
-        # Verify cache hits
+        # Verify cache hits. The compiled-graph cache (co-design review item
+        # 13) now short-circuits repeat compiles before the definition cache
+        # is even consulted — it's the definition cache's former "hit" that
+        # moved here, not a loss of caching.
         stats = compiler.get_cache_stats()
-        assert stats.get("definition_cache", {}).get("hits", 0) >= 2
+        assert stats.get("compilation", {}).get("graph_cache_hits", 0) >= 2
 
     @pytest.mark.asyncio
     async def test_compile_cache_invalidation_on_file_change(
@@ -670,6 +673,283 @@ workflows:
         # Both should work
         assert compiled1.compiled_graph is not None
         assert compiled2.compiled_graph is not None
+
+    @pytest.mark.asyncio
+    async def test_repeated_compile_validates_once(
+        self, yaml_workflow_file: Path, reset_workflow_caches
+    ):
+        """Co-design review item 13: a compiled-graph cache hit must skip
+        both parsing and the validate/compile step, not just parsing."""
+        from victor.workflows.unified_compiler import UnifiedWorkflowCompiler
+
+        compiler = UnifiedWorkflowCompiler(enable_caching=True)
+
+        with patch.object(
+            compiler, "_compile_definition_graph", wraps=compiler._compile_definition_graph
+        ) as spy:
+            compiler.compile_yaml(yaml_workflow_file, workflow_name="test_workflow")
+            compiler.compile_yaml(yaml_workflow_file, workflow_name="test_workflow")
+            compiler.compile_yaml(yaml_workflow_file, workflow_name="test_workflow")
+
+        assert spy.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_definition_cache_hit_path_also_caches_graph(
+        self, yaml_workflow_file: Path, reset_workflow_caches
+    ):
+        """A definition-cache hit (parse skipped, graph not yet cached) must
+        itself populate the graph cache so the THIRD compile skips compile
+        too, not just the second."""
+        from victor.workflows.unified_compiler import UnifiedWorkflowCompiler
+        from victor.workflows.cache import get_workflow_definition_cache
+
+        compiler = UnifiedWorkflowCompiler(enable_caching=True)
+
+        # First compile: full parse + compile, populates both caches.
+        compiler.compile_yaml(yaml_workflow_file, workflow_name="test_workflow")
+
+        # Force a definition-cache-only hit by evicting just the graph cache,
+        # simulating "definition cached, graph cache cold" (e.g. after
+        # clear_cache() cleared graphs but a longer-TTL definition survived).
+        compiler._graph_cache.clear()
+        assert get_workflow_definition_cache().get_stats()["size"] >= 1
+
+        with patch.object(
+            compiler, "_compile_definition_graph", wraps=compiler._compile_definition_graph
+        ) as spy:
+            compiler.compile_yaml(yaml_workflow_file, workflow_name="test_workflow")
+            assert spy.call_count == 1  # definition-cache-hit path recompiles once
+
+            # Graph cache should now be populated from that recompile.
+            compiler.compile_yaml(yaml_workflow_file, workflow_name="test_workflow")
+            assert spy.call_count == 1  # third compile hits the graph cache
+
+    @pytest.mark.asyncio
+    async def test_ref_file_edit_invalidates_graph_cache(
+        self, tmp_path: Path, reset_workflow_caches
+    ):
+        """A $ref-expanded file's content change must invalidate the
+        compiled-graph cache even though the referencing file itself and its
+        mtime are unchanged (the review's mtime-lies-across-checkouts gap;
+        the yaml cache key alone never covers referenced files)."""
+        from victor.workflows.unified_compiler import UnifiedWorkflowCompiler
+
+        ref_file = tmp_path / "shared_node.yaml"
+        ref_file.write_text("""
+nodes:
+  - id: shared
+    type: transform
+    transform: "result = 'v1'"
+    next: []
+""")
+        main_file = tmp_path / "main.yaml"
+        main_file.write_text("""
+workflows:
+  test:
+    nodes:
+      - $ref: "./shared_node.yaml"
+""")
+
+        compiler = UnifiedWorkflowCompiler(enable_caching=True)
+        compiled1 = compiler.compile_yaml(main_file, workflow_name="test")
+        result1 = await compiled1.invoke({})
+        assert result1.state["result"] == "v1"
+
+        # Edit only the referenced file; main.yaml's own mtime is untouched.
+        ref_file.write_text("""
+nodes:
+  - id: shared
+    type: transform
+    transform: "result = 'v2'"
+    next: []
+""")
+
+        compiled2 = compiler.compile_yaml(main_file, workflow_name="test")
+        result2 = await compiled2.invoke({})
+        assert result2.state["result"] == "v2"
+
+    @pytest.mark.asyncio
+    async def test_ref_file_unchanged_still_hits_graph_cache(
+        self, tmp_path: Path, reset_workflow_caches
+    ):
+        """Referenced-file hashing must not defeat caching when nothing
+        changed — only an actual content edit should miss."""
+        from victor.workflows.unified_compiler import UnifiedWorkflowCompiler
+
+        ref_file = tmp_path / "shared_node.yaml"
+        ref_file.write_text("""
+nodes:
+  - id: shared
+    type: transform
+    transform: "result = 'v1'"
+    next: []
+""")
+        main_file = tmp_path / "main.yaml"
+        main_file.write_text("""
+workflows:
+  test:
+    nodes:
+      - $ref: "./shared_node.yaml"
+""")
+
+        compiler = UnifiedWorkflowCompiler(enable_caching=True)
+        with patch.object(
+            compiler, "_compile_definition_graph", wraps=compiler._compile_definition_graph
+        ) as spy:
+            compiler.compile_yaml(main_file, workflow_name="test")
+            compiler.compile_yaml(main_file, workflow_name="test")
+
+        assert spy.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_compile_definition_caches_repeat_compiles(self, reset_workflow_caches):
+        """compile_definition previously recompiled unconditionally on every
+        call (the review's stated gap) — a repeat call with an unchanged
+        definition must now skip validate/compile too."""
+        from victor.workflows.definition import TransformNode, WorkflowDefinition
+        from victor.workflows.unified_compiler import UnifiedWorkflowCompiler
+
+        definition = WorkflowDefinition(
+            name="repeat_def",
+            nodes={
+                "step1": TransformNode(
+                    id="step1",
+                    name="Step 1",
+                    transform=lambda ctx: {**ctx, "result": "ok"},
+                    next_nodes=[],
+                ),
+            },
+            start_node="step1",
+        )
+
+        compiler = UnifiedWorkflowCompiler(enable_caching=True)
+        with patch.object(
+            compiler, "_compile_definition_graph", wraps=compiler._compile_definition_graph
+        ) as spy:
+            compiler.compile_definition(definition)
+            compiler.compile_definition(definition)
+            compiler.compile_definition(definition)
+
+        assert spy.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_compile_definition_unserializable_node_degrades_gracefully(
+        self, reset_workflow_caches
+    ):
+        """A definition whose custom node subclass isn't fully to_dict()
+        compatible must still compile (skips the graph cache for that call
+        rather than crashing) — regression guard for the crash this
+        surfaced during development."""
+        from dataclasses import dataclass
+
+        from victor.workflows.definition import WorkflowDefinition, WorkflowNode
+        from victor.workflows.executors.registry import (
+            clear_registered_workflow_node_executors,
+            register_workflow_node_executor,
+        )
+        from victor.workflows.unified_compiler import UnifiedWorkflowCompiler
+
+        class CustomExecutor:
+            def __init__(self, context=None):
+                self.context = context
+
+            async def execute(self, node, state):
+                next_state = dict(state)
+                next_state["custom_output"] = node.id
+                return next_state
+
+        @dataclass
+        class CustomNode(WorkflowNode):
+            @property
+            def node_type(self) -> str:
+                return "custom_plugin_2"
+
+        workflow = WorkflowDefinition(
+            name="custom_workflow_2",
+            nodes={"custom": CustomNode(id="custom", name="Custom Node")},
+            start_node="custom",
+        )
+
+        try:
+            clear_registered_workflow_node_executors()
+            register_workflow_node_executor("custom_plugin_2", CustomExecutor)
+
+            compiler = UnifiedWorkflowCompiler(enable_caching=True)
+            compiled = compiler.compile_definition(workflow, cache_key="custom-workflow-2")
+            result = await compiled.invoke({})
+
+            assert result.success is True
+            assert result.state["custom_output"] == "custom"
+        finally:
+            clear_registered_workflow_node_executors()
+
+    @pytest.mark.asyncio
+    async def test_compile_definition_cache_distinguishes_node_callables(
+        self, reset_workflow_caches
+    ):
+        """Regression guard (adversarial review of item 13): two structurally
+        identical WorkflowDefinitions that differ ONLY in a node's transform
+        closure must not collide in the graph cache. WorkflowNode.to_dict()
+        never serializes callables, so the content hash alone can't tell
+        them apart — this pinned a real cross-request stale-result bug
+        found during review, confirmed absent on pre-fix code via a
+        throwaway repro (not committed)."""
+        from victor.workflows.definition import TransformNode, WorkflowDefinition
+        from victor.workflows.unified_compiler import UnifiedWorkflowCompiler
+
+        def make_definition(result_value: str) -> WorkflowDefinition:
+            return WorkflowDefinition(
+                name="fingerprint_test",
+                nodes={
+                    "step1": TransformNode(
+                        id="step1",
+                        name="S1",
+                        transform=lambda ctx, v=result_value: {**ctx, "result": v},
+                        next_nodes=[],
+                    ),
+                },
+                start_node="step1",
+            )
+
+        compiler = UnifiedWorkflowCompiler(enable_caching=True)
+
+        result1 = await compiler.compile_definition(make_definition("v1")).invoke({})
+        result2 = await compiler.compile_definition(make_definition("v2")).invoke({})
+
+        assert result1.state["result"] == "v1"
+        assert result2.state["result"] == "v2"
+
+    @pytest.mark.asyncio
+    async def test_compile_definition_graph_cache_expires_after_ttl(self, reset_workflow_caches):
+        """The graph cache shares cache_ttl with the definition cache, so a
+        redefined-under-the-same-name callable eventually self-heals instead
+        of staying wrong forever once warm."""
+        from victor.workflows.definition import TransformNode, WorkflowDefinition
+        from victor.workflows.unified_compiler import UnifiedWorkflowCompiler
+
+        definition = WorkflowDefinition(
+            name="ttl_test",
+            nodes={
+                "step1": TransformNode(
+                    id="step1",
+                    name="S1",
+                    transform=lambda ctx: {**ctx, "result": "v1"},
+                    next_nodes=[],
+                ),
+            },
+            start_node="step1",
+        )
+
+        compiler = UnifiedWorkflowCompiler(enable_caching=True, cache_ttl=0)
+        compiler.compile_definition(definition)
+
+        stats_before = compiler.get_cache_stats()["compilation"]["graph_cache_hits"]
+        compiler.compile_definition(definition)
+        stats_after = compiler.get_cache_stats()["compilation"]["graph_cache_hits"]
+
+        # ttl=0 means every entry is immediately expired, so the second call
+        # must miss (recompile) rather than register as a hit.
+        assert stats_after == stats_before
 
 
 # =============================================================================
@@ -1212,11 +1492,13 @@ class TestCachingIntegration:
         # Definition cache should be active
         assert stats.get("definition_cache", {}).get("enabled", False) is True
 
-        # Second compile should hit cache
+        # Second compile should hit cache. The compiled-graph cache (item 13)
+        # now absorbs repeat compiles before the definition cache lookup
+        # runs, so the hit shows up there instead of definition_cache.hits.
         compiled2 = compiler.compile_yaml(yaml_workflow_file, workflow_name="test_workflow")
 
         stats_after = compiler.get_cache_stats()
-        assert stats_after.get("definition_cache", {}).get("hits", 0) >= 1
+        assert stats_after.get("compilation", {}).get("graph_cache_hits", 0) >= 1
 
     @pytest.mark.asyncio
     async def test_execution_cache_integration(self, reset_workflow_caches):

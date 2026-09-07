@@ -96,7 +96,7 @@ class ConfigMigrator:
     OAUTH_PROVIDERS: Set[str] = {"openai", "qwen"}
 
     # Local providers (no API key)
-    LOCAL_PROVIDERS: Set[str] = {"ollama", "lmstudio", "vllm"}
+    LOCAL_PROVIDERS: Set[str] = {"ollama", "lmstudio", "vllm", "inferflux"}
 
     def __init__(
         self,

@@ -3,7 +3,7 @@
 **Version**: {{ victor_version }} | **Last Updated**: 2026-08 | **Status**: Canonical
 
 Victor is a contract-first, async-first agentic AI framework. It coordinates LLMs to reason, call
-tools, run DAG workflows, and orchestrate multi-agent teams across **24 LLM providers**, with
+tools, run DAG workflows, and orchestrate multi-agent teams across **25 LLM providers**, with
 **34 tool modules** and **9 verticals** (5 domain + 4 utility).
 
 ## Core abstractions
@@ -18,7 +18,7 @@ tools, run DAG workflows, and orchestrate multi-agent teams across **24 LLM prov
 
 ## Providers (24)
 
-Unified `chat()` / `stream_chat()` across 24 LLM providers — cloud and local — with circuit
+Unified `chat()` / `stream_chat()` across 25 LLM providers — cloud and local — with circuit
 breaker, retry, and connection pooling. Cloud (Anthropic, OpenAI, Google, xAI, Azure OpenAI,
 Bedrock, Vertex, DeepSeek, Mistral, Groq, Together, Fireworks, OpenRouter, Cerebras, Moonshot,
 Z.AI, Replicate, HuggingFace) and local (Ollama, LM Studio, vLLM, llama.cpp, MLX). See the

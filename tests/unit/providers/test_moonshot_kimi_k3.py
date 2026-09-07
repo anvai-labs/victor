@@ -55,7 +55,7 @@ async def test_default_endpoint_is_omitted_from_ffi_for_sandhi_model_routing(mon
     calls: list[tuple] = []
 
     class Handle:
-        async def complete_json(self, request_json: str) -> str:
+        async def complete_json(self, request_json: str, wire_headers_json=None) -> str:
             request = json.loads(request_json)
             return json.dumps(
                 {

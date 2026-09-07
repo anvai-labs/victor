@@ -16,7 +16,7 @@ This guide covers everything you need to use Victor effectively, from basic conv
 | **CLI Commands** | [CLI Reference](cli-reference.md) | All commands and options |
 | **Tools** | [Tools Guide](tools.md) | Tool system, selection, execution |
 | **Session Management** | [Session Management](session-management.md) | Save and restore sessions |
-| **Providers** | [Provider Guide](providers.md) | 24 LLM providers setup and switching |
+| **Providers** | [Provider Guide](providers.md) | 25 LLM providers setup and switching |
 | **Workflows** | [Workflows Guide](workflows.md) | YAML-based automation |
 | **Configuration** | [Configuration →](../reference/configuration/) | Profiles and settings |
 
@@ -94,7 +94,7 @@ Start with Claude, continue with GPT-4, finish with a local model—all in one c
 
 - **Context Independence**: Conversation history managed separately from LLM
 - **Instant Switching**: Use `/provider` command anytime
-- **Full Support**: All 24 providers support context preservation
+- **Full Support**: All 25 providers support context preservation
 
 [Provider Guide →](providers.md)
 

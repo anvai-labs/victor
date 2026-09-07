@@ -101,7 +101,7 @@ This is handled at the `BaseProvider` level — no per-provider configuration ne
 
 ## Adding Your Own Provider
 
-Victor supports 24 providers out of the box. To benchmark with a different one:
+Victor supports 25 providers out of the box. To benchmark with a different one:
 
 ```bash
 # Any provider Victor supports works

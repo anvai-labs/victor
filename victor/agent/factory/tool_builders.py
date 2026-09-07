@@ -53,7 +53,6 @@ if TYPE_CHECKING:
     from victor.agent.search_router import SearchRouter
     from victor.agent.conversation.state_machine import ConversationStateMachine
     from victor.agent.unified_task_tracker import UnifiedTaskTracker
-    from victor.agent.parallel_executor import ParallelToolExecutor
     from victor.agent.tool_result_deduplicator import ToolResultDeduplicator
     from victor.tools.plugin_registry import ToolPluginRegistry
     from victor.tools.semantic_selector import SemanticToolSelector
@@ -286,6 +285,8 @@ class ToolBuildersMixin:
                 enable_cross_turn_dedup=cross_turn_enabled,
                 cross_turn_dedup_ttl=cross_turn_ttl,
                 per_tool_timeout_seconds=self._tool_setting("per_tool_timeout_seconds", 60.0),
+                parallel_tool_execution=self._tool_setting("parallel_tool_execution", False),
+                max_concurrent_tools=self._tool_setting("max_concurrent_tools", 5),
             ),
             tool_cache=tool_cache,
             argument_normalizer=argument_normalizer,
@@ -568,30 +569,6 @@ class ToolBuildersMixin:
         )
         logger.debug("SemanticToolSelector created")
         return semantic_selector
-
-    def create_parallel_executor(self, tool_executor: "ToolExecutor") -> "ParallelToolExecutor":
-        """Create parallel tool executor for concurrent independent tool calls.
-
-        Args:
-            tool_executor: The ToolExecutor instance to wrap
-
-        Returns:
-            ParallelExecutor instance wrapping the tool executor
-        """
-        from victor.agent.parallel_executor import create_parallel_executor
-
-        parallel_enabled = getattr(self.settings, "parallel_tool_execution", True)
-        max_concurrent = getattr(self.settings, "max_concurrent_tools", 5)
-
-        parallel_executor = create_parallel_executor(
-            tool_executor=tool_executor,
-            max_concurrent=max_concurrent,
-            enable=parallel_enabled,
-        )
-        logger.debug(
-            f"ParallelExecutor created (enabled={parallel_enabled}, max_concurrent={max_concurrent})"
-        )
-        return parallel_executor
 
     def create_argument_normalizer(self, provider: "BaseProvider") -> "ArgumentNormalizer":
         """Create argument normalizer for handling malformed tool arguments.

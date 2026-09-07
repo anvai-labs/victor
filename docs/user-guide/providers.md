@@ -1,6 +1,6 @@
 # Provider Guide
 
-Complete guide to using LLM providers in Victor. Victor supports 24 providers, from local inference to cloud APIs, with seamless mid-conversation switching.
+Complete guide to using LLM providers in Victor. Victor supports 25 providers, from local inference to cloud APIs, with seamless mid-conversation switching.
 
 ## What is a Provider?
 
@@ -17,7 +17,7 @@ This abstraction enables Victor's signature feature: **switching providers mid-c
 
 | Category | Providers | Best For |
 |----------|-----------|----------|
-| **Local** | Ollama, LM Studio, vLLM, llama.cpp | Privacy, no API costs, offline use |
+| **Local** | Ollama, LM Studio, vLLM, llama.cpp, InferFlux | Privacy, no API costs, offline use |
 | **Cloud** | Anthropic, OpenAI, Google, xAI, DeepSeek, Mistral, Groq, Cerebras, Together, Fireworks, OpenRouter, Moonshot | Best quality, fastest inference, latest models |
 | **Enterprise** | Azure OpenAI, AWS Bedrock, Vertex AI | Compliance, security, enterprise integrations |
 | **Platforms** | Hugging Face, Replicate | Model variety, research models |
@@ -42,13 +42,14 @@ adapter's own feature detection (`supports_tools()` / `supports_streaming()` /
 | **Ollama** | Local | Model-dependent (auto-detected) | Yes | Local KV-prefix reuse (nothing billed) | Free (your hardware) |
 | **LM Studio** | Local | Native (llama.cpp) | Yes | Local KV-prefix reuse (nothing billed) | Free (your hardware) |
 | **vLLM** | Local | Native (`--enable-auto-tool-choice`) | Yes | Local KV-prefix reuse (nothing billed) | Free (your hardware) |
+| **InferFlux** | Local | Native (OpenAI tools) | Yes | Local KV-prefix reuse via session affinity (nothing billed) | Free (your hardware) |
 
 ¹ OpenAI-compatible adapters (DeepSeek, Groq, Mistral, xAI, Together, …) read their
 capabilities from a validated per-provider spec rather than hard-coding them
 (`victor/providers/sandhi_openai_compat_policy.py`).
 
 Cost tiers are indicative ($ = budget, $$$ = premium); check current provider pricing.
-This is a subset — Victor ships **24 provider adapters**. For the full list run
+This is a subset — Victor ships **25 provider adapters**. For the full list run
 `victor providers`, or see the [Provider Reference](../reference/providers/) and the
 detailed per-provider sections below.
 
@@ -218,6 +219,42 @@ victor chat --provider vllm --model Qwen/Qwen2.5-Coder-7B-Instruct
 - Automatic request batching
 - Production-ready
 - OpenAI-compatible API
+
+---
+
+### InferFlux
+
+Self-hosted inference server from the same org (sister project) — high-throughput
+edge/on-prem serving of 3B–8B quantized models with continuous batching, a radix
+prefix cache, and speculative decoding. Speaks the OpenAI Chat Completions
+dialect; victor routes it through Sandhi's typed runtime as a first-class
+catalog provider (`inferflux`), so every call is metered and attributed like any
+cloud provider.
+
+**Installation** (see the InferFlux repo):
+```bash
+cd inferflux && cmake --build build
+./build/bin/inferfluxd --config config/server.yaml   # binds 0.0.0.0:8080 by default
+```
+
+**Usage** — model ids are whatever you loaded in InferFlux's own
+`config/registry.yaml` (edit victor's `openai_compat_model_policy.yaml` to match):
+```bash
+victor chat --provider inferflux --model llama3-8b
+```
+
+**Keys**: none needed for a local server (InferFlux serves anonymous read+generate
+when no API keys are configured). A secured deployment exports `INFERFLUX_API_KEY`.
+
+**KV-cache affinity**: with `runtime.scheduler.session_handles.enabled: true` on
+the server, victor's session id rides Sandhi's session-affinity header
+(`x-inferflux-session-id`, Sandhi ADR-0008) so multi-agent loops reuse
+prefix-cache state turn over turn.
+
+**Advantages**:
+- Unified batched decode on a single GPU
+- Prefix/KV cache with per-session leases
+- OpenAI-compatible API; all calls metered through Sandhi
 
 ---
 

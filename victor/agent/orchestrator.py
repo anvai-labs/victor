@@ -64,9 +64,9 @@ from rich.console import Console
 
 # Coordinators (Phase 2 refactoring - being integrated)
 # NOTE: These are runtime imports, not type-checking only
-from victor.agent.services.metrics_service import (
+from victor.agent.services.metrics_service import (  # noqa: F401
     AgentMetricsService,
-)  # noqa: F401  # imported for runtime use
+)  # imported for runtime use
 
 if TYPE_CHECKING:
     # Type-only imports (created by factory, only used for type hints)
@@ -476,9 +476,7 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
         - ProviderCoordinator removed from runtime components (unused internally)
         - ProviderService is the canonical owner for provider operations
         """
-        from victor.agent.runtime.provider_runtime import (
-            create_provider_runtime_components,
-        )
+        from victor.agent.runtime.provider_runtime import create_provider_runtime_components
         from victor.agent.services.provider_service import ProviderService
 
         # [CANONICAL] ProviderService is the single authority for provider operations
@@ -529,9 +527,7 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
 
     def _initialize_metrics_runtime(self) -> None:
         """Initialize metrics/analytics runtime boundaries."""
-        from victor.agent.runtime.metrics_runtime import (
-            create_metrics_runtime_components,
-        )
+        from victor.agent.runtime.metrics_runtime import create_metrics_runtime_components
 
         self._metrics_runtime = create_metrics_runtime_components(
             factory=self._factory,
@@ -548,9 +544,7 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
 
         # Wrap with trace enricher for GEPA ASI when prompt optimization enabled
         try:
-            from victor.observability.analytics.trace_enrichment import (
-                create_trace_enricher,
-            )
+            from victor.observability.analytics.trace_enrichment import create_trace_enricher
 
             po_cfg = getattr(self.settings, "prompt_optimization", None)
             gepa_cfg = po_cfg.gepa if po_cfg and po_cfg.enabled else None
@@ -572,9 +566,7 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
 
     def _initialize_workflow_runtime(self) -> None:
         """Initialize workflow runtime boundaries with lazy registry loading."""
-        from victor.agent.runtime.workflow_runtime import (
-            create_workflow_runtime_components,
-        )
+        from victor.agent.runtime.workflow_runtime import create_workflow_runtime_components
 
         self._workflow_runtime = create_workflow_runtime_components(factory=self._factory)
         self._workflow_registry = self._workflow_runtime.workflow_registry
@@ -3505,11 +3497,15 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
 
         return ToolStrategyRuntime(self).get_context_window(provider, model)
 
-    def _estimate_tool_tokens(self, tool, provider_category: str = None) -> int:
+    def _estimate_tool_tokens(
+        self, tool, provider_category: str = None, _use_cache: bool = True
+    ) -> int:
         """Delegate token estimation to ToolService."""
         from victor.agent.services.tool_strategy_runtime import ToolStrategyRuntime
 
-        return ToolStrategyRuntime(self).estimate_tool_tokens(tool, provider_category)
+        return ToolStrategyRuntime(self).estimate_tool_tokens(
+            tool, provider_category, _use_cache=_use_cache
+        )
 
     def _demote_tools_to_fit(
         self, tools, max_tokens: int, context_window: int, provider_category: str = None
@@ -3524,6 +3520,9 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
             context_window,
             estimate_tokens=self._estimate_tool_tokens,
             provider_category=provider_category,
+            stub_estimate_tokens=lambda t, pc=None: self._estimate_tool_tokens(
+                t, pc, _use_cache=False
+            ),
         )
 
     def _semantic_select_tools(self, tools, max_tokens: int, provider_category: str = None) -> list:

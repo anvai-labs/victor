@@ -59,82 +59,41 @@ class PythonContextFitter(InstrumentedAccelerator):
         self,
         messages: List[Dict[str, Any]],
         budget: int,
-        strategy: str = "recency",
+        strategy: str = "smart",
         preserve_system: bool = True,
     ) -> FitResult:
         """Fit messages into a token budget.
 
-        Selects which messages to keep based on the given strategy,
-        respecting the token budget.
+        Delegates to the canonical contract in
+        ``victor.processing.native.context_fitter`` — this protocol-class
+        implementation previously spoke the OLD strategy vocabulary
+        (recency/priority/balanced), silently mapping "smart" and "fifo" to
+        its balanced branch while the processing wrapper and Rust accepted
+        smart/priority/fifo (adversarial-review finding).
 
         Args:
             messages: List of message dicts with 'role', 'content', and
                       optionally 'token_count' and 'priority' fields
             budget: Maximum token budget
-            strategy: Fitting strategy ("recency", "priority", "balanced")
+            strategy: One of "smart", "priority", "fifo" (legacy aliases
+                      accepted, unknown names raise ValueError)
             preserve_system: Whether to always preserve system messages
 
         Returns:
             FitResult with indices of kept messages and statistics
         """
+        from victor.processing.native.context_fitter import fit_context as _canonical
+
         with self._timed_call("context_fitting"):
-            if not messages:
-                return FitResult(kept_indices=[], total_tokens=0, dropped_count=0, freed_tokens=0)
-
-            # Calculate token counts for each message
-            token_counts = []
-            for msg in messages:
-                count = msg.get("token_count", len(msg.get("content", "").split()) * 13 // 10)
-                token_counts.append(count)
-
-            total_all_tokens = sum(token_counts)
-
-            # Identify system messages
-            system_indices = set()
-            if preserve_system:
-                for i, msg in enumerate(messages):
-                    if msg.get("role") == "system":
-                        system_indices.add(i)
-
-            # Build candidate list (non-system messages that can be dropped)
-            candidates = []
-            for i in range(len(messages)):
-                if i not in system_indices:
-                    priority = messages[i].get("priority", 1.0)
-                    recency = float(i) / max(len(messages), 1)
-                    candidates.append((i, token_counts[i], priority, recency))
-
-            # Sort candidates by drop priority (what to drop first)
-            if strategy == "recency":
-                # Drop oldest first (lowest index = oldest)
-                candidates.sort(key=lambda x: x[3])  # ascending recency
-            elif strategy == "priority":
-                # Drop lowest priority first
-                candidates.sort(key=lambda x: x[2])  # ascending priority
-            else:
-                # Balanced: combine priority and recency
-                candidates.sort(key=lambda x: x[2] * 0.5 + x[3] * 0.5)
-
-            # Start with all messages, drop from front of sorted candidates
-            kept = set(range(len(messages)))
-            current_tokens = total_all_tokens
-
-            for idx, tc, _pri, _rec in candidates:
-                if current_tokens <= budget:
-                    break
-                kept.discard(idx)
-                current_tokens -= tc
-
-            kept_indices = sorted(kept)
-            kept_tokens = sum(token_counts[i] for i in kept_indices)
-            dropped = len(messages) - len(kept_indices)
-            freed = total_all_tokens - kept_tokens
-
+            result = _canonical(
+                messages, budget, strategy=strategy, preserve_system=preserve_system
+            )
+            # Re-wrap in this module's FitResult type for protocol consumers.
             return FitResult(
-                kept_indices=kept_indices,
-                total_tokens=kept_tokens,
-                dropped_count=dropped,
-                freed_tokens=freed,
+                kept_indices=result.kept_indices,
+                total_tokens=result.total_tokens,
+                dropped_count=result.dropped_count,
+                freed_tokens=result.freed_tokens,
             )
 
     def truncate_message(

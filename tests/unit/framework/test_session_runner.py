@@ -50,11 +50,18 @@ def test_prepare_state_applies_config_and_resolves_reasoning() -> None:
     assert prepared.config.one_shot_mode is True
     assert prepared.show_reasoning is True
     assert prepared.use_streaming is False
-    assert settings.observability.enable_observability_logging is True
-    assert settings.enable_observability_logging is True
-    assert settings.skill_auto_select_enabled is False
-    assert settings.automation.one_shot_mode is True
-    assert settings.one_shot_mode is True
+    # Overrides land on the runner's PRIVATE copy (adversarial-review fix:
+    # the caller's instance — often the shared process snapshot — must not
+    # receive sticky session overrides that bleed into later runs).
+    runner_settings = runner.settings
+    assert runner_settings.observability.enable_observability_logging is True
+    assert runner_settings.enable_observability_logging is True
+    assert runner_settings.skill_auto_select_enabled is False
+    assert runner_settings.automation.one_shot_mode is True
+    assert runner_settings.one_shot_mode is True
+    # Negative: the caller's settings stay untouched.
+    assert settings.observability.enable_observability_logging is not True
+    assert settings.one_shot_mode is not True
 
 
 def test_prepare_state_preserves_explicit_reasoning_and_interactive_mode() -> None:

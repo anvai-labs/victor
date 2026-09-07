@@ -153,6 +153,8 @@ _PROVIDER_ENV_VARS_FALLBACK: Dict[str, str] = {
     "together": "TOGETHER_API_KEY",
     "openrouter": "OPENROUTER_API_KEY",
     "fireworks": "FIREWORKS_API_KEY",
+    # Self-hosted inference servers
+    "inferflux": "INFERFLUX_API_KEY",
     # Enterprise cloud providers
     "vertex": "GOOGLE_APPLICATION_CREDENTIALS",  # Service account JSON path or ADC
     "vertexai": "GOOGLE_APPLICATION_CREDENTIALS",  # Alias
@@ -181,7 +183,7 @@ def _get_provider_env_vars() -> Dict[str, str]:
 PROVIDER_ENV_VARS: Dict[str, str] = _get_provider_env_vars()
 
 # Providers that don't require API keys
-LOCAL_PROVIDERS = {"ollama", "lmstudio", "vllm"}
+LOCAL_PROVIDERS = {"ollama", "lmstudio", "vllm", "inferflux"}
 
 # ============================================================================
 # SERVICE API KEYS (External Data Services - not LLM providers)
