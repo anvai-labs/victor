@@ -855,9 +855,9 @@ jobs:
   # is the only place the parity contract actually executes, so a Rust change
   # that drifts from its Python fallback fails here instead of silently.
   #
-  # Deliberately NOT in the ci-success needs list yet: prove stability first
-  # (fresh release builds can flake on runner capacity/timeouts), then
-  # promote it to the required aggregate once it has a green history.
+  # Promoted into the ci-success needs aggregate on 2026-09-07 after a
+  # 19-green/0-fail job history (item 17b follow-up). The gate text above the
+  # aggregate's needs list records the promotion.
   native-parity:
     name: Native Parity
     runs-on: ubuntu-latest
@@ -938,6 +938,10 @@ jobs:
       - code-security
       - dependency-audit
       - rust-packages
+      # Promoted 2026-09-07 after a 19-green/0-fail job history (co-design review
+      # item 17b follow-up): a Rust change that drifts from its Python fallback now
+      # blocks merge instead of passing silently.
+      - native-parity
     if: always()
     steps:
       - name: Require all required jobs green
