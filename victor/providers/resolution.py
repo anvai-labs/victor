@@ -208,13 +208,21 @@ def _get_key_from_sentinelpass(provider: str, *, force: bool = False) -> Optiona
         logger.debug("SentinelPass lookup enabled but `sentinelpass` was not found")
         return None
 
+    # Allowlisted, token-enforced lookup (SentinelPass v0.8+). The legacy
+    # unscoped `secret-get` path no longer exists; the per-client grant token
+    # is inherited from SENTINELPASS_CLIENT_TOKEN in the environment.
     cmd = [
         sentinelpass_bin,
-        "secret-get",
+        "secret",
+        "get",
+        "--client-id",
+        os.environ.get("VICTOR_SENTINELPASS_CLIENT_ID", "victor"),
         "--domain",
         configured_domain or _sentinelpass_domain_for_provider(provider),
         "--field",
         "password",
+        "--output",
+        "plain",
     ]
     if _truthy_env("VICTOR_SENTINELPASS_BIOMETRIC"):
         cmd.append("--biometric-unlock")
