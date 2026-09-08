@@ -178,8 +178,8 @@ class TestNodeExecutorFactory:
         executor = factory.create_executor(node)
         assert callable(executor)
 
-    def test_create_condition_passthrough(self):
-        """Test that condition nodes get passthrough executors."""
+    def test_create_condition_executor(self):
+        """Test that condition nodes get registered executors."""
         factory = NodeExecutorFactory()
         node = ConditionNode(
             id="decide",
@@ -337,8 +337,8 @@ class TestConditionEvaluator:
         assert router({"status": "failure"}) == "default"  # Falls to default
         assert router({}) == "default"  # Falls to default
 
-    def test_router_returns_end_when_no_match(self):
-        """Test router returns __END__ when no branch matches and no default."""
+    def test_router_rejects_unmatched_branch(self):
+        """An unmatched branch must not silently complete the workflow."""
         node = ConditionNode(
             id="check",
             name="Check",
@@ -348,11 +348,11 @@ class TestConditionEvaluator:
 
         router = ConditionEvaluator.create_router(node)
 
-        # Returns a special marker that won't match any branch
-        assert router({}) == "__END__"
+        with pytest.raises(ValueError, match="unknown branch"):
+            router({})
 
-    def test_router_handles_exception_with_default(self):
-        """Test router falls to default on exception."""
+    def test_router_does_not_mask_exception_with_default(self):
+        """A default branch does not hide an evaluation failure."""
 
         def failing_condition(ctx):
             raise ValueError("Test error")
@@ -366,8 +366,8 @@ class TestConditionEvaluator:
 
         router = ConditionEvaluator.create_router(node)
 
-        # Should fall to "default" branch on exception
-        assert router({}) == "default"
+        with pytest.raises(ValueError, match="Test error"):
+            router({})
 
 
 class TestCompilerConfig:

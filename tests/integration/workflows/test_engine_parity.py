@@ -12,27 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Engine-parity battery — ADR-030 (single graph execution engine).
+"""Adapter/compiled-runtime parity battery — ADR-030.
 
-Runs the same ``WorkflowDefinition`` through both engines — the BFS
-``CompiledWorkflowExecutor`` and the ``StateGraphExecutor``/CompiledGraph
-path — and pins result equivalence on the scenarios where the engines are
-required to agree:
-
-- linear transform chains,
-- condition branches (both arms),
-- parallel fan-out with all children succeeding (join=all/any/merge),
-- failure propagation (a raising transform fails the run),
-- ``join=all`` with a failing child (both engines must fail the run).
-
-Known, intended divergence (NOT pinned as parity): under ``join=any`` /
-``join=merge`` / ``join=first`` with a *partial* child failure, the two
-engines currently disagree — the BFS walker fails the whole run via
-``context.has_failures()`` even though its own join policy completed the
-group, while the compiled path lets the join policy decide (U6-F5's
-"let join policy decide" remedy). ADR-030 deletes the BFS walker, so the
-battery pins the *desired* survivor semantics for those cases instead of
-enforcing equivalence with soon-to-be-deleted behavior.
+Runs each definition through the canonical WorkflowResult adapter and raw
+StateGraphExecutor. The original engine-parity scenarios remain: transform
+chains, both condition arms, parallel joins, failure propagation, agent outcomes,
+state isolation, numerical state and deterministic ordinary successor order.
+Parallel joins let their policy decide whether partial child failure fails a run.
 """
 
 from typing import Any, Dict
@@ -43,15 +29,17 @@ import pytest
 
 from victor.workflows.definition import (
     AgentNode,
+    ComputeNode,
     ConditionNode,
     ParallelNode,
     TransformNode,
     WorkflowDefinition,
 )
 from victor.workflows.unified_executor import (
-    CompiledWorkflowExecutor,
     StateGraphExecutor,
 )
+
+from victor.workflows.state_graph_adapter import StateGraphWorkflowExecutor
 
 pytestmark = [pytest.mark.integration, pytest.mark.workflows]
 
@@ -62,13 +50,14 @@ def _orchestrator():
     return orchestrator
 
 
-def _normalized_bfs(result) -> Dict[str, Any]:
-    """Normalize a BFS ``WorkflowResult`` to the common parity shape."""
+def _normalized_adapter(result) -> Dict[str, Any]:
+    """Normalize the adapter result without dropping per-child metadata."""
     return {
         "success": result.success,
         "state": dict(result.context.data),
         "error": result.error,
-        "nodes": set(result.context.node_results),
+        "nodes": set(result.nodes_executed),
+        "node_results": set(result.context.node_results),
     }
 
 
@@ -79,18 +68,19 @@ def _normalized_sg(result) -> Dict[str, Any]:
         "state": dict(result.state),
         "error": result.error,
         "nodes": set(result.nodes_executed),
+        "node_results": set(result.node_results),
     }
 
 
 async def _run_both(workflow: WorkflowDefinition, initial_context: Dict[str, Any]):
     orchestrator = _orchestrator()
-    bfs = _normalized_bfs(
-        await CompiledWorkflowExecutor(orchestrator).execute(workflow, dict(initial_context))
+    adapter = _normalized_adapter(
+        await StateGraphWorkflowExecutor(orchestrator).execute(workflow, dict(initial_context))
     )
     sg = _normalized_sg(
         await StateGraphExecutor(orchestrator).execute(workflow, dict(initial_context))
     )
-    return bfs, sg
+    return adapter, sg
 
 
 def _linear() -> WorkflowDefinition:
@@ -200,40 +190,38 @@ class TestEngineParityAgreement:
 
     @pytest.mark.asyncio
     async def test_linear_chain(self):
-        bfs, sg = await _run_both(_linear(), {"v": 3})
-        assert bfs["success"] is sg["success"] is True
-        assert bfs["state"] == sg["state"] == {"v": 6, "w": 5}
-        assert bfs["nodes"] == sg["nodes"] == {"double", "add"}
+        adapter, sg = await _run_both(_linear(), {"v": 3})
+        assert adapter["success"] is sg["success"] is True
+        assert adapter["state"] == sg["state"] == {"v": 6, "w": 5}
+        assert adapter["nodes"] == sg["nodes"] == {"double", "add"}
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("flag,expected_path", [(True, "yes"), (False, "no")])
     async def test_condition_branches(self, flag: bool, expected_path: str):
-        bfs, sg = await _run_both(_condition(), {"flag": flag})
-        for outcome in (bfs, sg):
+        adapter, sg = await _run_both(_condition(), {"flag": flag})
+        for outcome in (adapter, sg):
             assert outcome["success"] is True
             assert outcome["state"]["path"] == expected_path
-        assert bfs["nodes"] == sg["nodes"]
+        assert adapter["nodes"] == sg["nodes"]
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("strategy", ["all", "any", "merge"])
     async def test_parallel_all_children_succeed(self, strategy: str):
-        bfs, sg = await _run_both(_parallel(strategy, b_raises=False), {})
-        for outcome in (bfs, sg):
+        adapter, sg = await _run_both(_parallel(strategy, b_raises=False), {})
+        for outcome in (adapter, sg):
             assert outcome["success"] is True
             assert outcome["state"] == {"a": 1, "b": 2}
-        # Engine shape difference (accepted): the BFS walker records each child
-        # as its own node result; the compiled path executes the group as ONE
-        # node, so children never enter node_history.
-        assert "fan" in bfs["nodes"] and "fan" in sg["nodes"]
-        assert sg["nodes"] == {"fan"}
-        assert {"a", "b"} <= bfs["nodes"]
+        # Compiled execution records the group in history and each child in
+        # result metadata. The adapter must preserve both observable surfaces.
+        assert adapter["nodes"] == sg["nodes"] == {"fan"}
+        assert adapter["node_results"] == sg["node_results"] == {"fan", "a", "b"}
 
     @pytest.mark.asyncio
     async def test_raising_transform_fails_the_run(self):
         """Failure propagation parity: a raising transform node must fail the
         run on BOTH engines with the node's error surfaced."""
-        bfs, sg = await _run_both(_raising(), {})
-        for outcome in (bfs, sg):
+        adapter, sg = await _run_both(_raising(), {})
+        for outcome in (adapter, sg):
             assert outcome["success"] is False
             assert "node exploded" in (outcome["error"] or "")
 
@@ -242,22 +230,14 @@ class TestEngineParityAgreement:
         """join=all with a failing child must fail the run on BOTH engines
         (the child's successful partial state may differ per engine's COW
         behavior, so only success and error content are pinned here)."""
-        bfs, sg = await _run_both(_parallel("all", b_raises=True), {})
-        for outcome in (bfs, sg):
+        adapter, sg = await _run_both(_parallel("all", b_raises=True), {})
+        for outcome in (adapter, sg):
             assert outcome["success"] is False
             assert "child b failed" in (outcome["error"] or "")
 
 
 class TestJoinPolicyDecidesSurvivorSemantics:
-    """The desired survivor semantics for partial parallel failures.
-
-    Per U6-F5's remedy ("merge successful branch states, attach per-child
-    errors, let join policy decide"), the compiled path lets the join policy
-    decide the group outcome instead of failing the whole run. The BFS walker
-    currently disagrees (it fails the run via ``context.has_failures()`` even
-    when the join policy completed the group) — that behavior is deleted with
-    the walker in ADR-030 step 3, so these assertions pin the survivor only.
-    """
+    """Compiled execution merges successful branches and applies the join policy."""
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("strategy", ["any", "merge", "first"])
@@ -467,7 +447,7 @@ async def test_agent_node_fails_without_an_orchestrator():
     assert "agent" not in result.state
 
 
-async def test_definition_ordinary_successors_preserve_bfs_order_and_shared_descendant():
+async def test_definition_ordinary_successors_preserve_adapter_order_and_shared_descendant():
     definition = WorkflowDefinition(
         name="ordinary_successors",
         start_node="a",
@@ -486,7 +466,83 @@ async def test_definition_ordinary_successors_preserve_bfs_order_and_shared_desc
             }.items()
         },
     )
-    bfs, compiled = await _run_both(definition, {})
-    assert bfs["success"] is compiled["success"] is True
-    assert bfs["state"] == compiled["state"] == {"order": ["a", "b", "c", "d"]}
-    assert bfs["nodes"] == compiled["nodes"] == {"a", "b", "c", "d"}
+    adapter, compiled = await _run_both(definition, {})
+    assert adapter["success"] is compiled["success"] is True
+    assert adapter["state"] == compiled["state"] == {"order": ["a", "b", "c", "d"]}
+    assert adapter["nodes"] == compiled["nodes"] == {"a", "b", "c", "d"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("handler_available", [True, False])
+async def test_compute_handler_failures_stop_full_compiled_workflow(handler_available):
+    from victor_contracts.workflows import ExecutorNodeStatus, NodeResult
+
+    async def failing_handler(node, context, tool_registry):
+        return NodeResult(
+            node_id=node.id,
+            status=ExecutorNodeStatus.FAILED,
+            error="compute handler rejected input",
+        )
+
+    definition = WorkflowDefinition(
+        name="compute_failure",
+        start_node="compute",
+        nodes={
+            "compute": ComputeNode(
+                id="compute", name="Compute", handler="test_handler", next_nodes=["after"]
+            ),
+            "after": TransformNode(
+                id="after", name="After", transform=lambda state: {"after": True}
+            ),
+        },
+    )
+    with patch(
+        "victor.workflows.compute_registry.get_compute_handler",
+        return_value=failing_handler if handler_available else None,
+    ):
+        result = await StateGraphExecutor(_orchestrator()).execute(definition, {})
+    assert result.success is False
+    assert result.node_results["compute"].success is False
+    expected = "compute handler rejected input" if handler_available else "not found"
+    assert expected in result.error
+    assert "after" not in result.state
+
+
+@pytest.mark.asyncio
+async def test_condition_evaluates_exactly_once_per_compiled_execution():
+    definition = _condition()
+    condition = MagicMock(side_effect=definition.nodes["check"].condition)
+    definition.nodes["check"].condition = condition
+    result = await StateGraphExecutor(_orchestrator()).execute(definition, {"flag": True})
+    assert result.success is True
+    assert result.state["path"] == "yes"
+    condition.assert_called_once()
+    assert result.node_results["check"].output == {"branch": "yes", "next_node": "yes_node"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("has_default", [False, True])
+async def test_condition_error_stops_execution_even_with_default_branch(has_default):
+    def fail_condition(state):
+        raise ValueError("condition rejected input")
+
+    branches = {"yes": "after"}
+    if has_default:
+        branches["default"] = "after"
+    definition = WorkflowDefinition(
+        name="condition_error",
+        start_node="condition",
+        nodes={
+            "condition": ConditionNode(
+                id="condition", name="Condition", condition=fail_condition, branches=branches
+            ),
+            "after": TransformNode(
+                id="after", name="After", transform=lambda state: {"after": True}
+            ),
+        },
+    )
+    result = await StateGraphExecutor(_orchestrator()).execute(definition, {})
+    assert result.success is False
+    assert "condition rejected input" in result.error
+    assert result.node_results["condition"].success is False
+    assert "after" not in result.state

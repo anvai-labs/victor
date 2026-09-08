@@ -60,6 +60,7 @@ import json
 import logging
 import re
 import time
+from contextlib import aclosing
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -340,12 +341,15 @@ class CachedCompiledGraph:
         """
         exec_state = self._prepare_state(input_state)
 
-        async for node_id, state in self.compiled_graph.stream(
-            exec_state,
-            config=config,
-            thread_id=thread_id,
-        ):
-            yield node_id, state
+        async with aclosing(
+            self.compiled_graph.stream(
+                exec_state,
+                config=config,
+                thread_id=thread_id,
+            )
+        ) as events:
+            async for node_id, state in events:
+                yield node_id, state
 
     def _prepare_state(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """Prepare initial state with workflow metadata."""

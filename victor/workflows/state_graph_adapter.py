@@ -6,10 +6,13 @@ and failure handling belong to StateGraphExecutor and CompiledGraph.
 
 from __future__ import annotations
 
+from contextlib import aclosing
 from dataclasses import replace
+import uuid
 from typing import Any, AsyncIterator, Dict, Optional
 
 from victor_contracts.workflows import ExecutorNodeStatus, NodeResult
+from victor.framework.graph_runtime import NodeLifecycleObserver
 from victor.workflows.context import WorkflowContext, WorkflowResult
 from victor.workflows.definition import AgentNode, WorkflowDefinition
 from victor.workflows.orchestrator_pool import OrchestratorPool
@@ -104,6 +107,7 @@ class StateGraphWorkflowExecutor:
         thread_id: Optional[str] = None,
         checkpoint: Optional[str] = None,
         timeout: Optional[float] = None,
+        node_observer: Optional[NodeLifecycleObserver] = None,
     ) -> Any:
         """Execute a definition, or delegate an already compiled graph unchanged."""
         state = initial_context if initial_context is not None else initial_state
@@ -111,18 +115,40 @@ class StateGraphWorkflowExecutor:
         if not isinstance(workflow, WorkflowDefinition):
             if hasattr(workflow, "invoke"):
                 kwargs: Dict[str, Any] = {"thread_id": thread_id}
+                if node_observer is not None:
+                    kwargs["node_observer"] = node_observer
                 if checkpoint is not None:
                     kwargs["checkpoint"] = checkpoint
                 return await workflow.invoke(state, **kwargs)
             raise TypeError("Expected WorkflowDefinition or a compiled graph with invoke()")
         if checkpoint is not None:
             raise ValueError("Resume definitions using thread_id and a graph checkpointer")
+        prepared = self._prepare(workflow)
+        execution_id = uuid.uuid4().hex
+        effective_thread_id = thread_id or execution_id
+        result = await self._executor(prepared, timeout).execute(
+            prepared,
+            state,
+            thread_id=effective_thread_id,
+            checkpointer=self._checkpointer,
+            **({"node_observer": node_observer} if node_observer is not None else {}),
+        )
+        converted = to_workflow_result(workflow.name, result)
+        converted.context.metadata.update(
+            workflow_name=workflow.name,
+            thread_id=effective_thread_id,
+            execution_id=execution_id,
+        )
+        return converted
+
+    def _prepare(self, workflow: WorkflowDefinition) -> WorkflowDefinition:
+        """Apply definition compatibility rules consistently to run and stream."""
         if workflow.metadata.get("continue_on_failure", False):
             raise ValueError(
                 "continue_on_failure is unsupported by StateGraph; handle recoverable failures explicitly inside nodes"
             )
         # Apply the compatibility default without mutating the caller's definition.
-        prepared = replace(
+        return replace(
             workflow,
             nodes={
                 node_id: (
@@ -133,10 +159,6 @@ class StateGraphWorkflowExecutor:
                 for node_id, node in workflow.nodes.items()
             },
         )
-        result = await self._executor(prepared, timeout).execute(
-            prepared, state, thread_id=thread_id, checkpointer=self._checkpointer
-        )
-        return to_workflow_result(workflow.name, result)
 
     async def stream(
         self,
@@ -144,15 +166,16 @@ class StateGraphWorkflowExecutor:
         initial_state: Dict[str, Any],
         *,
         thread_id: Optional[str] = None,
+        timeout: Optional[float] = None,
     ) -> AsyncIterator[Any]:
         """Stream compiled state updates through the surviving engine."""
-        runtime = (
-            self._executor(workflow, None) if isinstance(workflow, WorkflowDefinition) else None
-        )
-        source = (
-            runtime.stream(workflow, initial_state, thread_id=thread_id)
-            if runtime is not None
-            else workflow.stream(initial_state, thread_id=thread_id)
-        )
-        async for event in source:
-            yield event
+        if isinstance(workflow, WorkflowDefinition):
+            prepared = self._prepare(workflow)
+            source = self._executor(prepared, timeout).stream(
+                prepared, initial_state, thread_id=thread_id, checkpointer=self._checkpointer
+            )
+        else:
+            source = workflow.stream(initial_state, thread_id=thread_id)
+        async with aclosing(source) as events:
+            async for event in events:
+                yield event

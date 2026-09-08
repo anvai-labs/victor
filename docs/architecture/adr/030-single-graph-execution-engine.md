@@ -114,3 +114,23 @@ Node-based `replay_from()` and explicit start-node overrides reject checkpoints
 with pending sequential branches rather than discarding their frontier; ordinary
 `invoke()` resumes them. Failed graph streams now raise after yielding any prior
 successful node updates, so callers can distinguish failure from completion.
+
+
+## Step 3 execution notes (2026-09-07)
+
+The BFS `CompiledWorkflowExecutor` class and the streaming wrapper's traversal
+loop are removed. `WorkflowExecutor` and the old compiled-executor import names
+resolve to `StateGraphWorkflowExecutor`; their aliases preserve imports without
+retaining another engine. The service and streaming APIs execute the canonical
+graph, with per-invocation lifecycle observations for streaming chunks.
+
+The removed executor-only `execute_by_name`, cache-stat, node-cache and private
+node-execution helpers have no production callers. Standalone definition/cache
+infrastructure remains for its live owners. Synchronous chain handlers still
+run off the event loop through the canonical compute executor. The public
+streaming wrapper retains cancellation, subscriptions and progress reporting;
+it has never implemented agent token-content streaming.
+
+FEP-0007's zero-caller `StreamingChatExecutor.run()` alias and
+`AgenticLoop.stream_chat()` wrapper are also removed. The live chat entry remains
+`ServiceStreamingRuntime` → `run_unified()` → `AgenticLoop.run_streaming()`.

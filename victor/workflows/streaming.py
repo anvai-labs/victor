@@ -57,6 +57,7 @@ class WorkflowEventType(str, Enum):
         WORKFLOW_START: Workflow execution has begun.
         WORKFLOW_COMPLETE: Workflow finished successfully.
         WORKFLOW_ERROR: Workflow terminated due to an error.
+        WORKFLOW_PAUSED: Workflow paused at an interrupt without completing.
         NODE_START: A node has started executing.
         NODE_COMPLETE: A node finished successfully.
         NODE_ERROR: A node failed with an error.
@@ -70,6 +71,7 @@ class WorkflowEventType(str, Enum):
     WORKFLOW_START = "workflow_start"
     WORKFLOW_COMPLETE = "workflow_complete"
     WORKFLOW_ERROR = "workflow_error"
+    WORKFLOW_PAUSED = "workflow_paused"
     NODE_START = "node_start"
     NODE_COMPLETE = "node_complete"
     NODE_ERROR = "node_error"
@@ -93,6 +95,7 @@ def _register_workflow_event_taxonomy() -> None:
                 WorkflowEventType.WORKFLOW_START: EventType.STREAM_START,
                 WorkflowEventType.WORKFLOW_COMPLETE: EventType.STREAM_END,
                 WorkflowEventType.WORKFLOW_ERROR: EventType.ERROR,
+                WorkflowEventType.WORKFLOW_PAUSED: EventType.PROGRESS,
                 WorkflowEventType.NODE_START: EventType.PROGRESS,
                 WorkflowEventType.NODE_COMPLETE: EventType.MILESTONE,
                 WorkflowEventType.NODE_ERROR: EventType.ERROR,

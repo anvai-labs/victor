@@ -80,7 +80,7 @@ from victor.workflows.registry import (
     WorkflowRegistry,
     get_global_registry,
 )
-from victor.workflows.unified_executor import WorkflowExecutor
+from victor.workflows.state_graph_adapter import StateGraphWorkflowExecutor as WorkflowExecutor
 from victor.workflows.protocols import (
     RetryPolicy,
     IWorkflowNode,

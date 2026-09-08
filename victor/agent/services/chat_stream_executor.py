@@ -1525,10 +1525,9 @@ class StreamingChatExecutor:
         own collaborators (the same ``turn_executor`` + ``runtime_intelligence`` the buffered loop
         uses), and yields ``run_streaming``'s chunks.
 
-        This is the SOLE live streaming entry point: ``ChatStreamRuntime``'s stream path calls
-        ``run_unified`` directly, and the legacy ``run()`` entry point is an LTS-deprecated thin
-        alias delegating here (no second code path). **Behavior change vs the removed legacy
-        run() body:** the UI path adopts the unified loop's EVALUATE — including
+        This is the SOLE live streaming entry point: ``ServiceStreamingRuntime``'s stream path calls
+        ``run_unified`` directly. The temporary ``run()`` alias has been removed.
+        The UI path uses the unified loop's EVALUATE phase, including
         its requirement-driven completion (EnhancedCompletion / fulfillment) —
         so it may complete earlier on multi-step tasks than the old streaming
         loop, which simply followed the model's tool calls. That convergence is
@@ -1614,32 +1613,6 @@ class StreamingChatExecutor:
         async for chunk in loop.run_streaming(
             user_message, conversation_history=conversation_history
         ):
-            yield chunk
-
-    async def run(self, user_message: str, **kwargs: Any) -> AsyncIterator[StreamChunk]:
-        """Backward-compatible streaming entry point (LTS-deprecated).
-
-        .. deprecated:: 0.8.0
-            Use :meth:`run_unified` instead. ``run()`` is a thin alias retained
-            only for the FEP-0007 cutover period; it has zero production callers
-            left (``AgenticLoop.run_streaming`` drives the streaming ACT port
-            directly, not this alias) and is reachable only via the duck-typed
-            ``hasattr(..., "run_unified")`` fallback in
-            ``AgenticLoop.stream_chat`` for test executors. It delegates
-            directly to ``run_unified`` so there is a single live code path,
-            and will be removed as Stage C item-23 cleanup. Do NOT add new
-            callers of ``run()`` — that re-opens the wrong (legacy) streaming
-            seam the unification closed.
-        """
-        import warnings
-
-        warnings.warn(
-            "StreamingChatExecutor.run() is deprecated; use run_unified() instead. "
-            "run() is a temporary FEP-0007 cutover alias and will be removed.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        async for chunk in self.run_unified(user_message, **kwargs):
             yield chunk
 
 
