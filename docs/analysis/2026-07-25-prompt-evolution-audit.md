@@ -39,7 +39,7 @@ So: three mutations were generated and stored; none was ever measured.
 
 It did the *generation* half. The **selection** half never ran, which is the
 half that makes it optimization rather than mutation. This matches
-[FEP-0017](../../feps/fep-0017-prompt-optimization-reward-loop.md), still Draft:
+[FEP-0017](https://github.com/anvai-labs/victor/blob/develop/feps/fep-0017-prompt-optimization-reward-loop.md), still Draft:
 candidates are created but never served, rewarded, or improved. This audit
 confirms the loop is still open as of 2026-07-25 and adds two defects FEP-0017
 does not cover (provenance and corruption, below).

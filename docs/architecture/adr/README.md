@@ -18,7 +18,7 @@ entry — the ADR itself never tracks tasks.
 ## ADR Index
 
 Status is the governance state of the *decision*. Implementation is the observed state of the
-*code* (verified 2026-07-29).
+*code*. Rows are updated as their execution work lands; ADR-030 was refreshed 2026-09-07.
 
 | ADR | Title | Status | Implementation | Date |
 |-----|-------|--------|----------------|------|
@@ -51,10 +51,8 @@ Status is the governance state of the *decision*. Implementation is the observed
 | [ADR-027](027-prompt-optimization-strategy-fidelity.md) | Prompt-optimization strategy fidelity and honest naming | Accepted | Shipped (faithful CoT distillation; section-scoped PrefPO; honest docs; keys unchanged) | 2026-08-01 |
 | [ADR-028](028-single-agent-durable-chat-continuation.md) | Single-agent durable chat continuation (pause/resume on approval) | Proposed | Not started (FEP-0029 Draft; generalizes ADR-023 pause to non-team single-agent runs) | 2026-08-01 |
 | [ADR-029](029-provider-support-tiers.md) | Provider support tiers (Tier 1 / Community; docs + constant only, no deletions) | Accepted | Shipped (`TIER_1_PROVIDERS` in `victor/providers/registry.py`, `SUPPORT.md` policy; zero behavioral change) | 2026-08-02 |
-| [ADR-030](030-single-graph-execution-engine.md) | Single graph execution engine (retire the BFS WorkflowExecutor; migrate the live call sites to CompiledGraph) | Accepted | Not started (parity gate first; FEP-0032/#1005 already landed the shared features) | 2026-09-07 |
+| [ADR-030](030-single-graph-execution-engine.md) | Single graph execution engine | Accepted | Implemented: parity gate (#1041), compiled adapter/callers (#1042), canonical streaming and BFS deletion (#1043) | 2026-09-07 |
 | [ADR-031](031-vertical-template-bases-promotion.md) | Vertical template bases — extract shared bases into `victor_contracts.verticals.bases` | Accepted | Not started (12 template families × 4 md5-distinct copies; hook-shaped extraction, small verticals only; reconcile with contrib bases family-by-family) | 2026-09-07 |
-| [ADR-030](030-single-graph-execution-engine.md) | Single graph execution engine (retire the BFS WorkflowExecutor; migrate 4 call sites to CompiledGraph) | Accepted | Not started (parity gate first; FEP-0032/#1005 already landed the shared features) | 2026-09-07 |
-| [ADR-031](031-vertical-template-bases-promotion.md) | Vertical template bases — extract shared bases into `victor_contracts.verticals.bases` | Accepted | Not started (12 template families × 4 md5-distinct copies; hook-shaped extraction, small verticals only) | 2026-09-07 |
 
 ## External ADR series (cross-repo)
 

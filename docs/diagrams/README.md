@@ -23,7 +23,7 @@ rendered to `.svg`. The `.svg` files are build artifacts — regenerate them fro
 - **`sequences/`** — sequence diagrams for key flows: `tool-execution`, `provider-switch`,
   `workflow-execution` (each has a rendered `.svg`).
 - **`victor-guide/`** — the 12 diagrams (`d01`–`d12`) for the
-  [`VICTOR_AGENT_GUIDE.adoc`](../../VICTOR_AGENT_GUIDE.adoc) presentation deck.
+  [`VICTOR_AGENT_GUIDE.adoc`](https://github.com/anvai-labs/victor/blob/develop/VICTOR_AGENT_GUIDE.adoc) presentation deck.
 
 ## Re-rendering
 

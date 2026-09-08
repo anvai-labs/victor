@@ -394,5 +394,5 @@ This file is the single source of truth for what keys are supported.
 ## See Also
 
 - [Configuration Reference](index.md)
-- [Security Policy](../../../SECURITY.md)
-- [API Keys Registry](../../../victor/config/api_keys_registry.yaml)
+- [Security Policy](https://github.com/anvai-labs/victor/blob/develop/SECURITY.md)
+- [API Keys Registry](https://github.com/anvai-labs/victor/blob/develop/victor/config/api_keys_registry.yaml)

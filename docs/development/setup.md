@@ -24,7 +24,7 @@ Before you begin, ensure you have the following installed:
 
 ```bash
 # Clone the repository
-git clone https://github.com/vijayksingh/victor.git
+git clone https://github.com/anvai-labs/victor.git
 cd victor
 
 # Create virtual environment
@@ -44,7 +44,7 @@ pytest tests/unit -v --tb=short
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/vijayksingh/victor.git
+git clone https://github.com/anvai-labs/victor.git
 cd victor
 ```
 
@@ -90,6 +90,19 @@ Depending on your development focus, you may need additional packages:
 # Documentation
 pip install -e ".[docs]"
 
+# Browser-backed web rendering and extraction
+pip install -e ".[web]"
+playwright install chromium
+
+# Semantic search
+pip install -e ".[embeddings]"
+
+# Container tooling
+pip install -e ".[docker]"
+
+# LangChain tool adapters
+pip install -e ".[langchain]"
+
 # Google Gemini provider
 pip install -e ".[google]"
 
@@ -118,6 +131,56 @@ pytest tests/unit -v --tb=short
 # Run linters
 make lint
 ```
+
+## Native extension build
+
+This is the canonical native-build recipe. Activate the development virtual
+environment first, then build the in-repository Rust extension:
+
+```bash
+pip install maturin
+cd rust
+maturin develop --release
+cargo test --workspace --locked
+cd ..
+python -m pytest tests/unit/native -m native_parity -q
+```
+
+`maturin develop` installs into the active virtual environment. For a wheel build
+without a virtual environment, use `maturin build --release --out dist` from
+`rust/`, then install the resulting wheel. The native parity tests compare Rust
+behavior with Python fallbacks; a missing extension causes those tests to skip.
+CI builds and installs the wheel before running its required native-parity job.
+
+## VS Code extension build
+
+The extension requires Node.js 22 or later. Install and compile its dependencies
+from the repository root:
+
+```bash
+npm --prefix vscode-victor ci
+npm --prefix vscode-victor run compile
+```
+
+`npm --prefix vscode-victor run build` also builds the webview assets. See the
+[extension source](https://github.com/anvai-labs/victor/tree/develop/vscode-victor)
+for packaging and extension-specific development.
+
+## Documentation build
+
+GitHub Pages uses MkDocs Material. Runtime packages are not needed for the static
+API-documentation analysis. In a separate virtual environment:
+
+```bash
+pip install mkdocs-material 'mkdocstrings[python]' \
+  mkdocs-git-revision-date-localized-plugin pymdown-extensions 'pygments<2.19'
+mkdocs serve
+mkdocs build
+```
+
+The Pygments cap matches `pyproject.toml` and the existing Pages workflow. The
+[documentation index](../index.md) describes canonical pages and historical
+records. Generated `site/` files are not edited or committed.
 
 ## Pre-commit Hooks Setup
 
@@ -348,7 +411,7 @@ victor chat --provider anthropic       # Specific provider
 - [Testing Guide](testing.md) - Learn testing patterns and fixtures
 - [Code Style Guide](code-style.md) - Formatting and linting standards
 - [Architecture Overview](../architecture.md) - System design
-- [Contributing Guide](../../CONTRIBUTING.md) - Pull request process
+- [Contributing Guide](https://github.com/anvai-labs/victor/blob/develop/CONTRIBUTING.md) - Pull request process
 
 ---
 

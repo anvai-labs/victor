@@ -138,7 +138,7 @@ ollama run qwen2.5-coder:7b "Hello"
 ollama logs
 ```
 
-[Full Setup Guide →](setup.md#ollama)
+[Full Setup Guide →](setup.md#local-example-ollama)
 
 ### LM Studio
 
@@ -174,7 +174,7 @@ profiles:
 - Model discovery built-in
 - Easy GPU configuration
 
-[Full Setup Guide →](setup.md#lm-studio)
+[Full Setup Guide →](setup.md#other-providers)
 
 ### vLLM
 
@@ -217,7 +217,7 @@ profiles:
 - **Batching**: Automatic request batching
 - **Memory**: Efficient with PagedAttention
 
-[Full Setup Guide →](setup.md#vllm)
+[Full Setup Guide →](setup.md#other-providers)
 
 ### llama.cpp
 
@@ -248,7 +248,7 @@ victor chat --provider llama-cpp
 - Broad model support
 - Low memory footprint
 
-[Full Setup Guide →](setup.md#llama-cpp)
+[Full Setup Guide →](setup.md#other-providers)
 
 ---
 
@@ -1016,11 +1016,11 @@ victor chat --timeout 60
 
 ### Getting Help
 
-- **Documentation**: [Full docs →](../../README.md)
+- **Documentation**: [Full docs →](../../index.md)
 - **Issues**: [GitHub Issues →](https://github.com/anvai-labs/victor/issues)
 - **Discussions**: [GitHub Discussions →](https://github.com/anvai-labs/victor/discussions)
 - **Setup Guide**: [Detailed setup →](setup.md)
 
 ---
 
-**Next**: [Provider Comparison →](comparison.md) | [Tool Catalog →](../tools/catalog.md) | [Configuration →](../configuration/)
+**Next**: [Provider Comparison →](comparison.md) | [Tool Catalog →](../tools/catalog.md) | [Configuration →](../configuration/index.md)

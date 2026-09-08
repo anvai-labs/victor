@@ -377,4 +377,4 @@ pip install -e ./victor-contracts -e ".[build]"
 
 - [Installation Guide →](../../getting-started/installation.md)
 - [Development Guide →](../index.md)
-- [GitHub Actions Workflow](../../../.github/workflows/release.yml)
+- [GitHub Actions Workflow](https://github.com/anvai-labs/victor/blob/develop/.github/workflows/release.yml)

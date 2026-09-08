@@ -12,6 +12,20 @@
   its live call sites, and `batch_executor.py`. No YAML schema change; no
   `WorkflowDefinition` change.
 
+## Implementation status — 2026-09-07
+
+Step 1's engine parity gate shipped in [#1041](https://github.com/anvai-labs/victor/pull/1041).
+Step 2 shipped in [#1042](https://github.com/anvai-labs/victor/pull/1042):
+`StateGraphWorkflowExecutor` adapts compiled execution results at the runtime factory seam,
+with the API, workflow engine and service-provider callers using that path. The result adapter
+preserves the caller-facing workflow result shape during migration.
+
+Step 3 shipped in [#1043](https://github.com/anvai-labs/victor/pull/1043): streaming uses the
+canonical graph and the BFS walker is deleted. Old executor imports are adapter aliases;
+they do not retain a second execution engine.
+FEP-0032's interrupt/resume contract also remains separate implementation work; existing graph
+checkpoint support does not mean that proposal has shipped.
+
 ## Context
 
 U6-F1 (co-design review 2026-09-03) found **two live workflow engines** for the same

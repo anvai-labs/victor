@@ -6,8 +6,8 @@
 - **Date**: 2026-08-01
 - **Decision Makers**: Vijaykumar Singh
 - **Related ADRs**: 009 (rubric completion), 012 (regression-gated harness acceptance)
-- **Governed by**: [FEP-0017](../../../feps/fep-0017-prompt-optimization-reward-loop.md)
-  (reward loop), [FEP-0025](../../../feps/fep-0025-prompt-evolution-as-controlled-experiment.md)
+- **Governed by**: [FEP-0017](https://github.com/anvai-labs/victor/blob/develop/feps/fep-0017-prompt-optimization-reward-loop.md)
+  (reward loop), [FEP-0025](https://github.com/anvai-labs/victor/blob/develop/feps/fep-0025-prompt-evolution-as-controlled-experiment.md)
   (controlled experiment)
 - **Scope**: `victor/framework/rl/learners/strategies/` only. No change to the
   `PromptOptimizationStrategy` protocol, the config keys, or the reward loop.

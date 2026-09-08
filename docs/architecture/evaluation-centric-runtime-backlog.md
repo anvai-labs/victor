@@ -2,7 +2,7 @@
 
 **Status:** Draft · **Created:** 2026-06-21 · **Companion:**
 [Vision](vision-evaluation-centric-runtime.md) ·
-[FEP-0008](../../feps/fep-0008-evaluation-centric-completion.md) · ADR-009/010/011/012
+[FEP-0008](https://github.com/anvai-labs/victor/blob/develop/feps/fep-0008-evaluation-centric-completion.md) · ADR-009/010/011/012
 
 Prioritized backlog for the Evaluation-Centric Runtime direction, derived from an arXiv corpus
 survey grounded against Victor's eval/loop code. **Thesis:** *Agent = Model + Harness* — close the

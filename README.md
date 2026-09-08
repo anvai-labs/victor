@@ -9,7 +9,7 @@
 [![Fast Checks](https://github.com/anvai-labs/victor/actions/workflows/ci-fast.yml/badge.svg)](https://github.com/anvai-labs/victor/actions/workflows/ci-fast.yml)
 [![Tests](https://github.com/anvai-labs/victor/actions/workflows/ci-test.yml/badge.svg)](https://github.com/anvai-labs/victor/actions/workflows/ci-test.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Docker](https://img.shields.io/badge/docker-ghcr.io-blue.svg)](https://ghcr.io/vjsingh1984/victor)
+[![Docker](https://img.shields.io/badge/docker-victor--ai-blue.svg)](https://hub.docker.com/r/vjsingh1984/victor-ai)
 
 </div>
 
@@ -37,7 +37,7 @@ It is designed for teams that need agent systems to be testable, extensible, obs
 | Local model | `pipx install victor-ai`<br>`ollama pull qwen2.5-coder:7b`<br>`victor chat "Explain this repo"` | Private, low-cost, air-gapped work |
 | Cloud model | `pipx install victor-ai`<br>`export ANTHROPIC_API_KEY=...`<br>`victor chat --provider anthropic "Plan this refactor"` | Highest model capability |
 | Python API | `pip install victor-ai` | Embedding Victor in applications |
-| Docker | `docker pull ghcr.io/vjsingh1984/victor:latest` | Isolated CLI/API runtime |
+| Docker | `docker pull vjsingh1984/victor-ai:latest` | Isolated CLI/API runtime |
 
 ## Give Your Agent Durable Memory
 
@@ -51,8 +51,9 @@ chunker and get semantic recall ("where do we validate JWTs?") plus call-graph q
 
 Victor's embedded ProximaDB backends for project code intelligence are experimental,
 flag-gated previews — SQLite/LanceDB remain the defaults. The correlated graph+vector
-code-context backend (one entity = row + graph node + vector, TD-11/12/13) is
-**roadmap, not shipped** — see the [roadmap](docs/roadmap.md) and
+code-context backend (one entity = row + graph node + vector, TD-11/12/13) has
+implemented opt-in correlation and routing; benchmark, service-mode and default-graduation
+work remains — see the [roadmap](docs/roadmap.md) and
 [ProximaDB as the CCG Backend](docs/architecture/proximadb-codegraph-backend.md).
 
 ## Python API
@@ -93,6 +94,7 @@ async def inspect(state: ReviewState) -> ReviewState:
 graph = StateGraph(ReviewState)
 graph.add_node("inspect", inspect)
 graph.add_edge("inspect", END)
+graph.set_entry_point("inspect")
 
 result = await graph.compile().invoke({"query": "review this module", "findings": []})
 ```
@@ -101,9 +103,11 @@ result = await graph.compile().invoke({"query": "review this module", "findings"
 
 The core rule is simple: interfaces compose framework APIs, framework APIs delegate to the service-first runtime, and domain packages plug in through SDK/public extension contracts.
 
-![Victor 0.7 architecture](docs/diagrams/architecture/victor_0_7_readme_architecture.svg)
+![Historical Victor 0.7 architecture](docs/diagrams/architecture/victor_0_7_readme_architecture.svg)
 
-Victor 0.7 makes the framework/plugin split explicit:
+*Historical overview; [current architecture](docs/architecture.md) documents the Stage C migration.*
+
+The framework/plugin split is:
 
 - `victor.framework` is the stable public contract for agents, tools, StateGraph, workflows, events, and extension surfaces.
 - `victor.agent` is the internal runtime implementation behind that contract.
@@ -114,7 +118,7 @@ Victor 0.7 makes the framework/plugin split explicit:
 Detailed references:
 
 - [Architecture overview](docs/architecture.md)
-- [Internal architecture diagram](docs/diagrams/architecture/victor_0_7_architecture.mmd)
+- [Historical 0.7 architecture diagram](docs/diagrams/architecture/victor_0_7_architecture.mmd)
 - [contracts boundary](docs/architecture/CONTRACTS_BOUNDARY.md)
 - [State-passed architecture](docs/architecture/state-passed-architecture.md)
 
@@ -149,52 +153,27 @@ Plugin rules:
 
 ## State and Code Intelligence
 
-Victor uses a two-database model:
+Victor separates global and project state, with a dedicated database for undo history:
 
 | Scope | Location | Purpose |
 |-------|----------|---------|
 | Global database | `~/.victor/victor.db` | Settings, API keys, profiles, RL outcomes, tool/model preferences, cross-project patterns |
 | Project database | `./.victor/project.db` | Graph nodes/edges, conversations, project sessions, entity memory, change tracking |
+| Undo database | `./.victor/undo.db` | File-edit undo/redo history, isolated from indexer write locks |
 
 Project code intelligence is derived, rebuildable state. Graph indexes, vector indexes, file watcher state, and `.victor/` runtime artifacts should not become source-of-truth release artifacts.
 
 ## Development
 
-```bash
-python -m venv .venv
-source .venv/bin/activate
-# victor-contracts first so victor-ai resolves the in-repo SDK, not PyPI
-pip install -e ./victor-contracts -e ".[dev]"
-
-make test-quick
-make test
-make lint
-make check-repo-hygiene
-```
-
-### Optional extras
-
-The base install degrades gracefully when optional dependencies are absent
-(lazy/guarded imports). Install an extra only when you want that capability:
-
-```bash
-pip install -e ".[web]"          # headless browser rendering + trafilatura extraction
-                                #   (web_fetch render=browser; DDG browser fallback)
-                                #   then: playwright install chromium
-pip install -e ".[embeddings]"   # sentence-transformers + lancedb for semantic search
-pip install -e ".[docker]"       # sandboxed code execution / container deploy
-pip install -e ".[langchain]"    # adapt LangChain tools as native Victor tools
-```
-
-Subprojects are scoped:
-
-```bash
-npm --prefix vscode-victor run compile
-cd rust && cargo test
-```
+Follow [Development Setup](docs/development/setup.md) for the environment, optional extras,
+[native extension build](docs/development/setup.md#native-extension-build), and
+[documentation preview](docs/development/setup.md#documentation-build). The
+[PR workflow](docs/development/PR_WORKFLOW.md) defines verification and branch conventions.
 
 ## Documentation
 
+- [Documentation map](docs/index.md)
+- [Canonical guide index](docs/README.md)
 - [Getting Started](docs/getting-started/)
 - [Durable Code Memory with ProximaDB](docs/quickstart-proximadb-memory.md)
 - [Guides](docs/guides/)

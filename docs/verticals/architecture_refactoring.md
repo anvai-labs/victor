@@ -634,6 +634,6 @@ The Victor verticals architecture refactoring successfully addresses all 10 iden
 **Test Coverage**: ✅ **93%**
 **Performance Improvement**: ✅ **200-500ms faster startup**
 
-For migration instructions, see [Migration Guide](migration_guide.md).
+For migration instructions, see [Migration Guide](../architecture/EXTERNAL_VERTICALS_MIGRATION.md).
 For API reference, see [API Reference](api_reference.md).
 For best practices, see [Best Practices](best_practices.md).

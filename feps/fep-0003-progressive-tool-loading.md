@@ -1,5 +1,5 @@
 ---
-fep: 3
+fep: "3"
 title: Progressive Tool Loading with Cost-Based Selection
 type: Standards Track
 status: Draft
@@ -1012,8 +1012,6 @@ registry.register(MyTool())  # DeprecationWarning: Use register(name, tool_class
 - [Existing: LazyToolRunnable](../victor/tools/composition/lazy.py)
 - [Existing: ProgressiveToolsRegistry](../victor/tools/progressive_registry.py)
 - [Existing: CostTier enum](../victor/tools/enums.py)
-- [Design: Progressive Tool Loading](../docs/design/progressive-tool-loading.md)
-- [Performance: Startup Optimization](../docs/performance/startup-optimization.md)
 
 ---
 

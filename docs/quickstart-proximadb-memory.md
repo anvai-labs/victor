@@ -201,7 +201,7 @@ code memory bet (VISION.md, bet 4).
   Design + status: [ProximaDB as the CCG Backend](architecture/proximadb-codegraph-backend.md).
 - **Chunking for RAG** — `victor_codegraph.chunk_repo` emits size-capped, AST-aligned
   chunks (never split mid-statement) if you want plain retrieval instead of the graph
-  projection. See the [victor-codegraph README](../victor-codegraph/README.md).
+  projection. See the [victor-codegraph README](https://github.com/anvai-labs/victor/blob/develop/victor-codegraph/README.md).
 - **Managed / multi-tenant** — the same `victor-codegraph` seam powers the AnvaiOps
   managed code-graph service on top of ProximaDB, so the local path above scales to a
   hosted one without changing the record shape.

@@ -348,4 +348,4 @@ pip install networkx sentence-transformers
 
 - Read the [Graph RAG Guide](graph-rag-guide.md) for detailed concepts
 - Check the [API Reference](graph-api-reference.md) for all available functions
-- See [Examples](../examples/) for more code samples
+- See [Examples](https://github.com/anvai-labs/victor/tree/develop/examples/) for more code samples

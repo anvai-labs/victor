@@ -117,4 +117,4 @@ python docs/benchmarking/run_benchmark.py \
 
 ## Full Results
 
-See the [detailed benchmark report](../benchmarking/results/BENCHMARK_RESULTS_2026-03-16.md) for per-task breakdowns and output quality analysis.
+See the [detailed benchmark report](https://github.com/anvai-labs/victor/blob/ae554d028236475b8b63422fa7e00b80a87707a1/docs/benchmarking/results/BENCHMARK_RESULTS_2026-03-16.md) for per-task breakdowns and output quality analysis.

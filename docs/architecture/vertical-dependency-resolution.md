@@ -676,6 +676,6 @@ class DiffEditor(BaseEditor):
 ## References
 
 - [Framework & Vertical Integration Architecture](./framework-vertical-integration.md)
-- [Vertical Package Specification](../../feps/vertical-package-spec.md)
-- [Phase 3 Architecture Analysis](../../architecture-analysis-phase3.md)
-- [Contrib Packages Documentation](../extending/contrib-packages.md)
+- [Vertical Package Specification](../feps/vertical-package-spec.md)
+- [Phase 3 Architecture Analysis](https://github.com/anvai-labs/victor/blob/ae554d028236475b8b63422fa7e00b80a87707a1/docs/architecture-analysis-phase3.md)
+- [Contrib Packages Documentation](../development/extending/verticals.md)

@@ -3,7 +3,7 @@
 > **Single source of truth** for Victor system architecture.
 > Supersedes: `ARCHITECTURE.md`, `docs/architecture/overview.md`, `docs/diagrams/`
 
-**Version**: {{ victor_version }} | **Last Updated**: 2026-06 | **Status**: Canonical
+**Version**: {{ victor_version }} | **Last Updated**: 2026-09-07 | **Status**: Canonical
 
 ---
 
@@ -63,12 +63,12 @@ flowchart TB
         AL["AgenticLoop"]
     end
 
-    subgraph Providers["PROVIDERS (24)"]
+    subgraph Providers["PROVIDERS (25)"]
         P1["Anthropic"]
         P2["OpenAI"]
         P3["Gemini"]
         P4["Ollama"]
-        P5["+ 20 more"]
+        P5["+ 21 more"]
     end
 
     subgraph ToolModules["TOOLS (34 modules)"]
@@ -100,14 +100,15 @@ flowchart TB
     style StorageLayer fill:#f3e8ff,stroke:#a855f7,color:#3b0764
 ```
 
-### Codebase Scale
+### Codebase scale
+
+The September dead-code sweep invalidated earlier source-file and line-count snapshots.
+Use repository inventory tools for those measurements. The documentation drift gate checks
+provider counts against the source tree and maintains the declared tool-module inventory.
 
 | Metric | Value |
-|--------|-------|
-| Source files | 3,672 |
-| Lines of code | 1,166,724 |
-| Python packages | 294 |
-| Provider adapters | 24 |
+| --- | --- |
+| Provider adapters | 25 |
 | Tool modules | 34 |
 | Cargo crates | 5 |
 
@@ -117,9 +118,9 @@ flowchart TB
 |------|-------------|------------|
 | Clients use Framework only | UI never imports `victor.agent.*` | `test_architectural_boundaries.py` |
 | Framework delegates to Runtime | `Agent.create()` goes through `AgentFactory` | Agent entry point |
-| Runtime delegates to Services | Orchestrator is facade, services own logic | `test_service_layer_validation.py` |
+| Runtime delegates to Services | Services implement behavior; turn-frame inversion remains planned in FEP-0031 | `test_service_layer_validation.py`, facade and hotspot guards |
 | Services own infrastructure | Effectful behavior via `ExecutionContext.services` | Service accessor |
-| External uses Contracts only | Verticals import `victor_contracts` | `test_core_vertical_import_boundary.py` |
+| Vertical definitions use Contracts | Definition files import `victor_contracts`; runtime extension allowances are separately audited | `test_contracts_import_boundaries.py`, `check_extracted_vertical_boundaries.py` |
 
 ### Data Flow
 
@@ -219,14 +220,17 @@ flowchart LR
 
 ## Service Layer
 
-The runtime is **service-first**. Six canonical services own all effectful
-behavior. The orchestrator is a facade that delegates to these services.
+The runtime is **service-first**, with six canonical services and supporting runtime modules.
+`AgentOrchestrator` delegates to these services, but still supplies chat setup/teardown and
+collaborators. [FEP-0031](https://github.com/anvai-labs/victor/blob/develop/feps/fep-0031-chat-runtime-inversion.md) proposes moving that turn
+frame into `ChatService` and replacing facade-private access with `ChatRuntimeServices`.
+That inversion is a target, not the current ownership model.
 
 ```mermaid
 flowchart TB
-    ORC["AgentOrchestrator\nFacade only"]
+    ORC["AgentOrchestrator\nFacade entry point"]
 
-    ORC --> CS["ChatService\nvictor/agent/services/chat_service.py\nOwns: chat loop, streaming, perception"]
+    ORC --> CS["ChatService\nvictor/agent/services/chat_service.py\nCoordinates chat and streaming"]
     ORC --> TS["ToolService\nvictor/agent/services/tool_service.py\nOwns: tool registration, execution"]
     ORC --> SS["SessionService\nvictor/agent/services/session_service.py\nOwns: session lifecycle"]
     ORC --> CX["ContextService\nvictor/agent/services/context_service.py\nOwns: context assembly, pruning"]
@@ -253,8 +257,8 @@ tool_svc = ctx.services.tool       # ToolService
 session_svc = ctx.services.session # SessionService
 ```
 
-> **UI layer** must use `VictorClient` + `SessionConfig` — never import
-> `AgentOrchestrator` or `AgentFactory` directly.
+> **Client surfaces** use public framework entry points such as `VictorClient` with
+> `SessionConfig`, `Agent`, or `AgentFactory`; they do not construct `AgentOrchestrator` directly.
 
 ---
 
@@ -283,8 +287,15 @@ flowchart TB
     style DECIDE fill:#fce7f3,stroke:#ec4899
 ```
 
-**Entry point**: `TurnExecutor.execute_agentic_loop()` at
+**Buffered entry point**: `TurnExecutor.execute_agentic_loop()` at
 `victor/agent/services/turn_execution_runtime.py`.
+
+**Streaming entry point**: `ServiceStreamingRuntime` in
+`victor/agent/services/chat_stream_runtime.py` calls `StreamingChatExecutor.run_unified()`,
+which drives `AgenticLoop.run_streaming()` through `StreamingActAdapter` and
+`StreamingChatExecutor.execute_turn_streaming()`. Older comments call the runtime
+`ChatStreamRuntime`; the class name is `ServiceStreamingRuntime`.
+[FEP-0007](https://github.com/anvai-labs/victor/blob/develop/feps/fep-0007-unified-agentic-loop.md) is Implemented; Stage C removed the deprecated aliases in #1043.
 
 ### AgentFactory
 
@@ -417,14 +428,29 @@ flowchart TB
 
 ## Workflow Engine
 
-YAML-to-StateGraph compiler with typed state, conditional edges, checkpointing,
-and human-in-the-loop.
+Workflow definitions compile through `NativeWorkflowGraphCompiler` to `CompiledGraph`,
+with typed state, conditional edges and checkpointing. ADR-030 step 2 (#1042) routes definition
+callers through `create_legacy_workflow_executor()` → `StateGraphWorkflowExecutor` →
+`StateGraphExecutor`; the adapter returns `WorkflowResult` with flat final state, per-node
+results, tool counts and optional pause metadata.
+
+[ADR-030 step 3](architecture/adr/030-single-graph-execution-engine.md) (#1043) removes the
+BFS walker and the streaming wrapper's traversal loop. `StreamingWorkflowExecutor` observes
+canonical graph execution per invocation; closing or cancelling the stream stops and awaits
+its downstream work. The old executor import names resolve to the compiled adapter.
+The diagram below describes the single workflow execution engine.
+
+Ordinary multi-successor DAGs preserve breadth-first traversal and checkpoint their pending
+frontier. Mixed ordinary fan-out/cycles, mixed dynamic `Send`, and node-based replay of a
+sequential-frontier checkpoint are explicitly unsupported. The adapter also rejects legacy
+node-result caches, `continue_on_failure=True`, and definition execution with a legacy
+checkpoint ID; use a graph checkpointer and `thread_id` for compiled checkpoint persistence.
 
 ```mermaid
 flowchart LR
-    YAML["YAML DSL\nvictor/workflows/"] --> COMP["UnifiedCompiler\nvictor/workflows/unified_compiler.py"]
+    YAML["YAML DSL\nvictor/workflows/"] --> COMP["NativeWorkflowGraphCompiler\nvictor/workflows/compiler/boundary.py"]
     COMP --> SG["StateGraph\nvictor/framework/graph.py"]
-    SG --> EXEC["WorkflowExecutor\nvictor/framework/workflow_engine.py"]
+    SG --> EXEC["CompiledGraph runtime\nvictor/framework/graph_runtime.py"]
 
     subgraph NodeTypes["Node Types"]
         AGENT["Agent Node"]
@@ -445,17 +471,20 @@ flowchart LR
 
 - **Typed state** — `TypedDict` state schemas
 - **Conditional edges** — Route based on state values
-- **Cyclic graphs** — Loopback edges for iteration
+- **Cyclic graphs** — Loopback edges for single-path graphs; not combined with ordinary fan-out
 - **Checkpointing** — Persist and resume state
 - **Copy-on-write** — Efficient state mutations
-- **Human-in-the-loop** — Interrupt for approval
+- **Human-in-the-loop** — Interrupt hooks exist; the general paused-result signal and resume-at
+  semantics remain [FEP-0032](https://github.com/anvai-labs/victor/blob/develop/feps/fep-0032-interrupt-resume-semantics.md) work. Step-2 result
+  fields preserve a signal when supplied; they do not implement that design.
 
 ---
 
 ## Multi-Agent Teams
 
-Teams are **formations** (coordination patterns), not separate graphs.
-`StateGraph` is always the execution engine.
+Teams are **formations** (coordination patterns) that can be used as StateGraph nodes.
+Workflow execution and streaming use `CompiledGraph`. Team durability does not imply that
+the general graph interrupt/resume redesign in FEP-0032 has shipped.
 
 ```mermaid
 flowchart TB
@@ -468,7 +497,7 @@ flowchart TB
     FM --> HIER["HIERARCHICAL\nManager + workers"]
     FM --> PIPE["PIPELINE\nStage-based"]
 
-    subgraph SG["StateGraph (always the engine)"]
+    subgraph SG["StateGraph workflow path"]
         N1["Team as Node"]
     end
 
@@ -557,7 +586,9 @@ above:
 
 ## Database Architecture
 
-Victor uses a canonical two-database architecture (schema v7).
+Victor separates global and project state, with a dedicated undo database for file-edit
+history. Schema versions are maintained in `victor/core/schema.py` and the database migration
+code; this page describes ownership rather than duplicating a mutable schema version.
 
 ```mermaid
 flowchart LR
@@ -585,6 +616,12 @@ flowchart LR
 | **Project** | `./.victor/project.db` | Graph, conversations, sessions, cache |
 | **Undo** | `./.victor/undo.db` | File-edit undo/redo history (change groups + file changes) |
 
+`SqliteGraphStore` uses a dedicated connection per store and a single-worker executor for
+async database operations, including query result materialization. Its code-graph data is
+separate from workflow `WorkflowCheckpoint` / `CheckpointerProtocol` persistence. Workflow
+node executors signal failure through `_error`; the compiler compatibility wrapper raises
+`WorkflowNodeExecutionError` so the graph run reports failure.
+
 **Access pattern:**
 
 ```python
@@ -610,7 +647,9 @@ in `.victor/backups/`.
 (`graph_node.embedding_ref` is unpopulated). The Proxima backend now writes one authoritative
 ProximaRecord containing complete node properties + vector + staleness markers under a single
 `oid`, with ORION as a rebuildable traversal projection; its local Tier-A/Tier-B boundary is also
-implemented. SQLite remains default pending a buildable native wheel and live GA evidence. This is tracked as TD-11/TD-12/TD-13 on the
+implemented. SQLite remains default pending the remaining benchmark, service-mode and graduation gates;
+live embedded parity was verified on 2026-08-05. The optional dependency is pinned to
+`proximadb>=0.3,<0.4`, and 0.3.0 is the release baseline for this review. This is tracked as TD-11/TD-12/TD-13 on the
 [roadmap](roadmap.md) — design in
 [ProximaDB as the CCG Backend](architecture/proximadb-codegraph-backend.md).
 
@@ -724,10 +763,11 @@ flowchart TB
     style HotPaths fill:#f59e0b,color:#fff
 ```
 
-**Build**: `cd rust && maturin develop --release`
+**Build**: follow the [canonical native extension recipe](development/setup.md#native-extension-build).
 
-**Fallback pattern**: Every native path uses `_NATIVE_AVAILABLE` with graceful
-Python fallback when Rust extensions are absent.
+**Fallback pattern**: native processing paths provide Python fallbacks when Rust extensions
+are absent. Exact token counting uses native `BpeTokenizer` with the Python reference behavior;
+the required `native-parity` job in `CI Success` checks native/fallback agreement.
 
 ---
 

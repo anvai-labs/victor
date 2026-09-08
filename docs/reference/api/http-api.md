@@ -1086,8 +1086,8 @@ victor config show
 - **API Overview**: [API Reference →](index.md)
 - **MCP Server**: [MCP Server →](mcp-server.md)
 - **Python API**: [Python API →](python-api.md)
-- **Configuration**: [Configuration →](../configuration/)
+- **Configuration**: [Configuration →](../configuration/index.md)
 
 ---
 
-**Next**: [MCP Server →](mcp-server.md) | [Python API →](python-api.md) | [Configuration →](../configuration/)
+**Next**: [MCP Server →](mcp-server.md) | [Python API →](python-api.md) | [Configuration →](../configuration/index.md)

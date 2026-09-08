@@ -30,7 +30,7 @@ victor logs --tail 50
 - Config should show your profiles
 - Logs should show recent activity
 
-[Still having issues? → Jump to specific sections below](#common-issues)
+[Still having issues? → Jump to specific sections below](#installation-issues)
 
 ---
 
@@ -96,7 +96,7 @@ ERROR: Package 'victor-ai' requires a different Python: 3.10.x not in '>=3.11'
 **1. Check Python version**:
 ```bash
 python --version
-# Must be 3.10 or higher
+# Must be 3.11 or higher
 ```
 
 **2. Install Python 3.11+**:
@@ -1159,10 +1159,10 @@ logging:
 
 ### Documentation
 
-- **Full Docs**: [Documentation Home](/index.md)
-- **User Guide**: [User Guide](/user-guide/index.md)
-- **Reference**: [Provider Reference](/user-guide/providers.md)
-- **Configuration**: [Configuration Options](/reference/configuration-options.md)
+- **Full Docs**: [Documentation Home](../index.md)
+- **User Guide**: [User Guide](index.md)
+- **Reference**: [Provider Reference](providers.md)
+- **Configuration**: [Configuration Options](../reference/configuration-options.md)
 
 ### Community
 
@@ -1243,4 +1243,4 @@ CLAUDE.md                   # AI instructions
 
 **Still stuck?** [Open an issue →](https://github.com/anvai-labs/victor/issues/new)
 
-**Next**: [User Guide](/user-guide/index.md) | [Provider Reference](/user-guide/providers.md) | [Configuration Options](/reference/configuration-options.md)
+**Next**: [User Guide](index.md) | [Provider Reference](providers.md) | [Configuration Options](../reference/configuration-options.md)

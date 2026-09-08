@@ -6,11 +6,11 @@ Complete reference documentation for Victor AI Assistant.
 
 | Reference | Description |
 |-----------|-------------|
-| [**Providers**](providers/) | All 25 LLM providers with setup, models, and configuration |
-| [**Tools**](tools/) | 34 tool modules organized by category |
-| [**Configuration**](configuration/) | Complete configuration reference (profiles, API keys, MCP) |
-| [**API**](api/) | HTTP API, MCP server, Python package API |
-| [**Verticals**](verticals/) | 9 domain-specific assistants |
+| [**Providers**](providers/index.md) | All 25 LLM providers with setup, models, and configuration |
+| [**Tools**](tools/catalog.md) | 34 tool modules organized by category |
+| [**Configuration**](configuration/index.md) | Complete configuration reference (profiles, API keys, MCP) |
+| [**API**](api/index.md) | HTTP API, MCP server, Python package API |
+| [**Verticals**](verticals/index.md) | 9 domain-specific assistants |
 
 ---
 
@@ -37,7 +37,7 @@ Complete reference for all 24 supported LLM providers.
 | Azure | Azure OpenAI | Pay-per-use | Azure portal setup |
 | And 14 more... | See full list | See full list | See full list |
 
-[**Full Provider Reference →**](providers/)
+[**Full Provider Reference →**](providers/index.md)
 
 ---
 
@@ -73,7 +73,7 @@ Complete configuration for Victor's behavior and integrations.
 | `config.yaml` | Global settings and options | [config.yaml →](configuration/index.md#configyaml) |
 | `mcp.yaml` | MCP server configuration | [mcp.yaml →](configuration/index.md#mcpyaml) |
 | `.victor.md` | Project context and instructions | [.victor.md →](../user-guide/index.md#5-project-context) |
-| `CLAUDE.md` | AI assistant project instructions | [CLAUDE.md →](../../CLAUDE.md) |
+| `CLAUDE.md` | AI assistant project instructions | [Repository workflow →](../development/PR_WORKFLOW.md) |
 
 ### Quick Configuration
 
@@ -100,7 +100,7 @@ profiles:
     model: gpt-4
 ```
 
-[**Full Configuration Reference →**](configuration/)
+[**Full Configuration Reference →**](configuration/index.md)
 
 ---
 
@@ -149,7 +149,7 @@ Domain-specific assistants for specialized tasks.
 | **Data Analysis** | Data science workflows | `victor --vertical dataanalysis` |
 | **Research** | Research and analysis | `victor --vertical research` |
 
-[**Full Vertical Reference →**](verticals/)
+[**Full Vertical Reference →**](verticals/index.md)
 
 ---
 
@@ -200,9 +200,9 @@ victor workflow schedule code-review --cron "0 9 * * 1"
 
 | Task | Command | Documentation |
 |------|---------|--------------|
-| **Code Review** | `victor "Review this PR"` | [User Guide →](../user-guide/) |
-| **Refactoring** | `victor "Refactor to use DI"` | [User Guide →](../user-guide/) |
-| **Testing** | `victor "Write unit tests"` | [User Guide →](../user-guide/) |
+| **Code Review** | `victor "Review this PR"` | [User Guide →](../user-guide/index.md) |
+| **Refactoring** | `victor "Refactor to use DI"` | [User Guide →](../user-guide/index.md) |
+| **Testing** | `victor "Write unit tests"` | [User Guide →](../user-guide/index.md) |
 | **Git Operations** | `victor "Create commit for changes"` | [Tool Catalog →](tools/catalog.md) |
 | **CI/CD** | See guides overview | [Guides →](../guides/index.md) |
 
@@ -211,15 +211,15 @@ victor workflow schedule code-review --cron "0 9 * * 1"
 ## Additional Resources
 
 - **Troubleshooting**: [Troubleshooting Guide →](../user-guide/troubleshooting.md)
-- **Development**: [Development Guide →](../development/)
-- **Architecture**: [Architecture Deep Dive →](../development/architecture/deep-dive.md)
-- **Community**: [Support →](../README.md#community--support)
+- **Development**: [Development Guide →](../development/index.md)
+- **Architecture**: [Architecture Deep Dive →](../architecture.md)
+- **Community**: [Support →](https://github.com/anvai-labs/victor/blob/develop/SUPPORT.md)
 
 ---
 
 <div align="center">
 
-**[← Back to Documentation](../README.md)**
+**[← Back to Documentation](../index.md)**
 
 **Reference Documentation**
 

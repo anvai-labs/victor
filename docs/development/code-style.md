@@ -622,7 +622,7 @@ except Exception as e:
 
 - [Setup Guide](setup.md) - Development environment setup
 - [Testing Guide](testing.md) - Testing patterns and fixtures
-- [Contributing Guide](../../CONTRIBUTING.md) - Pull request process
+- [Contributing Guide](https://github.com/anvai-labs/victor/blob/develop/CONTRIBUTING.md) - Pull request process
 
 ---
 
