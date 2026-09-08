@@ -15,7 +15,7 @@ discussion: https://github.com/anvai-labs/victor/discussions/0007
 
 # FEP-0007: Unified Agentic Loop
 
-## Implemented sequence
+## Summary
 
 The [canonical unified streaming diagram](../docs/architecture.md#agenticloop) shows the implemented
 `ServiceStreamingRuntime` → `run_unified` → `AgenticLoop.run_streaming` path and streaming ACT port.
