@@ -9,25 +9,40 @@ on:
     paths:
       - 'docs/**'
       - 'mkdocs.yml'
+      - 'mkdocs-requirements.txt'
+      - 'mkdocs_hooks/**'
+      - 'VERSION'
+      - 'feps/**'
+      - 'victor/**'
+      - 'victor-contracts/**'
+      - 'scripts/ci/docs_link_check.py'
+      - 'tests/unit/scripts/test_docs_link_check.py'
       - '.github/workflows/docs.yml'
   pull_request:
     branches:
       - main
+      - develop
     paths:
       - 'docs/**'
       - 'mkdocs.yml'
+      - 'mkdocs-requirements.txt'
+      - 'mkdocs_hooks/**'
+      - 'VERSION'
+      - 'feps/**'
+      - 'victor/**'
+      - 'victor-contracts/**'
+      - 'scripts/ci/docs_link_check.py'
+      - 'tests/unit/scripts/test_docs_link_check.py'
       - '.github/workflows/docs.yml'
   workflow_dispatch:  # Allow manual trigger
 
 # Set permissions for GitHub Pages deployment
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 # Allow only one concurrent deployment
 concurrency:
-  group: "pages"
+  group: docs-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: false
 
 # Environment variables
@@ -50,22 +65,17 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: 'pip'
+          cache-dependency-path: mkdocs-requirements.txt
 
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install mkdocs-material
-          pip install mkdocstrings[python]
-          pip install mkdocs-git-revision-date-localized-plugin
-          pip install pymdown-extensions
-          # Pin Pygments < 2.19: 2.19 escapes the formatter filename, and pymdownx passes
-          # filename=None for mkdocstrings' block signatures -> html.escape(None) crash.
-          # mkdocstrings runs as static griffe analysis (allow_inspection:false, paths:[.]),
-          # so the victor package source is read directly — no victor install / runtime deps needed.
-          pip install "Pygments<2.19"
+      - name: Install documentation dependencies
+        run: python -m pip install -r mkdocs-requirements.txt
 
       - name: Build documentation
         run: mkdocs build
+
+      - name: Check built-site links and anchors (advisory)
+        continue-on-error: true
+        run: python scripts/ci/docs_link_check.py site
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
@@ -75,10 +85,16 @@ jobs:
   # Deploy job
   deploy:
     # Deploy on push to main, or on a manual workflow_dispatch (so docs can be (re)published
-    # on demand — e.g. to reconcile Pages with the current branch's reality). Never on PRs.
+    # on demand after promotion). The github-pages environment permits main only.
     if: >-
-      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
       (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    permissions:
+      pages: write
+      id-token: write
+    concurrency:
+      group: pages
+      cancel-in-progress: false
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

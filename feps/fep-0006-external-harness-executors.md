@@ -1,5 +1,5 @@
 ---
-fep: 0006
+fep: "0006"
 title: "External-Harness Executors"
 type: Standards Track
 status: Draft

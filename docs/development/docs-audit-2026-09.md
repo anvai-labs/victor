@@ -61,6 +61,26 @@ Baseline classification: **237 CURRENT**, **83 STALE-but-keep**, **0 DEAD**.
 - Optional browser, embedding, Docker and LangChain installation recipes moved from README
   into developer setup, including Playwright's separate browser install and the VS Code build.
 
+## Pre-release refinement for 0.9.2
+
+A second source-grounded pass reviewed the architecture/proposal group and the
+user-facing guides, references and tutorials before promotion. It corrected
+known stale active claims and replaced duplicate catalogs with maintained entry
+points. Historical design and experiment records retain their original evidence
+with status banners; the co-design review files remain unchanged.
+
+The pass includes runnable README examples, current workflow/YAML and team
+interfaces, contract-first vertical examples, event/metrics documentation, and
+contribution instructions that install from the task worktree. Superseded guide
+content remains available through linked repository history. Canonical links
+are checked against a built site, and selected deterministic examples are run;
+provider-dependent examples are source-checked without live API calls.
+
+The inventory below remains the original baseline, including its provisional
+classifications. It is not a claim that every example was executed or that every
+external service integration was independently certified. Subsequent PR diffs
+record the exact refinements after that inventory.
+
 ## Complete baseline inventory
 
 “Automated” is a directory-purpose assumption, “Targeted” is excerpt review, “Frontmatter”

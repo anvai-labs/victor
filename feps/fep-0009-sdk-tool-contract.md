@@ -1,5 +1,5 @@
 ---
-fep: 0009
+fep: "0009"
 title: "SDK Tool Contract — promote tool metadata/traits into victor-contracts"
 type: Standards Track
 status: Draft

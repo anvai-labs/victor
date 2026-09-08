@@ -1,5 +1,10 @@
 # Sandhi Typed-vs-Raw Integration: Gap Analysis & Contract Proposal
 
+> **Historical July 2026 gap analysis.** The measurements and missing-capability findings below
+> refer to the pinned review state, not the current Sandhi 0.5.0 integration. Use
+> [ADR-018](adr/018-adopt-sandhi-usage-gateway.md) for the current transport boundary and the
+> [Roadmap](../roadmap.md#technical-debt-register) for execution status.
+
 **Date:** 2026-07-24 · **Status:** Analysis (grounded review of both repos at HEAD)
 **Scope:** victor `develop` (post-#646) × sandhi `main` (post-TD-0003). All file:line
 references verified at review time; re-verify before implementing.

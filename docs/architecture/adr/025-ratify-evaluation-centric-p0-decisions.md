@@ -1,5 +1,9 @@
 # ADR-025: Ratify the Evaluation-Centric P0 Decisions
 
+> **Execution update.** P0 gates have since shipped or resolved; the later production-distribution
+> judge gate was NO-GO, so the default remains `enhanced`. The context and commitments below
+> are the original decision record. See the [current EVR ledger](../../roadmap.md#evaluation-roadmap-existing-gates-and-remaining-work).
+
 ## Metadata
 
 - **Status**: Accepted (2026-08-23 — P0 gates shipped or resolved; ADR-009 default flip correctly stopped by failed production-distribution evidence)

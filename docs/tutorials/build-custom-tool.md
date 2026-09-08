@@ -36,6 +36,7 @@ Victor provides two approaches for creating tools:
 The decorator automatically extracts metadata from your function's signature and docstring:
 
 ```python
+from typing import Any, Dict
 from victor.tools.decorators import tool
 from victor.tools.base import CostTier
 

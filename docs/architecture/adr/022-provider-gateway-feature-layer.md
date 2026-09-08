@@ -7,8 +7,8 @@
 - **Decision Makers**: Vijaykumar Singh
 - **Related ADRs**: 006 (provider integration improvements), 018 (adopt `sandhi` usage gateway — the
   transport/metering layer this sits above)
-- **Work tracked by**: [TD-24](../../tech-stack.md#technical-debt-register); depends on
-  [TD-21](../../tech-stack.md#technical-debt-register) (typed provider runtime / sandhi)
+- **Work tracked by**: [TD-24](../../roadmap.md#technical-debt-register); depends on
+  [TD-21](../../roadmap.md#technical-debt-register) (typed provider runtime / sandhi)
 - **Benchmark**: [competitive-benchmark-2026-07.md](../competitive-benchmark-2026-07.md) §3
 
 ## Context
@@ -99,7 +99,7 @@ is the decision plane above it.
 ## References
 
 - [ADR-006](006-provider-integration-improvements.md), [ADR-018](018-adopt-sandhi-usage-gateway.md)
-- [TD-21](../../tech-stack.md#technical-debt-register), [flag-graduation-policy.md](../flag-graduation-policy.md)
+- [TD-21](../../roadmap.md#technical-debt-register), [flag-graduation-policy.md](../flag-graduation-policy.md)
 - `victor/providers/base.py`, `victor/providers/smart_router.py`, `victor/providers/resilience.py`,
   FEP-0020 (usage attribution)
 

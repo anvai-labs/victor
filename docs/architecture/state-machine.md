@@ -126,18 +126,20 @@ valid = sm.get_valid_transitions()  # [ConversationStage.READING, ...]
 ### Observability Integration
 
 ```python
-from victor.observability import EventBus, EventCategory
+from victor.core.events import get_observability_bus
 
-bus = EventBus.get_instance()
+async def watch_state_events():
+    bus = get_observability_bus()
 
-# Subscribe to state change events
-def on_state_event(event):
-    old = event.data["old_stage"]
-    new = event.data["new_stage"]
-    print(f"Transition: {old} -> {new}")
+    async def on_state_event(event):
+        print(event.topic, event.data)
 
-bus.subscribe(EventCategory.STATE, on_state_event)
+    return await bus.subscribe("state.*", on_state_event)
 ```
+
+The returned subscription handle can be passed to `await bus.unsubscribe(handle)`.
+Event payload fields vary by producer; use the transition hooks below when you need
+conversation-stage transitions specifically.
 
 ### Using StateHooks
 

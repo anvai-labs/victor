@@ -15,14 +15,17 @@ discussion: https://github.com/anvai-labs/victor/discussions/0007
 
 # FEP-0007: Unified Agentic Loop
 
-## Implemented sequence
+## Summary
 
 The [canonical unified streaming diagram](../docs/architecture.md#agenticloop) shows the implemented
 `ServiceStreamingRuntime` → `run_unified` → `AgenticLoop.run_streaming` path and streaming ACT port.
+The #1043 cleanup removed `StreamingChatExecutor.run()` and `AgenticLoop.stream_chat()`.
+The original problem, implementation plan, and dated progress reports below are retained as
+design history; the final cleanup section records their completed disposition.
 
-## Summary
+## Original problem statement (historical)
 
-Victor runs **two** agentic iteration loops:
+At proposal time, Victor ran **two** agentic iteration loops:
 
 - `AgenticLoop.run()` (`victor/framework/agentic_loop.py`) — the headless/buffered loop for
   `victor chat`. A formal phased loop: PERCEIVE → PLAN → ACT → EVALUATE → DECIDE (named

@@ -132,7 +132,6 @@ workflow = ScheduledWorkflow(
     enabled=True,
     max_active_runs=1,       # Prevent overlapping runs
     catchup=False,           # Don't run missed schedules
-    timezone="UTC",
 )
 ```
 

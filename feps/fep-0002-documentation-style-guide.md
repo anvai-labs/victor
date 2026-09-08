@@ -1,5 +1,5 @@
 ---
-fep: 2
+fep: "0002"
 title: Documentation Style Guide
 type: Informational
 status: Draft

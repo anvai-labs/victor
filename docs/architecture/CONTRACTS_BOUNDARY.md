@@ -2,8 +2,10 @@
 
 This document describes the boundary between the contract package currently
 published as `victor-contracts` and `victor-ai` (the framework runtime). Use the `victor_contracts` import namespace and the independently released
-`victor-contracts` distribution. External verticals depend only on the contract
-package.
+`victor-contracts` distribution. External vertical **definitions** use the contract
+package; runtime extension allowances and remaining violations are separately audited.
+See the [canonical layering rules](../architecture.md#layer-architecture) for the
+enforcement scope; the entire external package is not yet a zero-runtime-import guarantee.
 
 ## Overview
 

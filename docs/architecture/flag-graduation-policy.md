@@ -2,7 +2,7 @@
 
 **Status**: Proposed (criteria below are proposals; the owner ratifies per-flag) ·
 **Date**: 2026-07-05 · **Tracks**: TD-17 in the
-[tech-debt register](../tech-stack.md#technical-debt-register)
+[tech-debt register](../roadmap.md#technical-debt-register)
 
 ## Problem
 

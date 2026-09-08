@@ -7,8 +7,8 @@
 - **Decision Makers**: Vijaykumar Singh
 - **Related ADRs**: 001 (superseded original orchestration decision — this ADR records the *target*
   the service-first runtime is converging toward)
-- **Work tracked by**: [TD-14](../../tech-stack.md#technical-debt-register) (orchestrator regrowth),
-  [TD-15](../../tech-stack.md#technical-debt-register) (services sprawl)
+- **Work tracked by**: [TD-14](../../roadmap.md#technical-debt-register) (orchestrator regrowth),
+  [TD-15](../../roadmap.md#technical-debt-register) (services sprawl)
 - **Benchmark**: [competitive-benchmark-2026-07.md](../competitive-benchmark-2026-07.md) §1
 
 ## Context

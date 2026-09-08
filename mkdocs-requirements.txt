@@ -1,0 +1,9 @@
+# Validated documentation toolchain; install without Victor runtime dependencies.
+mkdocs==1.6.1
+mkdocs-material==9.7.7
+mkdocstrings[python]==1.0.6
+mkdocstrings-python==2.0.8
+mkdocs-git-revision-date-localized-plugin==1.5.4
+pymdown-extensions==11.0.2
+# Retain the existing formatter workaround; see docs/development/docs-publishing.md.
+Pygments==2.18.0

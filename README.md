@@ -8,6 +8,7 @@
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![Fast Checks](https://github.com/anvai-labs/victor/actions/workflows/ci-fast.yml/badge.svg)](https://github.com/anvai-labs/victor/actions/workflows/ci-fast.yml)
 [![Tests](https://github.com/anvai-labs/victor/actions/workflows/ci-test.yml/badge.svg)](https://github.com/anvai-labs/victor/actions/workflows/ci-test.yml)
+[![Documentation](https://github.com/anvai-labs/victor/actions/workflows/docs.yml/badge.svg)](https://anvai-labs.github.io/victor/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Docker](https://img.shields.io/badge/docker-victor--ai-blue.svg)](https://hub.docker.com/r/vjsingh1984/victor-ai)
 
@@ -23,8 +24,9 @@ It is designed for teams that need agent systems to be testable, extensible, obs
 
 | Capability | What it gives you |
 |------------|-------------------|
-| **Service-first runtime** | Chat, tools, sessions, context, provider routing, and recovery are owned by focused runtime services instead of a monolithic orchestrator. |
-| **StateGraph workflows** | Build typed graph workflows and use teams as graph nodes without inventing a separate multi-agent graph abstraction. |
+| **Service-first runtime** | Focused service interfaces for chat, tools, sessions, context, provider routing, and recovery. |
+| **StateGraph workflows** | Compile definitions into one execution engine for tasks, streaming, conditional routing, teams and checkpoints. |
+| **Verified native paths** | Optional Rust acceleration with required CI parity checks against Python behavior. |
 | **Local and cloud models** | Use cloud providers for capability, local providers for privacy/cost, and provider-specific caching strategies for performance. |
 | **Tool-rich execution** | Compose filesystem, git, shell, code search, graph, verification, Docker, web, testing, and refactoring tools. |
 | **Contract-first plugins** | Put domain behavior in sibling `victor-*` packages through `victor-contracts` and public framework extension contracts. |
@@ -34,20 +36,19 @@ It is designed for teams that need agent systems to be testable, extensible, obs
 
 | Path | Commands | Best for |
 |------|----------|----------|
-| Local model | `pipx install victor-ai`<br>`ollama pull qwen2.5-coder:7b`<br>`victor chat "Explain this repo"` | Private, low-cost, air-gapped work |
-| Cloud model | `pipx install victor-ai`<br>`export ANTHROPIC_API_KEY=...`<br>`victor chat --provider anthropic "Plan this refactor"` | Highest model capability |
+| Local model | `pipx install victor-ai`<br>`ollama pull qwen2.5-coder:7b`<br>`victor chat --provider ollama --model qwen2.5-coder:7b "Explain this repo"` | Private, low-cost, air-gapped work |
+| Cloud model | `pipx install victor-ai`<br>`export ANTHROPIC_API_KEY=...`<br>`victor chat --provider anthropic "Plan this refactor"` | Hosted provider access |
 | Python API | `pip install victor-ai` | Embedding Victor in applications |
 | Docker | `docker pull vjsingh1984/victor-ai:latest` | Isolated CLI/API runtime |
 
 ## Give Your Agent Durable Memory
 
-Victor pairs with [ProximaDB](https://github.com/anvai-labs/proximaDB) — a multi-model
-(vector + graph + document) context database by the same author — as its durable memory
-layer. Index any repository with the shared [`victor-codegraph`](victor-codegraph/)
+Victor supports [ProximaDB](https://github.com/anvai-labs/proximaDB) as an optional
+backend for durable code memory. Index any repository with the shared [`victor-codegraph`](victor-codegraph/)
 chunker and get semantic recall ("where do we validate JWTs?") plus call-graph queries
 ("who calls `parse_jwt`?") that persist across sessions:
 
-**[Quickstart: Durable Code Memory with ProximaDB](docs/quickstart-proximadb-memory.md)** — Docker + two `pip install`s, ~10 minutes.
+**[Quickstart: Durable Code Memory with ProximaDB](docs/quickstart-proximadb-memory.md)** — setup, indexing, semantic recall and graph queries.
 
 Victor's embedded ProximaDB backends for project code intelligence are experimental,
 flag-gated previews — SQLite/LanceDB remain the defaults. The correlated graph+vector
@@ -59,24 +60,31 @@ work remains — see the [roadmap](docs/roadmap.md) and
 ## Python API
 
 ```python
+import asyncio
+
 from victor.framework import Agent, EventType, ToolSet
 
-agent = await Agent.create(
-    provider="anthropic",
-    tools=ToolSet.default(),
-)
 
-result = await agent.run("Explain the architecture of this codebase")
-print(result.content)
+async def main():
+    async with await Agent.create(
+        provider="anthropic",
+        tools=ToolSet.default(),
+    ) as agent:
+        result = await agent.run("Explain the architecture of this codebase")
+        print(result.content)
 
-async for event in agent.stream("Review the changed files"):
-    if event.type == EventType.CONTENT:
-        print(event.content, end="")
+        async for event in agent.stream("Review the changed files"):
+            if event.type == EventType.CONTENT:
+                print(event.content, end="", flush=True)
+
+
+asyncio.run(main())
 ```
 
 ## StateGraph Workflows
 
 ```python
+import asyncio
 from typing import TypedDict
 
 from victor.framework import END, StateGraph
@@ -96,7 +104,10 @@ graph.add_node("inspect", inspect)
 graph.add_edge("inspect", END)
 graph.set_entry_point("inspect")
 
-result = await graph.compile().invoke({"query": "review this module", "findings": []})
+result = asyncio.run(
+    graph.compile().invoke({"query": "review this module", "findings": []})
+)
+print(result.state["findings"])
 ```
 
 ## Architecture
@@ -123,6 +134,9 @@ flowchart TB
 ```
 
 The [canonical architecture guide](docs/architecture.md) explains the boundaries and execution paths.
+Workflow execution and streaming share `CompiledGraph`; the former BFS walker has been removed.
+The unified streaming chat loop is implemented. Further chat ownership inversion, expanded
+interrupt/resume semantics and RL package relocation remain explicitly labelled proposal targets.
 
 The framework/plugin split is:
 
@@ -132,10 +146,12 @@ The framework/plugin split is:
 - `victor-contracts` is the definition-layer contract for external verticals and plugins.
 - Sibling `victor-*` packages own domain behavior such as coding, DevOps, RAG, research, data analysis, and investment workflows.
 
+Read the [published documentation](https://anvai-labs.github.io/victor/) for navigation and searchable API references.
+
 Detailed references:
 
 - [Architecture overview](docs/architecture.md)
-- [Historical 0.7 architecture diagram](docs/diagrams/architecture/victor_0_7_architecture.mmd)
+- [Diagram map and refresh audit](docs/diagrams/refresh-2026-09.md)
 - [contracts boundary](docs/architecture/CONTRACTS_BOUNDARY.md)
 - [State-passed architecture](docs/architecture/state-passed-architecture.md)
 

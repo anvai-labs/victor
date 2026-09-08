@@ -43,8 +43,9 @@ at scale are AnvaiOps's commercial layer — Victor does not build them.
 
 The dependency direction is one-way (`victor → sandhi`). The typed provider runtime is a
 required Victor dependency; the separately configured attribution gateway/proxy remains
-default-off (FEP-0020 § Migration). Sandhi 0.1.1 is the last published version; the complete
-typed-runtime migration ships once as 0.1.2 because there are no external compatibility users.
+default-off (FEP-0020 § Migration). The current repository requirement is
+`sandhi-gateway==0.5.0` in `pyproject.toml`. The earlier 0.1.1→0.1.2 rollout described
+the July migration and is historical, not the current dependency train.
 
 For provider transport, the ownership boundary is explicit: Victor owns agent/model
 policy and normalized framework objects; Sandhi owns endpoint routing, headers, HTTP/SSE,
