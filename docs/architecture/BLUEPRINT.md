@@ -11,13 +11,13 @@
 ## Table of Contents
 
 - [What Victor Is](#what-victor-is)
-- [Top-Down View — Layer Architecture](#top-down-view--layer-architecture)
-- [Request Flow — A Single Chat Turn](#request-flow--a-single-chat-turn)
-- [Bottom-Up View — Package & Module Map](#bottom-up-view--package--module-map)
+- [Top-Down View — Layer Architecture](#top-down-view-layer-architecture)
+- [Request Flow — A Single Chat Turn](#request-flow-a-single-chat-turn)
+- [Bottom-Up View — Package & Module Map](#bottom-up-view-package-module-map)
 - [The Six Canonical Services](#the-six-canonical-services)
 - [Extension Surfaces](#extension-surfaces)
-- [Data & State Model](#data--state-model)
-- [Reading Order — Suggested Path](#reading-order--suggested-path)
+- [Data & State Model](#data-state-model)
+- [Reading Order — Suggested Path](#reading-order-suggested-path)
 - [Glossary](#glossary)
 
 ---

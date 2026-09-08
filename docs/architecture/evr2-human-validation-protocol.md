@@ -1,9 +1,17 @@
 # EVR-2 Human-Label Validation Protocol (ADR-011)
 
+> **Historical record — status checked 2026-09-06.** The concluded judge-calibration and
+> training apparatus had been removed in [#1019](https://github.com/anvai-labs/victor/pull/1019)
+> (commit dated 2026-09-05). References to its commands, labels and reports describe that
+> historical experiment, not runnable files in the current checkout. Recover the original
+> [apparatus from git history](https://github.com/anvai-labs/victor/tree/d0ea2aac0e920e8af8116b182ebb18383e9b7c7b/benchmarks/judge_calibration).
+> Recorded findings and the decision to keep the production default unchanged still apply.
+
+
 **Status**: Pre-registered 2026-08-02, BEFORE any labels were collected.
 **Rule**: these thresholds and procedures may not change once labeling begins;
 a run that motivates changing them is a failed run, recorded as such in
-[FINDINGS](../../benchmarks/judge_calibration/FINDINGS.md).
+[FINDINGS](https://github.com/anvai-labs/victor/blob/d0ea2aac0e920e8af8116b182ebb18383e9b7c7b/benchmarks/judge_calibration/FINDINGS.md).
 
 ## Why
 

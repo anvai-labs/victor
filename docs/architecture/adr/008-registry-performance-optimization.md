@@ -257,10 +257,10 @@ class ToolRegistry:
 
 ## References
 
-- [Profiling Results](../../performance/registration_profiling_results.md)
-- [Indexed Architecture Design](../registration_indexed_architecture.md)
-- [Batch Registration API](../../victor/tools/batch_registration.py)
-- [Performance Tests](../../../tests/performance/)
+- [Profiling Results](https://github.com/anvai-labs/victor/blob/3c4ef46cf1d04b2f9a4ca1bd0301348df31ab035/docs/performance/registration_profiling_results.md)
+- [Indexed Architecture Design](https://github.com/anvai-labs/victor/blob/3c4ef46cf1d04b2f9a4ca1bd0301348df31ab035/docs/architecture/registration_indexed_architecture.md)
+- [Batch Registration API](https://github.com/anvai-labs/victor/blob/develop/victor/tools/batch_registration.py)
+- [Performance Tests](https://github.com/anvai-labs/victor/tree/develop/tests/performance)
 
 ## Revisions
 

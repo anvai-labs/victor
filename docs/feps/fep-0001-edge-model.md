@@ -14,6 +14,13 @@ implementation: null
 
 # FEP-0001: Edge Model for Micro-Decisions and Token Reduction
 
+> **Legacy proposal series.** This document retains the old `docs/feps` number 0001
+> as historical context. It is distinct from canonical
+> [FEP-0001](https://github.com/anvai-labs/victor/blob/develop/feps/fep-0001-fep-process.md) in the root `feps/` series.
+> Its Draft metadata is preserved. See [FEP-0012](https://github.com/anvai-labs/victor/blob/develop/feps/fep-0012-shipped-edge-classifier.md)
+> for the related current proposal or decision, and the [canonical FEP index](https://github.com/anvai-labs/victor/blob/develop/feps/README.md).
+
+
 ## Abstract
 
 Introduce a lightweight "edge model" (50-100M parameters, running locally on CPU) that handles micro-decisions throughout the agent lifecycle — task classification, tool selection, completion detection, system prompt construction, and loop prevention. This eliminates hundreds of millions of tokens/year in cloud LLM costs while improving latency for sub-second decisions.

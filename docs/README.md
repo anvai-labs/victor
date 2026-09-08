@@ -1,48 +1,44 @@
 # Victor Documentation
 
-Build and serve the documentation site:
+Start with the [documentation map](index.md). This repository separates current user and
+contributor guidance from dated experiments, design proposals and review evidence.
 
-```bash
-pip install -e ./victor-contracts -e ".[docs]"
-mkdocs serve     # Dev server with live reload at http://localhost:8000
-mkdocs build     # Static site → ./site/
-mkdocs build --strict  # Fail on broken links
-```
+## Canonical guides
 
-> **Do not hand-edit `site/`** — it is generated from the `docs/` source.
+| Topic | Canonical document |
+| --- | --- |
+| System ownership and runtime behavior | [Architecture](architecture.md) |
+| Technology choices and dependency requirements | [Tech stack](tech-stack.md) |
+| Current execution plan and complete debt register | [Roadmap](roadmap.md) |
+| Feature catalog | [Features](features.md) |
+| Development environment | [Development Setup](development/setup.md) |
+| Native extension build | [Native build recipe](development/setup.md#native-extension-build) |
+| Documentation build and preview | [Documentation build](development/setup.md#documentation-build) |
+| Branches, verification and pull requests | [PR Workflow](development/PR_WORKFLOW.md) |
+| Architecture decisions | [ADR index](architecture/adr/README.md) |
+| Enhancement proposals | [Repository FEP index](https://github.com/anvai-labs/victor/blob/develop/feps/README.md) |
+| Proposal process | [FEP Process](FEP_PROCESS.md) |
 
-## Document Hierarchy
+The canonical proposal files live in repository-root `feps/`. Older `docs/feps/` pages are
+historical pointers. A merged proposal can still be Draft; implementation status is stated
+in the proposal and roadmap rather than inferred from the existence of a document.
 
-```
-docs/
-├── index.md                     ← Landing page (documentation map)
-├── architecture.md               ← System architecture (single source of truth)
-├── roadmap.md                    ← 90-day priorities, tech debt register
-├── features.md                   ← Feature catalog grounded in implementation
-├── tech-stack.md                 ← Technology choices and dependency versions
-├── user-guide/                   ← End-user guides
-├── development/                  ← Contributor/developer guides
-├── api-reference/                ← API documentation
-├── reference/                    ← Reference tables and lookup docs
-├── diagrams/                     ← Editable .mmd sources (canonical diagrams inline in master docs)
-├── architecture/                 ← Detailed architecture docs (ADR, decomposition)
-├── feps/                         ← Framework Enhancement Proposals
-└── README.md                     ← This file
-```
+## Historical records
 
-## Canonical Files
+The [September co-design review](reviews/2026-09-03-codesign/README.md) retains the original
+findings and an execution ledger. Historical experiment reports preserve their measured
+PASS, HOLD and NO-GO outcomes. Follow their status banners before using an old command or
+file reference; removed research apparatus is recoverable from git history.
 
-| Purpose | File | Notes |
-|---------|------|-------|
-| Landing | `docs/index.md` | Documentation map with links to all sections |
-| Architecture | `docs/architecture.md` | Canonical system architecture (single source of truth) |
-| Roadmap | `docs/roadmap.md` | Canonical roadmap and tech-debt register |
-| Features | `docs/features.md` | Grounded feature catalog |
-| Diagrams | `docs/diagrams/README.md` | Editable `.mmd` sources; canonical diagrams inline in master docs |
+The [September documentation audit](development/docs-audit-2026-09.md) records consolidation
+and archival decisions. Current recipes belong in their canonical guide; duplicate pages
+point there instead of maintaining a second copy.
 
-## Formatting Standards
+## Authoring conventions
 
-- **Format**: Markdown (`.md`) only — no `.adoc` or `.rst` for new docs
-- **Diagrams**: Mermaid (preferred) or PlantUML — both render in GitHub and MkDocs
-- **Line length**: 100 characters max
-- **Styling**: Professional, concise, implementation-grounded
+Use Markdown and Mermaid for diagrams. Clearly label proposed architecture as a target until
+its implementation lands. Keep file names, links, dependency requirements and execution claims
+consistent with code, and update the owning guide when behavior changes.
+
+`site/` is generated output: do not hand-edit or commit it. Use the canonical
+[documentation build instructions](development/setup.md#documentation-build) for previewing changes.

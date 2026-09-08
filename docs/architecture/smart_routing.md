@@ -466,7 +466,7 @@ total_score += 0.2 * perf_score       # Increase from 0.15
 
 ## See Also
 
-- [Provider Resilience](../providers/resilience.md)
-- [Circuit Breakers](../resilience/circuit_breakers.md)
-- [Performance Monitoring](../observability/metrics.md)
-- [Configuration Guide](../configuration/settings.md)
+- [Provider Resilience](../guides/RESILIENCE.md)
+- [Circuit Breakers](../guides/RESILIENCE.md)
+- [Performance Monitoring](../guides/observability/metrics.md)
+- [Configuration Guide](../reference/settings-reference.md)

@@ -470,6 +470,6 @@ bus.subscribe(EventCategory.ERROR, lambda e:
 
 ## Related Resources
 
-- [Observability →](observability/) - Resilience event monitoring
-- [Provider Reference →](../reference/providers/) - Provider configuration
-- [User Guide →](../user-guide/) - General usage
+- [Observability →](observability/index.md) - Resilience event monitoring
+- [Provider Reference →](../reference/providers/index.md) - Provider configuration
+- [User Guide →](../user-guide/index.md) - General usage

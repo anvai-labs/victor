@@ -53,8 +53,10 @@ source venv/bin/activate  # Windows: venv\Scripts\activate
 make install-dev   # installs victor-contracts (in-repo SDK) before victor-ai[dev]
 # without make: pip install -e ./victor-contracts -e ".[dev]"
 
-# 3. Create branch
-git checkout -b feature/your-feature-name
+# 3. Create a worktree from develop
+git fetch origin
+git worktree add ../victor-your-feature -b feature/your-feature-name origin/develop
+cd ../victor-your-feature
 
 # 4. Make changes and test
 make test
@@ -66,7 +68,7 @@ git commit -m "feat: add your feature"
 git push origin feature/your-feature-name
 
 # 6. Create pull request
-# Visit https://github.com/anvai-labs/victor/pulls
+gh pr create --base develop --head feature/your-feature-name
 ```
 
 **IMPORTANT**: Victor uses a strict PR-based workflow with CI/CD validation. All changes must go through pull requests, and all status checks must pass before merging to main.

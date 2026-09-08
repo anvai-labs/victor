@@ -50,7 +50,7 @@ capabilities from a validated per-provider spec rather than hard-coding them
 
 Cost tiers are indicative ($ = budget, $$$ = premium); check current provider pricing.
 This is a subset — Victor ships **25 provider adapters**. For the full list run
-`victor providers`, or see the [Provider Reference](../reference/providers/) and the
+`victor providers`, or see the [Provider Reference](../reference/providers/index.md) and the
 detailed per-provider sections below.
 
 ---
@@ -917,11 +917,11 @@ ollama serve
 
 ## Additional Resources
 
-- **Provider Reference**: [Full Reference Documentation](../reference/providers/)
+- **Provider Reference**: [Full Reference Documentation](../reference/providers/index.md)
 - **Provider Comparison**: [Comparison Table](../reference/providers/comparison.md)
 - **Setup Guide**: [Detailed Setup](../reference/providers/setup.md)
 - **Tool Catalog**: [55 Tools](../reference/tools/catalog.md)
-- **Configuration**: [Profiles and Settings](../reference/configuration/)
+- **Configuration**: [Profiles and Settings](../reference/configuration/index.md)
 
 ---
 

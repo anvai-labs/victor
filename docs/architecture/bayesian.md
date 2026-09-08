@@ -623,6 +623,6 @@ class CustomConsensusBuilder(BayesianConsensusBuilder):
 
 ## See Also
 
-- [Bayesian Orchestration Guide](../bayesian_orchestration.md) — Usage guide
-- [Bayesian API Reference](../api/bayesian.md) — API documentation
-- [Architecture Overview](index.md) — Victor architecture
+- [Bayesian Orchestrator Source](https://github.com/anvai-labs/victor/blob/develop/victor/framework/rl/orchestration/bayesian_orchestrator.py) — Implementation
+- [Bayesian Configuration Source](https://github.com/anvai-labs/victor/blob/develop/victor/framework/bayesian_config.py) — Configuration definitions
+- [Architecture Overview](../architecture.md) — Victor architecture

@@ -1,6 +1,14 @@
 # Judge Independence: Options and Measured Evidence
 
-Status: living experiment log (2026-08-02 —). Protocol:
+> **Historical record — status checked 2026-09-06.** The concluded judge-calibration and
+> training apparatus had been removed in [#1019](https://github.com/anvai-labs/victor/pull/1019)
+> (commit dated 2026-09-05). References to its commands, labels and reports describe that
+> historical experiment, not runnable files in the current checkout. Recover the original
+> [apparatus from git history](https://github.com/anvai-labs/victor/tree/d0ea2aac0e920e8af8116b182ebb18383e9b7c7b/benchmarks/judge_calibration).
+> Recorded findings and the decision to keep the production default unchanged still apply.
+
+
+Status: historical experiment log (begun 2026-08-02). Protocol:
 [EVR-2 human-validation protocol](evr2-human-validation-protocol.md) (Amendment 1:
 AI-annotator gold). All rows measured on the SAME 96 real agent trajectories
 (run 12 pack, qwen3-coder-tools:30b agent) against verifier gold (validated
@@ -46,4 +54,4 @@ AI-annotator gold). All rows measured on the SAME 96 real agent trajectories
 Committed reports: `benchmarks/judge_calibration/labels/run12/reports-*/`;
 SWE-bench re-gate: `labels/swe-bench-lite-30/` and `labels/swe-bench-lite-60/`.
 FINDINGS rows: runs 12–14 + the two SWE-bench re-gate sections in
-[FINDINGS](../../benchmarks/judge_calibration/FINDINGS.md).
+[FINDINGS](https://github.com/anvai-labs/victor/blob/d0ea2aac0e920e8af8116b182ebb18383e9b7c7b/benchmarks/judge_calibration/FINDINGS.md).

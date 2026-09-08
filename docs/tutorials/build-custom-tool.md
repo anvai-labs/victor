@@ -839,6 +839,6 @@ For more examples, explore the existing tools in `victor/tools/` - they demonstr
 
 ## Next Steps
 
-- Read the [Tool Selection Guide](/docs/guides/development/TOOL_SELECTION.md)
-- Explore [Tool Calling Formats](/docs/guides/development/TOOL_CALLING_FORMATS.md)
-- Learn about [Creating Verticals](/docs/development/extending/verticals.md)
+- Read the [Tool Selection Guide](../guides/development/TOOL_SELECTION.md)
+- Explore [Tool Calling Formats](../guides/development/TOOL_CALLING_FORMATS.md)
+- Learn about [Creating Verticals](../development/extending/verticals.md)

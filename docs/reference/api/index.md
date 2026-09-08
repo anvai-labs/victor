@@ -568,7 +568,7 @@ python -c "import victor; print(victor.__version__)"
 - **HTTP API**: [Full Documentation →](http-api.md)
 - **MCP Server**: [Full Documentation →](mcp-server.md)
 - **Python API**: [Full Documentation →](python-api.md)
-- **Configuration**: [Configuration Reference →](../configuration/)
+- **Configuration**: [Configuration Reference →](../configuration/index.md)
 - **Troubleshooting**: [Troubleshooting Guide →](../../user-guide/troubleshooting.md)
 
 ---

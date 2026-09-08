@@ -9,7 +9,7 @@
   reliability gating), 012 (regression-gated harness acceptance)
 - **Work tracked by**: [EVR-4, EVR-5, EVR-2, EVR-3](../evaluation-centric-runtime-backlog.md)
   (existing — this ADR does **not** create new work items)
-- **Governed by**: [FEP-0008](../../../feps/fep-0008-evaluation-centric-completion.md)
+- **Governed by**: [FEP-0008](https://github.com/anvai-labs/victor/blob/develop/feps/fep-0008-evaluation-centric-completion.md)
 - **Benchmark**: [competitive-benchmark-2026-07.md](../competitive-benchmark-2026-07.md) §5
 
 ## Context

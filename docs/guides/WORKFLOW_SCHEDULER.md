@@ -12,7 +12,7 @@
 - [Execution Limits](#execution-limits)
 - [Workflow Versioning](#workflow-versioning)
 - [Production Deployment](#production-deployment)
-- [Limitations & Honest Assessment](#limitations--honest-assessment)
+- [Limitations & Honest Assessment](#limitations-honest-assessment)
 
 ## Overview
 
@@ -601,6 +601,6 @@ Use Airflow, Temporal.io, or AWS Step Functions when you need:
 **Related Documentation**:
 - [StateGraph DSL Guide](workflow-development/dsl.md) - Building workflow graphs
 - [User Guide: Workflows](../user-guide/index.md#4-workflows)
-- [YAML Workflow Architecture](../../CLAUDE.md#yaml-workflow-architecture)
+- [YAML Workflow Architecture](../architecture.md#workflow-engine)
 
 *Last Updated: 2026-01-05*

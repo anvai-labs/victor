@@ -5,7 +5,7 @@ This document provides comprehensive API documentation for Victor's LLM provider
 ## Table of Contents
 
 1. [BaseProvider Interface](#baseprovider-interface)
-2. [Provider Protocols](#provider-protocols)
+2. [Provider Protocols](protocols.md)
 3. [Key Classes](#key-classes)
 4. [Provider Implementation Pattern](#provider-implementation-pattern)
 5. [Configuration](#configuration)

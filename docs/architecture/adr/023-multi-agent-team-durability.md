@@ -69,7 +69,7 @@ so it is FEP-gated (below).
 
 - **Companion FEP** — the team-node durability contract (checkpoint identity, interrupt semantics,
   member-tagged streaming) is a `victor.framework` public surface: ratified in
-  [FEP-0028](../../../feps/fep-0028-team-node-durability-contract.md). Increments:
+  [FEP-0028](https://github.com/anvai-labs/victor/blob/develop/feps/fep-0028-team-node-durability-contract.md). Increments:
   1. member-granular checkpoint/resume via the existing StateGraph checkpointer — **done across all six
      formations**: SEQUENTIAL and PIPELINE (per-member), PARALLEL (lock-protected concurrent
      completed-set), HIERARCHICAL (phase-granular — plan/specialists/synthesis in

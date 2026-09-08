@@ -10,7 +10,7 @@ Complete reference for configuring Victor's behavior and integrations.
 | **config.yaml** | Global settings and options | `~/.victor/config.yaml` | [#configyaml →](#configyaml) |
 | **mcp.yaml** | MCP server configuration | `~/.victor/mcp.yaml` | [#mcpyaml →](#mcpyaml) |
 | **.victor.md** | Project context | `<project>/.victor.md` | [.victor.md →](../../user-guide/index.md#5-project-context) |
-| **CLAUDE.md** | AI instructions | `<project>/CLAUDE.md` | [CLAUDE.md →](../../../CLAUDE.md) |
+| **CLAUDE.md** | AI instructions | `<project>/CLAUDE.md` | [Configuration architecture →](../../architecture.md#configuration-system) |
 
 ## Configuration Directory Structure
 
@@ -614,7 +614,7 @@ When refactoring code:
 - Write self-documenting code
 ```
 
-[Full CLAUDE.md Reference →](../../../CLAUDE.md)
+[Victor Configuration Architecture →](../../architecture.md#configuration-system)
 
 ---
 

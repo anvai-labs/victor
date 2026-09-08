@@ -599,7 +599,7 @@ condition: "{{previous_node.content}} == 'expected_value'"
 - 📖 [Workflow DSL Reference](workflow-development/dsl.md) - Complete YAML syntax
 - 🔄 [Advanced Workflows](workflow-development/examples.md) - Complex patterns
 - 🤖 [Building Agents](first-agent.md) - Create agents for workflows
-- 📚 [StateGraph API](../api/stategraph.md) - Low-level Python API
+- 📚 [StateGraph API](../api-reference/workflows.md) - Low-level Python API
 
 ---
 

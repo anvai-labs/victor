@@ -559,7 +559,7 @@ jobs:
 
 - [Code Style Guide](code-style.md) - Formatting and linting standards
 - [Setup Guide](setup.md) - Development environment setup
-- [Contributing Guide](../../CONTRIBUTING.md) - Pull request process
+- [Contributing Guide](https://github.com/anvai-labs/victor/blob/develop/CONTRIBUTING.md) - Pull request process
 
 ---
 

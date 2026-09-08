@@ -811,6 +811,6 @@ Use this checklist when creating a new vertical:
 
 ---
 
-For migration instructions, see [Migration Guide](migration_guide.md).
+For migration instructions, see [Migration Guide](../architecture/EXTERNAL_VERTICALS_MIGRATION.md).
 For API reference, see [API Reference](api_reference.md).
 For architecture overview, see [Architecture Refactoring](architecture_refactoring.md).

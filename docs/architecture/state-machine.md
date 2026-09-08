@@ -256,6 +256,6 @@ class MyStageDetector:
 
 ## Related Documentation
 
-- [Verticals →](../../reference/verticals/index.md) - Domain-specific stage configurations
-- [Tool Catalog →](../../reference/tools/catalog.md) - Complete tool reference
-- [Development Guide →](../../development/) - Framework entrypoints and structure
+- [Verticals →](../reference/verticals/index.md) - Domain-specific stage configurations
+- [Tool Catalog →](../reference/tools/catalog.md) - Complete tool reference
+- [Development Guide →](../development/index.md) - Framework entrypoints and structure

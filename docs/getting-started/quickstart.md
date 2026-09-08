@@ -337,7 +337,7 @@ Now that you have Victor running:
    - [Configuration - Project Context](configuration.md#project-context-files)
 
 5. **Explore workflows** - Automate repetitive tasks
-   - [Workflow Guide](../guides/workflow-development/)
+   - [Workflow Guide](../guides/workflow-development/dsl.md)
 
 6. **Try different providers** - Find the best model for your needs
    - [Provider decision matrix](../user-guide/providers.md#provider-decision-matrix)
@@ -347,7 +347,7 @@ Now that you have Victor running:
 ## Getting Help
 
 - **In-app help**: Type `/help` in Victor
-- **Documentation**: [Full docs](../README.md)
+- **Documentation**: [Full docs](../index.md)
 - **Troubleshooting**: [Troubleshooting Guide](../user-guide/troubleshooting.md)
 - **Community**: [GitHub Discussions](https://github.com/anvai-labs/victor/discussions)
 - **Issues**: [Report bugs](https://github.com/anvai-labs/victor/issues)

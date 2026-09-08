@@ -219,7 +219,7 @@ restored = await manager.load_checkpoint(
 
 - [State Management Patterns](https://martinfowler.com/eaaDev/StateManagement.html)
 - [Copy-on-Write Optimization](https://en.wikipedia.org/wiki/Copy-on-write)
-- [Victor State Implementation](../state/manager.py)
+- [Victor State Implementation](https://github.com/anvai-labs/victor/tree/develop/victor/state/)
 
 ## Revision History
 

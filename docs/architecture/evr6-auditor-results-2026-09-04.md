@@ -1,5 +1,10 @@
 # EVR-6 real-distribution attempt 1
 
+> **Historical result — 2026-09-04 attempt 1.** Preserve this attempt's evidence and HOLD
+> verdict. The [auditor gate](evr6-auditor-gate.md) defines the current requirements for any
+> separately declared follow-up; this result does not authorize enabling the runtime flag.
+
+
 - **Date:** 2026-09-04
 - **Verdict:** **HOLD**
 - **Runtime decision:** keep `per_turn_auditor` default OFF
