@@ -80,7 +80,7 @@ def test_constructor_uses_runtime_executor_factory(mock_orchestrator) -> None:
     runtime.sub_agents = MagicMock()
 
     with patch(
-        "victor.workflows.streaming_executor.create_legacy_workflow_executor",
+        "victor.workflows.streaming_executor.create_bfs_streaming_runtime",
         return_value=runtime,
     ) as factory:
         executor = StreamingWorkflowExecutor(

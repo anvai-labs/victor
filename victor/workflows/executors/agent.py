@@ -15,7 +15,7 @@
 """Agent node executor.
 
 Executes agent nodes by spawning sub-agents with role-specific configurations.
-This is a stub that delegates to legacy implementation during migration.
+Agent summaries become workflow output; failures use the shared state convention.
 """
 
 from __future__ import annotations
@@ -81,6 +81,7 @@ class AgentNodeExecutor:
 
         logger.info(f"Executing agent node: {node.id} with role: {node.role}")
         start_time = time.time()
+        state = dict(state)
 
         # Step 1: Build input context from input_mapping
         input_context = {}
@@ -91,7 +92,7 @@ class AgentNodeExecutor:
 
         # Step 2: Substitute context variables in goal
         goal = node.goal
-        if goal and "{{" in goal:
+        if goal and "{" in goal:
             # Substitute variables from both input_context and full state
             substitution_context = {**state, **input_context}
             goal = self._substitute_context(goal, substitution_context)
@@ -100,27 +101,13 @@ class AgentNodeExecutor:
         orchestrator = self._get_orchestrator(node.profile)
 
         if orchestrator is None:
-            logger.warning(
-                "No orchestrator available for agent node '%s'; using placeholder execution",
-                node.id,
-            )
-            output = {
-                "node_id": node.id,
-                "role": node.role,
-                "goal": goal,
-                "status": "placeholder",
-                "input_context": input_context,
-            }
-            output_key = node.output_key or node.id
-            state[output_key] = output
-
-            if "_node_results" not in state:
-                state["_node_results"] = {}
-
-            state["_node_results"][node.id] = GraphNodeResult(
+            error = f"No orchestrator available for agent node '{node.id}'"
+            logger.error(error)
+            state["_error"] = error
+            state.setdefault("_node_results", {})[node.id] = GraphNodeResult(
                 node_id=node.id,
-                success=True,
-                output=output,
+                success=False,
+                error=error,
                 duration_seconds=time.time() - start_time,
             )
             return state
@@ -160,8 +147,7 @@ class AgentNodeExecutor:
         except Exception as e:
             logger.error(f"Agent node {node.id} execution failed: {e}")
             # Store error in state and return
-            output_key = node.output_key or node.id
-            state[output_key] = {"error": str(e), "success": False}
+            state["_error"] = str(e) or type(e).__name__
 
             if "_node_results" not in state:
                 state["_node_results"] = {}
@@ -180,7 +166,10 @@ class AgentNodeExecutor:
 
         # Step 8: Store result in state
         output_key = node.output_key or node.id
-        state[output_key] = result
+        if result.success and result.summary:
+            state[output_key] = result.summary
+        if not result.success:
+            state["_error"] = result.error or f"Agent node '{node.id}' failed"
 
         # Step 9: Track node result for observability
         if "_node_results" not in state:
@@ -188,13 +177,14 @@ class AgentNodeExecutor:
 
         state["_node_results"][node.id] = GraphNodeResult(
             node_id=node.id,
-            success=True,
-            output=result,
+            success=result.success,
+            output=result.summary,
+            error=result.error if result.success else state["_error"],
             duration_seconds=time.time() - start_time,
             tool_calls_used=getattr(result, "tool_calls_used", 0),
         )
 
-        logger.info(f"Agent node {node.id} completed successfully")
+        logger.info("Agent node %s completed (success=%s)", node.id, result.success)
         return state
 
     def _get_orchestrator(self, profile: str | None) -> Any:
@@ -271,7 +261,7 @@ class AgentNodeExecutor:
         """Substitute context variables in template string.
 
         Args:
-            template: Template string with {{variable}} placeholders
+            template: Template with {variable} or {{variable}} placeholders
             context: Context dictionary with variable values
 
         Returns:
@@ -279,10 +269,10 @@ class AgentNodeExecutor:
         """
         import re
 
-        pattern = r"\{\{(\w+)\}\}"
+        pattern = r"\{\{(?P<double>\w+)\}\}|(?<!\{)\{(?P<single>\w+)\}(?!\})"
 
         def replace_var(match):
-            var_name = match.group(1)
+            var_name = match.group("double") or match.group("single")
             if var_name in context:
                 value = context[var_name]
                 # Handle dict values by converting to JSON

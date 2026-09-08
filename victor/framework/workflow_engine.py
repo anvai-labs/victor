@@ -197,6 +197,8 @@ class WorkflowExecutionResult:
         checkpoints: List of checkpoint IDs created.
         hitl_requests: HITL requests that were made.
         cached: Whether result was from cache.
+        interrupted: Whether execution paused at a graph interrupt.
+        interrupt_node: Node at which execution paused.
     """
 
     success: bool
@@ -209,6 +211,8 @@ class WorkflowExecutionResult:
     checkpoints: List[str] = field(default_factory=list)
     hitl_requests: List[Dict[str, Any]] = field(default_factory=list)
     cached: bool = False
+    interrupted: bool = False
+    interrupt_node: Optional[str] = None
 
 
 @dataclass
@@ -521,7 +525,7 @@ class WorkflowEngine:
         import uuid
 
         start_time = time.time()
-        workflow_id = kwargs.get("workflow_id") or uuid.uuid4().hex
+        workflow_id = kwargs.pop("workflow_id", None) or uuid.uuid4().hex
 
         # Emit workflow started event
         self._emit_workflow_event(
@@ -538,18 +542,21 @@ class WorkflowEngine:
             result = await executor.execute(
                 workflow,
                 initial_context=initial_state or {},
+                **kwargs,
             )
 
             duration = time.time() - start_time
 
             # Emit workflow completed event
             self._emit_workflow_event(
-                "workflow_completed",
+                "workflow_paused" if result.interrupted else "workflow_completed",
                 workflow_id,
                 {
                     "success": result.success,
                     "duration": duration,
                     "nodes_executed": result.nodes_executed,
+                    "interrupted": result.interrupted,
+                    "interrupt_node": result.interrupt_node,
                 },
             )
 
@@ -559,6 +566,8 @@ class WorkflowEngine:
                 nodes_executed=result.nodes_executed,
                 duration_seconds=duration,
                 error=result.error if not result.success else None,
+                interrupted=result.interrupted,
+                interrupt_node=result.interrupt_node,
             )
 
         except Exception as e:

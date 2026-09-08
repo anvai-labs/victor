@@ -93,6 +93,7 @@ from typing import (
     Set,
     Type,
     TypeVar,
+    Tuple,
     Union,
 )
 
@@ -115,7 +116,7 @@ from victor.framework.graph_execution import (
     TimeoutManager,
     snapshot_state_for_result,
 )
-from victor.framework.graph_algorithms import find_reachable
+from victor.framework.graph_algorithms import detect_cycle, find_reachable
 from victor.framework.graph_examples import AgentStateModel
 from victor.framework.graph_merge import (
     default_state_merger,
@@ -181,6 +182,12 @@ class CompiledGraph(Generic[StateType]):
 
     The compilation step validates the graph structure and
     creates an optimized execution plan.
+
+    Multiple ordinary outgoing edges use sequential breadth-first DAG traversal,
+    visiting shared descendants once. Cycles combined with ordinary fan-out are
+    rejected at compilation; dynamic Send combined with ordinary fan-out is
+    rejected before Send branches run. Single-path cycles and Send retain their
+    existing execution semantics.
     """
 
     def __init__(
@@ -209,6 +216,26 @@ class CompiledGraph(Generic[StateType]):
         self._state_schema = state_schema
         self._config = config or GraphConfig()
         self._strict_edges = strict_edges
+        self._sequential_fanout = any(
+            len(edges) > 1 and all(edge.edge_type == EdgeType.NORMAL for edge in edges)
+            for edges in self._edges.values()
+        )
+        if self._sequential_fanout:
+            adjacency = {
+                source: {
+                    target
+                    for edge in edges
+                    for target in (
+                        edge.target.values() if isinstance(edge.target, dict) else [edge.target]
+                    )
+                }
+                for source, edges in self._edges.items()
+            }
+            if detect_cycle(set(self._nodes), adjacency):
+                raise ValueError(
+                    "Graphs combining cycles with multiple ordinary outgoing edges are "
+                    "unsupported; sequential fan-out requires an acyclic graph"
+                )
         self._debug_hook: Optional[Any] = None  # DebugHook for debugging
         self._state_merger: Callable[[Dict[str, Any], List[Dict[str, Any]]], Dict[str, Any]] = (
             resolve_state_merger(
@@ -394,6 +421,11 @@ class CompiledGraph(Generic[StateType]):
 
         # Explicit start_node overrides both checkpoint and entry point
         if start_node is not None:
+            if checkpoint_manager.routing_state is not None:
+                raise ValueError(
+                    "Cannot override start_node for a sequential fan-out checkpoint; "
+                    "resume without start_node to retain pending branches"
+                )
             current_node = start_node
         runtime_outcome: GraphRuntimeOutcome = await run_graph_execution(
             state=state,
@@ -423,6 +455,7 @@ class CompiledGraph(Generic[StateType]):
                 base_state=base_state,
             ),
             record_state_history=exec_config.checkpoint.record_state_history,
+            sequential_fanout=self._sequential_fanout,
         )
         return GraphExecutionResult(
             state=runtime_outcome.state,
@@ -434,7 +467,9 @@ class CompiledGraph(Generic[StateType]):
             state_history=runtime_outcome.state_history,
         )
 
-    def _get_next_node(self, current_node: str, state: Any) -> Union[str, List[Send]]:
+    def _get_next_node(
+        self, current_node: str, state: Any
+    ) -> Union[str, List[Send], Tuple[str, ...]]:
         """Determine next node based on edges and state.
 
         Args:
@@ -442,11 +477,13 @@ class CompiledGraph(Generic[StateType]):
             state: Current state
 
         Returns:
-            Next node ID, a list of Send directives, or END
+            Next node ID, a tuple of sequential successors, Send directives, or END
         """
         edges = self._edges.get(current_node, [])
         if not edges:
             return END
+        if len(edges) > 1 and all(edge.edge_type == EdgeType.NORMAL for edge in edges):
+            return tuple(edge.target for edge in edges if isinstance(edge.target, str))
 
         for edge in edges:
             target = edge.get_target(state)
@@ -584,6 +621,7 @@ class CompiledGraph(Generic[StateType]):
                 base_state=base_state,
             ),
             record_state_history=exec_config.checkpoint.record_state_history,
+            sequential_fanout=self._sequential_fanout,
         ):
             yield node_id, node_state
 
@@ -641,6 +679,8 @@ class CompiledGraph(Generic[StateType]):
         """Load a checkpoint and replay the graph from its node.
 
         A new thread id is generated to avoid polluting existing history.
+        Sequential fan-out checkpoints support invoke() resume, but node-based
+        replay is rejected because it would discard pending branches.
 
         Args:
             thread_id: Original thread id that owns the checkpoint
@@ -667,6 +707,11 @@ class CompiledGraph(Generic[StateType]):
 
         if target is None:
             raise ValueError(f"Checkpoint '{checkpoint_id}' not found for thread '{thread_id}'.")
+        if "sequential_frontier" in target.metadata:
+            raise ValueError(
+                "Cannot replay a sequential fan-out checkpoint by node; "
+                "resume its thread with invoke() to retain pending branches"
+            )
 
         replay_thread = f"replay_{uuid.uuid4().hex}"
         return await self.invoke(

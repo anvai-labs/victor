@@ -382,3 +382,53 @@ class TestWorkflowCompilerFacade:
 
         node_executor_factory.create_executor.assert_called_once_with(workflow.nodes["start"])
         assert compiled.get_graph_schema()["entry_point"] == "start"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("limit,expected_peak", [(1, 1), (2, 2), (None, 2)])
+async def test_native_parallel_compiler_honors_concurrency_limit(limit, expected_peak):
+    active = 0
+    peak = 0
+
+    class AsyncFactory:
+        def create_executor(self, node):
+            async def execute(state):
+                nonlocal active, peak
+                active += 1
+                peak = max(peak, active)
+                try:
+                    await asyncio.sleep(0)
+                    return {**state, node.id: True}
+                finally:
+                    active -= 1
+
+            return execute
+
+    workflow = _make_parallel_workflow("bounded_parallel")
+    parsed = ParsedWorkflowDefinition(
+        request=WorkflowCompilationRequest(source="test"), workflow=workflow
+    )
+    compiled = NativeWorkflowGraphCompiler(
+        node_executor_factory=AsyncFactory(), max_parallel=limit, enable_checkpointing=False
+    ).compile(parsed)
+    result = await compiled.invoke({})
+    assert result.success is True
+    assert result.state["worker_a"] is True
+    assert result.state["worker_b"] is True
+    assert peak == expected_peak
+    assert active == 0
+
+
+@pytest.mark.parametrize("limit", [0, -1])
+def test_native_parallel_compiler_rejects_invalid_concurrency_limit(limit):
+    with pytest.raises(ValueError, match="max_parallel must be positive"):
+        NativeWorkflowGraphCompiler(node_executor_factory=Mock(), max_parallel=limit)
+
+
+@pytest.mark.parametrize(
+    "left,right,expected", [(float("nan"), float("nan"), True), (float("nan"), 1.0, False)]
+)
+def test_snapshot_equality_treats_scalar_nan_as_unchanged(left, right, expected):
+    from victor.workflows.compiler.boundary import _state_values_equal
+
+    assert _state_values_equal(left, right) is expected

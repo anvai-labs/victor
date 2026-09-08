@@ -24,6 +24,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Callable, Dict, Optional
 
+from victor.workflows.models import WorkflowStateModel
 from victor.workflows.executors.factory import (
     NodeExecutorFactory as SharedNodeExecutorFactory,
 )
@@ -146,10 +147,15 @@ class CompatibilityNodeExecutorFactory:
                 WorkflowNodeExecutionError: if the node wrote ``_error``.
             """
             result_state = await executor(state)
-            if isinstance(result_state, dict) and result_state.get("_error") is not None:
+            failure_state = (
+                result_state.to_dict()
+                if isinstance(result_state, WorkflowStateModel)
+                else result_state
+            )
+            if isinstance(failure_state, dict) and failure_state.get("_error") is not None:
                 raise WorkflowNodeExecutionError(
-                    str(result_state["_error"]),
-                    result_state,
+                    str(failure_state["_error"]),
+                    failure_state,
                 )
             return result_state
 

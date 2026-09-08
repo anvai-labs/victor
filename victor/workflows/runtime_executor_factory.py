@@ -14,10 +14,9 @@
 
 """Canonical construction seam for compatibility workflow executors.
 
-The legacy DAG executors remain public compatibility surfaces. Internal
-framework owners should not construct them directly from scattered import
-sites; they should go through this module so the remaining migration seam is
-centralized and can be swapped later in one place.
+Definition-based callers execute through StateGraph. The streaming wrapper
+retains a separate, explicitly named BFS construction hook until its private
+node hooks are migrated in ADR-030 step 3.
 """
 
 from __future__ import annotations
@@ -33,6 +32,13 @@ if TYPE_CHECKING:
 
 def create_legacy_workflow_executor(*args: Any, **kwargs: Any) -> "IWorkflowExecutor":
     """Create the compatibility workflow executor through a single seam."""
+    from victor.workflows.state_graph_adapter import StateGraphWorkflowExecutor
+
+    return StateGraphWorkflowExecutor(*args, **kwargs)
+
+
+def create_bfs_streaming_runtime(*args: Any, **kwargs: Any) -> Any:
+    """Retain the streaming wrapper's private BFS hooks until ADR-030 step 3."""
     from victor.workflows.unified_executor import CompiledWorkflowExecutor
 
     return CompiledWorkflowExecutor(*args, **kwargs)

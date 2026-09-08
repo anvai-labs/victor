@@ -305,9 +305,6 @@ class YAMLWorkflowCoordinator:
                     hitl_requests=hitl_requests,
                 )
             else:
-                # Legacy path: Use old WorkflowExecutor
-                from victor.workflows.context import WorkflowContext
-
                 # Load workflow (uses cache)
                 workflow_def = self.load_workflow(
                     yaml_path,
@@ -319,14 +316,12 @@ class YAMLWorkflowCoordinator:
                 # Create executor
                 executor = self._get_executor()
 
-                # Create context
-                context = WorkflowContext(
-                    workflow=workflow_def,
-                    initial_state=initial_state or {},
+                result = await executor.execute(
+                    workflow_def,
+                    initial_context=initial_state or {},
+                    thread_id=thread_id,
+                    **kwargs,
                 )
-
-                # Execute
-                result = await executor.execute(context)
 
                 duration = time.time() - start_time
 
@@ -337,6 +332,8 @@ class YAMLWorkflowCoordinator:
                     duration_seconds=duration,
                     error=result.error if not result.success else None,
                     hitl_requests=hitl_requests,
+                    interrupted=result.interrupted,
+                    interrupt_node=result.interrupt_node,
                 )
 
         except Exception as e:
