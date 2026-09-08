@@ -103,9 +103,26 @@ result = await graph.compile().invoke({"query": "review this module", "findings"
 
 The core rule is simple: interfaces compose framework APIs, framework APIs delegate to the service-first runtime, and domain packages plug in through SDK/public extension contracts.
 
-![Historical Victor 0.7 architecture](docs/diagrams/architecture/victor_0_7_readme_architecture.svg)
+```mermaid
+---
+title: Victor system overview
+---
+%%{init: {"theme":"base","themeVariables":{"primaryColor":"#E8EFF7","primaryTextColor":"#17324D","primaryBorderColor":"#456987","lineColor":"#456987","fontFamily":"Arial"}}}%%
+flowchart TB
+  C["Clients<br/>CLI · TUI · HTTP · MCP · VS Code"]
+  F["Framework<br/>VictorClient · AgentFactory<br/>Agent · WorkflowEngine · StateGraph"]
+  R["Runtime<br/>AgentOrchestrator facade<br/>chat, tool and session services"]
+  I["Infrastructure<br/>providers · tools · storage · core"]
+  V["External vertical definitions"]
+  S["victor_contracts"]
+  C -->|"call public APIs"| F
+  F -->|"construct and delegate"| R
+  R -->|"perform effectful operations"| I
+  V -->|"declare capabilities"| S
+  F -.->|"consume contracts"| S
+```
 
-*Historical overview; [current architecture](docs/architecture.md) documents the Stage C migration.*
+The [canonical architecture guide](docs/architecture.md) explains the boundaries and execution paths.
 
 The framework/plugin split is:
 

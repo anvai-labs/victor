@@ -27,14 +27,8 @@ result = await coordinator.run("Review the authentication module")
 
 ## Team Topologies
 
-```
-HIERARCHY              MESH               PIPELINE           HUB_SPOKE
-
-    ●               ●   ●                  ◀──▶                 ●
-  ╱ │ ╲           ╱ │ ╲                  │                    │
- ●  ●  ●         ●──●──●                ◀──▶               ◀──┼──▶
-                                                   ●  ●  ●
-```
+The table below compares communication patterns. The [team execution diagram](../architecture.md#multi-agent-teams)
+shows how a coordinator and its formation run inside the compiled workflow engine.
 
 | Topology | Use Case | Communication | Pros | Cons |
 |----------|----------|----------------|------|------|

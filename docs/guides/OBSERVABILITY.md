@@ -418,22 +418,8 @@ Victor v0.4.1 introduces a protocol-based event system that enables distributed 
 
 ### Architecture
 
-```
-┌────────────────────────────────────────────────────────────────┐
-│                    IEventBackend Protocol                       │
-├────────────────────────────────────────────────────────────────┤
-│  InMemoryEventBackend  │  SQLiteEventBackend  │  KafkaBackend  │
-│  (default, in-process) │  (persistent, file)  │  (distributed) │
-└────────────────────────────────────────────────────────────────┘
-                              │
-        ┌─────────────────────┴─────────────────────┐
-        ▼                                           ▼
-┌──────────────────┐                     ┌──────────────────────┐
-│ ObservabilityBus │                     │   AgentMessageBus    │
-│ High-throughput  │                     │ Delivery guarantees  │
-│ Lossy OK         │                     │ Agent-to-agent       │
-└──────────────────┘                     └──────────────────────┘
-```
+The [event backend diagram](observability/event-bus.md#architecture) is the canonical
+view of observability and agent communication. Its backend names follow the implementation.
 
 ### Quick Start
 

@@ -16,22 +16,20 @@ compatibility surface, but new external vertical packages should be authored aga
 > surfaces that still exist inside Victor. See `../guides/vertical-quickstart.md`
 > for the canonical authoring flow.
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                      VerticalBase (Abstract)                     │
-├─────────────────────────────────────────────────────────────────┤
-│  get_tools()          → List of tool names                      │
-│  get_system_prompt()  → Domain-specific instructions            │
-│  get_stages()         → Custom stage definitions                │
-│  get_config()         → Complete VerticalConfig                 │
-└─────────────────────────────────────────────────────────────────┘
-                              ▲
-    ┌─────────────┬───────────┼───────────┬──────────────┐
-    │             │           │           │              │
-┌───┴───┐    ┌────┴────┐  ┌───┴───┐  ┌────┴────┐  ┌──────┴──────┐
-│Coding │    │Research │  │DevOps │  │  Data   │  │   Custom    │
-│       │    │         │  │       │  │Analysis │  │ (your own)  │
-└───────┘    └─────────┘  └───────┘  └─────────┘  └─────────────┘
+```mermaid
+---
+title: Domain verticals share the contracts surface
+---
+%%{init: {"theme":"base","themeVariables":{"primaryColor":"#E8EFF7","primaryTextColor":"#17324D","primaryBorderColor":"#456987","lineColor":"#456987","fontFamily":"Arial"}}}%%
+flowchart TB
+  B["victor_contracts.VerticalBase<br/>tools · prompts · stages · configuration"]
+  C["Coding"]
+  R["Research"]
+  D["DevOps"]
+  A["Data analysis"]
+  G["RAG"]
+  U["Custom vertical"]
+  C & R & D & A & G & U -.->|"implement contract"| B
 ```
 
 ## Available Verticals

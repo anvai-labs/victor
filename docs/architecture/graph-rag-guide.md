@@ -10,46 +10,12 @@ Victor's graph-based code intelligence features provide deep understanding of co
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                        Victor Agent System                          │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                       │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐                 │
-│  │   Chat/CLI  │  │     TUI     │  │   HTTP API  │                 │
-│  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘                 │
-│         └────────────────┼─────────────────┘                        │
-│                         ▼                                           │
-│  ┌─────────────────────────────────────────────────────────────┐   │
-│  │                    Graph RAG Pipeline                        │   │
-│  ├─────────────────────────────────────────────────────────────┤   │
-│  │  G-Indexing → G-Retrieval → G-Generation                    │   │
-│  │  (Build Graph) (Multi-Hop)    (Graph Context)               │   │
-│  └─────────────────────────────────────────────────────────────┘   │
-│                         ▼                                           │
-│  ┌─────────────────────────────────────────────────────────────┐   │
-│  │                   Unified Graph Schema                       │   │
-│  ├─────────────────────────────────────────────────────────────┤   │
-│  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐       │   │
-│  │  │ Symbol Nodes │  │Statement Nodes│  │Requirement Nodes│     │   │
-│  │  │ (existing)   │  │  (CCG - NEW) │  │  (NEW)        │       │   │
-│  │  └──────────────┘  └──────────────┘  └──────────────┘       │   │
-│  │                                                                │   │
-│  │  Edges: CALLS, REFERENCES, INHERITS, CONTAINS                │   │
-│  │         CFG_SUCCESSOR, CDG, DDG_DEF_USE (NEW)               │   │
-│  │         SATISFIES, SEMANTIC_SIMILAR (NEW)                   │   │
-│  └─────────────────────────────────────────────────────────────┘   │
-│                         ▼                                           │
-│  ┌─────────────────────────────────────────────────────────────┐   │
-│  │              Storage Layer (Hybrid)                          │   │
-│  ├─────────────────────────────────────────────────────────────┤   │
-│  │  ┌─────────────────┐              ┌─────────────────┐        │   │
-│  │  │   SQLite        │              │   LanceDB       │        │   │
-│  │  │   Graph Store   │              │   Vector Store  │        │   │
-│  │  └─────────────────┘              └─────────────────┘        │   │
-│  └─────────────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────────┘
-```
+The [storage architecture diagram](../architecture.md#database-architecture) shows the
+current code-graph store, dedicated SQLite worker, and separate workflow persistence.
+Graph traversal and semantic retrieval combine context above those storage interfaces;
+[backend status](../architecture.md#database-architecture) distinguishes defaults from
+opt-in ProximaDB work. The schemas and examples below describe this guide’s feature surfaces,
+not a claim that every optional backend is enabled.
 
 ## Quick Start
 

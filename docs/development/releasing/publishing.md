@@ -16,27 +16,45 @@ Guide for maintainers on creating and publishing Victor releases.
 
 ## Release Process Overview
 
-Victor uses a fully automated release pipeline triggered by Git tags:
+The release-train diagram separates dependency readiness from tag-triggered publication.
+Victor depends directly on Sandhi and optionally on ProximaDB; there is no automatic
+Sandhi → ProximaDB → Victor trigger. Victor AI and contracts have independent version trains.
+Use the [promotion procedure](../PR_WORKFLOW.md#promote-and-release) for branch and tag placement:
 
 ```mermaid
+---
+title: Independent release trains and promotion
+---
+%%{init: {"theme":"base","themeVariables":{"primaryColor":"#E8EFF7","primaryTextColor":"#17324D","primaryBorderColor":"#456987","lineColor":"#456987","fontFamily":"Arial"}}}%%
 flowchart TB
-    TAG["🏷️ Tag Push<br/>(v0.1.0)"]
-
-    subgraph GHA["GitHub Actions"]
-        TEST["✅ Test"]
-        BUILD["📦 Build<br/>• Python<br/>• Binary<br/>• Docker"]
-        PUBLISH["🚀 Publish<br/>• PyPI<br/>• GitHub<br/>• Docker"]
-
-        TEST --> BUILD --> PUBLISH
-    end
-
-    TAG --> GHA
-
-    style TAG fill:#e0e7ff,stroke:#4f46e5
-    style GHA fill:#f0f9ff,stroke:#0284c7
-    style TEST fill:#d1fae5,stroke:#10b981
-    style BUILD fill:#fef3c7,stroke:#f59e0b
-    style PUBLISH fill:#dbeafe,stroke:#3b82f6
+  S["sandhi-gateway release availability"]
+  P["ProximaDB release availability"]
+  READY["Verify Victor dependency pins"]
+  DEV["develop<br/>version sync and validation"]
+  PR["Promotion PR<br/>develop → main"]
+  MAIN["main promotion merge commit"]
+  TAG["vX.Y.Z tag"]
+  AI["release.yml"]
+  PY["PyPI<br/>victor-ai and native distributions"]
+  GH["GitHub Release<br/>checksums and built artifacts"]
+  DOCKER["Docker publication"]
+  SDK["Independent contracts version"]
+  SDKTAG["sdk-vX.Y.Z tag"]
+  SDKWF["release-contracts.yml"]
+  SDKPY["PyPI · victor-contracts"]
+  S -->|"required dependency"| READY
+  P -->|"optional extra dependency"| READY
+  READY -.->|"release readiness"| DEV
+  DEV -->|"open reviewed promotion"| PR
+  PR -->|"merge after promotion battery"| MAIN
+  MAIN -->|"tag release commit"| TAG
+  TAG -->|"trigger"| AI
+  AI -->|"build, verify and publish"| PY
+  AI -->|"assemble release assets"| GH
+  AI -->|"publish image"| DOCKER
+  SDK -->|"tag SDK release"| SDKTAG
+  SDKTAG -->|"trigger"| SDKWF
+  SDKWF -->|"test, build and publish"| SDKPY
 ```
 
 ## Pre-Release Checklist

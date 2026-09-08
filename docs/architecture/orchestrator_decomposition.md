@@ -1,5 +1,7 @@
 # Orchestrator Decomposition
 
+> **Historical extraction record.** The topology and line counts below describe earlier decomposition phases. Use the [current runtime ownership](../architecture.md#service-layer) and [FEP-0031 target](https://github.com/anvai-labs/victor/blob/develop/feps/fep-0031-chat-runtime-inversion.md#target-ownership-diagram) for present and proposed ownership. The [hotspot guard](https://github.com/anvai-labs/victor/blob/develop/tests/unit/runtime/test_hotspot_size_guard.py) tracks current size caps.
+
 ## Overview
 
 The `AgentOrchestrator` (~4,593 LOC) is a facade coordinating extracted components, decomposed from a larger monolith through multiple refactoring phases. Ongoing work continues to shrink the facade.

@@ -6,31 +6,23 @@
 
 Victor's architecture follows SOLID principles with a protocol-first design that separates concerns between the framework core and domain-specific verticals.
 
-```
-┌──────────────────────────────────────────────────────────────────────┐
-│                           REQUEST FLOW                                │
-├──────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│  CLI ──▶ AgentOrchestrator ──▶ VerticalIntegrationPipeline          │
-│                                        │                              │
-│                                        ▼                              │
-│                              StepHandlerRegistry                     │
-│                                  ┌─────┴─────┐                        │
-│                                  │ Handlers │                        │
-│                                  │ ┌───────┐ │                        │
-│                                  │ │ Tools │ │                        │
-│                                  │ │ Prompt│ │                        │
-│                                  │ │ Config│ │                        │
-│                                  │ │ Extend│ │                        │
-│                                  │ │Framework│ │                       │
-│                                  │ └───────┘ │                        │
-│                                  └─────┬─────┘                        │
-│                                        │                              │
-│                                        ▼                              │
-│                               VerticalBase                         │
-│                            (Coding, Research, ...)                   │
-│                                                                      │
-└──────────────────────────────────────────────────────────────────────┘
+```mermaid
+---
+title: Framework integration of vertical capabilities
+---
+%%{init: {"theme":"base","themeVariables":{"primaryColor":"#E8EFF7","primaryTextColor":"#17324D","primaryBorderColor":"#456987","lineColor":"#456987","fontFamily":"Arial"}}}%%
+flowchart TB
+  C["Client"]
+  F["Framework factory"]
+  P["VerticalIntegrationPipeline"]
+  H["StepHandlerRegistry"]
+  V["VerticalBase contract"]
+  R["Configured runtime"]
+  C -->|"request configured agent"| F
+  F -->|"apply selected vertical"| P
+  V -->|"supply capabilities"| P
+  P -->|"dispatch integration steps"| H
+  H -->|"bind tools, prompts and extensions"| R
 ```
 
 ## Core Components
@@ -231,27 +223,9 @@ extensions.extension_registry.register(
 
 ## Data Flow Summary
 
-```
-User Request
-    │
-    ▼
-AgentOrchestrator.set_enabled_tools()          ◀─── ToolStepHandler
-    │
-    ▼
-AgentOrchestrator.set_system_prompt()          ◀─── PromptStepHandler
-    │
-    ▼
-AgentOrchestrator.apply_vertical_middleware()   ◀─── MiddlewareStepHandler
-    │
-    ▼
-AgentOrchestrator.apply_vertical_safety_patterns() ◀─── SafetyStepHandler
-    │
-    ▼
-AgentOrchestrator.set_vertical_context()        ◀─── ContextStepHandler
-    │
-    ▼
-Response
-```
+See the [integration diagram](#overview): framework construction applies a vertical
+through the integration pipeline and registered handlers before runtime execution.
+The [runtime service map](../architecture.md#service-layer) describes the owning services.
 
 ## Cancellation-Aware Tool Discovery
 
@@ -261,14 +235,23 @@ entry-point scan without forcing a blocking operation to run to completion.
 
 The token is threaded down the full call chain:
 
-```
-discover_tool_plugins(cancel_event)          # module-level convenience fn
-    └── VerticalLoader.discover_tools(cancel_event=...)        # public API
-            └── VerticalLoader._discover_tools_internal(*, cancel_event=...)  # scan
-
-async discover_tool_plugins_async(cancel_event)
-    └── VerticalLoader.discover_tools_async(cancel_event=...)  # offloaded via asyncio.to_thread
-            └── VerticalLoader._discover_tools_internal(*, cancel_event=...)  # scan
+```mermaid
+---
+title: Cooperative cancellation during tool discovery
+---
+%%{init: {"theme":"base","themeVariables":{"primaryColor":"#E8EFF7","primaryTextColor":"#17324D","primaryBorderColor":"#456987","lineColor":"#456987","fontFamily":"Arial"}}}%%
+flowchart TB
+  S["discover_tool_plugins(cancel_event)"]
+  A["discover_tool_plugins_async(cancel_event)"]
+  DS["VerticalLoader.discover_tools"]
+  DA["VerticalLoader.discover_tools_async"]
+  I["_discover_tools_internal"]
+  E["threading.Event"]
+  S -->|"delegate synchronous discovery"| DS
+  A -->|"delegate asynchronous discovery"| DA
+  DS -->|"scan in caller thread"| I
+  DA -->|"asyncio.to_thread"| I
+  E -.->|"check before scan and class loading"| I
 ```
 
 **Cancellation semantics:**

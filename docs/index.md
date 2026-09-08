@@ -20,46 +20,22 @@ victor chat "Explain this codebase"
 ## Architecture at a Glance
 
 ```mermaid
+---
+title: Victor system overview
+---
+%%{init: {"theme":"base","themeVariables":{"primaryColor":"#E8EFF7","primaryTextColor":"#17324D","primaryBorderColor":"#456987","lineColor":"#456987","fontFamily":"Arial"}}}%%
 flowchart TB
-    subgraph Clients["CLIENT LAYER"]
-        CLI["CLI / TUI"]
-        API["HTTP API"]
-        MCP["MCP Server"]
-        VSC["VS Code"]
-    end
-    subgraph Framework["FRAMEWORK LAYER"]
-        Agent["Agent API"]
-        SG["StateGraph"]
-        WE["WorkflowEngine"]
-        Tools["Tool Registry"]
-    end
-    subgraph Services["SERVICE LAYER (6 canonical)"]
-        CS["ChatService"]
-        TS["ToolService"]
-        SS["SessionService"]
-        CX["ContextService"]
-        PS["ProviderService"]
-        RS["RecoveryService"]
-    end
-    subgraph Runtime["RUNTIME"]
-        ORC["AgentOrchestrator (Facade)"]
-        AL["AgenticLoop"]
-        TP["ToolPipeline"]
-    end
-    subgraph Providers["PROVIDERS (25)"]
-        Prov["Anthropic, OpenAI, Gemini, Ollama, Bedrock + 20"]
-    end
-    subgraph ToolModules["TOOLS (34 modules)"]
-        T1["Filesystem, Git, Shell, Web, Docker, Verification"]
-    end
-    subgraph Storage["STORAGE"]
-        GDB["Global DB ~/.victor/victor.db"]
-        PDB["Project DB ./.victor/project.db"]
-    end
-    Clients --> Framework --> Runtime --> Services
-    Services --> Providers
-    Services --> ToolModules
-    Runtime --> Storage
+  C["Clients<br/>CLI · TUI · HTTP · MCP · VS Code"]
+  F["Framework<br/>VictorClient · AgentFactory<br/>Agent · WorkflowEngine · StateGraph"]
+  R["Runtime<br/>AgentOrchestrator facade<br/>chat, tool and session services"]
+  I["Infrastructure<br/>providers · tools · storage · core"]
+  V["External vertical definitions"]
+  S["victor_contracts"]
+  C -->|"call public APIs"| F
+  F -->|"construct and delegate"| R
+  R -->|"perform effectful operations"| I
+  V -->|"declare capabilities"| S
+  F -.->|"consume contracts"| S
 ```
 
 **Start here** → [System Architecture](architecture.md) for the full picture.

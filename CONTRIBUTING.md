@@ -28,14 +28,20 @@ Thank you for your interest in contributing to Victor! We welcome contributions 
 ## Contribution Workflow
 
 ```mermaid
-graph LR
-    A[Fork] --> B[Branch]
-    B --> C[Code]
-    C --> D[Test]
-    D --> E[Lint]
-    E --> F[PR]
-    F --> G[Review]
-    G --> H[Merge]
+---
+title: Contribution workflow
+---
+%%{init: {"theme":"base","themeVariables":{"primaryColor":"#E8EFF7","primaryTextColor":"#17324D","primaryBorderColor":"#456987","lineColor":"#456987","fontFamily":"Arial"}}}%%
+flowchart TB
+  B["Create a task worktree and branch"]
+  C["Implement and verify the change"]
+  P["Open PR against develop"]
+  R["Review final commit and required CI"]
+  M["Merge and remove task worktree"]
+  B -->|"isolate the change"| C
+  C -->|"publish reviewable work"| P
+  P -->|"address findings"| R
+  R -->|"all required checks pass"| M
 ```
 
 ---

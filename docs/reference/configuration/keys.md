@@ -18,20 +18,23 @@ This guide explains how to configure API keys for LLM providers and external dat
 
 Victor uses a secure, multi-layered approach to API key management:
 
-```
-Priority Order (highest to lowest):
-┌─────────────────────────────────────────────────────────────┐
-│ 1. Environment Variables  (for CI/CD, containers)          │
-├─────────────────────────────────────────────────────────────┤
-│ 2. System Keyring         (encrypted OS storage)           │
-│    - macOS: Keychain                                        │
-│    - Windows: Credential Manager                            │
-│    - Linux: Secret Service (GNOME Keyring/KWallet)         │
-├─────────────────────────────────────────────────────────────┤
-│ 3. Keys File              (~/.victor/api_keys.yaml)        │
-│    - Permissions: 0600 (owner read/write only)              │
-│    - Not recommended for production                         │
-└─────────────────────────────────────────────────────────────┘
+```mermaid
+---
+title: API-key resolution order
+---
+%%{init: {"theme":"base","themeVariables":{"primaryColor":"#E8EFF7","primaryTextColor":"#17324D","primaryBorderColor":"#456987","lineColor":"#456987","fontFamily":"Arial"}}}%%
+flowchart TB
+  R["Resolve provider key"]
+  E{"Environment variable present?"}
+  K{"System keyring entry present?"}
+  F["Keys-file fallback<br/>~/.victor/api_keys.yaml"]
+  V["Return resolved key"]
+  R -->|"check highest priority"| E
+  E -->|"yes"| V
+  E -->|"no"| K
+  K -->|"yes"| V
+  K -->|"no"| F
+  F -->|"read configured fallback"| V
 ```
 
 ## Quick Start
