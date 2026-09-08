@@ -299,11 +299,13 @@ class TestStateGraphExecutor:
 
     @pytest.mark.asyncio
     async def test_execute_handles_errors(self):
-        """Test that execution handles errors gracefully.
+        """A raising transform node must FAIL the run and surface the error.
 
-        Transform nodes catch exceptions internally and record them
-        in node_results, but the overall execution may still succeed
-        (the node ran, it just had an error).
+        Historically the node's internal catch swallowed the failure (the run
+        reported success=True) — the divergence ADR-030's engine-parity
+        battery pinned against the BFS walker. The compiled path now
+        propagates the node failure: the run fails, the node's error message
+        is surfaced, and the failed node does not appear in nodes_executed.
         """
         executor = StateGraphExecutor()
 
@@ -314,8 +316,8 @@ class TestStateGraphExecutor:
 
         result = await executor.execute(workflow, {})
 
-        # Execution completes (doesn't crash), node was executed
-        assert "fail" in result.nodes_executed
+        assert result.success is False
+        assert "Intentional failure" in (result.error or "")
 
     @pytest.mark.asyncio
     async def test_execute_with_condition(self):

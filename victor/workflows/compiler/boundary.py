@@ -330,11 +330,16 @@ class NativeWorkflowGraphCompiler:
                     }
                     continue
 
+                # A child executor can also report failure via the ``_error``
+                # state convention (transform/parallel/team/hitl executors)
+                # without raising — record it as a failed child either way.
+                child_failed = isinstance(result, dict) and result.get("_error") is not None
                 for key, value in result.items():
                     if not key.startswith("_"):
                         current_state[key] = value
                 parallel_results[child_node.id] = {
-                    "success": True,
+                    "success": not child_failed,
+                    "error": str(result.get("_error")) if child_failed else None,
                     "output": result.get(getattr(child_node, "output_key", None) or child_node.id),
                 }
 
@@ -346,6 +351,33 @@ class NativeWorkflowGraphCompiler:
                 duration_seconds=time.time() - start_time,
             )
             current_state["_node_results"] = node_results
+
+            # Join-strategy validation (U6-F5 convergence): merge successful
+            # child states above, attach per-child errors in _parallel_results,
+            # and let the join policy decide the group outcome — then fail the
+            # group so the graph engine reports success=False (matching the BFS
+            # walker, which failed the run on join-policy violation).
+            join_strategy = getattr(parallel_node, "join_strategy", "all")
+            failures = {
+                child_id: info
+                for child_id, info in parallel_results.items()
+                if not info.get("success", False)
+            }
+            group_failed = (
+                (join_strategy == "all" and failures)
+                or (join_strategy == "any" and len(failures) == len(parallel_results))
+                or (
+                    join_strategy == "first"
+                    and not any(info.get("success", False) for info in parallel_results.values())
+                )
+            )
+            if group_failed:
+                first_error = next(iter(failures.values())).get("error")
+                raise RuntimeError(
+                    f"Parallel node '{parallel_node.id}' failed "
+                    f"(join_strategy={join_strategy}): "
+                    f"{first_error or 'not all parallel nodes succeeded'}"
+                )
             return current_state
 
         graph.add_node(parallel_node.id, execute_parallel_group)
