@@ -14,12 +14,13 @@ evaluation loop and gating every change on it over adding new capabilities.
 
 ---
 
-## Now — September 2026: v0.9.1 and Stage C execution
+## Now — September 2026: v0.9.2 release snapshot and remaining Stage C work
 
 `victor-ai` 0.9.1 and `victor-contracts` 0.9.1 were released on 2026-09-07, on independent
 release trains. The release covered co-design Waves 1–2, Wave 3 Stage A implementation,
-and Stage B design documents. The post-release ADR-030 work (#1041–#1043) belongs to
-the upcoming 0.9.2 release, not the 0.9.1 artifacts.
+and Stage B design documents. The 0.9.2 snapshot adds post-release CI, storage and
+integration fixes (#1038–#1040), ADR-030 workflow consolidation (#1041–#1043), and the
+documentation refresh. These changes are not part of the 0.9.1 artifacts.
 
 The [co-design review backlog](reviews/2026-09-03-codesign/README.md) is the detailed item/PR
 ledger. Its unit reviews remain a dated record; the execution status below does not rewrite
@@ -35,11 +36,12 @@ those original findings.
 | Team coordinator split | Pending service extraction. | Review item 30 |
 | Benchmark consolidation and RL relocation | Benchmark work precedes contracts-first relocation into `victor/rl/`. | [FEP-0033](https://github.com/anvai-labs/victor/blob/develop/feps/fep-0033-rl-subsystem-relocation.md), items 31 and 29 |
 | Vertical template bases | Pending family-by-family extraction into contracts. | [ADR-031](architecture/adr/031-vertical-template-bases-promotion.md), item 28 |
-| Documentation refresh | D1 consolidation, D2 diagrams, and D3 Pages/checker are prepared together for the 0.9.2 documentation refresh; publication follows the Pages workflow. | TD-18, [documentation audit](development/docs-audit-2026-09.md) |
+| Documentation refresh | D1 consolidation, D2 diagrams, and D3 Pages/checker are included in the 0.9.2 snapshot; publication follows main promotion and the Pages workflow. | TD-18, [documentation audit](development/docs-audit-2026-09.md) |
 
 FEP-0031/0032/0033 currently retain **Draft** frontmatter. A merged design document does not
-mean its proposed implementation has shipped. The next planned release is **0.9.2**, pending verification and promotion;
-this is not a statement that its artifacts have already been published.
+mean its proposed implementation has shipped. This page describes the **0.9.2** source
+snapshot; the [release history](https://github.com/anvai-labs/victor/releases) records
+published artifacts.
 
 ## Evaluation roadmap — existing gates and remaining work
 
