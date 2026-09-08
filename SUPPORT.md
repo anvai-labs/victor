@@ -18,7 +18,7 @@ commitment, not a capability difference — no adapter is deprecated or removed 
 
 ## Documentation and troubleshooting
 
-Start with the [documentation map](docs/index.md) and [troubleshooting guide](docs/user-guide/troubleshooting.md).
+Start with the [published documentation](https://anvai-labs.github.io/victor/) and [documentation map](docs/index.md) and [troubleshooting guide](docs/user-guide/troubleshooting.md).
 For source installations or native-extension problems, use [Development Setup](docs/development/setup.md).
 Include the installed package version, provider/model, platform, reproduction steps and relevant logs
 when reporting a problem; remove credentials before posting. Release and migration status is tracked

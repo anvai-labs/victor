@@ -565,13 +565,14 @@ make lint
 
 ```python
 # Bad
-from victor.agent.orchestrator import AgentOrchestrator, ConversationController, ToolPipeline
+from victor.framework import Agent, EventType, StateGraph, ToolSet
 
 # Good
-from victor.agent.orchestrator import (
-    AgentOrchestrator,
-    ConversationController,
-    ToolPipeline,
+from victor.framework import (
+    Agent,
+    EventType,
+    StateGraph,
+    ToolSet,
 )
 ```
 

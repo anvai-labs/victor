@@ -84,7 +84,7 @@ provider counts against the source tree and maintains the declared tool-module i
 
 | Rule | Description | Guard Test |
 |------|-------------|------------|
-| Clients use Framework only | UI never imports `victor.agent.*` | `test_architectural_boundaries.py` |
+| Clients use Framework only | UI guard rejects direct `AgentOrchestrator` imports; broader runtime dependencies remain migration work | `test_architectural_boundaries.py` |
 | Framework delegates to Runtime | `Agent.create()` goes through `AgentFactory` | Agent entry point |
 | Runtime delegates to Services | Services implement behavior; turn-frame inversion remains planned in FEP-0031 | `test_service_layer_validation.py`, facade and hotspot guards |
 | Services own infrastructure | Effectful behavior via `ExecutionContext.services` | Service accessor |
@@ -694,5 +694,5 @@ views; the entry-point table below is an index, not a second dependency model.
 | `ChatService` | `victor/agent/services/chat_service.py` | Primary chat entry |
 | `ToolService` | `victor/agent/services/tool_service.py` | Tool registration/execution |
 | `AgentFactory` | `victor/framework/agent_factory.py` | Single authority for agent creation |
-| `VictorAPIServer` | `victor/integrations/api/server.py` | FastAPI REST endpoint |
+| `VictorFastAPIServer` | `victor/integrations/api/fastapi_server.py` | FastAPI REST endpoint |
 | `VictorClient` | `victor/framework/client.py` | UI layer entry point |

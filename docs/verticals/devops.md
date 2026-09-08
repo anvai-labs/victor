@@ -4,7 +4,7 @@ The DevOps vertical provides infrastructure automation, deployment, and operatio
 
 ## Overview
 
-The DevOps vertical (`victor/devops/`) handles infrastructure-as-code, container orchestration, CI/CD pipeline management, and cloud operations. It supports multiple cloud providers and infrastructure tools with built-in safety checks for production environments.
+The DevOps vertical (`verticals/victor-devops/victor_devops/`) handles infrastructure-as-code, container orchestration, CI/CD pipeline management, and cloud operations. It supports multiple cloud providers and infrastructure tools with built-in safety checks for production environments.
 
 ### Key Use Cases
 
@@ -187,7 +187,7 @@ Built-in protection for production environments:
 ### Vertical Configuration
 
 ```python
-from victor.devops.assistant import DevOpsAssistant
+from victor_devops.assistant import DevOpsAssistant
 
 # Get system prompt for DevOps tasks
 prompt = DevOpsAssistant.get_system_prompt()
@@ -240,47 +240,29 @@ safety:
 
 ## Example Usage
 
-### Infrastructure Provisioning
+Use the public factory with the `devops` vertical. Install the corresponding
+`victor-devops` package if it is not already available in your environment.
 
 ```python
-from victor.devops.workflows import DevOpsWorkflowProvider
+import asyncio
+from victor.framework import Agent
 
-provider = DevOpsWorkflowProvider()
-workflow = provider.compile_workflow("deploy")
+async def main():
+    async with await Agent.create(
+        vertical="devops", provider="ollama", model="llama3.1:8b"
+    ) as agent:
+        result = await agent.run("Review the deployment configuration and propose a rollout plan")
+        print(result.content)
 
-result = await workflow.invoke({
-    "environment": "staging",
-    "changes": terraform_plan,
-    "approval_required": True
-})
+asyncio.run(main())
 ```
 
-### Container Setup
-
-```python
-result = await workflow.invoke({
-    "application_path": "/path/to/app",
-    "registry": "ghcr.io/org/app",
-    "kubernetes_cluster": "staging-cluster",
-    "generate_helm": True
-})
-```
-
-### Using the DevOps Assistant Directly
-
-```python
-from victor.agent.orchestrator import AgentOrchestrator
-
-orchestrator = AgentOrchestrator(
-    vertical="devops",
-    provider="anthropic",
-    model="claude-sonnet-4-5"
-)
-
-response = await orchestrator.chat(
-    "Create a Terraform module for an AWS EKS cluster with autoscaling"
-)
-```
+For a named workflow supplied by the installed vertical, call
+`await agent.run_workflow(workflow_name, context={...})` on the configured agent.
+Use the installed package's workflow catalog to select a name and its expected input
+keys. A bare workflow compiler does not create the agent runtime or provider.
+See [Python API](../reference/api/python-api.md) and
+[workflow execution](../tutorials/create-workflow.md).
 
 ## Integration with Other Verticals
 
@@ -293,7 +275,7 @@ The DevOps vertical integrates with:
 ## File Structure
 
 ```
-victor/devops/
+verticals/victor-devops/victor_devops/
 ├── assistant.py          # DevOpsAssistant vertical definition
 ├── capabilities.py       # Capability providers
 ├── mode_config.py        # Mode configurations

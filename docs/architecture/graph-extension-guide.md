@@ -28,7 +28,8 @@ The external RAG vertical declares its capabilities through `victor_contracts`.
 
 ### GraphStore Protocol
 
-Located in `victor/storage/graph/protocol.py`:
+The abbreviated interface below is illustrative. Full signatures and types live in
+`victor/storage/graph/protocol.py`; use the [current API source map](graph-api-reference.md).
 
 ```python
 @runtime_checkable
@@ -39,7 +40,10 @@ class GraphStoreProtocol(Protocol):
 
     async def upsert_edges(self, edges: Iterable[Any]) -> None: ...
 
-    async def get_neighbors(self, node_id: str, edge_type: Optional[str] = None) -> List[Any]: ...
+    async def get_neighbors(
+        self, node_id: str, edge_types: Iterable[str] | None = None,
+        *, direction: str = "both", max_depth: int = 1,
+    ) -> List[Any]: ...
 
     async def find_nodes(self, **kwargs: Any) -> List[Any]: ...
 ```
@@ -202,23 +206,19 @@ class CustomGraphStore:
 
 Add custom graph traversal/analysis algorithms:
 
-```python
-from victor.processing.graph_algorithms import GraphAlgorithm
-
-class CustomCentralityAlgorithm(GraphAlgorithm):
-    def compute(self, graph): ...
-```
+Use functions over node/edge lists, following `compute_all_metrics()` and
+`build_networkx_graph()` in `victor/processing/graph_algorithms.py`. There is no
+`GraphAlgorithm` base class to subclass. Keep a domain-specific implementation in
+its owning runtime extension and use the storage protocol to obtain graph data.
 
 ### 3. Edge Type Extensions
 
 Define custom edge types for domain-specific relationships:
 
-```python
-# In your package
-from victor.storage.graph.edge_types import EdgeType
-
-EdgeType.CUSTOM_RELATION = "CUSTOM_RELATION"
-```
+Use a namespaced string edge type on `GraphEdge.type` for a custom relationship;
+do not mutate the shared `EdgeType` enum. Coordinate any addition to the canonical
+edge vocabulary through the contract review process. External definition modules
+must keep their imports within `victor_contracts`.
 
 ### 4. Graph Query Extensions
 

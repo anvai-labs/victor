@@ -125,7 +125,7 @@ victor dashboard
 
 **Custom path** (optional):
 ```bash
-victor chat --log-events --observability-log-path /tmp/my-events.jsonl
+# For a custom destination, configure the JSONL exporter programmatically; see below.
 ```
 
 ### JSONL Format
@@ -133,24 +133,22 @@ victor chat --log-events --observability-log-path /tmp/my-events.jsonl
 Each line is a JSON object:
 
 ```jsonl
-{"id": "evt-1a2b3c", "timestamp": "2025-01-06T12:00:00Z", "category": "TOOL", "name": "tool.start", "data": {"tool_name": "read_file", "arguments": {"path": "file.txt"}}}
-{"id": "evt-2b3c4d", "timestamp": "2025-01-06T12:00:02Z", "category": "TOOL", "name": "tool.end", "data": {"tool_name": "read_file", "duration_ms": 150}}
-{"id": "evt-3c4d5e", "timestamp": "2025-01-06T12:00:03Z", "category": "MODEL", "name": "llm.start", "data": {"model": "gpt-4", "provider": "openai"}}
+{"id":"evt-1a2b3c","topic":"tool.start","data":{"tool_name":"read","arguments":{"path":"file.txt"}},"timestamp":1736164800.0,"source":"victor","correlation_id":null,"partition_key":null,"headers":{},"delivery_guarantee":"at_most_once"}
 ```
 
 ### Event Schema
 
 ```typescript
-interface VictorEvent {
-  id: string;              // Unique event ID
-  timestamp: string;       // ISO 8601 timestamp
-  category: EventCategory; // TOOL, MODEL, STATE, ERROR, LIFECYCLE, VERTICAL, CUSTOM
-  name: string;            // Event name (e.g., "tool.start")
-  data: Record<string, any>; // Event data
-  priority?: number;       // Event priority (0-200)
-  source?: string;         // Event source
-  tags?: string[];         // Event tags
-  correlation_id?: string; // Correlation ID for tracing
+interface MessagingEvent {
+  id: string;
+  topic: string;
+  data: Record<string, unknown>;
+  timestamp: number; // Unix timestamp in seconds
+  source: string;
+  correlation_id: string | null;
+  partition_key: string | null;
+  headers: Record<string, string>;
+  delivery_guarantee: string;
 }
 ```
 
@@ -273,12 +271,11 @@ Filter events by category when exporting:
 
 ```python
 from victor.observability.exporters import JsonLineExporter
-from victor.observability.event_bus import EventCategory
 
 # Only export TOOL and MODEL events
 exporter = JsonLineExporter(
     "tools-only.jsonl",
-    include_categories={EventCategory.TOOL, EventCategory.MODEL}
+    include_categories={"tool", "model"}
 )
 ```
 
@@ -287,19 +284,23 @@ exporter = JsonLineExporter(
 Export to multiple files:
 
 ```python
+from pathlib import Path
 from victor.observability.bridge import ObservabilityBridge
 
 bridge = ObservabilityBridge.get_instance()
 
 # Export all events to one file
-bridge.setup_jsonl_exporter("~/.victor/metrics/all-events.jsonl")
+event_dir = Path.home() / ".victor" / "metrics"
+bridge.setup_jsonl_exporter(event_dir / "all-events.jsonl")
 
 # Export only errors to another file
 error_exporter = JsonLineExporter(
-    "~/.victor/metrics/errors.jsonl",
-    include_categories={EventCategory.ERROR}
+    event_dir / "errors.jsonl",
+    include_categories={"error"}
 )
-bridge._event_bus.add_exporter(error_exporter)
+from victor.core.events import get_observability_bus
+
+get_observability_bus().add_exporter(error_exporter)
 ```
 
 ### Programmatic Event Reading
@@ -319,7 +320,7 @@ with open(event_file, "r") as f:
         events.append(event)
 
 # Filter by category
-tool_events = [e for e in events if e["category"] == "TOOL"]
+tool_events = [e for e in events if e.get("topic", "").startswith("tool.")]
 
 # Analyze tool usage
 from collections import Counter
@@ -367,6 +368,7 @@ Process 2: victor dashboard
 ### ObservabilityBridge
 
 ```python
+from pathlib import Path
 from victor.observability.bridge import ObservabilityBridge
 from pathlib import Path
 
@@ -386,14 +388,13 @@ bridge.disable_jsonl_exporter()
 
 ```python
 from victor.observability.exporters import JsonLineExporter
-from victor.observability.event_bus import EventCategory
 
 # Create exporter
 exporter = JsonLineExporter(
     path="events.jsonl",
     buffer_size=10,  # Flush every 10 events
     append=True,     # Append to existing file
-    include_categories={EventCategory.TOOL, EventCategory.MODEL},
+    include_categories={"tool", "model"},
 )
 
 # Export event (automatically called by EventBus)

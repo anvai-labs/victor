@@ -1,5 +1,10 @@
 # Graph-Based Enhancements for Victor: Specification & Design
 
+> **Historical design/review snapshot.** The findings, proposed APIs, diagrams, and rollout
+> status below describe their original review context. For current implementation and remaining
+> work, use [Architecture](../architecture.md) and the [Roadmap](../roadmap.md); this document
+> is not an installation guide or a certification that every proposed feature shipped.
+
 ## Executive Summary
 
 This specification defines graph-based mechanisms to enhance Victor's IDE experience and coding agent capabilities, drawing from recent research in repository-level code intelligence. The proposed enhancements integrate Code Context Graphs (CCG), Graph Retrieval-Augmented Generation (GraphRAG), and multi-hop reasoning to significantly improve code completion, bug fixing, and repository-aware generation.

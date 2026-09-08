@@ -1,5 +1,10 @@
 # Codebase Review Backlog — First-Principles & Co-Design Findings
 
+> **Dated evidence ledger.** Counts, paths, and code quotations below retain the original
+> review snapshots; subsequent extractions and deletions may have removed cited files.
+> Re-verify an OPEN finding against the current tree before implementing it. The
+> [Roadmap](../roadmap.md#technical-debt-register) owns the consolidated execution register.
+
 **Purpose**: Persistent, cross-session tracker for architecture/code-design improvement
 findings. Each finding has a stable ID, status, evidence pointers, and rationale so work
 can be resumed across sessions without re-deriving context.
@@ -284,3 +289,5 @@ can be resumed across sessions without re-deriving context.
 - **F-016e/f execution + F-016m surfaced (2026-07-12):** Recovered the F-016e tool-config fix after its authoring agent's process died mid-run (edits verified, rebased, merged as #501). Wired F-016f (credit-feedback loop, #505) — during implementation the wire point was corrected from `turn_execution_runtime.py` (bypassed by streaming + planning turns) to the *universal* per-turn teardown `_teardown_chat_service_turn_runtime`, with behavior placed in the owning `CreditTrackingService` (opt-in, default-off; orchestrator held at its 4704 hotspot cap). Scoping F-016g's "exploration-refresh" residual surfaced **F-016m**: `tool_calling_caps` is construction-time and never re-derived on a mid-session switch, so an exploration-only refresh would read stale (old-model) caps — a no-op. Broader than exploration (also backs tool_budget / native_tool_calls / thinking-prefix). **Deferred by decision** rather than shipping a stale-data hack — recorded for a proper scoped fix. Discipline note: verify the *data* a fix reads is fresh before shipping it.
 
 - **F-016 call-graph audit — the "built-but-never-invoked" class (2026-07):** Pivoted from the exhausted count-based backlog to a *call-graph* hunt for the exact class behind the two best finds (F-002, F-015): capabilities constructed/registered/config-gated but never invoked in production. Three parallel verify-first agents (dead config opt-ins / registered-but-uncalled / DI dead-end params). **Deleted four verified-dead subsystems** (all merged, all CI-green): `WorkflowOptimizationComponents` bundle (#494), `HybridDecisionService` cluster incl. dead-parent `ExtendedModelSelectorLearner` (#493, ~4.3k LOC), team credit-attribution mixins (#489), unregistered capability step-handlers (#492). **In progress:** tool-config mis-wires (F-016e). **Queued to wire** (real capabilities silently off): the credit-assignment *feedback* loop (F-016f — `assign_turn_credit()` never called → tool-guidance always None; independently verified as the F-002 sibling) and the post-switch hook subsystem (F-016g — model switches never refresh prompt/budget). **Follow-up threads:** the `Extended*Learner` family (2 more consumer-less siblings), inert predictive-tools flags, an unused provider-pool. **Meta:** unlike the count-based backlog (majority over-stated), the call-graph method landed real findings, and the agents self-rejected ~3 false positives — this is the recommended lens for future dead-code/dead-feature sweeps.
+
+- 2026-09-08: Clarified snapshot evidence versus the canonical execution register; original findings and statuses preserved.

@@ -1,5 +1,10 @@
 # Foundations Strategy: P6 Residue + Sandhi Wave 3 (2026-07)
 
+> **Historical design/review snapshot.** The findings, proposed APIs, diagrams, and rollout
+> status below describe their original review context. For current implementation and remaining
+> work, use [Architecture](../architecture.md) and the [Roadmap](../roadmap.md); this document
+> is not an installation guide or a certification that every proposed feature shipped.
+
 **Status:** Active. **Scope:** sequences all remaining post-UX-plan work
 foundation-first, so parallel paths never build on unsettled boundaries.
 **Method:** every claim below was re-verified against the develop tip on

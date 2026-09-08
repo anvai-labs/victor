@@ -4,7 +4,11 @@ site_description: Contract-first agentic AI framework supporting 25 LLM provider
 site_author: Vijaykumar Singh
 site_url: https://anvai-labs.github.io/victor/
 repo_url: https://github.com/anvai-labs/victor
-copyright: Copyright &copy; 2025 Vijaykumar Singh
+copyright: Copyright &copy; 2026 Vijaykumar Singh
+
+# README is the repository index; index.md is the published home page.
+exclude_docs: |
+  /README.md
 
 theme:
   name: material
@@ -55,6 +59,7 @@ plugins:
           # Static analysis only (griffe parses source) — the docs build never imports victor, so
           # CI needs no heavy runtime deps (torch etc.) and there are no import side effects.
           options:
+            allow_inspection: false
             docstring_style: google
             show_source: false
             show_root_heading: true
@@ -100,7 +105,7 @@ markdown_extensions:
   - pymdownx.keys
   - pymdownx.magiclink:
       repo_url_shorthand: true
-      user: vjsingh1984
+      user: anvai-labs
       repo: victor
   - pymdownx.mark
   - pymdownx.smartsymbols
@@ -118,10 +123,6 @@ markdown_extensions:
       custom_checkbox: true
   - pymdownx.tilde
 
-extra_javascript:
-  - https://unpkg.com/mermaid@10/dist/mermaid.min.js
-  - javascripts/mermaid-init.js
-
 extra:
   social:
     - icon: fontawesome/brands/github
@@ -130,9 +131,6 @@ extra:
     - icon: fontawesome/brands/python
       link: https://pypi.org/project/victor-ai/
       name: Victor on PyPI
-  version:
-    provider: mike
-    default: latest
 
 nav:
   - Home: index.md
@@ -150,6 +148,7 @@ nav:
       - Edge Provider Strategy: architecture/edge-provider-tool-strategy.md
       - Unified Prompt Architecture: architecture/unified_prompt_architecture.md
       - ADRs: architecture/adr/README.md
+      - Framework Proposals: https://github.com/anvai-labs/victor/tree/develop/feps
   - Getting Started:
       - getting-started/index.md
       - Installation: getting-started/installation.md
@@ -195,4 +194,8 @@ nav:
       - Exception Handling: development/exception-handling.md
       - Testing: development/testing.md
       - PR Workflow: development/PR_WORKFLOW.md
+      - Documentation Publishing: development/docs-publishing.md
       - Prompt Evolution Workflow: development/prompt-evolution-workflow.md
+  - Audits:
+      - September Co-design Review: reviews/2026-09-03-codesign/README.md
+      - Documentation Inventory: development/docs-audit-2026-09.md

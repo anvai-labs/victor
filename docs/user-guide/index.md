@@ -74,14 +74,8 @@ victor workflow run code-review
 [Workflows Guide →](workflows.md)
 
 **Multi-Agent Teams**
-```python
-from victor.framework import Agent, AgentTeam
-
-team = AgentTeam.hierarchical(
-    lead="senior-developer",
-    subagents=["frontend", "backend", "testing"]
-)
-```
+See [the team quick start](../guides/MULTI_AGENT_TEAMS.md) for the public
+`await Agent.create_team(...)` factory, member specifications, and `await team.run()`.
 [Learn More → Multi-Agent Teams](../guides/MULTI_AGENT_TEAMS.md)
 
 ## Core Concepts
@@ -373,22 +367,8 @@ victor "Execute tests and fix any failures"
 
 ### Example 3: Multi-Agent Code Generation
 
-```python
-from victor.framework import Agent, AgentTeam
-
-# Create specialized agents
-frontend = Agent(role="Frontend developer", tools=["react", "typescript"])
-backend = Agent(role="Backend developer", tools=["fastapi", "sqlalchemy"])
-tester = Agent(role="QA engineer", tools=["pytest", "selenium"])
-
-# Coordinate team
-team = AgentTeam.hierarchical(
-    lead="senior-developer",
-    subagents=[frontend, backend, tester]
-)
-
-result = await team.run("Implement user registration feature")
-```
+See [the team quick start](../guides/MULTI_AGENT_TEAMS.md) for the public
+`await Agent.create_team(...)` factory, member specifications, and `await team.run()`.
 
 ## Additional Resources
 

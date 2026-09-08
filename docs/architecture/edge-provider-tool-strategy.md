@@ -1,5 +1,10 @@
 # Edge Provider Tool Strategy - Analysis and Recommendations
 
+> **Historical design/review snapshot.** The findings, proposed APIs, diagrams, and rollout
+> status below describe their original review context. For current implementation and remaining
+> work, use [Architecture](../architecture.md) and the [Roadmap](../roadmap.md); this document
+> is not an installation guide or a certification that every proposed feature shipped.
+
 ## Current State: Partial Coverage ✅
 
 The tool strategy **does cover edge providers**, but with important limitations.

@@ -168,19 +168,18 @@ for packaging and extension-specific development.
 
 ## Documentation build
 
-GitHub Pages uses MkDocs Material. Runtime packages are not needed for the static
-API-documentation analysis. In a separate virtual environment:
+The published site uses MkDocs Material and the pinned repository toolchain:
 
 ```bash
-pip install mkdocs-material 'mkdocstrings[python]' \
-  mkdocs-git-revision-date-localized-plugin pymdown-extensions 'pygments<2.19'
-mkdocs serve
+pip install -r mkdocs-requirements.txt
 mkdocs build
+python scripts/ci/docs_link_check.py site
+mkdocs serve
 ```
 
-The Pygments cap matches `pyproject.toml` and the existing Pages workflow. The
-[documentation index](../index.md) describes canonical pages and historical
-records. Generated `site/` files are not edited or committed.
+See [Documentation Publishing](docs-publishing.md) for navigation, diagram rendering,
+link-check scope, CI validation and Pages deployment. The separate Sphinx build
+remains documented in [the documentation source index](https://github.com/anvai-labs/victor/blob/develop/docs/README.md).
 
 ## Pre-commit Hooks Setup
 

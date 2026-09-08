@@ -11,7 +11,7 @@ Architecture Decision Records (ADRs) document significant architectural decision
 - **Rationale**: Why the decision was made
 - **Consequences**: Positive, negative, and neutral impacts
 
-ADRs record *decisions*; the [Technical Debt Register](../../tech-stack.md#technical-debt-register)
+ADRs record *decisions*; the [Technical Debt Register](../../roadmap.md#technical-debt-register)
 records *work*. When an ADR's rollout is incomplete, the remaining work must have a TD-* or EVR-*
 entry — the ADR itself never tracks tasks.
 
@@ -32,15 +32,15 @@ Status is the governance state of the *decision*. Implementation is the observed
 | [ADR-008](008-registry-performance-optimization.md) | Tool Registry Performance Optimization | Accepted | Shipped | 2025-04-19 |
 | [ADR-009](009-rubric-based-completion-evaluation.md) | Rubric-Based Completion Evaluation | Accepted | Shipped opt-in; production-distribution gate failed, so default remains `enhanced` | 2026-06-21 |
 | [ADR-010](010-effect-grounded-completion.md) | Effect-Grounded Completion | Accepted | Shipped, opt-in (`victor/framework/effect_gate.py`; `effect_gated_completion` / `VICTOR_EFFECT_GATED_COMPLETION`, default off pending flag-graduation gate) | 2026-06-21 |
-| [ADR-011](011-llm-judge-reliability-gating.md) | LLM-Judge Reliability Gating | Accepted | Shipped (`victor/evaluation/judge_calibration.py`, `trajectory_eval.py`); κ/α gate not yet run against human labels | 2026-06-21 |
+| [ADR-011](011-llm-judge-reliability-gating.md) | LLM-Judge Reliability Gating | Accepted | Gate executed; production-distribution NO-GO, default stays enhanced; historical apparatus removed in #1019 | 2026-06-21 |
 | [ADR-012](012-regression-gated-harness-acceptance.md) | Regression-Gated Harness Acceptance | Accepted | Done (EVR-5: acceptance oracle + HTIR in `victor/evaluation/`, promotion-gated via `test_acceptance_oracle_gate.py`) | 2026-06-21 |
 | [ADR-013](013-unified-temperature-policy.md) | Unified, Intent-Based Temperature Policy with Spin Ratchet | Accepted | Shipped (`victor/framework/temperature/`, default flip 0.7→0.6, scatter-guard test) | 2026-06-22 |
 | [ADR-014](014-shared-codegraph-chunker-package.md) | Extract the code→CPG chunker into a shared `victor-codegraph` package | Accepted | Shipped (`victor-codegraph` 0.1.x released; `victor-coding` delegates) | 2026-06-26 |
 | [ADR-015](015-victor-core-adopts-codegraph.md) | Victor Core adopts victor-codegraph as the foundational code parser (phased) | Implemented | Phases 0–3 shipped; one parser boundary across graph, chunking, native, memory, and utility consumers | 2026-06-26 |
 | [ADR-016](016-distribution-packaging-strategy.md) | Distribution & Packaging: Docker image primary, pip dev; reject native single-binary | Proposed | Not started | 2026-07-02 |
 | [ADR-017](017-rl-budget-calibration.md) | RL-Driven Tool-Budget Calibration | Proposed | Partial (3 modules shipped; wiring gated on FEP-0002 review) | 2026-07-08 |
-| [ADR-018](018-adopt-sandhi-usage-gateway.md) | Adopt the `sandhi` OSS usage gateway (per-user/team attribution + shared-key metering) | Proposed | Not started (decision doc; see FEP-0020, AnvaiOps ADR-0047) | 2026-07-18 |
-| [ADR-019](019-orchestrator-service-runtime-decomposition.md) | Orchestrator & service-runtime target decomposition | Proposed | Not started (records the target for TD-14/TD-15) | 2026-07-29 |
+| [ADR-018](018-adopt-sandhi-usage-gateway.md) | Adopt the `sandhi` OSS usage gateway (per-user/team attribution + shared-key metering) | Accepted | Typed provider runtime integrated; attribution proxy remains separately configured (FEP-0020) | 2026-07-18 |
+| [ADR-019](019-orchestrator-service-runtime-decomposition.md) | Orchestrator & service-runtime target decomposition | Proposed | Partial decomposition landed; further chat-runtime inversion follows FEP-0031 (TD-14/TD-15) | 2026-07-29 |
 | [ADR-020](020-interactive-terminal-tui.md) | Interactive terminal TUI (Textual) as a first-class surface | Accepted | Shipped 2026-07-30 (`victor tui`, opt-in; TD-22) incl. diff pane + dark/light/high-contrast themes; per-member lanes via ADR-023 | 2026-07-29 |
 | [ADR-021](021-terminal-native-hitl-and-loop-transparency.md) | Terminal-native HITL & agent-loop transparency | Accepted | Partial — v1 shipped 2026-07-30 in the TUI (TD-23); exact phase-events + REPL parity pending | 2026-07-29 |
 | [ADR-022](022-provider-gateway-feature-layer.md) | Provider gateway feature layer & routing performance | Proposed | Not started (TD-24; depends TD-21) | 2026-07-29 |
@@ -123,7 +123,7 @@ Advance the status when reality changes: an ADR that shipped weeks ago must not 
   [Backlog](../evaluation-centric-runtime-backlog.md) (EVR-* items)
 - [ProximaDB as the CCG Backend](../proximadb-codegraph-backend.md) — live design behind ADR-014/015
   and ProximaDB ADR-044 (TD-11/12/13)
-- [Technical Debt Register](../../tech-stack.md#technical-debt-register)
+- [Technical Debt Register](../../roadmap.md#technical-debt-register)
 - [FEP Process](../../FEP_PROCESS.md) — FEPs govern framework API *changes*; ADRs record
   architectural *decisions* (a FEP usually yields one or more ADRs)
 

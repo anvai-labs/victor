@@ -4,7 +4,7 @@ The RAG (Retrieval-Augmented Generation) vertical provides document ingestion, v
 
 ## Overview
 
-The RAG vertical (`victor/rag/`) implements a complete RAG pipeline with document processing, semantic chunking, embedding generation, and hybrid search. It uses LanceDB for embedded vector storage (no server required) and supports multiple embedding providers.
+The RAG vertical (`verticals/victor-rag/victor_rag/`) implements a complete RAG pipeline with document processing, semantic chunking, embedding generation, and hybrid search. It uses LanceDB for embedded vector storage (no server required) and supports multiple embedding providers.
 
 ### Key Use Cases
 
@@ -220,7 +220,7 @@ score = sum(1 / (k + rank)) for each result set
 ### Vertical Configuration
 
 ```python
-from victor.rag.assistant import RAGAssistant
+from victor_rag.assistant import RAGAssistant
 
 # Get system prompt
 prompt = RAGAssistant.get_system_prompt()
@@ -275,77 +275,29 @@ vector_store:
 
 ## Example Usage
 
-### Document Ingestion
+Use the public factory with the `rag` vertical. Install the corresponding
+`victor-rag` package if it is not already available in your environment.
 
 ```python
-from victor.rag.workflows import RAGWorkflowProvider
+import asyncio
+from victor.framework import Agent
 
-provider = RAGWorkflowProvider()
-workflow = provider.compile_workflow("document_ingest")
+async def main():
+    async with await Agent.create(
+        vertical="rag", provider="ollama", model="llama3.1:8b"
+    ) as agent:
+        result = await agent.run("Find documentation relevant to authentication in this project")
+        print(result.content)
 
-result = await workflow.invoke({
-    "source_directory": "/path/to/documents",
-    "file_patterns": ["*.pdf", "*.md", "*.docx"],
-    "chunk_size": 512,
-    "embedding_model": "text-embedding-3-small"
-})
-
-print(f"Ingested {result['documents_ingested']} documents")
-print(f"Created {result['chunks_created']} chunks")
+asyncio.run(main())
 ```
 
-### Question Answering
-
-```python
-result = await workflow.invoke({
-    "user_query": "What are the key findings in the Q3 report?",
-    "index_name": "quarterly_reports",
-    "top_k": 10
-})
-
-print(result["answer"])
-print("\nSources:")
-for source in result["sources"]:
-    print(f"  [{source['id']}] {source['title']}")
-```
-
-### Using RAG Tools Directly
-
-```python
-from victor.agent.orchestrator import AgentOrchestrator
-
-orchestrator = AgentOrchestrator(
-    vertical="rag",
-    provider="anthropic",
-    model="claude-sonnet-4-5"
-)
-
-# Ingest documents
-response = await orchestrator.chat(
-    "Ingest all PDF files from /docs/reports/"
-)
-
-# Query the knowledge base
-response = await orchestrator.chat(
-    "What does the documentation say about authentication?"
-)
-```
-
-### CLI Usage
-
-```bash
-# Ingest documents
-victor rag ingest /path/to/documents --pattern "*.pdf"
-
-# Query the knowledge base
-victor rag query "What are the main features?"
-
-# List indexed documents
-victor rag list
-
-# Get statistics
-victor rag stats
-```
+For a named workflow supplied by the installed vertical, call
+`await agent.run_workflow(workflow_name, context={...})` on the configured agent.
+Use the installed package's workflow catalog to select a name and its expected input
+keys. A bare workflow compiler does not create the agent runtime or provider.
+See [Python API](../reference/api/python-api.md) and
+[workflow execution](../tutorials/create-workflow.md).
 
 ## Integration with Other Verticals
 
@@ -358,7 +310,7 @@ The RAG vertical integrates with:
 ## File Structure
 
 ```
-victor/rag/
+verticals/victor-rag/victor_rag/
 ├── assistant.py          # RAGAssistant vertical definition
 ├── capabilities.py       # Capability providers
 ├── mode_config.py        # Mode configurations

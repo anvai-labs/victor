@@ -1,5 +1,9 @@
 # Prompt-evolution audit — 2026-07-25
 
+> **Historical experiment record.** Dates, candidate outcomes, commands, and local artifacts
+> below belong to this experiment. Preserve its verdict; use the [Roadmap](../roadmap.md)
+> for current execution status, and do not treat local database paths as distributed fixtures.
+
 Audit of the three GEPA candidates in `~/.victor/victor.db` produced by
 `/prompt-optimize` on 2026-07-25, and of the machinery that produced them.
 
