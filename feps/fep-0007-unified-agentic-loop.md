@@ -1,5 +1,5 @@
 ---
-fep: 0007
+fep: "0007"
 title: "Unified Agentic Loop (single loop, two I/O modes)"
 type: Standards Track
 status: Implemented
@@ -364,7 +364,7 @@ the FEP is marked **Implemented** (implementation merged to the integration bran
 |---|---|---|
 | 1. Streaming-ACT port | ✅ landed | `StreamingChatExecutor.execute_turn_streaming` (protocol `chat_stream_executor.py:186`, impl `:1418`), assembled per-run into a `StreamingActAdapter` session (`victor/agent/services/streaming_act_adapter.py`) |
 | 2. `AgenticLoop.run_streaming()` | ✅ landed | `agentic_loop.py:1768` — full PPAED sequence, drives the injected `streaming_act_port.stream_turn_act(...)` |
-| 3. Cut the UI over | ✅ landed | `ChatStreamRuntime`'s stream path drives `executor.run_unified(...)` (`chat_stream_runtime.py:410`); `run_unified` (`chat_stream_executor.py:1518`) builds the `AgenticLoop` over the orchestrator's own collaborators with the ACT adapter; the legacy `run()` body was removed — it is now an LTS-deprecated thin alias delegating to `run_unified` with **zero production callers** |
+| 3. Cut the UI over | ✅ landed | `ServiceStreamingRuntime`'s stream path drives `executor.run_unified(...)` (`chat_stream_runtime.py:410`); `run_unified` (`chat_stream_executor.py:1518`) builds the `AgenticLoop` over the orchestrator's own collaborators with the ACT adapter; the legacy `run()` body was removed — it is now an LTS-deprecated thin alias delegating to `run_unified` with **zero production callers** |
 | 4. Governance & recovery reconciliation | ✅ landed | `run_unified` runs the per-run REQUEST gate (`_message_policy_gate.gate_request` → `is_final` chunk), the judge-calibration completion-strategy gate (ADR-011, same as buffered), and the effect gate; recovery/stream-context setup is captured in the ACT adapter session. Streaming correctly has no buffered RESPONSE post-gate (per the risk note above) |
 | 5. StateGraph executor | ⏸ still deferred | `USE_STATEGRAPH_AGENTIC_LOOP` / `use_stategraph_executor()` remains buffered-only, as this addendum specifies |
 
@@ -414,3 +414,17 @@ implementation); its final literal clause (no retained legacy driver) completes 
 - PRs #186/#188 — streaming characterization battery (`tests/integration/streaming/`);
   PR #193 — removal of the flag-gated comparison scaffolding after the no-flag decision.
 - CLAUDE.md — Agentic Loop (Phase 10), Agent Runtime Target State.
+
+
+### Stage C cleanup — 2026-09-07
+
+Removed the zero-caller `StreamingChatExecutor.run()` compatibility alias and the
+older `AgenticLoop.stream_chat()` partial lifecycle wrapper. The latter performed
+its own perception before driving an executor, duplicating lifecycle ownership;
+production has already used `run_unified()` → `AgenticLoop.run_streaming()` since
+the cutover. The parity harness now names the actual `ServiceStreamingRuntime`
+class in `chat_stream_runtime.py`.
+
+The buffered-only preamble/DECIDE bands listed in the September refresh remain
+separate follow-up work. Removing obsolete entry points does not claim those
+optional capabilities have gained streaming parity.

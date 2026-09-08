@@ -82,6 +82,7 @@ import hashlib
 import json
 import logging
 import uuid
+from contextlib import aclosing
 from typing import (
     Any,
     Awaitable,
@@ -139,6 +140,7 @@ from victor.framework.graph_primitives import (
 )
 from victor.framework.graph_runtime import (
     GraphRuntimeOutcome,
+    NodeLifecycleObserver,
     run_graph_execution,
     stream_graph_execution,
 )
@@ -388,6 +390,7 @@ class CompiledGraph(Generic[StateType]):
         thread_id: Optional[str] = None,
         debug_hook: Optional[Any] = None,
         start_node: Optional[str] = None,
+        node_observer: Optional[NodeLifecycleObserver] = None,
     ) -> GraphExecutionResult[StateType]:
         """Execute the graph using focused runtime helpers."""
         exec_config = config or self._config
@@ -456,6 +459,7 @@ class CompiledGraph(Generic[StateType]):
             ),
             record_state_history=exec_config.checkpoint.record_state_history,
             sequential_fanout=self._sequential_fanout,
+            node_observer=node_observer,
         )
         return GraphExecutionResult(
             state=runtime_outcome.state,
@@ -593,37 +597,40 @@ class CompiledGraph(Generic[StateType]):
             entry_point=self._entry_point,
         )
 
-        async for node_id, node_state in stream_graph_execution(
-            state=state,
-            current_node=current_node,
-            end_node_token=END,
-            entry_point=self._entry_point,
-            node_count=len(self._nodes),
-            thread_id=thread_id,
-            iteration_controller=iteration_controller,
-            timeout_manager=timeout_manager,
-            interrupt_handler=interrupt_handler,
-            node_executor=node_executor,
-            checkpoint_manager=checkpoint_manager,
-            event_emitter=event_emitter,
-            hook=self._debug_hook,
-            validate_state=lambda node_id, node_state: self._validate_state_after_node(
-                node_id,
-                node_state,
-                exec_config,
-            ),
-            snapshot_state=snapshot_state_for_result,
-            get_next_node=self._get_next_node,
-            execute_parallel=lambda sends, executor, timeout_mgr, base_state: self._execute_parallel(
-                sends=sends,
-                node_executor=executor,
-                timeout_manager=timeout_mgr,
-                base_state=base_state,
-            ),
-            record_state_history=exec_config.checkpoint.record_state_history,
-            sequential_fanout=self._sequential_fanout,
-        ):
-            yield node_id, node_state
+        async with aclosing(
+            stream_graph_execution(
+                state=state,
+                current_node=current_node,
+                end_node_token=END,
+                entry_point=self._entry_point,
+                node_count=len(self._nodes),
+                thread_id=thread_id,
+                iteration_controller=iteration_controller,
+                timeout_manager=timeout_manager,
+                interrupt_handler=interrupt_handler,
+                node_executor=node_executor,
+                checkpoint_manager=checkpoint_manager,
+                event_emitter=event_emitter,
+                hook=self._debug_hook,
+                validate_state=lambda node_id, node_state: self._validate_state_after_node(
+                    node_id,
+                    node_state,
+                    exec_config,
+                ),
+                snapshot_state=snapshot_state_for_result,
+                get_next_node=self._get_next_node,
+                execute_parallel=lambda sends, executor, timeout_mgr, base_state: self._execute_parallel(
+                    sends=sends,
+                    node_executor=executor,
+                    timeout_manager=timeout_mgr,
+                    base_state=base_state,
+                ),
+                record_state_history=exec_config.checkpoint.record_state_history,
+                sequential_fanout=self._sequential_fanout,
+            )
+        ) as events:
+            async for node_id, node_state in events:
+                yield node_id, node_state
 
     def get_graph_schema(self) -> Dict[str, Any]:
         """Get graph structure as dictionary.

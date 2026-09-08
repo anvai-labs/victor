@@ -63,6 +63,7 @@ Usage:
 from __future__ import annotations
 
 import logging
+from contextlib import aclosing
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import (
@@ -722,25 +723,35 @@ class WorkflowEngine:
                 )
 
                 # Stream via CompiledGraph.stream()
-                async for event in compiled.stream(initial_state or {}, **kwargs):
-                    # Convert CompiledGraph events to WorkflowEvent format
-                    if isinstance(event, dict):
-                        yield WorkflowEvent(
-                            event_type=event.get("event_type", "state_update"),
-                            node_id=event.get("node_id", ""),
-                            timestamp=time.time(),
-                            data=event.get("data", {}),
-                            state_snapshot=event.get("state", None),
-                        )
-                    else:
-                        # Assume it's already a compatible event type
-                        yield WorkflowEvent(
-                            event_type=getattr(event, "event_type", "state_update"),
-                            node_id=getattr(event, "node_id", ""),
-                            timestamp=time.time(),
-                            data=getattr(event, "data", {}),
-                            state_snapshot=getattr(event, "state", None),
-                        )
+                async with aclosing(compiled.stream(initial_state or {}, **kwargs)) as events:
+                    async for event in events:
+                        # Convert CompiledGraph events to WorkflowEvent format
+                        if isinstance(event, tuple) and len(event) == 2:
+                            node_id, state = event
+                            yield WorkflowEvent(
+                                event_type="state_update",
+                                node_id=node_id,
+                                timestamp=time.time(),
+                                data={},
+                                state_snapshot=state,
+                            )
+                        elif isinstance(event, dict):
+                            yield WorkflowEvent(
+                                event_type=event.get("event_type", "state_update"),
+                                node_id=event.get("node_id", ""),
+                                timestamp=time.time(),
+                                data=event.get("data", {}),
+                                state_snapshot=event.get("state", None),
+                            )
+                        else:
+                            # Assume it's already a compatible event type
+                            yield WorkflowEvent(
+                                event_type=getattr(event, "event_type", "state_update"),
+                                node_id=getattr(event, "node_id", ""),
+                                timestamp=time.time(),
+                                data=getattr(event, "data", {}),
+                                state_snapshot=getattr(event, "state", None),
+                            )
 
             except Exception as e:
                 logger.error(f"Streaming YAML workflow failed: {e}")
@@ -753,15 +764,18 @@ class WorkflowEngine:
         else:
             # Fall back to coordinator for backward compatibility
             coordinator = self._get_yaml_coordinator()
-            async for event in coordinator.stream(
-                yaml_path=yaml_path,
-                initial_state=initial_state,
-                workflow_name=workflow_name,
-                condition_registry=condition_registry,
-                transform_registry=transform_registry,
-                **kwargs,
-            ):
-                yield event
+            async with aclosing(
+                coordinator.stream(
+                    yaml_path=yaml_path,
+                    initial_state=initial_state,
+                    workflow_name=workflow_name,
+                    condition_registry=condition_registry,
+                    transform_registry=transform_registry,
+                    **kwargs,
+                )
+            ) as events:
+                async for event in events:
+                    yield event
 
     async def stream_graph(
         self,
@@ -782,12 +796,15 @@ class WorkflowEngine:
             WorkflowEvent for each execution step.
         """
         coordinator = self._get_graph_coordinator()
-        async for event in coordinator.stream(
-            graph=graph,
-            initial_state=initial_state,
-            **kwargs,
-        ):
-            yield event
+        async with aclosing(
+            coordinator.stream(
+                graph=graph,
+                initial_state=initial_state,
+                **kwargs,
+            )
+        ) as events:
+            async for event in events:
+                yield event
 
     # =========================================================================
     # HITL Integration

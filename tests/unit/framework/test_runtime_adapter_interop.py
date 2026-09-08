@@ -95,5 +95,6 @@ def test_deprecated_workflow_executor_runtime_warns_and_resolves() -> None:
     ):
         from victor_contracts.workflow_executor_runtime import WorkflowExecutor
 
-    # WorkflowExecutor is now an alias for CompiledWorkflowExecutor
-    assert WorkflowExecutor.__name__ in ("WorkflowExecutor", "CompiledWorkflowExecutor")
+    from victor.workflows.state_graph_adapter import StateGraphWorkflowExecutor
+
+    assert WorkflowExecutor is StateGraphWorkflowExecutor

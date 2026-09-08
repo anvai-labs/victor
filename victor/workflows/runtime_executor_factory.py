@@ -37,13 +37,6 @@ def create_legacy_workflow_executor(*args: Any, **kwargs: Any) -> "IWorkflowExec
     return StateGraphWorkflowExecutor(*args, **kwargs)
 
 
-def create_bfs_streaming_runtime(*args: Any, **kwargs: Any) -> Any:
-    """Retain the streaming wrapper's private BFS hooks until ADR-030 step 3."""
-    from victor.workflows.unified_executor import CompiledWorkflowExecutor
-
-    return CompiledWorkflowExecutor(*args, **kwargs)
-
-
 def create_legacy_streaming_workflow_executor(*args: Any, **kwargs: Any) -> "IStreamingExecutor":
     """Create the compatibility streaming workflow executor through a single seam."""
     from victor.workflows.streaming_executor import StreamingWorkflowExecutor

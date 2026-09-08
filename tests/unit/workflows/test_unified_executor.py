@@ -268,7 +268,7 @@ class TestStateGraphExecutor:
         captured = {}
 
         class FakeCompiledGraph:
-            async def invoke(self, state, thread_id=None):
+            async def invoke(self, state, thread_id=None, node_observer=None):
                 captured["state"] = state
                 captured["thread_id"] = thread_id
                 return MagicMock(

@@ -18,11 +18,11 @@ Classes have been consolidated into victor.workflows.unified_executor.
 This module is kept for backward compatibility with existing importers.
 """
 
-from victor.workflows.unified_executor import (
-    CompiledWorkflowExecutor,
-    ExecutionResult,
-    WorkflowExecutor,
-)
+from victor.workflows.state_graph_adapter import StateGraphWorkflowExecutor
+from victor.workflows.unified_executor import ExecutionResult
+
+CompiledWorkflowExecutor = StateGraphWorkflowExecutor
+WorkflowExecutor = StateGraphWorkflowExecutor
 
 __all__ = [
     "CompiledWorkflowExecutor",

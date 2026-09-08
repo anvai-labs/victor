@@ -23,14 +23,13 @@ This module provides backward compatibility by re-exporting from canonical locat
 New code should import directly from those modules instead.
 """
 
-import asyncio
 import warnings
 
 # Re-export WorkflowExecutor from canonical location
-from victor.workflows.unified_executor import (
-    CompiledWorkflowExecutor,
-    StateGraphExecutor,
+from victor.workflows.state_graph_adapter import (
+    StateGraphWorkflowExecutor as CompiledWorkflowExecutor,
 )
+from victor.workflows.unified_executor import StateGraphExecutor
 
 # Re-export from victor_contracts.workflows
 from victor_contracts.workflows import (
@@ -70,15 +69,6 @@ WorkflowExecutor = CompiledWorkflowExecutor
 # re-exported here for backward compatibility until 0.10.0.
 from victor.workflows.compute_registry import CHAIN_HANDLER_PREFIX  # noqa: E402
 
-
-# Dummy function for test patching (deprecated)
-def get_chain_registry():
-    """Deprecated: Chain registry is no longer used."""
-    raise NotImplementedError(
-        "get_chain_registry is deprecated. Chain execution is handled differently now."
-    )
-
-
 __all__ = [
     # Executor (canonical, from unified_executor)
     "WorkflowExecutor",
@@ -99,7 +89,6 @@ __all__ = [
     "list_compute_handlers",
     "_compute_handlers",
     # Chain registry (deprecated stub)
-    "get_chain_registry",
     # Chain handler prefix
     "CHAIN_HANDLER_PREFIX",
 ]

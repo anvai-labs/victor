@@ -62,31 +62,40 @@ class ConditionNodeExecutor:
         Returns:
             Updated workflow state with branch result
 
-        Note:
-            Condition nodes are actually handled as conditional edges during
-            graph compilation via ConditionEvaluator.create_router(). This
-            executor is a passthrough since routing is already resolved.
+        The executor evaluates once and records the branch. The compiler router
+        consumes that result so conditions with effects are not called twice.
         """
         from victor.workflows.runtime_types import GraphNodeResult
 
-        logger.debug(f"Condition node {node.id} is passthrough (routing handled by StateGraph)")
+        import time
 
-        # Make mutable copy of state
         state = dict(state)
-
-        # Track that we passed through this condition node
-        if "_node_results" not in state:
-            state["_node_results"] = {}
-
-        state["_node_results"][node.id] = GraphNodeResult(
-            node_id=node.id,
-            success=True,
-            output={
-                "passthrough": True,
-                "branches": (list(node.branches.keys()) if hasattr(node, "branches") else []),
-            },
-        )
-
+        start_time = time.time()
+        try:
+            branch = node.condition(state)
+            if branch not in node.branches:
+                if "default" in node.branches:
+                    branch = "default"
+                else:
+                    raise ValueError(
+                        f"Condition node '{node.id}' returned unknown branch {branch!r}"
+                    )
+            result = GraphNodeResult(
+                node_id=node.id,
+                success=True,
+                output={"branch": branch, "next_node": node.branches[branch]},
+                duration_seconds=time.time() - start_time,
+            )
+        except Exception as exc:
+            error = f"Condition evaluation failed for node '{node.id}': {exc}"
+            state["_error"] = error
+            result = GraphNodeResult(
+                node_id=node.id,
+                success=False,
+                error=error,
+                duration_seconds=time.time() - start_time,
+            )
+        state.setdefault("_node_results", {})[node.id] = result
         return state
 
     def supports_node_type(self, node_type: str) -> bool:

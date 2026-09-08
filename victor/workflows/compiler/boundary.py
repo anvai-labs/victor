@@ -76,28 +76,21 @@ def create_condition_router(node: ConditionNode) -> Callable[[WorkflowState], st
     """Build a condition router shared across compiler compatibility layers."""
 
     def route(state: WorkflowState) -> str:
-        try:
+        recorded = state.get("_node_results", {}).get(node.id)
+        output = (
+            recorded.get("output")
+            if isinstance(recorded, dict)
+            else getattr(recorded, "output", None)
+        )
+        if isinstance(output, dict) and "branch" in output:
+            branch = output["branch"]
+        else:
             branch = node.condition(dict(state))
-            if branch in node.branches:
-                return branch
-            if "default" in node.branches:
-                return "default"
-
-            logger.warning(
-                "Condition node '%s' returned '%s' without a matching branch",
-                node.id,
-                branch,
-            )
-        except Exception as exc:
-            logger.error(
-                "Condition evaluation failed for node '%s': %s",
-                node.id,
-                exc,
-                exc_info=True,
-            )
-            if "default" in node.branches:
-                return "default"
-        return "__END__"
+        if branch in node.branches:
+            return branch
+        if "default" in node.branches:
+            return "default"
+        raise ValueError(f"Condition node '{node.id}' returned unknown branch {branch!r}")
 
     return route
 

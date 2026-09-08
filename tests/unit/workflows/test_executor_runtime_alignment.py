@@ -72,7 +72,7 @@ async def test_compute_executor_uses_input_mapping_and_output_key() -> None:
 
 
 @pytest.mark.asyncio
-async def test_condition_executor_records_passthrough_output() -> None:
+async def test_condition_executor_records_evaluated_branch() -> None:
     executor = ConditionNodeExecutor(context=None)
     node = ConditionNode(
         id="decide",
@@ -86,7 +86,7 @@ async def test_condition_executor_records_passthrough_output() -> None:
     node_result = result["_node_results"]["decide"]
     assert isinstance(node_result, GraphNodeResult)
     assert node_result.success is True
-    assert node_result.output == {"passthrough": True, "branches": ["yes"]}
+    assert node_result.output == {"branch": "yes", "next_node": "done"}
 
 
 @pytest.mark.asyncio

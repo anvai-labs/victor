@@ -161,7 +161,7 @@ Shipping note: victor-contracts 0.9.1 (sdk-v0.9.1) published 2026-09-07 with
 
 | # | Item | Ref | Effort |
 |---|------|-----|--------|
-| 23 | Engine unification: WorkflowExecutor as facade over CompiledGraph; AgenticLoop graduation (FEP-0007) | U6-F1, U2-F1 | L |
+| 23 | ✅ Single workflow engine: ADR-030 BFS deletion and compiled adapter; FEP-0007 obsolete entry-point cleanup | U6-F1, U2-F1 | Done |
 | 24 | Interrupt/resume semantics: `interrupted` field, resume-at vs completed-at (FEP) | U6-F4 | M |
 | 26b | Manifest-aware `parse_repo` (U5-02) + Tier-A/B storage protocol split (U5-07 remainder) | U5-01/02 | L |
 | 27 | ChatService inversion: own the turn lifecycle (A10/A11 guards landed as prerequisites) | U1-4/7 | L |
