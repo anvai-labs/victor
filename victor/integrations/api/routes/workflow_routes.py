@@ -49,12 +49,15 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
     async def list_workflow_templates() -> JSONResponse:
         """List available workflow templates."""
         try:
-            from victor.workflows import get_workflow_registry
+            from victor.workflows import get_global_registry
 
-            registry = get_workflow_registry()
+            registry = get_global_registry()
             templates = []
 
-            for workflow_id, workflow_def in registry._workflows.items():
+            for workflow_id in registry.list_workflows():
+                workflow_def = registry.get(workflow_id)
+                if workflow_def is None:
+                    continue
                 templates.append(
                     {
                         "id": workflow_id,
@@ -65,7 +68,7 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
                             {
                                 "id": node.id,
                                 "name": node.name or node.id,
-                                "type": node.type.value,
+                                "type": node.node_type.value,
                                 "role": getattr(node, "role", None),
                                 "goal": getattr(node, "goal", None),
                             }
@@ -88,9 +91,9 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
     async def get_workflow_template(template_id: str) -> JSONResponse:
         """Get workflow template details."""
         try:
-            from victor.workflows import get_workflow_registry
+            from victor.workflows import get_global_registry
 
-            registry = get_workflow_registry()
+            registry = get_global_registry()
             workflow_def = registry.get(template_id)
 
             if workflow_def is None:
@@ -106,7 +109,7 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
                         {
                             "id": node.id,
                             "name": node.name or node.id,
-                            "type": node.type.value,
+                            "type": node.node_type.value,
                             "role": getattr(node, "role", None),
                             "goal": getattr(node, "goal", None),
                         }
@@ -133,9 +136,10 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
             if not template_id:
                 return JSONResponse({"error": "template_id required"}, status_code=400)
 
-            from victor.workflows import get_workflow_registry, WorkflowExecutor
+            from victor.workflows import get_global_registry
+            from victor.workflows.runtime_executor_factory import create_legacy_workflow_executor
 
-            registry = get_workflow_registry()
+            registry = get_global_registry()
             workflow_def = registry.get(template_id)
 
             if workflow_def is None:
@@ -157,7 +161,7 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
                     {
                         "id": node.id,
                         "name": node.name or node.id,
-                        "type": node.type.value,
+                        "type": node.node_type.value,
                         "status": "pending",
                     }
                     for node in workflow_def.nodes.values()
@@ -178,7 +182,7 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
             async def run_workflow():
                 try:
                     orchestrator = await server._get_orchestrator()
-                    executor = WorkflowExecutor(orchestrator)
+                    executor = create_legacy_workflow_executor(orchestrator)
 
                     result = await executor.execute(
                         workflow_def,
@@ -187,28 +191,43 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
 
                     if execution_id in server._workflow_executions:
                         exec_state = server._workflow_executions[execution_id]
-                        exec_state["status"] = "completed" if result.success else "failed"
-                        exec_state["end_time"] = time.time()
-                        exec_state["progress"] = 100
-                        exec_state["output"] = (
-                            str(result.final_output) if result.final_output else None
+                        exec_state["status"] = (
+                            "paused"
+                            if result.interrupted
+                            else "completed" if result.success else "failed"
                         )
+                        exec_state["end_time"] = None if result.interrupted else time.time()
+                        exec_state["error"] = result.error
+                        exec_state["interrupt_node"] = result.interrupt_node
+                        exec_state["current_step"] = result.interrupt_node
+                        exec_state["output"] = str(result.context.data)
 
                         for step in exec_state["steps"]:
-                            node_result = result.node_results.get(step["id"])
+                            node_result = result.context.node_results.get(step["id"])
                             if node_result:
                                 step["status"] = "completed" if node_result.success else "failed"
-                                step["duration"] = (
-                                    node_result.duration_ms / 1000
-                                    if node_result.duration_ms
-                                    else None
-                                )
+                                step["duration"] = node_result.duration_seconds
+
+                        completed_steps = sum(
+                            step["status"] == "completed" for step in exec_state["steps"]
+                        )
+                        exec_state["progress"] = (
+                            100
+                            if result.success and not result.interrupted
+                            else 100 * completed_steps / max(len(exec_state["steps"]), 1)
+                        )
 
                         await server._broadcast_ws(
                             {
                                 "type": "agent_event",
                                 "event": (
-                                    "workflow_completed" if result.success else "workflow_failed"
+                                    "workflow_paused"
+                                    if result.interrupted
+                                    else (
+                                        "workflow_completed"
+                                        if result.success
+                                        else "workflow_failed"
+                                    )
                                 ),
                                 "data": exec_state,
                                 "timestamp": time.time(),

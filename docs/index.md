@@ -20,46 +20,22 @@ victor chat "Explain this codebase"
 ## Architecture at a Glance
 
 ```mermaid
+---
+title: Victor system overview
+---
+%%{init: {"theme":"base","themeVariables":{"primaryColor":"#E8EFF7","primaryTextColor":"#17324D","primaryBorderColor":"#456987","lineColor":"#456987","fontFamily":"Arial"}}}%%
 flowchart TB
-    subgraph Clients["CLIENT LAYER"]
-        CLI["CLI / TUI"]
-        API["HTTP API"]
-        MCP["MCP Server"]
-        VSC["VS Code"]
-    end
-    subgraph Framework["FRAMEWORK LAYER"]
-        Agent["Agent API"]
-        SG["StateGraph"]
-        WE["WorkflowEngine"]
-        Tools["Tool Registry"]
-    end
-    subgraph Services["SERVICE LAYER (6 canonical)"]
-        CS["ChatService"]
-        TS["ToolService"]
-        SS["SessionService"]
-        CX["ContextService"]
-        PS["ProviderService"]
-        RS["RecoveryService"]
-    end
-    subgraph Runtime["RUNTIME"]
-        ORC["AgentOrchestrator (Facade)"]
-        AL["AgenticLoop"]
-        TP["ToolPipeline"]
-    end
-    subgraph Providers["PROVIDERS (24)"]
-        Prov["Anthropic, OpenAI, Gemini, Ollama, Bedrock + 19"]
-    end
-    subgraph ToolModules["TOOLS (34 modules)"]
-        T1["Filesystem, Git, Shell, Web, Docker, Verification"]
-    end
-    subgraph Storage["STORAGE"]
-        GDB["Global DB ~/.victor/victor.db"]
-        PDB["Project DB ./.victor/project.db"]
-    end
-    Clients --> Framework --> Runtime --> Services
-    Services --> Providers
-    Services --> ToolModules
-    Runtime --> Storage
+  C["Clients<br/>CLI · TUI · HTTP · MCP · VS Code"]
+  F["Framework<br/>VictorClient · AgentFactory<br/>Agent · WorkflowEngine · StateGraph"]
+  R["Runtime<br/>AgentOrchestrator facade<br/>chat, tool and session services"]
+  I["Infrastructure<br/>providers · tools · storage · core"]
+  V["External vertical definitions"]
+  S["victor_contracts"]
+  C -->|"call public APIs"| F
+  F -->|"construct and delegate"| R
+  R -->|"perform effectful operations"| I
+  V -->|"declare capabilities"| S
+  F -.->|"consume contracts"| S
 ```
 
 **Start here** → [System Architecture](architecture.md) for the full picture.
@@ -74,8 +50,8 @@ flowchart TB
 |----------|-------------|
 | **[System Architecture](architecture.md)** | **Single source of truth** — layers, services, providers, tools, state, extensions, diagrams |
 | **[Features](features.md)** | Complete feature catalog grounded in implementation |
-| **[Roadmap](roadmap.md)** | 90-day priorities, directional horizons, tech debt register |
-| **[Tech Stack](tech-stack.md)** | Technology choices, dependency map, technical debt |
+| **[Roadmap](roadmap.md)** | Current release and Stage C priorities, complete debt register |
+| **[Tech Stack](tech-stack.md)** | Technology choices and dependency requirements |
 
 ### Architecture Deep-Dives
 
@@ -87,7 +63,7 @@ flowchart TB
 | [Streaming Pipeline](architecture/streaming-pipeline.md) | Streaming execution pipeline design |
 | [Smart Routing](architecture/smart_routing.md) | Provider routing and selection |
 | [Edge Provider Strategy](architecture/edge-provider-tool-strategy.md) | Edge model decisions |
-| [ADR Index](architecture/adr/) | Architecture Decision Records |
+| [ADR Index](architecture/adr/README.md) | Architecture Decision Records |
 
 ### User Guides
 
@@ -107,10 +83,13 @@ flowchart TB
 | [Development Setup](development/setup.md) | Install, venv, pre-commit, editor config |
 | [Testing Strategy](development/testing.md) | Unit/integration/benchmark, autouse fixtures |
 | [Code Style](development/code-style.md) | Black, ruff, mypy, line length 100 |
-| [Service Guide](development/SERVICE_GUIDE.md) | Service layer development patterns |
+| [Service Guide](architecture/orchestrator_decomposition.md) | Service layer development patterns |
 | [Deprecation Policy](development/deprecation-policy.md) | How deprecations are managed |
 | [PR Workflow](development/PR_WORKFLOW.md) | Branch hygiene, commit conventions, review process |
 | [FEP Process](FEP_PROCESS.md) | Framework Enhancement Proposal workflow |
+| [FEP Index](https://github.com/anvai-labs/victor/blob/develop/feps/README.md) | Canonical proposals in repository-root `feps/` |
+| [Native Build](development/setup.md#native-extension-build) | Canonical native extension recipe |
+| [Docs Build](development/setup.md#documentation-build) | Build and preview the documentation site |
 | [Plugin Development](development/extending/plugins.md) | Creating Victor plugins |
 | [Vertical Development](development/extending/verticals.md) | Building domain verticals |
 
@@ -158,7 +137,7 @@ flowchart TB
 
 | Document | Description |
 |----------|-------------|
-| [Observability](guides/observability/) | Monitoring and tracing |
+| [Observability](guides/observability/index.md) | Monitoring and tracing |
 | [MCP Server](guides/VICTOR_AS_MCP_SERVER.md) | Using Victor as MCP server |
 | [Task Completion](guides/task_completion.md) | Task fulfillment detection |
 | [Workflows](guides/WORKFLOW_SCHEDULER.md) | Workflow scheduler guide |
@@ -181,4 +160,11 @@ flowchart TB
 ## Contributing
 
 See [Development Setup](development/setup.md) and [PR Workflow](development/PR_WORKFLOW.md).
-All contributions require conventional commits and pass `make lint && make test`.
+Contributions use conventional commits and the checks documented in the PR workflow.
+
+## Current work and historical evidence
+
+The [roadmap](roadmap.md) distinguishes the 0.9.2 release snapshot from remaining Stage C work.
+The [September co-design review](reviews/2026-09-03-codesign/README.md) preserves dated findings;
+merged design documents do not imply their implementation has shipped. See the
+[documentation source index](https://github.com/anvai-labs/victor/blob/develop/docs/README.md) for canonical ownership and historical-record conventions.

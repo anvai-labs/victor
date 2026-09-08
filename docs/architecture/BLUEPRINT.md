@@ -1,23 +1,25 @@
 # Victor — Master Blueprint
 
-> **The starting point for understanding Victor.** A single-page, top-down and
+> **Superseded orientation snapshot.** Retained for its earlier diagrams and module inventory. The [canonical architecture](../architecture.md), [streaming sequence](../architecture.md#agenticloop), and [single workflow engine](../architecture.md#workflow-engine) describe the current code. Counts, call paths and ownership below are historical, not a second current architecture specification.
+
+> **Earlier orientation to Victor.** A single-page, top-down and
 > bottom-up orientation map of the entire codebase — grounded in real modules
 > and integration points. All diagrams are Mermaid and render inline.
 
-**Version**: {{ victor_version }} | **Status**: Canonical orientation document
+**Version**: {{ victor_version }} | **Status**: Historical orientation snapshot
 
 ---
 
 ## Table of Contents
 
 - [What Victor Is](#what-victor-is)
-- [Top-Down View — Layer Architecture](#top-down-view--layer-architecture)
-- [Request Flow — A Single Chat Turn](#request-flow--a-single-chat-turn)
-- [Bottom-Up View — Package & Module Map](#bottom-up-view--package--module-map)
+- [Top-Down View — Layer Architecture](#top-down-view-layer-architecture)
+- [Request Flow — A Single Chat Turn](#request-flow-a-single-chat-turn)
+- [Bottom-Up View — Package & Module Map](#bottom-up-view-package-module-map)
 - [The Six Canonical Services](#the-six-canonical-services)
 - [Extension Surfaces](#extension-surfaces)
-- [Data & State Model](#data--state-model)
-- [Reading Order — Suggested Path](#reading-order--suggested-path)
+- [Data & State Model](#data-state-model)
+- [Reading Order — Suggested Path](#reading-order-suggested-path)
 - [Glossary](#glossary)
 
 ---

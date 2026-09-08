@@ -25,6 +25,7 @@ Run with: pytest tests/unit/framework/test_architectural_boundaries.py -v
 """
 
 import pytest
+from typing import List, Tuple
 import ast
 import os
 from pathlib import Path
@@ -470,3 +471,104 @@ class TestRegressionGuards:
             pytest.fail("SessionConfig must be frozen=True")
         except (dataclasses.FrozenInstanceError, AttributeError):
             pass  # Expected
+
+
+class TestIntegrationsLayerBoundaries:
+    """U7-F4: the integrations layer is now guarded, with an allowlist.
+
+    The client-layer boundary was documented but only half-enforced: the
+    fixture above covered victor/ui, victor/commands, and the dashboard,
+    while victor/integrations imported victor.agent.* invisibly (including
+    AgentOrchestrator directly, in two places — both now routed through
+    AgentFactory / a structural protocol). Integrations get their own
+    fixture rather than joining ``ui_layer_files``: the UI-presentation
+    rules above (no AgentFactory, no private VictorClient calls) express
+    the front-end contract and would forbid the creation authority an
+    integration bridge legitimately holds. What integrations must satisfy
+    is the victor.agent import allowlist below, plus zero-tolerance for
+    the orchestrator itself.
+    """
+
+    @pytest.fixture
+    def integrations_layer_files(self):
+        """All integrations-layer Python files (tests excluded)."""
+        repo_root = Path(__file__).parent.parent.parent.parent
+        integrations_dir = repo_root / "victor" / "integrations"
+        files = []
+        for file_path in integrations_dir.rglob("*.py"):
+            if "test_" in file_path.name or "__tests__" in str(file_path):
+                continue
+            files.append(file_path)
+        return files
+
+    # Modules a bridge may reach into today (all function-level lazy except
+    # protocol/interface.py and protocol/messages.py). Growing this set
+    # requires editing it here — deliberate friction, per the guard-first
+    # sequencing the co-design review applied to every boundary.
+    INTEGRATIONS_AGENT_ALLOWLIST = frozenset(
+        {
+            "victor.agent.change_tracker",
+            "victor.agent.model_switcher",
+            "victor.agent.background_agent",
+            "victor.agent.mode_controller",
+            "victor.agent.subagents",
+            "victor.agent.tool_calling.base",
+        }
+    )
+
+    def _agent_import_modules(self, file_path: Path) -> List[Tuple[str, int, str]]:
+        """All (module, lineno, statement) victor.agent imports in a file."""
+        import ast
+
+        results = []
+        tree = ast.parse(file_path.read_text(encoding="utf-8"), filename=str(file_path))
+        rel = file_path.relative_to(Path(__file__).parent.parent.parent.parent)
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.ImportFrom)
+                and node.module
+                and node.module.startswith("victor.agent.")
+            ):
+                for alias in node.names:
+                    results.append(
+                        (node.module, node.lineno, f"from {node.module} import {alias.name}")
+                    )
+            elif isinstance(node, ast.Import):
+                for alias in node.names:
+                    if alias.name.startswith("victor.agent."):
+                        results.append((alias.name, node.lineno, f"import {alias.name}"))
+        return results
+
+    def test_integrations_agent_imports_are_allowlisted(self, integrations_layer_files):
+        """Every victor.agent.* import in integrations must be allowlisted."""
+        violations = []
+        for file_path in integrations_layer_files:
+            for module, lineno, stmt in self._agent_import_modules(file_path):
+                if not any(
+                    module == entry or module.startswith(entry + ".")
+                    for entry in self.INTEGRATIONS_AGENT_ALLOWLIST
+                ):
+                    violations.append(f"{file_path}:{lineno}: {stmt}")
+        assert not violations, (
+            "integrations layer imports a non-allowlisted victor.agent module:\n  "
+            + "\n  ".join(violations)
+            + "\n\nIntegrations bridges consume VictorClient / framework facades; "
+            "new victor.agent internals require an explicit allowlist entry here."
+        )
+
+    def test_integrations_never_import_orchestrator(self, integrations_layer_files):
+        """Zero-tolerance for victor.agent.orchestrator in integrations, at any
+        nesting (function-level lazy and TYPE_CHECKING imports included) —
+        both historical sites are now routed through AgentFactory / a
+        structural protocol (#1034 follow-up, U7-F4)."""
+        violations = []
+        for file_path in integrations_layer_files:
+            for module, lineno, stmt in self._agent_import_modules(file_path):
+                if module.startswith("victor.agent.orchestrator"):
+                    violations.append(f"{file_path}:{lineno}: {stmt}")
+        assert not violations, (
+            "integrations layer imports the orchestrator directly:\n  "
+            + "\n  ".join(violations)
+            + "\n\nCreate agents via AgentFactory / Agent.create(); annotate against "
+            "a structural protocol instead of the concrete orchestrator class."
+        )

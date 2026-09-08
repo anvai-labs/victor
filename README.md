@@ -8,8 +8,9 @@
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![Fast Checks](https://github.com/anvai-labs/victor/actions/workflows/ci-fast.yml/badge.svg)](https://github.com/anvai-labs/victor/actions/workflows/ci-fast.yml)
 [![Tests](https://github.com/anvai-labs/victor/actions/workflows/ci-test.yml/badge.svg)](https://github.com/anvai-labs/victor/actions/workflows/ci-test.yml)
+[![Documentation](https://github.com/anvai-labs/victor/actions/workflows/docs.yml/badge.svg)](https://anvai-labs.github.io/victor/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Docker](https://img.shields.io/badge/docker-ghcr.io-blue.svg)](https://ghcr.io/vjsingh1984/victor)
+[![Docker](https://img.shields.io/badge/docker-victor--ai-blue.svg)](https://hub.docker.com/r/vjsingh1984/victor-ai)
 
 </div>
 
@@ -23,8 +24,9 @@ It is designed for teams that need agent systems to be testable, extensible, obs
 
 | Capability | What it gives you |
 |------------|-------------------|
-| **Service-first runtime** | Chat, tools, sessions, context, provider routing, and recovery are owned by focused runtime services instead of a monolithic orchestrator. |
-| **StateGraph workflows** | Build typed graph workflows and use teams as graph nodes without inventing a separate multi-agent graph abstraction. |
+| **Service-first runtime** | Focused service interfaces for chat, tools, sessions, context, provider routing, and recovery. |
+| **StateGraph workflows** | Compile definitions into one execution engine for tasks, streaming, conditional routing, teams and checkpoints. |
+| **Verified native paths** | Optional Rust acceleration with required CI parity checks against Python behavior. |
 | **Local and cloud models** | Use cloud providers for capability, local providers for privacy/cost, and provider-specific caching strategies for performance. |
 | **Tool-rich execution** | Compose filesystem, git, shell, code search, graph, verification, Docker, web, testing, and refactoring tools. |
 | **Contract-first plugins** | Put domain behavior in sibling `victor-*` packages through `victor-contracts` and public framework extension contracts. |
@@ -34,48 +36,55 @@ It is designed for teams that need agent systems to be testable, extensible, obs
 
 | Path | Commands | Best for |
 |------|----------|----------|
-| Local model | `pipx install victor-ai`<br>`ollama pull qwen2.5-coder:7b`<br>`victor chat "Explain this repo"` | Private, low-cost, air-gapped work |
-| Cloud model | `pipx install victor-ai`<br>`export ANTHROPIC_API_KEY=...`<br>`victor chat --provider anthropic "Plan this refactor"` | Highest model capability |
+| Local model | `pipx install victor-ai`<br>`ollama pull qwen2.5-coder:7b`<br>`victor chat --provider ollama --model qwen2.5-coder:7b "Explain this repo"` | Private, low-cost, air-gapped work |
+| Cloud model | `pipx install victor-ai`<br>`export ANTHROPIC_API_KEY=...`<br>`victor chat --provider anthropic "Plan this refactor"` | Hosted provider access |
 | Python API | `pip install victor-ai` | Embedding Victor in applications |
-| Docker | `docker pull ghcr.io/vjsingh1984/victor:latest` | Isolated CLI/API runtime |
+| Docker | `docker pull vjsingh1984/victor-ai:latest` | Isolated CLI/API runtime |
 
 ## Give Your Agent Durable Memory
 
-Victor pairs with [ProximaDB](https://github.com/anvai-labs/proximaDB) — a multi-model
-(vector + graph + document) context database by the same author — as its durable memory
-layer. Index any repository with the shared [`victor-codegraph`](victor-codegraph/)
+Victor supports [ProximaDB](https://github.com/anvai-labs/proximaDB) as an optional
+backend for durable code memory. Index any repository with the shared [`victor-codegraph`](victor-codegraph/)
 chunker and get semantic recall ("where do we validate JWTs?") plus call-graph queries
 ("who calls `parse_jwt`?") that persist across sessions:
 
-**[Quickstart: Durable Code Memory with ProximaDB](docs/quickstart-proximadb-memory.md)** — Docker + two `pip install`s, ~10 minutes.
+**[Quickstart: Durable Code Memory with ProximaDB](docs/quickstart-proximadb-memory.md)** — setup, indexing, semantic recall and graph queries.
 
 Victor's embedded ProximaDB backends for project code intelligence are experimental,
 flag-gated previews — SQLite/LanceDB remain the defaults. The correlated graph+vector
-code-context backend (one entity = row + graph node + vector, TD-11/12/13) is
-**roadmap, not shipped** — see the [roadmap](docs/roadmap.md) and
+code-context backend (one entity = row + graph node + vector, TD-11/12/13) has
+implemented opt-in correlation and routing; benchmark, service-mode and default-graduation
+work remains — see the [roadmap](docs/roadmap.md) and
 [ProximaDB as the CCG Backend](docs/architecture/proximadb-codegraph-backend.md).
 
 ## Python API
 
 ```python
+import asyncio
+
 from victor.framework import Agent, EventType, ToolSet
 
-agent = await Agent.create(
-    provider="anthropic",
-    tools=ToolSet.default(),
-)
 
-result = await agent.run("Explain the architecture of this codebase")
-print(result.content)
+async def main():
+    async with await Agent.create(
+        provider="anthropic",
+        tools=ToolSet.default(),
+    ) as agent:
+        result = await agent.run("Explain the architecture of this codebase")
+        print(result.content)
 
-async for event in agent.stream("Review the changed files"):
-    if event.type == EventType.CONTENT:
-        print(event.content, end="")
+        async for event in agent.stream("Review the changed files"):
+            if event.type == EventType.CONTENT:
+                print(event.content, end="", flush=True)
+
+
+asyncio.run(main())
 ```
 
 ## StateGraph Workflows
 
 ```python
+import asyncio
 from typing import TypedDict
 
 from victor.framework import END, StateGraph
@@ -93,17 +102,43 @@ async def inspect(state: ReviewState) -> ReviewState:
 graph = StateGraph(ReviewState)
 graph.add_node("inspect", inspect)
 graph.add_edge("inspect", END)
+graph.set_entry_point("inspect")
 
-result = await graph.compile().invoke({"query": "review this module", "findings": []})
+result = asyncio.run(
+    graph.compile().invoke({"query": "review this module", "findings": []})
+)
+print(result.state["findings"])
 ```
 
 ## Architecture
 
 The core rule is simple: interfaces compose framework APIs, framework APIs delegate to the service-first runtime, and domain packages plug in through SDK/public extension contracts.
 
-![Victor 0.7 architecture](docs/diagrams/architecture/victor_0_7_readme_architecture.svg)
+```mermaid
+---
+title: Victor system overview
+---
+%%{init: {"theme":"base","themeVariables":{"primaryColor":"#E8EFF7","primaryTextColor":"#17324D","primaryBorderColor":"#456987","lineColor":"#456987","fontFamily":"Arial"}}}%%
+flowchart TB
+  C["Clients<br/>CLI · TUI · HTTP · MCP · VS Code"]
+  F["Framework<br/>VictorClient · AgentFactory<br/>Agent · WorkflowEngine · StateGraph"]
+  R["Runtime<br/>AgentOrchestrator facade<br/>chat, tool and session services"]
+  I["Infrastructure<br/>providers · tools · storage · core"]
+  V["External vertical definitions"]
+  S["victor_contracts"]
+  C -->|"call public APIs"| F
+  F -->|"construct and delegate"| R
+  R -->|"perform effectful operations"| I
+  V -->|"declare capabilities"| S
+  F -.->|"consume contracts"| S
+```
 
-Victor 0.7 makes the framework/plugin split explicit:
+The [canonical architecture guide](docs/architecture.md) explains the boundaries and execution paths.
+Workflow execution and streaming share `CompiledGraph`; the former BFS walker has been removed.
+The unified streaming chat loop is implemented. Further chat ownership inversion, expanded
+interrupt/resume semantics and RL package relocation remain explicitly labelled proposal targets.
+
+The framework/plugin split is:
 
 - `victor.framework` is the stable public contract for agents, tools, StateGraph, workflows, events, and extension surfaces.
 - `victor.agent` is the internal runtime implementation behind that contract.
@@ -111,10 +146,12 @@ Victor 0.7 makes the framework/plugin split explicit:
 - `victor-contracts` is the definition-layer contract for external verticals and plugins.
 - Sibling `victor-*` packages own domain behavior such as coding, DevOps, RAG, research, data analysis, and investment workflows.
 
+Read the [published documentation](https://anvai-labs.github.io/victor/) for navigation and searchable API references.
+
 Detailed references:
 
 - [Architecture overview](docs/architecture.md)
-- [Internal architecture diagram](docs/diagrams/architecture/victor_0_7_architecture.mmd)
+- [Diagram map and refresh audit](docs/diagrams/refresh-2026-09.md)
 - [contracts boundary](docs/architecture/CONTRACTS_BOUNDARY.md)
 - [State-passed architecture](docs/architecture/state-passed-architecture.md)
 
@@ -149,52 +186,27 @@ Plugin rules:
 
 ## State and Code Intelligence
 
-Victor uses a two-database model:
+Victor separates global and project state, with a dedicated database for undo history:
 
 | Scope | Location | Purpose |
 |-------|----------|---------|
 | Global database | `~/.victor/victor.db` | Settings, API keys, profiles, RL outcomes, tool/model preferences, cross-project patterns |
 | Project database | `./.victor/project.db` | Graph nodes/edges, conversations, project sessions, entity memory, change tracking |
+| Undo database | `./.victor/undo.db` | File-edit undo/redo history, isolated from indexer write locks |
 
 Project code intelligence is derived, rebuildable state. Graph indexes, vector indexes, file watcher state, and `.victor/` runtime artifacts should not become source-of-truth release artifacts.
 
 ## Development
 
-```bash
-python -m venv .venv
-source .venv/bin/activate
-# victor-contracts first so victor-ai resolves the in-repo SDK, not PyPI
-pip install -e ./victor-contracts -e ".[dev]"
-
-make test-quick
-make test
-make lint
-make check-repo-hygiene
-```
-
-### Optional extras
-
-The base install degrades gracefully when optional dependencies are absent
-(lazy/guarded imports). Install an extra only when you want that capability:
-
-```bash
-pip install -e ".[web]"          # headless browser rendering + trafilatura extraction
-                                #   (web_fetch render=browser; DDG browser fallback)
-                                #   then: playwright install chromium
-pip install -e ".[embeddings]"   # sentence-transformers + lancedb for semantic search
-pip install -e ".[docker]"       # sandboxed code execution / container deploy
-pip install -e ".[langchain]"    # adapt LangChain tools as native Victor tools
-```
-
-Subprojects are scoped:
-
-```bash
-npm --prefix vscode-victor run compile
-cd rust && cargo test
-```
+Follow [Development Setup](docs/development/setup.md) for the environment, optional extras,
+[native extension build](docs/development/setup.md#native-extension-build), and
+[documentation preview](docs/development/setup.md#documentation-build). The
+[PR workflow](docs/development/PR_WORKFLOW.md) defines verification and branch conventions.
 
 ## Documentation
 
+- [Documentation map](docs/index.md)
+- [Canonical guide index](docs/README.md)
 - [Getting Started](docs/getting-started/)
 - [Durable Code Memory with ProximaDB](docs/quickstart-proximadb-memory.md)
 - [Guides](docs/guides/)

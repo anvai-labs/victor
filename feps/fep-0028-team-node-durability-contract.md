@@ -1,5 +1,5 @@
 ---
-fep: 0028
+fep: "0028"
 title: "Team-Node Durability Contract"
 type: Standards Track
 status: Accepted

@@ -1,12 +1,16 @@
 # ADR-011: LLM-Judge Reliability Gating
 
+> **Execution update (2026-09-08).** The gate was run; the production-distribution result
+> was NO-GO. See the [EVR-3 results](../evr3-parity-results.md). Historical benchmark apparatus
+> was removed in #1019 and is recoverable through the linked experiment records.
+
 ## Metadata
 
-- **Status**: Accepted (2026-07-02 — machinery shipped in `victor/evaluation/judge_calibration.py` + `trajectory_eval.py` (#202); the κ/α validation against human labels has not yet been run, so ADR-009/010 stay opt-in; was Proposed)
+- **Status**: Accepted (2026-07-02 — machinery shipped in `victor/evaluation/judge_calibration.py` + `trajectory_eval.py` (#202); the later production-distribution reliability gate failed, so it does not authorize a rubric default; was Proposed)
 - **Date**: 2026-06-21
 - **Decision Makers**: Vijaykumar Singh
 - **Related ADRs**: 009 (rubric completion), 010 (effect-grounded), 012 (regression-gated harness)
-- **Related**: [FEP-0008](../../../feps/fep-0008-evaluation-centric-completion.md)
+- **Related**: [FEP-0008](https://github.com/anvai-labs/victor/blob/develop/feps/fep-0008-evaluation-centric-completion.md)
 
 ## Context
 

@@ -120,7 +120,7 @@ class MyProvider(BaseProvider):
         pass
 ```
 
-[Provider Reference →](../reference/providers/)
+[Provider Reference →](../reference/providers/index.md)
 
 ### Add a Tool
 
@@ -139,7 +139,7 @@ class MyTool(BaseTool):
 **Tool Deduplication**: Native tools are automatically preferred over adapter tools (LangChain, MCP) when conflicts are detected. Tools are compared by normalized name (lowercase, separator normalization). Ensure your tool has a unique, descriptive name to avoid conflicts.
 
 [Tool Catalog →](../reference/tools/catalog.md)
-[Tool Deduplication →](../architecture/tool-deduplication.md)
+[Tool Deduplication →](../reference/tools/migration.md)
 
 ### Create a Vertical
 
@@ -209,13 +209,13 @@ Victor uses a strict PR-based workflow to ensure code quality:
 
 [Detailed PR Workflow Guide →](PR_WORKFLOW.md)
 
-[Contribution Workflow →](../../CONTRIBUTING.md)
+[Contribution Workflow →](https://github.com/anvai-labs/victor/blob/develop/CONTRIBUTING.md)
 
 ## Resources
 
 | Topic | Link |
 |-------|------|
-| Architecture Overview | [Architecture →](../architecture/README.md) |
+| Architecture Overview | [Architecture →](../architecture.md) |
 | Service-First Runtime | [Orchestrator Decomposition →](../architecture/orchestrator_decomposition.md) |
 | Provider Comparison | [Provider Matrix →](../reference/providers-comparison.md) |
 | Tool Reference | [Tool Catalog →](../guides/tool-reference.md) |

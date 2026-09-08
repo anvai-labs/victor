@@ -10,46 +10,12 @@ Victor's graph-based code intelligence features provide deep understanding of co
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                        Victor Agent System                          │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                       │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐                 │
-│  │   Chat/CLI  │  │     TUI     │  │   HTTP API  │                 │
-│  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘                 │
-│         └────────────────┼─────────────────┘                        │
-│                         ▼                                           │
-│  ┌─────────────────────────────────────────────────────────────┐   │
-│  │                    Graph RAG Pipeline                        │   │
-│  ├─────────────────────────────────────────────────────────────┤   │
-│  │  G-Indexing → G-Retrieval → G-Generation                    │   │
-│  │  (Build Graph) (Multi-Hop)    (Graph Context)               │   │
-│  └─────────────────────────────────────────────────────────────┘   │
-│                         ▼                                           │
-│  ┌─────────────────────────────────────────────────────────────┐   │
-│  │                   Unified Graph Schema                       │   │
-│  ├─────────────────────────────────────────────────────────────┤   │
-│  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐       │   │
-│  │  │ Symbol Nodes │  │Statement Nodes│  │Requirement Nodes│     │   │
-│  │  │ (existing)   │  │  (CCG - NEW) │  │  (NEW)        │       │   │
-│  │  └──────────────┘  └──────────────┘  └──────────────┘       │   │
-│  │                                                                │   │
-│  │  Edges: CALLS, REFERENCES, INHERITS, CONTAINS                │   │
-│  │         CFG_SUCCESSOR, CDG, DDG_DEF_USE (NEW)               │   │
-│  │         SATISFIES, SEMANTIC_SIMILAR (NEW)                   │   │
-│  └─────────────────────────────────────────────────────────────┘   │
-│                         ▼                                           │
-│  ┌─────────────────────────────────────────────────────────────┐   │
-│  │              Storage Layer (Hybrid)                          │   │
-│  ├─────────────────────────────────────────────────────────────┤   │
-│  │  ┌─────────────────┐              ┌─────────────────┐        │   │
-│  │  │   SQLite        │              │   LanceDB       │        │   │
-│  │  │   Graph Store   │              │   Vector Store  │        │   │
-│  │  └─────────────────┘              └─────────────────┘        │   │
-│  └─────────────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────────┘
-```
+The [storage architecture diagram](../architecture.md#database-architecture) shows the
+current code-graph store, dedicated SQLite worker, and separate workflow persistence.
+Graph traversal and semantic retrieval combine context above those storage interfaces;
+[backend status](../architecture.md#database-architecture) distinguishes defaults from
+opt-in ProximaDB work. The schemas and examples below describe this guide’s feature surfaces,
+not a claim that every optional backend is enabled.
 
 ## Quick Start
 
@@ -57,7 +23,7 @@ Victor's graph-based code intelligence features provide deep understanding of co
 
 ```bash
 # Index your codebase with CCG
-victor graph index --path /path/to/code --ccg
+victor graph index --path /path/to/code --ccg --embeddings
 
 # Query using natural language
 victor graph query "authentication function" --path /path/to/code
@@ -218,14 +184,14 @@ prompt = builder.build_prompt(
 
 ## Tools
 
-### graph_query Tool
+### graph_semantic_search Tool
 
 Query your codebase using natural language:
 
 ```python
-from victor.tools.graph_query_tool import graph_query
+from victor.tools.graph_query_tool import graph_semantic_search
 
-result = await graph_query(
+result = await graph_semantic_search(
     query="database connection handling",
     path="/path/to/code",
     mode="semantic",  # semantic, structural, hybrid
@@ -279,7 +245,6 @@ search:
     enable_graph_rag: true
     rag_seed_count: 5
     rag_max_hops: 2
-    rag_top_k: 10
 
     # Subgraph Caching
     enable_subgraph_cache: true
@@ -354,22 +319,17 @@ embedding = await embedder.embed_with_context(
 Apply NetworkX algorithms:
 
 ```python
-from victor.processing.graph_algorithms import GraphAlgorithmRunner
+from victor.processing.graph_algorithms import compute_all_metrics
 
-runner = GraphAlgorithmRunner(graph_store)
-
-# Centrality analysis
-central_nodes = await runner.compute_pagerank()
-
-# Community detection
-communities = await runner.detect_communities()
-
-# Shortest path
-path = await runner.find_shortest_path(
-    source="function_a",
-    target="function_b",
-)
+# nodes and edges are lists of GraphNode and GraphEdge from the indexed graph.
+metrics = compute_all_metrics(nodes, edges)
+central_nodes = metrics.pagerank
+communities = metrics.communities
 ```
+
+These helpers operate on explicit node/edge lists. There is no `GraphAlgorithmRunner`
+API. NetworkX is optional; inspect the helper's fallback behavior before relying on
+an algorithm-specific result.
 
 ## Schema Reference
 
@@ -424,11 +384,10 @@ No manual intervention required. Existing data is preserved.
 **Solution**: Check that Tree-sitter parsers are installed for your language:
 
 ```bash
-# Install Tree-sitter CLI
-npm install -g tree-sitter-cli
-
-# Verify language parsers
-tree-sitter parse test.py
+# Install the Python embedding/grammar dependencies used by Victor
+pip install "victor-ai[embeddings]"
+# Re-run indexing and inspect its skipped-file/parser diagnostics
+victor graph index --path /path/to/code --ccg --force
 ```
 
 ### Slow Multi-Hop Queries
@@ -447,7 +406,7 @@ tree-sitter parse test.py
 **Solution**: Install optional dependencies:
 
 ```bash
-pip install "victor-ai[graph]"
+pip install "victor-ai[embeddings]"
 ```
 
 ## Contributing

@@ -4,7 +4,7 @@ The Coding vertical provides comprehensive code analysis, review, refactoring, a
 
 ## Overview
 
-The Coding vertical (`victor/coding/`) is Victor's core vertical for software development tasks. It provides intelligent code understanding through Tree-sitter AST parsing, LSP integration for real-time code intelligence, and semantic code search capabilities.
+The Coding vertical (`verticals/victor-coding/victor_coding/`) is Victor's core vertical for software development tasks. It provides intelligent code understanding through Tree-sitter AST parsing, LSP integration for real-time code intelligence, and semantic code search capabilities.
 
 ### Key Use Cases
 
@@ -264,50 +264,29 @@ timeout: 300            # Node timeout in seconds
 
 ## Example Usage
 
-### Basic Code Review
+Use the public factory with the `coding` vertical. Install the corresponding
+`victor-coding` package if it is not already available in your environment.
 
 ```python
-from victor_coding.workflows import CodingWorkflowProvider
+import asyncio
+from victor.framework import Agent
 
-provider = CodingWorkflowProvider()
-workflow = provider.compile_workflow("code_review")
+async def main():
+    async with await Agent.create(
+        vertical="coding", provider="ollama", model="llama3.1:8b"
+    ) as agent:
+        result = await agent.run("Review the last commit for security issues")
+        print(result.content)
 
-result = await workflow.invoke({
-    "diff": git_diff_content,
-    "context": {
-        "repository": "my-project",
-        "branch": "feature/new-api"
-    }
-})
-
-print(result["review_report"])
+asyncio.run(main())
 ```
 
-### Feature Implementation
-
-```python
-result = await workflow.invoke({
-    "feature_request": "Add user authentication with JWT tokens",
-    "codebase_path": "/path/to/project",
-    "test_framework": "pytest"
-})
-```
-
-### Using the Coding Assistant Directly
-
-```python
-from victor.agent.orchestrator import AgentOrchestrator
-
-orchestrator = AgentOrchestrator(
-    vertical="coding",
-    provider="anthropic",
-    model="claude-sonnet-4-5"
-)
-
-response = await orchestrator.chat(
-    "Review the changes in the last commit for security issues"
-)
-```
+For a named workflow supplied by the installed vertical, call
+`await agent.run_workflow(workflow_name, context={...})` on the configured agent.
+Use the installed package's workflow catalog to select a name and its expected input
+keys. A bare workflow compiler does not create the agent runtime or provider.
+See [Python API](../reference/api/python-api.md) and
+[workflow execution](../tutorials/create-workflow.md).
 
 ## Integration with Other Verticals
 
@@ -320,7 +299,7 @@ The Coding vertical integrates with:
 ## File Structure
 
 ```
-victor/coding/
+verticals/victor-coding/victor_coding/
 ├── assistant.py          # CodingAssistant vertical definition
 ├── capabilities.py       # Capability providers
 ├── mode_config.py        # Mode configurations

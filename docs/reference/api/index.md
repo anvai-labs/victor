@@ -256,8 +256,11 @@ curl http://localhost:8080/api/v1/chat/stream \
 **Python API**:
 ```python
 # Async generator
-async for chunk in agent.astream("Write code"):
-    print(chunk, end="")
+from victor.framework import EventType
+
+async for event in agent.stream("Write code"):
+    if event.type == EventType.CONTENT:
+        print(event.content, end="")
 ```
 
 ### Error Handling
@@ -568,7 +571,7 @@ python -c "import victor; print(victor.__version__)"
 - **HTTP API**: [Full Documentation →](http-api.md)
 - **MCP Server**: [Full Documentation →](mcp-server.md)
 - **Python API**: [Full Documentation →](python-api.md)
-- **Configuration**: [Configuration Reference →](../configuration/)
+- **Configuration**: [Configuration Reference →](../configuration/index.md)
 - **Troubleshooting**: [Troubleshooting Guide →](../../user-guide/troubleshooting.md)
 
 ---

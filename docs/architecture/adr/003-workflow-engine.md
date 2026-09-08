@@ -231,7 +231,7 @@ async for node_id, state in agent.stream_workflow("workflow.yaml"):
 
 - [LangGraph](https://github.com/langchain-ai/langgraph)
 - [Workflow Patterns](https://www.workflowpatterns.com)
-- [Victor WorkflowEngine](../framework/workflow_engine.py)
+- [Victor WorkflowEngine](https://github.com/anvai-labs/victor/blob/develop/victor/framework/workflow_engine.py)
 
 ## Revision History
 

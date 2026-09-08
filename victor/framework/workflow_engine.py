@@ -63,6 +63,7 @@ Usage:
 from __future__ import annotations
 
 import logging
+from contextlib import aclosing
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import (
@@ -197,6 +198,8 @@ class WorkflowExecutionResult:
         checkpoints: List of checkpoint IDs created.
         hitl_requests: HITL requests that were made.
         cached: Whether result was from cache.
+        interrupted: Whether execution paused at a graph interrupt.
+        interrupt_node: Node at which execution paused.
     """
 
     success: bool
@@ -209,6 +212,8 @@ class WorkflowExecutionResult:
     checkpoints: List[str] = field(default_factory=list)
     hitl_requests: List[Dict[str, Any]] = field(default_factory=list)
     cached: bool = False
+    interrupted: bool = False
+    interrupt_node: Optional[str] = None
 
 
 @dataclass
@@ -521,7 +526,7 @@ class WorkflowEngine:
         import uuid
 
         start_time = time.time()
-        workflow_id = kwargs.get("workflow_id") or uuid.uuid4().hex
+        workflow_id = kwargs.pop("workflow_id", None) or uuid.uuid4().hex
 
         # Emit workflow started event
         self._emit_workflow_event(
@@ -538,18 +543,21 @@ class WorkflowEngine:
             result = await executor.execute(
                 workflow,
                 initial_context=initial_state or {},
+                **kwargs,
             )
 
             duration = time.time() - start_time
 
             # Emit workflow completed event
             self._emit_workflow_event(
-                "workflow_completed",
+                "workflow_paused" if result.interrupted else "workflow_completed",
                 workflow_id,
                 {
                     "success": result.success,
                     "duration": duration,
                     "nodes_executed": result.nodes_executed,
+                    "interrupted": result.interrupted,
+                    "interrupt_node": result.interrupt_node,
                 },
             )
 
@@ -559,6 +567,8 @@ class WorkflowEngine:
                 nodes_executed=result.nodes_executed,
                 duration_seconds=duration,
                 error=result.error if not result.success else None,
+                interrupted=result.interrupted,
+                interrupt_node=result.interrupt_node,
             )
 
         except Exception as e:
@@ -713,25 +723,35 @@ class WorkflowEngine:
                 )
 
                 # Stream via CompiledGraph.stream()
-                async for event in compiled.stream(initial_state or {}, **kwargs):
-                    # Convert CompiledGraph events to WorkflowEvent format
-                    if isinstance(event, dict):
-                        yield WorkflowEvent(
-                            event_type=event.get("event_type", "state_update"),
-                            node_id=event.get("node_id", ""),
-                            timestamp=time.time(),
-                            data=event.get("data", {}),
-                            state_snapshot=event.get("state", None),
-                        )
-                    else:
-                        # Assume it's already a compatible event type
-                        yield WorkflowEvent(
-                            event_type=getattr(event, "event_type", "state_update"),
-                            node_id=getattr(event, "node_id", ""),
-                            timestamp=time.time(),
-                            data=getattr(event, "data", {}),
-                            state_snapshot=getattr(event, "state", None),
-                        )
+                async with aclosing(compiled.stream(initial_state or {}, **kwargs)) as events:
+                    async for event in events:
+                        # Convert CompiledGraph events to WorkflowEvent format
+                        if isinstance(event, tuple) and len(event) == 2:
+                            node_id, state = event
+                            yield WorkflowEvent(
+                                event_type="state_update",
+                                node_id=node_id,
+                                timestamp=time.time(),
+                                data={},
+                                state_snapshot=state,
+                            )
+                        elif isinstance(event, dict):
+                            yield WorkflowEvent(
+                                event_type=event.get("event_type", "state_update"),
+                                node_id=event.get("node_id", ""),
+                                timestamp=time.time(),
+                                data=event.get("data", {}),
+                                state_snapshot=event.get("state", None),
+                            )
+                        else:
+                            # Assume it's already a compatible event type
+                            yield WorkflowEvent(
+                                event_type=getattr(event, "event_type", "state_update"),
+                                node_id=getattr(event, "node_id", ""),
+                                timestamp=time.time(),
+                                data=getattr(event, "data", {}),
+                                state_snapshot=getattr(event, "state", None),
+                            )
 
             except Exception as e:
                 logger.error(f"Streaming YAML workflow failed: {e}")
@@ -744,15 +764,18 @@ class WorkflowEngine:
         else:
             # Fall back to coordinator for backward compatibility
             coordinator = self._get_yaml_coordinator()
-            async for event in coordinator.stream(
-                yaml_path=yaml_path,
-                initial_state=initial_state,
-                workflow_name=workflow_name,
-                condition_registry=condition_registry,
-                transform_registry=transform_registry,
-                **kwargs,
-            ):
-                yield event
+            async with aclosing(
+                coordinator.stream(
+                    yaml_path=yaml_path,
+                    initial_state=initial_state,
+                    workflow_name=workflow_name,
+                    condition_registry=condition_registry,
+                    transform_registry=transform_registry,
+                    **kwargs,
+                )
+            ) as events:
+                async for event in events:
+                    yield event
 
     async def stream_graph(
         self,
@@ -773,12 +796,15 @@ class WorkflowEngine:
             WorkflowEvent for each execution step.
         """
         coordinator = self._get_graph_coordinator()
-        async for event in coordinator.stream(
-            graph=graph,
-            initial_state=initial_state,
-            **kwargs,
-        ):
-            yield event
+        async with aclosing(
+            coordinator.stream(
+                graph=graph,
+                initial_state=initial_state,
+                **kwargs,
+            )
+        ) as events:
+            async for event in events:
+                yield event
 
     # =========================================================================
     # HITL Integration

@@ -219,7 +219,13 @@ class NodeExecutor:
         except asyncio.TimeoutError as exc:
             return NodeExecutionResult.fail(error=exc, state=state)
         except Exception as exc:
-            return NodeExecutionResult.fail(error=exc, state=state)
+            # Node adapters may attach their completed failure state so that
+            # diagnostics survive copy-on-write execution. Keep this generic:
+            # graph execution must not depend on workflow executor classes.
+            result_state = getattr(exc, "result_state", state)
+            if not isinstance(result_state, (dict, BaseModel)):
+                result_state = state
+            return NodeExecutionResult.fail(error=exc, state=result_state)
 
 
 class GraphCheckpointManager:
@@ -227,6 +233,7 @@ class GraphCheckpointManager:
 
     def __init__(self, checkpointer: Optional[CheckpointerProtocol]):
         self.checkpointer = checkpointer
+        self.routing_state: Optional[Dict[str, Any]] = None
 
     async def load_initial_state(
         self,
@@ -238,6 +245,10 @@ class GraphCheckpointManager:
             checkpoint = await self.checkpointer.load(thread_id)
             if checkpoint:
                 logger.info("Resuming from checkpoint at node: %s", checkpoint.node_id)
+                self.routing_state = copy.deepcopy(checkpoint.metadata.get("sequential_frontier"))
+                if self.routing_state is not None:
+                    pending = self.routing_state["pending_nodes"]
+                    return copy.deepcopy(checkpoint.state), pending[0] if pending else "__end__"
                 # Deep copy: shallow copy() would alias nested dicts with the
                 # stored checkpoint, and the execution loop mutates state
                 # in place as it runs.
@@ -261,6 +272,8 @@ class GraphCheckpointManager:
                 timestamp=time.time(),
                 metadata=self._checkpoint_metadata(state),
             )
+            if self.routing_state is not None:
+                checkpoint.metadata["sequential_frontier"] = copy.deepcopy(self.routing_state)
             await self.checkpointer.save(checkpoint)
 
     @staticmethod

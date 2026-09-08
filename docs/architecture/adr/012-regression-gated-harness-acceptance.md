@@ -6,7 +6,7 @@
 - **Date**: 2026-06-21
 - **Decision Makers**: Vijaykumar Singh
 - **Related ADRs**: 009, 010, 011
-- **Related**: [FEP-0008](../../../feps/fep-0008-evaluation-centric-completion.md), FEP-0007 (unified loop), [Vision](../vision-evaluation-centric-runtime.md)
+- **Related**: [FEP-0008](https://github.com/anvai-labs/victor/blob/develop/feps/fep-0008-evaluation-centric-completion.md), FEP-0007 (unified loop), [Vision](../vision-evaluation-centric-runtime.md)
 
 ## Context
 

@@ -20,6 +20,7 @@ This is a stub that delegates to legacy implementation during migration.
 
 from __future__ import annotations
 
+import inspect
 import logging
 import time
 from typing import TYPE_CHECKING, Any
@@ -71,6 +72,7 @@ class ComputeNodeExecutor:
 
         logger.info(f"Executing compute node: {node.id}")
         start_time = time.time()
+        state = dict(state)
 
         # Step 1: Build params from node input_mapping with $ctx. and $state. prefixes
         params = {}
@@ -119,6 +121,7 @@ class ComputeNodeExecutor:
 
         tool_calls_used = 0
         output = None
+        error = None
 
         # Step 3: Check for custom handler
         if node.handler:
@@ -137,9 +140,12 @@ class ComputeNodeExecutor:
 
                 output = result.output if result else None
                 tool_calls_used = result.tool_calls_used if result else 0
+                if result is None or not result.success:
+                    error = (result.error if result else None) or "Compute handler failed"
             else:
                 logger.warning(f"Handler '{node.handler}' not found for node '{node.id}'")
-                output = {"error": f"Handler '{node.handler}' not found"}
+                error = f"Handler '{node.handler}' not found"
+                output = {"error": error}
         else:
             # Step 4: Execute tools directly
             outputs = {}
@@ -177,17 +183,20 @@ class ComputeNodeExecutor:
                             outputs[tool_name] = result.output
                         else:
                             outputs[tool_name] = {"error": result.error}
+                            error = error or result.error or f"Tool {tool_name} failed"
 
                         if hasattr(node, "fail_fast") and node.fail_fast and not result.success:
                             break
 
                     except asyncio.TimeoutError:
                         outputs[tool_name] = {"error": "Timeout"}
+                        error = error or f"Tool {tool_name} timed out"
                         if hasattr(node, "fail_fast") and node.fail_fast:
                             break
                     except Exception as e:
                         logger.error(f"Tool '{tool_name}' execution failed: {e}")
                         outputs[tool_name] = {"error": str(e)}
+                        error = error or str(e)
                         if hasattr(node, "fail_fast") and node.fail_fast:
                             break
             else:
@@ -205,13 +214,16 @@ class ComputeNodeExecutor:
 
         state["_node_results"][node.id] = GraphNodeResult(
             node_id=node.id,
-            success=True,
+            success=error is None,
+            error=error,
             output=output,
             duration_seconds=time.time() - start_time,
             tool_calls_used=tool_calls_used,
         )
 
-        logger.info(f"Compute node {node.id} completed successfully")
+        if error is not None:
+            state["_error"] = error
+        logger.info("Compute node %s completed (success=%s)", node.id, error is None)
         return state
 
     def _get_compute_handler(self, handler_name: str) -> Any:
@@ -300,8 +312,23 @@ class ComputeNodeExecutor:
             timeout = getattr(node, "timeout", 300)
 
             try:
-                # Execute chain with timeout
-                output = await asyncio.wait_for(runnable.invoke(input_data), timeout=timeout)
+
+                async def invoke_chain() -> Any:
+                    if hasattr(runnable, "ainvoke"):
+                        return await runnable.ainvoke(input_data)
+                    if hasattr(runnable, "invoke"):
+                        invoke = runnable.invoke
+                        args, kwargs = (input_data,), {}
+                    else:
+                        invoke = runnable
+                        args, kwargs = (), input_data
+                    if inspect.iscoroutinefunction(invoke):
+                        value = await invoke(*args, **kwargs)
+                    else:
+                        value = await asyncio.to_thread(invoke, *args, **kwargs)
+                    return await value if inspect.isawaitable(value) else value
+
+                output = await asyncio.wait_for(invoke_chain(), timeout=timeout)
 
                 # Update context with output
                 self._update_context(context, node, output)
@@ -347,7 +374,9 @@ class ComputeNodeExecutor:
                 elif isinstance(source, str) and source.startswith("$state."):
                     context_key = source[7:]
                     input_data[key] = context.get(context_key, context_key)
-                # Direct value
+                # Legacy mappings name context keys without a prefix.
+                elif isinstance(source, str):
+                    input_data[key] = context.get(source, source)
                 else:
                     input_data[key] = source
         else:

@@ -12,7 +12,7 @@
 - [Execution Limits](#execution-limits)
 - [Workflow Versioning](#workflow-versioning)
 - [Production Deployment](#production-deployment)
-- [Limitations & Honest Assessment](#limitations--honest-assessment)
+- [Limitations & Honest Assessment](#limitations-honest-assessment)
 
 ## Overview
 
@@ -132,7 +132,6 @@ workflow = ScheduledWorkflow(
     enabled=True,
     max_active_runs=1,       # Prevent overlapping runs
     catchup=False,           # Don't run missed schedules
-    timezone="UTC",
 )
 ```
 
@@ -600,7 +599,7 @@ Use Airflow, Temporal.io, or AWS Step Functions when you need:
 
 **Related Documentation**:
 - [StateGraph DSL →](dsl.md) - Building workflow graphs
-- [User Guide →](../../user-guide/) - Workflows section
-- [YAML Workflow Architecture](../../../CLAUDE.md#yaml-workflow-architecture)
+- [User Guide →](../../user-guide/index.md) - Workflows section
+- [YAML Workflow Architecture](../../architecture.md#workflow-engine)
 
 *Last Updated: 2026-01-05*

@@ -81,6 +81,35 @@ and the reach-through web. This FEP is therefore a *sever-and-rehome* refactor, 
 
 ## Proposed Change
 
+### Target ownership diagram
+
+This ownership diagram is a **target**; this FEP remains Draft. The acceptance counts refer to the measured pre-inversion baseline, not work already completed.
+
+```mermaid
+---
+title: Target ownership diagram — TARGET
+---
+%%{init: {"theme":"base","themeVariables":{"primaryColor":"#E8EFF7","primaryTextColor":"#17324D","primaryBorderColor":"#456987","lineColor":"#456987","fontFamily":"Arial"}}}%%
+flowchart TB
+  PUBLIC["Agent.run / Agent.stream"]
+  FACADE["AgentOrchestrator<br/>public facade"]
+  CHAT["ChatService<br/>owns setup, task reports and teardown"]
+  VIEW["ChatRuntimeServices<br/>enumerated collaborator view"]
+  CLUSTER["victor/agent/services/chat_runtime/<br/>streaming and planning runtimes"]
+  TURN["TurnExecutor"]
+  LOOP["AgenticLoop"]
+  GUAR["Acceptance guards<br/>53 private call sites → 0<br/>bind_runtime_components kwargs: 8 → 6"]
+  PUBLIC -->|"delegate chat"| FACADE
+  FACADE -->|"delegate turn lifecycle"| CHAT
+  CHAT -->|"bind declared services"| VIEW
+  CHAT -->|"own runtime cluster"| CLUSTER
+  CLUSTER -->|"access declared capabilities"| VIEW
+  CHAT -->|"execute turn"| TURN
+  TURN -->|"build and drive"| LOOP
+  GUAR -.->|"enforce no facade reach-through"| CLUSTER
+  GUAR -.->|"lower binding ratchet"| CHAT
+```
+
 ### 1. ChatService owns the turn frame
 
 `_prepare_chat_service_turn_runtime` / `_teardown_chat_service_turn_runtime` and

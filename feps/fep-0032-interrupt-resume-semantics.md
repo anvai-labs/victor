@@ -68,6 +68,36 @@ which shares the completed-at shape).
 
 ## Proposed Change
 
+### Target checkpoint and resume flow
+
+This flow is a **target**; this FEP remains Draft. Existing checkpoint support and ADR-030 sequential-frontier persistence do not provide this general paused-result contract. The HITL request store remains separate; its bridge is follow-up work.
+
+```mermaid
+---
+title: Target checkpoint and resume flow — TARGET
+---
+%%{init: {"theme":"base","themeVariables":{"primaryColor":"#E8EFF7","primaryTextColor":"#17324D","primaryBorderColor":"#456987","lineColor":"#456987","fontFamily":"Arial"}}}%%
+flowchart TB
+  RUN["CompiledGraph.invoke"]
+  EXEC["Execute current node"]
+  CP["WorkflowCheckpoint<br/>completed boundary · next_node"]
+  STORE["CheckpointerProtocol<br/>save / load by thread_id"]
+  PAUSE["GraphRuntimeOutcome / GraphExecutionResult<br/>success=true · interrupted=true · next_node"]
+  RESULT["ExecutorResult<br/>interrupted · interrupt_node"]
+  RESUME["Resume existing thread<br/>omit fresh input_state"]
+  NEXT["Execute next_node<br/>legacy fallback: node_id"]
+  HITL["hitl_api.py pending-request store<br/>separate approval status"]
+  RUN -->|"interrupt-before: pending node"| CP
+  RUN -->|"no before-interrupt"| EXEC
+  EXEC -->|"interrupt-after: successor"| CP
+  CP -->|"persist resume position"| STORE
+  CP -->|"return paused signal"| PAUSE
+  PAUSE -->|"propagate signal"| RESULT
+  RESUME -->|"load checkpoint"| STORE
+  STORE -->|"restore state and resume position"| NEXT
+  HITL -.->|"bridge remains follow-up work"| PAUSE
+```
+
 ### 1. Explicit paused signal on results
 
 `GraphRuntimeOutcome` (`graph_runtime.py:29`) and `GraphExecutionResult`

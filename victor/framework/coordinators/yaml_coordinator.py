@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import logging
 import time
+from contextlib import aclosing
 from pathlib import Path
 from typing import (
     TYPE_CHECKING,
@@ -305,9 +306,6 @@ class YAMLWorkflowCoordinator:
                     hitl_requests=hitl_requests,
                 )
             else:
-                # Legacy path: Use old WorkflowExecutor
-                from victor.workflows.context import WorkflowContext
-
                 # Load workflow (uses cache)
                 workflow_def = self.load_workflow(
                     yaml_path,
@@ -319,14 +317,12 @@ class YAMLWorkflowCoordinator:
                 # Create executor
                 executor = self._get_executor()
 
-                # Create context
-                context = WorkflowContext(
-                    workflow=workflow_def,
-                    initial_state=initial_state or {},
+                result = await executor.execute(
+                    workflow_def,
+                    initial_context=initial_state or {},
+                    thread_id=thread_id,
+                    **kwargs,
                 )
-
-                # Execute
-                result = await executor.execute(context)
 
                 duration = time.time() - start_time
 
@@ -337,6 +333,8 @@ class YAMLWorkflowCoordinator:
                     duration_seconds=duration,
                     error=result.error if not result.success else None,
                     hitl_requests=hitl_requests,
+                    interrupted=result.interrupted,
+                    interrupt_node=result.interrupt_node,
                 )
 
         except Exception as e:
@@ -385,22 +383,22 @@ class YAMLWorkflowCoordinator:
                 )
 
                 # Stream via CachedCompiledGraph.stream()
-                async for node_id, state in compiled.stream(
-                    initial_state or {},
-                    thread_id=thread_id,
-                    **kwargs,
-                ):
-                    yield WorkflowEvent(
-                        event_type="node_complete",
-                        node_id=node_id,
-                        timestamp=time.time(),
-                        data={},
-                        state_snapshot=state if isinstance(state, dict) else {},
+                async with aclosing(
+                    compiled.stream(
+                        initial_state or {},
+                        thread_id=thread_id,
+                        **kwargs,
                     )
+                ) as events:
+                    async for node_id, state in events:
+                        yield WorkflowEvent(
+                            event_type="node_complete",
+                            node_id=node_id,
+                            timestamp=time.time(),
+                            data={},
+                            state_snapshot=state if isinstance(state, dict) else {},
+                        )
             else:
-                # Legacy path: Use old StreamingWorkflowExecutor
-                from victor.workflows.streaming import WorkflowStreamContext
-
                 # Load workflow (uses cache)
                 workflow_def = self.load_workflow(
                     yaml_path,
@@ -412,25 +410,22 @@ class YAMLWorkflowCoordinator:
                 # Create streaming executor
                 executor = self._get_streaming_executor()
 
-                # Create stream context
-                context = WorkflowStreamContext(
-                    workflow=workflow_def,
-                    initial_state=initial_state or {},
-                )
-
-                # Stream execution
-                async for chunk in executor.stream(context):
-                    yield WorkflowEvent(
-                        event_type=(
-                            chunk.event_type.value
-                            if hasattr(chunk.event_type, "value")
-                            else str(chunk.event_type)
-                        ),
-                        node_id=chunk.node_id or "",
-                        timestamp=time.time(),
-                        data={"content": chunk.content} if chunk.content else {},
-                        state_snapshot=chunk.state_snapshot,
+                async with aclosing(
+                    executor.stream(
+                        workflow_def,
+                        initial_state or {},
+                        thread_id=thread_id,
+                        **kwargs,
                     )
+                ) as events:
+                    async for node_id, state in events:
+                        yield WorkflowEvent(
+                            event_type="node_complete",
+                            node_id=node_id,
+                            timestamp=time.time(),
+                            data={},
+                            state_snapshot=state,
+                        )
 
         except Exception as e:
             logger.error(f"Streaming YAML workflow failed: {e}")

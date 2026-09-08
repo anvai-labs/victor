@@ -420,39 +420,26 @@ total_score += 0.2 * perf_score       # Increase from 0.15
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                     SmartRoutingProvider                     │
-│  Wraps multiple providers, adds intelligent routing          │
-└─────────────────────────────────────────────────────────────┘
-                              ↓ uses
-┌─────────────────────────────────────────────────────────────┐
-│                   RoutingDecisionEngine                       │
-│  1. Get candidates (profile/custom chain)                     │
-│  2. Score each provider (5 factors)                           │
-│  3. Sort by score (descending)                                │
-│  4. Select best + build fallback chain                       │
-└─────────────────────────────────────────────────────────────┘
-                              ↓ uses
-┌─────────────────────────────────────────────────────────────┐
-│              Performance Tracking Layer                         │
-│  - ProviderPerformanceTracker                                  │
-│  - RequestMetric (success, latency, error)                    │
-│  - Composite scoring (40% success + 30% latency + 30% trend)  │
-└─────────────────────────────────────────────────────────────┘
-                              ↓ uses
-┌─────────────────────────────────────────────────────────────┐
-│               Resource Detection Layer                          │
-│  - ResourceAvailabilityDetector                                │
-│  - GPUAvailability (NVIDIA, Apple Silicon, AMD)               │
-│  - QuotaInfo (API quota for cloud providers)                  │
-└─────────────────────────────────────────────────────────────┘
-                              ↓ uses
-┌─────────────────────────────────────────────────────────────┐
-│                  Existing Resilience Layer                     │
-│  - ResilientProvider (retry + circuit breaker)                │
-│  - ProviderHealthChecker (pre-flight checks)                 │
-└─────────────────────────────────────────────────────────────┘
+```mermaid
+---
+title: Smart provider selection and fallback
+---
+%%{init: {"theme":"base","themeVariables":{"primaryColor":"#E8EFF7","primaryTextColor":"#17324D","primaryBorderColor":"#456987","lineColor":"#456987","fontFamily":"Arial"}}}%%
+flowchart TB
+  P["SmartRoutingProvider"]
+  R["RoutingDecisionEngine"]
+  M["Provider performance history"]
+  A["Resource availability"]
+  H["Provider health"]
+  C["Configured provider candidates"]
+  B["Selected provider and fallback chain"]
+  P -->|"request routing decision"| R
+  M -->|"performance evidence"| R
+  A -->|"resource constraints"| R
+  H -->|"health evidence"| R
+  C -->|"eligible candidates"| R
+  R -->|"score and order"| B
+  B -->|"guide request dispatch"| P
 ```
 
 ## Future Enhancements
@@ -466,7 +453,7 @@ total_score += 0.2 * perf_score       # Increase from 0.15
 
 ## See Also
 
-- [Provider Resilience](../providers/resilience.md)
-- [Circuit Breakers](../resilience/circuit_breakers.md)
-- [Performance Monitoring](../observability/metrics.md)
-- [Configuration Guide](../configuration/settings.md)
+- [Provider Resilience](../guides/RESILIENCE.md)
+- [Circuit Breakers](../guides/RESILIENCE.md)
+- [Performance Monitoring](../guides/observability/metrics.md)
+- [Configuration Guide](../reference/settings-reference.md)

@@ -149,27 +149,19 @@ class TestMCPProtocol:
 **Example: Provider Tool Integration**
 ```python
 import pytest
-from victor.providers.ollama_provider import OllamaProvider
-from victor.agent.orchestrator import AgentOrchestrator
-
+from victor.framework import Agent
 
 @pytest.mark.integration
 @pytest.mark.asyncio
 async def test_agent_with_tools():
-    """Test agent using tools."""
-    provider = OllamaProvider()
-    agent = AgentOrchestrator(
-        provider=provider,
-        model="qwen2.5-coder:7b"
-    )
-    
-    response = await agent.chat(
-        "Read the file README.md and tell me the project name"
-    )
-    
-    assert response.success
-    assert "Victor" in response.content
-    await provider.close()
+    # Requires a running Ollama server and the selected model.
+    async with await Agent.create(
+        provider="ollama", model="qwen2.5-coder:7b"
+    ) as agent:
+        response = await agent.run(
+            "Read the file README.md and tell me the project name"
+        )
+        assert "Victor" in response.content
 ```
 
 ### 3. End-to-End Tests

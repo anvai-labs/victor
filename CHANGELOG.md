@@ -5,6 +5,70 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased] (develop)
 
+## [0.9.2] - 2026-09-08
+
+### Changed
+
+- Consolidated definition-based workflow execution and streaming onto the single
+  `CompiledGraph` engine (ADR-030, #1041–#1043). `WorkflowExecutor` and
+  `CompiledWorkflowExecutor` remain import aliases for `StateGraphWorkflowExecutor`.
+- Consolidated documentation, replaced stale API examples, refreshed architecture
+  diagrams, and validated the GitHub Pages build with the pinned MkDocs toolchain
+  and an advisory local link/anchor checker. FEP-0031/0032/0033 diagrams describe
+  future ownership and resume changes, not completed implementations.
+- Made native/Python parity part of the required CI Success aggregate (#1038).
+  `victor-contracts` stays 0.9.1 and `victor-native` stays 0.8.0 on independent
+  release trains; this release does not change their source or dependency pins.
+
+### Fixed
+
+- Preserved workflow final state, per-node diagnostics and tool counts across the
+  adapter, API and YAML paths. Node and parallel failures now propagate correctly;
+  condition routing, compute results and parallel child accounting are aligned.
+- Closing or cancelling a workflow stream now cancels and awaits its downstream
+  execution. Concurrent runs keep lifecycle observations separate, and configured
+  workflow timeouts and checkpointers reach the canonical engine.
+- Moved SQLite query-result materialization onto the dedicated store worker (#1039)
+  and routed integration agent creation through the framework boundary (#1040).
+
+### Migration notes
+
+This patch includes removals and behavior changes for legacy workflow callers.
+
+- Execute a loaded `WorkflowDefinition` with
+  `execute(definition, initial_context=...)`. Executor-only `execute_by_name`,
+  cache-stat methods and private BFS helpers are removed. Standalone workflow
+  definition/cache infrastructure remains available.
+- Legacy executor `cache`/`cache_config`, workflow
+  `metadata["continue_on_failure"] = True`, and definition execution with a legacy
+  checkpoint ID now fail explicitly. Use a graph checkpointer and `thread_id`;
+  old BFS checkpoint payloads are not silently migrated. Handle recoverable
+  errors explicitly inside nodes.
+- Failed graph streams raise after any earlier successful updates. Handle the
+  terminal exception and close the iterator when stopping consumption early.
+- Ordinary multi-successor DAGs use breadth-first traversal with shared-descendant
+  deduplication and a persisted pending frontier. Combining ordinary fan-out with
+  cycles or dynamic `Send` is unsupported. Node-based replay and explicit start-node
+  overrides reject sequential-frontier checkpoints; ordinary invocation resumes
+  them. Existing single-path cycles and `Send` graphs retain their semantics.
+- The deprecated `StreamingChatExecutor.run()` alias and unused
+  `AgenticLoop.stream_chat()` wrapper are removed. The canonical chat stream is
+  `ServiceStreamingRuntime` → `run_unified()` → `AgenticLoop.run_streaming()`.
+- The presence of pause metadata does not implement FEP-0032's general
+  interrupt-after/resume contract. Chat runtime inversion, graph resume redesign,
+  RL relocation and the remaining Stage C work are outside this release.
+
+## [0.9.1] - 2026-09-07
+
+### Changed
+
+- Published the co-design Waves 1–2 and Wave 3 Stage A implementation, including
+  boundary guards, runtime and storage fixes, exact native token counting, and
+  removal of unused modules. Stage B added the subsequent execution designs.
+- The [Victor AI 0.9.1 release](https://github.com/anvai-labs/victor/releases/tag/v0.9.1)
+  published on 2026-09-07. Contracts 0.9.1 followed independently via `sdk-v0.9.1`.
+  Post-release #1038–#1043 workflow, integration and CI changes belong to 0.9.2.
+
 ## [Rust crates 0.8.0] - 2026-08-21
 
 ### Added

@@ -29,6 +29,11 @@ discussion: https://github.com/anvai-labs/victor/discussions/0020
 10. [References](#references)
 11. [Review Process](#review-process)
 
+> **Dependency update (2026-09-08).** The current repository pins `sandhi-gateway==0.5.0`.
+> Version 0.1.1/0.1.2 references in the rollout reports below describe the July migration,
+> not the current published dependency. Attribution/proxy configuration remains distinct
+> from the required typed provider transport.
+
 ## Summary
 
 Victor tracks token usage and USD cost per request, but only **per session**

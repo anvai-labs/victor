@@ -24,13 +24,10 @@ per-run setup once (stream context, task intent/goals, recovery handles), and
 :meth:`StreamingActAdapter.stream_turn_act` drives one turn's ACT — re-yielding its
 ``StreamChunk``s and mapping the produced ``TurnResult`` onto the framework outcome holder.
 
-This module is the connective tissue for the step-3 cutover; it is not yet wired into
-``ChatStreamRuntime`` (the repoint that makes ``run_streaming`` the live UI loop). Two per-run
-concerns are deliberately deferred to that cutover, where they are exercised live and parity-gated:
-
-* the governance REQUEST gate (a block must short-circuit the whole run, not one turn), and
-* reconciling the buffered loop's eager completion so the unified loop runs full multi-step tasks
-  (see the run/stream parity battery's cutover tripwire).
+``ServiceStreamingRuntime`` calls ``StreamingChatExecutor.run_unified``, which creates this
+adapter and drives ``AgenticLoop.run_streaming``. The run wrapper applies the governance
+REQUEST gate before starting the loop, so a blocked request short-circuits the entire run.
+The run/stream parity battery covers the shared loop's multi-step completion behavior.
 """
 
 from __future__ import annotations
@@ -45,7 +42,7 @@ from victor.providers.base import StreamChunk
 class StreamActSession:
     """Per-run streaming state the ACT primitive needs, prepared once per ``run_streaming`` call.
 
-    Mirrors the locals ``StreamingChatExecutor.run()`` sets up before its turn loop, so the
+    Captures the per-run setup used by ``StreamingChatExecutor.run_unified``, so the
     adapter can drive ``execute_turn_streaming`` per turn without re-running the preamble.
     """
 
@@ -76,12 +73,12 @@ class StreamingActAdapter:
     async def prepare(
         cls, executor: Any, user_message: str, **kwargs: Any
     ) -> "StreamingActAdapter":
-        """Run ``StreamingChatExecutor.run()``'s per-run preamble and capture it as a session.
+        """Prepare ``StreamingChatExecutor.run_unified``'s per-run session.
 
         Reuses the executor's existing setup helpers (stream-context creation, task-requirement
         extraction, run guidance, task-intent/goal initialization) so the adapter produces the
         same per-turn inputs the live loop does. The governance REQUEST gate is intentionally NOT
-        run here — it short-circuits the whole run and belongs in the cutover's run wrapper.
+        run here: ``run_unified`` applies it before preparing this session.
         """
         runtime_owner = executor._runtime_owner
         orch = runtime_owner._orchestrator

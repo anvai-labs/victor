@@ -1365,7 +1365,7 @@ class SecurityAwareQualityAssessor:
 
 ## See Also
 
-- [Provider Development Guide](../guides/providers.md)
-- [Tool Development Guide](../guides/tools.md)
-- [Team Coordination Guide](../guides/teams.md)
-- [Vertical Development Guide](../VERTICAL_DEVELOPMENT_GUIDE.md)
+- [Provider Development Guide](../user-guide/providers.md)
+- [Tool Development Guide](../user-guide/tools.md)
+- [Team Coordination Guide](../guides/MULTI_AGENT_TEAMS.md)
+- [Vertical Development Guide](../development/extending/verticals.md)

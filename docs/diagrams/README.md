@@ -23,7 +23,7 @@ rendered to `.svg`. The `.svg` files are build artifacts — regenerate them fro
 - **`sequences/`** — sequence diagrams for key flows: `tool-execution`, `provider-switch`,
   `workflow-execution` (each has a rendered `.svg`).
 - **`victor-guide/`** — the 12 diagrams (`d01`–`d12`) for the
-  [`VICTOR_AGENT_GUIDE.adoc`](../../VICTOR_AGENT_GUIDE.adoc) presentation deck.
+  [`VICTOR_AGENT_GUIDE.adoc`](https://github.com/anvai-labs/victor/blob/develop/VICTOR_AGENT_GUIDE.adoc) presentation deck.
 
 ## Re-rendering
 
@@ -38,3 +38,9 @@ find docs/diagrams -name '*.mmd' -exec sh -c \
 
 For the `victor-guide/` deck, SVG is used for HTML and PNG (at 2×) for the PDF backend —
 see the render runbook in `VICTOR_AGENT_GUIDE.adoc`.
+
+## Current architecture diagrams
+
+The [September 2026 diagram map and audit](refresh-2026-09.md) links the current Mermaid
+diagrams and distinguishes shipped behavior from proposal targets. Older exported artwork
+remains historical; canonical diagrams are authored beside the owning documentation.

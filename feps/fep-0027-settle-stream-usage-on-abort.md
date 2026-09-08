@@ -13,7 +13,7 @@ reviewers: []
 discussion: https://github.com/anvai-labs/victor/discussions/0026
 ---
 
-# FEP-0026: Settle partial usage when a model stream aborts
+# FEP-0027: Settle partial usage when a model stream aborts
 
 ## Table of Contents
 
@@ -28,7 +28,6 @@ discussion: https://github.com/anvai-labs/victor/discussions/0026
 9. [Compatibility](#compatibility)
 10. [References](#references)
 11. [Review Process](#review-process)
-12. [Acceptance Criteria](#acceptance-criteria)
 
 ---
 

@@ -490,8 +490,8 @@ class TestWorkflowCacheManager:
         assert stats["workflow1"]["enabled"] is True
 
 
-class TestWorkflowExecutorWithCache:
-    """Test WorkflowExecutor with caching enabled."""
+class TestDirectNodeResultCache:
+    """Standalone cache behavior retained after executor caching retirement."""
 
     @pytest.fixture
     def mock_orchestrator(self):
@@ -507,67 +507,6 @@ class TestWorkflowExecutorWithCache:
         result.error = None
         result.tool_calls_used = 5
         return result
-
-    def test_executor_with_cache_config(self, mock_orchestrator):
-        """Executor can be initialized with cache config."""
-        config = WorkflowCacheConfig(enabled=True)
-        executor = WorkflowExecutor(mock_orchestrator, cache_config=config)
-
-        assert executor.cache is not None
-        assert executor.cache.config.enabled is True
-
-    def test_executor_with_cache_instance(self, mock_orchestrator):
-        """Executor can be initialized with cache instance."""
-        config = WorkflowCacheConfig(enabled=True)
-        cache = WorkflowCache(config)
-        executor = WorkflowExecutor(mock_orchestrator, cache=cache)
-
-        assert executor.cache is cache
-
-    def test_get_cache_stats(self, mock_orchestrator):
-        """Can get cache stats from executor."""
-        config = WorkflowCacheConfig(enabled=True)
-        executor = WorkflowExecutor(mock_orchestrator, cache_config=config)
-
-        stats = executor.get_cache_stats()
-
-        assert stats["enabled"] is True
-
-    def test_get_cache_stats_when_disabled(self, mock_orchestrator):
-        """get_cache_stats returns disabled when no cache."""
-        executor = WorkflowExecutor(mock_orchestrator)
-
-        stats = executor.get_cache_stats()
-
-        assert stats["enabled"] is False
-
-    @pytest.mark.asyncio
-    async def test_execute_caches_transform_node(self, mock_orchestrator, mock_sub_agent_result):
-        """Transform node results are cached."""
-        config = WorkflowCacheConfig(enabled=True)
-        executor = WorkflowExecutor(mock_orchestrator, cache_config=config)
-
-        mock_sub_agents = MagicMock()
-        mock_sub_agents.spawn = AsyncMock(return_value=mock_sub_agent_result)
-        executor._sub_agents = mock_sub_agents
-
-        workflow = (
-            WorkflowBuilder("test")
-            .add_transform(
-                "transform",
-                lambda ctx: {"doubled": ctx.get("count", 0) * 2},
-                next_nodes=["agent"],
-            )
-            .add_agent("agent", "executor", "Do something")
-            .build()
-        )
-
-        # Execute first time
-        await executor.execute(workflow, {"count": 5})
-
-        # Check cache stats
-        stats = executor.get_cache_stats()
-        assert stats["sets"] >= 1  # Transform node was cached
 
     @pytest.mark.asyncio
     async def test_execute_uses_cached_transform_result(
@@ -604,31 +543,6 @@ class TestWorkflowExecutorWithCache:
         stats = cache.get_stats()
         assert stats["hits"] == 1
         assert stats["misses"] == 1
-
-    @pytest.mark.asyncio
-    async def test_execute_does_not_cache_agent_nodes(
-        self, mock_orchestrator, mock_sub_agent_result
-    ):
-        """Agent node results are not cached."""
-        config = WorkflowCacheConfig(enabled=True)
-        executor = WorkflowExecutor(mock_orchestrator, cache_config=config)
-
-        mock_sub_agents = MagicMock()
-        mock_sub_agents.spawn = AsyncMock(return_value=mock_sub_agent_result)
-        executor._sub_agents = mock_sub_agents
-
-        workflow = WorkflowBuilder("test").add_agent("agent", "executor", "Do something").build()
-
-        # Execute twice
-        await executor.execute(workflow, {"task": "analyze"})
-        await executor.execute(workflow, {"task": "analyze"})
-
-        # Agent should have been called twice (no caching)
-        assert mock_sub_agents.spawn.call_count == 2
-
-        # Cache stats should show skipped
-        stats = executor.get_cache_stats()
-        assert stats["skipped_non_cacheable"] >= 2
 
     @pytest.mark.asyncio
     async def test_execute_caches_condition_node(self, mock_orchestrator, mock_sub_agent_result):

@@ -25,21 +25,15 @@ pipeline surface.
 
 ## 2. Canonical Architecture
 
-```text
-ChatService.stream_chat()
-└── ServiceStreamingRuntime.stream_chat()
-    └── StreamingChatExecutor(runtime_owner=ServiceStreamingRuntime)
-        ├── setup() -> StreamingChatContext + requirement extraction
-        ├── iterate() async generator
-        │     • delegates provider streaming + tool execution
-        │     • consults continuation + intent handlers
-        └── finalize() -> completion fallback + metrics aggregation
-```
+The [unified streaming sequence](../architecture.md#agenticloop) is the canonical diagram.
+`ServiceStreamingRuntime` calls `StreamingChatExecutor.run_unified()`, which drives
+`AgenticLoop.run_streaming()` with `StreamingActAdapter`. The adapter invokes
+`execute_turn_streaming()` for ACT; the framework loop owns evaluation and continuation.
+The deprecated `run()` alias and `AgenticLoop.stream_chat()` wrapper were removed in
+ADR-030 step 3.
 
-`StreamingChatExecutor.run(user_message)` is the canonical streaming-session
-entry point. `ServiceStreamingRuntime` owns executor creation and binding.
-`ChatCoordinator.stream_chat()` survives only as a compatibility shim around
-the service/runtime path.
+The remaining sections preserve the earlier extraction history and its test plan;
+references to retired coordinators describe that migration, not current entry points.
 
 ## 3. Implemented Changes
 

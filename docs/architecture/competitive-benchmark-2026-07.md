@@ -1,7 +1,11 @@
 # Competitive Benchmark — Victor vs. the 2026 Field
 
+> **Historical July 2026 comparison.** Feature and competitor assessments retain their
+> original date; the [current evaluation gates](../roadmap.md#evaluation-roadmap-existing-gates-and-remaining-work)
+> include the later judge reliability NO-GO. This comparison is not a current product ranking.
+
 **Status:** Reference (non-canonical) · **Created:** 2026-07-29 · **Owner:** Vijaykumar Singh
-**Companion:** [ADR index](adr/README.md) · [Technical Debt Register](../tech-stack.md#technical-debt-register) · [EVR backlog](evaluation-centric-runtime-backlog.md)
+**Companion:** [ADR index](adr/README.md) · [Technical Debt Register](../roadmap.md#technical-debt-register) · [EVR backlog](evaluation-centric-runtime-backlog.md)
 
 > This is a *reference* doc, not a canonical one: like the FEP specs it carries its own dated
 > snapshot and is **not** version-stamped against `VERSION` (`scripts/ci/check_docs_drift.py` scans

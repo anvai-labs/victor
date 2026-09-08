@@ -7,7 +7,7 @@
 - **Decision Makers**: Vijaykumar Singh
 - **Related ADRs**: 014 (shared `victor-codegraph` chunker), 015 (Victor core adopts codegraph,
   phased), 002 (state management)
-- **Work tracked by**: [TD-11, TD-12, TD-13](../../tech-stack.md#technical-debt-register) (existing —
+- **Work tracked by**: [TD-11, TD-12, TD-13](../../roadmap.md#technical-debt-register) (existing —
   no new work item)
 - **External**: ProximaDB ADR-044 (stable line-independent symbol `oid`), ProximaDB ADR-029
 - **Benchmark**: [competitive-benchmark-2026-07.md](../competitive-benchmark-2026-07.md) §2
@@ -96,7 +96,7 @@ seam). Sequenced by the existing register items:
 
 - [ADR-014](014-shared-codegraph-chunker-package.md), [ADR-015](015-victor-core-adopts-codegraph.md)
 - [proximadb-codegraph-backend.md](../proximadb-codegraph-backend.md),
-  [TD-11/12/13](../../tech-stack.md#technical-debt-register)
+  [TD-11/12/13](../../roadmap.md#technical-debt-register)
 - `victor/core/graph_rag/indexing.py`, `victor/storage/` (`proximadb_provider.py`), ProximaDB
   ADR-044 (external — symbol `oid`)
 

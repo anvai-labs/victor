@@ -4,10 +4,10 @@ Get started with Victor's graph-based code intelligence in 5 minutes.
 
 ## Installation
 
-Ensure you have Victor installed with graph dependencies:
+Install Victor with semantic embedding support:
 
 ```bash
-pip install "victor-ai[graph]"
+pip install "victor-ai[embeddings]"
 ```
 
 ## 1. Index Your Codebase
@@ -15,7 +15,7 @@ pip install "victor-ai[graph]"
 First, create a graph index of your code:
 
 ```bash
-victor graph index --path /path/to/your/code --ccg
+victor graph index --path /path/to/your/code --ccg --embeddings
 ```
 
 This will:
@@ -24,7 +24,7 @@ This will:
 - Create embeddings for semantic search
 - Cache subgraphs for fast retrieval
 
-Expected output:
+Illustrative output (counts and formatting depend on the repository and version):
 ```
 Indexing codebase at: /path/to/your/code
 Processing files...
@@ -43,7 +43,7 @@ Processing files...
 Ask questions about your codebase in natural language:
 
 ```bash
-victor graph query "how does user authentication work?"
+victor graph query "how does user authentication work?" --path /path/to/your/code
 ```
 
 The query will:
@@ -57,10 +57,10 @@ Before making changes, see what will be affected:
 
 ```bash
 # Forward impact: what depends on this function?
-victor graph impact authenticate_user --type forward --depth 3
+victor graph impact authenticate_user --type forward --depth 3 --path /path/to/your/code
 
 # Backward impact: what does this function depend on?
-victor graph impact process_payment --type backward --depth 2
+victor graph impact process_payment --type backward --depth 2 --path /path/to/your/code
 ```
 
 ## 4. Check Statistics
@@ -108,6 +108,9 @@ asyncio.run(index_codebase())
 ### Querying the Graph
 
 ```python
+import asyncio
+from pathlib import Path
+from victor.storage.graph import create_graph_store
 from victor.core.graph_rag import MultiHopRetriever, RetrievalConfig
 
 async def query_codebase():
@@ -175,12 +178,14 @@ asyncio.run(analyze_impact())
 
 ### In Chat Sessions
 
-The graph tools are automatically available in chat sessions:
+Graph tool exposure depends on the active vertical/tool selection and feature flags.
+The registered semantic tool is `graph_semantic_search`; `VICTOR_USE_GRAPH_QUERY_TOOL`
+controls its runtime gate. The following exchange illustrates a session where it is enabled:
 
 ```
 You: Find functions that handle user authentication
 
-Victor: [Uses graph_query tool]
+Victor: [Uses graph_semantic_search tool]
 I found 3 authentication-related functions:
 1. authenticate_user() in auth.py:45
 2. validate_credentials() in auth.py:12
@@ -192,17 +197,18 @@ I found 3 authentication-related functions:
 ### In Python Code
 
 ```python
-from victor.tools.graph_query_tool import graph_query
+import asyncio
+from victor.tools.graph_query_tool import graph_semantic_search
 
 async def analyze_code():
-    result = await graph_query(
+    result = await graph_semantic_search(
         query="database error handling",
         path="/path/to/code",
         mode="semantic",
         max_hops=2,
     )
 
-    for node in result["nodes"]:
+    for node in result["results"]:
         print(f"{node['name']}: {node.get('signature', 'N/A')}")
 
 asyncio.run(analyze_code())
@@ -228,7 +234,6 @@ search:
     # Retrieval settings
     rag_seed_count: 5
     rag_max_hops: 2
-    rag_top_k: 10
 
     # Performance
     enable_subgraph_cache: true
@@ -282,7 +287,7 @@ victor graph query "exception handling code"
 ### Speed Up Queries
 
 ```python
-# Use structural mode for faster (less accurate) results
+# Use structural mode to search indexed symbol text without vector seeds
 config = RetrievalConfig(
     mode="structural",  # Skips vector search
     max_hops=1,         # Reduce traversal depth
@@ -293,9 +298,9 @@ config = RetrievalConfig(
 
 ```python
 # Limit search to specific directory
-result = await graph_query(
+result = await graph_semantic_search(
     query="authentication",
-    path="/path/to/project/auth",  # Only auth directory
+    path="/path/to/project",  # Root of the graph index; not a result-path filter
 )
 ```
 
@@ -318,7 +323,7 @@ dot -Tpng graph.dot -o graph.png
 
 ```bash
 # Check that graph exists
-victor graph stats
+victor graph stats --path /path/to/your/code
 
 # Re-index if needed
 victor graph index --force
@@ -338,7 +343,7 @@ victor graph query "query" --hops 1
 
 ```bash
 # Install graph dependencies
-pip install "victor-ai[graph]"
+pip install "victor-ai[embeddings]"
 
 # Or install individually
 pip install networkx sentence-transformers
@@ -348,4 +353,4 @@ pip install networkx sentence-transformers
 
 - Read the [Graph RAG Guide](graph-rag-guide.md) for detailed concepts
 - Check the [API Reference](graph-api-reference.md) for all available functions
-- See [Examples](../examples/) for more code samples
+- See [Examples](https://github.com/anvai-labs/victor/tree/develop/examples/) for more code samples

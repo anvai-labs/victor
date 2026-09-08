@@ -7,7 +7,7 @@
 - **Decision Makers**: Vijaykumar Singh
 - **Related ADRs**: 003 (workflow engine / StateGraph — the primitives this propagates), 021
   (terminal-native HITL — where team interrupts surface)
-- **Work tracked by**: [TD-25](../../tech-stack.md#technical-debt-register)
+- **Work tracked by**: [TD-25](../../roadmap.md#technical-debt-register)
 - **Benchmark**: [competitive-benchmark-2026-07.md](../competitive-benchmark-2026-07.md) §4
 
 ## Context
@@ -69,7 +69,7 @@ so it is FEP-gated (below).
 
 - **Companion FEP** — the team-node durability contract (checkpoint identity, interrupt semantics,
   member-tagged streaming) is a `victor.framework` public surface: ratified in
-  [FEP-0028](../../../feps/fep-0028-team-node-durability-contract.md). Increments:
+  [FEP-0028](https://github.com/anvai-labs/victor/blob/develop/feps/fep-0028-team-node-durability-contract.md). Increments:
   1. member-granular checkpoint/resume via the existing StateGraph checkpointer — **done across all six
      formations**: SEQUENTIAL and PIPELINE (per-member), PARALLEL (lock-protected concurrent
      completed-set), HIERARCHICAL (phase-granular — plan/specialists/synthesis in
@@ -122,7 +122,7 @@ single-agent chat continuation.
 - [ADR-003](003-workflow-engine.md), [ADR-020](020-interactive-terminal-tui.md),
   [ADR-021](021-terminal-native-hitl-and-loop-transparency.md)
 - `victor/teams/unified_coordinator.py`, `victor/workflows/unified_compiler.py`,
-  [TD-10](../../tech-stack.md#technical-debt-register) (workspace isolation rename)
+  [TD-10](../../roadmap.md#technical-debt-register) (workspace isolation rename)
 
 ## Revision History
 

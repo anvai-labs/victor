@@ -46,7 +46,7 @@ async def test_transform_executor_records_runtime_graph_node_result() -> None:
     node_result = result["_node_results"]["double"]
     assert isinstance(node_result, GraphNodeResult)
     assert node_result.success is True
-    assert node_result.output == {"transformed_keys": ["value"]}
+    assert node_result.output == {"value": 8}
 
 
 @pytest.mark.asyncio
@@ -72,7 +72,7 @@ async def test_compute_executor_uses_input_mapping_and_output_key() -> None:
 
 
 @pytest.mark.asyncio
-async def test_condition_executor_records_passthrough_output() -> None:
+async def test_condition_executor_records_evaluated_branch() -> None:
     executor = ConditionNodeExecutor(context=None)
     node = ConditionNode(
         id="decide",
@@ -86,7 +86,7 @@ async def test_condition_executor_records_passthrough_output() -> None:
     node_result = result["_node_results"]["decide"]
     assert isinstance(node_result, GraphNodeResult)
     assert node_result.success is True
-    assert node_result.output == {"passthrough": True, "branches": ["yes"]}
+    assert node_result.output == {"branch": "yes", "next_node": "done"}
 
 
 @pytest.mark.asyncio
@@ -159,16 +159,16 @@ async def test_agent_executor_uses_output_key_and_runtime_graph_node_result() ->
 
             result = await executor.execute(node, {"task": "repo"})
 
-            assert result["agent_output"] is fake_result
+            assert result["agent_output"] == fake_result.summary
             node_result = result["_node_results"]["analyze"]
             assert isinstance(node_result, GraphNodeResult)
             assert node_result.success is True
-            assert node_result.output is fake_result
+            assert node_result.output == fake_result.summary
             assert node_result.tool_calls_used == 2
 
 
 @pytest.mark.asyncio
-async def test_agent_executor_returns_placeholder_without_orchestrator() -> None:
+async def test_agent_executor_fails_without_orchestrator() -> None:
     executor = AgentNodeExecutor(context=None)
     node = AgentNode(
         id="analyze",
@@ -180,11 +180,11 @@ async def test_agent_executor_returns_placeholder_without_orchestrator() -> None
 
     result = await executor.execute(node, {"task": "repo"})
 
-    assert result["analyze"]["status"] == "placeholder"
+    assert "No orchestrator available" in result["_error"]
     node_result = result["_node_results"]["analyze"]
     assert isinstance(node_result, GraphNodeResult)
-    assert node_result.success is True
-    assert node_result.output["input_context"] == {"task": "repo"}
+    assert node_result.success is False
+    assert node_result.error == result["_error"]
 
 
 @pytest.mark.asyncio

@@ -265,7 +265,7 @@ bus.subscribe(my_subscriber)
 
 - [Event-Driven Architecture](https://martinfowler.com/eaaDev/EventDrivenArchitecture.html)
 - [Observer Pattern](https://en.wikipedia.org/wiki/Observer_pattern)
-- [Victor Events](../framework/events.py)
+- [Victor Events](https://github.com/anvai-labs/victor/blob/develop/victor/framework/events.py)
 
 ## Revision History
 

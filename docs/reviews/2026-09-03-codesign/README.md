@@ -147,19 +147,21 @@ explicit scope decision, both are structural changes better suited to a dedicate
 | 20b | SQLite writer off the event loop: dedicated single-worker executor + per-store connection | U5-05 | #1027 |
 | 26a | Derived-state reclamation: post-rebuild `maintain()` + one-time auto_vacuum migration | U5-07 | #1028 |
 
-Deferred follow-ups surfaced by Stage A reviews (each small, none blocking):
+Deferred follow-ups surfaced by Stage A reviews — three addressed 2026-09-07 (#1038
+native-parity promoted into CI Success after its 19-green/0-fail history; #1039 offloaded the
+7 loop-resident `fetchall()` materializations onto the worker; #1040 fixed the 2 real
+integrations orchestrator-import sites via AgentFactory/structural protocol and landed the
+U7-F4 integrations guard with an explicit `victor.agent.*` allowlist). Still open:
 migrate `contract_audit.py` onto the full runtime manifest after fixing the 28 real
-`victor.config`/`victor.storage` violations in victor-coding/victor-rag (#1020 note);
-`ui_layer_files` extension to `victor/integrations/*` after fixing the 2 real
-orchestrator-import sites (#1022 note); offload the remaining `fetchall()` materializations
-in 7 read methods (#1023 review A2); promote `native-parity` to the required aggregate
-after a green history (#1026).
+`victor.config`/`victor.storage` violations in victor-coding/victor-rag (#1020 note).
+Shipping note: victor-contracts 0.9.1 (sdk-v0.9.1) published 2026-09-07 with
+`testing.boundaries` from #1020; victor-ai 0.9.1 promoted the same day (#1035).
 
 **Stage B/C — remaining Wave 3 items (design-first: FEPs/ADRs per the large-epic flow; see FEP tracker):**
 
 | # | Item | Ref | Effort |
 |---|------|-----|--------|
-| 23 | Engine unification: WorkflowExecutor as facade over CompiledGraph; AgenticLoop graduation (FEP-0007) | U6-F1, U2-F1 | L |
+| 23 | ✅ Single workflow engine: ADR-030 BFS deletion and compiled adapter; FEP-0007 obsolete entry-point cleanup | U6-F1, U2-F1 | Done |
 | 24 | Interrupt/resume semantics: `interrupted` field, resume-at vs completed-at (FEP) | U6-F4 | M |
 | 26b | Manifest-aware `parse_repo` (U5-02) + Tier-A/B storage protocol split (U5-07 remainder) | U5-01/02 | L |
 | 27 | ChatService inversion: own the turn lifecycle (A10/A11 guards landed as prerequisites) | U1-4/7 | L |

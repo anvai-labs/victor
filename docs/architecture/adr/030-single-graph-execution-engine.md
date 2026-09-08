@@ -12,6 +12,20 @@
   its live call sites, and `batch_executor.py`. No YAML schema change; no
   `WorkflowDefinition` change.
 
+## Implementation status — 2026-09-07
+
+Step 1's engine parity gate shipped in [#1041](https://github.com/anvai-labs/victor/pull/1041).
+Step 2 shipped in [#1042](https://github.com/anvai-labs/victor/pull/1042):
+`StateGraphWorkflowExecutor` adapts compiled execution results at the runtime factory seam,
+with the API, workflow engine and service-provider callers using that path. The result adapter
+preserves the caller-facing workflow result shape during migration.
+
+Step 3 shipped in [#1043](https://github.com/anvai-labs/victor/pull/1043): streaming uses the
+canonical graph and the BFS walker is deleted. Old executor imports are adapter aliases;
+they do not retain a second execution engine.
+FEP-0032's interrupt/resume contract also remains separate implementation work; existing graph
+checkpoint support does not mean that proposal has shipped.
+
 ## Context
 
 U6-F1 (co-design review 2026-09-03) found **two live workflow engines** for the same
@@ -46,7 +60,8 @@ Verification on 2026-09-07 sharpened the finding in three ways:
 ## Decision
 
 **Migrate the live call sites to the StateGraph/`CompiledGraph` execution path and delete the
-BFS walker — no facade is built.** A facade over one engine preserves the facade's public name
+BFS walker. A thin result adapter at the existing construction seam preserves caller contracts;
+it owns no traversal or node execution.** A facade over one engine preserves the facade's public name
 while the engines still both exist in tree; deleting the walker actually reaches the
 "StateGraph is always the execution engine" end state with less code.
 
@@ -74,3 +89,62 @@ Sequencing (each step landable, battery-gated):
   surfaces (not the agent chat hot path), and the chat path already runs CompiledGraph.
 - FEP-0032's interrupt/resume semantics land only on the surviving engine — no duplicate
   implementation across two walkers.
+
+
+## Step 2 execution notes (2026-09-07)
+
+`create_legacy_workflow_executor` now constructs `StateGraphWorkflowExecutor`.
+The adapter converts compiled results to `WorkflowResult`, including flat final
+state, per-node results, tool usage, and optional interrupt metadata. The service
+provider and API use the same seam. The YAML coordinator passes a definition and
+initial state instead of constructing an invalid execution context.
+
+The API migration also corrects stale registry, node-type, and result-field
+references. Agent failures stop execution, missing orchestrators fail explicitly,
+and mapped agent prompts accept both existing placeholder syntaxes. Parallel
+joins preserve child diagnostics, apply only branch changes to shared input, and
+respect the configured concurrency limit.
+
+The legacy streaming wrapper temporarily constructs its BFS runtime through
+`create_bfs_streaming_runtime`: its private node hooks move in step 3 along with
+public export changes and walker deletion. This step does not implement the
+FEP-0032 interrupt/resume redesign; it preserves pause metadata when the graph
+engine supplies it.
+
+Unsupported compatibility options fail before any node runs: node-result caches,
+`continue_on_failure=True`, and definition execution with a legacy checkpoint ID.
+Use a graph checkpointer plus `thread_id` for compiled checkpoints. Recoverable
+errors must be handled explicitly inside nodes on the compiled path. Repository
+production callers do not set the legacy continue-on-failure option.
+
+Ordinary multiple successors now run through the shared graph runtime in
+breadth-first order, including shared-descendant deduplication. Their pending
+nodes and visited set are stored as checkpoint metadata for invoke/stream parity.
+Graphs combining ordinary fan-out with cycles are rejected at compilation;
+mixing that traversal with dynamic `Send` routing fails explicitly. Existing
+single-path cyclic graphs and `Send` graphs keep their established semantics.
+
+Node-based `replay_from()` and explicit start-node overrides reject checkpoints
+with pending sequential branches rather than discarding their frontier; ordinary
+`invoke()` resumes them. Failed graph streams now raise after yielding any prior
+successful node updates, so callers can distinguish failure from completion.
+
+
+## Step 3 execution notes (2026-09-07)
+
+The BFS `CompiledWorkflowExecutor` class and the streaming wrapper's traversal
+loop are removed. `WorkflowExecutor` and the old compiled-executor import names
+resolve to `StateGraphWorkflowExecutor`; their aliases preserve imports without
+retaining another engine. The service and streaming APIs execute the canonical
+graph, with per-invocation lifecycle observations for streaming chunks.
+
+The removed executor-only `execute_by_name`, cache-stat, node-cache and private
+node-execution helpers have no production callers. Standalone definition/cache
+infrastructure remains for its live owners. Synchronous chain handlers still
+run off the event loop through the canonical compute executor. The public
+streaming wrapper retains cancellation, subscriptions and progress reporting;
+it has never implemented agent token-content streaming.
+
+FEP-0007's zero-caller `StreamingChatExecutor.run()` alias and
+`AgenticLoop.stream_chat()` wrapper are also removed. The live chat entry remains
+`ServiceStreamingRuntime` → `run_unified()` → `AgenticLoop.run_streaming()`.

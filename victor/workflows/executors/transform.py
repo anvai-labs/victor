@@ -89,7 +89,9 @@ class TransformNodeExecutor:
             state["_node_results"][node.id] = GraphNodeResult(
                 node_id=node.id,
                 success=True,
-                output={"transformed_keys": list(transformed.keys())},
+                output={
+                    key: value for key, value in transformed.items() if not key.startswith("_")
+                },
                 duration_seconds=time.time() - start_time,
             )
 
