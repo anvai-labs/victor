@@ -36,11 +36,13 @@ enforcing equivalence with soon-to-be-deleted behavior.
 """
 
 from typing import Any, Dict
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
+from types import SimpleNamespace
 
 import pytest
 
 from victor.workflows.definition import (
+    AgentNode,
     ConditionNode,
     ParallelNode,
     TransformNode,
@@ -285,3 +287,206 @@ class TestJoinPolicyDecidesSurvivorSemantics:
         result = await StateGraphExecutor(orchestrator).execute(_parallel("all", b_raises=True), {})
         assert result.success is False
         assert "child b failed" in (result.error or "")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("outcome", ["success", "failure", "exception"])
+async def test_agent_node_compiled_execution_propagates_result(outcome: str):
+    """Agent outcomes survive compilation, including failed returned results."""
+    spawn = AsyncMock(
+        return_value=SimpleNamespace(
+            success=outcome == "success",
+            summary="review complete",
+            error="agent rejected task" if outcome == "failure" else None,
+            tool_calls_used=3,
+        )
+    )
+    if outcome == "exception":
+        spawn.side_effect = RuntimeError("agent spawn crashed")
+    workflow = WorkflowDefinition(
+        name="agent_result",
+        start_node="agent",
+        nodes={
+            "agent": AgentNode(
+                id="agent",
+                name="Agent",
+                role="researcher",
+                goal="Review {{task}}",
+                output_key="summary",
+                next_nodes=["after"],
+            ),
+            "after": TransformNode(
+                id="after", name="After", transform=lambda ctx: {"continued": True}
+            ),
+        },
+    )
+    with patch(
+        "victor.agent.subagents.orchestrator.SubAgentOrchestrator",
+        return_value=SimpleNamespace(spawn=spawn),
+    ):
+        result = await StateGraphExecutor(_orchestrator()).execute(workflow, {"task": "repo"})
+    spawn.assert_awaited_once()
+    assert spawn.await_args.kwargs["task"] == "Review repo"
+    assert result.success is (outcome == "success")
+    assert result.node_results["agent"].success is (outcome == "success")
+    if outcome == "success":
+        assert result.state["summary"] == "review complete"
+        assert result.state["continued"] is True
+        assert result.node_results["agent"].tool_calls_used == 3
+    else:
+        assert "continued" not in result.state
+        assert "summary" not in result.state
+        expected = "agent rejected task" if outcome == "failure" else "agent spawn crashed"
+        assert expected in result.error
+        assert expected in result.node_results["agent"].error
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("strategy", ["all", "any", "first", "merge"])
+async def test_parallel_result_metadata_respects_join_policy(strategy: str):
+    result = await StateGraphExecutor(_orchestrator()).execute(
+        _parallel(strategy, b_raises=True), {}
+    )
+    assert result.success is (strategy != "all")
+    assert result.state["a"] == 1
+    assert result.node_results["a"].success is True
+    assert result.node_results["b"].success is False
+    assert "child b failed" in result.node_results["b"].error
+    assert result.node_results["fan"].success is (strategy != "all")
+
+
+@pytest.mark.asyncio
+async def test_parallel_join_only_considers_current_group():
+    workflow = _parallel("any", b_raises=True)
+    workflow.nodes["fan"].next_nodes = ["second"]
+    workflow.nodes["second"] = ParallelNode(
+        id="second", name="Second", parallel_nodes=["c"], join_strategy="all"
+    )
+    workflow.nodes["c"] = TransformNode(id="c", name="C", transform=lambda ctx: {"c": 3})
+    result = await StateGraphExecutor(_orchestrator()).execute(workflow, {})
+    assert result.success is True
+    assert result.state["a"] == 1
+    assert result.state["c"] == 3
+    assert result.node_results["b"].success is False
+    assert result.node_results["second"].success is True
+    assert set(result.node_results["second"].output) == {"c"}
+
+
+@pytest.mark.asyncio
+async def test_parallel_merge_preserves_writes_and_deletions_from_successful_children():
+    workflow = _parallel("all", b_raises=False)
+
+    def change_a(ctx):
+        ctx["nested"]["value"] = 2
+        ctx.pop("removed")
+        return {"counter": 1, "conflict": "a"}
+
+    workflow.nodes["a"].transform = change_a
+    workflow.nodes["b"].transform = lambda ctx: {"conflict": "b"}
+    initial = {"counter": 0, "nested": {"value": 0}, "removed": True, "conflict": "old"}
+    result = await StateGraphExecutor(_orchestrator()).execute(workflow, initial)
+    assert result.success is True
+    assert result.state == {"counter": 1, "nested": {"value": 2}, "conflict": "b"}
+    assert initial["nested"] == {"value": 0}
+    assert initial["removed"] is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("initial_values", [[1, 2], [float("nan"), 2]])
+async def test_parallel_merge_accepts_array_state_without_ambiguous_equality(initial_values):
+    np = pytest.importorskip("numpy")
+    workflow = _parallel("all", b_raises=False)
+    workflow.nodes["a"].transform = lambda ctx: {"array": np.array([3, 4])}
+    workflow.nodes["b"].transform = lambda ctx: {"b": 2}
+    result = await StateGraphExecutor(_orchestrator()).execute(
+        workflow, {"array": np.array(initial_values)}
+    )
+    assert result.success is True
+    np.testing.assert_array_equal(result.state["array"], [3, 4])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("placeholder", ["{files}", "{{files}}"])
+async def test_agent_node_interpolates_mapped_goal_without_formatting_literal_braces(placeholder):
+    spawn = AsyncMock(
+        return_value=SimpleNamespace(success=True, summary="done", error=None, tool_calls_used=0)
+    )
+    workflow = WorkflowDefinition(
+        name="mapped_agent_goal",
+        start_node="agent",
+        nodes={
+            "agent": AgentNode(
+                id="agent",
+                name="Agent",
+                role="researcher",
+                goal="Analyze " + placeholder + ' with {"literal": true} and {unknown}',
+                input_mapping={"files": "paths"},
+            )
+        },
+    )
+    with patch(
+        "victor.agent.subagents.orchestrator.SubAgentOrchestrator",
+        return_value=SimpleNamespace(spawn=spawn),
+    ):
+        result = await StateGraphExecutor(_orchestrator()).execute(workflow, {"paths": "foo.py"})
+    assert result.success is True
+    assert spawn.await_args.kwargs["task"] == (
+        'Analyze foo.py with {"literal": true} and {unknown}'
+    )
+
+
+@pytest.mark.asyncio
+async def test_transform_result_contains_returned_user_output():
+    workflow = WorkflowDefinition(
+        name="transform_output",
+        start_node="transform",
+        nodes={
+            "transform": TransformNode(
+                id="transform",
+                name="Transform",
+                transform=lambda ctx: {"answer": ctx["value"] * 2, "_internal": "hidden"},
+            )
+        },
+    )
+    result = await StateGraphExecutor(_orchestrator()).execute(workflow, {"value": 4})
+    assert result.success is True
+    assert result.node_results["transform"].output == {"answer": 8}
+
+
+@pytest.mark.asyncio
+async def test_agent_node_fails_without_an_orchestrator():
+    workflow = WorkflowDefinition(
+        name="missing_agent_runtime",
+        start_node="agent",
+        nodes={"agent": AgentNode(id="agent", name="Agent", role="researcher", goal="Review")},
+    )
+    result = await StateGraphExecutor().execute(workflow, {"input": 1})
+    assert result.success is False
+    assert "No orchestrator available" in result.error
+    assert result.node_results["agent"].success is False
+    assert "agent" not in result.state
+
+
+async def test_definition_ordinary_successors_preserve_bfs_order_and_shared_descendant():
+    definition = WorkflowDefinition(
+        name="ordinary_successors",
+        start_node="a",
+        nodes={
+            name: TransformNode(
+                id=name,
+                name=name,
+                transform=lambda state, name=name: {"order": state.get("order", []) + [name]},
+                next_nodes=successors,
+            )
+            for name, successors in {
+                "a": ["b", "c"],
+                "b": ["d"],
+                "c": ["d"],
+                "d": [],
+            }.items()
+        },
+    )
+    bfs, compiled = await _run_both(definition, {})
+    assert bfs["success"] is compiled["success"] is True
+    assert bfs["state"] == compiled["state"] == {"order": ["a", "b", "c", "d"]}
+    assert bfs["nodes"] == compiled["nodes"] == {"a", "b", "c", "d"}

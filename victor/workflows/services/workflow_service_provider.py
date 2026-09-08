@@ -205,7 +205,7 @@ class WorkflowServiceProvider:
         from victor.workflows.compiler.workflow_compiler_impl import (
             WorkflowCompilerImpl,
         )
-        from victor.workflows.compiled_executor import WorkflowExecutor
+        from victor.workflows.runtime_executor_factory import create_legacy_workflow_executor
         from victor.workflows.compiler_protocols import WorkflowCompilerProtocol
 
         transient_specs = []
@@ -470,13 +470,13 @@ class WorkflowServiceProvider:
         Returns:
             WorkflowExecutor instance
         """
-        from victor.workflows.compiled_executor import WorkflowExecutor
+        from victor.workflows.runtime_executor_factory import create_legacy_workflow_executor
         from victor.workflows.orchestrator_pool import OrchestratorPool
 
         # Get dependencies from DI container (use actual type, not string)
         orchestrator_pool = self.container.get(OrchestratorPool)
 
-        executor = WorkflowExecutor(
+        executor = create_legacy_workflow_executor(
             orchestrator_pool=orchestrator_pool,
         )
 

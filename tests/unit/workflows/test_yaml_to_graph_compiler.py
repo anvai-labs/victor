@@ -209,7 +209,7 @@ class TestNodeExecutorFactory:
 
     @pytest.mark.asyncio
     async def test_agent_executor_without_orchestrator(self):
-        """Test agent executor runs in placeholder mode without orchestrator."""
+        """Missing runtime must fail instead of returning placeholder success."""
         factory = NodeExecutorFactory()
         node = AgentNode(
             id="analyze",
@@ -221,11 +221,11 @@ class TestNodeExecutorFactory:
         executor = factory.create_executor(node)
         state: WorkflowState = {"input_data": "test"}
 
-        result = await executor(state)
+        from victor.workflows.executors.compatibility import WorkflowNodeExecutionError
 
-        assert "analyze" in result
-        assert result["analyze"]["status"] == "placeholder"
-        assert result["_node_results"]["analyze"].success is True
+        with pytest.raises(WorkflowNodeExecutionError, match="No orchestrator available") as exc:
+            await executor(state)
+        assert exc.value.result_state["_node_results"]["analyze"].success is False
 
     @pytest.mark.asyncio
     async def test_transform_executor_execution(self):
@@ -796,7 +796,7 @@ workflows:
                 "analyze": AgentNode(
                     id="analyze",
                     name="Analyze",
-                    role="analyst",
+                    role="researcher",
                     goal="Analyze patterns",
                     tool_budget=20,
                     next_nodes=[],
@@ -805,20 +805,30 @@ workflows:
             start_node="load",
         )
 
-        compiler = YAMLToStateGraphCompiler()
+        compiler = YAMLToStateGraphCompiler(orchestrator=object())
         compiled = compiler.compile(workflow)
 
         assert compiled is not None
 
-        # Execute with mock state
-        result = await compiled.invoke(
-            {
-                "_workflow_id": "test",
-                "_node_results": {},
-                "_iteration": 0,
-                "quality_score": 0.9,  # Will take "good" branch
-            }
+        # Provide an actual agent outcome; missing runtimes fail closed.
+        spawn = AsyncMock(
+            return_value=MagicMock(
+                success=True, summary="patterns found", error=None, tool_calls_used=1
+            )
         )
+        with patch(
+            "victor.agent.subagents.orchestrator.SubAgentOrchestrator",
+            return_value=MagicMock(spawn=spawn),
+        ):
+            result = await compiled.invoke(
+                {
+                    "_workflow_id": "test",
+                    "_node_results": {},
+                    "_iteration": 0,
+                    "quality_score": 0.9,  # Will take "good" branch
+                }
+            )
+        spawn.assert_awaited_once()
 
         assert result.success is True
         # Should have executed: load -> validate -> check_quality -> analyze

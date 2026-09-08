@@ -90,6 +90,7 @@ class ExecutorConfig:
     timeout: Optional[float] = None
     interrupt_nodes: List[str] = field(default_factory=list)
     default_profile: Optional[str] = None  # Default profile for nodes without explicit profile
+    max_parallel: Optional[int] = None
 
 
 @dataclass
@@ -117,6 +118,7 @@ class ExecutorResult:
     checkpoints_saved: int = 0
     interrupted: bool = False
     interrupt_node: Optional[str] = None
+    node_results: Dict[str, Any] = field(default_factory=dict)
 
     def get(self, key: str, default: Any = None) -> Any:
         """Get value from final state."""
@@ -245,6 +247,7 @@ class StateGraphExecutor:
                 node_executor_factory=self._create_executor_factory(),
                 enable_checkpointing=self.config.enable_checkpointing,
                 interrupt_on_hitl=bool(self.config.interrupt_nodes),
+                max_parallel=self.config.max_parallel,
             )
         return self._compiler
 
@@ -281,6 +284,7 @@ class StateGraphExecutor:
                 checkpointer_factory=self._build_checkpointer_factory(checkpointer),
                 enable_checkpointing=True,
                 interrupt_on_hitl=bool(self.config.interrupt_nodes),
+                max_parallel=self.config.max_parallel,
             )
         return compiler.compile(parsed)
 
@@ -321,9 +325,9 @@ class StateGraphExecutor:
 
             # Extract user state (exclude internal fields)
             # Convert Pydantic model to dict for compatibility
-            state_dict = (
-                result.state.to_dict() if hasattr(result.state, "to_dict") else result.state
-            )
+            # WorkflowStateModel.items() exposes the flat runtime mapping;
+            # to_dict() is its persistence representation with nested user data.
+            state_dict = dict(result.state.items())
             user_state = {k: v for k, v in state_dict.items() if not k.startswith("_")}
 
             return ExecutorResult(
@@ -333,6 +337,10 @@ class StateGraphExecutor:
                 duration_seconds=time.time() - start_time,
                 nodes_executed=result.node_history,
                 iterations=result.iterations,
+                node_results=state_dict.get("_node_results", {}),
+                interrupted=getattr(result, "interrupted", False),
+                interrupt_node=getattr(result, "interrupt_node", None),
+                checkpoints_saved=getattr(result, "checkpoints_saved", 0),
             )
 
         except Exception as e:

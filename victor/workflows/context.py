@@ -181,6 +181,14 @@ class WorkflowResult:
     total_duration: float = 0.0
     total_tool_calls: int = 0
     error: Optional[str] = None
+    nodes_executed: List[str] = field(default_factory=list)
+    interrupted: bool = False
+    interrupt_node: Optional[str] = None
+
+    @property
+    def final_state(self) -> Dict[str, Any]:
+        """Expose final state to framework workflow callers."""
+        return self.context.data
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -189,6 +197,9 @@ class WorkflowResult:
             "total_duration": self.total_duration,
             "total_tool_calls": self.total_tool_calls,
             "error": self.error,
+            "nodes_executed": self.nodes_executed,
+            "interrupted": self.interrupted,
+            "interrupt_node": self.interrupt_node,
             "outputs": self.context.get_outputs(),
             "node_results": {nid: r.to_dict() for nid, r in self.context.node_results.items()},
         }

@@ -61,7 +61,7 @@ from victor.workflows.definition import (
     WorkflowDefinition,
     WorkflowNode,
 )
-from victor.workflows.runtime_executor_factory import create_legacy_workflow_executor
+from victor.workflows.runtime_executor_factory import create_bfs_streaming_runtime
 
 # Import canonical streaming types from streaming.py (DRY - Phase 5 consolidation)
 from victor.workflows.streaming import (
@@ -173,7 +173,7 @@ class StreamingWorkflowExecutor:
             cache: Optional WorkflowCache for node result caching
             cache_config: Optional config to create a cache
         """
-        self._runtime = create_legacy_workflow_executor(
+        self._runtime = create_bfs_streaming_runtime(
             orchestrator,
             max_parallel=max_parallel,
             default_timeout=default_timeout,
