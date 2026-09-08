@@ -11,25 +11,24 @@ The state machine tracks the agent's workflow through discrete stages, from init
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                    ConversationStateMachine                         │
-│                                                                     │
-│  ┌─────────┐    ┌──────────┐    ┌─────────┐    ┌───────────┐       │
-│  │ INITIAL │───>│ PLANNING │───>│ READING │───>│ ANALYSIS  │       │
-│  └─────────┘    └──────────┘    └─────────┘    └───────────┘       │
-│       │              │               │               │              │
-│       │              │               │               │              │
-│       v              v               v               v              │
-│  ┌───────────────────────────────────────────────────────────────┐ │
-│  │                        EXECUTION                               │ │
-│  └───────────────────────────────────────────────────────────────┘ │
-│                              │                                      │
-│                              v                                      │
-│  ┌──────────────┐    ┌─────────────┐                               │
-│  │ VERIFICATION │───>│ COMPLETION  │                               │
-│  └──────────────┘    └─────────────┘                               │
-└─────────────────────────────────────────────────────────────────────┘
+This diagram lists the conversation stage categories; it is not a fixed transition chain.
+The [agentic-loop sequence](../architecture.md#agenticloop) describes execution authority.
+
+```mermaid
+---
+title: Conversation stages are distinct from loop execution phases
+---
+%%{init: {"theme":"base","themeVariables":{"primaryColor":"#E8EFF7","primaryTextColor":"#17324D","primaryBorderColor":"#456987","lineColor":"#456987","fontFamily":"Arial"}}}%%
+flowchart TB
+  C["ConversationStateMachine"]
+  I["INITIAL"]
+  P["PLANNING"]
+  R["READING"]
+  A["ANALYSIS"]
+  E["EXECUTION"]
+  V["VERIFICATION"]
+  D["COMPLETION"]
+  C -->|"track conversation stage"| I & P & R & A & E & V & D
 ```
 
 ## Stages

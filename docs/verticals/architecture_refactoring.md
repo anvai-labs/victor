@@ -1,5 +1,7 @@
 # Victor Verticals Architecture - Refactored Design
 
+> **Historical refactoring record.** The diagrams and rollout steps below retain their original design context. The [canonical layering diagram](../architecture.md#system-overview) and [vertical contracts](../reference/verticals/index.md#overview) describe current boundaries; subsequent template-base extraction is tracked separately in [ADR-031](../architecture/adr/031-vertical-template-bases-promotion.md).
+
 **Version**: 1.0
 **Date**: 2026-03-31
 **Status**: Production-Ready

@@ -111,3 +111,15 @@ The canonical gate descriptions live in [PR Workflow](development/PR_WORKFLOW.md
 
 Follow [Development Setup](development/setup.md) and the
 [testing guide](development/testing.md) for checks appropriate to the affected component.
+
+## Architecture and delivery diagrams
+
+- [System layering and guards](architecture.md#system-overview)
+- [Unified streaming loop](architecture.md#agenticloop)
+- [Single workflow engine](architecture.md#workflow-engine)
+- [SQLite worker and workflow persistence](architecture.md#database-architecture)
+- [Release trains](development/releasing/publishing.md#release-process-overview)
+- [CI gates](development/PR_WORKFLOW.md#ci-gate-map)
+
+Proposed runtime inversion, graph resume and RL relocation diagrams live in their FEPs,
+linked from [planned runtime changes](architecture.md#planned-runtime-and-learning-changes).

@@ -65,6 +65,31 @@ Two premises are wrong, verified 2026-09-06:
 
 ## Proposed Change
 
+### Target package dependencies
+
+This dependency diagram is a **target**; this FEP remains Draft. Contracts define interfaces and never import the relocated runtime. The existing backwards rl_runtime bridge is retired by the proposal.
+
+```mermaid
+---
+title: Target package dependencies — TARGET
+---
+%%{init: {"theme":"base","themeVariables":{"primaryColor":"#E8EFF7","primaryTextColor":"#17324D","primaryBorderColor":"#456987","lineColor":"#456987","fontFamily":"Arial"}}}%%
+flowchart TB
+  CMD["CLI · slash commands · scripts"]
+  AG["Agent runtime consumers<br/>lazy imports retained"]
+  RL["victor/rl/<br/>learners · consensus<br/>orchestration · monitoring"]
+  SHIM["victor.framework.rl<br/>deprecated forwarding shim"]
+  CT["victor_contracts.rl<br/>types · protocols · configuration"]
+  V["External verticals"]
+  GUARD["Boundary guard<br/>only shim remains in framework"]
+  CMD -->|"import runtime directly"| RL
+  AG -->|"request learning services"| RL
+  SHIM -->|"forward with DeprecationWarning"| RL
+  RL -->|"consume contract definitions"| CT
+  V -->|"import contract surface"| CT
+  GUARD -.->|"pin temporary exception"| SHIM
+```
+
 ### 1. `victor_contracts.rl` becomes the contract home (invert the bridge)
 
 Today `victor_contracts/rl.py` (129 lines) holds only SDK config contracts

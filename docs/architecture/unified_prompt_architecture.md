@@ -27,49 +27,22 @@ The Unified Prompt Architecture provides a single, coherent entry point for prom
 
 ### Solution Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                     Application Layer                           │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐          │
-│  │ Legacy YAML  │  │ StateGraph   │  │ SubAgent     │          │
-│  │ Workflows    │  │ Agent Nodes  │  │ spawn()      │          │
-│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘          │
-└─────────┼──────────────────┼──────────────────┼───────────────────┘
-          │                  │                  │
-          ▼                  ▼                  ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                   Facade Layer (New)                            │
-│  ┌──────────────────────────────────────────────────────────┐   │
-│  │    PromptOrchestrator (Unified Entry Point)              │   │
-│  │  - Coordinates builder selection                         │   │
-│  │  - Manages evolved content injection                     │   │
-│  │  - Handles constraint activation                         │   │
-│  └──────────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────┘
-          │                  │                  │
-          ▼                  ▼                  ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                   Service Layer                                 │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐          │
-│  │ Constraint   │  │ Evolved      │  │ Prompt       │          │
-│  │ Activator    │  │ Content      │  │ Section      │          │
-│  │ Service      │  │ Resolver     │  │ Registry     │          │
-│  └──────────────┘  └──────────────┘  └──────────────┘          │
-└─────────────────────────────────────────────────────────────────┘
-          │                  │                  │
-          ▼                  ▼                  ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                   Foundation Layer                              │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐          │
-│  │ Legacy       │  │ Framework    │  │ Optimiz.     │          │
-│  │ Prompt       │  │ Prompt       │  │ Injector     │          │
-│  │ Builder      │  │ Builder      │  │              │          │
-│  └──────────────┘  └──────────────┘  └──────────────┘          │
-│  ┌──────────────┐  ┌──────────────┐                          │
-│  │ Isolation    │  │ Content      │                          │
-│  │ Mapper       │  │ Registry     │                          │
-│  └──────────────┘  └──────────────┘                          │
-└─────────────────────────────────────────────────────────────────┘
+```mermaid
+---
+title: Prompt construction collaborators
+---
+%%{init: {"theme":"base","themeVariables":{"primaryColor":"#E8EFF7","primaryTextColor":"#17324D","primaryBorderColor":"#456987","lineColor":"#456987","fontFamily":"Arial"}}}%%
+flowchart LR
+  C["Prompt-construction caller"]
+  P["PromptOrchestrator"]
+  E["EvolvedContentResolver"]
+  A["ConstraintActivationService"]
+  B["Selected prompt builder"]
+  C -->|"request prompt"| P
+  P -->|"resolve evolved content when enabled"| E
+  P -->|"activate declared constraints"| A
+  P -->|"build configured prompt"| B
+  B -->|"return prompt"| C
 ```
 
 ## Core Components

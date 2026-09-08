@@ -19,29 +19,10 @@ Victor Core provides a generic graph storage and analysis framework. External pa
 | **Tools** | `graph_semantic_search`, `impact_analysis` | `rag_ingest`, `rag_search` |
 | **Use Case** | Code analysis, impact detection | Knowledge management |
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                        Victor Core                                  │
-│  ┌────────────────────────────────────────────────────────────────┐│
-│  │              Generic Graph Foundation                           ││
-│  │  - GraphStore protocol & backends                              ││
-│  │  - Basic edge types (CALLS, REFERENCES, etc.)                   ││
-│  │  - Basic CCG builder (tree-sitter based)                        ││
-│  │  - CapabilityRegistry for extension                            ││
-│  └────────────────────────────────────────────────────────────────┘│
-│                           ▲                                         │
-│                           │ via CCGBuilderProtocol                  │
-│                           │                                         │
-│  ┌────────────────────────────────────────────────────────────────┐│
-│  │              victor-coding (external package)                   ││
-│  │  - PythonCCGBuilder (enhanced)                                ││
-│  │  - JavaScriptCCGBuilder (enhanced)                             ││
-│  │  - TypeScriptCCGBuilder (enhanced)                             ││
-│  │  - Language-specific AST handling                              ││
-│  │  - Type-aware DDG construction                                 ││
-│  └────────────────────────────────────────────────────────────────┘│
-└─────────────────────────────────────────────────────────────────────┘
-```
+Code-graph retrieval and document RAG have different indexing inputs and domain policies.
+Both consume storage interfaces; use the [canonical persistence diagram](../architecture.md#database-architecture)
+for runtime ownership and the [graph retrieval guide](graph-rag-guide.md) for code context.
+The external RAG vertical declares its capabilities through `victor_contracts`.
 
 ## Core Graph Components
 

@@ -418,21 +418,21 @@ Victor v0.4.1 introduces a protocol-based event system that enables distributed 
 
 ### Architecture
 
-```
-┌────────────────────────────────────────────────────────────────┐
-│                    IEventBackend Protocol                       │
-├────────────────────────────────────────────────────────────────┤
-│  InMemoryEventBackend  │  SQLiteEventBackend  │  KafkaBackend  │
-│  (default, in-process) │  (persistent, file)  │  (distributed) │
-└────────────────────────────────────────────────────────────────┘
-                              │
-        ┌─────────────────────┴─────────────────────┐
-        ▼                                           ▼
-┌──────────────────┐                     ┌──────────────────────┐
-│ ObservabilityBus │                     │   AgentMessageBus    │
-│ High-throughput  │                     │ Delivery guarantees  │
-│ Lossy OK         │                     │ Agent-to-agent       │
-└──────────────────┘                     └──────────────────────┘
+```mermaid
+---
+title: Event backends and distinct delivery surfaces
+---
+%%{init: {"theme":"base","themeVariables":{"primaryColor":"#E8EFF7","primaryTextColor":"#17324D","primaryBorderColor":"#456987","lineColor":"#456987","fontFamily":"Arial"}}}%%
+flowchart TB
+  O["ObservabilityBus<br/>observability delivery"]
+  A["AgentMessageBus<br/>agent communication"]
+  P["IEventBackend"]
+  M["InMemoryEventBackend"]
+  S["SQLiteEventBackend"]
+  O -->|"use configured backend"| P
+  A -->|"use configured backend"| P
+  M -.->|"implement"| P
+  S -.->|"implement"| P
 ```
 
 ### Quick Start

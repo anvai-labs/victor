@@ -19,6 +19,10 @@
 ## Decision Tree
 
 ```mermaid
+---
+title: Decision Tree
+---
+%%{init: {"theme":"base","themeVariables":{"primaryColor":"#E8EFF7","primaryTextColor":"#17324D","primaryBorderColor":"#456987","lineColor":"#456987","fontFamily":"Arial"}}}%%
 flowchart TD
     START["Choose Provider"] --> AIR{"Need<br/>Air-Gapped?"}
     AIR -->|Yes| LOCAL{"Hardware?"}

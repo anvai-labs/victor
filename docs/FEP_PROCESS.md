@@ -98,6 +98,10 @@ These describe changes to the FEP process itself, or changes to the Victor proje
 ## FEP Lifecycle
 
 ```mermaid
+---
+title: FEP Lifecycle
+---
+%%{init: {"theme":"base","themeVariables":{"primaryColor":"#E8EFF7","primaryTextColor":"#17324D","primaryBorderColor":"#456987","lineColor":"#456987","fontFamily":"Arial"}}}%%
 graph LR
     A[Draft] -->|14-day review| B[Review]
     B -->|Approved| C[Accepted]

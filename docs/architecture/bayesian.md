@@ -16,33 +16,23 @@ Based on: "Position: agentic AI orchestration should be Bayes-consistent" (arXiv
 
 ## Architecture Diagram
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                     BayesianOrchestrationService                 │
-│                        (Integration Layer)                      │
-└─────────────────────────────────────────────────────────────────┘
-           │                │                │                │
-           ▼                ▼                ▼                ▼
-┌──────────────────┐ ┌──────────────┐ ┌────────────┐ ┌──────────────┐
-│  ObservationModel│ │AgentReliability│ │VoIController│ │  Consensus   │
-│     Learner      │ │    Learner    │ │             │ │   Builder    │
-│                  │ │              │ │             │ │              │
-│ P(z|Y) with Beta │ │ α_i weights  │ │ VoI = E[ΔH] │ │ Weighted     │
-│  distributions   │ │              │ │    - cost   │ │ pooling      │
-└──────────────────┘ └──────────────┘ └────────────┘ └──────────────┘
-           │                │                │                │
-           └────────────────┴────────────────┴────────────────┘
-                              │
-                              ▼
-                    ┌─────────────────┐
-                    │ SQLite Database │
-                    │                 │
-                    │ rl_observation_model
-                    │ rl_agent_reliability
-                    │ rl_voi_history
-                    │ rl_belief_history
-                    │ rl_bayesian_consensus
-                    └─────────────────┘
+```mermaid
+---
+title: Bayesian orchestration collaborators
+---
+%%{init: {"theme":"base","themeVariables":{"primaryColor":"#E8EFF7","primaryTextColor":"#17324D","primaryBorderColor":"#456987","lineColor":"#456987","fontFamily":"Arial"}}}%%
+flowchart TB
+  S["BayesianOrchestrationService"]
+  O["ObservationModelLearner"]
+  R["AgentReliabilityLearner"]
+  V["VoIController"]
+  B["BayesianTaskAnalysis<br/>belief state"]
+  D[("SQLite belief history")]
+  S -->|"use observation likelihoods"| O
+  S -->|"weight agent reliability"| R
+  S -->|"assess query value"| V
+  S -->|"create and update belief"| B
+  S -->|"record belief snapshots"| D
 ```
 
 ## Component Architecture
@@ -349,42 +339,25 @@ def _compute_agreement_level(agent_votes):
 
 ### Single-Agent Workflow
 
-```
-User Request
-    ↓
-BayesianOrchestrationService.create_belief_state()
-    ↓
-Prior: P(Y|D) = {success: 0.5, failure: 0.5}
-Entropy: H[Y|D] = 0.693 nats
-    ↓
-VoIController.should_query(agent_a, cost=0.1)
-    ↓
-Compute VoI = E[H[Y|D] - H[Y|D,z]] - cost
-    ↓
-VoI = 0.3 > 0 → Query agent_a
-    ↓
-Agent response: "Yes, this works"
-    ↓
-ObservationModelLearner.get_likelihood(agent_a, "Yes, this works", "success")
-    ↓
-Likelihood: P("Yes, this works" | success) = 0.8
-    ↓
-AgentReliabilityLearner.get_reliability_weight(agent_a)
-    ↓
-Reliability: α_a = 1.4
-    ↓
-BayesianTaskAnalysis.compute_posterior(prior, likelihood^α_a)
-    ↓
-Posterior: P(Y|D,z) = {success: 0.8, failure: 0.2}
-Entropy: H[Y|D,z] = 0.5 nats
-    ↓
-Execute task → Outcome: success
-    ↓
-BayesianOrchestrationService.record_task_outcome()
-    ↓
-Update ObservationModelLearner: α_success[affirm] += 1
-Update AgentReliabilityLearner: α_reliability += weight
-Update VoIController: record_voi_outcome(predicted=0.3, actual=0.19)
+```mermaid
+---
+title: Bayesian belief update workflow
+---
+%%{init: {"theme":"base","themeVariables":{"primaryColor":"#E8EFF7","primaryTextColor":"#17324D","primaryBorderColor":"#456987","lineColor":"#456987","fontFamily":"Arial"}}}%%
+sequenceDiagram
+  participant C as Caller
+  participant S as BayesianOrchestrationService
+  participant L as Learning collaborators
+  C->>S: create_belief_state(...)
+  S-->>C: BayesianTaskAnalysis
+  C->>S: should_query_agent(...)
+  S->>L: estimate information value and cost
+  S-->>C: query decision
+  C->>S: update_belief_with_message(...)
+  S->>L: observation likelihood and reliability
+  S-->>C: updated belief
+  C->>S: record_task_outcome(...)
+  S->>L: record feedback
 ```
 
 ### Multi-Agent Consensus Workflow

@@ -44,10 +44,17 @@ Prevents cascade failures by "tripping" after too many errors.
 
 ### States
 
-```
-    [Closed] ──(failures)─> [Open] ──(timeout)─> [Half-Open]
-        ^                                            │
-        └────────(success)───────────────────────────┘
+```mermaid
+---
+title: Circuit-breaker recovery cycle
+---
+%%{init: {"theme":"base","themeVariables":{"primaryColor":"#E8EFF7","primaryTextColor":"#17324D","primaryBorderColor":"#456987","lineColor":"#456987","fontFamily":"Arial"}}}%%
+stateDiagram-v2
+  [*] --> Closed
+  Closed --> Open: failure threshold reached
+  Open --> HalfOpen: recovery timeout elapsed
+  HalfOpen --> Closed: success threshold reached
+  HalfOpen --> Open: probe failure
 ```
 
 | State | Behavior |

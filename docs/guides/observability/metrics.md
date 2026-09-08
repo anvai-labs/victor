@@ -6,16 +6,21 @@ Victor now supports **JSONL event logging** for the observability dashboard. Thi
 
 ## Architecture
 
-```
-┌─────────────────────────────┐         ┌──────────────────────────────┐
-│ Agent Process               │         │ Dashboard Process             │
-│ (victor chat)               │         │ (victor dashboard)            │
-│                             │         │                              │
-│ EventBus → JsonLineExporter │────────→│ EventFileWatcher → EventBus  │
-│   ↓ (writes events)         │  JSONL  │   ↑ (reads & emits events)    │
-│ ~/.victor/metrics/          │  File   │                              │
-│   victor.jsonl              │────────→│   → All Dashboard Views      │
-└─────────────────────────────┘         └──────────────────────────────┘
+```mermaid
+---
+title: Dashboard events cross the process boundary through JSONL
+---
+%%{init: {"theme":"base","themeVariables":{"primaryColor":"#E8EFF7","primaryTextColor":"#17324D","primaryBorderColor":"#456987","lineColor":"#456987","fontFamily":"Arial"}}}%%
+flowchart TB
+  A["Agent process"]
+  E["JsonLineExporter"]
+  F[("~/.victor/metrics/victor.jsonl")]
+  W["EventFileWatcher"]
+  D["Dashboard event bus and views"]
+  A -->|"emit events"| E
+  E -->|"append JSONL records"| F
+  F -->|"read new records"| W
+  W -->|"emit dashboard events"| D
 ```
 
 ## Key Features

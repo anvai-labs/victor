@@ -91,3 +91,35 @@ after verifying that develop already contained the promoted content.
 Framework API and architectural changes follow the [FEP process](../FEP_PROCESS.md).
 The [proposal index](https://github.com/anvai-labs/victor/blob/develop/feps/README.md) records design status; merged design
 documents do not by themselves establish implementation completion.
+
+## CI gate map
+
+The CI gate map groups actual jobs by responsibility. `CI Success` includes native parity;
+failed or cancelled prerequisites fail the aggregate, while path-filtered skips are accepted.
+The promotion battery is separate and runs on pull requests targeting `main`.
+
+```mermaid
+---
+title: CI Success and promotion validation
+---
+%%{init: {"theme":"base","themeVariables":{"primaryColor":"#E8EFF7","primaryTextColor":"#17324D","primaryBorderColor":"#456987","lineColor":"#456987","fontFamily":"Arial"}}}%%
+flowchart TB
+  PR["Pull request / configured push"]
+  subgraph FAST["ci-fast.yml"]
+    N["Parallel prerequisite jobs<br/>format · lint · types · imports · docs<br/>boundaries · facade/hotspot · version/FEP<br/>quick tests · collection · security<br/>Rust packages · native-parity · PR metadata"]
+    S["CI Success<br/>failed / cancelled prerequisite → failure<br/>passed / path-filtered skipped → success"]
+    N -->|"aggregate every required need"| S
+  end
+  subgraph PROMO["Separate promotion battery · PR targeting main"]
+    M["ci-test.yml matrix<br/>Python 3.11 / 3.12 / 3.13<br/>12 shards each · 36 jobs"]
+    C["CLI Smoke Test"]
+    T["Test Summary"]
+    I["ci-integration.yml<br/>path-filtered integration suites"]
+    M -->|"all shard results"| T
+    C -->|"smoke result"| T
+  end
+  PR -->|"run fast gate"| N
+  PR -->|"main target"| M
+  PR -->|"main target"| C
+  PR -->|"main target and matching paths"| I
+```
