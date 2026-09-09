@@ -158,6 +158,25 @@ the streaming battery and parity battery stay byte-green).
 
 Each phase is independently landable and guard-gated.
 
+### Phase 1 progress: task-requirement capability (partial)
+
+The first slice binds `ChatRuntimeServices.session` to the existing
+`SessionStateAccessor` and routes live ACT task-requirement extraction through
+`executor.services.session`. Required files/outputs, the read set, and the nudge
+flag keep their canonical session ownership across turn resets and checkpoint
+restores. This removes 12 direct private accesses; the remaining runtime,
+executor, helper, and ACT dependencies have not yet migrated.
+
+The migration guard counts private attributes independent of receiver spelling,
+including runtime-local accesses, plus literal/dynamic probes and raw state
+lookups. Its executor private-attribute cap shrinks from 105 to 94 (12 removed
+accesses and one explicit runtime-to-services lookup). All other category/file
+caps remain at their measured baseline. Negative tests cover renamed receivers,
+aliased builtins, computed attribute names and dictionary access. This is a
+partial migration ratchet, not the final zero-facade gate. The eight ChatService
+binding arguments and orchestrator structural caps are unchanged; item 27 and
+phase 1 remain incomplete.
+
 1. **Introduce `ChatRuntimeServices`** with the enumerated view; mechanically rewire the 53
    `orch._*` sites onto it (pure rename-through-a-protocol, one PR per cluster file).
    Gate: facade-guard extension proves zero remaining `orch._*` in the cluster; all batteries

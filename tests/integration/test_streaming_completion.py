@@ -198,7 +198,11 @@ class TestStreamingCompletion:
     @pytest.mark.asyncio
     async def test_continuation_request_reuses_prior_stream_task_shape(self):
         """Continuation prompts should preserve prior task-shape hints in the runtime context."""
+        from victor.agent.session_state_accessor import SessionStateAccessor
+        from victor.agent.session_state_manager import SessionStateManager
+
         orch = MagicMock()
+        orch._session_accessor = SessionStateAccessor(SessionStateManager())
         orch.has_capability.return_value = False
         orch.get_capability_value.return_value = None
         orch._cumulative_token_usage = {
