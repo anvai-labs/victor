@@ -15,24 +15,28 @@ CLUSTER_CAPS = {
         "private_attributes": 48,
         "private_probes": 5,
         "dynamic_probes": 0,
+        "delivery_accesses": 0,
         "raw_state": 11,
     },
     "chat_stream_executor.py": {
-        "private_attributes": 94,
-        "private_probes": 17,
+        "private_attributes": 87,
+        "private_probes": 16,
         "dynamic_probes": 4,
+        "delivery_accesses": 0,
         "raw_state": 0,
     },
     "chat_stream_helpers.py": {
-        "private_attributes": 99,
+        "private_attributes": 97,
         "private_probes": 26,
         "dynamic_probes": 0,
+        "delivery_accesses": 0,
         "raw_state": 8,
     },
     "streaming_act_adapter.py": {
         "private_attributes": 14,
         "private_probes": 1,
         "dynamic_probes": 0,
+        "delivery_accesses": 0,
         "raw_state": 0,
     },
 }
@@ -85,12 +89,17 @@ def inventory(source):
                         names[key] = node.value.attr
 
     counts = {"private_attributes": 0, "private_probes": 0, "dynamic_probes": 0, "raw_state": 0}
+    counts["delivery_accesses"] = 0
+    delivery_names = {"_chunk_generator", "chunk_generator", "sanitizer"}
     for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute) and node.attr in delivery_names:
+            counts["delivery_accesses"] += 1
         if isinstance(node, ast.Attribute) and node.attr.startswith("_"):
             counts["private_attributes"] += 1
             counts["raw_state"] += node.attr == "__dict__"
         if isinstance(node, ast.Subscript):
             key = literal(node.slice)
+            counts["delivery_accesses"] += key in delivery_names
             if key and key.startswith("_"):
                 counts["raw_state"] += 1
         if not isinstance(node, ast.Call):
@@ -102,6 +111,7 @@ def inventory(source):
             counts["raw_state"] += 1
         elif function in builtins and len(node.args) >= 2:
             key = literal(node.args[1])
+            counts["delivery_accesses"] += key in delivery_names
             if key is None:
                 counts["dynamic_probes"] += 1
             elif key.startswith("_"):
@@ -109,6 +119,7 @@ def inventory(source):
                 counts["raw_state"] += key == "__dict__"
         elif isinstance(node.func, ast.Attribute) and node.func.attr == "get" and node.args:
             key = literal(node.args[0])
+            counts["delivery_accesses"] += key in delivery_names
             if key and key.startswith("_"):
                 counts["raw_state"] += 1
     return counts
@@ -128,6 +139,11 @@ def test_chat_cluster_boundary_counts_only_shrink(filename):
     "source, category",
     [
         ("renamed._required_files = []", "private_attributes"),
+        ("renamed._chunk_generator.emit()", "delivery_accesses"),
+        ("renamed.chunk_generator.emit()", "delivery_accesses"),
+        ("renamed.sanitizer.sanitize(text)", "delivery_accesses"),
+        ("read = getattr\nread(renamed, 'sani' + 'tizer')", "delivery_accesses"),
+        ("vars(renamed).get('sanitizer')", "delivery_accesses"),
         ("alias = original\nalias._new_facade_private()", "private_attributes"),
         ("self.host = original\nself.host._required_files", "private_attributes"),
         ("getattr(renamed, '_required_files')", "private_probes"),

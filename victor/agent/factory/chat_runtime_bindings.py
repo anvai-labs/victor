@@ -5,6 +5,8 @@
 
 from typing import Any
 
+from victor.agent.services.chat_delivery import ChatDelivery
+
 from victor.agent.services.chat_runtime_services import (
     ChatRuntimeServices,
     SessionTaskRequirementState,
@@ -29,4 +31,10 @@ def bind_chat_runtime_services(runtime_owner: Any) -> ChatRuntimeServices:
         raise TypeError(
             "Chat runtime requires SessionStateAccessor or explicit ChatRuntimeServices"
         )
-    return ChatRuntimeServices(session=SessionTaskRequirementState(accessor))
+    return ChatRuntimeServices(
+        session=SessionTaskRequirementState(accessor),
+        delivery=ChatDelivery(
+            chunks=getattr(owner, "_chunk_generator", None),
+            sanitizer=getattr(owner, "sanitizer", None),
+        ),
+    )

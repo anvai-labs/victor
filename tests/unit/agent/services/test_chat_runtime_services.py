@@ -129,7 +129,7 @@ async def test_act_prepare_uses_bound_session_capability(monkeypatch):
 def test_view_is_enumerated_and_does_not_retain_or_forward_facade():
     orchestrator = owner()
     view = bind_chat_runtime_services(orchestrator)
-    assert [field.name for field in fields(view)] == ["session"]
+    assert [field.name for field in fields(view)] == ["session", "delivery"]
     assert not hasattr(view, "__dict__")
     assert not hasattr(view.session, "__dict__")
     for name in ("orchestrator", "_orchestrator", "runtime_owner", "state_host", "get", "settings"):

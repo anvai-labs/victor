@@ -3,16 +3,17 @@
 
 """Enumerated service capabilities consumed by the chat runtime.
 
-FEP-0031 phase 1 is incremental: only task requirements have migrated so far.
+FEP-0031 phase 1 is incremental: task requirements and response delivery have migrated.
 The view freezes its bindings while preserving the session owner's live state.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol
 
 from victor.agent.session_state_accessor import SessionStateAccessor
+from victor.agent.services.chat_delivery import ChatDelivery
 
 
 class TaskRequirementState(Protocol):
@@ -82,3 +83,4 @@ class ChatRuntimeServices:
     """Explicit capabilities already migrated from the chat runtime facade."""
 
     session: TaskRequirementState
+    delivery: ChatDelivery = field(default_factory=ChatDelivery)
