@@ -194,6 +194,28 @@ phase 1 remain incomplete.
 4. **Property mixins + cluster package consolidation** (U1-7). Gate: batteries green; facade
    file no longer the churn×size leader on the next review pass.
 
+### Phase 1 progress: response delivery (partial)
+
+The chat runtime now binds the existing chunk generator and sanitizer through
+`ChatRuntimeServices.delivery`. `ChatDelivery` exposes five narrow operations;
+it retains the components, with no facade callback or copied turn state. Component
+selection happens at construction; reconfiguration requires a new view. Provider
+selection, policy decisions, usage accounting, and turn-frame ownership remain
+with their existing owners.
+
+The executor and helpers use this capability for content chunks, terminal markers,
+sanitization, plain-text recovery, and garbage detection. Configured chunk metadata
+and side effects, sanitizer exceptions, REQUEST/RESPONSE gate ordering, and the
+terminal-only missing-component fallback are preserved. Ordinary delivery still
+requires its components.
+
+The executor private-attribute cap shrinks from 94 to 87 and private-probe cap
+from 17 to 16; the helper private-attribute cap shrinks from 99 to 97. A zero-cap
+AST guard forbids chunk-generator and sanitizer access throughout the four-file
+cluster, including the public `chunk_generator` alias and literal dynamic probes.
+Phase 1 and review item 27 remain incomplete; the eight binding kwargs and
+orchestrator structural caps are unchanged.
+
 ## Benefits
 
 - The facade is finally *facade-only* in fact, not just docstring — the orchestrator stops

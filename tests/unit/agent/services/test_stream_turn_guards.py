@@ -17,6 +17,7 @@
 from types import SimpleNamespace
 
 from victor.agent.services import chat_stream_executor
+from victor.agent.services.chat_delivery import ChatDelivery
 from victor.agent.services.chat_stream_executor import StreamingChatExecutor
 from victor.agent.turn_policy import (
     NudgePolicy,
@@ -345,6 +346,11 @@ async def _collect_emit(
     runtime_owner=None,
     tools=None,
 ):
+    executor._runtime_owner = SimpleNamespace(
+        services=SimpleNamespace(
+            delivery=ChatDelivery(chunks=orch._chunk_generator, sanitizer=orch.sanitizer)
+        )
+    )
     decision = chat_stream_executor._EmitDecision()
     chunks = [
         c
