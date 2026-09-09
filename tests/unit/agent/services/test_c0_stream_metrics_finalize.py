@@ -24,6 +24,12 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 from victor.agent.services.chat_stream_runtime import ServiceStreamingRuntime
+from victor.agent.services.chat_runtime_services import (
+    ChatRuntimeServices,
+    SessionTaskRequirementState,
+)
+from victor.agent.session_state_accessor import SessionStateAccessor
+from victor.agent.session_state_manager import SessionStateManager
 
 
 def _usage(p: int, c: int) -> dict:
@@ -38,7 +44,12 @@ def _usage(p: int, c: int) -> dict:
 
 async def test_stream_chat_finalizes_metrics_with_cumulative_usage(monkeypatch):
     orch = SimpleNamespace(_finalize_stream_metrics=MagicMock())
-    rt = ServiceStreamingRuntime(orch)
+    rt = ServiceStreamingRuntime(
+        orch,
+        services=ChatRuntimeServices(
+            SessionTaskRequirementState(SessionStateAccessor(SessionStateManager()))
+        ),
+    )
 
     ctx = SimpleNamespace(cumulative_usage=_usage(120, 40))
     state_dict = {
@@ -73,7 +84,12 @@ async def test_stream_chat_finalizes_metrics_with_cumulative_usage(monkeypatch):
 
 async def test_finalize_failure_does_not_break_the_stream(monkeypatch):
     orch = SimpleNamespace(_finalize_stream_metrics=MagicMock(side_effect=RuntimeError("boom")))
-    rt = ServiceStreamingRuntime(orch)
+    rt = ServiceStreamingRuntime(
+        orch,
+        services=ChatRuntimeServices(
+            SessionTaskRequirementState(SessionStateAccessor(SessionStateManager()))
+        ),
+    )
     ctx = SimpleNamespace(cumulative_usage=_usage(10, 5))
     state_dict = {
         "_current_stream_context": ctx,

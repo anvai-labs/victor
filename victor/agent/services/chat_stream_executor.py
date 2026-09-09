@@ -19,6 +19,7 @@ from types import SimpleNamespace
 from dataclasses import dataclass
 from typing import Any, AsyncIterator, List, Optional, Protocol, Tuple
 
+from victor.agent.services.chat_runtime_services import ChatRuntimeServices, TaskRequirementState
 from victor.agent.output_deduplicator import OutputDeduplicator
 from victor.agent.safety import get_write_tool_names
 from victor.agent.services.protocols.streaming_runtime import (
@@ -255,6 +256,11 @@ class StreamingChatExecutor:
         self._last_tools: Optional[Any] = None
         self._visible_output_deduplicator = OutputDeduplicator(min_block_length=40)
         self._prev_visible_content: str = ""
+
+    @property
+    def services(self) -> ChatRuntimeServices:
+        """Return the runtime's explicitly bound service capabilities."""
+        return self._runtime_owner.services
 
     @staticmethod
     def _normalize_visible_content_key(content: str) -> str:
@@ -921,32 +927,28 @@ class StreamingChatExecutor:
         return orch._chunk_generator.generate_content_chunk(final_output, is_final=True)
 
     @staticmethod
-    async def _extract_task_requirements(orch: Any, user_message: str) -> None:
-        """Extract required files/outputs from the prompt onto orch + emit a state event.
-
-        A cohesive piece of run()'s preamble (FEP-0007 Phase 2 decomposition). Mutates orch
-        run-state; yields nothing.
-        """
-        orch._required_files = _extract_required_files_from_prompt(user_message)
-        orch._required_outputs = _extract_required_outputs_from_prompt(user_message)
-        orch._read_files_session.clear()
-        orch._all_files_read_nudge_sent = False
+    async def _extract_task_requirements(session: TaskRequirementState, user_message: str) -> None:
+        """Update the session owner's requirements and emit their state event."""
+        session.required_files = _extract_required_files_from_prompt(user_message)
+        session.required_outputs = _extract_required_outputs_from_prompt(user_message)
+        session.read_files.clear()
+        session.all_files_read_nudge_sent = False
         logger.debug(
             "Task requirements extracted - files: %s, outputs: %s",
-            orch._required_files,
-            orch._required_outputs,
+            session.required_files,
+            session.required_outputs,
         )
-        if orch._required_files or orch._required_outputs:
+        if session.required_files or session.required_outputs:
             from victor.core.events import get_observability_bus
 
             event_bus = get_observability_bus()
             await event_bus.emit(
                 topic="state.task.requirements_extracted",
                 data={
-                    "required_files": orch._required_files,
-                    "required_outputs": orch._required_outputs,
-                    "file_count": len(orch._required_files),
-                    "output_count": len(orch._required_outputs),
+                    "required_files": session.required_files,
+                    "required_outputs": session.required_outputs,
+                    "file_count": len(session.required_files),
+                    "output_count": len(session.required_outputs),
                     "category": "state",
                 },
             )
