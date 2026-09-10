@@ -14,13 +14,17 @@ evaluation loop and gating every change on it over adding new capabilities.
 
 ---
 
-## Now — September 2026: v0.9.2 release snapshot and remaining Stage C work
+## Now — September 2026: v0.9.3 release snapshot and remaining Stage C work
 
 `victor-ai` 0.9.1 and `victor-contracts` 0.9.1 were released on 2026-09-07, on independent
 release trains. The release covered co-design Waves 1–2, Wave 3 Stage A implementation,
-and Stage B design documents. The 0.9.2 snapshot adds post-release CI, storage and
+and Stage B design documents. Released on 2026-09-08, 0.9.2 added post-release CI, storage and
 integration fixes (#1038–#1040), ADR-030 workflow consolidation (#1041–#1043), and the
 documentation refresh. These changes are not part of the 0.9.1 artifacts.
+
+The 0.9.3 source snapshot raises the GitPython floor to 3.1.59 for CVE-2026-78676
+(#1050) and includes the first FEP-0031 session and response-delivery capability
+slices (#1049, #1051). The broader runtime inversion remains incomplete.
 
 The [co-design review backlog](reviews/2026-09-03-codesign/README.md) is the detailed item/PR
 ledger. Its unit reviews remain a dated record; the execution status below does not rewrite
@@ -30,16 +34,16 @@ those original findings.
 | --- | --- | --- |
 | ADR-030 workflow engine consolidation | Completed in #1041–#1043: parity gate, adapter/caller migration, canonical streaming and BFS deletion. | [ADR-030](architecture/adr/030-single-graph-execution-engine.md), item 23 |
 | Unified chat-loop cleanup | FEP-0007 is Implemented; #1043 removed zero-caller aliases and corrected delegation comments. Optional buffered-only bands remain a separate parity follow-up. | [FEP-0007](https://github.com/anvai-labs/victor/blob/develop/feps/fep-0007-unified-agentic-loop.md), item 23 |
-| Chat runtime inversion | Design merged; implementation remains pending. `ChatRuntimeServices` and ChatService-owned turn framing are targets. | [FEP-0031](https://github.com/anvai-labs/victor/blob/develop/feps/fep-0031-chat-runtime-inversion.md), item 27 |
+| Chat runtime inversion | Partial phase 1: `ChatRuntimeServices.session` and `.delivery` bind existing owners (#1049, #1051). Remaining capabilities and ChatService-owned turn framing are pending. | [FEP-0031](https://github.com/anvai-labs/victor/blob/develop/feps/fep-0031-chat-runtime-inversion.md), item 27 |
 | REPL and completions client routing | Pending after runtime consolidation. | Review item 32 |
 | Graph interrupt/resume semantics | Design merged; general paused signal and resume-at semantics remain pending. | [FEP-0032](https://github.com/anvai-labs/victor/blob/develop/feps/fep-0032-interrupt-resume-semantics.md), item 24 |
 | Team coordinator split | Pending service extraction. | Review item 30 |
 | Benchmark consolidation and RL relocation | Benchmark work precedes contracts-first relocation into `victor/rl/`. | [FEP-0033](https://github.com/anvai-labs/victor/blob/develop/feps/fep-0033-rl-subsystem-relocation.md), items 31 and 29 |
 | Vertical template bases | Pending family-by-family extraction into contracts. | [ADR-031](architecture/adr/031-vertical-template-bases-promotion.md), item 28 |
-| Documentation refresh | D1 consolidation, D2 diagrams, and D3 Pages/checker are included in the 0.9.2 snapshot; publication follows main promotion and the Pages workflow. | TD-18, [documentation audit](development/docs-audit-2026-09.md) |
+| Documentation refresh | D1 consolidation, D2 diagrams, and D3 Pages/checker shipped with 0.9.2. GitHub Pages is live and updates through main promotion. | TD-18, [documentation audit](development/docs-audit-2026-09.md) |
 
 FEP-0031/0032/0033 currently retain **Draft** frontmatter. A merged design document does not
-mean its proposed implementation has shipped. This page describes the **0.9.2** source
+mean its full proposed implementation has shipped. This page describes the **0.9.3** source
 snapshot; the [release history](https://github.com/anvai-labs/victor/releases) records
 published artifacts.
 

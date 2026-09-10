@@ -5,6 +5,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased] (develop)
 
+## [0.9.3] - 2026-09-10
+
+### Security
+
+- Raise the GitPython runtime minimum and requirements pin to 3.1.59 to address
+  CVE-2026-78676, which failed the blocking dependency scan on develop (#1050).
+
+### Changed
+
+- Bind chat task requirements to the existing session state owner through
+  `ChatRuntimeServices.session`, preserving live state across resets and restores
+  (#1049).
+- Route streaming chunk generation, sanitization, terminal recovery and garbage
+  detection through `ChatRuntimeServices.delivery`, using the existing components
+  and preserving chunk metadata, error propagation and policy ordering (#1051).
+- Lower chat-runtime boundary ratchets and guard against reintroducing direct
+  chunk-generator or sanitizer lookups. These are partial FEP-0031 phase-1 slices;
+  turn-frame ownership and the remaining Stage C work are still pending.
+
+Public agent APIs are unchanged. `victor-contracts` remains 0.9.1 and
+`victor-native` remains 0.8.0 on their independent release trains.
+
 ## [0.9.2] - 2026-09-08
 
 ### Changed
