@@ -164,7 +164,7 @@ Contributions use conventional commits and the checks documented in the PR workf
 
 ## Current work and historical evidence
 
-The [roadmap](roadmap.md) distinguishes the 0.9.2 release snapshot from remaining Stage C work.
+The [roadmap](roadmap.md) distinguishes the 0.9.3 release snapshot from remaining Stage C work.
 The [September co-design review](reviews/2026-09-03-codesign/README.md) preserves dated findings;
 merged design documents do not imply their implementation has shipped. See the
 [documentation source index](https://github.com/anvai-labs/victor/blob/develop/docs/README.md) for canonical ownership and historical-record conventions.
