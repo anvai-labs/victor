@@ -175,7 +175,10 @@ jobs:
           else
             COV_FLAGS="--no-cov"
           fi
+          # Diagnose stuck tests/teardowns before the job timeout cancels them.
+          # This dumps thread stacks; it does not change pass/fail or time limits.
           python -m pytest tests/unit \
+            -o faulthandler_timeout=120 \
             -m "not slow and not integration" \
             --splitting-algorithm=least_duration \
             --splits=12 \
