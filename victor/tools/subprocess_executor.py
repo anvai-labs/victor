@@ -656,22 +656,34 @@ async def run_managed_process(
             chunk = await stream.read(4096)
             if not chunk:
                 return
+            if capped:
+                # Keep pipes flowing until EOF. A full StreamReader pauses its
+                # transport, so abandoning it can block process.wait() even
+                # after the process has been killed (notably on Python 3.11).
+                continue
             buf.extend(chunk)
             if on_chunk is not None:
                 on_chunk(is_stderr, chunk)
             if max_output_bytes > 0 and len(buf) >= max_output_bytes:
                 capped = True
                 kill_process_group(process)
-                return
 
-    drain = asyncio.gather(
-        _drain(process.stdout, out_buf, False),
-        _drain(process.stderr, err_buf, True),
-    )
+    readers = [
+        asyncio.create_task(_drain(process.stdout, out_buf, False)),
+        asyncio.create_task(_drain(process.stderr, err_buf, True)),
+    ]
+    completion = asyncio.gather(*readers, process.wait())
+
+    async def _discard(stream: Any) -> None:
+        if stream is not None:
+            while await stream.read(4096):
+                pass
 
     timed_out = False
     try:
-        await asyncio.wait_for(drain, timeout=timeout)
+        # Include process exit: a command can close both output pipes and
+        # continue running, so EOF alone does not satisfy the timeout contract.
+        await asyncio.wait_for(completion, timeout=timeout)
     except asyncio.TimeoutError:
         timed_out = True
         kill_process_group(process)
@@ -687,6 +699,13 @@ async def run_managed_process(
         kill_process_group(process)
         raise
     finally:
+        # Timeout/cancellation cancels gather's readers; callback failure can
+        # leave a sibling reader running. Join them before taking ownership of
+        # the pipes, then discard buffered bytes without invoking callbacks.
+        for reader in readers:
+            reader.cancel()
+        await asyncio.gather(*readers, return_exceptions=True)
+        await asyncio.gather(_discard(process.stdout), _discard(process.stderr))
         await process.wait()
 
     return bytes(out_buf), bytes(err_buf), (process.returncode or 0), timed_out, capped
