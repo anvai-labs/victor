@@ -24,6 +24,7 @@ from victor.agent.topology_telemetry import (
     emit_topology_telemetry_event,
 )
 from victor.agent.runtime.context import AgentRuntimeContext
+from victor.agent.services.chat_runtime_services import ChatRuntimeServices
 from victor.agent.services.context_service import compact_context_if_recommended
 from victor.agent.unified_task_tracker import TrackerTaskType
 from victor.core.loop_thresholds import DEFAULT_BLOCKED_CONSECUTIVE_THRESHOLD
@@ -51,6 +52,8 @@ _MISSING = object()
 
 class ChatStreamHelperMixin:
     """Shared streaming helper methods reused by service and compatibility shims."""
+
+    services: ChatRuntimeServices
 
     @staticmethod
     def _get_runtime_state_host(runtime_host: Any) -> Any:
@@ -1831,8 +1834,7 @@ class ChatStreamHelperMixin:
         garbage_detected: bool,
     ) -> tuple[Any, int, bool]:
         """Handle garbage detection for a streaming chunk."""
-        orch = self._orchestrator
-        if chunk.content and orch.sanitizer.is_garbage_content(chunk.content):
+        if chunk.content and self.services.delivery.is_garbage_content(chunk.content):
             consecutive_garbage_chunks += 1
             if consecutive_garbage_chunks >= max_garbage_chunks:
                 if not garbage_detected:
@@ -1968,7 +1970,7 @@ class ChatStreamHelperMixin:
                         f"Recovery at temperature {temp} produced content "
                         f"({len(full_content)} chars)"
                     )
-                    sanitized = orch.sanitizer.sanitize(full_content)
+                    sanitized = self.services.delivery.sanitize(full_content)
                     if sanitized:
                         from victor.agent.conversation.types import (
                             MESSAGE_SOURCE_METADATA_KEY,
@@ -1982,7 +1984,7 @@ class ChatStreamHelperMixin:
                                 MESSAGE_SOURCE_METADATA_KEY: MessageSource.AGENT_RESPONSE.value
                             },
                         )
-                    final_chunk = orch._chunk_generator.generate_content_chunk(
+                    final_chunk = self.services.delivery.content_chunk(
                         sanitized or full_content, is_final=True
                     )
                     return True, None, final_chunk

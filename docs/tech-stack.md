@@ -20,7 +20,7 @@ not a claim that these are the newest upstream releases. Optional extras remain 
 | CLI | `typer>=0.15,<0.26`, `rich>=13.7`, prompt-toolkit | `victor/ui/cli.py`, `victor/ui/` |
 | Interactive TUI | `textual>=0.89` | `victor/ui/tui/` |
 | Token counting | `tiktoken>=0.7`, optional native `BpeTokenizer` | `victor/processing/`, `rust/` |
-| YAML and Git | `pyyaml>=6.0`, `gitpython>=3.1.58` | Workflow loading and tools |
+| YAML and Git | `pyyaml>=6.0`, `gitpython>=3.1.59` | Workflow loading and tools |
 | Code analysis | `tree-sitter>=0.23`, optional language grammars | `victor-codegraph/`, `victor/core/` |
 | Numeric support | `numpy>=1.24,<2.3` | Processing and retrieval helpers |
 | Semantic index | Optional `lancedb>=0.6.0` | `victor/storage/` |

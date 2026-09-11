@@ -111,11 +111,13 @@ def _prepare_executor(events, stream_ctx, *, recovery_service=None, recovery_coo
         _orchestrator=orch, _create_stream_context=fake_create_stream_context
     )
 
-    async def fake_extract(o, msg):
+    async def fake_extract(session, msg):
+        assert session == "REQUIREMENTS"
         events.append(("extract", msg))
 
     executor = SimpleNamespace(
         _runtime_owner=runtime_owner,
+        services=SimpleNamespace(session="REQUIREMENTS"),
         _reset_streaming_turn_state=lambda o: events.append(("reset",)),
         _extract_task_requirements=fake_extract,
         _apply_run_guidance=lambda o, ctx, msg, mei: events.append(("guidance", mei)),

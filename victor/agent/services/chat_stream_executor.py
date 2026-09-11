@@ -19,6 +19,7 @@ from types import SimpleNamespace
 from dataclasses import dataclass
 from typing import Any, AsyncIterator, List, Optional, Protocol, Tuple
 
+from victor.agent.services.chat_runtime_services import ChatRuntimeServices, TaskRequirementState
 from victor.agent.output_deduplicator import OutputDeduplicator
 from victor.agent.safety import get_write_tool_names
 from victor.agent.services.protocols.streaming_runtime import (
@@ -256,6 +257,11 @@ class StreamingChatExecutor:
         self._visible_output_deduplicator = OutputDeduplicator(min_block_length=40)
         self._prev_visible_content: str = ""
 
+    @property
+    def services(self) -> ChatRuntimeServices:
+        """Return the runtime's explicitly bound service capabilities."""
+        return self._runtime_owner.services
+
     @staticmethod
     def _normalize_visible_content_key(content: str) -> str:
         """Return a stable comparison key for visible content suppression."""
@@ -311,15 +317,6 @@ class StreamingChatExecutor:
         summary = getattr(state, "last_summary", "") if state is not None else ""
         return strip_active_completion_markers(summary).strip()
 
-    @staticmethod
-    def _build_final_marker_chunk(orch: Any) -> StreamChunk:
-        """Return a terminal marker chunk even when no text is available."""
-        generator = getattr(orch, "_chunk_generator", None)
-        marker_factory = getattr(generator, "generate_final_marker_chunk", None)
-        if callable(marker_factory):
-            return marker_factory()
-        return StreamChunk(content="", is_final=True)
-
     def _resolve_terminal_visible_output(
         self,
         orch: Any,
@@ -336,17 +333,16 @@ class StreamingChatExecutor:
             ("compaction_summary", getattr(stream_ctx, "compaction_summary", "")),
         )
 
-        sanitizer = getattr(orch, "sanitizer", None)
         for source, candidate in candidates:
             normalized = self._normalize_visible_candidate(candidate, user_message=user_message)
             if not normalized:
                 continue
 
-            sanitized = sanitizer.sanitize(normalized) if sanitizer else normalized
+            sanitized = self.services.delivery.sanitize(normalized, optional=True)
             if isinstance(sanitized, str) and sanitized.strip():
                 return sanitized.strip(), source
 
-            plain_text = sanitizer.strip_markup(normalized) if sanitizer else normalized
+            plain_text = self.services.delivery.strip_markup(normalized, optional=True)
             if isinstance(plain_text, str) and plain_text.strip():
                 return plain_text.strip(), source
 
@@ -416,7 +412,7 @@ class StreamingChatExecutor:
                     "Terminal response content recovered from %s fallback (provider output was not visible)",
                     content_source,
                 )
-            return orch._chunk_generator.generate_content_chunk(terminal_content, is_final=True)
+            return self.services.delivery.content_chunk(terminal_content, is_final=True)
 
         self._append_stream_event(
             stream_ctx,
@@ -430,7 +426,7 @@ class StreamingChatExecutor:
         logger.warning(
             "No visible terminal assistant content available; emitting final marker only"
         )
-        return self._build_final_marker_chunk(orch)
+        return self.services.delivery.final_marker_chunk()
 
     @staticmethod
     def _resolve_provider_identity(orch: Any) -> tuple[str, str]:
@@ -918,35 +914,31 @@ class StreamingChatExecutor:
             metadata["team_display_name"] = resolved_team.display_name
             metadata["member_count"] = resolved_team.member_count
 
-        return orch._chunk_generator.generate_content_chunk(final_output, is_final=True)
+        return self.services.delivery.content_chunk(final_output, is_final=True)
 
     @staticmethod
-    async def _extract_task_requirements(orch: Any, user_message: str) -> None:
-        """Extract required files/outputs from the prompt onto orch + emit a state event.
-
-        A cohesive piece of run()'s preamble (FEP-0007 Phase 2 decomposition). Mutates orch
-        run-state; yields nothing.
-        """
-        orch._required_files = _extract_required_files_from_prompt(user_message)
-        orch._required_outputs = _extract_required_outputs_from_prompt(user_message)
-        orch._read_files_session.clear()
-        orch._all_files_read_nudge_sent = False
+    async def _extract_task_requirements(session: TaskRequirementState, user_message: str) -> None:
+        """Update the session owner's requirements and emit their state event."""
+        session.required_files = _extract_required_files_from_prompt(user_message)
+        session.required_outputs = _extract_required_outputs_from_prompt(user_message)
+        session.read_files.clear()
+        session.all_files_read_nudge_sent = False
         logger.debug(
             "Task requirements extracted - files: %s, outputs: %s",
-            orch._required_files,
-            orch._required_outputs,
+            session.required_files,
+            session.required_outputs,
         )
-        if orch._required_files or orch._required_outputs:
+        if session.required_files or session.required_outputs:
             from victor.core.events import get_observability_bus
 
             event_bus = get_observability_bus()
             await event_bus.emit(
                 topic="state.task.requirements_extracted",
                 data={
-                    "required_files": orch._required_files,
-                    "required_outputs": orch._required_outputs,
-                    "file_count": len(orch._required_files),
-                    "output_count": len(orch._required_outputs),
+                    "required_files": session.required_files,
+                    "required_outputs": session.required_outputs,
+                    "file_count": len(session.required_files),
+                    "output_count": len(session.required_outputs),
                     "category": "state",
                 },
             )
@@ -1202,7 +1194,7 @@ class StreamingChatExecutor:
             )
             if visible_content:
                 decision.prev_iteration_had_content = True
-            sanitized = orch.sanitizer.sanitize(visible_content)
+            sanitized = self.services.delivery.sanitize(visible_content)
             if sanitized:
                 from victor.agent.conversation.types import (
                     MESSAGE_SOURCE_METADATA_KEY,
@@ -1222,7 +1214,7 @@ class StreamingChatExecutor:
                     metadata={MESSAGE_SOURCE_METADATA_KEY: MessageSource.AGENT_RESPONSE.value},
                 )
                 decision.assistant_content_yielded = True
-                yield orch._chunk_generator.generate_content_chunk(
+                yield self.services.delivery.content_chunk(
                     sanitized,
                     is_final=_is_final_emit,
                 )
@@ -1230,7 +1222,7 @@ class StreamingChatExecutor:
                     decision.should_return = True
                     return
             else:
-                plain_text = orch.sanitizer.strip_markup(
+                plain_text = self.services.delivery.strip_markup(
                     visible_content
                     or self._normalize_visible_candidate(
                         full_content,
@@ -1254,7 +1246,7 @@ class StreamingChatExecutor:
                         metadata={MESSAGE_SOURCE_METADATA_KEY: MessageSource.AGENT_RESPONSE.value},
                     )
                     decision.assistant_content_yielded = True
-                    yield orch._chunk_generator.generate_content_chunk(
+                    yield self.services.delivery.content_chunk(
                         plain_text,
                         is_final=_is_final_emit,
                     )
@@ -1326,7 +1318,7 @@ class StreamingChatExecutor:
                     user_satisfied=False,
                     completed=False,
                 )
-                yield orch._chunk_generator.generate_content_chunk(fallback_msg, is_final=True)
+                yield self.services.delivery.content_chunk(fallback_msg, is_final=True)
                 decision.should_return = True
                 return
 
@@ -1548,7 +1540,7 @@ class StreamingChatExecutor:
         if gate is not None:
             req = await gate.gate_request(user_message)
             if not req.allowed:
-                yield orch._chunk_generator.generate_content_chunk(
+                yield self.services.delivery.content_chunk(
                     req.reason or "Your message was blocked by policy.",
                     is_final=True,
                 )

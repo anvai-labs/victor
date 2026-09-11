@@ -12,12 +12,19 @@ from types import SimpleNamespace
 
 import pytest
 
+from victor.agent.services.chat_delivery import ChatDelivery
 from victor.agent.services.chat_stream_helpers import ChatStreamHelperMixin
 
 
 class _Helper(ChatStreamHelperMixin):
     def __init__(self, orchestrator):
         self._orchestrator = orchestrator
+        self.services = SimpleNamespace(
+            delivery=ChatDelivery(
+                chunks=getattr(orchestrator, "_chunk_generator", None),
+                sanitizer=getattr(orchestrator, "sanitizer", None),
+            )
+        )
 
 
 def _recovery_orch(chunks, added):

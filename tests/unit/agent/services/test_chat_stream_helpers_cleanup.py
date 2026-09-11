@@ -28,6 +28,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from victor.agent.services.chat_delivery import ChatDelivery
 from victor.agent.services.chat_stream_helpers import ChatStreamHelperMixin
 from victor.agent.streaming.context import StreamingChatContext
 from victor.core.errors import ProviderTimeoutError
@@ -37,6 +38,12 @@ from victor.providers.base import StreamChunk
 class _Helper(ChatStreamHelperMixin):
     def __init__(self, orchestrator):
         self._orchestrator = orchestrator
+        self.services = SimpleNamespace(
+            delivery=ChatDelivery(
+                chunks=getattr(orchestrator, "_chunk_generator", None),
+                sanitizer=getattr(orchestrator, "sanitizer", None),
+            )
+        )
 
 
 def _make_orch(stream_factory, *, heartbeat=0.05, stall=5.0, grace=100.0):

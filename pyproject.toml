@@ -18,7 +18,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "victor-ai"
-version = "0.9.2"
+version = "0.9.3"
 description = "Open-source agentic AI framework with multi-provider support, workflow orchestration, and extensible tool system"
 readme = "README.md"
 license = {text = "Apache-2.0"}
@@ -92,7 +92,7 @@ dependencies = [
     # Google Gemini support uses the optional google-genai extra.
 
     # Tools
-    "gitpython>=3.1.58",
+    "gitpython>=3.1.59",
     "jsonschema>=4.20",
     "tiktoken>=0.7",
     "pyyaml>=6.0",

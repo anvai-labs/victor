@@ -89,7 +89,7 @@ class StreamingActAdapter:
         stream_ctx = await runtime_owner._create_stream_context(user_message, **kwargs)
         orch._current_stream_context = stream_ctx
 
-        await executor._extract_task_requirements(orch, user_message)
+        await executor._extract_task_requirements(executor.services.session, user_message)
         executor._apply_run_guidance(
             orch, stream_ctx, user_message, stream_ctx.max_exploration_iterations
         )

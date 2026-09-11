@@ -17,6 +17,7 @@
 from types import SimpleNamespace
 
 from victor.agent.services import chat_stream_executor
+from victor.agent.services.chat_delivery import ChatDelivery
 from victor.agent.services.chat_stream_executor import StreamingChatExecutor
 from victor.agent.turn_policy import (
     NudgePolicy,
@@ -27,17 +28,19 @@ from victor.agent.turn_policy import (
 from victor.framework.search_novelty import SearchNoveltyTracker
 
 
-async def test_extract_task_requirements_sets_orch_state():
-    # A plain prompt yields no required files/outputs -> no event emit, no bus needed.
-    orch = SimpleNamespace(
-        _read_files_session={"stale.py"},
-        _all_files_read_nudge_sent=True,
-    )
-    await StreamingChatExecutor._extract_task_requirements(orch, "hello there")
-    assert isinstance(orch._required_files, list)
-    assert isinstance(orch._required_outputs, list)
-    assert orch._read_files_session == set()  # cleared
-    assert orch._all_files_read_nudge_sent is False
+async def test_extract_task_requirements_clears_session_state():
+    from victor.agent.services.chat_runtime_services import SessionTaskRequirementState
+    from victor.agent.session_state_accessor import SessionStateAccessor
+    from victor.agent.session_state_manager import SessionStateManager
+
+    session = SessionTaskRequirementState(SessionStateAccessor(SessionStateManager()))
+    session.read_files.add("stale.py")
+    session.all_files_read_nudge_sent = True
+    await StreamingChatExecutor._extract_task_requirements(session, "hello there")
+    assert session.required_files == []
+    assert session.required_outputs == []
+    assert session.read_files == set()
+    assert session.all_files_read_nudge_sent is False
 
 
 def _guidance_orch(messages):
@@ -343,6 +346,11 @@ async def _collect_emit(
     runtime_owner=None,
     tools=None,
 ):
+    executor._runtime_owner = SimpleNamespace(
+        services=SimpleNamespace(
+            delivery=ChatDelivery(chunks=orch._chunk_generator, sanitizer=orch.sanitizer)
+        )
+    )
     decision = chat_stream_executor._EmitDecision()
     chunks = [
         c
