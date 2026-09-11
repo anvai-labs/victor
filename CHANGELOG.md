@@ -27,6 +27,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Public agent APIs are unchanged. `victor-contracts` remains 0.9.1 and
 `victor-native` remains 0.8.0 on their independent release trains.
 
+### Fixed
+
+- Drain subprocess pipes before reaping after output caps, timeouts, cancellation
+  or callback errors, preventing full pipe buffers from hanging tool execution.
+  Execution timeouts also cover commands that close their output pipes early.
+
 ## [0.9.2] - 2026-09-08
 
 ### Changed

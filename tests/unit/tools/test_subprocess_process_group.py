@@ -21,6 +21,110 @@ from victor.tools.subprocess_executor import (
 )
 
 
+class TestBufferedPipeCleanup:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("stream_name", ["stdout", "stderr"])
+    @pytest.mark.parametrize("stop", ["cap", "timeout", "cancel", "callback_error"])
+    async def test_full_pipe_does_not_block_reaping(self, monkeypatch, stream_name, stop):
+        """Force backpressure before reading, rather than relying on scheduling.
+
+        On the old runner, stopping a reader leaves its transport paused and
+        process.wait() cannot complete. The external bound and cleanup keep
+        this regression from hanging the test suite on the broken code.
+        """
+        spawn = asyncio.create_subprocess_exec
+        processes = []
+
+        async def spawn_with_full_pipe(*args, **kwargs):
+            process = await spawn(*args, **kwargs)
+            processes.append(process)
+            stream = getattr(process, stream_name)
+
+            async def wait_for_backpressure():
+                # CPython's StreamReader flag establishes the precise transport
+                # state that caused the hang; a fixed sleep is not sufficient.
+                while not stream._paused:
+                    await asyncio.sleep(0.001)
+
+            await asyncio.wait_for(wait_for_backpressure(), timeout=5)
+            return process
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn_with_full_pipe)
+        chunks = []
+
+        def on_chunk(is_stderr, chunk):
+            chunks.append((is_stderr, chunk))
+            if stop == "callback_error":
+                raise RuntimeError("callback failed")
+            if stop == "cancel":
+                task.cancel()
+
+        fd = 1 if stream_name == "stdout" else 2
+        task = asyncio.create_task(
+            run_managed_process(
+                argv=[sys.executable, "-c", f"import os\nwhile True: os.write({fd}, b'x' * 4096)"],
+                max_output_bytes=100 if stop == "cap" else 0,
+                timeout=0 if stop == "timeout" else 10,
+                on_chunk=on_chunk,
+            )
+        )
+        try:
+            done, _ = await asyncio.wait({task}, timeout=10)
+            assert task in done, "runner hung while reaping a process with a full pipe"
+            if stop == "callback_error":
+                with pytest.raises(RuntimeError, match="callback failed"):
+                    task.result()
+                assert len(chunks) == 1
+            elif stop == "cancel":
+                assert task.cancelled()
+            else:
+                stdout, stderr, return_code, timed_out, capped = task.result()
+                assert timed_out is (stop == "timeout")
+                assert capped is (stop == "cap")
+                if stop == "cap":
+                    output = stdout if fd == 1 else stderr
+                    assert output == b"x" * 4096
+                    assert chunks == [(fd == 2, output)]
+                else:
+                    assert chunks == []
+                assert return_code != 0
+            assert processes[0].returncode is not None
+            assert processes[0].stdout.at_eof()
+            assert processes[0].stderr.at_eof()
+        finally:
+            for process in processes:
+                kill_process_group(process)
+            # Cancel the stuck runner before a fallback reader takes its pipe.
+            if not task.done():
+                task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+            for process in processes:
+                await asyncio.wait_for(process.communicate(), timeout=5)
+
+    @pytest.mark.asyncio
+    async def test_timeout_includes_process_exit_after_output_pipes_close(self):
+        task = asyncio.create_task(
+            run_managed_process(
+                argv=[
+                    sys.executable,
+                    "-c",
+                    "import os, time; os.close(1); os.close(2); time.sleep(30)",
+                ],
+                timeout=0.2,
+            )
+        )
+        try:
+            done, _ = await asyncio.wait({task}, timeout=5)
+            assert task in done, "timeout stopped applying once output pipes closed"
+            stdout, stderr, return_code, timed_out, capped = task.result()
+            assert (stdout, stderr, timed_out, capped) == (b"", b"", True, False)
+            assert return_code != 0
+        finally:
+            if not task.done():
+                task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+
 class TestTimeoutKillsWholeProcessGroup:
     @pytest.mark.asyncio
     async def test_backgrounded_child_does_not_survive_timeout(self, tmp_path):
