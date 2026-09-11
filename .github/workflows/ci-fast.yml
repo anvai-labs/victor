@@ -556,6 +556,9 @@ jobs:
           pip install --upgrade pip
           # Foundational local packages first, then victor-ai with dev extras. Collection
           # imports their contract tests even though they are not root dependencies.
+          # Match the test runners: collection needs torch imports, not CUDA
+          # libraries whose downloads can consume the entire job timeout.
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
           pip install -e ./victor-contracts
           pip install -e ./victor-codegraph
           pip install -e ".[dev]"
