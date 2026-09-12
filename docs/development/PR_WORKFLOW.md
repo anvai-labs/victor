@@ -49,6 +49,27 @@ it includes lint, types, import/boundary guards, changed-file tests, full-suite
 collection, security checks, Rust packages, and native parity. Queued runners are
 not test failures. See the [workflow gating map](https://github.com/anvai-labs/victor/blob/develop/.github/workflows/README.md).
 
+## Minimize CI cycles
+
+Hosted runners are shared across the organization. Complete the local change,
+dependency resolution, affected tests, formatting/lint/typing, full collection and
+required independent review before the first push. Batch compatible fixes and
+related docs/version preparation into a reviewable candidate.
+
+Target one passing candidate cycle per PR and one promotion battery per closed
+release batch. This is an efficiency target, never a reason to waive failures,
+skip required checks, or delay an urgent security fix. Resolve all known failures
+locally before a consolidated follow-up push. Re-run only failed jobs when there
+is evidence of a transient infrastructure failure; changed code needs checks on
+its new commit. Do not restart queued jobs or use remote CI as an edit/test loop.
+Cancel only superseded runs belonging to this task, never unrelated work.
+
+Keep the required aggregate reporting on every PR. Use shared scan reports and
+compatible caches to remove duplicate work; test path filters and publication
+prerequisites before changing them. Close the batch and inspect runner demand
+before opening its promotion. Routine dependency updates are grouped; security
+alerts receive prompt triage independently of the weekly update schedule.
+
 ## Merge and clean up
 
 Merge only after the final commit's required checks and review pass. Squash merge

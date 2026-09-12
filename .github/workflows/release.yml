@@ -175,7 +175,7 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         with:
           targets: ${{ matrix.target }}${{ matrix.rust_target != '' && format(', {0}', matrix.rust_target) || '' }}
 
@@ -190,7 +190,7 @@ jobs:
         run: pip install maturin
 
       - name: Build wheels
-        uses: PyO3/maturin-action@v1
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
         with:
           working-directory: rust
           target: ${{ matrix.target }}
@@ -295,14 +295,14 @@ jobs:
           df -h /
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
       - name: Extract version
         id: version
         run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
 
       - name: Build Docker image (without push)
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
         with:
           context: .
           push: false
@@ -327,73 +327,30 @@ jobs:
     name: Security Scan (Trivy)
     needs: build-docker
     runs-on: ubuntu-latest
-    # Security scan is informational — it should not block publishing.
-    # Results are uploaded to GitHub Security tab regardless (if: always()).
-    continue-on-error: true
+    timeout-minutes: 20
     permissions:
-      security-events: write  # Required for uploading to GitHub Security tab
+      contents: read
+      security-events: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
       - name: Download Docker image artifact
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: docker-image
           path: /tmp/
-
       - name: Load Docker image
         run: docker load -i /tmp/victor-docker.tar
-
       - name: Extract version
         id: version
-        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
-
-      - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@v0.24.0
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+      - uses: ./.github/actions/security-scan
         with:
-          image-ref: 'vjsingh1984/victor-ai:${{ steps.version.outputs.VERSION }}'
-          format: 'sarif'
-          output: 'trivy-results.sarif'
-          severity: 'CRITICAL,HIGH'
-          exit-code: '1'  # Fail on critical/high vulnerabilities
-          # Ensure latest vulnerability database
-          trivy-config: |
-            timeout:
-              10m
-            skip-dirs:
-              - /usr/local/lib/python*
-            db:
-              repository: 'ghcr.io/aquasecurity/trivy:latest'
-          # Use latest Trivy version and ignore outdated cache
-          cache: false
+          scope: container
+          scan-type: image
+          image-ref: vjsingh1984/victor-ai:${{ steps.version.outputs.VERSION }}
+          minimum: HIGH
+          category: release-container
 
-      - name: Upload Trivy results to GitHub Security
-        uses: github/codeql-action/upload-sarif@v3
-        if: always()  # Upload even if scan fails
-        with:
-          sarif_file: 'trivy-results.sarif'
-
-      - name: Run Trivy (table output for logs)
-        uses: aquasecurity/trivy-action@v0.24.0
-        if: always()
-        with:
-          image-ref: 'vjsingh1984/victor-ai:${{ steps.version.outputs.VERSION }}'
-          format: 'table'
-          severity: 'CRITICAL,HIGH,MEDIUM'
-          # Ensure latest vulnerability database
-          trivy-config: |
-            timeout:
-              10m
-            skip-dirs:
-              - /usr/local/lib/python*
-            db:
-              repository: 'ghcr.io/aquasecurity/trivy:latest'
-          # Use latest Trivy version and ignore outdated cache
-          cache: false
-
-  # ==========================================================================
-  # Build and test VS Code extension
-  # ==========================================================================
   build-vscode:
     name: Build VS Code Extension
     needs: test
@@ -463,7 +420,7 @@ jobs:
           path: dist/
 
       - name: Publish victor-ai to TestPyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
         with:
           repository-url: https://test.pypi.org/legacy/
           packages-dir: dist/
@@ -494,7 +451,7 @@ jobs:
           path: dist/
 
       - name: Publish victor-ai to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
         with:
           verbose: true
 
@@ -524,7 +481,7 @@ jobs:
           path: dist/
 
       - name: Publish victor_native to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
         with:
           packages-dir: dist/
           verbose: true
@@ -552,7 +509,7 @@ jobs:
         run: docker load -i /tmp/victor-docker.tar
 
       - name: Login to Docker Hub
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -603,12 +560,13 @@ jobs:
 
   generate-checksums:
     name: Generate Checksums
-    needs: [build-python, build-native]
+    needs: [build-python, build-native, build-binary]
     runs-on: ubuntu-latest
     steps:
-      - name: Download all artifacts
+      - name: Download release artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
+          pattern: '{python-package,native-wheels-*,binary-*,checksums}'
           path: artifacts/
 
       - name: Generate SHA256 checksums
@@ -628,7 +586,7 @@ jobs:
   # ==========================================================================
   create-release:
     name: Create GitHub Release
-    needs: [build-python, generate-checksums]
+    needs: [build-python, generate-checksums, security-scan]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -636,9 +594,10 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Download all artifacts
+      - name: Download release artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
+          pattern: '{python-package,native-wheels-*,binary-*,checksums}'
           path: artifacts/
 
       - name: Extract version

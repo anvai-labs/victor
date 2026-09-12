@@ -18,6 +18,18 @@ on:
       - 'Dockerfile'
       - 'docker/**'
       - 'docker-compose*.yml'
+      - '**/pyproject.toml'
+      - '**/requirements*.txt'
+      - '**/package.json'
+      - '**/package-lock.json'
+      - '**/Cargo.toml'
+      - '**/Cargo.lock'
+      - '**/Dockerfile*'
+      - '**/.github/**'
+      - '.github/actions/**'
+      - '.github/security/**'
+      - 'constraints.txt'
+      - 'mkdocs-requirements.txt'
   pull_request:
     branches: [main]
     paths:
@@ -32,6 +44,18 @@ on:
       - 'Dockerfile'
       - 'docker/**'
       - 'docker-compose*.yml'
+      - '**/pyproject.toml'
+      - '**/requirements*.txt'
+      - '**/package.json'
+      - '**/package-lock.json'
+      - '**/Cargo.toml'
+      - '**/Cargo.lock'
+      - '**/Dockerfile*'
+      - '**/.github/**'
+      - '.github/actions/**'
+      - '.github/security/**'
+      - 'constraints.txt'
+      - 'mkdocs-requirements.txt'
   schedule:
     # Run weekly on Monday at 2 AM UTC (backstop for newly-disclosed advisories;
     # per-PR Trivy gates CRITICAL deps and develop->main runs the full scan)
@@ -56,149 +80,40 @@ jobs:
           fetch-depth: 0
 
       - name: Gitleaks secret scan
-        uses: docker://ghcr.io/gitleaks/gitleaks:v8.30.1
+        uses: docker://ghcr.io/gitleaks/gitleaks@sha256:b109bc5f8f76a38196a3e413704fc5b9e3c32360bce4e4b603bd6f45b3721dbb # v8.30.1 (linux/amd64)
         with:
           args: git /github/workspace --redact --verbose --no-banner
 
   trivy-critical:
     name: Critical Filesystem Scan (Trivy, Blocking)
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 12
     permissions:
       contents: read
       security-events: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/security-scan
         with:
-          fetch-depth: 0
-
-      - name: Run Trivy critical scan
-        uses: aquasecurity/trivy-action@v0.35.0
-        with:
-          scan-type: 'fs'
-          scan-ref: '.'
-          scanners: 'vuln'
-          format: 'table'
-          severity: 'CRITICAL'
-          exit-code: '1'
-          ignore-unfixed: true
-          trivyignores: '.trivyignore'
-          cache: false
-
-      - name: Generate Trivy SARIF report
-        if: always()
-        uses: aquasecurity/trivy-action@v0.35.0
-        with:
-          scan-type: 'fs'
-          scan-ref: '.'
-          scanners: 'vuln'
-          format: 'sarif'
-          output: 'trivy-critical-results.sarif'
-          severity: 'CRITICAL,HIGH'
-          exit-code: '0'
-          ignore-unfixed: true
-          trivyignores: '.trivyignore'
-          cache: false
-
-      - name: Upload Trivy critical results
-        uses: github/codeql-action/upload-sarif@v4
-        if: always()
-        with:
-          sarif_file: trivy-critical-results.sarif
+          scope: filesystem
+          scan-type: fs
+          minimum: CRITICAL
+          category: repository-dependencies
 
   dependency-audit:
     name: Dependency Audit (High+Critical Blocking)
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.11"
-
-
+          python-version: '3.11'
       - name: Install package for audit
         run: |
-          pip install -e ./victor-contracts
-          pip install -e .
-          # PYSEC-2026-3447: runner-provided setuptools <83 is vulnerable; the fix
-          # exists, so upgrade rather than allowlist.
-          pip install --upgrade "setuptools>=83.0.0"
-
-      - name: Run pip-audit (blocking on high+ severity)
-        run: |
-          pip install pip-audit
-          # Run pip-audit with JSON output for parsing
-          pip-audit --format json --output audit-report.json 2>&1 | tee /tmp/pip-audit-output.txt
-
-          # Parse and filter vulnerabilities
-          python3 - <<'PY'
-          import json
-          import subprocess
-          import sys
-
-          try:
-              with open("audit-report.json", "r", encoding="utf-8") as f:
-                  report = json.load(f)
-          except FileNotFoundError:
-              print("No audit report found, checking exit status...")
-              result = subprocess.run(["pip-audit"], capture_output=True, text=True, check=False)
-              if result.returncode != 0:
-                  print("pip-audit failed (no JSON output available)")
-                  print(result.stdout)
-                  print(result.stderr)
-              sys.exit(result.returncode)
-
-          known_cves = set()
-          try:
-              with open(".pip-audit-known-vulnerabilities", "r", encoding="utf-8") as f:
-                  for raw_line in f:
-                      line = raw_line.strip()
-                      if line and not line.startswith("#"):
-                          adv_id = line.split("|", 1)[0].strip()
-                          if adv_id.startswith(("CVE-", "PYSEC-", "GHSA-")):
-                              known_cves.add(adv_id)
-          except FileNotFoundError:
-              print("No .pip-audit-known-vulnerabilities file found")
-
-          vulnerabilities = report.get("vulnerabilities", [])
-          # An advisory may surface under any of its aliases (CVE-*/PYSEC-*/GHSA-*),
-          # so match the allowlist against the id and all aliases.
-          filtered = [
-              v
-              for v in vulnerabilities
-              if not ({v.get("id"), *v.get("aliases", [])} & known_cves)
-          ]
-
-          if filtered:
-              print(
-                  f"Found {len(filtered)} vulnerabilities not in exceptions:",
-                  file=sys.stderr,
-              )
-              for vuln in filtered:
-                  fix_versions = vuln.get("fix_versions", [])
-                  if fix_versions:
-                      first_fix = fix_versions[0]
-                      if isinstance(first_fix, dict):
-                          fix_info = first_fix.get("version", "no fix")
-                      else:
-                          fix_info = first_fix
-                  else:
-                      fix_info = "no fix available"
-                  print(f"  {vuln.get('id')} - {vuln.get('package')} ({fix_info})")
-              sys.exit(1)
-
-          if known_cves:
-              print("All vulnerabilities documented in .pip-audit-known-vulnerabilities")
-              print(f"Known CVEs: {', '.join(sorted(known_cves))}")
-          else:
-              print("No vulnerabilities found")
-          PY
-        # Blocks on any known vulnerability. Exceptions must be documented in
-        # .pip-audit-known-vulnerabilities if a transitive dependency cannot be
-        # updated immediately. See SECURITY.md § Dependency Audit Exceptions.
+          python -m pip install -e ./victor-contracts
+          python -m pip install -e .
+      - uses: ./.github/actions/python-audit
 
   code-security:
     name: Code Security (Bandit, High-Severity Blocking)
@@ -307,7 +222,7 @@ jobs:
           EOF
 
       - name: Upload Semgrep results
-        uses: github/codeql-action/upload-sarif@v4
+        uses: github/codeql-action/upload-sarif@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4
         if: always() && hashFiles('semgrep.sarif') != ''
         with:
           sarif_file: semgrep.sarif

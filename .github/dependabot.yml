@@ -1,0 +1,93 @@
+version: 2
+# Security alerts are enabled and triaged independently of this routine schedule.
+# Native security-update PRs target main; keep that automation disabled while
+# fixes flow through the consolidated develop -> main promotion process.
+updates:
+  - package-ecosystem: pip
+    directories:
+      - /
+      - /victor-contracts
+      - /victor-codegraph
+      - /verticals/*
+      - /rust
+      - /docs
+      - /examples/external_vertical
+      - /victor-contracts/examples/minimal_vertical
+    target-branch: develop
+    schedule:
+      interval: weekly
+      day: sunday
+      time: '08:00'
+      timezone: Etc/UTC
+    open-pull-requests-limit: 1
+    groups:
+      python-maintenance:
+        patterns: ['*']
+    commit-message:
+      prefix: 'fix'
+  - package-ecosystem: npm
+    directories:
+      - /vscode-victor
+      - /vscode-victor/webview-ui
+    target-branch: develop
+    schedule:
+      interval: weekly
+      day: sunday
+      time: '08:00'
+      timezone: Etc/UTC
+    open-pull-requests-limit: 1
+    groups:
+      javascript-maintenance:
+        patterns: ['*']
+    commit-message:
+      prefix: 'fix'
+  - package-ecosystem: cargo
+    directories:
+      - /rust
+      - /verticals/victor-coding/native
+    target-branch: develop
+    schedule:
+      interval: weekly
+      day: sunday
+      time: '08:00'
+      timezone: Etc/UTC
+    open-pull-requests-limit: 1
+    groups:
+      rust-maintenance:
+        patterns: ['*']
+    commit-message:
+      prefix: 'fix'
+  - package-ecosystem: docker
+    directories:
+      - /
+      - /docker
+      - /docker/mcp-server
+      - /rust
+    target-branch: develop
+    schedule:
+      interval: weekly
+      day: sunday
+      time: '08:00'
+      timezone: Etc/UTC
+    open-pull-requests-limit: 1
+    groups:
+      container-maintenance:
+        patterns: ['*']
+    commit-message:
+      prefix: 'fix'
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: develop
+    schedule:
+      interval: weekly
+      day: sunday
+      time: '08:00'
+      timezone: Etc/UTC
+    open-pull-requests-limit: 1
+    groups:
+      actions-maintenance:
+        patterns: ['*']
+    commit-message:
+      prefix: 'ci'
+# Nested vertical/Rust workflow pins are covered by the repository hygiene guard
+# and updated in the same maintenance batch; do not assume root-only bot discovery.

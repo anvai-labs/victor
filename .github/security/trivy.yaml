@@ -1,0 +1,20 @@
+# Scan once without suppressing evidence; the shared checker enforces exceptions.
+timeout: 10m
+scan:
+  scanners:
+    - vuln
+pkg:
+  types:
+    - os
+    - library
+  include-dev-deps: true
+severity:
+  - UNKNOWN
+  - LOW
+  - MEDIUM
+  - HIGH
+  - CRITICAL
+list-all-pkgs: true
+vulnerability:
+  ignore-unfixed: false
+ignorefile: .github/security/trivy-empty.ignore
