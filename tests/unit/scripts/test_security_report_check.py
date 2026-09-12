@@ -164,6 +164,28 @@ def test_lower_severity_remains_in_report_without_failing_higher_floor():
     assert gate.check(report, [], "filesystem", 0, "MEDIUM")
 
 
+@pytest.mark.parametrize("artifact_type", ["filesystem", "repository"])
+def test_checkout_and_worktree_scans_enforce_the_same_policy(artifact_type):
+    report = trivy_report("LOW")
+    report["ArtifactType"] = artifact_type
+    assert not gate.check(report, [], "filesystem", 0, "CRITICAL")
+    report["Results"][0]["Vulnerabilities"][0]["Severity"] = "CRITICAL"
+    assert gate.check(report, [], "filesystem", 0, "CRITICAL")
+    with pytest.raises(ValueError, match="artifact type"):
+        gate.check(report, [], "container", 0)
+    del report["Results"][0]["Packages"]
+    with pytest.raises(ValueError, match="scanned packages"):
+        gate.check(report, [], "filesystem", 0)
+
+
+@pytest.mark.parametrize("artifact_type", ["unknown", "container_image", "", None])
+def test_wrong_filesystem_artifact_type_is_rejected(artifact_type):
+    report = trivy_report("LOW")
+    report["ArtifactType"] = artifact_type
+    with pytest.raises(ValueError, match="artifact type"):
+        gate.check(report, [], "filesystem", 0)
+
+
 @pytest.mark.parametrize(
     "mutation", ["schema", "type", "empty", "no-os", "no-packages", "severity"]
 )

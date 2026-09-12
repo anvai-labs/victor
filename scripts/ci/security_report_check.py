@@ -122,8 +122,11 @@ def python_findings(report: Any, status: int) -> list[dict[str, Any]]:
 def trivy_findings(report: Any, status: int, scope: str) -> list[dict[str, Any]]:
     require(status == 0, f"Trivy failed with status {status}")
     require(isinstance(report, dict) and report.get("SchemaVersion") == 2, "Unknown Trivy schema")
-    expected = "container_image" if scope == "container" else "filesystem"
-    require(report.get("ArtifactType") == expected, "Unexpected Trivy artifact type")
+    # `trivy fs` reports repository for a normal Git checkout, but filesystem
+    # for linked worktrees whose .git entry is a file. Both must cover the same
+    # manifest inventory below; neither can stand in for a container scan.
+    expected = {"container_image"} if scope == "container" else {"filesystem", "repository"}
+    require(report.get("ArtifactType") in expected, "Unexpected Trivy artifact type")
     results = sequence(report.get("Results"), "Trivy Results")
     require(bool(results), "No package targets scanned")
     if scope == "container":
