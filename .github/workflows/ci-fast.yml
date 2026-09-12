@@ -418,48 +418,18 @@ jobs:
   security-quick:
     name: Security Critical Scan (Blocking)
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 12
     permissions:
       contents: read
       security-events: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/security-scan
         with:
-          fetch-depth: 0
-
-      - name: Run Trivy FS scan for critical findings
-        uses: aquasecurity/trivy-action@v0.35.0
-        with:
-          scan-type: 'fs'
-          scan-ref: '.'
-          scanners: 'vuln'
-          format: 'table'
-          severity: 'CRITICAL'
-          exit-code: '1'
-          ignore-unfixed: true
-          trivyignores: '.trivyignore'
-          cache: false
-
-      - name: Generate Trivy SARIF report
-        if: always()
-        uses: aquasecurity/trivy-action@v0.35.0
-        with:
-          scan-type: 'fs'
-          scan-ref: '.'
-          scanners: 'vuln'
-          format: 'sarif'
-          output: 'trivy-results.sarif'
-          severity: 'CRITICAL,HIGH'
-          exit-code: '0'
-          ignore-unfixed: true
-          trivyignores: '.trivyignore'
-          cache: false
-
-      - name: Upload Trivy results
-        uses: github/codeql-action/upload-sarif@v4
-        if: always()
-        with:
-          sarif_file: 'trivy-results.sarif'
+          scope: filesystem
+          scan-type: fs
+          minimum: CRITICAL
+          category: repository-dependencies
 
   quick-tests:
     name: Quick Unit Tests (changed files)
@@ -745,7 +715,7 @@ jobs:
         with:
           fetch-depth: 0
       - name: Gitleaks
-        uses: docker://ghcr.io/gitleaks/gitleaks:v8.30.1
+        uses: docker://ghcr.io/gitleaks/gitleaks@sha256:b109bc5f8f76a38196a3e413704fc5b9e3c32360bce4e4b603bd6f45b3721dbb # v8.30.1 (linux/amd64)
         with:
           args: git /github/workspace --redact --verbose --no-banner
 
@@ -773,9 +743,6 @@ jobs:
             --ini .bandit
 
   dependency-audit:
-    # pip-audit over installed deps, blocking on high+critical CVEs not in the
-    # .pip-audit-known-vulnerabilities allowlist (the documented escape hatch).
-    # Mirrors security.yml (main-only) so a vulnerable dep is caught on develop.
     name: Dependency Audit (pip-audit)
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -783,44 +750,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.11"
+          python-version: '3.11'
       - name: Install package for audit
         run: |
-          pip install -e ./victor-contracts
-          pip install -e .
-      - name: pip-audit (high+critical, allowlisted exceptions)
-        run: |
-          pip install pip-audit
-          pip-audit --format json --output audit-report.json 2>&1 | tee /tmp/pip-audit-output.txt || true
-          python3 - <<'PY'
-          import json, subprocess, sys
-          try:
-              with open("audit-report.json", encoding="utf-8") as f:
-                  report = json.load(f)
-          except FileNotFoundError:
-              result = subprocess.run(["pip-audit"], capture_output=True, text=True, check=False)
-              print(result.stdout, result.stderr)
-              sys.exit(result.returncode)
-          known_cves = set()
-          try:
-              with open(".pip-audit-known-vulnerabilities", encoding="utf-8") as f:
-                  for line in f:
-                      line = line.strip()
-                      if line and not line.startswith("#"):
-                          cve = line.split("|", 1)[0].strip()
-                          if cve.startswith("CVE-"):
-                              known_cves.add(cve)
-          except FileNotFoundError:
-              print("No .pip-audit-known-vulnerabilities file found")
-          vulns = report.get("vulnerabilities", [])
-          filtered = [v for v in vulns if v.get("id") not in known_cves]
-          if filtered:
-              print(f"Found {len(filtered)} unexcepted vulnerabilities:", file=sys.stderr)
-              for v in filtered:
-                  print(f"  {v.get('id')} - {v.get('package')}", file=sys.stderr)
-              sys.exit(1)
-          print(f"No unexcepted vulnerabilities ({len(known_cves)} accepted in allowlist).")
-          PY
+          python -m pip install -e ./victor-contracts
+          python -m pip install -e .
+      - uses: ./.github/actions/python-audit
 
   rust-packages:
     name: Rust Packages

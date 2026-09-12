@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "exceptions": [
+    {
+      "package": "diskcache",
+      "versions": ["5.6.3"],
+      "advisories": ["CVE-2025-69872", "GHSA-w8v5-vhqr-4h9v", "PYSEC-2026-2447"],
+      "scopes": ["python", "filesystem"],
+      "owner": "Victor maintainers",
+      "expires": "2026-11-01",
+      "reason": "Existing PYSEC-2026-2447 exception, with its existing expiry retained: local single-user cache requires attacker write access. No patched diskcache release exists at review. Replacement and hostile legacy-cache handling are tracked in the current security remediation batch. This does not exempt release containers."
+    }
+  ]
+}

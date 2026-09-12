@@ -1,0 +1,68 @@
+name: Scan package vulnerabilities
+description: Produce one full Trivy report, publish evidence, and enforce the gate.
+inputs:
+  scope:
+    description: filesystem or container
+    required: true
+  scan-type:
+    description: Trivy scan type (fs or image)
+    required: true
+  image-ref:
+    description: Built image reference for container scans
+    default: ''
+  minimum:
+    description: Lowest blocking known severity; UNKNOWN also blocks
+    default: HIGH
+  category:
+    description: Stable SARIF analysis category for this surface
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Remove stale scan evidence
+      shell: bash
+      run: rm -f security-report.json security-report.sarif
+    - name: Scan all package vulnerabilities
+      id: scan
+      uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
+      with:
+        version: v0.74.0
+        scan-type: ${{ inputs.scan-type }}
+        scan-ref: '.'
+        image-ref: ${{ inputs.image-ref }}
+        format: json
+        output: security-report.json
+        exit-code: '0'
+        trivy-config: .github/security/trivy.yaml
+        cache: true
+    - name: Render the same report for review
+      if: always() && steps.scan.outcome == 'success'
+      shell: bash
+      run: |
+        trivy convert --format table security-report.json
+        trivy convert --format sarif --output security-report.sarif security-report.json
+    - name: Upload scan results
+      if: always() && steps.scan.outcome == 'success'
+      uses: github/codeql-action/upload-sarif@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4
+      with:
+        sarif_file: security-report.sarif
+        category: ${{ inputs.category }}
+    - name: Preserve the full scan report
+      if: always()
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: security-report-${{ github.job }}
+        path: security-report.json
+        if-no-files-found: error
+    - name: Enforce the security decision
+      if: always()
+      shell: bash
+      env:
+        SCAN_OUTCOME: ${{ steps.scan.outcome }}
+        SCAN_SCOPE: ${{ inputs.scope }}
+        SCAN_MINIMUM: ${{ inputs.minimum }}
+      run: |
+        scan_status=2
+        if [ "$SCAN_OUTCOME" = success ]; then scan_status=0; fi
+        python scripts/ci/security_report_check.py security-report.json \
+          --scope "$SCAN_SCOPE" --scanner-status "$scan_status" --minimum "$SCAN_MINIMUM"

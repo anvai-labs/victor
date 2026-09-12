@@ -41,7 +41,7 @@ We take security vulnerabilities seriously. If you discover a security issue, pl
 
 **Preferred Method: GitHub Security Advisories**
 
-1. Go to [Victor Security Advisories](https://github.com/vijayksingh/victor/security/advisories)
+1. Go to [Victor Security Advisories](https://github.com/anvai-labs/victor/security/advisories)
 2. Click "Report a vulnerability"
 3. Fill out the form with details about the vulnerability
 
@@ -92,9 +92,10 @@ Current repository policy uses tiered enforcement:
 
 - **Blocking (merge-gating)**:
   - Secret scanning via `gitleaks` — any verified secret hit fails CI
-  - Trivy filesystem scan — `CRITICAL` findings only (`ignore-unfixed: true`)
+  - Trivy filesystem scan — unexcepted `CRITICAL` and unclassified findings, including development dependencies and unfixed advisories
   - Dependency audit via `pip-audit` — known vulnerabilities fail CI
   - Bandit SAST — `HIGH` severity + `HIGH` confidence findings fail CI
+  - Release container scan — unexcepted `HIGH`, `CRITICAL` and unclassified findings block publication
   - Standard CI/test/lint gates
 **Advisory today**
 
@@ -108,8 +109,9 @@ Current repository policy uses tiered enforcement:
 | Surface | Enforcement | Threshold | Exception Handling |
 | ------- | ----------- | --------- | ------------------ |
 | Secret scanning | Blocking | Any verified secret hit | Remove the secret or update scanner configuration with explicit justification |
-| Trivy filesystem scan | Blocking | `CRITICAL` findings only | `ignore-unfixed: true`; accepted dependency CVEs must be mirrored in `.trivyignore` with justification in `.pip-audit-known-vulnerabilities` |
-| Dependency audit | Blocking | Any known vulnerability | Exceptions via `.pip-audit-known-vulnerabilities` with justification comment |
+| Trivy filesystem scan | Blocking | `CRITICAL` and unclassified findings | Scoped, version-specific, expiring entries in `.github/security/exceptions.json` |
+| Release container scan | Blocking publication | `HIGH`, `CRITICAL` and unclassified findings | Same exception schema, with explicit container scope |
+| Dependency audit | Blocking | Any unexcepted advisory (pip-audit does not supply severity) | Exact package/version, advisory aliases, scope and expiry in `.github/security/exceptions.json` |
 | Bandit (SAST) | Blocking | `HIGH` severity + `HIGH` confidence | Exceptions via `# nosec` inline comment or `.bandit` config with justification |
 | Bandit (full) | Advisory | All findings reported | Review artifact for lower-severity trends |
 | Semgrep | Advisory | All findings reported | Repo-specific exclusions/baselines must be documented before enforcement |
@@ -117,9 +119,23 @@ Current repository policy uses tiered enforcement:
 
 ### Exception Process
 
-1. **Dependency exceptions**: Create `.pip-audit-known-vulnerabilities` listing CVE IDs that cannot be resolved due to transitive dependency constraints. Each entry must include a justification comment and a re-review date. If the same CVE is surfaced by Trivy, add the CVE ID to `.trivyignore` and keep the justification synchronized.
-2. **SAST exceptions**: Use `# nosec` inline with a comment explaining why the finding is a false positive or accepted risk. Example: `eval(expr, {"__builtins__": {}}, ctx)  # nosec B307 — sandboxed eval`.
-3. **All exceptions are reviewed** at each milestone cut (M1/M2/M3) and removed when the underlying issue is resolved.
+1. **Dependency exceptions** live only in `.github/security/exceptions.json`. Each entry identifies exact package versions, advisory aliases, scan scopes, an owner, a rationale and an expiry date. Expired or malformed exceptions fail the gate. An exception for a local environment does not exempt a release container. No blanket ignore list is applied while collecting evidence.
+2. **SAST exceptions** require a narrow rule-specific annotation with a written trust-boundary justification and regression coverage where behavior changes. Do not suppress an entire class of SQL, import or serialization findings to clear a dashboard.
+3. **Review every unresolved finding** during each security batch and release. Remove exceptions when the package is fixed or replaced. An unavailable upstream fix stays visible; a successful workflow is not proof of zero vulnerabilities.
+
+The shared checker rejects incomplete reports, omitted lockfile targets, skipped
+Python dependencies, scanner failures and unknown report schemas. pip-audit uses
+OSV so the unpublished first-party candidate can be audited alongside every
+installed third-party dependency. Trivy's JSON report includes all severities,
+OS/library packages and development dependencies; table and SARIF outputs are
+converted from that same report. Scan tooling is maintained in isolated environments.
+
+Dependabot alerts and GitHub secret scanning/push protection are enabled. Automatic
+security-update PRs to the default branch remain disabled to preserve the reviewed
+`develop` → `main` promotion flow. Grouped weekly version updates target `develop`;
+security alerts are triaged promptly, with urgent fixes handled immediately. Native
+Dependabot security-update PRs do not honor `target-branch: develop`; enabling them
+requires a separate decision about main-branch PR traffic.
 
 ## Code Execution Sandboxing
 
@@ -320,7 +336,7 @@ We are actively working on:
 **Questions or Concerns?**
 
 If you have security questions that don't require confidential disclosure, feel free to:
-- Open a [GitHub Discussion](https://github.com/vijayksingh/victor/discussions)
+- Open a [GitHub Discussion](https://github.com/anvai-labs/victor/discussions)
 - Review our [Contributing Guidelines](CONTRIBUTING.md)
 
 For security vulnerabilities, please use the [responsible disclosure process](#reporting-a-vulnerability) described above.
