@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, Optional, TYPE_CHECKING
 from victor.core.constants import DEFAULT_VERTICAL
+from victor.core.sql_utils import validate_identifier
 
 if TYPE_CHECKING:
     from victor.protocols.provider_adapter import IProviderAdapter
@@ -186,7 +187,7 @@ class BaseLearner(ABC):
             learning_rate: How aggressively to adjust values (0.0-1.0)
             provider_adapter: Optional provider adapter for baselines
         """
-        self.name = name
+        self.name = validate_identifier(name)
         self.db = db_connection
         self.learning_rate = learning_rate
         self.provider_adapter = provider_adapter

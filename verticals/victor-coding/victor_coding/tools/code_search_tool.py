@@ -1,6 +1,5 @@
 import asyncio
 import fnmatch
-import importlib
 import importlib.util
 import logging
 import os
@@ -509,33 +508,6 @@ def _cleanup_nested_victor_dirs(root: Path) -> None:
                 shutil.rmtree(nested_path)
             except (OSError, PermissionError) as exc:
                 logger.warning("[code_search] Failed to remove %s: %s", nested_path, exc)
-
-
-def _load_codebase_index_factory_via_importlib() -> Optional[Any]:
-    """Load a CodebaseIndex factory via runtime import fallback paths."""
-
-    class _ImportedCodebaseIndexFactory:
-        def __init__(self, index_cls: Any) -> None:
-            self._index_cls = index_cls
-
-        def create(self, root_path: str, **kwargs: Any) -> Any:
-            return self._index_cls(root_path=root_path, **kwargs)
-
-    for module_path in (
-        "victor_coding.codebase.indexer",
-        "victor.verticals.contrib.coding.codebase.indexer",
-    ):
-        try:
-            module = importlib.import_module(module_path)
-        except ImportError:
-            continue
-
-        index_cls = getattr(module, "CodebaseIndex", None)
-        if index_cls is None:
-            continue
-        return _ImportedCodebaseIndexFactory(index_cls)
-
-    return None
 
 
 async def _background_index_rebuild(index: Any, rebuild_timeout: float = 120.0) -> bool:

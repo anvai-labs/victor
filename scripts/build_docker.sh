@@ -125,7 +125,7 @@ build_core() {
 
     print_msg "$BLUE" "Building core Victor image..."
     print_msg "$YELLOW" "  Image: ${DOCKER_REGISTRY}/${IMAGE_NAME}:${tag}"
-    print_msg "$YELLOW" "  Dockerfile: docker/Dockerfile.core"
+    print_msg "$YELLOW" "  Dockerfile: Dockerfile (target core)"
     echo ""
 
     cd "$PROJECT_ROOT"
@@ -135,7 +135,7 @@ build_core() {
         build_args+=("--no-cache")
     fi
     build_args+=("-t" "${DOCKER_REGISTRY}/${IMAGE_NAME}:${tag}")
-    build_args+=("-f" "docker/Dockerfile.core")
+    build_args+=("-f" "Dockerfile" "--target" "core")
     build_args+=(".")
 
     docker "${build_args[@]}"
@@ -150,7 +150,7 @@ build_mcp() {
 
     print_msg "$BLUE" "Building MCP server image..."
     print_msg "$YELLOW" "  Image: ${DOCKER_REGISTRY}/${IMAGE_NAME}:${tag}"
-    print_msg "$YELLOW" "  Dockerfile: docker/mcp-server/Dockerfile"
+    print_msg "$YELLOW" "  Dockerfile: Dockerfile (target mcp)"
     echo ""
 
     cd "$PROJECT_ROOT"
@@ -160,7 +160,7 @@ build_mcp() {
         build_args+=("--no-cache")
     fi
     build_args+=("-t" "${DOCKER_REGISTRY}/${IMAGE_NAME}:${tag}")
-    build_args+=("-f" "docker/mcp-server/Dockerfile")
+    build_args+=("-f" "Dockerfile" "--target" "mcp")
     build_args+=(".")
 
     docker "${build_args[@]}"

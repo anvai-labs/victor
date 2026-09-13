@@ -204,6 +204,22 @@ class MCPClient:
         self._on_disconnect_callbacks: List[Callable[[Optional[str]], None]] = []
         self._on_health_change_callbacks: List[Callable[[bool], None]] = []
 
+    async def _start_process(self, command: List[str]) -> subprocess.Popen:
+        """Start with the configured isolation policy on every connection."""
+        if self._sandbox_config is not None:
+            from victor.integrations.mcp.sandbox import SandboxedProcess
+
+            self._sandboxed_process = SandboxedProcess(self._sandbox_config)
+            return await self._sandboxed_process.start(command)
+        return subprocess.Popen(
+            command,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+        )
+
     async def connect(self, command: List[str]) -> bool:
         """Connect to MCP server via stdio.
 
@@ -216,39 +232,7 @@ class MCPClient:
         self._command = command  # Store for reconnection
 
         try:
-            # Start server process (with optional sandboxing)
-            if self._sandbox_config is not None:
-                # Use sandboxed process for resource limits and isolation
-                try:
-                    from victor.integrations.mcp.sandbox import SandboxedProcess
-
-                    self._sandboxed_process = SandboxedProcess(self._sandbox_config)
-                    self.process = await self._sandboxed_process.start(command)
-                    logger.info(
-                        f"Started sandboxed MCP server with limits: "
-                        f"memory={self._sandbox_config.max_memory_mb}MB, "
-                        f"timeout={self._sandbox_config.timeout_seconds}s"
-                    )
-                except Exception as e:
-                    logger.warning(f"Sandboxed process failed, falling back to regular: {e}")
-                    self.process = subprocess.Popen(
-                        command,
-                        stdin=subprocess.PIPE,
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE,
-                        text=True,
-                        bufsize=1,
-                    )
-            else:
-                # Standard subprocess without sandboxing
-                self.process = subprocess.Popen(
-                    command,
-                    stdin=subprocess.PIPE,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True,
-                    bufsize=1,
-                )
+            self.process = await self._start_process(command)
 
             # Initialize connection
             success = await self.initialize()
@@ -272,14 +256,14 @@ class MCPClient:
                 return True
 
             # Cleanup on initialization failure
-            self._cleanup_process()
+            await self._cleanup_process_async()
             return False
 
         except Exception as e:
             logger.error(f"Error connecting to MCP server: {e}")
             self._consecutive_failures += 1
             # Cleanup on exception
-            self._cleanup_process()
+            await self._cleanup_process_async()
             return False
 
     async def _cleanup_process_async(self) -> None:
@@ -287,7 +271,7 @@ class MCPClient:
         # Clean up sandboxed process if used
         if self._sandboxed_process is not None:
             try:
-                await self._sandboxed_process.terminate()
+                await self._sandboxed_process.terminate_all()
             except Exception as e:
                 logger.debug(f"Error terminating sandboxed process: {e}")
             self._sandboxed_process = None
@@ -332,10 +316,10 @@ class MCPClient:
 
         try:
             asyncio.get_running_loop()
-            asyncio.create_task(sandboxed_process.terminate())
+            asyncio.create_task(sandboxed_process.terminate_all())
         except RuntimeError:
             try:
-                run_sync(sandboxed_process.terminate())
+                run_sync(sandboxed_process.terminate_all())
             except Exception as e:
                 logger.debug(f"Error terminating sandboxed process: {e}")
 
@@ -688,7 +672,7 @@ class MCPClient:
         # Clean up sandboxed process if used
         if self._sandboxed_process is not None:
             try:
-                await self._sandboxed_process.terminate()
+                await self._sandboxed_process.terminate_all()
             except Exception as e:
                 logger.debug(f"Error terminating sandboxed process: {e}")
             self._sandboxed_process = None
@@ -777,45 +761,14 @@ class MCPClient:
             f"(attempt {self._consecutive_failures + 1}/{self._max_reconnect_attempts})"
         )
 
-        # Clean up current connection properly (close pipes first)
-        if self.process:
-            try:
-                if self.process.stdin:
-                    self.process.stdin.close()
-                if self.process.stdout:
-                    self.process.stdout.close()
-                if self.process.stderr:
-                    self.process.stderr.close()
-            except Exception as e:
-                logger.debug(f"Error closing process pipes during reconnect: {e}")
-
-            try:
-                self.process.terminate()
-                self.process.wait(timeout=McpTimeouts.KILL)
-            except subprocess.TimeoutExpired:
-                try:
-                    self.process.kill()
-                    self.process.wait()
-                except Exception as e:
-                    logger.debug(f"Error killing process during reconnect: {e}")
-            except Exception as e:
-                logger.debug(f"Error terminating process during reconnect: {e}")
-
-            self.process = None
-            self.initialized = False
+        await self._cleanup_process_async()
+        self.initialized = False
 
         await asyncio.sleep(self._reconnect_delay)
 
         # Reconnect
         try:
-            self.process = subprocess.Popen(
-                self._command,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                bufsize=1,
-            )
+            self.process = await self._start_process(self._command)
 
             success = await self.initialize()
             if success:
@@ -831,11 +784,13 @@ class MCPClient:
 
                 return True
 
+            await self._cleanup_process_async()
             return False
 
         except Exception as e:
             logger.error(f"Reconnection failed: {e}")
             self._consecutive_failures += 1
+            await self._cleanup_process_async()
             return False
 
     def reset_connection(self) -> None:

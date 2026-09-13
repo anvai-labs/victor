@@ -90,8 +90,7 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
                 cmd.append("-F")
             if request.file_pattern != "*":
                 cmd.extend(["-g", request.file_pattern])
-            cmd.append(request.query)
-            cmd.append(server.workspace_root)
+            cmd.extend(["-e", request.query, "--", server.workspace_root])
 
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
 

@@ -5,6 +5,58 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased] (develop)
 
+### Security
+
+- Fail closed when approval, safety, sandbox startup or verification setup fails.
+  Apply temporary runtime budgets transactionally and reject session reuse if
+  restoration fails; preserve inherited tool restrictions.
+- Keep SDK vertical validation active under optimized Python, and use SHA-256
+  for undo integrity checks while validating legacy histories against their text.
+
+- Bind table-description parameters, quote generated SQLite identifiers, and
+  validate update columns, metric groups and learner prefixes before SQL execution.
+- Restrict debug/workflow text conditions to bounded plain-data expressions and
+  reject coverage XML entities and oversized reports.
+- Confine Composer edits to workspace paths, allowlist Git context commands and
+  pass terminal working directories through the editor API.
+- Launch the VS Code backend with separate executable/argument values, without
+  shell interpolation. Render temporary D2 diagrams inside a private directory.
+- Replace diskcache and persisted Python-object caches with versioned data-only
+  storage. Legacy files are rebuilt rather than deserialized; malformed snapshots
+  are rejected before replacing live state.
+- Update vulnerable JavaScript and Rust dependencies, patched Python build floors
+  and CPU embedding constraints. Remove unused GitPython and Python codecov
+  dependencies, and omit pip from runtime containers.
+- Preserve complete scan coverage for separately resolved core, API and CPU
+  embedding deployments. Unaccepted container high/critical findings still block
+  publication; this batch does not claim that OS findings are resolved.
+
+### Changed
+
+- Replace the workstation requirements freeze with manifest-derived deployment
+  snapshots, remove unused vertical NumPy requirements, and keep RAG storage
+  exports lazy during package discovery.
+- Consolidate containers into core, MCP, native and full targets with installed
+  wheels and separate dependency/build stages. Correct obsolete build paths and
+  remove unsupported MCP environment-variable examples.
+- Update security/dependency documentation and trim development artifacts from
+  the VSIX. The Svelte webview uses the supported mount entrypoint.
+
+### Fixed
+
+- Validate generated SQL backup identifiers and preserve bound candidate values.
+- Give the coding native wheel its own package metadata so installing it cannot
+  replace the Python coding package.
+- Report the installed package version from HTTP and GraphQL health metadata.
+
+Version 0.9.4 is prepared on develop; it is not published until the release
+checks and unresolved security dispositions are complete. Independently installed
+vertical/native packages require their own releases. The candidate requires
+`victor-contracts>=0.9.2` and, for the native extra, `victor-native>=0.8.1`;
+the VS Code extension candidate is 0.5.1. See the
+[security batch status](docs/development/security-remediation-0.9.4.md) for
+release prerequisites and remaining findings.
+
 ## [0.9.3] - 2026-09-10
 
 ### Security

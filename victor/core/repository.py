@@ -56,6 +56,8 @@ import hashlib
 import json
 import logging
 import sqlite3
+
+from victor.core.sql_utils import quote_identifier
 import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -561,7 +563,8 @@ class SQLiteRepository(Repository[T], Generic[T]):
             create_table: Whether to create table if not exists
         """
         self._db_path = str(db_path)
-        self._table_name = table_name
+        self._table_name = quote_identifier(table_name)
+        self._updated_at_index = quote_identifier(f"idx_{table_name}_updated_at")
         self._entity_class = entity_class
         self._lock = asyncio.Lock()
 
@@ -581,7 +584,7 @@ class SQLiteRepository(Repository[T], Generic[T]):
                 )
                 """)
             conn.execute(f"""
-                CREATE INDEX IF NOT EXISTS idx_{self._table_name}_updated_at
+                CREATE INDEX IF NOT EXISTS {self._updated_at_index}
                 ON {self._table_name}(updated_at)
                 """)
 

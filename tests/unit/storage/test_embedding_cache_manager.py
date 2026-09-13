@@ -44,3 +44,34 @@ class TestEmbeddingCacheManagerSyncBridge:
             manager.rebuild_task_classifiers_sync()
 
         manager.rebuild_task_classifiers.assert_not_called()
+
+
+def test_status_and_clear_cover_data_and_legacy_embedding_caches(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from victor.storage.cache.embedding_cache_manager import CacheType
+
+    monkeypatch.setattr(
+        "victor.config.settings.get_project_paths",
+        lambda: SimpleNamespace(
+            global_embeddings_dir=tmp_path,
+            global_victor_dir=tmp_path / "global",
+            project_victor_dir=tmp_path / "project",
+        ),
+    )
+    manager = EmbeddingCacheManager()
+    files = [
+        "tool_embeddings_model_hash.v2.json",
+        "tool_embeddings_model_hash.pkl",
+        "task_classifier_collection.v2.json",
+        "task_classifier_collection.pkl",
+    ]
+    for name in files:
+        (tmp_path / name).write_text("derived cache")
+    unrelated = tmp_path / "keep.json"
+    unrelated.write_text("keep")
+    assert len(manager.get_cache_info(CacheType.TOOL).files) == 2
+    assert len(manager.get_cache_info(CacheType.INTENT).files) == 2
+    result = manager.clear([CacheType.TOOL, CacheType.INTENT])
+    assert result.cleared_files == 4
+    assert all(not (tmp_path / name).exists() for name in files)
+    assert unrelated.read_text() == "keep"

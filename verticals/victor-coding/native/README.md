@@ -23,38 +23,27 @@ Expected speedups compared to pure Python:
 - Code chunking: **2-3x faster**
 - Regex processing: **2-4x faster**
 
-## Prerequisites
+## Build and installation
 
-- Rust toolchain (1.70+)
-- maturin (1.0+)
-- Python development headers
+This directory builds the separate `victor-coding-native` distribution, whose
+Python extension is `_native`. Install `victor-coding` as well; the native wheel
+does not replace that package. It is distinct from the framework's `victor_native`
+extension in the root `rust/` directory.
 
-## Installation
+Use Python 3.11 or newer, a current stable Rust toolchain and `maturin>=1.10,<2`.
+From the monorepo root:
 
-### From pre-built wheels (when available)
 ```bash
-pip install victor-ai[native]
+python -m pip install 'maturin>=1.10,<2'
+cd verticals/victor-coding/native
+maturin build --release --locked --out dist
+python -m pip install dist/victor_coding_native-*.whl
 ```
 
-### Building from source
-
-#### Development build
-```bash
-cd /path/to/victor-coding
-pip install -e .[native-dev]
-maturin develop
-```
-
-#### Release build (optimized)
-```bash
-maturin develop --release
-```
-
-#### Build wheels
-```bash
-maturin build --release
-pip install target/wheels/victor_coding_native-*.whl
-```
+For an activated development environment, run `maturin develop --release` from
+this directory. The native `pyproject.toml` prevents maturin from inheriting the
+parent package identity. The historical empty `victor-coding[native]` extra does
+not build or install this extension.
 
 ## Usage
 

@@ -25,8 +25,6 @@ from typing import Any, Dict, List, Optional, Callable
 from dataclasses import dataclass
 from enum import Enum
 
-import numpy as np
-
 from victor.optimization.models import (
     NodeStatistics,
     WorkflowProfile,

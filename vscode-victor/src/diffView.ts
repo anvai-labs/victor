@@ -7,6 +7,7 @@
 
 import * as vscode from 'vscode';
 import * as path from 'path';
+import { resolveWorkspaceFile } from './workspacePaths';
 
 export interface FileChange {
     filePath: string;
@@ -72,9 +73,13 @@ export class DiffViewProvider {
      */
     async showDiff(change: FileChange): Promise<void> {
         const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
-        const absolutePath = path.isAbsolute(change.filePath)
-            ? change.filePath
-            : path.join(workspaceRoot, change.filePath);
+        let absolutePath: string;
+        try {
+            absolutePath = await resolveWorkspaceFile(workspaceRoot, change.filePath);
+        } catch (error) {
+            vscode.window.showErrorMessage(`Cannot preview proposed file: ${error}`);
+            return;
+        }
 
         // Create URIs for diff view
         const originalUri = vscode.Uri.parse(`victor-original:${change.filePath}`);
@@ -540,11 +545,8 @@ export class DiffViewProvider {
      */
     async applyChange(change: FileChange): Promise<boolean> {
         const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
-        const absolutePath = path.isAbsolute(change.filePath)
-            ? change.filePath
-            : path.join(workspaceRoot, change.filePath);
-
         try {
+            const absolutePath = await resolveWorkspaceFile(workspaceRoot, change.filePath);
             const uri = vscode.Uri.file(absolutePath);
 
             switch (change.changeType) {
@@ -559,7 +561,7 @@ export class DiffViewProvider {
                         new vscode.Range(0, 0, Number.MAX_VALUE, 0),
                         change.newContent
                     );
-                    await vscode.workspace.applyEdit(edit);
+                    if (!await vscode.workspace.applyEdit(edit)) { return false; }
                     break;
                 }
 

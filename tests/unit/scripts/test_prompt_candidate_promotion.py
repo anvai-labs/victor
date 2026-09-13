@@ -24,6 +24,7 @@ the prompt still telling the model to emit the old one.
 
 import argparse
 import importlib.util
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -51,6 +52,41 @@ RENDERED = f"""TASK COMPLETION (MANDATORY):
 3. {SUMMARY_MARKER} <key findings>
 4. {BLOCKED_MARKER} <reason>
 - Signal completion ONCE."""
+
+
+@pytest.mark.parametrize(
+    "stamp",
+    [
+        '20260912_120000"; DROP TABLE agent_prompt_candidate; --',
+        "20260912_120000\n",
+        "２０２６０９１２_１２００００",
+        "20260912_120000.extra",
+    ],
+)
+def test_backup_rejects_identifier_injection_without_changes(stamp):
+    with sqlite3.connect(":memory:") as con:
+        con.execute("CREATE TABLE agent_prompt_candidate (text TEXT)")
+        con.execute("INSERT INTO agent_prompt_candidate VALUES ('keep')")
+        with pytest.raises(ValueError, match="Backup stamp"):
+            pc._backup_candidates(con, stamp)
+        assert con.execute("SELECT text FROM agent_prompt_candidate").fetchall() == [("keep",)]
+        assert con.execute("SELECT count(*) FROM sqlite_master WHERE type='table'").fetchone() == (
+            1,
+        )
+
+
+def test_backup_preserves_sql_shaped_values_as_data():
+    hostile = "'); DROP TABLE agent_prompt_candidate; --"
+    with sqlite3.connect(":memory:") as con:
+        con.execute("CREATE TABLE agent_prompt_candidate (text TEXT)")
+        con.execute("INSERT INTO agent_prompt_candidate VALUES (?)", (hostile,))
+        assert pc._backup_candidates(con, "20260912_120000") == (
+            "agent_prompt_candidate_backup_20260912_120000"
+        )
+        assert con.execute(
+            "SELECT text FROM agent_prompt_candidate_backup_20260912_120000"
+        ).fetchall() == [(hostile,)]
+        assert con.execute("SELECT text FROM agent_prompt_candidate").fetchall() == [(hostile,)]
 
 
 class TestRetemplatizing:

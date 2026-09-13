@@ -36,6 +36,48 @@ from victor.experiments.entities import (
 )
 from victor.experiments.storage import IStorageBackend, StorageBackendError
 
+_EXPERIMENT_UPDATE_FIELDS = frozenset(
+    {
+        "name",
+        "description",
+        "hypothesis",
+        "tags",
+        "parameters",
+        "created_at",
+        "status",
+        "git_commit_sha",
+        "git_branch",
+        "git_dirty",
+        "parent_id",
+        "group_id",
+        "workflow_name",
+        "vertical",
+        "started_at",
+        "completed_at",
+    }
+)
+_RUN_UPDATE_FIELDS = frozenset(
+    {
+        "experiment_id",
+        "name",
+        "status",
+        "started_at",
+        "completed_at",
+        "metrics_summary",
+        "parameters",
+        "error_message",
+        "python_version",
+        "os_info",
+        "victor_version",
+        "dependencies",
+        "provider",
+        "model",
+        "task_type",
+        "artifact_count",
+        "artifact_size_bytes",
+    }
+)
+
 
 class SQLiteStorage:
     """SQLite-based storage backend for experiment tracking.
@@ -228,7 +270,9 @@ class SQLiteStorage:
         return self._row_to_experiment(row)
 
     def update_experiment(self, experiment_id: str, updates: Dict[str, Any]) -> bool:
-        """Update an experiment."""
+        """Update supported experiment fields, rejecting unknown keys atomically."""
+        if set(updates) - _EXPERIMENT_UPDATE_FIELDS:
+            raise ValueError("Unsupported experiment update fields")
         conn = self._get_connection()
         cursor = conn.cursor()
 
@@ -368,7 +412,9 @@ class SQLiteStorage:
         return self._row_to_run(row)
 
     def update_run(self, run_id: str, updates: Dict[str, Any]) -> bool:
-        """Update a run."""
+        """Update supported run fields, rejecting unknown keys atomically."""
+        if set(updates) - _RUN_UPDATE_FIELDS:
+            raise ValueError("Unsupported run update fields")
         conn = self._get_connection()
         cursor = conn.cursor()
 

@@ -400,8 +400,8 @@ class KubernetesScanner(IaCScannerProtocol):
                 content = f.read_text(encoding="utf-8")
                 if "apiVersion:" in content and "kind:" in content:
                     k8s_files.append(f)
-            except Exception:
-                continue
+            except (OSError, UnicodeError) as exc:
+                raise ValueError(f"Cannot inspect potential Kubernetes manifest: {f}") from exc
         return k8s_files
 
     async def parse_config(self, config_path: Path) -> IaCConfig:

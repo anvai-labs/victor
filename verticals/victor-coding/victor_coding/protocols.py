@@ -192,10 +192,7 @@ class CodingSafetyProvider(SafetyProvider):
     def __init__(self):
         self._extension = None
         if CodingSafetyExtension is not None:
-            try:
-                self._extension = CodingSafetyExtension()
-            except Exception:
-                pass
+            self._extension = CodingSafetyExtension()
 
     def get_extensions(self) -> List[Any]:
         """Return safety extensions for coding."""
@@ -206,28 +203,19 @@ class CodingSafetyProvider(SafetyProvider):
     def get_bash_patterns(self) -> List[Any]:
         """Return bash command patterns to monitor."""
         if self._extension:
-            try:
-                return self._extension.get_bash_patterns()
-            except Exception:
-                pass
+            return self._extension.get_bash_patterns()
         return []
 
     def get_file_patterns(self) -> List[Any]:
         """Return file operation patterns to monitor."""
         if self._extension:
-            try:
-                return self._extension.get_file_patterns()
-            except Exception:
-                pass
+            return self._extension.get_file_patterns()
         return []
 
     def get_tool_restrictions(self) -> Dict[str, List[str]]:
         """Return tool-specific restrictions."""
         if self._extension:
-            try:
-                return self._extension.get_tool_restrictions()
-            except Exception:
-                pass
+            return self._extension.get_tool_restrictions()
         return {}
 
 

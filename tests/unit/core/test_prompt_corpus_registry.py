@@ -610,7 +610,7 @@ class TestPromptCorpusRegistryCaching:
             )
 
             assert registry._cache_dir == cache_dir
-            assert registry._cache_file == cache_dir / "prompt_corpus_embeddings.pkl"
+            assert registry._cache_file == cache_dir / "prompt_corpus_embeddings.v2.json"
 
     def test_load_from_cache_no_file(self):
         """Test loading from cache when file doesn't exist."""

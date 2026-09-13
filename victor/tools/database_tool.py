@@ -427,7 +427,7 @@ async def _do_describe(
         cursor = conn.cursor()
 
         if connection_id.startswith("sqlite"):
-            cursor.execute(f"PRAGMA table_info({table})")
+            cursor.execute("SELECT * FROM pragma_table_info(?)", (table,))
             rows = cursor.fetchall()
             columns = [
                 {
@@ -440,19 +440,25 @@ async def _do_describe(
             ]
 
         elif connection_id.startswith("postgresql"):
-            cursor.execute(f"""
-                SELECT column_name, data_type, is_nullable
-                FROM information_schema.columns
-                WHERE table_name = '{table}'
-                ORDER BY ordinal_position
-                """)
+            cursor.execute(
+                "SELECT column_name, data_type, is_nullable "
+                "FROM information_schema.columns WHERE table_name = %s "
+                "ORDER BY ordinal_position",
+                (table,),
+            )
             rows = cursor.fetchall()
             columns = [
                 {"name": row[0], "type": row[1], "nullable": row[2] == "YES"} for row in rows
             ]
 
         elif connection_id.startswith("mysql"):
-            cursor.execute(f"DESCRIBE {table}")
+            cursor.execute(
+                "SELECT COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE, COLUMN_KEY "
+                "FROM information_schema.columns "
+                "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s "
+                "ORDER BY ORDINAL_POSITION",
+                (table,),
+            )
             rows = cursor.fetchall()
             columns = [
                 {

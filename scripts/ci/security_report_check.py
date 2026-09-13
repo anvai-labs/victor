@@ -41,7 +41,7 @@ def expected_targets(root: Path) -> set[str]:
     """Discover supported lockfiles; a parse failure must not erase scan coverage.
 
     Other Python requirements/pyproject manifests need resolved-environment audits;
-    the root requirements.txt is the repository's pinned inventory.
+    requirements.txt and requirements/*.txt are the pinned runtime inventories.
     """
     targets = set()
     for directory, subdirs, files in os.walk(root):
@@ -52,7 +52,11 @@ def expected_targets(root: Path) -> set[str]:
         ]
         for name in files:
             relative = (Path(directory) / name).relative_to(root).as_posix()
-            if name in {"Cargo.lock", "package-lock.json"} or relative == "requirements.txt":
+            if (
+                name in {"Cargo.lock", "package-lock.json"}
+                or relative == "requirements.txt"
+                or (relative.startswith("requirements/") and name.endswith(".txt"))
+            ):
                 targets.add(relative)
     return targets
 

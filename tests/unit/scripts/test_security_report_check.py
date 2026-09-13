@@ -222,6 +222,8 @@ def test_omitted_manifest_cannot_be_hidden_by_another_clean_target():
 def test_lockfile_discovery_covers_nested_packages_and_ignores_install_artifacts(tmp_path):
     for name in [
         "requirements.txt",
+        "requirements/api/requirements.txt",
+        "requirements/embeddings-cpu/requirements.txt",
         "rust/Cargo.lock",
         "verticals/new/native/Cargo.lock",
         "extension/package-lock.json",
@@ -233,6 +235,8 @@ def test_lockfile_discovery_covers_nested_packages_and_ignores_install_artifacts
         path.write_text("malformed contents must still require coverage")
     assert gate.expected_targets(tmp_path) == {
         "requirements.txt",
+        "requirements/api/requirements.txt",
+        "requirements/embeddings-cpu/requirements.txt",
         "rust/Cargo.lock",
         "verticals/new/native/Cargo.lock",
         "extension/package-lock.json",

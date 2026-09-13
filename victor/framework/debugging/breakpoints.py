@@ -51,6 +51,7 @@ Example:
 from __future__ import annotations
 
 from victor.core.json_utils import json_dumps, json_loads
+from victor.core.conditions import compile_condition as compile_condition
 import logging
 import uuid
 from dataclasses import dataclass, field

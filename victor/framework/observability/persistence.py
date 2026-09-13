@@ -168,13 +168,14 @@ class SQLiteMetricsStore(MetricsStore):
                 state_transitions INTEGER DEFAULT 0,
                 current_state TEXT,
 
-                errors TEXT,
-
-                INDEX (agent_id),
-                INDEX (session_id),
-                INDEX (created_at)
+                errors TEXT
             )
         """)
+
+        for field in ("agent_id", "session_id", "created_at"):
+            cursor.execute(
+                f"CREATE INDEX IF NOT EXISTS idx_agent_metrics_{field} ON agent_metrics ({field})"
+            )
 
         # Create tool calls table
         cursor.execute("""
@@ -466,11 +467,21 @@ class SQLiteMetricsStore(MetricsStore):
 
         # Build aggregation query
         group_fields = group_by or []
-        group_clause = ", ".join(group_fields) if group_fields else "NULL"
+        allowed_groups = {"agent_id", "session_id", "current_state"}
+        if any(field not in allowed_groups for field in group_fields):
+            raise ValueError("group_by supports only agent_id, session_id and current_state")
+        # Keep the existing row-list result shape. One group uses its value as
+        # group_key; multiple groups use an unambiguous JSON array of values.
+        if not group_fields:
+            group_key = "NULL"
+        elif len(group_fields) == 1:
+            group_key = group_fields[0]
+        else:
+            group_key = f"json_array({', '.join(group_fields)})"
 
         query = f"""
             SELECT
-                {group_fields} as group_key,
+                {group_key} as group_key,
                 SUM({column}) as total,
                 AVG({column}) as average,
                 MIN({column}) as minimum,
@@ -481,15 +492,16 @@ class SQLiteMetricsStore(MetricsStore):
         """
 
         params = []
-        if start_time:
+        if start_time is not None:
             query += " AND created_at >= ?"
             params.append(start_time)
 
-        if end_time:
+        if end_time is not None:
             query += " AND created_at <= ?"
             params.append(end_time)
 
-        query += f" GROUP BY {group_clause}"
+        if group_fields:
+            query += f" GROUP BY {', '.join(group_fields)}"
 
         cursor.execute(query, params)
 

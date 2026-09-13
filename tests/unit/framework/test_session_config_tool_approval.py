@@ -72,9 +72,9 @@ def test_from_cli_flags_populates_tool_approval_config():
     assert config.tool_approval.ask_fallback == "deny"
 
 
-def test_tool_approval_is_noop_when_settings_lack_governance():
-    # Should not raise when the settings object has no governance group.
+def test_tool_approval_requires_governance_settings():
     settings = SimpleNamespace()
-    SessionConfig.from_cli_flags(
-        tool_approval_enabled=True, ask_on_tools=["bash"]
-    ).apply_to_settings(settings)
+    with pytest.raises(RuntimeError, match="requires governance"):
+        SessionConfig.from_cli_flags(
+            tool_approval_enabled=True, ask_on_tools=["bash"]
+        ).apply_to_settings(settings)

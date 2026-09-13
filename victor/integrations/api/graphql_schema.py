@@ -24,6 +24,7 @@ Requires: pip install victor[api]  (includes strawberry-graphql[fastapi])
 from __future__ import annotations
 
 import asyncio
+from victor import __version__
 import logging
 import time
 from typing import TYPE_CHECKING, Any, AsyncGenerator, Optional
@@ -150,7 +151,7 @@ def _make_query(server: VictorFastAPIServer) -> type:
     class Query:
         @strawberry.field
         async def health(self) -> HealthType:
-            return HealthType(status="healthy", version="0.5.1")
+            return HealthType(status="healthy", version=__version__)
 
         @strawberry.field
         async def status(self) -> StatusType:
