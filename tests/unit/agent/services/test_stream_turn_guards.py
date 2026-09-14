@@ -136,6 +136,9 @@ async def test_stream_provider_turn_plans_tools_and_streams(monkeypatch):
     runtime_owner = SimpleNamespace(_stream_provider_response=_fake_stream)
 
     executor = _provider_turn_executor()
+    executor._runtime_owner = SimpleNamespace(
+        services=SimpleNamespace(tool_planner=orch._tool_planner)
+    )
 
     async def _fake_get_tools_cached(self, o, ctx_msg, g, planned_tools=None):
         seen["tools_cached"] = (ctx_msg, g, planned_tools)
