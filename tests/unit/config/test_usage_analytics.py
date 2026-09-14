@@ -445,7 +445,7 @@ class TestPersistence:
             analytics.flush()
 
             # Check file exists
-            cache_file = Path(tmpdir) / "usage_analytics.pkl"
+            cache_file = Path(tmpdir) / "usage_analytics.v2.json"
             assert cache_file.exists()
 
     def test_load_from_cache(self):

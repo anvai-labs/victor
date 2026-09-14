@@ -31,7 +31,7 @@ Features:
 
 import hashlib
 import logging
-import pickle
+from victor.core.data_cache import read_cache_data, write_cache_data
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -967,7 +967,7 @@ class PromptCorpusRegistry:
                     cache_dir = Path.home() / ".victor" / "embeddings"
         self._cache_dir = Path(cache_dir)
         self._cache_dir.mkdir(parents=True, exist_ok=True)
-        self._cache_file = self._cache_dir / "prompt_corpus_embeddings.pkl"
+        self._cache_file = self._cache_dir / "prompt_corpus_embeddings.v2.json"
 
         # Hash of corpus for change detection
         self._corpus_hash: Optional[str] = None
@@ -1026,7 +1026,7 @@ class PromptCorpusRegistry:
         return hashlib.sha256(combined.encode()).hexdigest()
 
     def _load_from_cache(self, corpus_hash: str) -> bool:
-        """Load embeddings from pickle cache if valid.
+        """Load embeddings from data cache if valid.
 
         Args:
             corpus_hash: Current hash of corpus entries
@@ -1038,8 +1038,7 @@ class PromptCorpusRegistry:
             return False
 
         try:
-            with open(self._cache_file, "rb") as f:
-                cache_data = pickle.load(f)
+            cache_data = read_cache_data(self._cache_file)
 
             # Verify cache is for same corpus
             if cache_data.get("corpus_hash") != corpus_hash:
@@ -1052,18 +1051,25 @@ class PromptCorpusRegistry:
                 logger.info("Cache missing embeddings")
                 return False
 
-            # Verify embedding count matches corpus count
-            if len(embeddings) != len(self._corpus):
-                logger.info(f"Cache size mismatch: {len(embeddings)} != {len(self._corpus)}")
+            import numpy as np
+
+            if (
+                type(embeddings) is not np.ndarray
+                or embeddings.ndim != 2
+                or embeddings.dtype.kind not in "fiu"
+                or embeddings.shape[0] != len(self._corpus)
+                or embeddings.shape[1] == 0
+                or not np.isfinite(embeddings).all()
+            ):
+                logger.info("Invalid corpus embedding array")
                 return False
 
-            # Load embeddings
+            # Validate the complete snapshot before publishing any state.
+            rows = list(embeddings)
+            for entry, row in zip(self._corpus, rows):
+                entry.embedding = row
             self._corpus_embeddings = embeddings
             self._corpus_hash = corpus_hash
-
-            # Also restore embeddings to individual entries
-            for i, entry in enumerate(self._corpus):
-                entry.embedding = embeddings[i]
 
             return True
 
@@ -1072,7 +1078,7 @@ class PromptCorpusRegistry:
             return False
 
     def _save_to_cache(self, corpus_hash: str) -> None:
-        """Save embeddings to pickle cache.
+        """Save embeddings to data cache.
 
         Args:
             corpus_hash: Hash of corpus entries
@@ -1094,8 +1100,7 @@ class PromptCorpusRegistry:
                 "corpus_size": len(self._corpus),
             }
 
-            with open(self._cache_file, "wb") as f:
-                pickle.dump(cache_data, f)
+            write_cache_data(self._cache_file, cache_data)
 
             cache_size = self._cache_file.stat().st_size / 1024  # KB
             logger.info(

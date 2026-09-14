@@ -19,7 +19,6 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
-import pickle
 import re
 from pathlib import Path
 from typing import Any, ClassVar, Dict, List, Optional, Set, Tuple
@@ -30,12 +29,14 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 import httpx
 
-from victor.core.pickle_cache import (
+from victor.core.data_cache import (
     CacheValidation,
+    read_cache_data,
+    write_cache_data,
     delete_cache_file,
     invalid,
-    load_validated_pickle,
-    save_pickle_with_metadata,
+    load_validated_data,
+    save_data_with_metadata,
     valid,
 )
 from victor.providers.base import ToolDefinition
@@ -201,7 +202,7 @@ class SemanticToolSelector:
         # TD-010: Add project hash to prevent cache pollution between projects
         project_hash = self._get_project_hash()
         model_safe = embedding_model.replace(":", "_").replace("/", "_")
-        cache_filename = f"tool_embeddings_{model_safe}_{project_hash}.pkl"
+        cache_filename = f"tool_embeddings_{model_safe}_{project_hash}.v2.json"
         self.cache_file = self.cache_dir / cache_filename
 
         # In-memory cache: tool_name → embedding vector
@@ -220,7 +221,7 @@ class SemanticToolSelector:
             self._client = httpx.AsyncClient(base_url=ollama_base_url, timeout=30.0)
 
         # Phase 3: Tool usage tracking and learning (also project-isolated)
-        self._usage_cache_file = self.cache_dir / f"tool_usage_stats_{project_hash}.pkl"
+        self._usage_cache_file = self.cache_dir / f"tool_usage_stats_{project_hash}.v2.json"
         self._tool_usage_cache: Dict[str, Dict[str, Any]] = {}
         self._usage_cache_dirty = False  # Dirty flag - only save when changed
         self._load_usage_cache()
@@ -263,7 +264,7 @@ class SemanticToolSelector:
     async def initialize_tool_embeddings(self, tools: ToolRegistry) -> None:
         """Pre-compute embeddings for all tools (called once at startup).
 
-        Loads from pickle cache if available and tools haven't changed.
+        Loads from data cache if available and tools haven't changed.
         Otherwise, computes embeddings and saves to cache.
 
         Also refreshes the ToolMetadataRegistry with metadata from all tools.
@@ -423,7 +424,7 @@ class SemanticToolSelector:
         delete_cache_file(self.cache_file, reason, logger, label="Tool embeddings")
 
     def _load_from_cache(self, tools_hash: str) -> bool:
-        """Load embeddings from pickle cache if valid.
+        """Load embeddings from data cache if valid.
 
         Performs robust validation:
         1. Cache version check (breaking format changes)
@@ -494,7 +495,7 @@ class SemanticToolSelector:
             # 5. Validate embedding dimensions and integrity
             expected_dim = None
             for tool_name, embedding in embeddings.items():
-                if not isinstance(embedding, numpy.ndarray):
+                if not isinstance(embedding, numpy.ndarray) or embedding.dtype.kind not in "fiu":
                     logger.warning(f"Tool embeddings: '{tool_name}' is not a numpy array")
                     return invalid(delete=True, reason="invalid type")
 
@@ -519,7 +520,7 @@ class SemanticToolSelector:
                     return invalid(delete=True, reason="corrupted embeddings")
             return valid()
 
-        cache_data = load_validated_pickle(
+        cache_data = load_validated_data(
             self.cache_file,
             validators=[_check_version, _check_tools_hash, _check_model, _check_embeddings],
             logger=logger,
@@ -535,7 +536,7 @@ class SemanticToolSelector:
         return True
 
     def _save_to_cache(self, tools_hash: str) -> None:
-        """Save embeddings to pickle cache with full metadata for robust invalidation.
+        """Save embeddings to data cache with full metadata for robust invalidation.
 
         Args:
             tools_hash: Hash of tool definitions
@@ -550,7 +551,7 @@ class SemanticToolSelector:
             "embeddings": self._tool_embedding_cache,
         }
 
-        if save_pickle_with_metadata(
+        if save_data_with_metadata(
             self.cache_file, cache_data, logger=logger, label="Tool embeddings"
         ):
             cache_size = self.cache_file.stat().st_size / 1024  # KB
@@ -998,12 +999,27 @@ class SemanticToolSelector:
             return
 
         try:
-            with open(self._usage_cache_file, "rb") as f:
-                self._tool_usage_cache = pickle.load(f)
+            data = read_cache_data(self._usage_cache_file)
+            if not isinstance(data, dict):
+                raise ValueError("Tool usage cache must be a dictionary")
+            for name, stats in data.items():
+                if (
+                    not isinstance(name, str)
+                    or not isinstance(stats, dict)
+                    or any(
+                        type(stats.get(key)) is not int or not 0 <= stats[key] <= 2**63 - 1
+                        for key in ("usage_count", "success_count")
+                    )
+                    or type(stats.get("last_used")) not in (int, float)
+                    or not 0 <= stats["last_used"] <= 2**63 - 1
+                    or not isinstance(stats.get("recent_contexts"), list)
+                    or any(not isinstance(context, str) for context in stats["recent_contexts"])
+                ):
+                    raise ValueError("Invalid tool usage record")
+            self._tool_usage_cache = data
             logger.info(f"Loaded usage stats for {len(self._tool_usage_cache)} tools")
         except Exception as e:
             logger.warning(f"Failed to load usage cache: {e}")
-            self._tool_usage_cache = {}
 
     def _save_usage_cache(self, force: bool = False) -> None:
         """Save tool usage statistics to disk cache (Phase 3).
@@ -1018,8 +1034,7 @@ class SemanticToolSelector:
             return  # Nothing changed, skip save
 
         try:
-            with open(self._usage_cache_file, "wb") as f:
-                pickle.dump(self._tool_usage_cache, f)
+            write_cache_data(self._usage_cache_file, self._tool_usage_cache)
             self._usage_cache_dirty = False  # Clear dirty flag after save
             logger.debug(f"Saved usage stats for {len(self._tool_usage_cache)} tools")
         except Exception as e:

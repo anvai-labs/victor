@@ -27,6 +27,7 @@ Features:
 """
 
 import asyncio
+from victor import __version__
 from functools import partial
 import json
 import logging
@@ -91,7 +92,7 @@ class HealthResponse(BaseModel):
     """Health check response."""
 
     status: str = "healthy"
-    version: str = "0.5.1"
+    version: str = __version__
 
 
 class StatusResponse(BaseModel):
@@ -518,7 +519,7 @@ class VictorFastAPIServer:
         self.app = FastAPI(
             title="Victor API",
             description="AI Coding Assistant API for IDE integrations",
-            version="0.5.1",
+            version=__version__,
             lifespan=self._lifespan,
             **({"docs_url": None, "redoc_url": None, "openapi_url": None} if self.api_keys else {}),
         )

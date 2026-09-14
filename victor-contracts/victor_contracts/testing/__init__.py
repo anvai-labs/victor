@@ -70,47 +70,49 @@ def assert_valid_vertical(vertical_cls: Type[Any]) -> None:
     Raises:
         AssertionError: If the contract is violated.
     """
-    # Check required methods exist
     required_methods = ["get_name", "get_description", "get_tools", "get_system_prompt"]
     for method_name in required_methods:
         method = getattr(vertical_cls, method_name, None)
-        assert (
-            method is not None
-        ), f"Vertical {vertical_cls.__name__} missing required method: {method_name}"
-        assert callable(method), f"Vertical {vertical_cls.__name__}.{method_name} is not callable"
-
-    # Validate get_tools returns list of strings
+        if not method is not None:
+            raise AssertionError(
+                f"Vertical {vertical_cls.__name__} missing required method: {method_name}"
+            )
+        if not callable(method):
+            raise AssertionError(f"Vertical {vertical_cls.__name__}.{method_name} is not callable")
     tools = vertical_cls.get_tools()
-    assert isinstance(tools, list), (
-        f"Vertical {vertical_cls.__name__}.get_tools() must return list, "
-        f"got {type(tools).__name__}"
-    )
-    assert len(tools) > 0, f"Vertical {vertical_cls.__name__}.get_tools() returned empty list"
-    for tool in tools:
-        assert isinstance(tool, str), (
-            f"Vertical {vertical_cls.__name__}.get_tools() items must be str, "
-            f"got {type(tool).__name__}: {tool!r}"
+    if not isinstance(tools, list):
+        raise AssertionError(
+            f"Vertical {vertical_cls.__name__}.get_tools() must return list, "
+            f"got {type(tools).__name__}"
         )
-
-    # Validate get_system_prompt returns non-empty string
+    if not tools:
+        raise AssertionError(f"Vertical {vertical_cls.__name__}.get_tools() returned empty list")
+    for tool in tools:
+        if not isinstance(tool, str):
+            raise AssertionError(
+                f"Vertical {vertical_cls.__name__}.get_tools() items must be str, "
+                f"got {type(tool).__name__}: {tool!r}"
+            )
     prompt = vertical_cls.get_system_prompt()
-    assert isinstance(prompt, str), (
-        f"Vertical {vertical_cls.__name__}.get_system_prompt() must return str, "
-        f"got {type(prompt).__name__}"
-    )
-    assert (
-        len(prompt.strip()) > 0
-    ), f"Vertical {vertical_cls.__name__}.get_system_prompt() returned empty string"
-
-    # Validate manifest if present
+    if not isinstance(prompt, str):
+        raise AssertionError(
+            f"Vertical {vertical_cls.__name__}.get_system_prompt() must return str, "
+            f"got {type(prompt).__name__}"
+        )
+    if not prompt.strip():
+        raise AssertionError(
+            f"Vertical {vertical_cls.__name__}.get_system_prompt() returned empty string"
+        )
     manifest = getattr(vertical_cls, "_victor_manifest", None)
     if manifest is not None:
-        assert hasattr(manifest, "name"), "Manifest missing 'name' field"
-        assert hasattr(manifest, "version"), "Manifest missing 'version' field"
-        assert hasattr(manifest, "provides"), "Manifest missing 'provides' field"
-        assert (
-            isinstance(manifest.name, str) and manifest.name
-        ), "Manifest.name must be a non-empty string"
+        if not hasattr(manifest, "name"):
+            raise AssertionError("Manifest missing 'name' field")
+        if not hasattr(manifest, "version"):
+            raise AssertionError("Manifest missing 'version' field")
+        if not hasattr(manifest, "provides"):
+            raise AssertionError("Manifest missing 'provides' field")
+        if not (isinstance(manifest.name, str) and manifest.name):
+            raise AssertionError("Manifest.name must be a non-empty string")
 
 
 def assert_import_boundaries(

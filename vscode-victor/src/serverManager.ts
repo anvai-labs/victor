@@ -38,6 +38,11 @@ export enum ServerStatus {
     Error = 'error'
 }
 
+interface ServerCommand {
+    executable: string;
+    args: string[];
+}
+
 interface ServerPidFile {
     pid: number;
     port: number;
@@ -298,10 +303,11 @@ export class ServerManager {
             return false;
         }
 
-        this.log(`Using command: ${victorCommand}`);
+        this.log(`Using executable: ${victorCommand.executable}`);
 
         // Build spawn arguments
         const args = [
+            ...victorCommand.args,
             'serve',
             '--host', this.config.host,
             '--port', availablePort.toString(),
@@ -312,8 +318,8 @@ export class ServerManager {
 
         try {
             // Spawn the server process
-            this.serverProcess = cp.spawn(victorCommand, args, {
-                shell: true,
+            this.serverProcess = cp.spawn(victorCommand.executable, args, {
+                shell: false,
                 env: {
                     ...process.env,
                     PYTHONUNBUFFERED: '1'
@@ -577,63 +583,41 @@ export class ServerManager {
      * Find the victor command
      * Tries: victor in PATH, python -m victor.ui.cli, bundled binary
      */
-    private async findVictorCommand(): Promise<string | null> {
-        // Prefer configured or detected pythonPath first
+    private async findVictorCommand(): Promise<ServerCommand | null> {
+        // A configured path is one executable, including any spaces or shell
+        // characters. Interpreter arguments are supplied separately to spawn.
         if (this.config.pythonPath) {
-            return `${this.config.pythonPath} -m victor.ui.cli`;
+            return { executable: this.config.pythonPath, args: ['-m', 'victor.ui.cli'] };
         }
 
-        // 1. Check if victor is in PATH
-        if (await this.commandExists('victor')) {
-            return 'victor';
-        }
-
-        // 2. Check if vic (alias) is in PATH
-        if (await this.commandExists('vic')) {
-            return 'vic';
-        }
-
-        // 3. Check configured Python path
-        if (this.config.pythonPath) {
-            return `${this.config.pythonPath} -m victor.ui.cli`;
-        }
-
-        // 4. Try python3 -m victor.ui.cli
-        if (await this.commandExists('python3')) {
-            // Verify victor module is installed
-            try {
-                cp.execSync('python3 -c "import victor"', { timeout: 5000 });
-                return 'python3 -m victor.ui.cli';
-            } catch {
-                // Victor not installed
+        for (const executable of ['victor', 'vic']) {
+            if (await this.commandExists(executable)) {
+                return { executable, args: [] };
             }
         }
 
-        // 5. Try python -m victor.ui.cli
-        if (await this.commandExists('python')) {
-            try {
-                cp.execSync('python -c "import victor"', { timeout: 5000 });
-                return 'python -m victor.ui.cli';
-            } catch {
-                // Victor not installed
+        for (const executable of ['python3', 'python']) {
+            if (await this.commandExists(executable)) {
+                try {
+                    cp.execFileSync(executable, ['-c', 'import victor'], { timeout: 5000 });
+                    return { executable, args: ['-m', 'victor.ui.cli'] };
+                } catch {
+                    // Try the next interpreter if Victor is not installed.
+                }
             }
         }
 
-        // 6. Check for bundled binary in extension
         if (this.config.victorPath && fs.existsSync(this.config.victorPath)) {
-            return this.config.victorPath;
+            return { executable: this.config.victorPath, args: [] };
         }
-
         return null;
     }
 
-    /**
-     * Check if a command exists in PATH
-     */
+    /** Check a literal executable name in PATH without shell expansion. */
     private async commandExists(command: string): Promise<boolean> {
         try {
             const checkCmd = process.platform === 'win32' ? 'where' : 'which';
-            cp.execSync(`${checkCmd} ${command}`, { stdio: 'ignore', timeout: 2000 });
+            cp.execFileSync(checkCmd, [command], { stdio: 'ignore', timeout: 2000 });
             return true;
         } catch {
             return false;

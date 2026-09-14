@@ -202,6 +202,8 @@ Follow [Development Setup](docs/development/setup.md) for the environment, optio
 [native extension build](docs/development/setup.md#native-extension-build), and
 [documentation preview](docs/development/setup.md#documentation-build). The
 [PR workflow](docs/development/PR_WORKFLOW.md) defines verification and branch conventions.
+Use [dependency maintenance](docs/development/dependencies.md) to choose deployment
+extras, refresh resolved requirements, and build the core, MCP, native or full container target.
 
 ## Documentation
 

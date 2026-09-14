@@ -611,16 +611,14 @@ def get_mode_controller() -> AgentModeController:
     """
     global _mode_controller
 
-    # Try DI container first
-    try:
-        from victor.core.container import get_container
-        from victor.agent.protocols import ModeControllerProtocol
+    # An absent registration permits legacy lookup; a broken registration must
+    # not replace an explicitly configured mode with the BUILD default.
+    from victor.core.container import get_container
+    from victor.agent.protocols import ModeControllerProtocol
 
-        container = get_container()
-        if container.is_registered(ModeControllerProtocol):
-            return container.get(ModeControllerProtocol)
-    except Exception:
-        pass  # Fall back to legacy singleton
+    container = get_container()
+    if container.is_registered(ModeControllerProtocol):
+        return container.get(ModeControllerProtocol)
 
     # Legacy fallback
     if _mode_controller is None:

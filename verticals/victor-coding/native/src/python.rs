@@ -14,8 +14,6 @@
 
 //! Python bindings for native performance extensions.
 
-use pyo3::prelude::*;
-
 // Re-export the main classes
 pub use crate::chunker::FastChunker;
 pub use crate::regex_utils::FastRegexProcessor;

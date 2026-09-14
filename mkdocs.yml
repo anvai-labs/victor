@@ -190,6 +190,8 @@ nav:
   - Development:
       - development/index.md
       - Setup: development/setup.md
+      - Dependencies and Containers: development/dependencies.md
+      - Security 0.9.4 Candidate: development/security-remediation-0.9.4.md
       - Code Style: development/code-style.md
       - Exception Handling: development/exception-handling.md
       - Testing: development/testing.md

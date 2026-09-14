@@ -2311,10 +2311,7 @@ async def run_interactive(
             )
         )
         if mode:
-            try:
-                session_runner.apply_agent_mode(mode)
-            except Exception:
-                pass
+            session_runner.apply_agent_mode(mode)
 
         if enable_smart_routing and not smart_routing_status_shown:
             _configure_smart_routing(

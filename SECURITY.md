@@ -1,342 +1,174 @@
-# Victor Security and Privacy
+# Victor security and privacy
 
-The security of your code and data is a top priority for Victor. This document outlines the security model, data handling practices, and the measures taken to ensure a safe and private user experience, especially when using the "air-gapped" mode.
+Victor runs tools, plugins and generated commands with the permissions of its
+process. Review proposed actions and give deployments access only to the files,
+credentials and network endpoints they need. Agent modes and approval prompts
+are application controls, not an operating-system sandbox.
 
-> Reality check: `security_scan` currently performs regex-based secret/config checks and a small dependency hint list only. There is no CVE/IaC/package-audit integration yet; treat results as lightweight hygiene, not a full security review.
+## Supported versions
 
-## Table of Contents
+Security fixes target the latest `victor-ai` 0.9.x release. Older release lines
+are not maintained as separate security branches. `victor-contracts`, codegraph,
+verticals and the VS Code extension have independent versions; updating the AI
+package alone does not update every separately installed component.
 
-- [Supported Versions](#supported-versions)
-- [Reporting a Vulnerability](#reporting-a-vulnerability)
-- [Current CI Enforcement Baseline](#current-ci-enforcement-baseline)
-- [Code Execution Sandboxing](#code-execution-sandboxing)
-- [Data Handling and Privacy](#data-handling-and-privacy)
-- [Air-Gapped Mode](#air-gapped-mode)
-- [Security Best Practices](#security-best-practices)
-- [Known Security Limitations](#known-security-limitations)
+Check [releases](https://github.com/anvai-labs/victor/releases) and
+[security advisories](https://github.com/anvai-labs/victor/security/advisories)
+for published fixes. A fix on `develop` is not yet present in a published package
+or image. A green CI run does not mean every scanner finding has been resolved.
 
-## Supported Versions
+## Reporting a vulnerability
 
-Victor follows semantic versioning. The following versions receive security updates:
+Use [GitHub's private vulnerability reporting](https://github.com/anvai-labs/victor/security/advisories/new)
+or email `vijay@anvaiops.com` with subject `[SECURITY] Brief description`.
+Include affected versions/artifact digests, impact, reproduction steps and a
+minimal proof of concept. Do not include real credentials in a public issue.
+Do not access or modify another user's data while testing.
 
-| Version | Supported          | Notes |
-| ------- | ------------------ | ----- |
-| 0.5.x   | :white_check_mark: | Current stable release, receives all security updates |
-| 0.4.x   | :white_check_mark: | Previous stable, receives critical security fixes only |
-| 0.3.x   | :x:                | End of life |
-| < 0.3   | :x:                | No longer supported |
-
-**Security Update Policy:**
-- Critical vulnerabilities: Patched within 7 days
-- High severity: Patched within 30 days
-- Medium/Low severity: Included in next regular release
-
-We recommend always running the latest stable version to ensure you have all security patches.
-
-## Reporting a Vulnerability
-
-We take security vulnerabilities seriously. If you discover a security issue, please follow responsible disclosure practices.
-
-### How to Report
-
-**Preferred Method: GitHub Security Advisories**
-
-1. Go to [Victor Security Advisories](https://github.com/anvai-labs/victor/security/advisories)
-2. Click "Report a vulnerability"
-3. Fill out the form with details about the vulnerability
-
-**Alternative: Email**
-
-If you prefer email, contact the maintainer directly at: `vijay@anvaiops.com`
-
-- Use subject line: `[SECURITY] Brief description of issue`
-- If possible, encrypt sensitive details using PGP
-
-### What to Include in Your Report
-
-- **Description**: Clear explanation of the vulnerability
-- **Impact**: What could an attacker do with this vulnerability?
-- **Reproduction steps**: Detailed steps to reproduce the issue
-- **Affected versions**: Which Victor versions are affected
-- **Proof of concept**: Code or screenshots demonstrating the issue (if safe to share)
-- **Suggested fix**: If you have ideas for remediation
-
-### Response Timeline
-
-| Action | Timeline |
-| ------ | -------- |
-| Acknowledgment of report | Within 48 hours |
-| Initial assessment | Within 7 days |
-| Status update | Every 14 days until resolved |
-| Fix for critical issues | Target 7 days |
-| Fix for high severity | Target 30 days |
-| Public disclosure | After fix is released (coordinated with reporter) |
-
-### What to Expect
-
-1. **Acknowledgment**: You will receive confirmation that we received your report
-2. **Triage**: We will assess the severity and validity of the issue
-3. **Communication**: We will keep you informed about our progress
-4. **Credit**: With your permission, we will credit you in the security advisory
-
-**Please do NOT:**
-- Disclose the vulnerability publicly before we've had a chance to address it
-- Access or modify data belonging to other users
-- Perform actions that could harm the availability of Victor services
+The response targets are acknowledgement within 48 hours, initial assessment
+within seven days and updates every 14 days while a report is open. Remediation
+targets are seven days for critical findings and 30 days for high findings;
+upstream availability and verification can affect delivery. Coordinate public
+disclosure after a fix is available. Reporter credit is optional.
 
 ## Current CI Enforcement Baseline
 
-Current repository policy uses tiered enforcement:
+**Blocking today**: secret, dependency, critical filesystem, high-confidence
+high-severity source checks, and high/critical release-image decisions.
 
-**Blocking today**
-
-- **Blocking (merge-gating)**:
-  - Secret scanning via `gitleaks` — any verified secret hit fails CI
-  - Trivy filesystem scan — unexcepted `CRITICAL` and unclassified findings, including development dependencies and unfixed advisories
-  - Dependency audit via `pip-audit` — known vulnerabilities fail CI
-  - Bandit SAST — `HIGH` severity + `HIGH` confidence findings fail CI
-  - Release container scan — unexcepted `HIGH`, `CRITICAL` and unclassified findings block publication
-  - Standard CI/test/lint gates
-**Advisory today**
-
-- **Advisory (reported, not blocking)**:
-  - Bandit full report — all severity levels captured as artifact
-  - `semgrep` — repo-specific exclusions still being baselined
-  - License reporting — compatibility decisions require human review
+**Advisory today**: complete lower-severity Bandit reports, Semgrep and license
+inventories still require review even when they do not block a merge.
 
 ### Current Thresholds
 
-| Surface | Enforcement | Threshold | Exception Handling |
-| ------- | ----------- | --------- | ------------------ |
-| Secret scanning | Blocking | Any verified secret hit | Remove the secret or update scanner configuration with explicit justification |
-| Trivy filesystem scan | Blocking | `CRITICAL` and unclassified findings | Scoped, version-specific, expiring entries in `.github/security/exceptions.json` |
-| Release container scan | Blocking publication | `HIGH`, `CRITICAL` and unclassified findings | Same exception schema, with explicit container scope |
-| Dependency audit | Blocking | Any unexcepted advisory (pip-audit does not supply severity) | Exact package/version, advisory aliases, scope and expiry in `.github/security/exceptions.json` |
-| Bandit (SAST) | Blocking | `HIGH` severity + `HIGH` confidence | Exceptions via `# nosec` inline comment or `.bandit` config with justification |
-| Bandit (full) | Advisory | All findings reported | Review artifact for lower-severity trends |
-| Semgrep | Advisory | All findings reported | Repo-specific exclusions/baselines must be documented before enforcement |
-| License scan | Advisory | Full report only | Human review required for allow/deny decisions |
-
-### Exception Process
-
-1. **Dependency exceptions** live only in `.github/security/exceptions.json`. Each entry identifies exact package versions, advisory aliases, scan scopes, an owner, a rationale and an expiry date. Expired or malformed exceptions fail the gate. An exception for a local environment does not exempt a release container. No blanket ignore list is applied while collecting evidence.
-2. **SAST exceptions** require a narrow rule-specific annotation with a written trust-boundary justification and regression coverage where behavior changes. Do not suppress an entire class of SQL, import or serialization findings to clear a dashboard.
-3. **Review every unresolved finding** during each security batch and release. Remove exceptions when the package is fixed or replaced. An unavailable upstream fix stays visible; a successful workflow is not proof of zero vulnerabilities.
-
-The shared checker rejects incomplete reports, omitted lockfile targets, skipped
-Python dependencies, scanner failures and unknown report schemas. pip-audit uses
-OSV so the unpublished first-party candidate can be audited alongside every
-installed third-party dependency. Trivy's JSON report includes all severities,
-OS/library packages and development dependencies; table and SARIF outputs are
-converted from that same report. Scan tooling is maintained in isolated environments.
-
-Dependabot alerts and GitHub secret scanning/push protection are enabled. Automatic
-security-update PRs to the default branch remain disabled to preserve the reviewed
-`develop` → `main` promotion flow. Grouped weekly version updates target `develop`;
-security alerts are triaged promptly, with urgent fixes handled immediately. Native
-Dependabot security-update PRs do not honor `target-branch: develop`; enabling them
-requires a separate decision about main-branch PR traffic.
-
-## Code Execution Sandboxing
-
-**Problem:** Allowing a Large Language Model (LLM) to generate and execute code on your local machine is inherently risky. A malicious or flawed code suggestion could potentially access sensitive files, modify your system, or make unwanted network requests.
-
-**Solution:** Victor addresses this risk by executing all LLM-generated code within a **secure, isolated Docker container**.
-
-### How it Works:
-
-1.  **Isolation:** When the `CodeExecutor` tool is invoked, it does not run the code on your machine directly. Instead, it starts a new, clean Docker container.
-2.  **Controlled Environment:** The code is executed inside this container, which has its own isolated filesystem, process space, and network stack. It has **no access** to your personal files, environment variables, or local network by default.
-3.  **Minimalist Image:** The default Docker image (`python:3.11-slim`) is a minimal Python environment. While it includes common libraries for data analysis (like `pandas` and `numpy`), it does not contain unnecessary tools or permissions.
-4.  **Ephemeral State:** Each container is ephemeral. It is created for a single code execution, and it is **destroyed** immediately after the code finishes running, ensuring that no state persists between executions.
-5.  **Timeout:** All code executions have a strict timeout (defaulting to 60 seconds) to prevent runaway processes or infinite loops from consuming system resources.
-
-This sandboxing model ensures that even if the LLM generates harmful code, its impact is confined to the temporary container and cannot affect your host system.
-
-### Agent Modes for Additional Safety
-
-Victor provides different agent modes that affect file system access:
-
-| Mode | Description | Safety Level |
-| ---- | ----------- | ------------ |
-| **BUILD** (default) | Full file edits allowed | Standard |
-| **PLAN** | 2.5x exploration, sandbox only | Higher - no direct edits |
-| **EXPLORE** | 3.0x exploration, no edits | Highest - read-only access |
-
-Use `PLAN` or `EXPLORE` modes when you want to understand what Victor would do before allowing any changes.
-
-## Data Handling and Privacy
-
-We are committed to handling your data with the utmost respect for your privacy.
-
-### API Keys
-
--   Your LLM provider API keys (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, etc.) are stored and managed by you.
--   You can provide them via environment variables or a local `profiles.yaml` file in your `~/.victor` directory.
--   Victor loads these keys into memory for the duration of a session to authenticate with the respective provider APIs. They are **never** logged or stored elsewhere.
-
-### API Key Best Practices
-
-1. **Use environment variables**: Prefer environment variables over hardcoding keys
-   ```bash
-   export ANTHROPIC_API_KEY="your-key-here"
-   ```
-
-2. **Use profiles for multi-provider setups**: Store keys in `~/.victor/profiles.yaml`
-   ```yaml
-   profiles:
-     default:
-       provider: anthropic
-       # Keys should be referenced from environment
-     work:
-       provider: openai
-   ```
-
-3. **Never commit API keys**: Add `.env` and `profiles.yaml` to your `.gitignore`
-
-4. **Rotate keys regularly**: Especially if you suspect exposure
-
-5. **Use minimal permissions**: When available, use API keys with the minimum required permissions
-
-6. **Monitor usage**: Regularly check your provider dashboards for unexpected usage
-
-### Provider Credential Storage
-
-- Credentials are stored locally in `~/.victor/` with file permissions restricted to the current user
-- Victor does not transmit credentials to any third party beyond the configured LLM provider
-- Session credentials are held in memory only and cleared on exit
-- Consider using a secrets manager (like HashiCorp Vault, AWS Secrets Manager, or 1Password CLI) for enterprise deployments
-
-### Code and Prompts
-
--   When you are using a **cloud-based LLM provider** (e.g., Anthropic, OpenAI, Google), your prompts and the relevant context (including code snippets) are sent to that provider's API for processing. Please refer to the privacy policy of your chosen provider for details on how they handle your data.
--   When you are using a **local LLM provider** (e.g., Ollama), all data remains on your local machine and is only sent to your local LLM instance.
-
-## Air-Gapped Mode
-
-For maximum privacy and for use in environments with no internet access, Victor provides a dedicated **air-gapped mode**.
-
-### How to Enable It:
-
-You can enable this mode by setting `airgapped_mode: true` in your `~/.victor/profiles.yaml` file under a specific profile or globally.
-
-```yaml
-profiles:
-  secure:
-    airgapped_mode: true
-    provider: ollama
-    model: codellama
-```
-
-### Guarantees:
-
-When `airgapped_mode` is set to `true`:
-
-1.  **No Outbound Network Calls:** Victor programmatically disables all tools that require internet access. Currently, this includes:
-    *   `WebSearchTool`
-    *   Any research/web-based tools
-2.  **Local-Only Providers:** The application will fail to connect if your configured profile points to a cloud-based LLM provider. You must use a local provider like Ollama, LMStudio, or vLLM.
-3.  **Local-Only Embeddings:** Codebase indexing and semantic search will rely exclusively on locally-run embedding models (via sentence-transformers).
-
-This mode is designed to give you full confidence that none of your data can leave your machine.
-
-### When to Use Air-Gapped Mode
-
-- Sensitive codebases (proprietary, regulated, or classified)
-- Compliance requirements (HIPAA, SOC2, FedRAMP)
-- Environments without internet access
-- Security audits requiring data isolation
-- Working with pre-release or confidential code
-
-## Security Best Practices
-
-### For Individual Developers
-
-1. **Keep Victor updated**: Run `pip install --upgrade victor-ai` regularly
-2. **Use air-gapped mode for sensitive work**: Enable `airgapped_mode: true` when working with proprietary code
-3. **Review LLM-generated code**: Always review code suggestions before execution, especially:
-   - File system operations
-   - Network requests
-   - System commands
-   - Credential handling
-4. **Use PLAN mode first**: For unfamiliar tasks, start in PLAN mode to understand what Victor will do
-5. **Secure your configuration**: Ensure `~/.victor/` has restrictive permissions (`chmod 700`)
-
-### For Teams and Organizations
-
-1. **Establish approved providers**: Define which LLM providers are approved for your organization
-2. **Use local providers for sensitive projects**: Deploy Ollama or similar for internal use
-3. **Implement API key rotation policies**: Regular rotation reduces exposure window
-4. **Audit Victor logs**: Review logs periodically for unexpected behavior
-5. **Train team members**: Ensure everyone understands the security implications of AI-assisted coding
-6. **Consider network policies**: Use firewall rules to restrict Victor's network access if needed
-
-### For Enterprise Deployments
-
-1. **Deploy behind a proxy**: Route all LLM API calls through an auditable proxy
-2. **Use secrets management**: Integrate with your organization's secrets manager
-3. **Enable logging and monitoring**: Capture all tool invocations for security auditing
-4. **Implement allow/deny lists**: Restrict which tools can be used
-5. **Regular security assessments**: Include Victor in your security review process
-
-## Known Security Limitations
-
-We believe in transparency about Victor's security boundaries:
-
-### Current Limitations
-
-1. **Secret Detection is Regex-Based**
-   - The `security_scan` tool uses pattern matching for secrets
-   - It may produce false positives or miss obfuscated secrets
-   - Not a replacement for dedicated secret scanning tools (like GitLeaks or TruffleHog)
-
-2. **No CVE/Dependency Auditing**
-   - Victor does not currently integrate with CVE databases
-   - Dependency security checks are limited to basic hints
-   - Use dedicated tools like `pip-audit`, `safety`, or Snyk for vulnerability scanning
-
-3. **LLM Output Cannot Be Fully Trusted**
-   - LLM-generated code may contain security vulnerabilities
-   - Prompt injection attacks are possible through malicious input
-   - Always review generated code before execution in production
-
-4. **File System Access**
-   - In BUILD mode, Victor can read and write files within the working directory
-   - Ensure Victor is only given access to appropriate directories
-   - Use EXPLORE mode when you want read-only access
-
-5. **Third-Party Provider Data Handling**
-   - When using cloud LLM providers, your data is subject to their privacy policies
-   - Victor has no control over how providers handle, store, or train on your data
-   - Review each provider's data handling policies
-
-6. **MCP Server Security**
-   - MCP (Model Context Protocol) servers extend Victor's capabilities
-   - Third-party MCP servers should be treated as untrusted code
-   - Only use MCP servers from trusted sources
-
-7. **Plugin/Vertical Security**
-   - External verticals (plugins) execute with Victor's permissions
-   - Only install verticals from trusted sources
-   - Review vertical code before installation
-
-### Planned Security Improvements
-
-We are actively working on:
-
-- [ ] Integration with CVE databases for dependency auditing
-- [ ] Enhanced secret detection with lower false positive rates
-- [ ] Sandboxed file system access for BUILD mode
-- [ ] Security-focused LLM output validation
-- [ ] Audit logging for enterprise deployments
-- [ ] Role-based access control for tools
-
----
-
-**Questions or Concerns?**
-
-If you have security questions that don't require confidential disclosure, feel free to:
-- Open a [GitHub Discussion](https://github.com/anvai-labs/victor/discussions)
-- Review our [Contributing Guidelines](CONTRIBUTING.md)
-
-For security vulnerabilities, please use the [responsible disclosure process](#reporting-a-vulnerability) described above.
+| Surface | Enforcement | Threshold |
+| --- | --- | --- |
+| Gitleaks | Blocking | Secret findings fail the check |
+| Dependency audit | Blocking | Every unexcepted pip-audit/OSV advisory; the report does not supply severity |
+| Trivy filesystem scan | Blocking | Unexcepted critical and unclassified findings; all severities retained |
+| Release container | Blocking publication | Unexcepted high, critical and unclassified findings |
+| Bandit (SAST) | Blocking | High severity/high confidence; complete report retained |
+| Semgrep | Advisory | Findings require review |
+| License inventory | Advisory | Compatibility requires review |
+
+The shared report checker rejects missing reports, failed scans, unknown schemas,
+skipped Python packages and omitted committed runtime lockfiles. Trivy inventories
+OS and language packages, including development dependencies and unfixed advisories.
+JSON, table and SARIF outputs come from the same scan. Python scanners run in an
+isolated tooling environment and audit the complete target environment, including
+its installed packaging tools.
+
+These repository controls are distinct from Victor's runtime `security_scan`
+tool, which uses lightweight secret/configuration patterns and dependency hints.
+That tool is not a comprehensive CVE or source-security audit.
+
+### Exception process
+
+Dependency exceptions live only in `.github/security/exceptions.json`. Each needs
+an exact package/version, advisory IDs and aliases, applicable scan scopes, owner,
+rationale and expiry. Invalid or expired entries fail the gate. A filesystem or
+Python-environment exception does not exempt a release container. Do not suppress
+evidence while collecting the report.
+
+Source exceptions need a narrow rule-specific justification and regression tests
+when behavior changes. Do not disable entire SQL, import or serialization rule
+families. Every unresolved finding needs a disposition; unavailable upstream fixes
+remain visible release blockers unless explicitly accepted with scope and expiry.
+
+Dependabot alerts and GitHub secret scanning/push protection are enabled. Routine
+version updates are grouped weekly and target `develop`. Urgent security alerts
+are handled promptly outside that schedule. Automatic security-update PRs to the
+default branch remain disabled under the reviewed promotion policy: those PRs do
+not follow `target-branch: develop` and would each start a main-branch CI battery.
+See the [CI batching policy](docs/development/PR_WORKFLOW.md).
+
+## Credentials, data and trust boundaries
+
+Cloud providers receive the prompts and context sent to their configured API
+endpoints. A local-provider adapter may still point to a remote host. Provider
+retention and privacy policies apply to those requests.
+
+Credentials may come from environment variables, local configuration or configured
+credential storage. Protect `~/.victor`, project `.victor` directories, logs and
+backups; use a secrets manager where appropriate. Avoid logging request headers
+or secrets during diagnostics. Rotate exposed credentials: deleting a file or
+commit does not revoke a key.
+
+External verticals, third-party MCP servers and generated commands execute code.
+Install them only from trusted sources and isolate them with operating-system or
+container permissions where required. BUILD, PLAN and EXPLORE modes govern agent
+behavior; they are not independent containment boundaries for arbitrary plugins.
+The MCP container does not implement allowlists through `VICTOR_MCP_TOOLS` or
+`VICTOR_MCP_VERTICALS`; those obsolete environment examples have been removed.
+
+For an HTTP deployment, configure API-key authentication (`VICTOR_API_KEYS`) and
+an authenticated TLS proxy before exposing the service to untrusted networks.
+Health/status probes remain public. Review the mounted workspace, plugin set,
+provider credentials and tool permissions as one deployment.
+
+## Offline operation
+
+Pre-cache embedding models and use a reachable local model service for offline
+work. The full container includes the BGE embedding model; other targets require
+explicit feature packages and model provisioning. Offline embeddings do not make
+cloud providers, web tools or subprocesses offline.
+
+Use network isolation/firewall policy when outbound access must be prohibited.
+`HF_HUB_OFFLINE=1` and `TRANSFORMERS_OFFLINE=1` prevent model-library downloads;
+application settings alone are not an egress guarantee. An isolated model server
+may need an explicitly allowed local network connection. See the
+[container targets and dependency guide](docs/development/dependencies.md).
+
+## Persistent caches
+
+Tiered cache values use a private SQLite database with tagged JSON data. Static
+embeddings, corpus embeddings and usage analytics use versioned data-only files;
+numeric arrays contain validated numeric buffers, not Python object payloads.
+Known record classes are reconstructed only after schema validation. Writes use
+private files and atomic replacement. Legacy pickle/diskcache files are not
+loaded or migrated and derived contents are rebuilt. Explicit cache cleanup can
+remove obsolete files.
+
+Cache contents are not an authority for configuration or source files. These
+changes reduce executable deserialization risk; they do not protect against an
+attacker already able to modify Victor's executable code or control its user
+account. Continue protecting project directories and backups.
+
+## Repository data and proposed edits
+
+Coverage XML reports are capped at 16 MiB per file and parsed with entity
+resolution, DTD loading and network access disabled. Reports declaring entities
+are rejected; ordinary JaCoCo DOCTYPE declarations remain supported.
+
+Workflow and debug text conditions support state names, literals, comparisons,
+boolean operators and unary signs. Calls, attributes and indexing are rejected.
+Operands must be bounded plain-data trees; custom objects and aliased containers
+are rejected. Programmatic breakpoint callbacks remain trusted Python code.
+
+The extension constrains Composer preview/apply paths to the workspace and checks
+existing symlinks. This is an application check, not an atomic filesystem sandbox:
+a concurrent local process can still change paths. Git context accepts a fixed
+set of read commands, and terminal working directories are passed through the
+editor API rather than inserted into shell text. User-requested terminal commands
+retain their existing approval behavior and process permissions.
+
+## MCP process limits
+
+The built-in MCP process backend provides POSIX resource limits and optional root
+user demotion. It does not provide filesystem or network isolation. Requests for
+path restrictions, network denial/host allowlists, namespaces or seccomp now fail
+before a subprocess starts, including previously ineffective settings. Use an
+external sandbox or a container configured for those policies. Windows cannot
+use this POSIX resource backend; ordinary MCP imports remain available.
+
+All configured rlimits must succeed, and root demotion clears supplementary groups
+before changing user/group IDs. Failures abort child startup. Rlimits are not a
+complete security boundary: process limits apply per user, and CPU/memory limits
+do not isolate a shared filesystem or network. The legacy `drop_capabilities`
+option means root user demotion, not a complete Linux capability policy.
+
+Workflow process isolation with `network_allowed=False` consequently fails rather
+than merely setting an advisory environment variable. Select container isolation
+when network restrictions are required. The earlier macOS profile and Linux
+namespace helpers have been removed; this backend no longer advertises isolation
+it cannot reliably establish.

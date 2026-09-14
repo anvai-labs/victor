@@ -447,7 +447,7 @@ class TestMCPClientDisconnect:
         client = MCPClient()
         sandboxed_process = MagicMock()
         coro = object()
-        sandboxed_process.terminate.return_value = coro
+        sandboxed_process.terminate_all.return_value = coro
         client._sandboxed_process = sandboxed_process
 
         with (
@@ -459,7 +459,7 @@ class TestMCPClientDisconnect:
         ):
             client.disconnect()
 
-        sandboxed_process.terminate.assert_called_once_with()
+        sandboxed_process.terminate_all.assert_called_once_with()
         mock_run_sync.assert_called_once_with(coro)
         assert client._sandboxed_process is None
 
@@ -468,7 +468,7 @@ class TestMCPClientDisconnect:
         client = MCPClient()
         sandboxed_process = MagicMock()
         coro = object()
-        sandboxed_process.terminate.return_value = coro
+        sandboxed_process.terminate_all.return_value = coro
         client._sandboxed_process = sandboxed_process
 
         with (
@@ -481,7 +481,7 @@ class TestMCPClientDisconnect:
         ):
             client._cleanup_process()
 
-        sandboxed_process.terminate.assert_called_once_with()
+        sandboxed_process.terminate_all.assert_called_once_with()
         mock_run_sync.assert_called_once_with(coro)
         mock_cleanup_sync.assert_called_once_with()
         assert client._sandboxed_process is None

@@ -62,6 +62,7 @@ class SafetyRule:
     def __post_init__(self) -> None:
         """Use the host runtime SafetyLevel enum when available."""
 
+        self.level = SafetyLevel(getattr(self.level, "value", self.level))
         try:
             runtime_config = importlib.import_module("victor.framework.config")
             runtime_level = runtime_config.SafetyLevel
@@ -69,10 +70,7 @@ class SafetyRule:
             return
 
         level_value = getattr(self.level, "value", self.level)
-        try:
-            self.level = runtime_level(level_value)
-        except Exception:
-            pass
+        self.level = runtime_level(level_value)
 
 
 class SafetyEnforcer:
@@ -119,7 +117,7 @@ class SafetyEnforcer:
                 if not rule.check_fn(operation):
                     continue
             except Exception:
-                continue
+                return False, f"Safety rule could not be evaluated: {rule.name}"
 
             rule_level = self._level_value(rule.level)
             config_level = self._level_value(self.config.level)

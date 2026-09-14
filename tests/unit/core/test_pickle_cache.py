@@ -17,7 +17,7 @@
 from __future__ import annotations
 
 import logging
-import pickle
+from victor.core.data_cache import write_cache_data
 from pathlib import Path
 from typing import Any, Dict
 
@@ -53,8 +53,7 @@ def _hash_validator(expected: str):
 
 
 def _write_pickle(path: Path, data: Any) -> None:
-    with open(path, "wb") as f:
-        pickle.dump(data, f)
+    write_cache_data(path, data)
 
 
 def test_valid_load_returns_dict(tmp_path: Path) -> None:

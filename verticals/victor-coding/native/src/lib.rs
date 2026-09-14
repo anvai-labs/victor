@@ -37,8 +37,8 @@
 use pyo3::prelude::*;
 
 mod chunker;
-mod regex_utils;
 mod python;
+mod regex_utils;
 
 // Re-export Python classes and functions
 pub use chunker::detect_language;
@@ -58,19 +58,19 @@ fn is_native() -> bool {
 
 /// Get native extension capabilities.
 #[pyfunction]
-fn get_capabilities() -> PyResult<PyObject> {
-    Python::with_gil(|py| {
+fn get_capabilities() -> PyResult<Py<PyAny>> {
+    Python::attach(|py| {
         let caps = pyo3::types::PyDict::new(py);
         caps.set_item("zero_copy_chunking", true)?;
         caps.set_item("fast_regex", true)?;
         caps.set_item("query_caching", true)?;
-        Ok(caps.to_object(py))
+        Ok(caps.into_any().unbind())
     })
 }
 
 /// Python module definition
 #[pymodule]
-fn _native(_py: Python, m: &PyModule) -> PyResult<()> {
+fn _native(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(version, m)?)?;
     m.add_function(wrap_pyfunction!(is_native, m)?)?;
     m.add_function(wrap_pyfunction!(get_capabilities, m)?)?;

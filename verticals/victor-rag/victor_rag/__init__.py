@@ -31,7 +31,7 @@ Package Structure:
     workflows/          - RAG-specific workflows
 
 Usage:
-    from victor.rag import RAGAssistant
+    from victor_rag import RAGAssistant
 
     # Get vertical configuration
     config = RAGAssistant.get_config()
@@ -43,26 +43,31 @@ Usage:
     )
 """
 
+from typing import TYPE_CHECKING, Any
+
 from victor_rag.assistant import RAGAssistant
-from victor_rag.document_store import (
-    Document,
-    DocumentChunk,
-    DocumentSearchResult,
-    DocumentStore,
-    DocumentStoreConfig,
-)
-from victor_rag.chunker import DocumentChunker, ChunkingConfig
 from victor_rag.prompts import RAGPromptContributor
 from victor_rag.mode_config import RAGModeConfigProvider
 from victor_rag.capabilities import RAGCapabilityProvider
-from victor_rag.tools import (
-    RAGIngestTool,
-    RAGSearchTool,
-    RAGQueryTool,
-    RAGListTool,
-    RAGDeleteTool,
-    RAGStatsTool,
-)
+
+if TYPE_CHECKING:
+    from victor_rag.document_store import (
+        Document,
+        DocumentChunk,
+        DocumentSearchResult,
+        DocumentStore,
+        DocumentStoreConfig,
+    )
+    from victor_rag.chunker import DocumentChunker, ChunkingConfig
+    from victor_rag.tools import (
+        RAGIngestTool,
+        RAGSearchTool,
+        RAGQueryTool,
+        RAGListTool,
+        RAGDeleteTool,
+        RAGStatsTool,
+    )
+
 
 __all__ = [
     # Main vertical
@@ -107,3 +112,48 @@ __all__.extend(
         "EnhancedRAGConversationManager",
     ]
 )
+
+
+_DOCUMENT_EXPORTS = frozenset(
+    {
+        "Document",
+        "DocumentChunk",
+        "DocumentSearchResult",
+        "DocumentStore",
+        "DocumentStoreConfig",
+    }
+)
+_TOOL_EXPORTS = frozenset(
+    {
+        "RAGIngestTool",
+        "RAGSearchTool",
+        "RAGQueryTool",
+        "RAGListTool",
+        "RAGDeleteTool",
+        "RAGStatsTool",
+    }
+)
+
+
+def __getattr__(name: str) -> Any:
+    """Load storage backends only when their public symbols are requested."""
+    if name in _DOCUMENT_EXPORTS:
+        from victor_rag import document_store
+
+        value = getattr(document_store, name)
+    elif name in {"DocumentChunker", "ChunkingConfig"}:
+        from victor_rag import chunker
+
+        value = getattr(chunker, name)
+    elif name in _TOOL_EXPORTS:
+        from victor_rag import tools
+
+        value = getattr(tools, name)
+    else:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    globals()[name] = value
+    return value
+
+
+def __dir__() -> list[str]:
+    return sorted(set(globals()) | set(__all__))

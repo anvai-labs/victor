@@ -32,13 +32,13 @@ impl FastRegexProcessor {
     /// Create a new FastRegexProcessor.
     #[new]
     #[pyo3(signature = (config=None, priority=None))]
-    fn new(config: Option<PyObject>, priority: Option<i32>) -> PyResult<Self> {
+    fn new(config: Option<Py<PyAny>>, priority: Option<i32>) -> PyResult<Self> {
         // Extract priority from config if provided
         let final_priority = if let Some(cfg) = config {
             if let Some(p) = priority {
                 p
             } else {
-                Python::with_gil(|py| {
+                Python::attach(|py| {
                     if let Ok(obj) = cfg.getattr(py, "priority") {
                         obj.extract::<i32>(py).unwrap_or(80)
                     } else {
@@ -71,13 +71,16 @@ impl FastRegexProcessor {
     /// Returns:
     ///     List of matched strings
     #[pyo3(signature = (pattern, text))]
-    fn findall(&self, pattern: &str, text: &str) -> PyResult<PyObject> {
+    fn findall(&self, pattern: &str, text: &str) -> PyResult<Py<PyAny>> {
         let regex = self.get_or_compile(pattern)?;
-        let matches: Vec<String> = regex.find_iter(text).map(|m| m.as_str().to_string()).collect();
+        let matches: Vec<String> = regex
+            .find_iter(text)
+            .map(|m| m.as_str().to_string())
+            .collect();
 
-        Python::with_gil(|py| {
-            let list = pyo3::types::PyList::new(py, matches);
-            Ok(list.to_object(py))
+        Python::attach(|py| {
+            let list = pyo3::types::PyList::new(py, matches)?;
+            Ok(list.into_any().unbind())
         })
     }
 
@@ -90,14 +93,14 @@ impl FastRegexProcessor {
     /// Returns:
     ///     List of match objects (as dicts with start, end, text)
     #[pyo3(signature = (pattern, text))]
-    fn finditer(&self, pattern: &str, text: &str) -> PyResult<PyObject> {
+    fn finditer(&self, pattern: &str, text: &str) -> PyResult<Py<PyAny>> {
         let regex = self.get_or_compile(pattern)?;
         let matches: Vec<(usize, usize, String)> = regex
             .find_iter(text)
             .map(|m| (m.start(), m.end(), m.as_str().to_string()))
             .collect();
 
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             let list = pyo3::types::PyList::empty(py);
             for (start, end, matched) in matches {
                 let match_dict = pyo3::types::PyDict::new(py);
@@ -106,7 +109,7 @@ impl FastRegexProcessor {
                 match_dict.set_item("text", matched)?;
                 list.append(match_dict)?;
             }
-            Ok(list.to_object(py))
+            Ok(list.into_any().unbind())
         })
     }
 
@@ -119,16 +122,16 @@ impl FastRegexProcessor {
     /// Returns:
     ///     Match object or None
     #[pyo3(signature = (pattern, text))]
-    fn match_pattern(&self, pattern: &str, text: &str) -> PyResult<PyObject> {
+    fn match_pattern(&self, pattern: &str, text: &str) -> PyResult<Py<PyAny>> {
         let regex = self.get_or_compile(pattern)?;
 
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             if let Some(m) = regex.find(text) {
                 let match_dict = pyo3::types::PyDict::new(py);
                 match_dict.set_item("start", m.start())?;
                 match_dict.set_item("end", m.end())?;
                 match_dict.set_item("text", m.as_str())?;
-                Ok(Some(match_dict.to_object(py)).to_object(py))
+                Ok(match_dict.into_any().unbind())
             } else {
                 Ok(py.None())
             }
@@ -146,7 +149,7 @@ impl FastRegexProcessor {
     /// Returns:
     ///     Match object or None
     #[pyo3(signature = (pattern, text))]
-    fn r#match(&self, pattern: &str, text: &str) -> PyResult<PyObject> {
+    fn r#match(&self, pattern: &str, text: &str) -> PyResult<Py<PyAny>> {
         self.match_pattern(pattern, text)
     }
 
@@ -177,7 +180,10 @@ impl FastRegexProcessor {
         // Try to get from cache
         {
             let cache = self.cache.read().map_err(|e| {
-                PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!("Cache lock error: {}", e))
+                PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
+                    "Cache lock error: {}",
+                    e
+                ))
             })?;
 
             if let Some(regex) = cache.get(pattern) {
@@ -192,7 +198,10 @@ impl FastRegexProcessor {
 
         {
             let mut cache = self.cache.write().map_err(|e| {
-                PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!("Cache lock error: {}", e))
+                PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
+                    "Cache lock error: {}",
+                    e
+                ))
             })?;
             cache.insert(pattern.to_string(), regex.clone());
         }

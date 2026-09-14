@@ -9,6 +9,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      target: core
     container_name: victor-production
     restart: unless-stopped
     volumes:
