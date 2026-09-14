@@ -20,11 +20,6 @@ def mark_override_failed(owner: Any) -> None:
     setattr(owner, "_runtime_override_error", True)
 
 
-def runtime_orchestrator(owner: Any) -> Any:
-    """Resolve the legacy owner link at the composition boundary."""
-    return getattr(owner, "_orchestrator")
-
-
 def attribute_change(
     name: str, owner: Any, attribute: str, value: Any, *, state: dict[str, Any] | None = None
 ) -> Change:

@@ -133,7 +133,6 @@ def test_view_is_enumerated_and_does_not_retain_or_forward_facade():
         "session",
         "delivery",
         "recovery",
-        "create_recovery_context",
     ]
     assert not hasattr(view, "__dict__")
     assert not hasattr(view.session, "__dict__")

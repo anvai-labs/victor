@@ -84,7 +84,7 @@ class StreamingActAdapter:
         orch = runtime_owner._orchestrator
         services = executor.services
         recovery = services.recovery
-        create_recovery_context = services.create_recovery_context
+        create_recovery_context = orch.create_recovery_context
 
         executor._reset_streaming_turn_state(orch)
         stream_ctx = await runtime_owner._create_stream_context(user_message, **kwargs)

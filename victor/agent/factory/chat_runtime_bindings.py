@@ -39,5 +39,4 @@ def bind_chat_runtime_services(runtime_owner: Any) -> ChatRuntimeServices:
         ),
         recovery=getattr(owner, "_recovery_service", None)
         or getattr(owner, "_recovery_coordinator", None),
-        create_recovery_context=getattr(owner, "create_recovery_context", None),
     )
