@@ -29,7 +29,9 @@ degraded results explicitly and is not a comprehensive security audit.
 - Changed-file and added regression tests: **934 passed, 2 skipped**, with one
   slow test deselected. After moving the coding-only regression to its package
   suite, root collection contains **32,280 tests**, with no collection errors;
-  the moved regression remains covered by the coding suite.
+  the moved regression remains covered by the coding suite. The final image-gate
+  regression cases bring root collection to **32,291 tests**, without errors.
+  The image-gate suite passes all **61 tests** and independent review.
 - Python formatting, production lint, version consistency, repository hygiene
   and the repository-configured global strict mypy gate passed. Separate checks
   outside that gate retain pre-existing typing errors in benchmark/SDK areas.
@@ -60,7 +62,10 @@ Do not interpret local test results as approval of those outstanding scopes.
    (plus 81 medium and 104 low), including OpenSSH CVE-2026-60002. Its Python
    packages have zero findings. Prior scans of the other three targets also
    reported blocking OS advisories. Updated Python dependency results do not
-   resolve OS findings.
+   resolve OS findings. The report checker reconstructs Trivy OS versions from
+   epoch, version and release fields; it now validates all 242 core findings
+   and reports **57 unexcepted blockers**, instead of rejecting the complete
+   report as an inventory mismatch.
    Rebuild and scan final artifacts; fix findings or obtain narrowly scoped,
    owned, expiring exceptions through the documented process. The exception
    manifest is empty; no publication gate has been weakened.

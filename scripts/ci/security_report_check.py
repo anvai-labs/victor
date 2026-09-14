@@ -37,6 +37,19 @@ def package_name(value: str) -> str:
     return re.sub(r"[-_.]+", "-", value).lower()
 
 
+def trivy_package_version(package: dict[str, Any], package_class: str) -> str:
+    """Reconstruct OS versions as Trivy represents them on vulnerabilities."""
+    version = text(package.get("Version"), "package version")
+    if package_class == "os-pkgs":
+        epoch = package.get("Epoch", 0)
+        require(type(epoch) is int and epoch >= 0, "Invalid package epoch")
+        if epoch:
+            version = f"{epoch}:{version}"
+        if "Release" in package:
+            version += "-" + text(package["Release"], "package release")
+    return version
+
+
 def expected_targets(root: Path) -> set[str]:
     """Discover supported lockfiles; a parse failure must not erase scan coverage.
 
@@ -167,7 +180,7 @@ def trivy_findings(report: Any, status: int, scope: str) -> list[dict[str, Any]]
             inventory.add(
                 (
                     text(package.get("Name"), "package name"),
-                    text(package.get("Version"), "package version"),
+                    trivy_package_version(package, result["Class"]),
                 )
             )
         require(bool(inventory), "No named packages scanned")

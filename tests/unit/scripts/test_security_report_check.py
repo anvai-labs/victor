@@ -84,6 +84,47 @@ def test_clean_complete_audit_passes():
     assert not gate.check(python_report(), [], "python", 0)
 
 
+@pytest.mark.parametrize("epoch", [0, 1])
+def test_os_inventory_matches_complete_versions_and_keeps_findings_blocking(epoch):
+    report = trivy_report("LOW", "container")
+    version = (f"{epoch}:" if epoch else "") + "5.2.37-2+b10"
+    os_target = report["Results"][1]
+    os_target["Packages"] = [
+        {"Name": "bash", "Version": "5.2.37", "Release": "2+b10", "Epoch": epoch}
+    ]
+    os_target["Vulnerabilities"] = [
+        {
+            "VulnerabilityID": "CVE-2026-12345",
+            "PkgName": "bash",
+            "InstalledVersion": version,
+            "Severity": "HIGH",
+        }
+    ]
+    assert gate.check(report, [], "container", 0)
+    for wrong_version in ("5.2.37", "5.2.37-2+b11", "2:5.2.37-2+b10"):
+        os_target["Vulnerabilities"][0]["InstalledVersion"] = wrong_version
+        with pytest.raises(ValueError, match="missing from package inventory"):
+            gate.check(report, [], "container", 0)
+    os_target["Vulnerabilities"] = []
+    assert not gate.check(report, [], "container", 0)
+
+
+@pytest.mark.parametrize("epoch", [True, -1, "1", None, 1.5])
+def test_invalid_os_epoch_cannot_be_treated_as_a_clean_inventory(epoch):
+    report = trivy_report("LOW", "container")
+    report["Results"][1]["Packages"][0]["Epoch"] = epoch
+    with pytest.raises(ValueError, match="Invalid package epoch"):
+        gate.check(report, [], "container", 0)
+
+
+@pytest.mark.parametrize("release", [None, "", 1, []])
+def test_invalid_os_release_cannot_be_treated_as_a_clean_inventory(release):
+    report = trivy_report("LOW", "container")
+    report["Results"][1]["Packages"][0]["Release"] = release
+    with pytest.raises(ValueError, match="package release"):
+        gate.check(report, [], "container", 0)
+
+
 @pytest.mark.parametrize("status", [0, 2, 127, -9])
 def test_vulnerable_report_with_wrong_or_failed_exit_blocks(status):
     with pytest.raises(ValueError):

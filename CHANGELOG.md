@@ -27,6 +27,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Update vulnerable JavaScript and Rust dependencies, patched Python build floors
   and CPU embedding constraints. Remove unused GitPython and Python codecov
   dependencies, and omit pip from runtime containers.
+- Match complete OS package versions in Trivy inventories, including release
+  and epoch fields, so valid image reports retain their actual blocking findings.
 - Preserve complete scan coverage for separately resolved core, API and CPU
   embedding deployments. Unaccepted container high/critical findings still block
   publication; this batch does not claim that OS findings are resolved.
