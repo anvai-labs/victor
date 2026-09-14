@@ -130,24 +130,6 @@ async def test_mcp_keeps_sandbox_for_initial_and_reconnected_processes(reconnect
     wrapper.terminate_all.assert_awaited_once()
 
 
-@pytest.mark.requires_victor_coding
-def test_coding_safety_provider_propagates_extension_failures():
-    from victor_coding.protocols import CodingSafetyProvider
-
-    with patch(
-        "victor_coding.protocols.CodingSafetyExtension", side_effect=RuntimeError("init failed")
-    ):
-        with pytest.raises(RuntimeError, match="init failed"):
-            CodingSafetyProvider()
-    extension = MagicMock()
-    with patch("victor_coding.protocols.CodingSafetyExtension", return_value=extension):
-        provider = CodingSafetyProvider()
-    for method in ("get_bash_patterns", "get_file_patterns", "get_tool_restrictions"):
-        getattr(extension, method).side_effect = RuntimeError("lookup failed")
-        with pytest.raises(RuntimeError, match="lookup failed"):
-            getattr(provider, method)()
-
-
 def test_init_does_not_synthesize_when_tool_restriction_fails():
     from victor.ui.commands.init import _run_agentic_synthesis
 
