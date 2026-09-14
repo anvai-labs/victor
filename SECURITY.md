@@ -151,3 +151,24 @@ a concurrent local process can still change paths. Git context accepts a fixed
 set of read commands, and terminal working directories are passed through the
 editor API rather than inserted into shell text. User-requested terminal commands
 retain their existing approval behavior and process permissions.
+
+## MCP process limits
+
+The built-in MCP process backend provides POSIX resource limits and optional root
+user demotion. It does not provide filesystem or network isolation. Requests for
+path restrictions, network denial/host allowlists, namespaces or seccomp now fail
+before a subprocess starts, including previously ineffective settings. Use an
+external sandbox or a container configured for those policies. Windows cannot
+use this POSIX resource backend; ordinary MCP imports remain available.
+
+All configured rlimits must succeed, and root demotion clears supplementary groups
+before changing user/group IDs. Failures abort child startup. Rlimits are not a
+complete security boundary: process limits apply per user, and CPU/memory limits
+do not isolate a shared filesystem or network. The legacy `drop_capabilities`
+option means root user demotion, not a complete Linux capability policy.
+
+Workflow process isolation with `network_allowed=False` consequently fails rather
+than merely setting an advisory environment variable. Select container isolation
+when network restrictions are required. The earlier macOS profile and Linux
+namespace helpers have been removed; this backend no longer advertises isolation
+it cannot reliably establish.

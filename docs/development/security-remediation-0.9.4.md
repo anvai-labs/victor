@@ -15,6 +15,7 @@ and the exception process.
 | SQL and parsers | Bind values, quote identifiers, validate dynamic columns, bound condition evaluation, and disable XML entity expansion. |
 | Runtime policy | Fail closed on safety/approval setup errors; preserve inherited tool restrictions; roll back temporary budgets and reject reuse after restoration failure. |
 | Process and editor integration | Preserve configured MCP sandbox startup on reconnect, pass search patterns as data, avoid shell interpolation for backend/Git context commands, and confine editor changes to workspace paths. |
+| Advisory coverage | Calculate CVSS base scores, follow OSV continuation pages, preserve unknown ratings/errors, and key validated query snapshots by exact version. |
 | Integrity and validation | Keep SDK validation effective under optimized Python; use SHA-256 for undo integrity and verify legacy records against stored text. |
 | Dependencies | Remove unused runtime/build dependencies, update Python/JavaScript/Rust packages, and keep RAG storage imports lazy. |
 | Distribution | Consolidate four container targets, separate coding native wheel identity, and exclude development files from the VSIX. |
@@ -35,6 +36,9 @@ degraded results explicitly and is not a comprehensive security audit.
 - Python formatting, production lint, version consistency, repository hygiene
   and the repository-configured global strict mypy gate passed. Separate checks
   outside that gate retain pre-existing typing errors in benchmark/SDK areas.
+- PR #1060 at `4c5b09e0b` passed CI Success and all required checks. The newer
+  advisory, MCP and Ubuntu-container changes are being validated locally before
+  a consolidated push; those earlier green checks do not validate this new diff.
 - The first PR CI cycle passed all security, dependency, typing, collection and
   architecture gates. Its only test failure was a coding-vertical regression
   placed in the core suite, whose environment does not install that vertical.
@@ -50,6 +54,11 @@ degraded results explicitly and is not a comprehensive security audit.
   Rust dependency audits found no advisories at that scan time. These results do
   not replace scans of the final commit and released artifacts.
 
+- The extended security suite passed **460 tests, 1 skipped**. Separate MCP
+  resource-limit, startup and workflow checks passed **34 tests**. Advisory/cache
+  changes passed independent review, including **113 focused tests** and extra
+  reproductions of conflicting records and malformed cached snapshots.
+
 Independent review covered cache storage, SQL, parser conditions, SDK validation,
 undo integrity, dependency discovery and runtime budget restoration. Final review
 of editor/process changes and the wider native edge surface remains incomplete.
@@ -57,29 +66,34 @@ Do not interpret local test results as approval of those outstanding scopes.
 
 ## Open findings and release conditions
 
-1. **Container OS findings remain blocking.** The rebuilt core image for
-   commit `4079eb623` has **1 critical, 55 high and 1 unknown** OS findings
-   (plus 81 medium and 104 low), including OpenSSH CVE-2026-60002. Its Python
-   packages have zero findings. Prior scans of the other three targets also
-   reported blocking OS advisories. Updated Python dependency results do not
-   resolve OS findings. The report checker reconstructs Trivy OS versions from
-   epoch, version and release fields; it now validates all 242 core findings
-   and reports **57 unexcepted blockers**, instead of rejecting the complete
-   report as an inventory mismatch.
-   Rebuild and scan final artifacts; fix findings or obtain narrowly scoped,
-   owned, expiring exceptions through the documented process. The exception
-   manifest is empty; no publication gate has been weakened.
+1. **Final container scans pass the existing publication threshold.** The old Debian core image at
+   `4079eb623` reported 57 blocking OS findings. The Ubuntu 24.04 core candidate
+   passes the unchanged report gate with **0 critical/high/unknown** findings,
+   **45 medium and 4 low** OS findings, and **0 Python** findings. Offline runtime
+   checks preserve Python 3.12, Git/SSH, UID 1000, AI 0.9.4 and SDK 0.9.2. The
+   native candidate builds and imports native 0.8.1 successfully.
+   Final core, MCP and native scans each retain **45 medium / 4 low** OS
+   findings; full retains **55 medium / 4 low**. Every target has **0 blocking OS
+   findings and 0 Python findings**. Final CLI/API, MCP, native import and offline
+   embedding probes pass. Full inventories and CycloneDX SBOMs are retained.
+   In particular, Expat CVE-2026-76957 remains unfixed and is rated medium by
+   Ubuntu; changing a distribution's severity classification is not a fix.
+   The exception manifest remains empty and no gate threshold has changed.
 2. **Independent review remains required** for the outstanding scopes above
    before merge is requested. The review service could not complete those
    scopes; partial results are not accepted as approval.
-3. **Follow-up source work remains:** the runtime OSV adapter still assigns a
-   fixed medium severity rather than deriving advisory severity. The wider MCP
-   sandbox backend also needs a separate review of platform capability and
-   resource/privilege enforcement. This batch does not claim either is resolved.
-4. **Refresh artifact evidence** after the final commit. The committed core
-   image builds with SDK 0.9.2, and the 0.5.1 VSIX builds with 14 files. Core
-   image findings are recorded above; other image scans predate the latest
-   source and package version changes.
+3. **MCP compatibility and review:** the process backend now rejects unsupported
+   filesystem/network/namespace/seccomp policies and fails child startup when
+   rlimits or root demotion fail. Root demotion clears supplementary groups.
+   It remains a resource-limit backend, not an OS isolation boundary. Use an
+   external sandbox/container for stronger policies; see [SECURITY.md](https://github.com/anvai-labs/victor/blob/develop/SECURITY.md#mcp-process-limits).
+   Local tests do not replace the outstanding independent process review.
+4. **Refresh artifact evidence** after the final commit. The 0.5.1 VSIX builds
+   with 14 files. The final follow-up collects **32,445 tests** without errors
+   and passes **98 affected tests**, repository formatting/lint, global strict
+   typing, hygiene, strict docs and built-site links (zero issues). Filesystem
+   scanning of all committed snapshots reports zero findings. The final image
+   results above cover the source candidate; CI must pass its eventual commit.
 
 ## Release order
 

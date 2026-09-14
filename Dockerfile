@@ -2,29 +2,42 @@
 # SPDX-License-Identifier: Apache-2.0
 # Canonical build: --target core | mcp | native | full (default).
 # See docs/development/dependencies.md for lock regeneration and image validation.
-ARG PYTHON_IMAGE=python:3.12-slim-trixie@sha256:78387bc3881b8273120a12ebe6c1ab22b018ccc2c9adf565ae1ac9b536e184ea
-ARG RUST_IMAGE=rust:1.98-slim-trixie@sha256:bce1476d4be4d78b83705bc5f428b86d640eeeea33e9dadafbc037b5703a53bf
+ARG UBUNTU_IMAGE=ubuntu:24.04@sha256:224a1869083a311ef3f13648a154ba79832fbef6364d31493642ca03082da254
+ARG RUST_IMAGE=rust:1.98-slim-bookworm@sha256:ebd900bae66fd508b466cef82d64a83a5fb34682e4c8b2797a42908bddc95a57
 
-FROM ${PYTHON_IMAGE} AS python-base
+FROM ${UBUNTU_IMAGE} AS python-base
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 PIP_NO_CACHE_DIR=1
 # Git and SSH are runtime tool capabilities. Keep them even when an upstream
 # advisory blocks release; the image scan decides whether publication is allowed.
 RUN apt-get update && apt-get upgrade -y && \
-    apt-get install -y --no-install-recommends git openssh-client ca-certificates && \
-    rm -rf /var/lib/apt/lists/* && \
-    python -m pip install --upgrade 'pip>=26.2.1' 'setuptools>=83.0.0'
+    apt-get install -y --no-install-recommends python3.12 git openssh-client ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
 
-FROM python-base AS wheels
+# Packaging tools live only in build stages; runtime uses the copied application
+# venv and the same distro interpreter, without a global pip installation.
+FROM python-base AS build-base
+RUN apt-get update && apt-get install -y --no-install-recommends python3.12-venv && \
+    rm -rf /var/lib/apt/lists/* && python3.12 -m venv /opt/bootstrap
+ENV PATH=/opt/bootstrap/bin:$PATH
+RUN python -m pip install --upgrade 'pip>=26.2.1' 'setuptools>=83.0.0'
+
+# Keep dependency layers independent of ordinary application source edits.
+FROM build-base AS sdk-wheels
+WORKDIR /build
+COPY victor-contracts ./victor-contracts
+RUN python -m pip wheel --no-deps --wheel-dir /wheels ./victor-contracts
+
+FROM build-base AS wheels
 WORKDIR /build
 COPY pyproject.toml README.md LICENSE VERSION ./
 COPY victor ./victor
-COPY victor-contracts ./victor-contracts
-RUN python -m pip wheel --no-deps --wheel-dir /wheels ./victor-contracts .
+COPY --from=sdk-wheels /wheels /wheels
+RUN python -m pip wheel --no-deps --wheel-dir /wheels .
 
-FROM python-base AS core-deps
+FROM build-base AS core-deps
 COPY requirements.txt /locks/core.txt
 # Resolve the in-repo SDK candidate before its independent PyPI release.
-COPY --from=wheels /wheels /wheels
+COPY --from=sdk-wheels /wheels /wheels
 RUN python -m venv /opt/victor && \
     /opt/victor/bin/python -m pip install --upgrade 'pip>=26.2.1' && \
     /opt/victor/bin/python -m pip install --find-links=/wheels -r /locks/core.txt && \
@@ -41,10 +54,10 @@ LABEL org.opencontainers.image.source="https://github.com/anvai-labs/victor" \
       org.opencontainers.image.licenses="Apache-2.0"
 ENV PATH=/opt/victor/bin:$PATH VICTOR_HOME=/home/victor/.victor \
     HF_HOME=/home/victor/.cache/huggingface
-RUN useradd -m -u 1000 -s /bin/bash victor && \
+# The pinned Ubuntu image supplies UID/GID 1000; retain that identity as victor.
+RUN groupmod -n victor ubuntu && usermod -l victor -d /home/victor -m ubuntu && \
     mkdir -p /workspace /home/victor/.victor /home/victor/.cache && \
-    chown -R victor:victor /workspace /home/victor && \
-    python -m pip uninstall -y setuptools pip
+    chown -R victor:victor /workspace /home/victor
 WORKDIR /workspace
 USER victor
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
@@ -72,7 +85,7 @@ EXPOSE 8765
 CMD ["victor", "serve", "--host", "0.0.0.0", "--port", "8765"]
 
 FROM ${RUST_IMAGE} AS rust-toolchain
-FROM python-base AS native-env
+FROM build-base AS native-env
 COPY --from=rust-toolchain /usr/local/cargo /usr/local/cargo
 COPY --from=rust-toolchain /usr/local/rustup /usr/local/rustup
 ENV PATH=/usr/local/cargo/bin:$PATH RUSTUP_HOME=/usr/local/rustup CARGO_HOME=/usr/local/cargo

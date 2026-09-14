@@ -65,6 +65,21 @@ class CVEDatabase(Protocol):
         ...
 
 
+class CVEDatabaseError(RuntimeError):
+    """An advisory lookup failed; it cannot establish a clean result."""
+
+
+def _unique_advisories(cves: list[CVE]) -> list[CVE]:
+    """Reject inconsistent snapshots before global advisory cache publication."""
+    records: dict[str, CVE] = {}
+    for cve in cves:
+        previous = records.get(cve.cve_id)
+        if previous is not None and previous != cve:
+            raise CVEDatabaseError(f"Conflicting advisory records: {cve.cve_id}")
+        records[cve.cve_id] = cve
+    return list(records.values())
+
+
 class BaseCVEDatabase(ABC):
     """Abstract base class for CVE database clients."""
 
@@ -117,20 +132,17 @@ class LocalCVECache:
                     cached_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            # Query identity includes the exact version. A separate generation
+            # deliberately ignores old versionless entries, including clean results.
             conn.execute("""
-                CREATE TABLE IF NOT EXISTS package_cves (
-                    package_name TEXT,
-                    ecosystem TEXT,
-                    cve_id TEXT,
-                    version_range TEXT,
-                    fixed_version TEXT,
-                    cached_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    PRIMARY KEY (package_name, ecosystem, cve_id)
+                CREATE TABLE IF NOT EXISTS package_queries_v2 (
+                    package_name TEXT NOT NULL,
+                    ecosystem TEXT NOT NULL,
+                    requested_version TEXT NOT NULL,
+                    data TEXT NOT NULL,
+                    cached_at TIMESTAMP NOT NULL,
+                    PRIMARY KEY (package_name, ecosystem, requested_version)
                 )
-            """)
-            conn.execute("""
-                CREATE INDEX IF NOT EXISTS idx_package_lookup
-                ON package_cves (package_name, ecosystem)
             """)
             conn.commit()
 
@@ -159,7 +171,10 @@ class LocalCVECache:
             if datetime.now() - cached_time > timedelta(hours=max_age_hours):
                 return None  # Stale
 
-            return self._deserialize_cve(json.loads(data_str))
+            data = json.loads(data_str)
+            if data.get("cache_format") != 2:
+                return None  # Discard legacy entries with fabricated CVSS scores.
+            return self._deserialize_cve(data)
 
     def set_cve(self, cve: CVE) -> None:
         """Cache a CVE.
@@ -182,66 +197,73 @@ class LocalCVECache:
         package_name: str,
         ecosystem: str,
         max_age_hours: int = 24,
-    ) -> list[tuple[str, str, str]]:
-        """Get cached CVEs for a package.
+        *,
+        version: Optional[str] = None,
+    ) -> Optional[list[tuple[str, str, str]]]:
+        """Return a complete query snapshot, or None when absent or expired.
 
-        Returns:
-            List of (cve_id, version_range, fixed_version) tuples
+        An empty list is a cached clean query, distinct from missing coverage.
+        JSON encoding distinguishes an unspecified version from any string.
         """
         with sqlite3.connect(self.cache_path) as conn:
-            cutoff = datetime.now() - timedelta(hours=max_age_hours)
-            rows = conn.execute(
+            row = conn.execute(
                 """
-                SELECT cve_id, version_range, fixed_version
-                FROM package_cves
-                WHERE package_name = ? AND ecosystem = ? AND cached_at > ?
+                SELECT data FROM package_queries_v2
+                WHERE package_name = ? AND ecosystem = ? AND requested_version = ?
+                    AND cached_at > ?
                 """,
-                (package_name, ecosystem, cutoff),
-            ).fetchall()
-            return rows
+                (
+                    package_name,
+                    ecosystem,
+                    json.dumps(version),
+                    datetime.now() - timedelta(hours=max_age_hours),
+                ),
+            ).fetchone()
+        if row is None:
+            return None
+        try:
+            data = json.loads(row[0])
+        except (ValueError, TypeError):
+            return None
+        if not isinstance(data, list) or any(
+            not isinstance(item, list)
+            or len(item) != 3
+            or not all(isinstance(value, str) for value in item)
+            or not item[0].strip()
+            for item in data
+        ):
+            return None
+        return [(item[0], item[1], item[2]) for item in data]
 
     def set_package_cves(
         self,
         package_name: str,
         ecosystem: str,
         cve_data: list[tuple[str, str, str]],
+        *,
+        version: Optional[str] = None,
     ) -> None:
-        """Cache CVEs for a package.
-
-        Args:
-            package_name: Package name
-            ecosystem: Package ecosystem
-            cve_data: List of (cve_id, version_range, fixed_version) tuples
-        """
+        """Publish a completed package/version query, including clean results."""
         with sqlite3.connect(self.cache_path) as conn:
-            # Clear old data
             conn.execute(
-                "DELETE FROM package_cves WHERE package_name = ? AND ecosystem = ?",
-                (package_name, ecosystem),
+                """
+                INSERT OR REPLACE INTO package_queries_v2
+                (package_name, ecosystem, requested_version, data, cached_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    package_name,
+                    ecosystem,
+                    json.dumps(version),
+                    json.dumps(cve_data),
+                    datetime.now(),
+                ),
             )
-
-            # Insert new data
-            for cve_id, version_range, fixed_version in cve_data:
-                conn.execute(
-                    """
-                    INSERT INTO package_cves
-                    (package_name, ecosystem, cve_id, version_range, fixed_version, cached_at)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        package_name,
-                        ecosystem,
-                        cve_id,
-                        version_range,
-                        fixed_version,
-                        datetime.now(),
-                    ),
-                )
-            conn.commit()
 
     def _serialize_cve(self, cve: CVE) -> dict:
         """Serialize CVE to dict."""
         return {
+            "cache_format": 2,
             "cve_id": cve.cve_id,
             "description": cve.description,
             "severity": cve.severity.value,
@@ -345,11 +367,9 @@ class OSVDatabase(BaseCVEDatabase):
                 return cve
 
         except ImportError:
-            logger.warning("httpx not installed, cannot query OSV API")
-            return None
+            raise CVEDatabaseError("OSV lookup dependencies are unavailable") from None
         except Exception as e:
-            logger.warning(f"OSV lookup failed: {e}")
-            return None
+            raise CVEDatabaseError(f"OSV lookup failed: {e}") from e
 
     async def search_by_package(
         self,
@@ -364,37 +384,49 @@ class OSVDatabase(BaseCVEDatabase):
         try:
             import httpx
 
-            await self._rate_limit()
-
-            query = {"package": {"name": package_name, "ecosystem": osv_ecosystem}}
-            if version:
+            query: dict = {"package": {"name": package_name, "ecosystem": osv_ecosystem}}
+            if version is not None:
                 query["version"] = version
 
+            cves = []
+            seen_tokens: set[str] = set()
             async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    f"{self.API_URL}/query",
-                    json=query,
-                    timeout=30.0,
-                )
-                response.raise_for_status()
-                data = response.json()
+                # Bound a broken server's continuation chain; exhaustion is an
+                # incomplete scan, never a partial successful result.
+                for _ in range(1000):
+                    await self._rate_limit()
+                    response = await client.post(
+                        f"{self.API_URL}/query",
+                        json=query,
+                        timeout=30.0,
+                    )
+                    response.raise_for_status()
+                    data = response.json()
+                    if not isinstance(data, dict) or not isinstance(data.get("vulns", []), list):
+                        raise CVEDatabaseError("Malformed OSV query response")
+                    for vuln in data.get("vulns", []):
+                        cves.append(self._parse_osv_vuln(vuln))
+                    if "next_page_token" not in data:
+                        break
+                    token = data["next_page_token"]
+                    if not isinstance(token, str) or not token or token in seen_tokens:
+                        raise CVEDatabaseError("Invalid or repeated OSV continuation token")
+                    seen_tokens.add(token)
+                    query["page_token"] = token
+                else:
+                    raise CVEDatabaseError("OSV pagination limit exceeded")
 
-                cves = []
-                for vuln in data.get("vulns", []):
-                    cve = self._parse_osv_vuln(vuln)
-                    if cve:
-                        cves.append(cve)
-                        if self._cache:
-                            self._cache.set_cve(cve)
-
-                return cves
+            cves = _unique_advisories(cves)
+            # Only publish findings once every page is valid and complete.
+            if self._cache:
+                for cve in cves:
+                    self._cache.set_cve(cve)
+            return cves
 
         except ImportError:
-            logger.warning("httpx not installed")
-            return []
+            raise CVEDatabaseError("OSV lookup dependencies are unavailable") from None
         except Exception as e:
-            logger.warning(f"OSV search failed: {e}")
-            return []
+            raise CVEDatabaseError(f"OSV search failed: {e}") from e
 
     async def _rate_limit(self) -> None:
         """Apply rate limiting."""
@@ -420,26 +452,64 @@ class OSVDatabase(BaseCVEDatabase):
         }
         return mapping.get(ecosystem.lower(), ecosystem)
 
-    def _parse_osv_vuln(self, data: dict) -> Optional[CVE]:
-        """Parse OSV vulnerability to CVE format."""
-        vuln_id = data.get("id", "")
+    @staticmethod
+    def _parse_osv_cvss(data: dict) -> Optional[CVSSMetrics]:
+        """Use the highest reported base score; incomplete ratings remain unknown."""
+        from cvss import CVSS2, CVSS3, CVSS4
+        from cvss.exceptions import CVSSError
+
+        parsers = {"CVSS_V2": CVSS2, "CVSS_V3": CVSS3, "CVSS_V4": CVSS4}
+        entries = data.get("severity", [])
+        affected = data.get("affected", [])
+        if not isinstance(entries, list) or not isinstance(affected, list):
+            return None
+        entries = list(entries)
+        for package in affected:
+            if not isinstance(package, dict) or not isinstance(package.get("severity", []), list):
+                return None
+            entries.extend(package.get("severity", []))
+        scores = []
+        for entry in entries:
+            if not isinstance(entry, dict):
+                return None
+            kind = entry.get("type")
+            parser = parsers.get(kind) if isinstance(kind, str) else None
+            vector = entry.get("score")
+            if parser is None or not isinstance(vector, str) or len(vector) > 4096:
+                return None
+            try:
+                parsed = parser(vector)  # Validate optional metrics before excluding them.
+                if kind == "CVSS_V4":
+                    # CVSS4.scores() includes threat/environmental modifiers.
+                    # Advisory policy uses the base vector, not a reporter's environment.
+                    base_keys = {"AV", "AC", "AT", "PR", "UI", "VC", "VI", "VA", "SC", "SI", "SA"}
+                    base_vector = "/".join(
+                        part
+                        for part in vector.split("/")
+                        if part.split(":", 1)[0] in base_keys | {"CVSS"}
+                    )
+                    parsed = parser(base_vector)
+                score = float(parsed.scores()[0])
+            except CVSSError:
+                return None
+            scores.append(CVSSMetrics(score=score, vector=vector))
+        return max(scores, key=lambda item: item.score) if scores else None
+
+    def _parse_osv_vuln(self, data: dict) -> CVE:
+        """Parse OSV vulnerability to CVE format; reject unidentifiable records."""
+        if (
+            not isinstance(data, dict)
+            or not isinstance(data.get("id"), str)
+            or not data["id"].strip()
+        ):
+            raise CVEDatabaseError("OSV advisory is missing a valid identifier")
+        vuln_id = data["id"]
 
         # Get description
         description = data.get("summary", "") or data.get("details", "")
 
-        # Parse CVSS
-        cvss = None
-        severity = Severity.MEDIUM  # Default
-        for severity_entry in data.get("severity", []):
-            if severity_entry.get("type") == "CVSS_V3":
-                score_str = severity_entry.get("score", "")
-                try:
-                    # Parse CVSS vector to extract score
-                    # For simplicity, use a lookup or calculation
-                    cvss = CVSSMetrics(score=5.0, vector=score_str)
-                    severity = Severity.from_cvss(cvss.score)
-                except Exception:
-                    pass
+        cvss = self._parse_osv_cvss(data)
+        severity = Severity.from_cvss(cvss.score) if cvss is not None else Severity.UNKNOWN
 
         # Parse dates
         published = None
@@ -498,7 +568,8 @@ class OfflineCVEDatabase(BaseCVEDatabase):
             data_dir: Directory containing offline CVE data
         """
         self.data_dir = data_dir
-        self._cache = LocalCVECache(data_dir / "cve_cache.db")
+        self._cache = LocalCVECache(data_dir / "cve.db")
+        self._load_errors: list[str] = []
         self._advisory_index: dict[str, list[dict]] = {}
         self._load_advisories()
 
@@ -517,7 +588,7 @@ class OfflineCVEDatabase(BaseCVEDatabase):
                             self._advisory_index[package] = []
                         self._advisory_index[package].append(advisory)
             except Exception as e:
-                logger.warning(f"Failed to load advisory file {json_file}: {e}")
+                self._load_errors.append(f"Failed to load advisory file {json_file}: {e}")
 
     async def lookup_cve(self, cve_id: str) -> Optional[CVE]:
         """Look up CVE from local cache."""
@@ -530,15 +601,25 @@ class OfflineCVEDatabase(BaseCVEDatabase):
         version: Optional[str] = None,
     ) -> list[CVE]:
         """Search local advisory index."""
-        key = f"{ecosystem}:{package_name}"
-        advisories = self._advisory_index.get(key, [])
-
+        if self._load_errors:
+            raise CVEDatabaseError("; ".join(self._load_errors))
+        cached = self._cache.get_package_cves(package_name, ecosystem, version=version)
+        if cached is not None:
+            advisory_ids = [item[0] for item in cached]
+        else:
+            key = f"{ecosystem}:{package_name}"
+            advisories = self._advisory_index.get(key)
+            if not advisories:
+                raise CVEDatabaseError(f"No offline advisory coverage for {key}@{version}")
+            # Bundled entries lack a complete version-query snapshot: report all
+            # indexed advisories conservatively instead of guessing affected ranges.
+            advisory_ids = [item.get("cve_id", "") for item in advisories]
         cves = []
-        for advisory in advisories:
-            cve = await self.lookup_cve(advisory.get("cve_id", ""))
-            if cve:
-                cves.append(cve)
-
+        for cve_id in advisory_ids:
+            cve = await self.lookup_cve(cve_id)
+            if cve is None:
+                raise CVEDatabaseError(f"Offline advisory unavailable or expired: {cve_id}")
+            cves.append(cve)
         return cves
 
 
@@ -586,29 +667,27 @@ class CachingCVEDatabase(BaseCVEDatabase):
         version: Optional[str] = None,
     ) -> list[CVE]:
         """Search with caching."""
-        # Check cache
         cached_cves = self._cache.get_package_cves(
-            package_name, ecosystem, max_age_hours=self._cache_hours
+            package_name, ecosystem, max_age_hours=self._cache_hours, version=version
         )
-        if cached_cves:
+        if cached_cves is not None:
             cves = []
             for cve_id, _, _ in cached_cves:
-                cve = await self.lookup_cve(cve_id)
-                if cve:
-                    cves.append(cve)
-            if cves:
+                cve = self._cache.get_cve(cve_id, max_age_hours=self._cache_hours)
+                if cve is None:
+                    break  # Refresh the entire query rather than return partial findings.
+                cves.append(cve)
+            else:
                 return cves
 
-        # Query backend
-        cves = await self._backend.search_by_package(package_name, ecosystem, version)
-
-        # Cache results
-        cve_data = [(cve.cve_id, "", "") for cve in cves]
-        self._cache.set_package_cves(package_name, ecosystem, cve_data)
-
+        cves = _unique_advisories(
+            await self._backend.search_by_package(package_name, ecosystem, version)
+        )
         for cve in cves:
             self._cache.set_cve(cve)
-
+        self._cache.set_package_cves(
+            package_name, ecosystem, [(cve.cve_id, "", "") for cve in cves], version=version
+        )
         return cves
 
 

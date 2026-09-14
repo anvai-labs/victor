@@ -27,11 +27,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Update vulnerable JavaScript and Rust dependencies, patched Python build floors
   and CPU embedding constraints. Remove unused GitPython and Python codecov
   dependencies, and omit pip from runtime containers.
+- Calculate real CVSS base scores, retain unknown ratings, follow all OSV pages,
+  and reject incomplete advisory/manifest results. Query caches now include exact
+  package versions; legacy or malformed offline coverage cannot clear a scan.
+- Reject unsupported MCP isolation policies before launch, and abort child exec
+  if resource limits or root user demotion fail. Use an external sandbox/container
+  for filesystem, network, namespace or seccomp restrictions.
 - Match complete OS package versions in Trivy inventories, including release
   and epoch fields, so valid image reports retain their actual blocking findings.
 - Preserve complete scan coverage for separately resolved core, API and CPU
   embedding deployments. Unaccepted container high/critical findings still block
-  publication; this batch does not claim that OS findings are resolved.
+  publication. Move runtime images to patched Ubuntu 24.04 packages; lower-severity
+  unfixed OS findings remain visible in complete image reports.
 
 ### Changed
 
@@ -51,7 +58,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   replace the Python coding package.
 - Report the installed package version from HTTP and GraphQL health metadata.
 
-Version 0.9.4 is prepared on develop; it is not published until the release
+Version 0.9.4 is prepared for develop; it is not published until the release
 checks and unresolved security dispositions are complete. Independently installed
 vertical/native packages require their own releases. The candidate requires
 `victor-contracts>=0.9.2` and, for the native extra, `victor-native>=0.8.1`;

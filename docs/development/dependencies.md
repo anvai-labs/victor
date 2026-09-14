@@ -71,7 +71,11 @@ release evidence. Follow the [CI batching policy](PR_WORKFLOW.md) before pushing
 ## Container targets
 
 One root `Dockerfile` owns the shared Python base, wheel build, runtime user and
-Git/SSH packages. The obsolete split-package Dockerfiles have been removed.
+Git/SSH packages. The runtime uses digest-pinned Ubuntu 24.04 with its patched
+Python 3.12 packages. The Rust builder uses a pinned Bookworm toolchain compatible
+with Ubuntu's glibc. SDK wheel and dependency layers are independent of ordinary
+application source edits, reducing repeated package downloads and builds.
+The obsolete split-package Dockerfiles have been removed.
 Build from the repository root with BuildKit:
 
 ```bash
@@ -87,6 +91,9 @@ docker build --target full -t victor-full:local .
 | `mcp` | Core dependencies; `victor mcp` over standard input/output |
 | `native` | Core + API + compiled Rust wheel; `victor --help` |
 | `full` (default) | Core + CPU embeddings + predownloaded BGE model; `bash` |
+
+The `cvss` runtime dependency calculates standard CVSS v2/v3/v4 advisory base
+scores and has no transitive dependencies. Keep it in all three resolved snapshots.
 
 Runtime packages are installed wheels in `/opt/victor`, rather than editable
 source trees copied from the builder. Rust/compiler tools and pip stay in build stages. Build a derived image to add
@@ -116,3 +123,13 @@ This change removes the `diskcache` dependency and its security exception. Stati
 embeddings, semantic usage statistics and usage analytics also use versioned
 data-only files. Legacy pickle files are not loaded; known record types and
 numeric arrays are validated before a restored snapshot replaces live state.
+
+## Advisory cache compatibility
+
+OSV queries follow continuation pages and reject malformed or conflicting records.
+The runtime computes actual CVSS base scores; missing or unusable ratings remain
+unknown and fail policy. Manifest parsing or lookup errors also fail policy.
+Package-query snapshots include the exact version and distinguish missing coverage
+from a completed clean query. Legacy score and versionless query caches refresh
+online. Offline mode uses the same `cve.db`; missing, invalid or expired coverage
+reports an incomplete scan, so an empty cache cannot establish a clean result.
