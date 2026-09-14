@@ -10,6 +10,16 @@ class OverrideRestorationError(RuntimeError):
     """An owner could not restore its state; the runtime must be recreated."""
 
 
+def override_failed(owner: Any) -> bool:
+    """Read the sticky failed-restore marker without coupling callers to its field."""
+    return getattr(owner, "_runtime_override_error", False) is True
+
+
+def mark_override_failed(owner: Any) -> None:
+    """Mark an owner as requiring recreation after failed restoration."""
+    owner._runtime_override_error = True
+
+
 def attribute_change(
     name: str, owner: Any, attribute: str, value: Any, *, state: dict[str, Any] | None = None
 ) -> Change:

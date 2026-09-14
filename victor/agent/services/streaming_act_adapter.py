@@ -82,7 +82,8 @@ class StreamingActAdapter:
         """
         runtime_owner = executor._runtime_owner
         orch = runtime_owner._orchestrator
-        recovery = getattr(orch, "_recovery_service", None) or orch._recovery_coordinator
+        services = executor.services
+        recovery = services.recovery
         create_recovery_context = orch.create_recovery_context
 
         executor._reset_streaming_turn_state(orch)

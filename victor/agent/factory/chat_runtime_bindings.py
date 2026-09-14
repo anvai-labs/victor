@@ -37,4 +37,6 @@ def bind_chat_runtime_services(runtime_owner: Any) -> ChatRuntimeServices:
             chunks=getattr(owner, "_chunk_generator", None),
             sanitizer=getattr(owner, "sanitizer", None),
         ),
+        recovery=getattr(owner, "_recovery_service", None)
+        or getattr(owner, "_recovery_coordinator", None),
     )

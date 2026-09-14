@@ -52,6 +52,8 @@ from victor.agent.services.runtime_overrides import (
     attribute_change,
     budget_changes,
     restore_overrides,
+    mark_override_failed,
+    override_failed,
 )
 
 logger = logging.getLogger(__name__)
@@ -248,10 +250,7 @@ class ChatStreamHelperMixin:
         int,
     ]:
         """Prepare streaming state and return commonly used values."""
-        if (
-            getattr(self, "_runtime_override_error", False) is True
-            or getattr(self._orchestrator, "_runtime_override_error", False) is True
-        ):
+        if override_failed(self) or override_failed(self._orchestrator):
             raise OverrideRestorationError("Recreate the session after failed override restoration")
         orch = self._orchestrator
 
@@ -865,14 +864,11 @@ class ChatStreamHelperMixin:
         overrides: Dict[str, Any],
     ) -> Optional[Dict[str, Any]]:
         """Apply context and budget changes as one reversible update."""
-        if (
-            getattr(self, "_runtime_override_error", False) is True
-            or getattr(self._orchestrator, "_runtime_override_error", False) is True
-        ):
+        orch = self._orchestrator
+        if override_failed(self) or override_failed(orch):
             raise OverrideRestorationError("Recreate the session after failed override restoration")
         if not overrides:
             return None
-        orch = self._orchestrator
         previous = self._get_runtime_state_dict(orch).get("_runtime_tool_context_overrides")
         merged = dict(previous) if isinstance(previous, dict) else {}
         merged.update(overrides)
@@ -891,17 +887,18 @@ class ChatStreamHelperMixin:
         try:
             return apply_overrides(changes)
         except OverrideRestorationError:
-            self._runtime_override_error = True
-            self._orchestrator._runtime_override_error = True
+            mark_override_failed(self)
+            mark_override_failed(orch)
             raise
 
     def _restore_stream_runtime_overrides(self, snapshot: Optional[Dict[str, Any]]) -> None:
         if snapshot:
+            orch = self._orchestrator
             try:
                 restore_overrides(snapshot)
             except OverrideRestorationError:
-                self._runtime_override_error = True
-                self._orchestrator._runtime_override_error = True
+                mark_override_failed(self)
+                mark_override_failed(orch)
                 raise
 
     @staticmethod
