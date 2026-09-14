@@ -52,6 +52,9 @@ from victor.agent.services.runtime_overrides import (
     attribute_change,
     budget_changes,
     restore_overrides,
+    mark_override_failed,
+    override_failed,
+    runtime_orchestrator,
 )
 
 logger = logging.getLogger(__name__)
@@ -100,7 +103,7 @@ class ChatStreamHelperMixin:
         if callable(resolver):
             return bool(resolver(name))
 
-        orch = self._orchestrator
+        orch = runtime_orchestrator(self)
         checker = getattr(orch, "has_capability", None)
         if callable(checker):
             try:
@@ -248,10 +251,7 @@ class ChatStreamHelperMixin:
         int,
     ]:
         """Prepare streaming state and return commonly used values."""
-        if (
-            getattr(self, "_runtime_override_error", False) is True
-            or getattr(self._orchestrator, "_runtime_override_error", False) is True
-        ):
+        if override_failed(self) or override_failed(runtime_orchestrator(self)):
             raise OverrideRestorationError("Recreate the session after failed override restoration")
         orch = self._orchestrator
 
@@ -865,10 +865,7 @@ class ChatStreamHelperMixin:
         overrides: Dict[str, Any],
     ) -> Optional[Dict[str, Any]]:
         """Apply context and budget changes as one reversible update."""
-        if (
-            getattr(self, "_runtime_override_error", False) is True
-            or getattr(self._orchestrator, "_runtime_override_error", False) is True
-        ):
+        if override_failed(self) or override_failed(runtime_orchestrator(self)):
             raise OverrideRestorationError("Recreate the session after failed override restoration")
         if not overrides:
             return None
@@ -891,8 +888,8 @@ class ChatStreamHelperMixin:
         try:
             return apply_overrides(changes)
         except OverrideRestorationError:
-            self._runtime_override_error = True
-            self._orchestrator._runtime_override_error = True
+            mark_override_failed(self)
+            mark_override_failed(runtime_orchestrator(self))
             raise
 
     def _restore_stream_runtime_overrides(self, snapshot: Optional[Dict[str, Any]]) -> None:
@@ -900,8 +897,8 @@ class ChatStreamHelperMixin:
             try:
                 restore_overrides(snapshot)
             except OverrideRestorationError:
-                self._runtime_override_error = True
-                self._orchestrator._runtime_override_error = True
+                mark_override_failed(self)
+                mark_override_failed(runtime_orchestrator(self))
                 raise
 
     @staticmethod

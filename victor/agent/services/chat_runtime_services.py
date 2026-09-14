@@ -84,3 +84,6 @@ class ChatRuntimeServices:
 
     session: TaskRequirementState
     delivery: ChatDelivery = field(default_factory=ChatDelivery)
+    # Recovery is a turn capability, not a property of the orchestrator facade.
+    recovery: object | None = None
+    create_recovery_context: object | None = None
