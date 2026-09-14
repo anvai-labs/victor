@@ -56,6 +56,16 @@ dependency resolution, affected tests, formatting/lint/typing, full collection a
 required independent review before the first push. Batch compatible fixes and
 related docs/version preparation into a reviewable candidate.
 
+Stop before commit/push if a required local check fails or cannot run. Gate shell
+automation on successful validation; never follow a failed test command with an
+unconditional commit/push sequence. Recheck formatting and lint after the final
+edit, including test fixtures. Security and architecture review findings belong
+in the same locally validated candidate before its first CI-triggering push.
+
+Routine Dependabot updates use a seven-day cooldown and grouped weekly PRs.
+Urgent security fixes are triaged independently and do not wait for routine
+version-update cooldowns. See the [GitHub cooldown documentation](https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference#cooldown).
+
 Target one passing candidate cycle per PR and one promotion battery per closed
 release batch. This is an efficiency target, never a reason to waive failures,
 skip required checks, or delay an urgent security fix. Resolve all known failures

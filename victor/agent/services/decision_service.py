@@ -561,7 +561,7 @@ class LLMDecisionService:
     def _cache_key(self, decision_type: DecisionType, context: Dict[str, Any]) -> str:
         """Generate a cache key from decision type and context."""
         key_data = f"{decision_type.value}:{json_dumps(context, sort_keys=True, default=str)}"
-        return hashlib.md5(key_data.encode()).hexdigest()  # noqa: S324
+        return hashlib.md5(key_data.encode(), usedforsecurity=False).hexdigest()  # noqa: S324
 
     def _get_cached(self, cache_key: str) -> Optional[DecisionResult]:
         """Get a cached result if it exists and hasn't expired."""

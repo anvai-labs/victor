@@ -1581,7 +1581,7 @@ class UnifiedTaskTracker(ModeAwareMixin):
         else:
             # For tools without signature_params, use all arguments
             args_str = str(sorted(arguments.items()))
-            base_sig = f"{canonical_tool_name}:{hashlib.md5(args_str.encode()).hexdigest()[:8]}"
+            base_sig = f"{canonical_tool_name}:{hashlib.md5(args_str.encode(), usedforsecurity=False).hexdigest()[:8]}"
 
             # Add stage for context-awareness
             if include_stage:

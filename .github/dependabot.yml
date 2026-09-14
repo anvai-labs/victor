@@ -4,6 +4,8 @@ version: 2
 # fixes flow through the consolidated develop -> main promotion process.
 updates:
   - package-ecosystem: pip
+    cooldown:
+      default-days: 7
     directories:
       - /
       - /victor-contracts
@@ -26,6 +28,8 @@ updates:
     commit-message:
       prefix: 'fix'
   - package-ecosystem: npm
+    cooldown:
+      default-days: 7
     directories:
       - /vscode-victor
       - /vscode-victor/webview-ui
@@ -42,6 +46,8 @@ updates:
     commit-message:
       prefix: 'fix'
   - package-ecosystem: cargo
+    cooldown:
+      default-days: 7
     directories:
       - /rust
       - /verticals/victor-coding/native
@@ -58,6 +64,8 @@ updates:
     commit-message:
       prefix: 'fix'
   - package-ecosystem: docker
+    cooldown:
+      default-days: 7
     directories:
       - /
       - /docker
@@ -76,6 +84,8 @@ updates:
     commit-message:
       prefix: 'fix'
   - package-ecosystem: github-actions
+    cooldown:
+      default-days: 7
     directory: /
     target-branch: develop
     schedule:

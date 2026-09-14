@@ -137,7 +137,7 @@ jobs:
             -o bandit-report.json \
             --severity-level high \
             --confidence-level high \
-            -s B101,B324 \
+            -s B101 \
             --ini .bandit
         # Blocks on HIGH severity + HIGH confidence findings.
         # Lower severity findings are still reported in the artifact.
@@ -149,7 +149,7 @@ jobs:
           bandit -r victor/ \
             -f json \
             -o bandit-report-full.json \
-            -s B101,B324 \
+            -s B101 \
             --ini .bandit \
             || true
 
@@ -181,52 +181,47 @@ jobs:
       - name: Install and run Semgrep
         run: |
           pip install semgrep
+          semgrep_status=0
           semgrep scan \
             --config auto \
-            --sarif --output semgrep.sarif \
+            --no-error \
+            --json-output semgrep-full.json \
+            --sarif-output semgrep-full.sarif \
             --exclude 'archive/*' \
             --exclude 'docs/*' \
             --exclude 'tests/*' \
             --exclude 'examples/*' \
             --exclude 'vscode-victor/*' \
-            || true
+            > semgrep-scan.log 2>&1 || semgrep_status=$?
+          printf '%s\n' "$semgrep_status" > semgrep-exit-code.txt
+          cat semgrep-scan.log
+          python scripts/ci/semgrep_report_check.py \
+            semgrep-full.json semgrep-full.sarif \
+            --status "$semgrep_status" --output semgrep.sarif
         env:
           SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
 
-      - name: Drop nosemgrep-suppressed findings from SARIF
-        # Semgrep emits in-source-suppressed findings (`# nosemgrep: <rule-id>`
-        # with a written justification — repo precedent: outcome_training.py,
-        # graph_tool.py) into the SARIF with `suppressions: [{kind: inSource}]`,
-        # but GitHub code scanning does not honor the SARIF suppressions
-        # property and opens alerts for them anyway. Strip suppressed results
-        # before upload so the code-scanning gate matches semgrep's own
-        # verdict. Rule coverage is unchanged — only findings an engineer
-        # explicitly suppressed inline (per-rule-id, with justification) are
-        # excluded.
-        if: hashFiles('semgrep.sarif') != ''
-        run: |
-          python3 - <<'EOF'
-          import json
-
-          with open("semgrep.sarif") as fh:
-              sarif = json.load(fh)
-          dropped = 0
-          for run in sarif.get("runs", []):
-              results = run.get("results", [])
-              kept = [r for r in results if not r.get("suppressions")]
-              dropped += len(results) - len(kept)
-              run["results"] = kept
-          with open("semgrep.sarif", "w") as fh:
-              json.dump(sarif, fh)
-          print(f"Dropped {dropped} in-source-suppressed finding(s) from SARIF")
-          EOF
+      - name: Preserve complete Semgrep evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: semgrep-report
+          path: |
+            semgrep-full.json
+            semgrep-full.sarif
+            semgrep.sarif
+            semgrep-scan.log
+            semgrep-exit-code.txt
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Upload Semgrep results
+        # Keep this job/step identity and the existing inferred SARIF category.
+        # Only validated evidence is uploaded; findings remain advisory.
         uses: github/codeql-action/upload-sarif@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4
-        if: always() && hashFiles('semgrep.sarif') != ''
+        if: success()
         with:
           sarif_file: semgrep.sarif
-        continue-on-error: true
 
   license-scan:
     name: License Compliance (Advisory)

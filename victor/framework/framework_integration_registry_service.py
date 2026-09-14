@@ -398,7 +398,7 @@ class FrameworkIntegrationRegistryService:
             separators=(",", ":"),
             default=str,
         )
-        return hashlib.sha1(payload.encode("utf-8")).hexdigest()
+        return hashlib.sha1(payload.encode("utf-8"), usedforsecurity=False).hexdigest()
 
     def _normalize_for_fingerprint(self, value: Any) -> Any:
         """Normalize values to JSON-friendly deterministic form."""

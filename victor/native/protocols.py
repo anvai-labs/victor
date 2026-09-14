@@ -412,13 +412,13 @@ class TextChunkerProtocol(NativeAcceleratorProtocol, Protocol):
         ...
 
     def find_line_boundaries(self, text: str) -> List[int]:
-        """Find byte offsets of all line starts.
+        """Find character offsets of all line starts.
 
         Args:
             text: Text to analyze
 
         Returns:
-            List of byte offsets where lines start (including 0)
+            List of character offsets where lines start (including 0)
         """
         ...
 

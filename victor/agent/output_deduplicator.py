@@ -175,7 +175,7 @@ class OutputDeduplicator:
             Hex digest of the block's hash
         """
         normalized = self._normalize_block(block)
-        return hashlib.md5(normalized.encode()).hexdigest()[:12]
+        return hashlib.md5(normalized.encode(), usedforsecurity=False).hexdigest()[:12]
 
     def _split_into_blocks(self, content: str) -> list[str]:
         """Split content into logical blocks.
@@ -406,7 +406,7 @@ class StreamingDeduplicator:
     def _hash_block(self, block: str) -> str:
         """Hash a block of content."""
         normalized = re.sub(r"\s+", " ", block.strip().lower())
-        return hashlib.md5(normalized.encode()).hexdigest()[:12]
+        return hashlib.md5(normalized.encode(), usedforsecurity=False).hexdigest()[:12]
 
     def add_chunk(self, chunk: str) -> Optional[str]:
         """Add a chunk and return deduplicated output.

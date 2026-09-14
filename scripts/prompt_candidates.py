@@ -399,6 +399,7 @@ def _backup_candidates(con: sqlite3.Connection, stamp: str) -> str:
     backup = f"agent_prompt_candidate_backup_{stamp}"
     # SQLite cannot bind identifiers. The only variable part is the validated
     # timestamp above; candidate text and other user input never enter this SQL.
+    # nosemgrep: python.lang.security.audit.formatted-sql-query.formatted-sql-query, python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query
     con.execute(f'CREATE TABLE "{backup}" AS SELECT * FROM agent_prompt_candidate')
     return backup
 
