@@ -17,7 +17,7 @@ def override_failed(owner: Any) -> bool:
 
 def mark_override_failed(owner: Any) -> None:
     """Mark an owner as requiring recreation after failed restoration."""
-    setattr(owner, "_runtime_override_error", True)
+    owner._runtime_override_error = True
 
 
 def attribute_change(
