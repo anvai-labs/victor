@@ -22,6 +22,10 @@ runs:
     - name: Remove stale scan evidence
       shell: bash
       run: rm -f security-report.json security-report.sarif
+    - name: Set up Python for the security decision
+      uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      with:
+        python-version: '3.12'
     - name: Scan all package vulnerabilities
       id: scan
       uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0

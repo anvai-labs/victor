@@ -1,6 +1,6 @@
 # Security remediation: 0.9.4 candidate
 
-Status: #1058 and #1060 are merged on develop. The September 14 closeout adds
+Status: #1058, #1060 and #1063 are merged on develop. The September 14 closeout adds
 review-discovered fixes and refreshed scan evidence; **0.9.4 is not released**.
 Latest verified AI GitHub release is 0.9.3. SDK 0.9.2 is not yet available on PyPI.
 
@@ -40,6 +40,39 @@ Routine dependency PRs have a seven-day cooldown. Urgent security fixes continue
 through separate triage. The [CI batching rule](PR_WORKFLOW.md#minimize-ci-cycles)
 requires local validation and independent review before pushing, with no
 unconditional commit/push after failed tests.
+
+## September 15 runner portability follow-up
+
+#1063 passed all 32 PR checks and merged at `35621ad08`. The automatic develop
+run then exposed two environment assumptions on self-hosted overflow runners:
+the security action invoked an undeclared Python interpreter, and test collection
+loaded LanceDB's native extension during vector-provider registration, causing
+an illegal-instruction crash on that runner.
+
+The follow-up declares Python setup inside the shared security action and defers
+the LanceDB import until provider initialization, before opening model resources.
+Registry and search imports no longer execute that optional backend. Provider
+unit tests mock the backend without importing its native extension. Import
+deferral does not establish that the LanceDB binary supports the runner's CPU;
+actual backend execution still requires a compatible build and host.
+
+The coding vertical's air-gapped integration tests execute LanceDB deliberately.
+Those jobs use `ubuntu-24.04` rather than the `ubuntu-latest` label also advertised
+by the incompatible overflow host. An explicit native import probe verifies the
+backend before the full vertical suite; no integration tests are skipped.
+
+The Rust workspace test job also declares Python 3.12 and binds PyO3 to that
+interpreter. Previously it discovered the overflow host's Python 3.8, then failed
+to link its missing `libpython3.8`. Rust tests and crate packaging remain required.
+
+Independent review approved the import and scanner changes. The affected suites
+passed 407 tests, and full collection found 32,476 tests. The fresh-process
+regression reproduces the eager native import on unchanged develop and passes
+with the deferred import. With Python 3.12 selected explicitly, all 256 Rust
+workspace tests pass and all four publishable crate archives verify locally.
+
+The September 14 container digests below remain evidence for that audited tree;
+release artifacts must be rebuilt and scanned from the final promoted commit.
 
 ## September 14 alert reconciliation
 

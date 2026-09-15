@@ -377,12 +377,14 @@ class TestAirgappedDemo:
                 extra_config={"table_name": "test", "dimension": 384},
             )
 
+            backend = MagicMock(spec=["connect"])
+            backend.__spec__ = lancedb.__spec__
             with (
-                patch(
-                    "victor.storage.vector_stores.lancedb_provider.lancedb.connect"
-                ) as mock_connect,
+                patch.dict("sys.modules", {"lancedb": backend}),
+                patch("victor.storage.vector_stores.lancedb_provider.LANCEDB_AVAILABLE", True),
                 patch("sentence_transformers.SentenceTransformer") as MockST,
             ):
+                mock_connect = backend.connect
 
                 # Mock LanceDB
                 mock_table = MagicMock()
