@@ -53,12 +53,21 @@ env:
 jobs:
   # Build job
   build:
-    runs-on: ubuntu-latest
+    # Python 3.12 tool-cache builds require a modern host ABI. Do not route
+    # this job to private runners that merely advertise `ubuntu-latest`.
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0  # Fetch all history for git-revision-date plugin
+
+      - name: Verify runner ABI
+        run: >-
+          python3 scripts/ci/runner_preflight.py
+          --require-os ubuntu
+          --min-os-version 24.04
+          --min-glibc 2.38
 
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -98,7 +107,7 @@ jobs:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: build
 
     steps:

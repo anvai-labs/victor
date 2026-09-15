@@ -29,7 +29,7 @@ env:
 jobs:
   test:
     name: Test SDK
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     strategy:
       matrix:
@@ -58,7 +58,7 @@ jobs:
   version-check:
     name: Version Check
     needs: test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -70,7 +70,7 @@ jobs:
   build:
     name: Build SDK Package
     needs: version-check
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -99,7 +99,7 @@ jobs:
     name: Publish to TestPyPI
     needs: build
     if: github.event.inputs.publish_testpypi == 'true' || contains(github.ref, 'alpha') || contains(github.ref, 'beta') || contains(github.ref, 'rc')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment:
       name: testpypi
       url: https://test.pypi.org/project/victor-contracts/
@@ -122,7 +122,7 @@ jobs:
     name: Publish to PyPI
     needs: build
     if: "!contains(github.ref, 'alpha') && !contains(github.ref, 'beta') && !contains(github.ref, 'rc')"
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # The PyPI trusted publisher for victor-contracts is registered with the
     # `pypi` environment; the OIDC token must carry a matching environment
     # claim or the exchange fails with `invalid-publisher` (sdk-v0.7.2 run).

@@ -38,7 +38,7 @@ env:
 jobs:
   test:
     name: Test (py${{ matrix.python-version }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     strategy:
       matrix:
@@ -60,7 +60,7 @@ jobs:
   build:
     name: Build package
     needs: test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -91,7 +91,7 @@ jobs:
     # and the PyPI publish below — which does not depend on it — still proceeds.
     if: ${{ startsWith(github.ref, 'refs/tags/victor-codegraph-v') || github.event_name == 'workflow_dispatch' }}
     continue-on-error: true
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment:
       name: testpypi
       url: https://test.pypi.org/project/victor-codegraph/
@@ -114,7 +114,7 @@ jobs:
     name: Publish to PyPI
     needs: build
     if: startsWith(github.ref, 'refs/tags/victor-codegraph-v') && !contains(github.ref, 'alpha') && !contains(github.ref, 'beta') && !contains(github.ref, 'rc')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment:
       name: pypi
       url: https://pypi.org/project/victor-codegraph/
