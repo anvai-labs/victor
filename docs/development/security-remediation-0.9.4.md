@@ -78,6 +78,17 @@ step that resolves `.[dev]` now installs Torch from the CPU wheel index first.
 A repository-wide policy test covers workflows and composite actions so a new
 dev install cannot silently restore the CUDA dependency chain.
 
+The follow-up candidate then proved that private runners advertising
+`ubuntu-latest` were receiving ordinary jobs despite carrying different host
+ABIs. Python 3.12 from the tool cache required newer glibc symbols on
+`anvai-wsl-2`; documentation setup and PyO3 execution failed before their real
+checks. Victor workflows now select the explicit GitHub-hosted `ubuntu-24.04`
+image, and ABI-sensitive jobs verify Ubuntu and glibc before dependency work.
+The [self-hosted runner contract](self-hosted-runners.md) requires separate
+capability labels and a preflight before private capacity is opted back in.
+Docker-based release and scan steps do not imply that host-run tests execute in
+containers.
+
 The September 14 container digests below remain evidence for that audited tree;
 release artifacts must be rebuilt and scanned from the final promoted commit.
 

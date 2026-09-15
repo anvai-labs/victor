@@ -36,7 +36,7 @@ concurrency:
 jobs:
   integration:
     name: Integration Tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     strategy:
       fail-fast: false
@@ -93,7 +93,7 @@ jobs:
   # Test with external vertical packages installed
   verticals-integration:
     name: Verticals Integration
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -205,7 +205,7 @@ jobs:
   # VS Code Extension tests
   vscode-extension:
     name: VS Code Extension
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     if: github.event_name == 'push' || contains(github.event.head_commit.message, '[vscode]')
     steps:
@@ -264,7 +264,7 @@ jobs:
   # Rust native extensions
   rust-native:
     name: Rust Native Extensions
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

@@ -27,7 +27,7 @@ jobs:
   # Run tests in parallel across Python versions and shards
   test:
     name: Test (Py${{ matrix.python-version }}, Shard ${{ matrix.shard }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Stopgap: the unit suite runs at ~1.1s/test (heavy autouse fixtures), so a
     # 12-way split lands shards near 40-45 min and many were cancelled at the
     # old 45-min cap. Raise headroom while the fixture-speed/duration-balancing
@@ -212,7 +212,7 @@ jobs:
   # Smoke test for CLI
   smoke-test:
     name: CLI Smoke Test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     env:
       PYTHONPATH: ${{ github.workspace }}
@@ -269,7 +269,7 @@ jobs:
   # Test summary job
   test-summary:
     name: Test Summary
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [test, smoke-test]
     if: always()
     steps:

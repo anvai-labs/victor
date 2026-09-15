@@ -53,7 +53,7 @@ jobs:
   # All these jobs run in parallel for maximum speed
   format:
     name: Format Check (Black)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -71,7 +71,7 @@ jobs:
 
   lint:
     name: Lint (Ruff)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 2
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -89,7 +89,7 @@ jobs:
 
   repo-hygiene:
     name: Repo Hygiene
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 2
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -107,7 +107,7 @@ jobs:
 
   docs-drift:
     name: Docs Drift (version/counts vs code)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 2
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -123,7 +123,7 @@ jobs:
 
   typecheck:
     name: Type Check (MyPy, Advisory)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 3
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -141,7 +141,7 @@ jobs:
 
   strict-typecheck:
     name: Global Strict Type Gate (MyPy)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 3
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -165,7 +165,7 @@ jobs:
 
   imports:
     name: Import Check
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # pushed this job over the cap and got it cancelled mid-check.
     timeout-minutes: 8
     steps:
@@ -194,7 +194,7 @@ jobs:
 
   imports-with-verticals:
     name: Import Check with Verticals
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 8
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -301,7 +301,7 @@ jobs:
 
   strict-fallback-guards:
     name: Strict Fallback Guards
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 8
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -337,7 +337,7 @@ jobs:
 
   definition-import-boundaries:
     name: Definition Import Boundaries
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # (observed 4m16s -> cancelled). Bumped to absorb the overhead.
     timeout-minutes: 8
     steps:
@@ -361,7 +361,7 @@ jobs:
 
   version-sync:
     name: Version Sync Check
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 1
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -375,7 +375,7 @@ jobs:
 
   guards:
     name: CI Guards
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 2
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -421,7 +421,7 @@ jobs:
 
   security-quick:
     name: Security Critical Scan (Blocking)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 12
     permissions:
       contents: read
@@ -437,7 +437,7 @@ jobs:
 
   quick-tests:
     name: Quick Unit Tests (changed files)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Runs ONLY the unit tests relevant to the PR's changed files (mirror mapping), so the
     # develop gate stays proportional to the change. The full non-slow suite is ~7h
     # single-process / ~hours even sharded, so it can't be a per-PR gate — it runs sharded at
@@ -509,7 +509,7 @@ jobs:
 
   collect-check:
     name: Full-Suite Collection Check
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Collects (imports) every test module without running any test. Catches the
     # stale-import class of failure — a refactor that moves/renames a symbol and
     # misses an importer — which otherwise surfaces only at develop -> main, where
@@ -548,7 +548,7 @@ jobs:
   # collect tests/unit/conftest.py.
   hotspot-size-guard:
     name: Guard + Hygiene Tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # 10 min, not 2: the test is ~1.4s but the job does a full editable
     # `pip install -e ".[dev]"` (needed so pytest can collect conftest, which
     # imports victor). A cold pip cache routinely pushes that install past 2
@@ -598,7 +598,7 @@ jobs:
     # gives local feedback and this job enforces it in CI. Targets *attribution*,
     # not mention (CLAUDE.md / Anthropic-API / OpenAI-API refs all pass).
     name: No Agent Attribution
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 2
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -632,7 +632,7 @@ jobs:
     # events; a skip is a pass for the ci-success aggregate. Mirrors Sandhi's gate.
     name: PR Title (Conventional)
     if: ${{ github.event_name == 'pull_request' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 2
     steps:
       - uses: amannn/action-semantic-pull-request@48f256284bd46cdaab1048c3721360e808335d50 # v6.1.1
@@ -657,7 +657,7 @@ jobs:
     # don't leak across boundaries. Cheap; previously only in verticals.yml (not
     # required). Promoted into the develop merge gate.
     name: Vertical Contract Boundaries
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -673,7 +673,7 @@ jobs:
     # merge gate. The heavy install/validate only run when a FEP changed, so a
     # non-FEP PR pays just the git-diff step (a skip is a pass for ci-success).
     name: FEP Validation
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -715,7 +715,7 @@ jobs:
     # Gitleaks over full history. Mirrors security.yml (which is main-only) so a
     # leaked secret is caught on develop, not at promotion. Config: .gitleaks.toml.
     name: Secret Scan (Gitleaks)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -730,7 +730,7 @@ jobs:
     # Bandit high+confidence gate over victor/. Mirrors security.yml (main-only)
     # so a code-injection finding is caught on develop. Config: .bandit.
     name: Code Security (Bandit)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -751,7 +751,7 @@ jobs:
 
   dependency-audit:
     name: Dependency Audit (pip-audit)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -766,10 +766,19 @@ jobs:
 
   rust-packages:
     name: Rust Packages
-    runs-on: ubuntu-latest
+    # PyO3 executes the selected Python during tests, so the interpreter and
+    # host glibc must be compatible. Private pools use explicit labels only.
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Verify runner ABI
+        run: >-
+          python3 scripts/ci/runner_preflight.py
+          --require-os ubuntu
+          --min-os-version 24.04
+          --min-glibc 2.38
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         id: python
@@ -813,7 +822,7 @@ jobs:
   # aggregate's needs list records the promotion.
   native-parity:
     name: Native Parity
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -866,7 +875,7 @@ jobs:
   # need — an earlier grep-based version let red CI merge (PRs #226/#264).
   ci-success:
     name: CI Success
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs:
       - format
       - lint

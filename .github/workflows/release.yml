@@ -49,7 +49,7 @@ jobs:
   # ==========================================================================
   test:
     name: Smoke Test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -85,7 +85,7 @@ jobs:
   version-check:
     name: Version Sync Check
     needs: test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -100,7 +100,7 @@ jobs:
   build-python:
     name: Build Python Package
     needs: version-check
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -140,7 +140,7 @@ jobs:
         include:
           # Linux x64 — maturin runs in the manylinux container, which has python3.10–3.14;
           # name 3.11–3.13 explicitly to match the project's tested native-wheel range.
-          - os: ubuntu-latest
+          - os: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
             maturin_args: "--release --out dist -i python3.11 python3.12 python3.13"
           # Linux ARM64 (Graviton, Ampere, Raspberry Pi 5)
@@ -272,7 +272,7 @@ jobs:
   build-docker:
     name: Build Docker Image
     needs: test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -326,7 +326,7 @@ jobs:
   security-scan:
     name: Security Scan (Trivy)
     needs: build-docker
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: read
@@ -354,7 +354,7 @@ jobs:
   build-vscode:
     name: Build VS Code Extension
     needs: test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: vscode-victor
@@ -405,7 +405,7 @@ jobs:
     name: Publish to TestPyPI
     needs: [build-python, generate-checksums, create-release]
     if: github.event.inputs.publish_testpypi == 'true' || contains(github.ref, 'alpha') || contains(github.ref, 'beta') || contains(github.ref, 'rc')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment:
       name: testpypi
       url: https://test.pypi.org/project/victor-ai/
@@ -434,7 +434,7 @@ jobs:
     name: Publish victor-ai to PyPI
     needs: [build-python, generate-checksums, create-release]
     if: "!contains(github.ref, 'alpha') && !contains(github.ref, 'beta') && !contains(github.ref, 'rc')"
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Uniform with release-contracts/-codegraph/-verticals: the trusted publisher for
     # victor-ai on PyPI must be registered with environment = pypi (matches this claim).
     environment:
@@ -465,7 +465,7 @@ jobs:
     name: Publish Native Wheels to PyPI
     needs: [build-native, create-release]
     if: "!contains(github.ref, 'alpha') && !contains(github.ref, 'beta') && !contains(github.ref, 'rc')"
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment:
       name: pypi
       url: https://pypi.org/project/victor-native/
@@ -496,7 +496,7 @@ jobs:
     # build-docker is required: it uploads the `docker-image` artifact this job downloads.
     # Without it, publish can start before the artifact exists ("Artifact not found").
     needs: [build-docker, build-python, generate-checksums, create-release]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Download Docker image artifact
@@ -529,7 +529,7 @@ jobs:
   generate-sbom:
     name: Generate SBOM
     needs: [build-python]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -561,7 +561,7 @@ jobs:
   generate-checksums:
     name: Generate Checksums
     needs: [build-python, build-native, build-binary]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Download release artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -587,7 +587,7 @@ jobs:
   create-release:
     name: Create GitHub Release
     needs: [build-python, generate-checksums, security-scan]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
 

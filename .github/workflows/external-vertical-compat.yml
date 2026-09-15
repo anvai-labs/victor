@@ -29,7 +29,7 @@ jobs:
   # which stay informational until EXTERNAL_VERTICAL_PAT is configured.
   example-vertical-proof:
     name: Example Vertical Proof (Py${{ matrix.python-version }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -161,7 +161,7 @@ jobs:
   # depend on that secret.
   dispatch-compat-checks:
     name: Dispatch Compatibility Checks
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     env:
       HAS_EXTERNAL_VERTICAL_PAT: ${{ secrets.EXTERNAL_VERTICAL_PAT != '' }}
@@ -228,7 +228,7 @@ jobs:
 
   report-status:
     name: Report Dispatch Status
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: dispatch-compat-checks
     if: always()
     env:
