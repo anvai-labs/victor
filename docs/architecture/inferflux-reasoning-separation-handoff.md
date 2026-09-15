@@ -1,7 +1,7 @@
-# Handoff: consume InferFlux's shipped reasoning-separation + producer contract
+# InferFlux reasoning-separation consumer contract
 
-**Date:** 2026-09-15 · **Status:** Not started on Victor's side — this is a from-scratch brief,
-not a status update on in-flight work.
+**Date:** 2026-09-15 · **Status:** Stream consumption and usage accounting implemented.
+Context replay policy remains a separate product decision.
 
 ## Context
 
@@ -10,10 +10,9 @@ close gaps in the origin producer contract InferFlux exposes through Sandhi. Inf
 is now **fully shipped and promoted to its `main`** (PRs #170, #171, #172, #174 — see
 `docs/architecture/sandhi-typed-integration-gap-analysis.md` for the prior state this
 supersedes, and Sandhi's `docs/td/TD-0027-three-way-origin-codesign.md` for the full
-cross-repo picture and what Sandhi still owes). This document is the from-scratch starting
-brief for the two Victor-side items the original plan scoped (Phase 0.3 and Phase 4) — nothing
-here has landed in this repo yet; searched this repo's PR/commit history for any trace of the
-three-way effort and found none past what Sandhi's own repo shows.
+cross-repo picture and what Sandhi still owes). This document records the Victor-side consumer
+contract from the original Phase 0.3 and Phase 4 scope. Victor pins Sandhi's reasoning event and
+usage fields and verifies that reasoning frames remain separate from visible answer content.
 
 **What changed that matters to Victor:** InferFlux now separates model reasoning from
 user-facing content on **both** the non-streaming and streaming paths, for **two** underlying
@@ -28,40 +27,29 @@ with an identical wire shape for both, so nothing here needs format-specific han
   usage frame)
 
 This flows through Sandhi's transparent plane unchanged (Sandhi doesn't rewrite content), so
-whatever Victor's provider transport already receives from Sandhi should already carry these
-fields for any InferFlux-backed model that reasons — the question is only whether Victor's own
-event-mapping and pins are asserting on them yet.
+Victor consumes the resulting typed events through Sandhi and keeps format-specific parsing out
+of the framework and runtime layers.
 
-## What Victor already has (starting point, not landed work)
+## Current Victor behavior
 
-`tests/unit/providers/test_sandhi_event_conformance.py` already pins Sandhi's
-`reasoning_delta` event → `chunk.metadata["reasoning_content"]` mapping (line ~105), using a
-hand-built synthetic event fixture — not a fixture sourced from a real InferFlux response, and
-it does not currently assert on `completion_tokens_details.reasoning_tokens` at all (no
-reference to `reasoning_tokens` anywhere in that file as of this writing). That's the file to
-extend, not a new one to create.
+`tests/unit/providers/test_sandhi_event_conformance.py` pins Sandhi's `reasoning_delta` event to
+`chunk.metadata["reasoning_content"]`. Its InferFlux-shaped typed-event fixture verifies that
+reasoning frames precede answer frames, never appear in visible chunk content, and preserve
+`reasoning_tokens` in Victor's usage dictionary. The consumed-contract pin also requires
+Sandhi's `reasoning_delta` variant and `UsageV2.reasoning_tokens` field.
 
-## Lane V1 — extend the conformance pin (Phase 0.3 → Phase 4 in the original plan)
+## Lane V1 — conformance pin (implemented)
 
-1. In `test_sandhi_event_conformance.py`, add a fixture case carrying
-   `completion_tokens_details.reasoning_tokens` alongside the existing `reasoning_delta`
-   event, asserting it surfaces wherever Victor's usage/cost tracking reads token counts
-   today (find the call site that reads `usage.completion_tokens` and confirm reasoning
-   tokens land somewhere sensible — either folded into the total or tracked separately;
-   this repo's own cost-accounting design should decide which, not this handoff).
-2. If any existing pin currently *tolerates the absence* of `reasoning_content`/
-   `reasoning_tokens` (grep for something like a conditional skip or an "optional field" note
-   around the reasoning fixtures — none was obviously present in the file as read, but check
-   `tests/unit/providers/test_sandhi_transport.py` and `test_sandhi_transport_anthropic.py`
-   too, since they share fixture patterns), flip it to assert presence — this was explicitly
-   deferred in the original plan pending Phase 2 landing on InferFlux, which it now has.
-3. Add (or confirm existing coverage for) an end-to-end fixture shaped like a real
-   InferFlux streaming response with interleaved `delta.reasoning_content` then
-   `delta.content` frames, to catch an ordering regression specifically — the synthetic
-   fixture today tests the mapping, not the interleaving contract.
+1. `test_sandhi_event_conformance.py` carries reasoning usage alongside `reasoning_delta` events
+   and asserts that Victor surfaces it as `usage["reasoning_tokens"]`.
+2. `test_sandhi_consumed_contract_pin.py` fails if the installed Sandhi schema removes the
+   reasoning event or usage field that Victor consumes.
+3. An InferFlux-shaped stream verifies two reasoning frames followed by two answer frames and a
+   terminal usage event. It catches ordering, visible-content leakage and usage regressions at
+   the Sandhi-to-Victor boundary.
 
-*Done when:* the conformance suite would fail if InferFlux started emitting
-`reasoning_content` mixed into `content`, or dropped `reasoning_tokens` from the usage frame.
+This is a consumer-boundary guarantee. InferFlux owns its raw producer-frame tests; Victor's
+suite fails if Sandhi delivers mixed reasoning/answer events or drops the consumed usage field.
 
 ## Lane V2 — context-trimming policy decision (optional, only if reasoning content grows large)
 
@@ -79,16 +67,14 @@ available number if one is warranted).
 
 ## Lane V3 — record
 
-Once V1 lands, a thin consumer ADR under the ADR-022 umbrella (`docs/architecture/adr/022-
-provider-gateway-feature-layer.md` — confirmed this exists) is the original plan's suggested
-record, following this repo's own "one repo authoritative, others thin consumer ADRs" rule
-(InferFlux/Sandhi own the contract; Victor's ADR just states what it consumes and pins).
+ADR-022 (`docs/architecture/adr/022-provider-gateway-feature-layer.md`) remains the owning
+provider-boundary decision. A separate ADR is warranted only if Victor changes the context replay
+or trimming policy; InferFlux and Sandhi remain authoritative for the producer and wire contracts.
 
 ## Verification
 
-- This repo's existing test suite conventions (`pytest -m native_parity` and whatever runs
-  `tests/unit/providers/` today) — should stay green throughout; V1 only adds/tightens
-  assertions, shouldn't touch runtime code unless the mapping itself needs a fix.
+- The focused Sandhi contract and transport suite passes 96 tests. The change adds contract
+  assertions without changing runtime behavior.
 - Manual e2e (once, not CI-gated): a real InferFlux reasoning-model call, through Sandhi, into
   a Victor session — confirm `reasoning_content` displays separately from the final answer in
   whatever UI surface renders it (grep found `test_stream_renderer.py`,
