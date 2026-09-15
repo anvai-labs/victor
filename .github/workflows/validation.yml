@@ -28,7 +28,7 @@ jobs:
   # FEP Validation - runs in parallel with vertical validation
   fep-validation:
     name: Validate FEPs
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -96,7 +96,7 @@ jobs:
   # Vertical Validation - runs in parallel with FEP validation
   vertical-validation:
     name: Validate Verticals
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -170,7 +170,7 @@ jobs:
   # Post validation results as PR comment
   validation-summary:
     name: Validation Summary
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [fep-validation, vertical-validation]
     if: always()
     steps:

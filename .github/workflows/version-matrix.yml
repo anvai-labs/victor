@@ -20,7 +20,7 @@ concurrency:
 jobs:
   matrix-test:
     name: "${{ matrix.vertical }} (Py${{ matrix.python }})"
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
 
     strategy:
@@ -92,7 +92,7 @@ jobs:
 
   summary:
     name: Version Matrix Summary
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: matrix-test
     if: always()
 

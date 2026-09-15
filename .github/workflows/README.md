@@ -287,7 +287,7 @@ concurrency:
 jobs:
   my-job:
     name: My Job
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
 
     steps:
@@ -305,6 +305,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
           pip install -e ".[dev]"
 
       - name: Run validation
@@ -320,6 +321,20 @@ jobs:
 ```
 
 ## Troubleshooting
+
+### Runner image and ABI mismatches
+
+Victor pins GitHub-hosted Linux jobs to `ubuntu-24.04`. Do not add the
+`ubuntu-latest` label to a self-hosted runner: a scalar `runs-on` value is a
+label match, not proof that GitHub provisioned the machine. Use explicit
+self-hosted capability labels after following the
+[runner preparation guide](../../docs/development/self-hosted-runners.md).
+
+Docker availability on a runner does not isolate a job. A workflow uses the
+host environment unless the job declares `container:` or an individual step
+runs a container action. Host glibc, CPU features, tool caches and disk state
+therefore remain observable. ABI-sensitive jobs run the repository preflight
+before installing dependencies.
 
 ### Workflow Not Triggering
 
