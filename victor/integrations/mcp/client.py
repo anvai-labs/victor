@@ -180,6 +180,7 @@ class MCPClient:
 
         self.process: Optional[subprocess.Popen] = None
         self.initialized = False
+        self._request_lock = asyncio.Lock()
 
         # Health monitoring configuration
         self._health_check_interval = health_check_interval
@@ -282,16 +283,6 @@ class MCPClient:
         """Synchronously clean up subprocess resources (for use in sync contexts)."""
         if self.process:
             try:
-                if self.process.stdin:
-                    self.process.stdin.close()
-                if self.process.stdout:
-                    self.process.stdout.close()
-                if self.process.stderr:
-                    self.process.stderr.close()
-            except Exception as e:
-                logger.debug(f"Error closing process pipes during cleanup: {e}")
-
-            try:
                 self.process.terminate()
                 self.process.wait(timeout=McpTimeouts.TERMINATE)
             except subprocess.TimeoutExpired:
@@ -302,6 +293,16 @@ class MCPClient:
                     logger.debug(f"Error killing process during cleanup: {e}")
             except Exception as e:
                 logger.debug(f"Error terminating process during cleanup: {e}")
+
+            try:
+                if self.process.stdin:
+                    self.process.stdin.close()
+                if self.process.stdout:
+                    self.process.stdout.close()
+                if self.process.stderr:
+                    self.process.stderr.close()
+            except Exception as e:
+                logger.debug(f"Error closing process pipes during cleanup: {e}")
 
             self.process = None
             self.initialized = False
@@ -461,7 +462,9 @@ class MCPClient:
             )
 
         return MCPToolCallResult(
-            tool_name=tool_name, success=False, error="No response from server"
+            tool_name=tool_name,
+            success=False,
+            error="No response from server; execution may have completed. Reconcile its operation ID before retrying.",
         )
 
     async def read_resource(self, uri: str) -> Optional[str]:
@@ -486,60 +489,54 @@ class MCPClient:
     async def _send_request(
         self, method: MCPMessageType, params: Dict[str, Any]
     ) -> Optional[Dict[str, Any]]:
-        """Send request to MCP server.
+        """Serialize stdio ownership and return only the matching JSON-RPC response.
 
-        Args:
-            method: Request method
-            params: Request parameters
-
-        Returns:
-            Response dictionary or None
+        A deadline or cancellation retires the connection before releasing the
+        lock. Cancelling an executor Future does not stop its blocking reader;
+        keeping the process alive would let that reader steal a later response.
+        Tool calls are never replayed here: their external outcome may be unknown.
         """
-        if not self.process or not self.process.stdin or not self.process.stdout:
-            return None
-
-        msg_id = str(uuid.uuid4())
-        message = MCPMessage(id=msg_id, method=method, params=params)
-
-        try:
-            # Send request - use asyncio to avoid blocking
+        async with self._request_lock:
+            process = self.process
+            if not process or not process.stdin or not process.stdout:
+                return None
+            msg_id = str(uuid.uuid4())
+            message = MCPMessage(id=msg_id, method=method, params=params)
             request_json = message.model_dump_json(exclude_none=True)
-            (request_json + "\n").encode()
-
-            # Write asynchronously using run_in_executor to avoid blocking
             loop = asyncio.get_running_loop()
-            await loop.run_in_executor(
-                None,
-                lambda: (
-                    self.process.stdin.write(request_json + "\n"),
-                    self.process.stdin.flush(),
-                ),
-            )
 
-            # Read response with timeout to avoid indefinite blocking
+            def exchange():
+                # Capture this transport, never a future reconnected self.process.
+                process.stdin.write(request_json + "\n")
+                process.stdin.flush()
+                while True:
+                    line = process.stdout.readline()
+                    if not line:
+                        raise EOFError("MCP transport closed before response")
+                    response = json.loads(line)
+                    if not isinstance(response, dict):
+                        raise ValueError("MCP response must be an object")
+                    if response.get("id") != msg_id:
+                        # Notifications and late/unmatched replies are not results.
+                        continue
+                    if "result" not in response and "error" not in response:
+                        raise ValueError("MCP response lacks result/error")
+                    return response
+
             try:
-                response_line = await asyncio.wait_for(
-                    loop.run_in_executor(None, self.process.stdout.readline),
-                    timeout=McpTimeouts.RESPONSE,
+                return await asyncio.wait_for(
+                    loop.run_in_executor(None, exchange), timeout=McpTimeouts.RESPONSE
                 )
-            except asyncio.TimeoutError:
-                logger.warning(f"MCP request timeout for method: {method}")
+            except asyncio.CancelledError:
+                if self.process is process:
+                    await self._cleanup_process_async()
+                raise
+            except Exception:
+                # Termination precedes pipe closure: readline holds TextIO locks.
+                if self.process is process:
+                    await self._cleanup_process_async()
+                logger.warning("MCP exchange failed; transport retired; outcome may be unknown")
                 return None
-
-            if not response_line:
-                return None
-
-            response = json.loads(response_line)
-
-            # Verify response ID matches
-            if response.get("id") != msg_id:
-                logger.warning(f"Response ID mismatch: {response.get('id')} != {msg_id}")
-
-            return response
-
-        except Exception as e:
-            logger.error(f"Error sending MCP request: {e}")
-            return None
 
     async def ping(self) -> bool:
         """Ping the MCP server.
@@ -581,16 +578,6 @@ class MCPClient:
         if self.process:
             # Close file handles to prevent resource leaks
             try:
-                if self.process.stdin:
-                    self.process.stdin.close()
-                if self.process.stdout:
-                    self.process.stdout.close()
-                if self.process.stderr:
-                    self.process.stderr.close()
-            except Exception as e:
-                logger.debug(f"Error closing process pipes: {e}")
-
-            try:
                 self.process.terminate()
                 self.process.wait(timeout=McpTimeouts.TERMINATE)
             except subprocess.TimeoutExpired:
@@ -601,6 +588,16 @@ class MCPClient:
                     logger.debug(f"Error killing process: {e}")
             except Exception as e:
                 logger.debug(f"Error terminating process: {e}")
+
+            try:
+                if self.process.stdin:
+                    self.process.stdin.close()
+                if self.process.stdout:
+                    self.process.stdout.close()
+                if self.process.stderr:
+                    self.process.stderr.close()
+            except Exception as e:
+                logger.debug(f"Error closing process pipes: {e}")
 
             self.process = None
             self.initialized = False
@@ -680,16 +677,6 @@ class MCPClient:
         if self.process:
             # Close file handles to prevent resource leaks
             try:
-                if self.process.stdin:
-                    self.process.stdin.close()
-                if self.process.stdout:
-                    self.process.stdout.close()
-                if self.process.stderr:
-                    self.process.stderr.close()
-            except Exception as e:
-                logger.debug(f"Error closing process pipes: {e}")
-
-            try:
                 self.process.terminate()
                 # Use asyncio to wait non-blocking
                 loop = asyncio.get_running_loop()
@@ -703,6 +690,16 @@ class MCPClient:
                     await loop.run_in_executor(None, self.process.wait)
             except Exception as e:
                 logger.debug(f"Error terminating process: {e}")
+
+            try:
+                if self.process.stdin:
+                    self.process.stdin.close()
+                if self.process.stdout:
+                    self.process.stdout.close()
+                if self.process.stderr:
+                    self.process.stderr.close()
+            except Exception as e:
+                logger.debug(f"Error closing process pipes: {e}")
 
             self.process = None
             self.initialized = False
