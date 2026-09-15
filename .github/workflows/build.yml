@@ -41,7 +41,7 @@ jobs:
   # Build Python packages
   build-python:
     name: Build Python Package
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -81,7 +81,7 @@ jobs:
   # Build a local Docker image artifact without remote Buildx bootstrap
   build-docker:
     name: Build Docker Image
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -111,7 +111,7 @@ jobs:
   # Build VS Code extension
   build-vscode:
     name: Build VS Code Extension
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -149,7 +149,7 @@ jobs:
   # Build summary
   build-summary:
     name: Build Summary
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [build-python, build-docker, build-vscode]
     if: always()
     steps:
