@@ -46,4 +46,23 @@ Close clients to terminate their subprocess and background health monitoring. Ru
 instrumentation uses [topic subscriptions](../observability/event-bus.md). The stdio
 connection alone does not sandbox tools or grant remote HTTP access.
 
+Requests are serialized and responses must match their request ID. A timeout,
+cancelled request, malformed response or EOF retires that process; Victor never
+automatically replays the tool call. A lost response can follow a successful
+external write: reconcile through the tool's operation receipt before deciding
+whether another action is appropriate.
+
+Retirement detaches the captured process and sandbox owner before awaiting cleanup,
+so delayed cleanup cannot terminate a replacement. An owned daemon worker keeps
+blocking pipe I/O off the event loop and its default executor. If a descendant
+retains a pipe, `get_status()["transport_cleanup_pending"]` remains true and this
+client refuses reconnection until cleanup settles. This bounds stranded workers
+per client but sacrifices reconnection availability; it is not a process-tree
+containment guarantee. Prefer `await client.close()` for orderly shutdown.
+
+A stdio bridge can connect to a separately managed application service. Its exit
+must not be interpreted as closing every shared application session. Persistent
+sessions, page generations, grants and write receipts belong to that service,
+independently of the MCP connection.
+
 The earlier HTTP-style examples are preserved in [page history](https://github.com/anvai-labs/victor/commits/develop/docs/guides/integration/mcp-clients.md).
