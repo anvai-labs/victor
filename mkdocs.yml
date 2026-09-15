@@ -146,6 +146,7 @@ nav:
       - Streaming Pipeline: architecture/streaming-pipeline.md
       - Smart Routing: architecture/smart_routing.md
       - Edge Provider Strategy: architecture/edge-provider-tool-strategy.md
+      - InferFlux Reasoning Contract: architecture/inferflux-reasoning-separation-handoff.md
       - Unified Prompt Architecture: architecture/unified_prompt_architecture.md
       - ADRs: architecture/adr/README.md
       - Framework Proposals: https://github.com/anvai-labs/victor/tree/develop/feps
