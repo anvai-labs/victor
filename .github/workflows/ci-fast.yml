@@ -315,6 +315,9 @@ jobs:
       - name: Install dependencies
         run: |
           pip install --upgrade pip
+          # Resolve the CPU wheel before the dev extra so pip does not pull
+          # multi-gigabyte CUDA artifacts into this CPU-only guard job.
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
           # Install victor-contracts from local repository first (includes constants module)
           pip install -e ./victor-contracts
           # Then install victor-ai (which depends on victor-contracts)
@@ -349,6 +352,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install --upgrade pip
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
           pip install -e ./victor-contracts
           pip install -e ".[dev]"
 
@@ -463,6 +467,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install --upgrade pip
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
           # Foundational packages first, then victor-ai with dev extras. Core's semantic
           # parser facades exercise the real shared path in changed-file tests (ADR-015).
           pip install -e ./victor-contracts
@@ -562,6 +567,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install --upgrade pip
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
           # victor-contracts first (provides constants), then victor-ai.
           # Needed because pytest collects tests/unit/conftest.py, which imports victor.
           pip install -e ./victor-contracts
@@ -579,6 +585,7 @@ jobs:
             tests/unit/runtime/test_singleton_guard.py \
             tests/unit/runtime/test_feature_flag_manifest_guard.py \
             tests/unit/contracts/test_feature_flag_references.py \
+            tests/unit/scripts/test_ci_dependency_policy.py \
             tests/unit/scripts/test_repo_hygiene_check.py \
             tests/unit/scripts/test_version_stamp_hook.py \
             tests/unit/framework/rl/test_trace_cache_l2.py \
@@ -825,6 +832,7 @@ jobs:
       - name: Install Python dependencies + maturin
         run: |
           pip install --upgrade pip "maturin>=1.4"
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
           # victor-contracts first, then victor-ai — mirroring the guard job's
           # editable install (dev extra brings pytest + pytest-timeout, and
           # tiktoken for the parity ranks) so pytest can collect conftest.

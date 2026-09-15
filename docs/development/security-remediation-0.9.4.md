@@ -71,6 +71,13 @@ regression reproduces the eager native import on unchanged develop and passes
 with the deferred import. With Python 3.12 selected explicitly, all 256 Rust
 workspace tests pass and all four publishable crate archives verify locally.
 
+The automatic post-merge run exposed one remaining dependency-resolution cost:
+Strict Fallback Guards spent its eight-minute budget downloading more than 3 GB
+of CUDA-enabled Torch artifacts, although the job is CPU-only. Every CI shell
+step that resolves `.[dev]` now installs Torch from the CPU wheel index first.
+A repository-wide policy test covers workflows and composite actions so a new
+dev install cannot silently restore the CUDA dependency chain.
+
 The September 14 container digests below remain evidence for that audited tree;
 release artifacts must be rebuilt and scanned from the final promoted commit.
 
