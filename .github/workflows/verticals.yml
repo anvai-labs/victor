@@ -44,7 +44,10 @@ jobs:
 
   test:
     name: Vertical tests (Py${{ matrix.python-version }})
-    runs-on: ubuntu-latest
+    # ubuntu-latest also matches the organization's self-hosted overflow hosts.
+    # These tests execute LanceDB's native wheel, which SIGILLs on dataserver2.
+    # Keep native workloads on the compatible standard hosted image.
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -56,6 +59,9 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Install framework + contracts + verticals (editable)
         run: make install-verticals
+      - name: Verify LanceDB native backend compatibility
+        run: |
+          python -c "import lancedb; print('LanceDB native import OK:', lancedb.__version__)"
       - name: Run vertical test suites
         run: make test-verticals
 

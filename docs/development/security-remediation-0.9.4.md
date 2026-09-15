@@ -56,9 +56,20 @@ unit tests mock the backend without importing its native extension. Import
 deferral does not establish that the LanceDB binary supports the runner's CPU;
 actual backend execution still requires a compatible build and host.
 
-Independent review approved the changes. The affected suites passed 407 tests,
-and full collection found 32,476 tests. The fresh-process regression reproduces
-the eager native import on unchanged develop and passes with the deferred import.
+The coding vertical's air-gapped integration tests execute LanceDB deliberately.
+Those jobs use `ubuntu-24.04` rather than the `ubuntu-latest` label also advertised
+by the incompatible overflow host. An explicit native import probe verifies the
+backend before the full vertical suite; no integration tests are skipped.
+
+The Rust workspace test job also declares Python 3.12 and binds PyO3 to that
+interpreter. Previously it discovered the overflow host's Python 3.8, then failed
+to link its missing `libpython3.8`. Rust tests and crate packaging remain required.
+
+Independent review approved the import and scanner changes. The affected suites
+passed 407 tests, and full collection found 32,476 tests. The fresh-process
+regression reproduces the eager native import on unchanged develop and passes
+with the deferred import. With Python 3.12 selected explicitly, all 256 Rust
+workspace tests pass and all four publishable crate archives verify locally.
 
 The September 14 container digests below remain evidence for that audited tree;
 release artifacts must be rebuilt and scanned from the final promoted commit.
