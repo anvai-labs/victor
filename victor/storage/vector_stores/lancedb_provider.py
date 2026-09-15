@@ -28,16 +28,15 @@ For embedding models:
 - OpenAI: pip install openai (requires API key)
 """
 
+import importlib.util
 import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-try:
-    import lancedb
-
-    LANCEDB_AVAILABLE = True
-except ImportError:
-    LANCEDB_AVAILABLE = False
+# Provider registration must not load an optional native backend. Importing
+# LanceDB can fail at the machine-code level on unsupported CPUs, even when
+# the caller only needs an unrelated provider or the registry's public types.
+LANCEDB_AVAILABLE = importlib.util.find_spec("lancedb") is not None
 
 from victor.storage.vector_stores.base import (
     BaseEmbeddingProvider,
@@ -101,6 +100,9 @@ class LanceDBProvider(BaseEmbeddingProvider):
         """Initialize LanceDB and load embedding model."""
         if self._initialized:
             return
+
+        # Resolve the backend only when selected, before starting model resources.
+        import lancedb
 
         # Get embedding model configuration from EmbeddingConfig
         model_type = self.config.embedding_model_type
