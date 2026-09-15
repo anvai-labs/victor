@@ -146,7 +146,7 @@ class SemanticResponseCache:
         """Generate hash for query + context."""
         context_str = json_dumps(context, sort_keys=True, default=str) if context else ""
         combined = f"{query}||{context_str}"
-        return hashlib.md5(combined.encode()).hexdigest()
+        return hashlib.md5(combined.encode(), usedforsecurity=False).hexdigest()
 
     def get(
         self,

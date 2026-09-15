@@ -284,7 +284,7 @@ class SessionStartDebouncer:
 
             if relevant:
                 fingerprint = hashlib.md5(
-                    json.dumps(relevant, sort_keys=True).encode()
+                    json.dumps(relevant, sort_keys=True).encode(), usedforsecurity=False
                 ).hexdigest()[:8]
                 return f"{session_id}:{fingerprint}"
 
@@ -302,7 +302,7 @@ class SessionStartDebouncer:
         """
         # Sort keys for consistent hashing
         normalized = json.dumps(metadata, sort_keys=True)
-        return hashlib.md5(normalized.encode()).hexdigest()
+        return hashlib.md5(normalized.encode(), usedforsecurity=False).hexdigest()
 
     def _cleanup_old_events(self, event_key: str, window_start: datetime) -> None:
         """

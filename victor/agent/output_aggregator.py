@@ -78,7 +78,7 @@ class ToolOutput:
 
         try:
             args_str = json_dumps(args, sort_keys=True, default=str)
-            return hashlib.md5(args_str.encode()).hexdigest()[:12]
+            return hashlib.md5(args_str.encode(), usedforsecurity=False).hexdigest()[:12]
         except Exception:
             return ""
 

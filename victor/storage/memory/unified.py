@@ -148,7 +148,9 @@ class MemoryResult:
         """Generate ID if not provided."""
         if not self.id:
             content_str = str(self.content)[:100]
-            self.id = hashlib.md5(f"{self.source.name}:{content_str}".encode()).hexdigest()[:16]
+            self.id = hashlib.md5(
+                f"{self.source.name}:{content_str}".encode(), usedforsecurity=False
+            ).hexdigest()[:16]
 
     def __repr__(self) -> str:
         return (

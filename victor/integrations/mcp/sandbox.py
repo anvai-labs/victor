@@ -353,50 +353,15 @@ class SandboxedProcess:
 # Factory function for creating sandboxed MCP client
 def create_sandboxed_mcp_client(
     config: Optional[SandboxConfig] = None,
-) -> "Any":  # Returns MCPClient subclass (locally defined)
+) -> "Any":
     """Create an MCP client with sandboxing.
 
     Args:
         config: Sandbox configuration
 
     Returns:
-        SandboxedMCPClient instance
+        MCPClient using its configured resource-limited process lifecycle
     """
     from victor.integrations.mcp.client import MCPClient
 
-    class SandboxedMCPClient(MCPClient):
-        """MCP client with sandboxed subprocess."""
-
-        def __init__(self, sandbox_config: Optional[SandboxConfig] = None, **kwargs):
-            super().__init__(**kwargs)
-            self._sandbox = SandboxedProcess(sandbox_config)
-
-        async def connect(self, command: List[str]) -> bool:
-            """Connect using sandboxed process."""
-            self._command = command
-
-            try:
-                self.process = await self._sandbox.start(command)
-                success = await self.initialize()
-
-                if success:
-                    self._running = True
-                    return True
-
-                await self._sandbox.terminate(self.process)
-                return False
-
-            except Exception as e:
-                logger.error(f"Sandboxed connection failed: {e}")
-                return False
-
-        def disconnect(self, reason: Optional[str] = None) -> None:
-            """Disconnect and cleanup sandbox."""
-            self._running = False
-
-            if self.process:
-                asyncio.create_task(self._sandbox.terminate(self.process))
-                self.process = None
-                self.initialized = False
-
-    return SandboxedMCPClient(config)
+    return MCPClient(sandbox_config=config if config is not None else SandboxConfig())

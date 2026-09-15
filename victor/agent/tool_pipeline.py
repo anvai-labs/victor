@@ -1380,7 +1380,7 @@ class ToolPipeline:
 
         timestamp = int(time.time() * 1000)
         hash_input = f"{tool_name}_{timestamp}"
-        return hashlib.md5(hash_input.encode()).hexdigest()[:16]
+        return hashlib.md5(hash_input.encode(), usedforsecurity=False).hexdigest()[:16]
 
     def is_known_failure(self, tool_name: str, args: Dict[str, Any]) -> bool:
         """Check if a tool call is known to fail.
@@ -2696,7 +2696,7 @@ class ToolPipeline:
         import hashlib
 
         args_str = str(sorted(arguments.items())) if arguments else ""
-        args_hash = hashlib.md5(args_str.encode()).hexdigest()[:12]
+        args_hash = hashlib.md5(args_str.encode(), usedforsecurity=False).hexdigest()[:12]
 
         reasoning = ""
         enricher = getattr(self, "_trace_enricher", None)

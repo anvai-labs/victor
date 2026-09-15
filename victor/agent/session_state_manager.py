@@ -353,7 +353,7 @@ class SessionStateManager:
         # Sort keys for consistent hashing
         sorted_args = sorted(args.items())
         args_str = str(sorted_args)
-        return hashlib.md5(args_str.encode()).hexdigest()
+        return hashlib.md5(args_str.encode(), usedforsecurity=False).hexdigest()
 
     def check_failed_signature(self, name: str, args_hash: str) -> bool:
         """Check if a tool call signature has already failed.

@@ -739,7 +739,7 @@ jobs:
             -o bandit-report.json \
             --severity-level high \
             --confidence-level high \
-            -s B101,B324 \
+            -s B101 \
             --ini .bandit
 
   dependency-audit:

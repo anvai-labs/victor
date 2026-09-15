@@ -140,6 +140,7 @@ def test_workflow_runtime_exports_definition_and_executor_helpers() -> None:
     assert WorkflowRuntimeWorkflowExecutor.__name__ in (
         "WorkflowExecutor",
         "CompiledWorkflowExecutor",
+        "StateGraphWorkflowExecutor",
     )
     assert WorkflowRuntimeWorkflowContext.__name__ == "WorkflowContext"
     assert WorkflowRuntimeWorkflowResult.__name__ == "WorkflowResult"
@@ -239,7 +240,11 @@ def test_workflow_executor_runtime_deprecated_but_resolves() -> None:
             register_compute_handler,
         )
 
-    assert WorkflowExecutor.__name__ in ("WorkflowExecutor", "CompiledWorkflowExecutor")
+    assert WorkflowExecutor.__name__ in (
+        "WorkflowExecutor",
+        "CompiledWorkflowExecutor",
+        "StateGraphWorkflowExecutor",
+    )
     assert WorkflowContext.__name__ == "WorkflowContext"
     assert WorkflowResult.__name__ == "WorkflowResult"
     assert NodeResult.__name__ == "NodeResult"

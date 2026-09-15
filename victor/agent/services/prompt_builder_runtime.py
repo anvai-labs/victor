@@ -114,7 +114,7 @@ class PromptBuilderRuntime:
     def kv_prefix_fingerprint(self) -> str:
         """Compute a short stable fingerprint of the current system prompt prefix."""
         prompt = getattr(self._runtime, "_system_prompt", "") or ""
-        return hashlib.md5(prompt[:500].encode()).hexdigest()[:12]
+        return hashlib.md5(prompt[:500].encode(), usedforsecurity=False).hexdigest()[:12]
 
     def _get_kv_setting_enabled(self) -> bool:
         """Return whether KV optimization is enabled independently of provider support."""
