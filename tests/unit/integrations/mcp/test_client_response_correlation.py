@@ -114,3 +114,160 @@ async def test_failed_exchange_retires_sandbox_owner():
         assert client.process is None
     finally:
         await client.cleanup()
+
+
+@pytest.mark.asyncio
+async def test_retirement_detaches_before_await_and_refuses_replacement(monkeypatch):
+    from unittest.mock import AsyncMock, MagicMock
+
+    client = child("import sys; sys.stdin.readline()")
+    entered, release = asyncio.Event(), asyncio.Event()
+    owner = MagicMock()
+
+    async def terminate():
+        entered.set()
+        await release.wait()
+
+    owner.terminate_all = AsyncMock(side_effect=terminate)
+    client._sandboxed_process = owner
+    launch = AsyncMock()
+    monkeypatch.setattr(client, "_start_process", launch)
+    request = asyncio.create_task(client._send_request(MCPMessageType.PING, {}))
+    try:
+        await asyncio.wait_for(entered.wait(), 2)
+        assert client.process is None
+        assert not await client.connect(["replacement"])
+        launch.assert_not_called()
+    finally:
+        release.set()
+        await request
+        await client.cleanup()
+
+
+@pytest.mark.asyncio
+async def test_cancellation_during_retirement_cannot_revive_old_transport(monkeypatch):
+    from unittest.mock import AsyncMock, MagicMock
+
+    monkeypatch.setattr(McpTimeouts, "RESPONSE", 0.05)
+    client = child("import sys,time; sys.stdin.readline(); time.sleep(2)")
+    process = client.process
+    entered, release = asyncio.Event(), asyncio.Event()
+    owner = MagicMock()
+
+    async def terminate():
+        entered.set()
+        await release.wait()
+
+    owner.terminate_all = AsyncMock(side_effect=terminate)
+    client._sandboxed_process = owner
+    request = asyncio.create_task(client._send_request(MCPMessageType.PING, {}))
+    try:
+        await asyncio.wait_for(entered.wait(), 2)
+        request.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await request
+        assert client.process is None
+        assert await client._send_request(MCPMessageType.PING, {}) is None
+    finally:
+        release.set()
+        await client.cleanup()
+        if process.poll() is None:
+            process.kill()
+        await asyncio.to_thread(process.wait, timeout=3)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("direction", ["read", "write"])
+async def test_inherited_pipes_cannot_block_event_loop_or_accumulate_workers(
+    tmp_path, monkeypatch, direction
+):
+    from unittest.mock import AsyncMock
+    import time
+
+    ready, release = tmp_path / "ready", tmp_path / "release"
+    descendant = f"""import pathlib,time
+pathlib.Path({str(ready)!r}).write_text('ready')
+end=time.monotonic()+3
+while not pathlib.Path({str(release)!r}).exists() and time.monotonic()<end: time.sleep(.01)
+"""
+    source = f"""import subprocess,sys,time
+subprocess.Popen([sys.executable,'-c',{descendant!r}])
+time.sleep(5)
+"""
+    client = child(source)
+    launch = AsyncMock()
+    monkeypatch.setattr(client, "_start_process", launch)
+    monkeypatch.setattr(McpTimeouts, "RESPONSE", 0.1)
+    heartbeat = asyncio.Event()
+    try:
+        for _ in range(200):
+            if ready.exists():
+                break
+            await asyncio.sleep(0.01)
+        assert ready.exists()
+        asyncio.get_running_loop().call_later(0.2, heartbeat.set)
+        start = time.monotonic()
+        assert (
+            await client._send_request(
+                MCPMessageType.PING, {"data": "x" * 1000000} if direction == "write" else {}
+            )
+            is None
+        )
+        await asyncio.wait_for(heartbeat.wait(), 1)
+        assert time.monotonic() - start < 1.5
+        assert client.process is None
+        assert client.get_status()["transport_cleanup_pending"]
+        for _ in range(3):
+            assert not await client.connect(["replacement"])
+        launch.assert_not_called()
+    finally:
+        release.write_text("release")
+        await client.cleanup()
+        # Let the owned worker observe EOF/broken pipe and finish closing streams.
+        for _ in range(200):
+            if not client.get_status().get("transport_cleanup_pending", False):
+                break
+            await asyncio.sleep(0.01)
+
+
+@pytest.mark.asyncio
+async def test_retirement_at_worker_handoff_closes_every_stream():
+    import io
+    import threading
+    from unittest.mock import MagicMock
+    from victor.integrations.mcp.stdio_transport import StdioTransport
+
+    process = MagicMock()
+    process.stdin = io.StringIO()
+    process.stdout = io.StringIO('{"id":"1","result":{}}\n')
+    process.stderr = io.StringIO()
+    process.poll.return_value = 0
+    transport = StdioTransport(process)
+    reached, release, done = threading.Event(), threading.Event(), threading.Event()
+    done.set()
+
+    class GatedCompletion:
+        def clear(self):
+            done.clear()
+
+        def is_set(self):
+            return done.is_set()
+
+        def set(self):
+            reached.set()
+            if not release.wait(3):
+                raise RuntimeError("worker handoff gate timed out")
+            done.set()
+
+    transport.worker_done = GatedCompletion()
+    result = transport.exchange("{}", "1")
+    try:
+        assert await asyncio.to_thread(reached.wait, 2)
+        transport.retire()
+        await asyncio.to_thread(transport.wait_and_close)
+        assert not transport.settled()
+    finally:
+        release.set()
+    await asyncio.wait_for(result, 2)
+    assert all(stream.closed for stream in (process.stdin, process.stdout, process.stderr))
+    assert transport.settled()
