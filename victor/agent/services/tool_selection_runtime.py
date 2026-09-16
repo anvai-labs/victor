@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from victor.core.json_utils import json_loads
 import logging
+import os
 from typing import Any, Callable, NamedTuple
 
 from victor.tools.tool_supply_trace import TOOL_SUPPLY_TOPIC, ToolSupplyTrace
@@ -242,6 +243,20 @@ class ToolSelectionRuntime:
             _emit_tool_supply_trace(trace.mark_skipped("provider_or_model_no_tools"))
             return None
 
+        # Tool pruning is disabled by default: expose every enabled
+        # registered tool to the LLM call as-is, byte-stable across turns.
+        # Selection/narrowing - semantic ranking, stage pruning, intent
+        # filtering AND the Q&A read-core downgrade below - is opt-in via
+        # VICTOR_TOOL_SELECTION=1, because a narrow per-turn supply starves
+        # agentic loops that need tools the ranker did not surface (observed:
+        # write-capable members reduced to read-only).
+        if not self._tool_selection_enabled(runtime):
+            stable = self._stable_all_tools(runtime)
+            if stable:
+                trace.set_candidates(stable)
+                _emit_tool_supply_trace(trace.finalize(stable))
+                return stable
+
         # Q&A necessity gate (tool-supply P3). A trivially-safe greeting still hard-skips
         # (no tools); a borderline Q&A turn gets a minimal read-only core instead of None,
         # so "how does X work?" can still read X rather than looping tool-less.
@@ -260,6 +275,7 @@ class ToolSelectionRuntime:
             trace.set_candidates(core)
             _emit_tool_supply_trace(trace.finalize(core))
             return core or None
+
 
         if planned_tools is None and goals:
             available_inputs = ["query"]
@@ -415,6 +431,66 @@ class ToolSelectionRuntime:
                 "[ToolSchema] Stable curated: %d tools (%s) — prefix-cache stable",
                 len(stable),
                 ", ".join(sorted(selector._enabled_tools)),
+            )
+        return stable or None
+
+    @staticmethod
+    def _tool_selection_enabled(runtime: Any) -> bool:
+        """True when semantic per-turn pruning is explicitly opted in."""
+        service = getattr(runtime, "_tool_service", None)
+        config = getattr(service, "_config", None)
+        flag = getattr(config, "tool_selection_enabled", None)
+        if flag is not None:
+            return bool(flag)
+        return os.environ.get("VICTOR_TOOL_SELECTION", "").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+
+    def _stable_all_tools(self, runtime: Any) -> Any:
+        """Byte-stable ToolDefinition list over the whole enabled registry."""
+        selector = getattr(runtime, "tool_selector", None)
+        registry = getattr(selector, "tools", None)
+        if not registry:
+            return None
+        try:
+            listed = registry.list_tools(only_enabled=True)
+        except Exception:
+            return None
+        # list_tools() returns tool instances (or names, depending on the
+        # registry flavor) - normalize to names.
+        names = [
+            str(getattr(t, "name", t))
+            for t in (listed or [])
+            if getattr(t, "name", None) or isinstance(t, str)
+        ]
+        if not names:
+            return None
+
+        cache_key = ("all_enabled", frozenset(names))
+        cached = getattr(self, "_all_tools_cache", None)
+        if cached and cached[0] == cache_key:
+            return cached[1]
+
+        try:
+            from victor.agent.tool_selection import tool_to_definition
+            from victor.tools.enums import SchemaLevel
+        except ImportError:
+            return None
+
+        stable: list[Any] = []
+        for name in sorted(names):
+            tool = registry.get(name)
+            if tool is not None:
+                stable.append(tool_to_definition(tool, SchemaLevel.FULL))
+
+        if stable:
+            self._all_tools_cache = (cache_key, stable)
+            logger.info(
+                "[ToolSchema] Pruning disabled: %d tools exposed as-is — prefix-cache stable",
+                len(stable),
             )
         return stable or None
 

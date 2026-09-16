@@ -3094,6 +3094,12 @@ class AgenticLoop:
         is_substantial = len(content) > 100
         if not (had_prior_tool_usage or is_substantial):
             return False
+        # Before ANY tool usage, a future-tense plan is narration, not a
+        # delivered answer ("Let me create the file...") — accepting it as
+        # terminal let zero-work turns complete (observed in multi-agent runs:
+        # write-capable members finished without calling a single tool).
+        if not had_prior_tool_usage and self._is_future_intent_narration(content):
+            return False
         # A refusal / "I can't do this" is not a delivered answer. Treating it as
         # terminal would force a high-confidence COMPLETE (success=True) for a turn
         # that declined the task — so exclude it like narration and questions.
@@ -3102,6 +3108,27 @@ class AgenticLoop:
             and not self._is_intent_only_response(content)
             and not self._is_refusal_response(content)
         )
+
+    # First-person future-work openers. Only consulted before any tool usage:
+    # after tools have run, restating next steps is legitimate synthesis.
+    _FUTURE_INTENT_MARKERS = (
+        "i'll ",
+        "i will ",
+        "i'm going to ",
+        "i am going to ",
+        "let me ",
+        "let's ",
+        "first, i ",
+        "i plan to ",
+        "i'm about to ",
+        "i need to first",
+        "i need to create",
+    )
+
+    def _is_future_intent_narration(self, content: str) -> bool:
+        """True when the response opens as a plan for future work (pre-tool turns)."""
+        head = content[:300].lower()
+        return any(marker in head for marker in self._FUTURE_INTENT_MARKERS)
 
     # Phrases where the model declines/aborts the task itself (not findings like
     # "I cannot find any bugs"). Kept tight to avoid misclassifying real answers.

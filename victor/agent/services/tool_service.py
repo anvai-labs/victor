@@ -714,6 +714,7 @@ class ToolService:
         tool_selector: Any,
         tool_executor: Any,
         tool_registrar: Any,
+        settings: Any = None,
     ):
         """Initialize the tool service.
 
@@ -722,8 +723,18 @@ class ToolService:
             tool_selector: Tool selection component
             tool_executor: Tool execution component
             tool_registrar: Tool registration component
+            settings: Application settings (optional; enables settings-driven
+                tool-supply config, e.g. tools.tool_selection_enabled and
+                fallback_max_tools)
         """
         self._config = config
+        self._settings = settings
+        if config.tool_selection_enabled is None:
+            from victor.agent.services.tool_supply_policy import (
+                resolve_tool_selection_enabled,
+            )
+
+            config.tool_selection_enabled = resolve_tool_selection_enabled(settings)
         self._selector = tool_selector
         self._executor = tool_executor
         self._registrar = tool_registrar
@@ -2631,7 +2642,9 @@ class ToolService:
             return tools
 
         if kv_tool_strategy in ("session_stable", "additive"):
-            return self._merge_session_tools(tools, session_semantic_tools)
+            from victor.agent.services.tool_supply_policy import _merge_session_tools
+
+            return _merge_session_tools(tools, session_semantic_tools)
 
         return self.apply_context_aware_strategy(
             tools,
@@ -2716,14 +2729,11 @@ class ToolService:
 
     def _fallback_max_full_tools(self) -> int:
         """Return configured full-schema head size for profile resolution."""
-        try:
-            tools_settings = getattr(self._settings, "tools", None)
-            budget = getattr(tools_settings, "budget", None)
-            if budget and int(budget) > 0:
-                return int(budget)
-        except Exception:
-            pass
-        return 8
+        from victor.agent.services.tool_supply_policy import (
+            fallback_max_full_tools as _resolve,
+        )
+
+        return _resolve(self)
 
     def semantic_select_tools(
         self, tools, max_tokens: int, *, provider_category: Optional[str] = None

@@ -504,17 +504,35 @@ class SubAgent(IAgent):  # type: ignore[misc]
 
         # Register only allowed tools from parent context
         missing_tools = []
+        shared_registry = None
         for tool_name in self.config.allowed_tools:
             tool = self._context.tool_registry.get(tool_name)
+            if tool is None:
+                # Role-authorized tools must not depend on the parent
+                # session's project-scoped registry: fall back to the shared
+                # discovery registry so a member spawned outside a
+                # coding-vertical workspace still gets every tool its role
+                # grants. allowed_tools is the security boundary here, not
+                # the parent's registry contents.
+                if shared_registry is None:
+                    from victor.agent.shared_tool_registry import (
+                        SharedToolRegistry,
+                    )
+
+                    shared_registry = SharedToolRegistry.get_instance()
+                tool = shared_registry.create_tool_instance(tool_name)
             if tool:
                 orchestrator.tool_registry.register(tool)
             else:
                 missing_tools.append(tool_name)
 
-        # Log missing tools at debug level (tools are optional/role-based)
+        # A role that authorizes tools which exist nowhere leaves the member
+        # unable to do its job - that is a misconfiguration, not an optional
+        # nicety. Surface it at warning level.
         if missing_tools:
-            logger.debug(
-                f"Tools not found in parent registry for {self.config.role.value} sub-agent: "
+            logger.warning(
+                f"Tools unavailable for {self.config.role.value} sub-agent "
+                f"(not in parent or shared registry): "
                 f"{', '.join(missing_tools[:5])}"
                 f"{'...' if len(missing_tools) > 5 else ''}"
             )
@@ -646,8 +664,28 @@ class SubAgent(IAgent):  # type: ignore[misc]
 
             logger.info(f"Executing {self.config.role.value} sub-agent: {self.config.task[:50]}...")
 
-            # Run the task with retry on rate limits
-            response = await self._execute_with_retry()
+            # Bind a member-scoped session id for the duration of this
+            # member's run. The id keys the provider's session-KV/prefix
+            # cache (InferFlux x-inferflux-session-id); members inheriting
+            # the parent's ContextVar gave every concurrent member the same
+            # upstream session, cross-contaminating their contexts
+            # server-side. Mirrors to_runtime_context()'s derivation.
+            from victor.core.context import (
+                get_session_id,
+                set_session_id,
+                session_id as _ctx_session_id,
+            )
+
+            member_session_id = (
+                self.config.child_session_id
+                or f"{get_session_id() or 'subagent'}-{self.config.member_id or self.config.agent_id}"
+            )
+            session_token = set_session_id(member_session_id)
+            try:
+                # Run the task with retry on rate limits
+                response = await self._execute_with_retry()
+            finally:
+                _ctx_session_id.reset(session_token)
             response_metadata = getattr(response, "metadata", None) or {}
             execution_success = response_metadata.get("agentic_loop_success") is not False
             execution_error = (

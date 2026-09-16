@@ -974,7 +974,16 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
             )
 
             # Build final output
-            success = all(r.success for r in member_results_list) if member_results_list else False
+            if not member_results_list:
+                success = False
+            elif active_formation == TeamFormation.PARALLEL:
+                # PARALLEL members are independent by contract (redundancy,
+                # diverse perspectives): the team succeeds when at least one
+                # member delivered. Failed members stay visible in
+                # member_results instead of failing the whole team.
+                success = any(r.success for r in member_results_list)
+            else:
+                success = all(r.success for r in member_results_list)
             final_outputs = [r.output for r in member_results_list if r.success]
             total_tool_calls = sum(r.tool_calls_used for r in member_results_list)
 
@@ -3120,9 +3129,23 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
 
         def _make_executor(team_member):
             async def executor(task: str, context: Dict[str, Any]) -> Dict[str, Any]:
+                # The formation passes the TEAM goal to every member; a
+                # member's own spec.goal is its actual assignment. Lead with
+                # it (team goal as context) so parallel members each know
+                # what - and only what - they are responsible for.
+                member_goal = (getattr(team_member, "goal", "") or "").strip()
+                team_task = (task or "").strip()
+                if member_goal and member_goal != team_task:
+                    effective_task = (
+                        f"{member_goal}\n\n(Team objective, for context: {team_task})"
+                        if team_task
+                        else member_goal
+                    )
+                else:
+                    effective_task = task
                 spawn_result = await sub_orchestrator.spawn(
                     role=team_member.role,
-                    task=task,
+                    task=effective_task,
                     tool_budget=team_member.tool_budget,
                     allowed_tools=team_member.allowed_tools,
                     provider=getattr(team_member, "provider", None),
