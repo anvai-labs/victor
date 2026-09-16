@@ -28,9 +28,30 @@ imports across the test matrix:
 python -m pytest tests/ --collect-only -q
 ```
 
-For concurrency, shared state, security, or layering changes, obtain an independent
-adversarial review before requesting merge. Reproduce findings and add positive
-and negative regression coverage in the same pull request.
+Before pushing a pull-request candidate, perform an adversarial review in a separate
+review session. For concurrency, shared state, security or layering changes, exercise
+the relevant negative paths explicitly. Reproduce findings and add positive and
+negative regression coverage in the same pull request.
+
+Record the completed review against the exact commit that was reviewed:
+
+```bash
+python scripts/adversarial_review.py record \
+  --reviewer session-identifier \
+  --summary "No open findings; exercised failure and boundary cases"
+```
+
+`pre-commit install` installs the pre-push hook. It rejects a branch commit without
+a clean local attestation. Amending, rebasing, merging or adding a commit changes
+the SHA and requires a fresh review. Attestations live under the repository's Git
+metadata and are never committed.
+
+This is a local process gate for participating clones, not a server-side security
+control: it can be bypassed with `--no-verify`, and GitHub cannot observe the local
+attestation. Server-side branch updates also bypass it. Repository auto-merge to
+`develop` therefore relies on the required `CI Success` check; use a server-side
+required check if centrally enforced adversarial review becomes necessary. Promotion
+to `main` remains a separate, maintainer-controlled release operation.
 
 Use conventional commit and PR titles such as `feat:`, `fix:`, `refactor:`,
 `docs:`, or `ci:`. `release:` is not an accepted PR title type. Commit and PR text
