@@ -20,6 +20,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
@@ -29,6 +30,102 @@ except ImportError:  # Windows can import MCP; resource-limited launch is unsupp
     resource = None  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class OwnedProcessGroup:
+    """Revocable proof that Victor launched a dedicated process group."""
+
+    leader_pid: int
+    pgid: int
+    active: bool = True
+
+    def invalidate(self) -> None:
+        self.active = False
+
+
+def _validated_process_group(
+    process: subprocess.Popen, process_group: Optional[OwnedProcessGroup]
+) -> Optional[OwnedProcessGroup]:
+    """Accept only a live ownership handle for this child process."""
+    if os.name != "posix" or not isinstance(process_group, OwnedProcessGroup):
+        return None
+    try:
+        process_pid = process.pid
+        current_group = os.getpgrp()
+        returncode = process.returncode
+    except (AttributeError, OSError, TypeError, ValueError):
+        return None
+    if isinstance(returncode, int):
+        process_group.invalidate()
+        return None
+    if (
+        not process_group.active
+        or process_group.pgid <= 1
+        or process_group.leader_pid != process_pid
+        or process_group.pgid != process_pid
+        or process_group.pgid == current_group
+    ):
+        return None
+    return process_group
+
+
+def owned_process_group(process: subprocess.Popen) -> Optional[OwnedProcessGroup]:
+    """Return the dedicated process group owned by ``process``, when present."""
+    if os.name != "posix":
+        return None
+    try:
+        group = os.getpgid(process.pid)
+    except (OSError, TypeError, ValueError):
+        return None
+    if group != process.pid or group == os.getpgrp():
+        return None
+    return OwnedProcessGroup(leader_pid=process.pid, pgid=group)
+
+
+def wait_for_exit_without_reaping(process: subprocess.Popen, timeout: float) -> Optional[bool]:
+    """Wait for a POSIX child to exit while keeping its PID/PGID reserved."""
+    if os.name != "posix" or not all(
+        hasattr(os, name) for name in ("waitid", "P_PID", "WEXITED", "WNOHANG", "WNOWAIT")
+    ):
+        return False
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            result = os.waitid(
+                os.P_PID,
+                process.pid,
+                os.WEXITED | os.WNOHANG | os.WNOWAIT,
+            )
+        except (ChildProcessError, OSError, TypeError, ValueError):
+            return None
+        if result is not None:
+            return True
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return False
+        time.sleep(min(0.01, remaining))
+
+
+def signal_process_tree(
+    process: subprocess.Popen,
+    *,
+    force: bool = False,
+    process_group: Optional[OwnedProcessGroup] = None,
+) -> None:
+    """Stop an owned process group, falling back to its direct child."""
+    process_group = _validated_process_group(process, process_group)
+    try:
+        if process_group is not None:
+            sig = signal.SIGKILL if force else signal.SIGTERM
+            os.killpg(process_group.pgid, sig)
+        else:
+            if force:
+                process.kill()
+            else:
+                process.terminate()
+    except ProcessLookupError:
+        pass
 
 
 @dataclass
@@ -161,6 +258,11 @@ class SandboxedProcess:
         """
         self.config = config or SandboxConfig()
         self._processes: Dict[int, subprocess.Popen] = {}
+        self._process_groups: Dict[int, OwnedProcessGroup] = {}
+
+    def process_group_for(self, process: subprocess.Popen) -> Optional[OwnedProcessGroup]:
+        """Return the live ownership handle captured when ``process`` started."""
+        return _validated_process_group(process, self._process_groups.get(process.pid))
 
     def _create_preexec_fn(self) -> Callable[[], None]:
         """Create preexec function for subprocess.
@@ -212,6 +314,9 @@ class SandboxedProcess:
             process = await self._start_basic(command, cwd, sandbox_env)
 
             self._processes[process.pid] = process
+            process_group = owned_process_group(process)
+            if process_group is not None:
+                self._process_groups[process.pid] = process_group
             logger.info(f"Started sandboxed process {process.pid}: {command[0]}")
 
             return process
@@ -290,38 +395,55 @@ class SandboxedProcess:
         Args:
             process: Subprocess handle
         """
-        if process.poll() is not None:
-            # Already terminated
-            self._processes.pop(process.pid, None)
-            return
-
+        process_group = self._process_groups.get(process.pid)
+        if process_group is None:
+            process_group = owned_process_group(process)
         try:
-            # Send SIGTERM first
-            process.terminate()
+            signal_process_tree(process, process_group=process_group)
 
-            try:
-                await asyncio.wait_for(
-                    asyncio.get_event_loop().run_in_executor(
-                        None,
-                        lambda: process.wait(timeout=self.config.graceful_shutdown_seconds),
-                    ),
-                    timeout=self.config.graceful_shutdown_seconds + 1,
+            if process_group is not None:
+                exit_observed = await asyncio.to_thread(
+                    wait_for_exit_without_reaping,
+                    process,
+                    self.config.graceful_shutdown_seconds,
                 )
-            except (asyncio.TimeoutError, subprocess.TimeoutExpired):
-                # Force kill
-                logger.warning(f"Force killing process {process.pid}")
-                process.kill()
-                process.wait(timeout=1)
+                if exit_observed is None:
+                    process_group.invalidate()
+                else:
+                    if not exit_observed:
+                        logger.warning(f"Force killing process {process.pid}")
+                    signal_process_tree(process, force=True, process_group=process_group)
+                await asyncio.to_thread(process.wait, 1)
+            else:
+                try:
+                    await asyncio.wait_for(
+                        asyncio.to_thread(
+                            process.wait,
+                            self.config.graceful_shutdown_seconds,
+                        ),
+                        timeout=self.config.graceful_shutdown_seconds + 1,
+                    )
+                except (asyncio.TimeoutError, subprocess.TimeoutExpired):
+                    logger.warning(f"Force killing process {process.pid}")
+                    signal_process_tree(process, force=True)
+                    await asyncio.to_thread(process.wait, 1)
 
         except Exception as e:
             logger.error(f"Error terminating process {process.pid}: {e}")
             try:
-                process.kill()
+                signal_process_tree(process, force=True, process_group=process_group)
+            except Exception:
+                pass
+            try:
+                await asyncio.to_thread(process.wait, 1)
             except Exception:
                 pass
 
         finally:
+            if process_group is not None:
+                process_group.invalidate()
             self._processes.pop(process.pid, None)
+            self._process_groups.pop(process.pid, None)
 
     async def terminate_all(self) -> None:
         """Terminate all sandboxed processes."""

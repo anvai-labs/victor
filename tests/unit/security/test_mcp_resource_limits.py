@@ -1,7 +1,11 @@
 """The MCP process backend must not claim policies it cannot enforce."""
 
-from unittest.mock import MagicMock, patch
+import asyncio
+import os
+import subprocess
 import sys
+import time
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -117,3 +121,135 @@ async def test_supported_resource_limits_reach_real_child():
         assert stdout.strip() == "256"
     finally:
         await handler.terminate(process)
+
+
+@pytest.mark.skipif(os.name != "posix", reason="requires POSIX process groups")
+async def test_terminate_kills_descendants_in_owned_process_group(tmp_path):
+    descendant_pid_path = tmp_path / "descendant.pid"
+    descendant = f"""import os,pathlib,signal,time
+pathlib.Path({str(descendant_pid_path)!r}).write_text(str(os.getpid()))
+signal.signal(signal.SIGTERM, signal.SIG_IGN)
+time.sleep(30)
+"""
+    parent = f"""import subprocess,sys,time
+subprocess.Popen([sys.executable,'-c',{descendant!r}])
+time.sleep(30)
+"""
+    handler = sandbox.SandboxedProcess(
+        sandbox.SandboxConfig(
+            drop_capabilities=False,
+            graceful_shutdown_seconds=0.1,
+            max_processes=4096,
+        )
+    )
+    process = await handler.start([sys.executable, "-c", parent])
+    try:
+        for _ in range(200):
+            if descendant_pid_path.exists():
+                break
+            await asyncio.sleep(0.01)
+        assert descendant_pid_path.exists()
+        descendant_pid = int(descendant_pid_path.read_text())
+
+        await handler.terminate(process)
+
+        assert process.poll() is not None
+        descendant_stopped = False
+        for _ in range(100):
+            try:
+                os.kill(descendant_pid, 0)
+            except ProcessLookupError:
+                descendant_stopped = True
+                break
+            proc_stat = f"/proc/{descendant_pid}/stat"
+            if os.path.exists(proc_stat):
+                with open(proc_stat) as stat_file:
+                    if stat_file.read().split()[2] == "Z":
+                        descendant_stopped = True
+                        break
+            await asyncio.sleep(0.01)
+        assert descendant_stopped
+    finally:
+        if process.returncode is None:
+            await handler.terminate(process)
+
+
+def test_process_tree_signal_rejects_callers_process_group():
+    process = MagicMock()
+    process.pid = os.getpgrp()
+    process.poll.return_value = None
+
+    with patch.object(os, "killpg") as kill_group:
+        sandbox.signal_process_tree(process, process_group=os.getpgrp())
+
+    kill_group.assert_not_called()
+    process.terminate.assert_called_once_with()
+
+
+def test_owned_process_group_rejects_mismatched_kernel_group():
+    process = MagicMock()
+    process.pid = 12345
+    process.returncode = None
+
+    with patch.object(os, "getpgid", return_value=54321):
+        assert sandbox.owned_process_group(process) is None
+
+
+def test_reaped_process_invalidates_group_before_signaling():
+    process = MagicMock()
+    process.pid = 12345
+    process.returncode = 0
+    group = sandbox.OwnedProcessGroup(leader_pid=12345, pgid=12345)
+
+    with patch.object(os, "killpg") as kill_group:
+        sandbox.signal_process_tree(process, force=True, process_group=group)
+
+    assert not group.active
+    kill_group.assert_not_called()
+    process.kill.assert_called_once_with()
+
+
+async def test_force_wait_does_not_block_event_loop():
+    handler = sandbox.SandboxedProcess(
+        sandbox.SandboxConfig(drop_capabilities=False, graceful_shutdown_seconds=0.01)
+    )
+    process = MagicMock()
+    process.pid = 12345
+    process.returncode = None
+
+    def blocking_wait(timeout):
+        time.sleep(0.15)
+        return 0
+
+    process.wait.side_effect = blocking_wait
+    handler._processes[process.pid] = process
+    heartbeat = asyncio.Event()
+    asyncio.get_running_loop().call_later(0.03, heartbeat.set)
+
+    await asyncio.gather(handler.terminate(process), asyncio.wait_for(heartbeat.wait(), 0.1))
+
+    assert heartbeat.is_set()
+
+
+async def test_uncertain_group_exit_force_kills_and_reaps_direct_child():
+    handler = sandbox.SandboxedProcess(
+        sandbox.SandboxConfig(drop_capabilities=False, graceful_shutdown_seconds=0.01)
+    )
+    process = MagicMock()
+    process.pid = 12345
+    process.returncode = None
+    process.wait.side_effect = [subprocess.TimeoutExpired("wait", 1), 0]
+    group = sandbox.OwnedProcessGroup(leader_pid=12345, pgid=12345)
+    handler._processes[process.pid] = process
+    handler._process_groups[process.pid] = group
+
+    with (
+        patch.object(sandbox.os, "killpg"),
+        patch.object(sandbox, "wait_for_exit_without_reaping", return_value=None),
+    ):
+        await handler.terminate(process)
+
+    process.kill.assert_called_once_with()
+    assert process.wait.call_count == 2
+    assert not group.active
+    assert process.pid not in handler._processes
