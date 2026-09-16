@@ -59,6 +59,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 ### Changed
 
+- **Default provider is now InferFlux** (`qwen3-coder-30b`, self-hosted
+  llama.cpp-class serving with native server-side tool calls). The bundled
+  `default` profile points at `http://127.0.0.1:8080/v1` (SSH-tunnel recipe in
+  the profile comments and docs); `local` stays the air-gapped Ollama path and
+  a new `local-llamacpp` profile targets a stock llama-server. Ollama remains
+  fully supported — it is just no longer the default. Settings/allowlist/
+  `--endpoint`/first-run detection/`victor doctor`/quickstart/`victor init`
+  all follow the new default; `victor doctor` gains an InferFlux healthz check
+  with tunnel guidance when the default provider is unreachable.
+
+### Changed
+
 - The chat TUI no longer captures mouse events by default: drag-select/copy of
   transcript snippets is the terminal's own again, including mid-turn. In-app
   keyboard copy (`ctrl+c` → OSC 52) is unchanged; widget mouse handling stays

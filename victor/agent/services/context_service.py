@@ -40,7 +40,7 @@ logger = logging.getLogger(__name__)
 # Message is a dict with 'role' and 'content' keys
 Message = Dict[str, Any]
 _VALID_COMPACTION_STRATEGIES = frozenset({"simple", "tiered", "semantic", "hybrid"})
-_LOCAL_PROVIDER_NAMES = frozenset({"ollama", "lmstudio", "llamacpp"})
+_LOCAL_PROVIDER_NAMES = frozenset({"ollama", "lmstudio", "llamacpp", "inferflux"})
 
 
 @dataclass(frozen=True)

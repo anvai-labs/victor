@@ -435,7 +435,7 @@ class CoordinationBuildersMixin:
         )
 
         provider_name = str(getattr(self.settings, "provider", "")).lower()
-        local_providers = {"ollama", "lmstudio", "vllm", "llamacpp", "local"}
+        local_providers = {"ollama", "lmstudio", "vllm", "llamacpp", "inferflux", "local"}
         provider_type = "local" if any(p in provider_name for p in local_providers) else "cloud"
 
         compactor = create_context_compactor(
