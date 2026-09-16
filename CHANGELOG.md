@@ -23,6 +23,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `claude mcp add`.
 
 ### Fixed
+### Fixed
+
+- The chat TUI no longer freezes the input while the agent executes. The prompt
+  stays live for the whole turn: a submission mid-run enters a FIFO queue
+  (listener-notified, strictly in-order) that drains one prompt per completed
+  turn — status shows "N queued", `/queue` lists and `/queue clear` flushes,
+  ESC interrupts the current run and the next queued prompt starts, ESC while
+  idle clears the queue. Queues are session-ephemeral by design.
+
 
 - Demand-wired tools (`gh`, `graph`) never reached chat sessions: hydration lived
   only on `ToolService.select_tools`, which no production code calls, and the
