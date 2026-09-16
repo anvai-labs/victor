@@ -126,9 +126,9 @@ class TestGhDemandWiring:
         import victor.tools.unified.gh_tool as gh_module
 
         member = getattr(gh_module, member_name)
-        assert getattr(member, "_is_tool", False), (
-            "DEMAND spec must point at the @tool-decorated function"
-        )
+        assert getattr(
+            member, "_is_tool", False
+        ), "DEMAND spec must point at the @tool-decorated function"
 
     def test_infer_demand_tools_hydrates_gh_on_github_mentions(self):
         registry = SharedToolRegistry.get_instance()

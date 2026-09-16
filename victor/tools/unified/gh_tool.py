@@ -53,9 +53,7 @@ class UnifiedGhParser(argparse.ArgumentParser):
 
 
 def create_gh_parser() -> UnifiedGhParser:
-    parser = UnifiedGhParser(
-        prog="gh", description="GitHub CLI operations.", exit_on_error=False
-    )
+    parser = UnifiedGhParser(prog="gh", description="GitHub CLI operations.", exit_on_error=False)
     subparsers = parser.add_subparsers(dest="subcommand", help="The operation to perform")
 
     pr = subparsers.add_parser("pr", help="Pull requests")
@@ -134,9 +132,7 @@ async def _run_gh(argv: List[str]) -> str:
         stderr = result.get("stderr", "")
         if rc == 0:
             return stdout.strip() or "(no output)"
-        return (
-            f"### ❌ ERROR\ngh returned exit {rc}:\n{stderr.strip() or stdout.strip()}"
-        )
+        return f"### ❌ ERROR\ngh returned exit {rc}:\n{stderr.strip() or stdout.strip()}"
     return str(result)
 
 
@@ -176,10 +172,7 @@ async def gh_tool(cmd: str) -> str:
         return f"### ❌ ERROR\nUnexpected error parsing command: {e}"
 
     if not parsed.subcommand:
-        return (
-            "### ❌ ERROR\nNo gh subcommand given. Use: "
-            "gh pr|issue|run|release|repo|api|auth"
-        )
+        return "### ❌ ERROR\nNo gh subcommand given. Use: " "gh pr|issue|run|release|repo|api|auth"
 
     # Rebuild the gh argv from the original tokens: passthrough keeps flags we
     # do not model in the parser (gh's surface is large) while the parser still
