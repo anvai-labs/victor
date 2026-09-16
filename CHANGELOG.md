@@ -57,8 +57,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   re-issue guidance (`commit=True` to write, `preview=True` for a diff).
 
 ### Changed
-### Changed
 
+- `victor chat` now mounts the TUI immediately (shell-first): the UI appears with
+  an "initializing session…" state while agent creation, session resume and turn
+  limits finish in a background worker, instead of a silent multi-second (or
+  minute-long, with Docker down) wait before anything renders. The prompt
+  enables itself with a "✓ ready in X.Xs" line; initialization failures surface
+  in-app and exit cleanly. REPL/one-shot paths are unchanged (shared helpers).
+- The chat TUI no longer captures mouse events by default: drag-select/copy of
+  transcript snippets is the terminal's own again, including mid-turn. In-app
+  keyboard copy (`ctrl+c` → OSC 52) is unchanged; widget mouse handling stays
+  available via `VICTOR_TUI_MOUSE_SUPPORT=1` (documented in
+  `docs/reference/environment-variables.md` alongside the REPL-surface
+  `VICTOR_CHAT_MOUSE_SUPPORT`).
 - **Default provider is now InferFlux** (`qwen3-coder-30b`, self-hosted
   llama.cpp-class serving with native server-side tool calls). The bundled
   `default` profile points at `http://127.0.0.1:8080/v1` (SSH-tunnel recipe in
@@ -68,9 +79,6 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `--endpoint`/first-run detection/`victor doctor`/quickstart/`victor init`
   all follow the new default; `victor doctor` gains an InferFlux healthz check
   with tunnel guidance when the default provider is unreachable.
-
-### Changed
-
 - The chat TUI no longer captures mouse events by default: drag-select/copy of
   transcript snippets is the terminal's own again, including mid-turn. In-app
   keyboard copy (`ctrl+c` → OSC 52) is unchanged; widget mouse handling stays

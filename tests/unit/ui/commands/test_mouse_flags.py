@@ -60,6 +60,8 @@ def test_run_tui_app_passes_mouse_flag(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict = {}
 
     class FakeApp:
+        _bootstrap_result = None  # _run_tui_app returns this after run_async
+
         def __init__(self, **kwargs) -> None:
             captured["init"] = kwargs
 

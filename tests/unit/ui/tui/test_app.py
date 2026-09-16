@@ -322,3 +322,71 @@ async def test_stream_failure_does_not_drop_queue() -> None:
         await _settle(app)
         assert client.calls == ["first", "second"]
         assert not app._queue
+
+
+# ── shell-first bootstrap: UI up first, session init in-app ───────────
+
+
+class FakeBootstrap:
+    """Async bootstrap callable the app runs after mount (like chat.py builds)."""
+
+    def __init__(self, fail_with: Optional[Exception] = None) -> None:
+        self.release = asyncio.Event()
+        self.fail_with = fail_with
+        self.calls = 0
+
+    async def __call__(self) -> Any:
+        self.calls += 1
+        await self.release.wait()
+        if self.fail_with is not None:
+            raise self.fail_with
+        return FakeAgent()
+
+
+async def test_prompt_disabled_until_bootstrap_ready() -> None:
+    boot = FakeBootstrap()
+    client = BlockingFakeClient()
+    app = VictorTUIApp(client=client, agent=None, settings=None, bootstrap=boot)
+    async with app.run_test() as pilot:
+        prompt = app.query_one("#prompt")
+        assert prompt.disabled is True  # type: ignore[attr-defined]
+        await _submit(pilot, app, "early")  # must be swallowed pre-ready
+        await pilot.pause()
+        assert client_calls(app) == []  # type: ignore[attr-defined]
+        boot.release.set()
+        await _settle(app)
+        assert prompt.disabled is False  # type: ignore[attr-defined]
+        assert prompt.has_focus
+        convo = app.query_one("#conversation")
+        text = "\n".join(line.text for line in convo.lines)  # type: ignore[attr-defined]
+        assert "ready in" in text
+
+
+def client_calls(app: VictorTUIApp) -> list:
+    return app._client.calls  # type: ignore[attr-defined]
+
+
+async def test_ready_enables_submit_and_uses_bootstrapped_agent() -> None:
+    boot = FakeBootstrap()
+    client = BlockingFakeClient()
+    app = VictorTUIApp(client=client, agent=None, settings=None, bootstrap=boot)
+    async with app.run_test() as pilot:
+        boot.release.set()
+        await _settle(app)
+        await _submit(pilot, app, "hello")
+        client.gate.set()
+        await _settle(app)
+        assert client.calls == ["hello"]  # turn ran against the bootstrapped session
+        assert app._agent is not None  # agent adopted from the bootstrap result
+
+
+async def test_bootstrap_failure_shows_error_and_exits() -> None:
+    boot = FakeBootstrap(fail_with=RuntimeError("provider api key missing"))
+    app = VictorTUIApp(client=FakeClient(), agent=None, settings=None, bootstrap=boot)
+    async with app.run_test() as pilot:
+        boot.release.set()
+        await pilot.pause()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        assert app._bootstrap_error is not None  # type: ignore[attr-defined]
+        assert "provider api key missing" in app._bootstrap_error  # type: ignore[attr-defined]
