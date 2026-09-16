@@ -1604,7 +1604,11 @@ async def _run_tui_app(
         tool_budget=tool_budget,
         theme=theme,
     )
-    await app.run_async()
+    # Mouse capture (any-event tracking + alt-screen click handling) is OFF by
+    # default: the terminal's own drag-select/copy beats in-app mouse features,
+    # and Textual's capture intercepts the native selection. Opt in via
+    # VICTOR_TUI_MOUSE_SUPPORT.
+    await app.run_async(mouse=_tui_mouse_support_enabled())
 
 
 def run_tui_entry(
@@ -3009,6 +3013,22 @@ def _normalize_cli_input_alias(user_input: str) -> str:
 def _cli_mouse_support_enabled() -> bool:
     """Return whether interactive chat should let prompt_toolkit capture mouse events."""
     return os.getenv("VICTOR_CHAT_MOUSE_SUPPORT", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def _tui_mouse_support_enabled() -> bool:
+    """Return whether the Textual TUI should capture mouse events (default: off).
+
+    With capture off, drag-select/copy is the terminal's own (native
+    scrollback-style selection); keyboard copy (``ctrl+c`` → OSC 52) is
+    unaffected. Set ``VICTOR_TUI_MOUSE_SUPPORT=1`` to hand mouse events to
+    Textual widgets instead.
+    """
+    return os.getenv("VICTOR_TUI_MOUSE_SUPPORT", "").strip().lower() in {
         "1",
         "true",
         "yes",
