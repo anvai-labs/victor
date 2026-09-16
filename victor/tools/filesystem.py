@@ -1930,7 +1930,7 @@ async def read(
                 if hasattr(provider_obj, "default_provider")
                 else str(provider_obj or "")
             ).lower()
-            local_providers = {"ollama", "lmstudio", "vllm", "llamacpp", "local"}
+            local_providers = {"ollama", "lmstudio", "vllm", "llamacpp", "inferflux", "local"}
             if any(p in provider for p in local_providers):
                 # Try to get model context size from capabilities
                 try:

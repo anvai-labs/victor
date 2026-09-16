@@ -75,8 +75,35 @@ or trimming policy; InferFlux and Sandhi remain authoritative for the producer a
 
 - The focused Sandhi contract and transport suite passes 96 tests. The change adds contract
   assertions without changing runtime behavior.
-- Manual e2e (once, not CI-gated): a real InferFlux reasoning-model call, through Sandhi, into
-  a Victor session — confirm `reasoning_content` displays separately from the final answer in
-  whatever UI surface renders it (grep found `test_stream_renderer.py`,
-  `test_event_dispatcher.py`, `test_console_rendering_e2e.py` as the render-side tests most
-  likely to need a look if the display side isn't already correct).
+- Manual e2e (once, not CI-gated): **done 2026-09-16** against the production R9700 deployment
+  (InferFlux `fix/victor-codesign-e2e` on WSL2/ROCm serving Qwen3-14B Q4_K_M): a real
+  reasoning-model call through Sandhi into a Victor session returned `reasoning_content`
+  (1396 chars) split from a clean final `content`, with
+  `usage.completion_tokens_details.reasoning_tokens = 1` on the wire; the visible Victor answer
+  contained zero `<think>` leakage. The coding-model leg of the same session (Qwen3-Coder-30B
+  UD-Q4_K_XL) completed a full agentic write→write→bash task with structured `tool_calls` on
+  both streaming and non-streaming paths after the InferFlux-side fixes below landed.
+
+## Follow-on co-design fixes found during that e2e (2026-09-16)
+
+Shipped in the same session, recorded here because the manual e2e is what surfaced them:
+
+- **InferFlux**: non-streaming chat responses never emitted `message.tool_calls` (the inline
+  choice builder dropped the detected call; `BuildChoice` was dead code). Extraction now
+  detects **multiple** calls per completion (models chain write→write→run as one JSON object
+  per line, which the old single-object parse rejected as "Extra data") and both response
+  paths emit the full OpenAI array with `finish_reason: "tool_calls"`.
+- **InferFlux**: the scheduler's slot-id clamp read a KV-sequence metric nothing ever wrote,
+  so slot ids ran past the llama wrapper's `n_seq_max` and llama.cpp GGML_ASSERT-aborted the
+  server on the third request of an agent session. Both backends now publish their sequence
+  capacity, and the wrapper fails a request cleanly instead of aborting if an id is ever
+  out of range.
+- **Victor**: a broken optional embedding backend aborted stream preparation
+  (`unified_task_tracker.detect_task_type` → task classifier) as a non-recoverable error.
+  Classification now degrades loudly to `GENERAL` so the agent loop survives; the embeddings
+  service also chains the real import failure instead of misreporting it as "sentence-transformers
+  not installed".
+- **Victor**: the inferflux policy tier carried a placeholder lineup (`llama3-8b`, 8192 ctx)
+  and no tool-capability tier, so real deployments silently ran tool-less at the wrong context
+  budget. The policy now pins the production lineup at 32768 (the serving pool's per-sequence
+  context) and `model_capabilities.yaml` enables native tool calls provider-wide.

@@ -13,23 +13,41 @@
 # (ANTHROPIC_API_KEY, OPENAI_API_KEY, MOONSHOT_API_KEY, ...).
 
 profiles:
-  # Local-first default: works with no API key. Requires Ollama running
-  # (`ollama serve`) and the model pulled (`ollama pull qwen2.5-coder:7b`).
+  # Primary default: self-hosted InferFlux (OpenAI-compatible, native
+  # server-side tool calls, 32k effective context). Requires a reachable
+  # server, e.g. from a Mac:
+  #   ssh -N -L 8080:127.0.0.1:8080 vsingh@aiserver1     # tunnel first
+  # Keyless deployments need nothing; if the server has api_keys configured:
+  #   export INFERFLUX_API_KEY=...   (or ~/.victor/api_keys.yaml)
+  # Verify: victor doctor
   default:
-    provider: ollama
-    model: qwen2.5-coder:7b
+    provider: inferflux
+    model: qwen3-coder-30b
     temperature: 0.6
-    max_tokens: 4096
-    description: Local Ollama default (no API key required)
+    max_tokens: 8192
+    description: Self-hosted InferFlux (http://127.0.0.1:8080/v1, 32k effective ctx)
 
-  # Alias kept separate so `-p local` keeps working when `default` is
-  # repointed at a cloud provider.
+  # Air-gapped path: Ollama, no API key (ollama serve + ollama pull
+  # qwen2.5-coder:7b). Kept so `-p local` always means "fully offline".
   local:
     provider: ollama
     model: qwen2.5-coder:7b
     temperature: 0.6
     max_tokens: 4096
-    description: Local Ollama profile
+    description: Local Ollama profile (no API key required)
+
+  # Stock llama.cpp llama-server (native tool calls via --jinja).
+  # PORT NOTE: llama-server's default port 8080 is the same port the InferFlux
+  # SSH tunnel occupies. While tunneled, run llama-server elsewhere
+  # (llama-server -m <gguf> --jinja --port 8081) and point the profile at it:
+  #   providers: { llamacpp: { base_url: "http://localhost:8081/v1" } }
+  # (or leave the tunnel down and use port 8080 directly).
+  local-llamacpp:
+    provider: llamacpp
+    model: local-model
+    temperature: 0.6
+    max_tokens: 8192
+    description: llama.cpp llama-server (set providers.llamacpp.base_url if not :8080)
 
   # --- Cloud profiles (commented examples; uncomment + set env key to use) ---
   #

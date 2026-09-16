@@ -233,8 +233,12 @@ class EmbeddingService:
             try:
                 from sentence_transformers import SentenceTransformer
             except ImportError as e:
+                # Chain the real cause: the failure is usually a broken
+                # transitive dep (e.g. a half-installed torchvision), not a
+                # missing sentence-transformers itself.
                 raise ImportError(
-                    "sentence-transformers not installed. "
+                    "sentence-transformers could not be imported "
+                    f"({e.__class__.__name__}: {e}). "
                     "Install with: pip install sentence-transformers"
                 ) from e
 
