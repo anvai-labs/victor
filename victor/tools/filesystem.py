@@ -31,6 +31,7 @@ from victor.tools.decorators import tool
 
 # PathResolver for centralized path normalization
 from victor.protocols.path_resolver import PathResolver, create_path_resolver
+from victor.providers.provider_kinds import LOCAL_CLASS_PROVIDERS
 
 logger = logging.getLogger(__name__)
 
@@ -1930,7 +1931,9 @@ async def read(
                 if hasattr(provider_obj, "default_provider")
                 else str(provider_obj or "")
             ).lower()
-            local_providers = {"ollama", "lmstudio", "vllm", "llamacpp", "inferflux", "local"}
+            # Substring match is deliberate (matches e.g. provider:local variants);
+            # names come from the canonical classification.
+            local_providers = {"local", *LOCAL_CLASS_PROVIDERS}
             if any(p in provider for p in local_providers):
                 # Try to get model context size from capabilities
                 try:
