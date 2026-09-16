@@ -207,7 +207,7 @@ class ReadResultCache:
         """
         normalized_path = self._normalize_path(path)
         content_bytes = len(content.encode("utf-8"))
-        content_hash = hashlib.md5(content.encode()).hexdigest()[:12]
+        content_hash = hashlib.md5(content.encode(), usedforsecurity=False).hexdigest()[:12]
 
         with self._lock:
             # Check if already cached with same content

@@ -300,3 +300,30 @@ def test_experiment_with_parameters(temp_db: SQLiteStorage):
     retrieved = temp_db.get_experiment(experiment.experiment_id)
 
     assert retrieved.parameters == {"lr": 0.001, "batch_size": 32}
+
+
+@pytest.mark.parametrize("record_type", ["experiment", "run"])
+def test_update_rejects_injected_fields_before_any_change(temp_db, record_type):
+    experiments = [Experiment(name="target"), Experiment(name="other")]
+    for experiment in experiments:
+        temp_db.create_experiment(experiment)
+    if record_type == "experiment":
+        ids = [e.experiment_id for e in experiments]
+        update, get = temp_db.update_experiment, temp_db.get_experiment
+        id_column = "experiment_id"
+    else:
+        runs = [Run(experiment_id=e.experiment_id, name=e.name) for e in experiments]
+        ids = [temp_db.create_run(run) for run in runs]
+        update, get = temp_db.update_run, temp_db.get_run
+        id_column = "run_id"
+    with pytest.raises(ValueError, match="Unsupported"):
+        update(
+            ids[0],
+            {
+                "description" if record_type == "experiment" else "error_message": "x",
+                f"name = ? WHERE {id_column} != ? --": "injected",
+            },
+        )
+    assert [get(record_id).name for record_id in ids] == ["target", "other"]
+    assert update(ids[0], {"name": "updated"})
+    assert [get(record_id).name for record_id in ids] == ["updated", "other"]

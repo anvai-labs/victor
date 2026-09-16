@@ -195,7 +195,7 @@ class PromptSectionBudgetAllocator:
             if k not in ["timestamp", "request_id"]
         }
         context_str = json_dumps(normalized, sort_keys=True, default=str)
-        return hashlib.md5(context_str.encode()).hexdigest()
+        return hashlib.md5(context_str.encode(), usedforsecurity=False).hexdigest()
 
     def _estimate_tokens(self, text: str) -> int:
         """Estimate token count for text.

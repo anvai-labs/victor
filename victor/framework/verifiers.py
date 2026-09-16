@@ -194,6 +194,8 @@ class LSPVerifier:
             try:
                 diagnostics = self._lsp.get_diagnostics(str(file_path))
             except Exception:
+                total_errors += 1
+                all_errors.append(f"  {file_path} — LSP diagnostics unavailable")
                 continue
             for diag in diagnostics:
                 severity = getattr(diag, "severity", 1)

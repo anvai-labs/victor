@@ -32,19 +32,44 @@ const ABBREVIATIONS: &[&str] = &[
     "Jul.", "Aug.", "Sep.", "Oct.", "Nov.", "Dec.",
 ];
 
+fn validate_chunk_parameters(chunk_size: usize, overlap: usize) -> PyResult<()> {
+    if chunk_size == 0 {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "chunk_size must be positive",
+        ));
+    }
+    if overlap >= chunk_size {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "overlap must be less than chunk_size",
+        ));
+    }
+    Ok(())
+}
+
+/// Byte offset of the last `count` Unicode scalar values, always on a boundary.
+fn suffix_start(text: &str, count: usize) -> usize {
+    if count == 0 {
+        return text.len();
+    }
+    text.char_indices()
+        .rev()
+        .nth(count - 1)
+        .map_or(0, |(offset, _)| offset)
+}
+
 /// Check if position is a valid sentence boundary
 fn is_sentence_boundary(text: &str, pos: usize) -> bool {
     if pos >= text.len() {
         return false;
     }
 
-    let char_at = text.chars().nth(pos).unwrap_or(' ');
+    let char_at = text[pos..].chars().next().unwrap_or(' ');
     if !SENTENCE_ENDINGS.contains(&char_at) {
         return false;
     }
 
     // Check it's not an abbreviation
-    let start = pos.saturating_sub(10);
+    let start = suffix_start(&text[..pos], 10);
     let prefix = &text[start..=pos];
 
     for abbr in ABBREVIATIONS {
@@ -95,8 +120,22 @@ fn find_sentence_boundaries(text: &str) -> Vec<usize> {
 /// Chunk text by sentences with configurable size and overlap
 #[pyfunction]
 #[pyo3(signature = (text, chunk_size=1344, overlap=128))]
-pub fn chunk_by_sentences(text: &str, chunk_size: usize, overlap: usize) -> Vec<String> {
+pub fn chunk_by_sentences(text: &str, chunk_size: usize, overlap: usize) -> PyResult<Vec<String>> {
+    validate_chunk_parameters(chunk_size, overlap)?;
     let boundaries = find_sentence_boundaries(text);
+    let offsets: Vec<usize> = text
+        .char_indices()
+        .map(|(offset, _)| offset)
+        .chain(std::iter::once(text.len()))
+        .collect();
+    let boundary_chars: Vec<usize> = boundaries
+        .iter()
+        .map(|offset| {
+            offsets
+                .binary_search(offset)
+                .expect("sentence character boundary")
+        })
+        .collect();
     let mut chunks = Vec::new();
 
     if boundaries.len() <= 1 {
@@ -107,28 +146,31 @@ pub fn chunk_by_sentences(text: &str, chunk_size: usize, overlap: usize) -> Vec<
     let mut chunk_start = 0;
     let mut current_end = 0;
 
-    for i in 1..boundaries.len() {
-        let boundary = boundaries[i];
+    // Avoid rescanning every prefix when many sentences fit in one large chunk.
+    for &boundary in boundary_chars.iter().skip(1) {
         let chunk_len = boundary - chunk_start;
 
         if chunk_len >= chunk_size {
             // Emit chunk up to previous boundary
             if current_end > chunk_start {
-                let chunk = text[chunk_start..current_end].trim().to_string();
+                let chunk = text[offsets[chunk_start]..offsets[current_end]]
+                    .trim()
+                    .to_string();
                 if !chunk.is_empty() {
                     chunks.push(chunk);
                 }
                 // Move start back by overlap
-                chunk_start = if current_end > overlap {
+                chunk_start = if overlap == 0 {
+                    current_end
+                } else {
                     // Find sentence boundary in overlap region
                     let overlap_start = current_end.saturating_sub(overlap);
-                    boundaries
-                        .iter()
-                        .find(|&&b| b >= overlap_start && b < current_end)
+                    let index = boundary_chars.partition_point(|&b| b < overlap_start);
+                    boundary_chars
+                        .get(index)
+                        .filter(|&&b| b < current_end)
                         .copied()
                         .unwrap_or(overlap_start)
-                } else {
-                    0
                 };
             }
         }
@@ -137,30 +179,33 @@ pub fn chunk_by_sentences(text: &str, chunk_size: usize, overlap: usize) -> Vec<
 
     // Emit final chunk
     if current_end > chunk_start {
-        let chunk = text[chunk_start..current_end].trim().to_string();
+        let chunk = text[offsets[chunk_start]..offsets[current_end]]
+            .trim()
+            .to_string();
         if !chunk.is_empty() {
             chunks.push(chunk);
         }
     }
 
-    chunks
+    Ok(chunks)
 }
 
 /// Simple character-based chunking with overlap
 #[pyfunction]
 #[pyo3(signature = (text, chunk_size=1344, overlap=128))]
-pub fn chunk_by_chars(text: &str, chunk_size: usize, overlap: usize) -> Vec<String> {
+pub fn chunk_by_chars(text: &str, chunk_size: usize, overlap: usize) -> PyResult<Vec<String>> {
+    validate_chunk_parameters(chunk_size, overlap)?;
     let mut chunks = Vec::new();
     let chars: Vec<char> = text.chars().collect();
     let text_len = chars.len();
 
     if text_len == 0 {
-        return chunks;
+        return Ok(chunks);
     }
 
     let mut start = 0;
     while start < text_len {
-        let end = (start + chunk_size).min(text_len);
+        let end = start.saturating_add(chunk_size).min(text_len);
         let chunk: String = chars[start..end].iter().collect();
         let trimmed = chunk.trim().to_string();
         if !trimmed.is_empty() {
@@ -174,13 +219,14 @@ pub fn chunk_by_chars(text: &str, chunk_size: usize, overlap: usize) -> Vec<Stri
         start = end.saturating_sub(overlap);
     }
 
-    chunks
+    Ok(chunks)
 }
 
 /// Chunk text by paragraph boundaries
 #[pyfunction]
 #[pyo3(signature = (text, chunk_size=1344, overlap=128))]
-pub fn chunk_by_paragraphs(text: &str, chunk_size: usize, overlap: usize) -> Vec<String> {
+pub fn chunk_by_paragraphs(text: &str, chunk_size: usize, overlap: usize) -> PyResult<Vec<String>> {
+    validate_chunk_parameters(chunk_size, overlap)?;
     // Split on double newlines (paragraph boundaries)
     let paragraphs: Vec<&str> = text.split("\n\n").collect();
     let mut chunks = Vec::new();
@@ -192,18 +238,14 @@ pub fn chunk_by_paragraphs(text: &str, chunk_size: usize, overlap: usize) -> Vec
             continue;
         }
 
-        let would_be_len = current_chunk.len() + para.len() + 2; // +2 for \n\n
+        let would_be_len = current_chunk.chars().count() + para.chars().count() + 2;
 
         if would_be_len > chunk_size && !current_chunk.is_empty() {
             // Emit current chunk
             chunks.push(current_chunk.trim().to_string());
 
             // Start new chunk with overlap from previous
-            let overlap_text = if current_chunk.len() > overlap {
-                &current_chunk[current_chunk.len() - overlap..]
-            } else {
-                &current_chunk
-            };
+            let overlap_text = &current_chunk[suffix_start(&current_chunk, overlap)..];
             current_chunk = overlap_text.to_string();
         }
 
@@ -218,7 +260,7 @@ pub fn chunk_by_paragraphs(text: &str, chunk_size: usize, overlap: usize) -> Vec
         chunks.push(current_chunk.trim().to_string());
     }
 
-    chunks
+    Ok(chunks)
 }
 
 /// Detect document type from file extension
@@ -304,13 +346,13 @@ pub fn count_lines(text: &str) -> usize {
     memchr_iter(b'\n', text.as_bytes()).count() + 1
 }
 
-/// Find byte offsets of all line starts.
+/// Find character offsets of all line starts.
 ///
 /// # Arguments
 /// * `text` - Text to analyze
 ///
 /// # Returns
-/// List of byte offsets where lines start (always includes 0)
+/// List of character offsets where lines start (always includes 0)
 #[pyfunction]
 pub fn find_line_boundaries(text: &str) -> Vec<usize> {
     if text.is_empty() {
@@ -318,16 +360,16 @@ pub fn find_line_boundaries(text: &str) -> Vec<usize> {
     }
 
     let mut boundaries = vec![0];
-    let text_len = text.len();
-    for newline_pos in memchr_iter(b'\n', text.as_bytes()) {
-        if newline_pos + 1 < text_len {
-            boundaries.push(newline_pos + 1);
+    let mut characters = text.chars().enumerate().peekable();
+    while let Some((position, character)) = characters.next() {
+        if character == '\n' && characters.peek().is_some() {
+            boundaries.push(position + 1);
         }
     }
     boundaries
 }
 
-/// Get line number for a character offset using binary search.
+/// Get line number for a character offset.
 ///
 /// # Arguments
 /// * `text` - Text
@@ -341,10 +383,9 @@ pub fn line_at_offset(text: &str, offset: usize) -> usize {
         return 1;
     }
 
-    let offset = offset.min(text.len().saturating_sub(1));
-
-    // Count newlines before offset using memchr
-    memchr_iter(b'\n', &text.as_bytes()[..offset]).count() + 1
+    // Clamp to the last character, matching the Python backend's EOF behavior.
+    let offset = offset.min(text.chars().count().saturating_sub(1));
+    text.chars().take(offset).filter(|&c| c == '\n').count() + 1
 }
 
 /// Chunk information with line numbers and offsets.
@@ -409,38 +450,29 @@ pub fn chunk_with_overlap(
     chunk_size: usize,
     overlap: usize,
 ) -> PyResult<Vec<ChunkInfoRust>> {
+    validate_chunk_parameters(chunk_size, overlap)?;
     if text.is_empty() {
         return Ok(Vec::new());
     }
 
-    if chunk_size == 0 {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "chunk_size must be positive",
-        ));
-    }
-
-    if overlap >= chunk_size {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "overlap must be less than chunk_size",
-        ));
-    }
-
-    // Pre-compute line boundaries for efficient line number lookup
+    // Sizes and public offsets count characters, matching the Python backend.
+    let chars: Vec<char> = text.chars().collect();
     let line_starts = find_line_boundaries(text);
 
     let mut chunks = Vec::new();
     let mut pos = 0;
     let mut chunk_index = 0;
-    let text_len = text.len();
+    let text_len = chars.len();
+    let mut previous_end: usize = 0;
 
     while pos < text_len {
         // Calculate chunk end
-        let mut chunk_end = (pos + chunk_size).min(text_len);
+        let mut chunk_end = pos.saturating_add(chunk_size).min(text_len);
 
         // If not at end, try to find a line boundary
         if chunk_end < text_len {
             // Look for a newline within the chunk
-            if let Some(last_newline) = text[pos..chunk_end].rfind('\n') {
+            if let Some(last_newline) = chars[pos..chunk_end].iter().rposition(|&c| c == '\n') {
                 let absolute_pos = pos + last_newline;
                 if absolute_pos > pos {
                     chunk_end = absolute_pos + 1; // Include the newline
@@ -449,18 +481,14 @@ pub fn chunk_with_overlap(
         }
 
         // Extract chunk text
-        let chunk_text = text[pos..chunk_end].to_string();
+        let chunk_text = chars[pos..chunk_end].iter().collect();
 
         // Calculate line numbers using binary search
         let start_line = line_at_offset_cached(&line_starts, pos);
         let end_line = line_at_offset_cached(&line_starts, chunk_end.saturating_sub(1));
 
         // Calculate overlap with previous chunk
-        let overlap_prev = if chunk_index > 0 && pos > 0 {
-            overlap.min(pos)
-        } else {
-            0
-        };
+        let overlap_prev = previous_end.saturating_sub(pos);
 
         chunks.push(ChunkInfoRust::new(
             chunk_text,
@@ -472,21 +500,14 @@ pub fn chunk_with_overlap(
             chunk_index,
         ));
 
-        // Move position forward, accounting for overlap
-        let step = (chunk_size.saturating_sub(overlap)).max(1);
-        pos += step;
-        chunk_index += 1;
-
-        // Adjust position to line boundary if we have overlap
-        if pos < text_len && overlap > 0 {
-            let overlap_start = pos.saturating_sub(overlap);
-            if let Some(next_newline) = text[overlap_start..pos.min(text_len)].find('\n') {
-                let absolute_pos = overlap_start + next_newline;
-                if absolute_pos < pos {
-                    pos = absolute_pos + 1;
-                }
-            }
+        if chunk_end == text_len {
+            break;
         }
+        // Advance from the emitted end so line trimming cannot skip input.
+        // A short line may be smaller than the overlap; still consume a character.
+        previous_end = chunk_end;
+        pos = chunk_end.saturating_sub(overlap).max(pos + 1);
+        chunk_index += 1;
     }
 
     Ok(chunks)
@@ -513,15 +534,121 @@ mod tests {
     #[test]
     fn test_chunk_by_sentences() {
         let text = "Hello world. This is a test. Another sentence here.";
-        let chunks = chunk_by_sentences(text, 30, 10);
+        let chunks = chunk_by_sentences(text, 30, 10).unwrap();
         assert!(!chunks.is_empty());
     }
 
     #[test]
     fn test_chunk_by_chars() {
         let text = "Hello world this is a test of chunking";
-        let chunks = chunk_by_chars(text, 15, 5);
+        let chunks = chunk_by_chars(text, 15, 5).unwrap();
         assert!(chunks.len() >= 2);
+    }
+
+    #[test]
+    fn test_chunking_rejects_nonprogress_parameters() {
+        for text in ["", "abc"] {
+            for (size, overlap) in [(0, 0), (1, 1), (2, 3)] {
+                assert!(chunk_by_chars(text, size, overlap).is_err());
+                assert!(chunk_by_sentences(text, size, overlap).is_err());
+                assert!(chunk_by_paragraphs(text, size, overlap).is_err());
+                assert!(chunk_with_overlap(text, size, overlap).is_err());
+            }
+        }
+    }
+
+    #[test]
+    fn test_unicode_sentence_and_paragraph_boundaries() {
+        let text = "ééééééa.aaaaa.";
+        assert_eq!(chunk_by_sentences(text, 4, 1).unwrap(), vec![text]);
+        assert_eq!(find_sentence_boundaries("éé. Next."), vec![0, 5, 11]);
+        assert_eq!(
+            chunk_by_paragraphs("éé\n\nx", 4, 1).unwrap(),
+            vec!["éé", "é\n\nx"]
+        );
+        assert_eq!(
+            chunk_by_chars("é漢🙂x", 3, 1).unwrap(),
+            vec!["é漢🙂", "🙂x"]
+        );
+    }
+
+    #[test]
+    fn test_sentence_chunking_many_boundaries_in_one_chunk() {
+        let text = "Sentence. ".repeat(50_000);
+        assert_eq!(
+            chunk_by_sentences(&text, usize::MAX, 0).unwrap(),
+            vec![text.trim()]
+        );
+    }
+
+    #[test]
+    fn test_unicode_line_helpers_use_character_offsets() {
+        let text = "é\na\nb";
+        assert_eq!(find_line_boundaries(text), vec![0, 2, 4]);
+        for (offset, line) in [(0, 1), (1, 1), (2, 2), (3, 2), (4, 3), (5, 3), (100, 3)] {
+            assert_eq!(line_at_offset(text, offset), line);
+        }
+        assert_eq!(find_line_boundaries("é\n"), vec![0]);
+        assert_eq!(line_at_offset("é\n", 100), 1);
+        assert_eq!(line_at_offset("", 100), 1);
+        for chunk in chunk_with_overlap(text, 2, 0).unwrap() {
+            assert_eq!(line_at_offset(text, chunk.start_offset), chunk.start_line);
+            assert_eq!(line_at_offset(text, chunk.end_offset - 1), chunk.end_line);
+        }
+    }
+
+    #[test]
+    fn test_line_chunks_cover_input_with_monotonic_character_offsets() {
+        for text in ["a\nbbbbbbbb", "ééé", "é漢\n🙂xy\n尾巴", "ab\ncdefghijkl"] {
+            let chars: Vec<char> = text.chars().collect();
+            for size in 1..=8 {
+                for overlap in 0..size {
+                    let chunks = chunk_with_overlap(text, size, overlap).unwrap();
+                    assert!(chunks.len() <= chars.len());
+                    let mut previous_start = None;
+                    let mut covered = 0;
+                    for chunk in chunks {
+                        assert!(previous_start.is_none_or(|start| chunk.start_offset > start));
+                        assert!(chunk.start_offset <= covered, "uncovered input");
+                        assert!(chunk.end_offset > chunk.start_offset);
+                        assert_eq!(
+                            chunk.text,
+                            chars[chunk.start_offset..chunk.end_offset]
+                                .iter()
+                                .collect::<String>()
+                        );
+                        assert_eq!(
+                            chunk.overlap_prev,
+                            covered.saturating_sub(chunk.start_offset)
+                        );
+                        assert_eq!(
+                            chunk.start_line,
+                            chars[..chunk.start_offset]
+                                .iter()
+                                .filter(|&&c| c == '\n')
+                                .count()
+                                + 1
+                        );
+                        assert_eq!(
+                            chunk.end_line,
+                            chars[..chunk.end_offset - 1]
+                                .iter()
+                                .filter(|&&c| c == '\n')
+                                .count()
+                                + 1
+                        );
+                        covered = chunk.end_offset;
+                        previous_start = Some(chunk.start_offset);
+                    }
+                    assert_eq!(covered, chars.len());
+                }
+            }
+        }
+        assert_eq!(chunk_by_chars("abc", usize::MAX, 0).unwrap(), vec!["abc"]);
+        assert_eq!(
+            chunk_with_overlap("abc", usize::MAX, 0).unwrap()[0].text,
+            "abc"
+        );
     }
 
     #[test]

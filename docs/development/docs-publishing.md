@@ -17,10 +17,10 @@ mkdocs serve
 ```
 
 The pinned documentation dependencies are separate from Victor's runtime
-dependencies. API pages use static source analysis. The existing Pygments 2.18
-pin preserves the formatter workaround for the `filename=None` interaction
-between signature highlighting and Pygments 2.19; update it only after validating
-the generated API pages.
+dependencies. API pages use static source analysis. Pygments 2.20 or later is
+required for the patched ADL lexer. The pinned toolchain builds API signatures
+successfully; validate those pages whenever updating highlighting dependencies.
+The former Pygments 2.18 workaround is no longer needed.
 
 Review the build diagnostics and browse the generated site before opening a PR
 against `develop`. The workflow builds documentation for relevant PRs targeting

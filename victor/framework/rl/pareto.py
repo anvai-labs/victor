@@ -228,7 +228,9 @@ class ParetoFrontier:
             if merged_text and merged_text != a.text and merged_text != b.text:
                 import hashlib
 
-                merged_hash = hashlib.md5(merged_text.encode()).hexdigest()[:12]
+                merged_hash = hashlib.md5(merged_text.encode(), usedforsecurity=False).hexdigest()[
+                    :12
+                ]
                 # Inherit average scores from parents
                 merged_scores: Dict[str, float] = {}
                 all_instances = set(a.instance_scores.keys()) | set(b.instance_scores.keys())

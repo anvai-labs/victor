@@ -39,6 +39,7 @@ import argparse
 import difflib
 import hashlib
 import os
+import re
 import sqlite3
 import sys
 from dataclasses import dataclass
@@ -51,7 +52,6 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 DEFAULT_DB = Path(os.environ.get("VICTOR_DB", Path.home() / ".victor" / "victor.db"))
-TABLE = "agent_prompt_candidate"
 
 # A candidate must beat the shipped baseline on evidence, not just differ from it.
 MIN_BENCHMARK_RUNS = 3
@@ -110,10 +110,10 @@ def _load(db: Path) -> List[Candidate]:
     con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
     try:
         rows = con.execute(
-            f"SELECT section_name, provider, text_hash, COALESCE(parent_hash, ''), text, "
-            f"generation, sample_count, is_active, requires_benchmark, benchmark_passed, "
-            f"benchmark_runs, benchmark_score, COALESCE(strategy_chain, ''), created_at "
-            f"FROM {TABLE} ORDER BY created_at"
+            "SELECT section_name, provider, text_hash, COALESCE(parent_hash, ''), text, "
+            "generation, sample_count, is_active, requires_benchmark, benchmark_passed, "
+            "benchmark_runs, benchmark_score, COALESCE(strategy_chain, ''), created_at "
+            "FROM agent_prompt_candidate ORDER BY created_at"
         ).fetchall()
     finally:
         con.close()
@@ -369,7 +369,7 @@ def cmd_propose(args) -> int:
     try:
         with con:
             con.execute(
-                f"INSERT OR REPLACE INTO {TABLE} "
+                "INSERT OR REPLACE INTO agent_prompt_candidate "
                 "(section_name, provider, text_hash, text, generation, parent_hash, "
                 " char_length, strategy_name, strategy_chain, requires_benchmark, is_active) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, 'human', 'human', 1, 0)",
@@ -392,6 +392,18 @@ def cmd_propose(args) -> int:
     return 0
 
 
+def _backup_candidates(con: sqlite3.Connection, stamp: str) -> str:
+    """Back up candidates using only a validated, locally generated identifier."""
+    if re.fullmatch(r"[0-9]{8}_[0-9]{6}", stamp) is None:
+        raise ValueError("Backup stamp must use YYYYMMDD_HHMMSS ASCII digits")
+    backup = f"agent_prompt_candidate_backup_{stamp}"
+    # SQLite cannot bind identifiers. The only variable part is the validated
+    # timestamp above; candidate text and other user input never enter this SQL.
+    # nosemgrep: python.lang.security.audit.formatted-sql-query.formatted-sql-query, python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query
+    con.execute(f'CREATE TABLE "{backup}" AS SELECT * FROM agent_prompt_candidate')
+    return backup
+
+
 def cmd_purge(args) -> int:
     baselines = _baselines()
     candidates = _load(args.db)
@@ -411,16 +423,16 @@ def cmd_purge(args) -> int:
         return 0
 
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    backup = f"{TABLE}_backup_{stamp}"
     con = sqlite3.connect(args.db)
     try:
         with con:
-            con.execute(f"CREATE TABLE {backup} AS SELECT * FROM {TABLE}")
+            backup = _backup_candidates(con, stamp)
             con.executemany(
-                f"DELETE FROM {TABLE} WHERE text_hash = ? AND section_name = ? AND provider = ?",
+                "DELETE FROM agent_prompt_candidate "
+                "WHERE text_hash = ? AND section_name = ? AND provider = ?",
                 [(c.text_hash, c.section_name, c.provider) for c in doomed],
             )
-        remaining = con.execute(f"SELECT COUNT(*) FROM {TABLE}").fetchone()[0]
+        remaining = con.execute("SELECT COUNT(*) FROM agent_prompt_candidate").fetchone()[0]
     finally:
         con.close()
     print(f"\nPurged {len(doomed)} candidate(s). Backup table: {backup}. Remaining: {remaining}.")

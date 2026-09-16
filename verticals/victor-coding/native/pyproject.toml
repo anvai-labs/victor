@@ -1,0 +1,16 @@
+[build-system]
+requires = ["maturin>=1.10,<2"]
+build-backend = "maturin"
+
+[project]
+name = "victor-coding-native"
+version = "0.1.0"
+description = "Native chunking and regex helpers for victor-coding"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "Apache-2.0"}
+
+[tool.maturin]
+manifest-path = "Cargo.toml"
+module-name = "_native"
+features = ["python"]

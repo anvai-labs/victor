@@ -20,7 +20,7 @@ for various CI/CD systems and coverage report formats.
 
 import logging
 import re
-import xml.etree.ElementTree as ET
+from lxml import etree as ET
 from pathlib import Path
 
 import yaml
@@ -37,6 +37,23 @@ from .protocol import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+# Coverage artifacts come from repositories/build tools, not trusted templates.
+_MAX_COVERAGE_XML_BYTES = 16 * 1024 * 1024
+
+
+def _parse_coverage_xml(report_path: Path):
+    with report_path.open("rb") as stream:
+        data = stream.read(_MAX_COVERAGE_XML_BYTES + 1)
+    if len(data) > _MAX_COVERAGE_XML_BYTES:
+        raise ValueError("Coverage XML exceeds the 16 MiB limit")
+    parser = ET.XMLParser(resolve_entities=False, load_dtd=False, no_network=True, huge_tree=False)
+    root = ET.fromstring(data, parser=parser)
+    internal_dtd = root.getroottree().docinfo.internalDTD
+    if internal_dtd is not None and list(internal_dtd.iterentities()):
+        raise ValueError("Coverage XML entity declarations are not supported")
+    return root
 
 
 # =============================================================================
@@ -498,9 +515,8 @@ class CoberturaAnalyzer(CoverageAnalyzerProtocol):
     async def parse_report(self, report_path: Path) -> CoverageMetrics:
         """Parse a Cobertura XML coverage report."""
         try:
-            tree = ET.parse(report_path)
-            root = tree.getroot()
-        except ET.ParseError as e:
+            root = _parse_coverage_xml(report_path)
+        except (ET.XMLSyntaxError, ValueError) as e:
             logger.warning(f"Failed to parse Cobertura report {report_path}: {e}")
             return CoverageMetrics(report_path=report_path, report_format=self.format_name)
 
@@ -672,9 +688,8 @@ class JaCoCoAnalyzer(CoverageAnalyzerProtocol):
     async def parse_report(self, report_path: Path) -> CoverageMetrics:
         """Parse a JaCoCo XML coverage report."""
         try:
-            tree = ET.parse(report_path)
-            root = tree.getroot()
-        except ET.ParseError as e:
+            root = _parse_coverage_xml(report_path)
+        except (ET.XMLSyntaxError, ValueError) as e:
             logger.warning(f"Failed to parse JaCoCo report {report_path}: {e}")
             return CoverageMetrics(report_path=report_path, report_format=self.format_name)
 

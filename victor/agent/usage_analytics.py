@@ -48,11 +48,13 @@ Usage:
 import asyncio
 from victor.core.json_utils import json_dumps
 import logging
-import pickle
+import math
+from copy import deepcopy
+from victor.core.data_cache import read_cache_data, write_cache_data
 import threading
 import time
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, ClassVar, Dict, List, Optional, Tuple
 
@@ -164,7 +166,7 @@ class UsageAnalytics:
         self._cache_file: Optional[Path] = None
         if self.config.cache_dir:
             self.config.cache_dir.mkdir(parents=True, exist_ok=True)
-            self._cache_file = self.config.cache_dir / "usage_analytics.pkl"
+            self._cache_file = self.config.cache_dir / "usage_analytics.v2.json"
             self._load_from_cache()
 
         logger.debug("UsageAnalytics initialized")
@@ -1005,16 +1007,19 @@ class UsageAnalytics:
         try:
             with self._data_lock:
                 data = {
-                    "tool_records": dict(self._tool_records),
-                    "provider_records": dict(self._provider_records),
-                    "session_history": self._session_history,
-                    "tool_aggregates": self._tool_aggregates,
-                    "provider_aggregates": self._provider_aggregates,
-                    "condensation_stats": self._condensation_stats,
+                    "tool_records": {
+                        key: [asdict(record) for record in records]
+                        for key, records in self._tool_records.items()
+                    },
+                    "provider_records": {
+                        key: [asdict(record) for record in records]
+                        for key, records in self._provider_records.items()
+                    },
+                    "session_history": [asdict(record) for record in self._session_history],
+                    "condensation_stats": deepcopy(self._condensation_stats),
                 }
 
-            with open(self._cache_file, "wb") as f:
-                pickle.dump(data, f)
+            write_cache_data(self._cache_file, data)
 
             logger.debug(f"Persisted analytics to {self._cache_file}")
 
@@ -1027,15 +1032,50 @@ class UsageAnalytics:
             return
 
         try:
-            with open(self._cache_file, "rb") as f:
-                data = pickle.load(f)
+            data = read_cache_data(self._cache_file)
 
-            self._tool_records = defaultdict(list, data.get("tool_records", {}))
-            self._provider_records = defaultdict(list, data.get("provider_records", {}))
-            self._session_history = data.get("session_history", [])
-            self._tool_aggregates = data.get("tool_aggregates", {})
-            self._provider_aggregates = data.get("provider_aggregates", {})
-            self._condensation_stats = data.get("condensation_stats", {})
+            from pydantic import TypeAdapter
+
+            # Decode every section into temporaries; a corrupt section must not
+            # leave half of a restored snapshot installed.
+            tools = TypeAdapter(Dict[str, List[ToolExecutionRecord]]).validate_python(
+                data.get("tool_records", {})
+            )
+            providers = TypeAdapter(Dict[str, List[ProviderCallRecord]]).validate_python(
+                data.get("provider_records", {})
+            )
+            history = TypeAdapter(List[ConversationStats]).validate_python(
+                data.get("session_history", [])
+            )
+            condensation = TypeAdapter(Dict[str, Dict[str, int]]).validate_python(
+                data.get("condensation_stats", {})
+            )
+            for records in [*tools.values(), *providers.values(), history]:
+                for record in records:
+                    if any(
+                        isinstance(value, (int, float))
+                        and (abs(value) > 2**63 - 1 or not math.isfinite(value))
+                        for value in vars(record).values()
+                    ):
+                        raise ValueError("Analytics metrics exceed the supported finite range")
+            for counters in condensation.values():
+                if not {"count", "original_chars", "condensed_chars"} <= counters.keys():
+                    raise ValueError("Incomplete condensation counters")
+                if any(not 0 <= value <= 2**63 - 1 for value in counters.values()):
+                    raise ValueError("Condensation counters exceed the supported range")
+            with self._data_lock:
+                self._tool_records = defaultdict(list, tools)
+                self._provider_records = defaultdict(list, providers)
+                self._session_history = history
+                self._condensation_stats = condensation
+                # Aggregates are derived from validated records, never trusted
+                # independently from disk.
+                self._tool_aggregates = {}
+                self._provider_aggregates = {}
+                for name in tools:
+                    self._update_tool_aggregate(name)
+                for name in providers:
+                    self._update_provider_aggregate(name)
 
             logger.info(
                 f"Loaded analytics from cache: "

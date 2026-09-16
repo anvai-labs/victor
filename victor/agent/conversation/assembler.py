@@ -99,7 +99,7 @@ class TurnBoundaryContextAssembler:
 
             # Normalize: strip whitespace, collapse runs, lowercase
             normalized = " ".join(content.lower().split())
-            content_hash = hashlib.md5(normalized.encode()).hexdigest()
+            content_hash = hashlib.md5(normalized.encode(), usedforsecurity=False).hexdigest()
 
             if content_hash in seen_hashes:
                 continue  # Duplicate -- skip

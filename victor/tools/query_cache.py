@@ -305,7 +305,7 @@ def cache_key_from_args(*args, **kwargs) -> str:
 
     # Hash long keys to avoid memory issues
     if len(key_str) > 100:
-        key_hash = hashlib.md5(key_str.encode()).hexdigest()
+        key_hash = hashlib.md5(key_str.encode(), usedforsecurity=False).hexdigest()
         return f"hash:{key_hash}"
     else:
         return key_str

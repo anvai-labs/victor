@@ -3,6 +3,8 @@
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from victor import __version__
+
 import pytest
 
 strawberry = pytest.importorskip("strawberry")
@@ -89,7 +91,7 @@ class TestHealthQuery:
         result = await schema.execute("{ health { status version } }")
         assert result.errors is None
         assert result.data["health"]["status"] == "healthy"
-        assert result.data["health"]["version"] == "0.5.1"
+        assert result.data["health"]["version"] == __version__
 
 
 class TestStatusQuery:

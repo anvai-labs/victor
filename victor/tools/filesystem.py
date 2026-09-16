@@ -1544,7 +1544,8 @@ async def read(
             if not _path_within_workspace(file_path, _project_root):
                 return _out_of_workspace_message(path, file_path, _project_root)
         except Exception:
-            pass
+            logger.warning("Workspace read guard could not be evaluated", exc_info=True)
+            return "Error: workspace access could not be verified; read was not performed."
 
     # Early return for directory paths (handles "", ".", "src/", etc.)
     if file_path.is_dir():
@@ -1705,7 +1706,7 @@ async def read(
         "pickle": {
             "extensions": {".pkl", ".pickle"},
             "suggestion": "This is serialized Python data. To inspect, use: "
-            "`python -c \"import pickle; print(pickle.load(open('file.pkl', 'rb')))\"`",
+            "`python -m pickletools file.pkl` (disassembles without executing the payload).",
         },
         # Archives
         "archive": {

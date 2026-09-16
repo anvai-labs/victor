@@ -746,7 +746,7 @@ def _make_chunk_id(
     ordinal: int,
 ) -> str:
     payload = f"{file_path}:{start_line}:{end_line}:{symbol_name or ''}:{chunk_type}:{ordinal}"
-    digest = hashlib.sha1(payload.encode("utf-8")).hexdigest()[:16]
+    digest = hashlib.sha1(payload.encode("utf-8"), usedforsecurity=False).hexdigest()[:16]
     return f"chunk:{file_path}:{digest}"
 
 

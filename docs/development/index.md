@@ -66,12 +66,11 @@ docs/
 
 | Layer | Components | File |
 |-------|------------|------|
-| **Clients** | CLI, HTTP API, MCP | `victor/cli/`, `victor/integrations/` |
-| **Orchestrator** | AgentOrchestrator, Controllers | `victor/agent/` |
-| **Framework** | StateGraph, Workflows, Teams | `victor/framework/` |
-| **Verticals** | 9 built-in + custom | `victor/{vertical}/` |
-| **Providers** | 25 LLM providers | `victor/providers/` |
-| **Tools** | 34 tool modules | `victor/tools/` |
+| **Clients** | CLI, TUI, HTTP, MCP, VS Code | `victor/ui/`, `victor/integrations/`, `vscode-victor/` |
+| **Framework** | VictorClient, AgentFactory, Agent, WorkflowEngine, StateGraph | `victor/framework/` |
+| **Runtime** | AgentOrchestrator facade; chat, tool and session services | `victor/agent/` |
+| **Infrastructure** | Providers, tools, storage and core facilities | `victor/providers/`, `victor/tools/`, `victor/storage/`, `victor/core/` |
+| **Vertical definitions** | 5 first-party packages plus external plugins | `verticals/victor-*/` via `victor_contracts` |
 
 ### Verticals
 
@@ -144,7 +143,7 @@ class MyTool(BaseTool):
 ### Create a Vertical
 
 ```python
-from victor.core.verticals import VerticalBase
+from victor_contracts.verticals import VerticalBase
 
 class MyVertical(VerticalBase):
     name = "my_vertical"

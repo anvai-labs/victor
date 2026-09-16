@@ -1,0 +1,3 @@
+# Intentionally empty. Exceptions are applied to the complete JSON report by
+# scripts/ci/security_report_check.py, with package/version/scope/expiry checks.
+

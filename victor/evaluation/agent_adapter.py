@@ -635,7 +635,7 @@ class VictorAgentAdapter:
 
         import hashlib
 
-        error_hash = hashlib.md5(error[:200].encode()).hexdigest()
+        error_hash = hashlib.md5(error[:200].encode(), usedforsecurity=False).hexdigest()
         if self._tool_failures.get(tool_name) == error_hash:
             self._tool_failure_counts[tool_name] = self._tool_failure_counts.get(tool_name, 1) + 1
         else:

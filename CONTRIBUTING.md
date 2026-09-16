@@ -164,9 +164,10 @@ Public signatures and code examples should agree with the implementation.
 3. Open the PR with `gh pr create --base develop`; use a conventional title such as
    `fix:`, `feat:`, `refactor:`, `docs:`, `ci:` or `chore:`.
 4. Describe the concrete behavior change, compatibility impact and validation.
-   Address review findings in the same PR. Changes involving concurrency, layering
-   or shared state require an independent adversarial review.
-5. Obtain at least one maintainer approval and merge after required CI passes. Remove the task worktree and branches
+   Before pushing, complete the local adversarial review described in the PR workflow
+   and address findings in the same PR.
+5. Enable auto-merge after required CI passes. Promotion to `main` retains its
+   separate maintainer-controlled release gate. Remove the task worktree and branches
    after verifying the merge.
 
 The [PR workflow](docs/development/PR_WORKFLOW.md) is the canonical source for branch,

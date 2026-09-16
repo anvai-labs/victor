@@ -37,6 +37,7 @@ Usage:
 
 import argparse
 import asyncio
+import tempfile
 import json
 import logging
 import re
@@ -338,9 +339,7 @@ async def run_code_gen_benchmark(
     if output_file:
         output_path = Path(output_file)
     else:
-        output_path = Path(
-            f"/tmp/victor_codegen_{profile}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-        )
+        output_path = Path(tempfile.mkdtemp(prefix="victor-codegen-")) / "results.json"
 
     with open(output_path, "w") as f:
         json.dump(output_data, f, indent=2, default=str)
@@ -491,9 +490,7 @@ async def run_benchmark(
     if output_file:
         output_path = Path(output_file)
     else:
-        output_path = Path(
-            f"/tmp/victor_benchmark_{profile}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-        )
+        output_path = Path(tempfile.mkdtemp(prefix="victor-benchmark-")) / "results.json"
 
     with open(output_path, "w") as f:
         json.dump(output_data, f, indent=2, default=str)

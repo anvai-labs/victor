@@ -285,11 +285,23 @@ export class ContextProvider {
      * Resolve @git mention
      */
     private async _resolveGitContext(query: string): Promise<ContextItem[]> {
-        // Execute git commands based on query
+        // Context preview is read-only. Never interpret a mention as a command.
         const gitCommand = query || 'status';
+        const commands = new Map<string, string[]>([
+            ['status', ['status', '--short']],
+            ['diff', ['diff', '--no-ext-diff', '--no-textconv']],
+            ['log', ['log', '-20', '--oneline', '--no-decorate']],
+            ['show', ['show', '--no-ext-diff', '--no-textconv']],
+            ['branch', ['branch', '--list']],
+        ]);
+        const args = commands.get(gitCommand);
+        if (!args) {
+            vscode.window.showWarningMessage('Git context supports status, diff, log, show, and branch.');
+            return [];
+        }
 
         try {
-            const result = await this._executeGitCommand(gitCommand);
+            const result = await this._executeGitCommand(args);
             return [{
                 type: 'git',
                 name: `git ${gitCommand}`,
@@ -300,11 +312,17 @@ export class ContextProvider {
         }
     }
 
-    private async _executeGitCommand(command: string): Promise<string> {
+    private async _executeGitCommand(args: string[]): Promise<string> {
         return new Promise((resolve, reject) => {
-            cp.exec(
-                `git ${command}`,
-                { cwd: this._workspaceRoot, maxBuffer: 1024 * 1024 },
+            cp.execFile(
+                'git',
+                ['--no-pager', '-c', 'core.fsmonitor=false', ...args],
+                {
+                    cwd: this._workspaceRoot,
+                    maxBuffer: 1024 * 1024,
+                    timeout: 10000,
+                    env: { ...process.env, GIT_NO_LAZY_FETCH: '1' },
+                },
                 (error: Error | null, stdout: string, stderr: string) => {
                     if (error) {
                         reject(error);

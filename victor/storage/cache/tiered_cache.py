@@ -21,7 +21,7 @@ from typing import Any, Optional, Dict, List
 import threading
 
 from cachetools import TTLCache  # type: ignore[import-untyped]
-import diskcache
+from victor.storage.cache.json_disk_cache import JsonDiskCache
 
 from victor.storage.cache.config import CacheConfig
 
@@ -33,7 +33,7 @@ class TieredCache:
 
     Architecture:
     - L1: Fast in-memory cache using cachetools (TTL-based)
-    - L2: Persistent disk cache using diskcache (survives restarts)
+    - L2: Persistent disk cache using JSON and SQLite (survives restarts)
 
     Features:
     - Automatic tiering (checks memory first, then disk)
@@ -83,7 +83,7 @@ class TieredCache:
 
         # Initialize L2 disk cache
         if self.config.enable_disk:
-            self._disk_cache: Optional[diskcache.Cache] = diskcache.Cache(
+            self._disk_cache: Optional[JsonDiskCache] = JsonDiskCache(
                 directory=str(self.config.disk_path),
                 size_limit=self.config.disk_max_size,
             )
@@ -258,7 +258,7 @@ class TieredCache:
                             pass
 
                 if self._disk_cache is not None:
-                    # diskcache namespace clear by iteration
+                    # Clear the namespace using its stored keys
                     to_delete = [
                         k for k in self._disk_cache.iterkeys() if k.startswith(f"{namespace}:")
                     ]

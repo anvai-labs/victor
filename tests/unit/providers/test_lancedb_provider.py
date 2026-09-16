@@ -42,13 +42,12 @@ def lancedb_config():
 @pytest.fixture
 def mock_lancedb():
     """Mock LanceDB client and table."""
-    # Check if lancedb is available, skip tests if not
-    import importlib.util
-
-    if importlib.util.find_spec("lancedb") is None:
-        pytest.skip("lancedb not installed")
-
-    with patch("lancedb.connect") as mock_connect:
+    backend = MagicMock(spec=["connect"])
+    with (
+        patch.dict("sys.modules", {"lancedb": backend}),
+        patch("victor.storage.vector_stores.lancedb_provider.LANCEDB_AVAILABLE", True),
+    ):
+        mock_connect = backend.connect
         mock_db = MagicMock()
         mock_table = MagicMock()
         mock_table.count_rows.return_value = 0
@@ -86,6 +85,20 @@ class TestLanceDBProvider:
         with patch("victor.storage.vector_stores.lancedb_provider.LANCEDB_AVAILABLE", False):
             with pytest.raises(ImportError, match="LanceDB not available"):
                 LanceDBProvider(lancedb_config)
+
+    async def test_backend_import_failure_precedes_model_initialization(self, lancedb_config):
+        """A broken installed backend must fail before opening model resources."""
+        with (
+            patch("victor.storage.vector_stores.lancedb_provider.LANCEDB_AVAILABLE", True),
+            patch.dict("sys.modules", {"lancedb": None}),
+            patch("victor.storage.vector_stores.lancedb_provider.create_embedding_model") as create,
+        ):
+            provider = LanceDBProvider(lancedb_config)
+            with pytest.raises(ModuleNotFoundError, match="lancedb"):
+                await provider.initialize()
+            create.assert_not_called()
+            assert provider.embedding_model is None
+            assert not provider._initialized
 
     @pytest.mark.asyncio
     async def test_initialize_persistent(self, lancedb_config, mock_lancedb):

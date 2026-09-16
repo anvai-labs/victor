@@ -21,6 +21,7 @@ import json
 import logging
 import re
 import time
+import tomllib
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Optional, Protocol, runtime_checkable
@@ -116,7 +117,7 @@ class PythonDependencyParser(BaseDependencyParser):
         elif name == "pyproject.toml":
             return self._parse_pyproject(file_path)
 
-        return []
+        raise ValueError(f"Unsupported dependency format: {file_path.name}")
 
     def _parse_requirements(self, file_path: Path) -> list[Dependency]:
         """Parse requirements.txt format."""
@@ -155,7 +156,7 @@ class PythonDependencyParser(BaseDependencyParser):
                                 )
                             )
         except Exception as e:
-            logger.warning(f"Failed to parse {file_path}: {e}")
+            raise ValueError(f"Failed to parse {file_path}: {e}") from e
 
         return deps
 
@@ -180,22 +181,13 @@ class PythonDependencyParser(BaseDependencyParser):
                         )
                     )
         except Exception as e:
-            logger.warning(f"Failed to parse {file_path}: {e}")
+            raise ValueError(f"Failed to parse {file_path}: {e}") from e
 
         return deps
 
     def _parse_poetry_lock(self, file_path: Path) -> list[Dependency]:
         """Parse poetry.lock format."""
         deps = []
-        try:
-            import tomllib
-        except ImportError:
-            try:
-                import tomli as tomllib
-            except ImportError:
-                logger.warning("tomllib/tomli not available for poetry.lock parsing")
-                return deps
-
         try:
             with open(file_path, "rb") as f:
                 data = tomllib.load(f)
@@ -212,21 +204,13 @@ class PythonDependencyParser(BaseDependencyParser):
                     )
                 )
         except Exception as e:
-            logger.warning(f"Failed to parse {file_path}: {e}")
+            raise ValueError(f"Failed to parse {file_path}: {e}") from e
 
         return deps
 
     def _parse_pyproject(self, file_path: Path) -> list[Dependency]:
         """Parse pyproject.toml for dependencies."""
         deps = []
-        try:
-            import tomllib
-        except ImportError:
-            try:
-                import tomli as tomllib
-            except ImportError:
-                return deps
-
         try:
             with open(file_path, "rb") as f:
                 data = tomllib.load(f)
@@ -263,7 +247,7 @@ class PythonDependencyParser(BaseDependencyParser):
                 )
 
         except Exception as e:
-            logger.warning(f"Failed to parse {file_path}: {e}")
+            raise ValueError(f"Failed to parse {file_path}: {e}") from e
 
         return deps
 
@@ -288,7 +272,7 @@ class NodeDependencyParser(BaseDependencyParser):
         elif name == "package.json":
             return self._parse_package_json(file_path)
 
-        return []
+        raise ValueError(f"Unsupported dependency format: {file_path.name}")
 
     def _parse_package_json(self, file_path: Path) -> list[Dependency]:
         """Parse package.json."""
@@ -312,7 +296,7 @@ class NodeDependencyParser(BaseDependencyParser):
                         )
                     )
         except Exception as e:
-            logger.warning(f"Failed to parse {file_path}: {e}")
+            raise ValueError(f"Failed to parse {file_path}: {e}") from e
 
         return deps
 
@@ -353,7 +337,7 @@ class NodeDependencyParser(BaseDependencyParser):
                     )
 
         except Exception as e:
-            logger.warning(f"Failed to parse {file_path}: {e}")
+            raise ValueError(f"Failed to parse {file_path}: {e}") from e
 
         return deps
 
@@ -379,14 +363,6 @@ class RustDependencyParser(BaseDependencyParser):
         """Parse Cargo.toml."""
         deps = []
         try:
-            import tomllib
-        except ImportError:
-            try:
-                import tomli as tomllib
-            except ImportError:
-                return deps
-
-        try:
             with open(file_path, "rb") as f:
                 data = tomllib.load(f)
 
@@ -411,21 +387,13 @@ class RustDependencyParser(BaseDependencyParser):
                     )
 
         except Exception as e:
-            logger.warning(f"Failed to parse {file_path}: {e}")
+            raise ValueError(f"Failed to parse {file_path}: {e}") from e
 
         return deps
 
     def _parse_cargo_lock(self, file_path: Path) -> list[Dependency]:
         """Parse Cargo.lock."""
         deps = []
-        try:
-            import tomllib
-        except ImportError:
-            try:
-                import tomli as tomllib
-            except ImportError:
-                return deps
-
         try:
             with open(file_path, "rb") as f:
                 data = tomllib.load(f)
@@ -443,7 +411,7 @@ class RustDependencyParser(BaseDependencyParser):
                 )
 
         except Exception as e:
-            logger.warning(f"Failed to parse {file_path}: {e}")
+            raise ValueError(f"Failed to parse {file_path}: {e}") from e
 
         return deps
 
@@ -507,7 +475,7 @@ class GoDependencyParser(BaseDependencyParser):
                             )
 
         except Exception as e:
-            logger.warning(f"Failed to parse {file_path}: {e}")
+            raise ValueError(f"Failed to parse {file_path}: {e}") from e
 
         return deps
 
@@ -537,7 +505,7 @@ class GoDependencyParser(BaseDependencyParser):
                             )
 
         except Exception as e:
-            logger.warning(f"Failed to parse {file_path}: {e}")
+            raise ValueError(f"Failed to parse {file_path}: {e}") from e
 
         return deps
 
@@ -668,7 +636,7 @@ class SecurityScanner:
                     )
                     result.vulnerabilities.append(vuln)
             except Exception as e:
-                logger.debug(f"CVE check failed for {dep.name}: {e}")
+                result.errors.append(f"Failed to check {dep.name}: {e}")
 
         result.scan_duration_ms = (time.time() - start_time) * 1000
         return result

@@ -568,7 +568,7 @@ class ContentRepetitionDetector:
             return "none"
 
         normalized = re.sub(r"\s+", " ", content.strip().lower())
-        content_hash = hashlib.md5(normalized.encode()).hexdigest()
+        content_hash = hashlib.md5(normalized.encode(), usedforsecurity=False).hexdigest()
         self._content_hashes.append(content_hash)
         if len(self._content_hashes) > self._history:
             self._content_hashes.pop(0)

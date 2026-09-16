@@ -683,6 +683,8 @@ class SessionConfig:
         # resolves via ask_fallback (default "deny").
         if self.tool_approval.enabled:
             governance = getattr(settings, "governance", None)
+            if governance is None:
+                raise RuntimeError("Requested tool approval requires governance settings")
             if governance is not None:
                 if hasattr(governance, "enabled"):
                     object.__setattr__(governance, "enabled", True)
@@ -703,5 +705,5 @@ class SessionConfig:
                     from victor.core.feature_flags import FeatureFlag, enable_feature
 
                     enable_feature(FeatureFlag.USE_POLICY_ENGINE)
-                except Exception:  # pragma: no cover - defensive
-                    pass
+                except Exception as exc:
+                    raise RuntimeError("Requested tool approval could not be enabled") from exc

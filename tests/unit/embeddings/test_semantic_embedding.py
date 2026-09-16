@@ -288,9 +288,9 @@ class TestEmbeddingCaching:
         )
 
         # Cache filename now includes project hash for isolation (TD-010)
-        # Format: tool_embeddings_{model}_{hash}.pkl
+        # Format: tool_embeddings_{model}_{hash}.v2.json
         assert selector.cache_file.name.startswith("tool_embeddings_all-MiniLM-L6-v2")
-        assert selector.cache_file.name.endswith(".pkl")
+        assert selector.cache_file.name.endswith(".v2.json")
 
     @pytest.mark.asyncio
     async def test_cache_file_naming_with_special_chars(self, temp_cache_dir):
@@ -301,7 +301,7 @@ class TestEmbeddingCaching:
 
         # Colons and slashes should be replaced, includes project hash
         assert selector.cache_file.name.startswith("tool_embeddings_qwen3-embedding_8b")
-        assert selector.cache_file.name.endswith(".pkl")
+        assert selector.cache_file.name.endswith(".v2.json")
 
 
 class TestProviderFallback:
@@ -395,7 +395,7 @@ class TestCacheOperations:
     @pytest.mark.asyncio
     async def test_load_from_cache_hash_mismatch(self, temp_cache_dir):
         """Test _load_from_cache returns False on hash mismatch (covers lines 278-280)."""
-        import pickle
+        from victor.core.data_cache import write_cache_data
 
         selector = SemanticToolSelector(cache_dir=temp_cache_dir)
 
@@ -405,8 +405,7 @@ class TestCacheOperations:
             "embedding_model": selector.embedding_model,
             "embeddings": {},
         }
-        with open(selector.cache_file, "wb") as f:
-            pickle.dump(cache_data, f)
+        write_cache_data(selector.cache_file, cache_data)
 
         result = selector._load_from_cache("expected_hash")
         assert result is False
@@ -414,7 +413,7 @@ class TestCacheOperations:
     @pytest.mark.asyncio
     async def test_load_from_cache_model_mismatch(self, temp_cache_dir):
         """Test _load_from_cache returns False on model mismatch (covers lines 283-285)."""
-        import pickle
+        from victor.core.data_cache import write_cache_data
 
         selector = SemanticToolSelector(cache_dir=temp_cache_dir)
 
@@ -424,8 +423,7 @@ class TestCacheOperations:
             "embedding_model": "different_model",
             "embeddings": {},
         }
-        with open(selector.cache_file, "wb") as f:
-            pickle.dump(cache_data, f)
+        write_cache_data(selector.cache_file, cache_data)
 
         result = selector._load_from_cache("test_hash")
         assert result is False
@@ -433,7 +431,7 @@ class TestCacheOperations:
     @pytest.mark.asyncio
     async def test_load_from_cache_success(self, temp_cache_dir):
         """Test _load_from_cache loads embeddings successfully (covers lines 287-291)."""
-        import pickle
+        from victor.core.data_cache import write_cache_data
 
         selector = SemanticToolSelector(cache_dir=temp_cache_dir)
 
@@ -445,8 +443,7 @@ class TestCacheOperations:
             "embedding_model": selector.embedding_model,
             "embeddings": test_embeddings,
         }
-        with open(selector.cache_file, "wb") as f:
-            pickle.dump(cache_data, f)
+        write_cache_data(selector.cache_file, cache_data)
 
         result = selector._load_from_cache("test_hash")
         assert result is True
