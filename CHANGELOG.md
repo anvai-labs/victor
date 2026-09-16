@@ -23,6 +23,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `claude mcp add`.
 
 ### Fixed
+### Fixed
+
+- Runtime subsystems no longer hardcode Ollama. The inline code-completion
+  provider now follows the configured default provider and actually resolves
+  (the old path called nonexistent registry methods and raised on first use);
+  the edge-model micro-decision layer gained `VICTOR_EDGE_MODEL_PROVIDER` /
+  `VICTOR_EDGE_MODEL` / `VICTOR_EDGE_MODEL_BASE_URL` overrides (defaults stay
+  a tiny local Ollama model — the right shape for 4s decisions); the
+  SkillMatcher initializes in a background task so its ~6s
+  sentence-transformers import + model load no longer sits on the bootstrap
+  critical path (every consumer already guards on readiness; early turns
+  simply have no skill auto-selection yet).
+
 
 - Session bootstrap no longer stalls ~60s when Docker Desktop is closed or
   unresponsive. The coding vertical's sandbox constructor probes the Docker
