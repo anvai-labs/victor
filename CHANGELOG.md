@@ -5,6 +5,44 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased] (develop)
 
+### Added
+
+- New bash-style `gh` tool (pr · issue · run · release · repo · api · auth) that
+  owns the GitHub CLI dependency honestly: it returns an actionable install
+  hint when `gh` is absent instead of a confusing shell error, and runs the
+  real binary via `shell(action='exec')` since GitHub operations are
+  network-bound by nature. Demand-wired through `SharedToolRegistry`
+  (`GH_DEMAND_KEYWORDS` hydration, like `graph`) so sessions that never touch
+  GitHub keep their bootstrap schema unchanged. Unknown `gh` flags pass
+  through; argv is `shlex.quote`d so titles/bodies with spaces, backticks or
+  `$` survive the shell verbatim.
+- `victor mcp add <name> <command> [args...]` registers a stdio MCP server,
+  verifies it completes the MCP handshake (with `--force` to persist anyway),
+  and upserts it into project (`.victor/mcp.yaml`) or global
+  (`~/.victor/mcp.yaml`) config with 0600 permissions — closing the gap with
+  `claude mcp add`.
+
+### Fixed
+
+- `edit(commit=False)` no longer reports a bare success for a permanent
+  no-op: the staged-but-never-flushed queue is discarded when the transaction
+  aborts, so callers reading `success` as "edit landed" were misled. The
+  result now sets `partial: true` with an explicit NOT APPLIED warning and
+  re-issue guidance (`commit=True` to write, `preview=True` for a diff).
+
+### Changed
+
+- Raise the default bash command timeout from 60s to 120s (`Timeouts.BASH_DEFAULT`).
+  Test runs, builds, and installs routinely exceeded the old ceiling and surfaced
+  as `Command timed out after 60 seconds` even though the shell tool supports a
+  `timeout` parameter. `VICTOR_TIMEOUT_BASH_DEFAULT` still overrides, and the
+  documented default in `docs/reference/environment-variables.md` already said 120.
+- Remove the `pr` subcommand from the `git` tool. `gh` is a different binary that
+  need not be installed when `git` is, so a `git pr` that silently shells out to
+  `gh` produced confusing failures. GitHub operations (PR create/view/merge,
+  releases, runs) now route through `shell(cmd='gh ...', action='exec')` like any
+  other out-of-family command. `git push -u` still works without victor-devops.
+
 ### Security
 
 - Fail closed when approval, safety, sandbox startup or verification setup fails.
