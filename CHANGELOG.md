@@ -23,6 +23,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `claude mcp add`.
 
 ### Fixed
+### Fixed
+
+- Session bootstrap no longer stalls ~60s when Docker Desktop is closed or
+  unresponsive. The coding vertical's sandbox constructor probes the Docker
+  daemon with a 60s requests timeout during component assembly, blocking every
+  `victor chat` start. The load+start is now bounded
+  (`VICTOR_CODE_EXEC_START_TIMEOUT`, default 5s) and degrades loudly — the
+  session runs without the code-execution sandbox and says so, matching the
+  already-handled missing-package case. Measured on a stalled machine:
+  client init 68.8s → 13.8s.
+
+### Fixed
+
+- The chat TUI no longer freezes the input while the agent executes. The prompt
+  stays live for the whole turn: a submission mid-run enters a FIFO queue
+  (listener-notified, strictly in-order) that drains one prompt per completed
+  turn — status shows "N queued", `/queue` lists and `/queue clear` flushes,
+  ESC interrupts the current run and the next queued prompt starts, ESC while
+  idle clears the queue. Queues are session-ephemeral by design.
+
 
 - Demand-wired tools (`gh`, `graph`) never reached chat sessions: hydration lived
   only on `ToolService.select_tools`, which no production code calls, and the
