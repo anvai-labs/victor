@@ -57,7 +57,6 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   re-issue guidance (`commit=True` to write, `preview=True` for a diff).
 
 ### Changed
-### Changed
 
 - `victor chat` now mounts the TUI immediately (shell-first): the UI appears with
   an "initializing session…" state while agent creation, session resume and turn
@@ -65,6 +64,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   minute-long, with Docker down) wait before anything renders. The prompt
   enables itself with a "✓ ready in X.Xs" line; initialization failures surface
   in-app and exit cleanly. REPL/one-shot paths are unchanged (shared helpers).
+- The chat TUI no longer captures mouse events by default: drag-select/copy of
+  transcript snippets is the terminal's own again, including mid-turn. In-app
+  keyboard copy (`ctrl+c` → OSC 52) is unchanged; widget mouse handling stays
+  available via `VICTOR_TUI_MOUSE_SUPPORT=1` (documented in
+  `docs/reference/environment-variables.md` alongside the REPL-surface
+  `VICTOR_CHAT_MOUSE_SUPPORT`).
 
 
 - Raise the default bash command timeout from 60s to 120s (`Timeouts.BASH_DEFAULT`).
