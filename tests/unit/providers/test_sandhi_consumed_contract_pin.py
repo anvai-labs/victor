@@ -83,6 +83,7 @@ class TestConsumedContractPin:
         consumed = {
             "response_start",
             "text_delta",
+            "reasoning_delta",
             "tool_call_start",
             "tool_call_arguments_delta",
             "tool_call_end",

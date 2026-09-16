@@ -63,6 +63,7 @@ flowchart TB
 | [Streaming Pipeline](architecture/streaming-pipeline.md) | Streaming execution pipeline design |
 | [Smart Routing](architecture/smart_routing.md) | Provider routing and selection |
 | [Edge Provider Strategy](architecture/edge-provider-tool-strategy.md) | Edge model decisions |
+| [InferFlux Reasoning Contract](architecture/inferflux-reasoning-separation-handoff.md) | Reasoning stream and usage contract consumed through Sandhi |
 | [ADR Index](architecture/adr/README.md) | Architecture Decision Records |
 
 ### User Guides
