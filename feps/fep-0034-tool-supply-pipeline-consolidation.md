@@ -27,7 +27,9 @@ could reach it. This FEP consolidates the surface onto a single, explicitly stag
 per-turn pipeline hosted by `ToolSelectionRuntime.select_tools_for_turn`, deletes the
 dead path, and unifies the benchmark transport with chat.
 
-## Motivation (verified 2026-09-16)
+## Motivation
+
+All findings below verified on develop, 2026-09-16, via live probes and DEBUG-logged sessions.
 
 Live probe on a current develop build: a headless chat session asked to use the `gh`
 tool answered *"No dedicated gh tool exists in this session's toolset (git/code/web/
@@ -53,7 +55,9 @@ The cost of the duplication is exactly this: a behavior added at one seam is sil
 the others, and each seam has its own tests, so everything stays green while the
 product behavior is broken.
 
-## Design: one staged pipeline (Pipeline pattern)
+## Proposed Change
+
+One staged pipeline (Pipeline pattern):
 
 The per-turn selection entry point is `select_tools_for_turn`; the frozen
 transport (`get_session_tools()`) shares the same stage semantics with the
@@ -82,7 +86,7 @@ Stage C unifies the transports, that is two call sites for one implementation �
 deliberately: one call site per transport, one implementation, never one call site
 per transport per behavior.
 
-## Staged rollout
+## Implementation Plan
 
 - **Stage A (this FEP's companion PR) — DONE** — a single shared
   `hydrate_demand_tools(host, text)` helper (in `tool_selection_runtime.py`)
@@ -112,7 +116,9 @@ per transport per behavior.
   static-wiring lesson from #1057; that layer is already consolidated.
 - No new selection strategies; Stage 6 internals are out of scope.
 
-## Alternatives considered
+## Drawbacks and Alternatives
+
+Drawbacks: two call sites for one helper until Stage C lands (temporary duplication, called out above); hydration adds a per-turn substring scan (measured negligible: a frozenset membership pass over ~9 phrases). Alternatives considered:
 
 - **Hydrate in `ToolSelector.select_tools` too** — rejected: two hydration sites
   recreates the divergence this FEP removes.
@@ -121,6 +127,45 @@ per transport per behavior.
   scan plus an early-return in the common case.
 - **Do nothing; document the three seams** — rejected: the failure class is
   demonstrated, not hypothetical; documentation does not survive the next feature.
+
+
+## Benefits
+
+- One implementation per tool-supply behavior, invoked at every transport — no more
+  behaviors that are green in unit tests and dead in real sessions.
+- The dormant-hook failure class (#536, #1057, the hydration gap) gets a structural
+  answer: behaviors attach to the pipeline, not to whichever facade happened to exist.
+- Stage C makes benchmark tool-supply numbers trustworthy (measured == served).
+
+## Unresolved Questions
+
+- Should the frozen transport ever re-lock mid-session (e.g. when a demand tool
+  hydrates after the first freeze), or is first-turn hydration sufficient? Current
+  answer: first-turn only; revisit if sessions routinely introduce new domains late.
+- Does the benchmark harness need the QnAGate/CuratedBypass stages, or a reduced
+  stage set? Decide in Stage C with benchmark owners.
+
+## Migration Path
+
+- Stage A is additive (no removals); no consumer changes required.
+- Stage B removes a dead public method — one deprecation-window release with a
+  warning shim is unnecessary (no callers), but the changelog must call it out.
+- Stage C changes what benchmarks measure; benchmark result history must be
+  annotated at the cutover commit so trend lines are read correctly.
+
+## Compatibility
+
+- No public SDK/contract API changes. `ToolService.select_tools` removal (Stage B)
+  is an internal-agent surface; a repo-wide grep for external callers is part of
+  that stage's acceptance.
+- Session-tool freezing semantics (KV-cache stability) are explicitly preserved.
+
+## Acceptance Criteria
+
+- A session whose first message mentions a demand-wired tool has that tool in its
+  frozen schema (covered by live smoke + `test_demand_hydration_turn.py`).
+- `grep`-verifiable: exactly one hydration implementation; per transport, one call.
+- CI FEP validation passes (this document).
 
 ## References
 
