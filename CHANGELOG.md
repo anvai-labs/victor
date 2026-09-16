@@ -46,6 +46,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   re-issue guidance (`commit=True` to write, `preview=True` for a diff).
 
 ### Changed
+### Changed
+
+- `victor chat` now mounts the TUI immediately (shell-first): the UI appears with
+  an "initializing session…" state while agent creation, session resume and turn
+  limits finish in a background worker, instead of a silent multi-second (or
+  minute-long, with Docker down) wait before anything renders. The prompt
+  enables itself with a "✓ ready in X.Xs" line; initialization failures surface
+  in-app and exit cleanly. REPL/one-shot paths are unchanged (shared helpers).
+
 
 - Raise the default bash command timeout from 60s to 120s (`Timeouts.BASH_DEFAULT`).
   Test runs, builds, and installs routinely exceeded the old ceiling and surfaced

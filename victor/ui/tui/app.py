@@ -99,11 +99,12 @@ class VictorTUIApp(App[None]):
         self,
         *,
         client: Any,
-        agent: Any,
         settings: Any,
+        agent: Any = None,
         mode: Optional[str] = None,
         tool_budget: Optional[int] = None,
         theme: str = DEFAULT_THEME,
+        bootstrap: Optional[Any] = None,
     ) -> None:
         super().__init__()
         self._client = client
@@ -112,6 +113,16 @@ class VictorTUIApp(App[None]):
         self._mode = mode or "—"
         self._tool_budget = tool_budget
         self._initial_theme = resolve_theme(theme)
+
+        # Shell-first startup: when ``bootstrap`` is given, the app mounts
+        # immediately and finishes session initialization (agent creation,
+        # resume, turn limits) in a worker; the prompt stays disabled until it
+        # resolves. Without it, the session is already initialized (REPL-style
+        # callers) and the app is usable on mount.
+        self._bootstrap = bootstrap
+        self._session_ready = bootstrap is None
+        self._bootstrap_error: Optional[str] = None
+        self._bootstrap_result: Any = None
 
         self._phase = PhaseTracker()
         self._turn_worker: Optional[Worker[None]] = None
@@ -152,11 +163,21 @@ class VictorTUIApp(App[None]):
         register_all(self)
         self.theme = self._initial_theme
         self.sub_title = self._model_label()
-        # Terminal-native HITL: register before the first turn (late-registration safe).
+        # Terminal-native HITL: register before the first turn — and before the
+        # bootstrap worker creates the agent (client.py requires the approval
+        # handler to exist before Agent.create()).
         try:
             self._client.set_approval_handler(make_tui_approval_handler(self))
         except Exception:  # noqa: BLE001 - approval is best-effort, never fatal
             pass
+        if self._bootstrap is not None:
+            # Shell-first: the UI is up; finish session init in the background
+            # with visible progress instead of blocking before the app mounts.
+            prompt = self.query_one("#prompt", Input)
+            prompt.disabled = True
+            self.query_one("#conversation", ConversationLog).write("[dim]initializing session…[/]")
+            self._update_status()
+            self.run_worker(self._run_bootstrap(), group="bootstrap", exclusive=True)
         # Shared slash commands, captured into the conversation log.
         try:
             from victor.ui.slash.handler import SlashCommandHandler
@@ -167,12 +188,41 @@ class VictorTUIApp(App[None]):
         self._refresh_sidebar()
         self._update_status()
         self.query_one("#diff-pane", DiffPane).display = False
-        self.query_one("#prompt", Input).focus()
+        if self._session_ready:
+            self.query_one("#prompt", Input).focus()
+
+    async def _run_bootstrap(self) -> None:
+        """Finish session initialization after the UI is already visible."""
+        started = time.monotonic()
+        bootstrap = self._bootstrap
+        assert bootstrap is not None  # guarded by _session_ready at mount
+        try:
+            result = await bootstrap()
+        except Exception as exc:  # noqa: BLE001 - surfaced, then a clean exit
+            self._bootstrap_error = str(exc) or exc.__class__.__name__
+            self.query_one("#conversation", ConversationLog).write(
+                f"[red]⚠ initialization failed: {escape(self._bootstrap_error)}[/]"
+            )
+            self.call_after_refresh(self.exit)
+            return
+        self._bootstrap_result = result
+        if result is not None:
+            self._agent = result
+        self._session_ready = True
+        self.query_one("#conversation", ConversationLog).write(
+            f"[green]✓ ready in {time.monotonic() - started:.1f}s[/]"
+        )
+        self._refresh_sidebar()
+        self.sub_title = self._model_label()
+        self._update_status()
+        prompt = self.query_one("#prompt", Input)
+        prompt.disabled = False
+        prompt.focus()
 
     # ── input handling ────────────────────────────────────────────
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
-        if event.input.id != "prompt":
+        if event.input.id != "prompt" or not self._session_ready:
             return
         text = event.value.strip()
         event.input.value = ""
