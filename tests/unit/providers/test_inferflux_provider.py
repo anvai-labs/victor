@@ -57,9 +57,7 @@ async def test_model_listing_falls_back_to_local_policy(
     assert {entry["id"] for entry in await provider.list_models()} == set(INFERFLUX_MODELS)
 
 
-def test_keyless_local_construction_needs_no_credential(
-    monkeypatch, tmp_path
-) -> None:
+def test_keyless_local_construction_needs_no_credential(monkeypatch, tmp_path) -> None:
     """An anonymous InferFlux server is the documented default: constructing the
     provider with no env key must yield the EMPTY key (sandhi 0.3.0 then sends no
     Authorization header at all — ADR-0008 D1), never APIKeyNotFoundError."""
