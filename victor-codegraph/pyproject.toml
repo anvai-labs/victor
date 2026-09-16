@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=83.0.0", "wheel"]
+requires = ["setuptools>=84.0.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -42,17 +42,17 @@ dependencies = []
 
 [project.optional-dependencies]
 treesitter = [
-    "tree-sitter>=0.23",
-    "tree-sitter-language-pack>=1.0",
+    "tree-sitter>=0.26.0",
+    "tree-sitter-language-pack>=1.16.2",
 ]
 contracts = [
-    "victor-contracts>=0.7.0,<1.0",
+    "victor-contracts>=0.9.1,<1.0",
 ]
 dev = [
-    "pytest>=8.0",
-    "ruff>=0.5",
-    "tree-sitter>=0.23",
-    "tree-sitter-language-pack>=1.0",
+    "pytest>=9.1.1",
+    "ruff>=0.16.6",
+    "tree-sitter>=0.26.0",
+    "tree-sitter-language-pack>=1.16.2",
 ]
 
 [project.urls]
