@@ -35,6 +35,7 @@ Example commands:
 from __future__ import annotations
 
 import argparse
+import shlex
 import shutil
 import sys
 from typing import List
@@ -118,8 +119,15 @@ _GH_INSTALL_HINT = (
 
 
 async def _run_gh(argv: List[str]) -> str:
-    """Run ``gh <argv>`` through the shell tool with exec intent."""
-    result = await shell(cmd=f"gh {' '.join(argv)}", action="exec")
+    """Run ``gh <argv>`` through the shell tool with exec intent.
+
+    Tokens are ``shlex.quote``d: ``split_command`` already stripped the
+    quoting, so a title/body containing spaces, backticks or ``$`` must be
+    re-quoted or the shell would split it (or interpret it) instead of
+    passing it to ``gh``. Quoting keeps markdown verbatim — backticks inside
+    single quotes reach GitHub untouched.
+    """
+    result = await shell(cmd="gh " + " ".join(shlex.quote(t) for t in argv), action="exec")
     if isinstance(result, dict):
         rc = result.get("return_code")
         stdout = result.get("stdout", "")
@@ -154,8 +162,15 @@ async def gh_tool(cmd: str) -> str:
         args_list = split_command(cmd)
         if args_list and args_list[0] == "gh":
             args_list = args_list[1:]
-        parsed = parser.parse_args(args_list)
-    except ValueError as e:
+        # parse_known_args, not parse_args: gh's flag surface is far larger than
+        # the parser models, and execution below uses the raw tokens anyway.
+        # Validation only needs the subcommand shape; unmodeled flags (e.g.
+        # `gh pr merge 123 --squash`) must pass through, not hard-fail.
+        parsed, _ = parser.parse_known_args(args_list)
+    except (ValueError, argparse.ArgumentError) as e:
+        # ValueError: UnifiedGhParser.error (usage errors). ArgumentError:
+        # invalid subcommand choice — argparse raises it directly from
+        # _check_value, bypassing error().
         return f"### ❌ ERROR\n{e}"
     except Exception as e:
         return f"### ❌ ERROR\nUnexpected error parsing command: {e}"
@@ -168,7 +183,7 @@ async def gh_tool(cmd: str) -> str:
 
     # Rebuild the gh argv from the original tokens: passthrough keeps flags we
     # do not model in the parser (gh's surface is large) while the parser still
-    # validates structure and rejects unknown top-level subcommands.
+    # validates the subcommand shape and rejects unknown top-level subcommands.
     tokens = split_command(cmd)
     if tokens and tokens[0] == "gh":
         tokens = tokens[1:]

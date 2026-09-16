@@ -5,6 +5,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased] (develop)
 
+### Added
+
+- New bash-style `gh` tool (pr · issue · run · release · repo · api · auth) that
+  owns the GitHub CLI dependency honestly: it returns an actionable install
+  hint when `gh` is absent instead of a confusing shell error, and runs the
+  real binary via `shell(action='exec')` since GitHub operations are
+  network-bound by nature. Demand-wired through `SharedToolRegistry`
+  (`GH_DEMAND_KEYWORDS` hydration, like `graph`) so sessions that never touch
+  GitHub keep their bootstrap schema unchanged. Unknown `gh` flags pass
+  through; argv is `shlex.quote`d so titles/bodies with spaces, backticks or
+  `$` survive the shell verbatim.
+- `victor mcp add <name> <command> [args...]` registers a stdio MCP server,
+  verifies it completes the MCP handshake (with `--force` to persist anyway),
+  and upserts it into project (`.victor/mcp.yaml`) or global
+  (`~/.victor/mcp.yaml`) config with 0600 permissions — closing the gap with
+  `claude mcp add`.
+
+### Fixed
+
+- `edit(commit=False)` no longer reports a bare success for a permanent
+  no-op: the staged-but-never-flushed queue is discarded when the transaction
+  aborts, so callers reading `success` as "edit landed" were misled. The
+  result now sets `partial: true` with an explicit NOT APPLIED warning and
+  re-issue guidance (`commit=True` to write, `preview=True` for a diff).
+
 ### Changed
 
 - Raise the default bash command timeout from 60s to 120s (`Timeouts.BASH_DEFAULT`).
