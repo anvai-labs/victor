@@ -5,6 +5,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased] (develop)
 
+### Changed
+
+- Raise the default bash command timeout from 60s to 120s (`Timeouts.BASH_DEFAULT`).
+  Test runs, builds, and installs routinely exceeded the old ceiling and surfaced
+  as `Command timed out after 60 seconds` even though the shell tool supports a
+  `timeout` parameter. `VICTOR_TIMEOUT_BASH_DEFAULT` still overrides, and the
+  documented default in `docs/reference/environment-variables.md` already said 120.
+- Remove the `pr` subcommand from the `git` tool. `gh` is a different binary that
+  need not be installed when `git` is, so a `git pr` that silently shells out to
+  `gh` produced confusing failures. GitHub operations (PR create/view/merge,
+  releases, runs) now route through `shell(cmd='gh ...', action='exec')` like any
+  other out-of-family command. `git push -u` still works without victor-devops.
+
 ## [0.9.3] - 2026-09-10
 
 ### Security
