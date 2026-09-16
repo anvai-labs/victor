@@ -27,6 +27,7 @@ import warnings
 from typing import Any, Callable, Dict, Optional, Tuple, TYPE_CHECKING
 
 from victor.config.tool_selection_access import is_semantic_tool_selection_enabled
+from victor.providers.provider_kinds import LOCAL_CLASS_PROVIDERS
 from victor.agent.coordinators.factory_support import (
     create_coordination_advisor_runtime as build_coordination_advisor_runtime,
     create_coordination_state_passed_coordinator as build_coordination_state_passed_coordinator,
