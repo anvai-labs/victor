@@ -10,6 +10,12 @@ import threading
 from typing import Any, TYPE_CHECKING
 
 from victor.config.timeouts import McpTimeouts
+from victor.integrations.mcp.sandbox import (
+    OwnedProcessGroup,
+    owned_process_group,
+    signal_process_tree,
+    wait_for_exit_without_reaping,
+)
 
 if TYPE_CHECKING:
     from victor.integrations.mcp.sandbox import SandboxedProcess
@@ -27,7 +33,10 @@ class StdioTransport:
     """
 
     def __init__(
-        self, process: subprocess.Popen | None, owner: SandboxedProcess | None = None
+        self,
+        process: subprocess.Popen | None,
+        owner: SandboxedProcess | None = None,
+        process_group: OwnedProcessGroup | None = None,
     ) -> None:
         self.process = process
         self.owner = owner
@@ -38,6 +47,11 @@ class StdioTransport:
         self.cleanup_task: asyncio.Task[None] | None = None
         self._close_lock = threading.Lock()
         self._closed = False
+        self._process_group = (
+            process_group
+            if process_group is not None
+            else (owned_process_group(process) if process is not None and owner is None else None)
+        )
 
     def exchange(self, request: str, message_id: str) -> asyncio.Future[dict[str, Any]]:
         if self.retired.is_set() or not self.worker_done.is_set():
@@ -115,7 +129,7 @@ class StdioTransport:
         self.retired.set()
         if self.process is not None:
             try:
-                self.process.terminate()
+                signal_process_tree(self.process, process_group=self._process_group)
             except Exception as exc:
                 logger.debug("Error terminating retired MCP process: %s", exc)
 
@@ -132,22 +146,50 @@ class StdioTransport:
             self._closed = True
 
     def wait_and_close(self) -> None:
-        if self.process is not None:
-            try:
-                self.process.wait(timeout=McpTimeouts.TERMINATE)
-            except subprocess.TimeoutExpired:
+        try:
+            if (
+                self.process is not None
+                and self._process_group is not None
+                and self._process_group.active
+            ):
+                exit_observed = wait_for_exit_without_reaping(self.process, McpTimeouts.TERMINATE)
                 try:
-                    self.process.kill()
-                    self.process.wait(timeout=McpTimeouts.KILL)
+                    if exit_observed is None:
+                        self._process_group.invalidate()
+                        try:
+                            self.process.wait(timeout=McpTimeouts.TERMINATE)
+                        except subprocess.TimeoutExpired:
+                            signal_process_tree(self.process, force=True)
+                            self.process.wait(timeout=McpTimeouts.KILL)
+                    else:
+                        signal_process_tree(
+                            self.process,
+                            force=True,
+                            process_group=self._process_group,
+                        )
+                        self.process.wait(timeout=McpTimeouts.KILL)
                 except Exception as exc:
-                    logger.debug("Error killing retired MCP process: %s", exc)
-            except Exception as exc:
-                logger.debug("Error waiting for retired MCP process: %s", exc)
-        # A descendant may retain a pipe after the direct child exits. In that
-        # case the daemon worker owns deferred closure, and admission stays shut.
-        if self.worker_done.is_set():
-            self._close_streams()
-        self.cleanup_done.set()
+                    logger.debug("Error finalizing retired MCP process group: %s", exc)
+                finally:
+                    self._process_group.invalidate()
+                self.worker_done.wait(timeout=McpTimeouts.KILL)
+            elif self.process is not None:
+                try:
+                    self.process.wait(timeout=McpTimeouts.TERMINATE)
+                except subprocess.TimeoutExpired:
+                    try:
+                        signal_process_tree(self.process, force=True)
+                        self.process.wait(timeout=McpTimeouts.KILL)
+                    except Exception as exc:
+                        logger.debug("Error killing retired MCP process: %s", exc)
+                except Exception as exc:
+                    logger.debug("Error waiting for retired MCP process: %s", exc)
+        finally:
+            # A descendant that escaped the owned group may still retain a pipe.
+            # The daemon worker keeps deferred closure safe and admission shut.
+            if self.worker_done.is_set():
+                self._close_streams()
+            self.cleanup_done.set()
 
     async def cleanup(self) -> None:
         try:
