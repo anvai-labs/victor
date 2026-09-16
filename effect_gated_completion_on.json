@@ -1,0 +1,10 @@
+{
+  "n": 0,
+  "overall": {
+    "mean": 0.9167,
+    "ci_lower": 0.731,
+    "ci_upper": 1.0,
+    "n": 12
+  },
+  "per_dimension": []
+}
