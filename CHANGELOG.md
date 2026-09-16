@@ -24,6 +24,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Demand-wired tools (`gh`, `graph`) never reached chat sessions: hydration lived
+  only on `ToolService.select_tools`, which no production code calls, and the
+  cache-optimized transport freezes the session toolset before per-turn selection
+  ever runs. A shared `hydrate_demand_tools` stage now runs in both transports
+  before the freeze, so a mention hydrates the tool into the locked schema
+  (live-verified; FEP-0034 Stage A).
 - `edit(commit=False)` no longer reports a bare success for a permanent
   no-op: the staged-but-never-flushed queue is discarded when the transaction
   aborts, so callers reading `success` as "edit landed" were misled. The
