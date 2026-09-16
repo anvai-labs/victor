@@ -137,6 +137,9 @@ def db_prune(
 
     # Determine which tables to prune
     if table:
+        if table not in db.get_tables_for_group("all"):
+            console.print("[red]Unknown or non-prunable table[/red]")
+            raise typer.Exit(1)
         tables = [table]
     elif group:
         tables = db.get_tables_for_group(group)

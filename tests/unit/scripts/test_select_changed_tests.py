@@ -37,6 +37,25 @@ def test_changed_test_file_runs_directly():
     assert out == ["tests/unit/agent/test_metrics_runtime.py"]
 
 
+def test_mcp_transport_changes_include_lifecycle_and_legacy_contracts():
+    required = {
+        "tests/unit/agent/test_mcp_client.py",
+        "tests/unit/integrations/mcp/test_client_response_correlation.py",
+        "tests/unit/security/test_mcp_factory_lifecycle.py",
+    }
+    for source in (
+        "victor/integrations/mcp/client.py",
+        "victor/integrations/mcp/stdio_transport.py",
+    ):
+        assert required <= set(select([source]))
+
+
+def test_selector_changes_select_its_own_regressions():
+    assert "tests/unit/scripts/test_select_changed_tests.py" in select(
+        ["scripts/ci/select_changed_tests.py"]
+    )
+
+
 def test_non_python_and_unmapped_yield_nothing():
     # Docs/CI/config changes map to no unit tests -> empty (caller treats as pass).
     assert select(["README.md", ".github/workflows/ci-fast.yml", "Makefile"]) == []

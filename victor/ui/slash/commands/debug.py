@@ -114,12 +114,12 @@ class DebugCommand(BaseSlashCommand):
   Set a breakpoint on a workflow node
   Options:
     --after      Break after node executes (default: before)
-    --condition  Python expression to evaluate (e.g., "error_count > 5")
+    --condition  Restricted comparison without spaces (e.g., error_count>5)
     --ignore     Skip first N hits before breaking
   Examples:
     /debug break analyze_code
     /debug break process_data --after
-    /debug break validate --condition "len(errors) > 0"
+    /debug break validate --condition error_count>0
 
 [cyan]/debug clear[/] <breakpoint_id|all>
   Clear a breakpoint by ID or clear all breakpoints
@@ -187,6 +187,7 @@ class DebugCommand(BaseSlashCommand):
             from victor.framework.debugging.breakpoints import (
                 BreakpointPosition,
                 BreakpointType,
+                compile_condition,
             )
 
             # Parse position
@@ -197,18 +198,7 @@ class DebugCommand(BaseSlashCommand):
             # Create condition function if expression provided
             condition_fn = None
             if condition_expr:
-                # Create a safe condition function
-                def make_condition(expr: str):
-                    def condition(state):
-                        try:
-                            # Limited evaluation context
-                            return eval(expr, {"__builtins__": {}}, state)
-                        except Exception:
-                            return False
-
-                    return condition
-
-                condition_fn = make_condition(condition_expr)
+                condition_fn = compile_condition(condition_expr)
 
             # Set the breakpoint
             bp = manager.set_breakpoint(

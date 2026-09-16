@@ -159,6 +159,7 @@ class SecurityManager:
         lines.append(f"  High:     {result.high_count}")
         lines.append(f"  Medium:   {result.medium_count}")
         lines.append(f"  Low:      {result.low_count}")
+        lines.append(f"  Unknown:  {result.unknown_count}")
         lines.append("")
 
         # Policy check
@@ -175,6 +176,7 @@ class SecurityManager:
 
         # Vulnerabilities by severity
         for severity in [
+            Severity.UNKNOWN,
             Severity.CRITICAL,
             Severity.HIGH,
             Severity.MEDIUM,
@@ -225,6 +227,7 @@ class SecurityManager:
         lines.append(f"| High | {result.high_count} |")
         lines.append(f"| Medium | {result.medium_count} |")
         lines.append(f"| Low | {result.low_count} |")
+        lines.append(f"| Unknown | {result.unknown_count} |")
         lines.append("")
 
         # Policy
@@ -245,6 +248,7 @@ class SecurityManager:
             lines.append("")
 
             for severity in [
+                Severity.UNKNOWN,
                 Severity.CRITICAL,
                 Severity.HIGH,
                 Severity.MEDIUM,
@@ -289,6 +293,7 @@ class SecurityManager:
                     "high": result.high_count,
                     "medium": result.medium_count,
                     "low": result.low_count,
+                    "unknown": result.unknown_count,
                 },
                 "scan_duration_ms": result.scan_duration_ms,
                 "timestamp": result.scan_timestamp.isoformat(),
@@ -301,7 +306,7 @@ class SecurityManager:
                 {
                     "cve_id": v.cve.cve_id,
                     "severity": v.cve.severity.value,
-                    "cvss_score": v.cve.cvss_score,
+                    "cvss_score": v.cve.cvss.score if v.cve.cvss else None,
                     "description": v.cve.description,
                     "package": v.dependency.name,
                     "version": v.dependency.version,

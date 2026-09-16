@@ -332,28 +332,15 @@ def _run_agentic_synthesis(
         # listing, so the model has no escape hatch and must return the
         # init.md content as its message.
         try:
-            _SYNTHESIS_DISABLED_TOOLS = (
-                "write",
-                "edit",
-                "rename",
-                "extract",
-                "shell",
-                "test",
-                "docker",
-            )
-            _orchestrator = getattr(agent, "_orchestrator", None) or agent
-            _tool_registry = getattr(_orchestrator, "tools", None)
-            if _tool_registry is not None and hasattr(_tool_registry, "disable_tool"):
-                for _t in _SYNTHESIS_DISABLED_TOOLS:
-                    try:
-                        _tool_registry.disable_tool(_t)
-                    except Exception:
-                        pass
-        except Exception:
-            pass
+            disabled_tools = ("write", "edit", "rename", "extract", "shell", "test", "docker")
+            orchestrator = getattr(agent, "_orchestrator", None) or agent
+            registry = getattr(orchestrator, "tools", None)
+            if registry is None or not callable(getattr(registry, "disable_tool", None)):
+                raise RuntimeError("Cannot restrict tools for init synthesis")
+            for tool_name in disabled_tools:
+                registry.disable_tool(tool_name)
 
-        synthesizer = InitSynthesizer()
-        try:
+            synthesizer = InitSynthesizer()
             return await synthesizer.synthesize_with_tools(
                 agent=agent,
                 graph_context=graph_context,

@@ -202,6 +202,9 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
 
             root = Path(server.workspace_root)
             findings = []
+            errors = []
+            skipped_files = 0
+            scanned_files = 0
 
             secret_patterns = [
                 (
@@ -230,17 +233,24 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
             }
 
             for path in root.rglob("*"):
-                if path.is_file() and path.suffix.lower() in code_extensions:
+                if path.is_file() and (
+                    path.suffix.lower() in code_extensions or path.name == ".env"
+                ):
                     if any(
                         p.startswith(".") or p in {"node_modules", "__pycache__"}
-                        for p in path.parts
+                        for p in path.relative_to(root).parts[:-1]
                     ):
                         continue
 
                     try:
+                        if not path.resolve().is_relative_to(root.resolve()):
+                            skipped_files += 1
+                            continue
                         if path.stat().st_size > 1_000_000:
+                            skipped_files += 1
                             continue
                         content = path.read_text(encoding="utf-8", errors="ignore")
+                        scanned_files += 1
                         for pattern, finding_type in secret_patterns:
                             for match in re.finditer(pattern, content):
                                 line_num = content[: match.start()].count("\n") + 1
@@ -254,11 +264,20 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
                                     }
                                 )
                     except Exception:
-                        pass
+                        errors.append(
+                            {"file": str(path.relative_to(root)), "error": "File scan failed"}
+                        )
 
             return JSONResponse(
                 {
-                    "scan_completed": True,
+                    "scan_completed": False,
+                    "fallback_completed": not errors and skipped_files == 0,
+                    "scanner": "fallback_patterns",
+                    "degraded": True,
+                    "fallback_reason": "Primary scanner unavailable or failed",
+                    "scanned_files": scanned_files,
+                    "skipped_files": skipped_files,
+                    "errors": errors,
                     "findings": findings[:50],
                     "total_findings": len(findings),
                     "severity_counts": {

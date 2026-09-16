@@ -77,6 +77,8 @@ import logging
 import queue
 import shutil
 import sqlite3
+
+from victor.core.sql_utils import quote_identifier
 import tempfile
 import threading
 from contextlib import contextmanager
@@ -424,16 +426,16 @@ class DatabaseConsolidator:
                     if target_cursor.fetchone():
                         # Table exists, copy data if target is empty
                         source_count = target_conn.execute(
-                            f"SELECT COUNT(*) FROM source_db.{table}"
+                            f"SELECT COUNT(*) FROM source_db.{quote_identifier(table)}"
                         ).fetchone()[0]
                         target_count = target_conn.execute(
-                            f"SELECT COUNT(*) FROM {table}"
+                            f"SELECT COUNT(*) FROM {quote_identifier(table)}"
                         ).fetchone()[0]
 
                         if source_count > 0 and target_count == 0:
                             target_conn.execute(f"""
-                                INSERT INTO {table}
-                                SELECT * FROM source_db.{table}
+                                INSERT INTO {quote_identifier(table)}
+                                SELECT * FROM source_db.{quote_identifier(table)}
                             """)
                             logger.debug(f"Copied {source_count} rows from {table}")
                             migrated += 1
@@ -450,8 +452,8 @@ class DatabaseConsolidator:
                         if schema_row and schema_row[0]:
                             target_conn.execute(schema_row[0])
                             target_conn.execute(f"""
-                                INSERT INTO {table}
-                                SELECT * FROM source_db.{table}
+                                INSERT INTO {quote_identifier(table)}
+                                SELECT * FROM source_db.{quote_identifier(table)}
                             """)
 
                             # Copy indexes
@@ -1034,12 +1036,14 @@ class DatabaseManager(_DatabaseManagerBase):
             Number of tables migrated
         """
         # Attach legacy database
-        conn.execute(f"ATTACH DATABASE ? AS legacy_{source_name}", (str(legacy_path),))
+        conn.execute(
+            f"ATTACH DATABASE ? AS {quote_identifier('legacy_' + source_name)}", (str(legacy_path),)
+        )
 
         try:
             # Get tables from legacy database (excluding sqlite internal tables)
             cursor = conn.execute(f"""
-                SELECT name FROM legacy_{source_name}.sqlite_master
+                SELECT name FROM {quote_identifier('legacy_' + source_name)}.sqlite_master
                 WHERE type='table' AND name NOT LIKE 'sqlite_%'
             """)
             tables = [row[0] for row in cursor.fetchall()]
@@ -1050,15 +1054,17 @@ class DatabaseManager(_DatabaseManagerBase):
                 if self.table_exists(table):
                     # Check if source has data and target is empty
                     source_count = conn.execute(
-                        f"SELECT COUNT(*) FROM legacy_{source_name}.{table}"
+                        f"SELECT COUNT(*) FROM {quote_identifier('legacy_' + source_name)}.{quote_identifier(table)}"
                     ).fetchone()[0]
-                    target_count = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+                    target_count = conn.execute(
+                        f"SELECT COUNT(*) FROM {quote_identifier(table)}"
+                    ).fetchone()[0]
 
                     if source_count > 0 and target_count == 0:
                         # Copy data from source to existing target
                         conn.execute(f"""
-                            INSERT INTO {table}
-                            SELECT * FROM legacy_{source_name}.{table}
+                            INSERT INTO {quote_identifier(table)}
+                            SELECT * FROM {quote_identifier('legacy_' + source_name)}.{quote_identifier(table)}
                         """)
                         logger.debug(f"Copied {source_count} rows from legacy {table}")
                         migrated += 1
@@ -1067,7 +1073,7 @@ class DatabaseManager(_DatabaseManagerBase):
                 # Get table schema
                 schema_row = conn.execute(
                     f"""
-                    SELECT sql FROM legacy_{source_name}.sqlite_master
+                    SELECT sql FROM {quote_identifier('legacy_' + source_name)}.sqlite_master
                     WHERE type='table' AND name=?
                 """,
                     (table,),
@@ -1083,14 +1089,14 @@ class DatabaseManager(_DatabaseManagerBase):
 
                     # Copy data
                     conn.execute(f"""
-                        INSERT INTO {table}
-                        SELECT * FROM legacy_{source_name}.{table}
+                        INSERT INTO {quote_identifier(table)}
+                        SELECT * FROM {quote_identifier('legacy_' + source_name)}.{quote_identifier(table)}
                     """)
 
                     # Copy indexes
                     idx_cursor = conn.execute(
                         f"""
-                        SELECT sql FROM legacy_{source_name}.sqlite_master
+                        SELECT sql FROM {quote_identifier('legacy_' + source_name)}.sqlite_master
                         WHERE type='index' AND tbl_name=? AND sql IS NOT NULL
                     """,
                         (table,),
@@ -1108,7 +1114,7 @@ class DatabaseManager(_DatabaseManagerBase):
             return migrated
 
         finally:
-            conn.execute(f"DETACH DATABASE legacy_{source_name}")
+            conn.execute(f"DETACH DATABASE {quote_identifier('legacy_' + source_name)}")
 
     def backup(self, backup_path: Optional[Path] = None) -> Path:
         """Create a backup of the database.
@@ -1151,7 +1157,7 @@ class DatabaseManager(_DatabaseManagerBase):
         for table in self.get_tables():
             if table.startswith("_"):
                 continue
-            count = self.query_one(f"SELECT COUNT(*) FROM {table}")
+            count = self.query_one(f"SELECT COUNT(*) FROM {quote_identifier(table)}")
             stats["tables"][table] = count[0] if count else 0
 
         return stats
@@ -1181,7 +1187,9 @@ class DatabaseManager(_DatabaseManagerBase):
             return self._DATE_COLUMNS[table]
         # Auto-detect
         conn = self.get_connection()
-        cols = {r[1] for r in conn.execute(f"PRAGMA table_info([{table}])").fetchall()}
+        cols = {
+            r[1] for r in conn.execute(f"PRAGMA table_info({quote_identifier(table)})").fetchall()
+        }
         for candidate in ("created_at", "timestamp", "executed_at", "updated_at"):
             if candidate in cols:
                 return candidate
@@ -1225,7 +1233,10 @@ class DatabaseManager(_DatabaseManagerBase):
 
             date_col = self._get_date_column(table)
             cutoff = (datetime.now(timezone.utc) - timedelta(days=older_than_days)).isoformat()
-            cursor = conn.execute(f"DELETE FROM [{table}] WHERE [{date_col}] < ?", (cutoff,))
+            cursor = conn.execute(
+                f"DELETE FROM {quote_identifier(table)} WHERE {quote_identifier(date_col)} < ?",
+                (cutoff,),
+            )
             conn.commit()
             deleted = cursor.rowcount
             logger.info(
@@ -1238,8 +1249,8 @@ class DatabaseManager(_DatabaseManagerBase):
 
         if keep_last is not None:
             cursor = conn.execute(
-                f"DELETE FROM [{table}] WHERE id NOT IN "
-                f"(SELECT id FROM [{table}] ORDER BY id DESC LIMIT ?)",
+                f"DELETE FROM {quote_identifier(table)} WHERE id NOT IN "
+                f"(SELECT id FROM {quote_identifier(table)} ORDER BY id DESC LIMIT ?)",
                 (keep_last,),
             )
             conn.commit()
@@ -1269,7 +1280,10 @@ class DatabaseManager(_DatabaseManagerBase):
 
         conn = self.get_connection()
         date_col = self._get_date_column(table)
-        cursor = conn.execute(f"SELECT * FROM [{table}] WHERE [{date_col}] < ?", (before_date,))
+        cursor = conn.execute(
+            f"SELECT * FROM {quote_identifier(table)} WHERE {quote_identifier(date_col)} < ?",
+            (before_date,),
+        )
         columns = [desc[0] for desc in cursor.description]
         rows = cursor.fetchall()
 
@@ -1284,7 +1298,10 @@ class DatabaseManager(_DatabaseManagerBase):
                 f.write(json.dumps(record, default=str) + "\n")
 
         # Delete archived rows
-        conn.execute(f"DELETE FROM [{table}] WHERE [{date_col}] < ?", (before_date,))
+        conn.execute(
+            f"DELETE FROM {quote_identifier(table)} WHERE {quote_identifier(date_col)} < ?",
+            (before_date,),
+        )
         conn.commit()
 
         logger.info("Archived %d rows from %s to %s", len(rows), table, output_path)
@@ -1305,7 +1322,9 @@ class DatabaseManager(_DatabaseManagerBase):
         stats = []
         for table in sorted(tables):
             try:
-                count = conn.execute(f"SELECT count(*) FROM [{table}]").fetchone()[0]
+                count = conn.execute(f"SELECT count(*) FROM {quote_identifier(table)}").fetchone()[
+                    0
+                ]
                 if count == 0:
                     continue
 
@@ -1314,14 +1333,14 @@ class DatabaseManager(_DatabaseManagerBase):
                 try:
                     date_col = self._get_date_column(table)
                     row = conn.execute(
-                        f"SELECT MIN([{date_col}]), MAX([{date_col}]) FROM [{table}]"
+                        f"SELECT MIN({quote_identifier(date_col)}), MAX({quote_identifier(date_col)}) FROM {quote_identifier(table)}"
                     ).fetchone()
                     min_date, max_date = row[0], row[1]
                 except Exception:
                     pass
 
                 # Estimate size from sample
-                sample = conn.execute(f"SELECT * FROM [{table}] LIMIT 5").fetchall()
+                sample = conn.execute(f"SELECT * FROM {quote_identifier(table)} LIMIT 5").fetchall()
                 avg_row = sum(len(str(r)) for r in sample) / max(len(sample), 1)
                 est_kb = int(count * avg_row / 1024)
 
@@ -1869,12 +1888,14 @@ class ProjectDatabaseManager(_DatabaseManagerBase):
     ) -> int:
         """Migrate project-specific tables from a legacy database."""
         # Attach legacy database
-        conn.execute(f"ATTACH DATABASE ? AS legacy_{source_name}", (str(legacy_path),))
+        conn.execute(
+            f"ATTACH DATABASE ? AS {quote_identifier('legacy_' + source_name)}", (str(legacy_path),)
+        )
 
         try:
             # Get tables from legacy database
             cursor = conn.execute(f"""
-                SELECT name FROM legacy_{source_name}.sqlite_master
+                SELECT name FROM {quote_identifier('legacy_' + source_name)}.sqlite_master
                 WHERE type='table' AND name NOT LIKE 'sqlite_%'
             """)
             tables = [row[0] for row in cursor.fetchall()]
@@ -1892,7 +1913,7 @@ class ProjectDatabaseManager(_DatabaseManagerBase):
                 # Get table schema
                 schema_row = conn.execute(
                     f"""
-                    SELECT sql FROM legacy_{source_name}.sqlite_master
+                    SELECT sql FROM {quote_identifier('legacy_' + source_name)}.sqlite_master
                     WHERE type='table' AND name=?
                 """,
                     (table,),
@@ -1907,8 +1928,8 @@ class ProjectDatabaseManager(_DatabaseManagerBase):
 
                     # Copy data
                     conn.execute(f"""
-                        INSERT INTO {table}
-                        SELECT * FROM legacy_{source_name}.{table}
+                        INSERT INTO {quote_identifier(table)}
+                        SELECT * FROM {quote_identifier('legacy_' + source_name)}.{quote_identifier(table)}
                     """)
 
                     migrated += 1
@@ -1918,7 +1939,7 @@ class ProjectDatabaseManager(_DatabaseManagerBase):
             return migrated
 
         finally:
-            conn.execute(f"DETACH DATABASE legacy_{source_name}")
+            conn.execute(f"DETACH DATABASE {quote_identifier('legacy_' + source_name)}")
 
     def get_stats(self) -> Dict[str, Any]:
         """Get database statistics."""
@@ -1931,7 +1952,7 @@ class ProjectDatabaseManager(_DatabaseManagerBase):
         for table in self.get_tables():
             if table.startswith("_"):
                 continue
-            count = self.query_one(f"SELECT COUNT(*) FROM {table}")
+            count = self.query_one(f"SELECT COUNT(*) FROM {quote_identifier(table)}")
             stats["tables"][table] = count[0] if count else 0
 
         return stats

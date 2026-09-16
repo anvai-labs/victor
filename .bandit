@@ -6,7 +6,7 @@
 exclude_dirs = /tests,/test_
 
 # Skips (tests to skip)
-skips = B101,B324
+skips = B101
 
 [bandit.assert_used]
 # Skips checking for use of assert statements

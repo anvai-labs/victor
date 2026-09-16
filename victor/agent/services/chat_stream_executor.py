@@ -1058,7 +1058,7 @@ class StreamingChatExecutor:
             available_inputs = ["query"]
             if orch.observed_files:
                 available_inputs.append("file_contents")
-            planned_tools = orch._tool_planner.plan_tools(goals, available_inputs)
+            planned_tools = self.services.tool_planner.plan_tools(goals, available_inputs)
         stream_ctx.planned_tools = planned_tools
 
         if getattr(stream_ctx, "is_qa_task", False):

@@ -16,26 +16,26 @@ from __future__ import annotations
 
 """Static embedding collection for small, unchanging datasets.
 
-This module provides a pickle/numpy-backed collection for:
+This module provides a data/numpy-backed collection for:
 - Tool definitions (~65 items, ~100KB)
 - Intent classifications (~20 items, ~30KB)
 
 These are small, static datasets that don't need a full vector database.
-Simple pickle + numpy provides fast loading and searching.
+Simple data + numpy provides fast loading and searching.
 """
 
 import hashlib
 import logging
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from victor.core.pickle_cache import (
+from victor.core.data_cache import (
     CacheValidation,
     delete_cache_file,
     invalid,
-    load_validated_pickle,
-    save_pickle_with_metadata,
+    load_validated_data,
+    save_data_with_metadata,
     valid,
 )
 from victor.storage.embeddings.service import EmbeddingService, get_embedding_service
@@ -66,11 +66,11 @@ class CollectionItem:
 
 
 class StaticEmbeddingCollection:
-    """A static embedding collection backed by pickle/numpy.
+    """A static embedding collection backed by data/numpy.
 
     Designed for small, unchanging datasets where a full vector database
     would be overkill. Provides:
-    - Fast loading from pickle cache
+    - Fast loading from data cache
     - Efficient numpy-based similarity search
     - Hash-based cache invalidation
     - Robust validation with auto-rebuild on corruption
@@ -124,7 +124,7 @@ class StaticEmbeddingCollection:
         self.embedding_service = embedding_service or get_embedding_service()
 
         # Cache file path
-        self.cache_file = self.cache_dir / f"{name}_collection.pkl"
+        self.cache_file = self.cache_dir / f"{name}_collection.v2.json"
 
         # In-memory data
         self._items: Dict[str, CollectionItem] = {}
@@ -218,6 +218,8 @@ class StaticEmbeddingCollection:
             if embeddings is None:
                 logger.warning(f"Collection '{self.name}': cache missing embeddings array")
                 return invalid(delete=True, reason="missing embeddings")
+            if type(embeddings) is not np.ndarray or embeddings.dtype.kind not in "fiu":
+                return invalid(delete=True, reason="invalid embedding dtype")
 
             expected_dim = self.embedding_service.dimension
             if len(embeddings.shape) != 2:
@@ -250,7 +252,7 @@ class StaticEmbeddingCollection:
                 return invalid(delete=True, reason="corrupted embeddings")
             return valid()
 
-        cache_data = load_validated_pickle(
+        cache_data = load_validated_data(
             self.cache_file,
             validators=[_check_version, _check_items_hash, _check_model, _check_embeddings],
             logger=logger,
@@ -260,10 +262,31 @@ class StaticEmbeddingCollection:
         if cache_data is None:
             return False
 
-        # All checks passed - load data
-        self._items = cache_data.get("items", {})
+        # Reconstruct only known records, and publish nothing on malformed data.
+        try:
+            from pydantic import TypeAdapter
+
+            items = TypeAdapter(Dict[str, CollectionItem]).validate_python(
+                cache_data.get("items", {})
+            )
+            if any(key != item.id for key, item in items.items()):
+                raise ValueError("Collection cache item IDs do not match keys")
+            item_ids = cache_data.get("item_ids", [])
+            if (
+                not isinstance(item_ids, list)
+                or any(not isinstance(key, str) for key in item_ids)
+                or len(set(item_ids)) != len(item_ids)
+                or set(item_ids) != set(items)
+            ):
+                raise ValueError("Collection cache requires unique, complete item IDs")
+        except (TypeError, ValueError):
+            delete_cache_file(
+                self.cache_file, "invalid item records", logger, label=f"Collection {self.name}"
+            )
+            return False
+        self._items = items
         self._embeddings = cache_data.get("embeddings")
-        self._item_ids = cache_data.get("item_ids", [])
+        self._item_ids = item_ids
         self._items_hash = items_hash
 
         logger.debug(f"Collection '{self.name}': loaded {len(self._items)} items from cache")
@@ -283,12 +306,12 @@ class StaticEmbeddingCollection:
                 self._embeddings.shape[1] if self._embeddings is not None else 0
             ),
             "item_count": len(self._items),
-            "items": self._items,
+            "items": {key: asdict(item) for key, item in self._items.items()},
             "embeddings": self._embeddings,
             "item_ids": self._item_ids,
         }
 
-        if save_pickle_with_metadata(
+        if save_data_with_metadata(
             self.cache_file, cache_data, logger=logger, label=f"Collection '{self.name}'"
         ):
             cache_size = self.cache_file.stat().st_size / 1024

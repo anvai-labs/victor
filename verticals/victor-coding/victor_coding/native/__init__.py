@@ -79,8 +79,8 @@ if not NATIVE_AVAILABLE:
         def __init__(self, *args, **kwargs):
             raise ImportError(
                 "Native performance extensions are not installed. "
-                "Install them with: pip install victor-ai[native] "
-                "or build from source with: maturin develop --release"
+                "Build the separate victor-coding/native package "
+                "with: maturin develop --release"
             )
 
     # Use placeholders
@@ -92,8 +92,8 @@ if not NATIVE_AVAILABLE:
         """Placeholder for detect_language when native extensions are not installed."""
         raise ImportError(
             "Native performance extensions are not installed. "
-            "Install them with: pip install victor-ai[native] "
-            "or build from source with: maturin develop --release"
+            "Build the separate victor-coding/native package "
+            "with: maturin develop --release"
         )
 
     logger.debug("Native performance extensions not available")

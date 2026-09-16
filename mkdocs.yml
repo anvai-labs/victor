@@ -146,6 +146,7 @@ nav:
       - Streaming Pipeline: architecture/streaming-pipeline.md
       - Smart Routing: architecture/smart_routing.md
       - Edge Provider Strategy: architecture/edge-provider-tool-strategy.md
+      - InferFlux Reasoning Contract: architecture/inferflux-reasoning-separation-handoff.md
       - Unified Prompt Architecture: architecture/unified_prompt_architecture.md
       - ADRs: architecture/adr/README.md
       - Framework Proposals: https://github.com/anvai-labs/victor/tree/develop/feps
@@ -190,10 +191,13 @@ nav:
   - Development:
       - development/index.md
       - Setup: development/setup.md
+      - Dependencies and Containers: development/dependencies.md
+      - Security 0.9.4 Candidate: development/security-remediation-0.9.4.md
       - Code Style: development/code-style.md
       - Exception Handling: development/exception-handling.md
       - Testing: development/testing.md
       - PR Workflow: development/PR_WORKFLOW.md
+      - Self-hosted Runners: development/self-hosted-runners.md
       - Documentation Publishing: development/docs-publishing.md
       - Prompt Evolution Workflow: development/prompt-evolution-workflow.md
   - Audits:

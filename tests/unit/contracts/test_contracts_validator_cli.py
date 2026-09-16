@@ -172,3 +172,46 @@ def test_contracts_cli_uses_semantic_program_name(capsys):
 
     assert exit_code == 2
     assert "usage: victor-contracts" in output
+
+
+def test_contract_checks_survive_optimized_python():
+    """The public package validator must reject invalid definitions with -O."""
+    import json
+    from pathlib import Path
+    import subprocess
+    import sys
+
+    source = Path(__file__).resolve()
+    program = """
+import json, runpy, sys
+from types import SimpleNamespace
+sys.path.insert(0, sys.argv[2])
+ns = runpy.run_path(sys.argv[1])
+valid = ns['_ValidVertical']
+class Invalid(valid):
+    @classmethod
+    def get_tools(cls):
+        return []
+import victor_contracts.validation as validation
+validation.installed_version = lambda name: '0.6.1'
+results = []
+for vertical in (valid, Invalid):
+    entry = ns['_FakeEntryPoint']('candidate', vertical)
+    validation.distribution = lambda name: SimpleNamespace(entry_points=[entry], metadata={'Name':'candidate'})
+    report = validation.validate_vertical_package('candidate')
+    results.append({'ok':report.ok, 'issues':[issue.code for issue in report.issues]})
+print(json.dumps(results))
+"""
+    sdk = source.parents[3] / "victor-contracts"
+    for flags in ([], ["-O"]):
+        result = subprocess.run(
+            [sys.executable, *flags, "-c", program, str(source), str(sdk)],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=30,
+        )
+        valid, invalid = json.loads(result.stdout)
+        assert valid["ok"] is True
+        assert invalid["ok"] is False
+        assert "protocol_drift" in invalid["issues"]

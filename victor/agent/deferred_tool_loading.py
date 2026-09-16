@@ -142,7 +142,7 @@ class DeferredLoadingManager:
         import hashlib
 
         result_id = hashlib.md5(
-            f"{tool_name}:{str(tool_args)}:{content[:100]}".encode()
+            f"{tool_name}:{str(tool_args)}:{content[:100]}".encode(), usedforsecurity=False
         ).hexdigest()[:12]
 
         result = DeferredToolResult(

@@ -1,164 +1,134 @@
-# Copyright 2025 Vijaykumar Singh <vijay@anvaiops.com>
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# Copyright 2026 Vijaykumar Singh <vijay@anvaiops.com>
+# SPDX-License-Identifier: Apache-2.0
+# Canonical build: --target core | mcp | native | full (default).
+# See docs/development/dependencies.md for lock regeneration and image validation.
+ARG UBUNTU_IMAGE=ubuntu:24.04@sha256:224a1869083a311ef3f13648a154ba79832fbef6364d31493642ca03082da254
+ARG RUST_IMAGE=rust:1.98-slim-bookworm@sha256:ebd900bae66fd508b466cef82d64a83a5fb34682e4c8b2797a42908bddc95a57
 
-# Victor - Enterprise-Ready AI Coding Assistant
-# Multi-stage build for optimized image size
+FROM ${UBUNTU_IMAGE} AS python-base
+ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 PIP_NO_CACHE_DIR=1
+# Git and SSH are runtime tool capabilities. Keep them even when an upstream
+# advisory blocks release; the image scan decides whether publication is allowed.
+RUN apt-get update && apt-get upgrade -y && \
+    apt-get install -y --no-install-recommends python3.12 git openssh-client ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
 
-# Stage 1: Builder
-FROM python:3.12-slim AS builder
+# Packaging tools live only in build stages; runtime uses the copied application
+# venv and the same distro interpreter, without a global pip installation.
+FROM python-base AS build-base
+RUN apt-get update && apt-get install -y --no-install-recommends python3.12-venv && \
+    rm -rf /var/lib/apt/lists/* && python3.12 -m venv /opt/bootstrap
+ENV PATH=/opt/bootstrap/bin:$PATH
+RUN python -m pip install --upgrade 'pip>=26.2.1' 'setuptools>=83.0.0'
 
-LABEL maintainer="Vijaykumar Singh <vijay@anvaiops.com>"
-LABEL description="Enterprise-Ready AI Coding Assistant"
-LABEL version="0.4.1"
-
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    git \
-    build-essential \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
-
-# Set working directory
-WORKDIR /app
-
-# Copy only requirements first for better caching
-COPY requirements.txt pyproject.toml README.md ./
-COPY victor ./victor
+# Keep dependency layers independent of ordinary application source edits.
+FROM build-base AS sdk-wheels
+WORKDIR /build
 COPY victor-contracts ./victor-contracts
+RUN python -m pip wheel --no-deps --wheel-dir /wheels ./victor-contracts
 
-# Install Python dependencies
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -e ./victor-contracts && \
-    pip install --no-cache-dir -e ".[embeddings]" && \
-    pip install --no-cache-dir lancedb
+FROM build-base AS wheels
+WORKDIR /build
+COPY pyproject.toml README.md LICENSE VERSION ./
+COPY victor ./victor
+COPY --from=sdk-wheels /wheels /wheels
+RUN python -m pip wheel --no-deps --wheel-dir /wheels .
 
-# Option 2: Install from split packages (uncomment to use)
-# This provides the same functionality via the new package structure
-# RUN pip install --no-cache-dir --upgrade pip && \
-#     pip install --no-cache-dir ./packages/victor-core && \
-#     pip install --no-cache-dir ./packages/victor-coding && \
-#     pip install --no-cache-dir ./packages/victor-ai && \
-#     pip install --no-cache-dir lancedb
+FROM build-base AS core-deps
+COPY requirements.txt /locks/core.txt
+# Resolve the in-repo SDK candidate before its independent PyPI release.
+COPY --from=sdk-wheels /wheels /wheels
+RUN python -m venv /opt/victor && \
+    /opt/victor/bin/python -m pip install --upgrade 'pip>=26.2.1' && \
+    /opt/victor/bin/python -m pip install --find-links=/wheels -r /locks/core.txt && \
+    /opt/victor/bin/python -m pip check
 
-# Pre-download embedding model for air-gapped deployment
-# This downloads BAAI/bge-small-en-v1.5 (130MB) during build time - the core default
-# Model will be cached in Docker image at ~/.cache/huggingface/
-# Note: Must use string constant to avoid victor import chain (requires FastAPI)
-RUN python3 -c "from sentence_transformers import SentenceTransformer; \
-    MODEL = 'BAAI/bge-small-en-v1.5'; \
-    print(f'📦 Pre-downloading embedding model: {MODEL}'); \
-    model = SentenceTransformer(MODEL); \
-    print('✅ Embedding model cached in Docker image'); \
-    print(f'📊 Model dimension: {model.get_sentence_embedding_dimension()}'); \
-    import os; print(f'📂 Cache location: {os.path.expanduser(\"~/.cache\")}')"
+FROM core-deps AS core-env
+COPY --from=wheels /wheels /wheels
+RUN /opt/victor/bin/python -m pip install --no-deps --force-reinstall /wheels/*.whl && \
+    /opt/victor/bin/python -m pip check && \
+    /opt/victor/bin/python -m pip uninstall -y pip
 
-# Pre-compute tool embeddings cache for faster startup
-# This creates the pickle cache during build so it's ready immediately
-RUN mkdir -p /root/.victor/embeddings && \
-    python3 -c "import asyncio; \
-    from pathlib import Path; \
-    from victor.config.settings import Settings; \
-    from victor.tools.base import ToolRegistry; \
-    from victor.tools.semantic_selector import SemanticToolSelector; \
-    from victor.tools.filesystem import read_file, write_file, list_directory; \
-    from victor.tools.bash import execute_bash; \
-    from victor.tools.file_editor_tool import edit_files; \
-    async def init(): \
-        print('🧠 Pre-computing tool embeddings cache...'); \
-        settings = Settings(); \
-        selector = SemanticToolSelector( \
-            embedding_model=settings.embedding_model, \
-            embedding_provider=settings.embedding_provider, \
-            cache_embeddings=True \
-        ); \
-        tools = ToolRegistry(); \
-        tools.register(read_file); \
-        tools.register(write_file); \
-        tools.register(list_directory); \
-        tools.register(execute_bash); \
-        tools.register(edit_files); \
-        await selector.initialize_tool_embeddings(tools); \
-        cache_file = Path.home() / '.victor' / 'embeddings' / f'tool_embeddings_{settings.embedding_model}.pkl'; \
-        print(f'✅ Tool embeddings cached: {cache_file}'); \
-        print(f'📊 Cache size: {cache_file.stat().st_size / 1024:.2f} KB'); \
-    asyncio.run(init())" || echo "⚠️  Tool embedding cache will be created at runtime"
-
-# Stage 2: Runtime
-FROM python:3.12-slim
-
-# Install runtime dependencies
-RUN apt-get update && apt-get install -y \
-    git \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
-
-# Create non-root user
-RUN useradd -m -u 1000 victor && \
-    mkdir -p /home/victor/.victor && \
-    chown -R victor:victor /home/victor
-
-# Set working directory
-WORKDIR /app
-
-# Copy from builder
-COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
-COPY --from=builder /usr/local/bin/victor /usr/local/bin/victor
-COPY --from=builder /usr/local/bin/vic /usr/local/bin/vic
-COPY --from=builder /app /app
-
-# Copy pre-downloaded embedding model cache (air-gapped capability)
-# This makes the Docker image 100% offline-capable
-COPY --from=builder /root/.cache /tmp/.cache
-
-# Copy pre-computed tool embeddings cache
-COPY --from=builder /root/.victor /tmp/.victor
-
-# Copy examples and demos
-COPY examples ./examples
-COPY docs ./docs
-
-# Copy docker scripts and config
-COPY docker ./docker
-
-# Create directories and copy caches to victor's home
-RUN mkdir -p /home/victor/.cache /home/victor/.victor/embeddings && \
-    cp -r /tmp/.cache/* /home/victor/.cache/ && \
-    cp -r /tmp/.victor/* /home/victor/.victor/ 2>/dev/null || true && \
-    rm -rf /tmp/.cache /tmp/.victor
-
-# Seed default profiles for Docker deployment: prefer a repo-local
-# docker/profiles.yaml override, else the same bundled defaults the package
-# seeds on first run (victor/config/profiles.default.yaml).
-RUN cp /app/docker/profiles.yaml /home/victor/.victor/profiles.yaml 2>/dev/null || \
-    cp /app/victor/config/profiles.default.yaml /home/victor/.victor/profiles.yaml
-
-# Set ownership
-RUN chown -R victor:victor /app /home/victor
-
-# Switch to non-root user
+FROM python-base AS runtime
+LABEL org.opencontainers.image.source="https://github.com/anvai-labs/victor" \
+      org.opencontainers.image.licenses="Apache-2.0"
+ENV PATH=/opt/victor/bin:$PATH VICTOR_HOME=/home/victor/.victor \
+    HF_HOME=/home/victor/.cache/huggingface
+# The pinned Ubuntu image supplies UID/GID 1000; retain that identity as victor.
+RUN groupmod -n victor ubuntu && usermod -l victor -d /home/victor -m ubuntu && \
+    mkdir -p /workspace /home/victor/.victor /home/victor/.cache && \
+    chown -R victor:victor /workspace /home/victor
+WORKDIR /workspace
 USER victor
-
-# Set environment variables
-ENV PYTHONUNBUFFERED=1
-ENV VICTOR_HOME=/home/victor/.victor
-ENV HF_HOME=/home/victor/.cache/huggingface
-ENV TRANSFORMERS_CACHE=/home/victor/.cache/huggingface
-ENV SENTENCE_TRANSFORMERS_HOME=/home/victor/.cache/huggingface
-
-# Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD victor --version || exit 1
 
-# Default command
+FROM runtime AS mcp
+COPY --from=core-env /opt/victor /opt/victor
+ENTRYPOINT ["victor", "mcp"]
+CMD ["--log-level", "WARNING"]
+
+FROM core-deps AS api-deps
+COPY requirements/api/requirements.txt /locks/api.txt
+RUN /opt/victor/bin/python -m pip install -r /locks/api.txt && \
+    /opt/victor/bin/python -m pip check
+
+FROM api-deps AS api-env
+COPY --from=wheels /wheels /wheels
+RUN /opt/victor/bin/python -m pip install --no-deps --force-reinstall /wheels/*.whl && \
+    /opt/victor/bin/python -m pip check && \
+    /opt/victor/bin/python -m pip uninstall -y pip
+
+FROM runtime AS core
+COPY --from=api-env /opt/victor /opt/victor
+EXPOSE 8765
+CMD ["victor", "serve", "--host", "0.0.0.0", "--port", "8765"]
+
+FROM ${RUST_IMAGE} AS rust-toolchain
+FROM build-base AS native-env
+COPY --from=rust-toolchain /usr/local/cargo /usr/local/cargo
+COPY --from=rust-toolchain /usr/local/rustup /usr/local/rustup
+ENV PATH=/usr/local/cargo/bin:$PATH RUSTUP_HOME=/usr/local/rustup CARGO_HOME=/usr/local/cargo
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential && \
+    rm -rf /var/lib/apt/lists/* && python -m pip install 'maturin>=1.10,<2'
+COPY rust /build/rust
+RUN cd /build/rust && maturin build --release --locked --out /native-wheels
+
+FROM api-env AS native-install
+COPY --from=native-env /native-wheels /native-wheels
+RUN python -m pip --python /opt/victor install --no-deps /native-wheels/*.whl && \
+    /opt/victor/bin/python -c 'import victor_native' && \
+    python -m pip --python /opt/victor check
+
+FROM runtime AS native
+COPY --from=native-install /opt/victor /opt/victor
+ENTRYPOINT ["victor"]
+CMD ["--help"]
+
+FROM core-deps AS embeddings-deps
+COPY requirements/embeddings-cpu/requirements.txt /locks/embeddings-cpu.txt
+# The lock selects CPU wheels explicitly; no CUDA, torchvision or torchaudio is
+# needed by Victor's text embedding path.
+RUN /opt/victor/bin/python -m pip install -r /locks/embeddings-cpu.txt && \
+    /opt/victor/bin/python -m pip check
+ENV HF_HOME=/model-cache/huggingface
+RUN /opt/victor/bin/python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('BAAI/bge-small-en-v1.5')"
+
+FROM embeddings-deps AS embeddings-env
+COPY --from=wheels /wheels /wheels
+RUN /opt/victor/bin/python -m pip install --no-deps --force-reinstall /wheels/*.whl && \
+    /opt/victor/bin/python -m pip check && \
+    /opt/victor/bin/python -m pip uninstall -y pip
+
+FROM runtime AS full
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends curl && \
+    rm -rf /var/lib/apt/lists/*
+USER victor
+COPY docker /app/docker
+COPY examples /app/examples
+COPY --from=embeddings-env /opt/victor /opt/victor
+COPY --from=embeddings-env --chown=victor:victor /model-cache/huggingface /home/victor/.cache/huggingface
+# Embeddings are available offline. Provider calls and network tools still need
+# their configured endpoints; derived tool caches are rebuilt without migration.
 CMD ["bash"]

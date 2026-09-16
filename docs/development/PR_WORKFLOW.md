@@ -28,9 +28,30 @@ imports across the test matrix:
 python -m pytest tests/ --collect-only -q
 ```
 
-For concurrency, shared state, security, or layering changes, obtain an independent
-adversarial review before requesting merge. Reproduce findings and add positive
-and negative regression coverage in the same pull request.
+Before pushing a pull-request candidate, perform an adversarial review in a separate
+review session. For concurrency, shared state, security or layering changes, exercise
+the relevant negative paths explicitly. Reproduce findings and add positive and
+negative regression coverage in the same pull request.
+
+Record the completed review against the exact commit that was reviewed:
+
+```bash
+python scripts/adversarial_review.py record \
+  --reviewer session-identifier \
+  --summary "No open findings; exercised failure and boundary cases"
+```
+
+`pre-commit install` installs the pre-push hook. It rejects a branch commit without
+a clean local attestation. Amending, rebasing, merging or adding a commit changes
+the SHA and requires a fresh review. Attestations live under the repository's Git
+metadata and are never committed.
+
+This is a local process gate for participating clones, not a server-side security
+control: it can be bypassed with `--no-verify`, and GitHub cannot observe the local
+attestation. Server-side branch updates also bypass it. Repository auto-merge to
+`develop` therefore relies on the required `CI Success` check; use a server-side
+required check if centrally enforced adversarial review becomes necessary. Promotion
+to `main` remains a separate, maintainer-controlled release operation.
 
 Use conventional commit and PR titles such as `feat:`, `fix:`, `refactor:`,
 `docs:`, or `ci:`. `release:` is not an accepted PR title type. Commit and PR text
@@ -48,6 +69,37 @@ Review the final pushed commit's checks. `CI Success` is the required aggregate:
 it includes lint, types, import/boundary guards, changed-file tests, full-suite
 collection, security checks, Rust packages, and native parity. Queued runners are
 not test failures. See the [workflow gating map](https://github.com/anvai-labs/victor/blob/develop/.github/workflows/README.md).
+
+## Minimize CI cycles
+
+Hosted runners are shared across the organization. Complete the local change,
+dependency resolution, affected tests, formatting/lint/typing, full collection and
+required independent review before the first push. Batch compatible fixes and
+related docs/version preparation into a reviewable candidate.
+
+Stop before commit/push if a required local check fails or cannot run. Gate shell
+automation on successful validation; never follow a failed test command with an
+unconditional commit/push sequence. Recheck formatting and lint after the final
+edit, including test fixtures. Security and architecture review findings belong
+in the same locally validated candidate before its first CI-triggering push.
+
+Routine Dependabot updates use a seven-day cooldown and grouped weekly PRs.
+Urgent security fixes are triaged independently and do not wait for routine
+version-update cooldowns. See the [GitHub cooldown documentation](https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference#cooldown).
+
+Target one passing candidate cycle per PR and one promotion battery per closed
+release batch. This is an efficiency target, never a reason to waive failures,
+skip required checks, or delay an urgent security fix. Resolve all known failures
+locally before a consolidated follow-up push. Re-run only failed jobs when there
+is evidence of a transient infrastructure failure; changed code needs checks on
+its new commit. Do not restart queued jobs or use remote CI as an edit/test loop.
+Cancel only superseded runs belonging to this task, never unrelated work.
+
+Keep the required aggregate reporting on every PR. Use shared scan reports and
+compatible caches to remove duplicate work; test path filters and publication
+prerequisites before changing them. Close the batch and inspect runner demand
+before opening its promotion. Routine dependency updates are grouped; security
+alerts receive prompt triage independently of the weekly update schedule.
 
 ## Merge and clean up
 

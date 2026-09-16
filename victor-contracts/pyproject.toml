@@ -1,10 +1,10 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
+requires = ["setuptools>=83.0.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "victor-contracts"
-version = "0.9.1"
+version = "0.9.2"
 description = "Victor Contracts - Protocol definitions for vertical development"
 readme = "README.md"
 requires-python = ">=3.10"

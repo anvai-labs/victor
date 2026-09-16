@@ -60,10 +60,10 @@ class TestVerticalPackageMetadata:
         assert cls["class_name"] == "DevOpsAssistant"
 
     def test_declared_class_is_importable(self, metadata):
-        import importlib
+        from victor_devops import assistant as module
 
         cls = metadata["vertical"]["class"]
-        module = importlib.import_module(cls["module"])
+        assert cls["module"] == module.__name__
 
         assert hasattr(module, cls["class_name"])
 

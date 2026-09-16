@@ -567,7 +567,7 @@ def analyze_evaluation_result(
             ",".join(task.task_id for task in task_summaries),
         ]
     )
-    digest = hashlib.sha1(record_seed.encode("utf-8")).hexdigest()[:12]
+    digest = hashlib.sha1(record_seed.encode("utf-8"), usedforsecurity=False).hexdigest()[:12]
     metadata = {
         "dataset_metadata": dict(result.config.dataset_metadata or {}),
         "task_count": len(task_summaries),

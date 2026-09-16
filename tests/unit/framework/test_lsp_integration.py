@@ -145,7 +145,7 @@ async def test_lsp_verifier_warnings_excluded_unless_requested(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_lsp_verifier_survives_lsp_exception(monkeypatch):
-    """A crashing LSP server doesn't fail verification — file is skipped."""
+    """A crashing LSP server must not produce a successful verification."""
 
     async def _fake_modified(workspace, timeout=15):
         return ["a.py"]
@@ -153,8 +153,8 @@ async def test_lsp_verifier_survives_lsp_exception(monkeypatch):
     monkeypatch.setattr("victor.framework.verifiers.workspace_files_modified", _fake_modified)
     verifier = LSPVerifier(lsp_capability=_RaisingLSP())
     result = await verifier.verify(workspace=Path("/tmp"))
-    # Exception caught per-file → clean result.
-    assert result.is_verified
+    assert not result.is_verified
+    assert "diagnostics unavailable" in result.raw_output
 
 
 # ---------------------------------------------------------------------------

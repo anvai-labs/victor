@@ -3,19 +3,11 @@
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 
-"""MCP Subprocess Sandboxing with resource limits.
+"""MCP subprocess resource limits with explicit capability checks.
 
-This module provides security sandboxing for MCP server subprocesses:
-- Resource limits (CPU, memory, file descriptors)
-- Process isolation (chroot on Linux, App Sandbox on macOS)
-- Network restrictions
-- Timeout enforcement
-
-Design Principles:
-- Defense in depth - multiple layers of protection
-- Platform-aware - uses OS-specific sandboxing
-- Configurable limits - adjust for use case
-- Graceful fallback - works without privileges
+This backend applies POSIX rlimits and optional root user demotion. It is not
+an OS isolation boundary. Filesystem, network, namespace and seccomp policies
+require an external sandbox/container; unsupported policies fail before launch.
 """
 
 from __future__ import annotations
@@ -23,14 +15,18 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import resource
+import math
 import signal
 import subprocess
 import sys
 import tempfile
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
+
+try:
+    import resource
+except ImportError:  # Windows can import MCP; resource-limited launch is unsupported.
+    resource = None  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
 
@@ -59,66 +55,61 @@ class SandboxConfig:
     allowed_hosts: List[str] = field(default_factory=list)  # Allowed hosts
 
     # Isolation level
-    use_namespace: bool = False  # Use Linux namespaces (requires root)
-    use_seccomp: bool = False  # Use seccomp filtering (Linux)
-    drop_capabilities: bool = True  # Drop Linux capabilities
+    use_namespace: bool = False  # Requires an external isolation backend
+    use_seccomp: bool = False  # Requires an external isolation backend
+    drop_capabilities: bool = True  # Demote root to nobody; not full capability isolation
+
+
+def _validate_sandbox_config(config: SandboxConfig) -> None:
+    """Reject promises this backend cannot enforce before creating a child."""
+    if resource is None or sys.platform not in {"linux", "darwin"}:
+        raise RuntimeError("MCP resource limits require a supported POSIX platform")
+    if (
+        config.allowed_paths
+        or config.read_only_paths
+        or not config.allow_network
+        or config.allowed_hosts
+        or config.use_namespace
+        or config.use_seccomp
+    ):
+        raise ValueError(
+            "MCP process backend cannot enforce filesystem, network, namespace or seccomp "
+            "isolation; use an external sandbox/container for these policies"
+        )
+    for name in ("max_memory_mb", "max_cpu_seconds", "max_file_descriptors", "max_processes"):
+        value = getattr(config, name)
+        if type(value) is not int or value <= 0:
+            raise ValueError(f"{name} must be a positive integer")
+    for name in ("timeout_seconds", "graceful_shutdown_seconds"):
+        value = getattr(config, name)
+        if type(value) not in (int, float) or not math.isfinite(value) or value <= 0:
+            raise ValueError(f"{name} must be finite and positive")
 
 
 def _set_resource_limits(config: SandboxConfig) -> None:
-    """Set resource limits for current process (called in preexec_fn).
-
-    Args:
-        config: Sandbox configuration
-    """
-    try:
-        # Memory limit (soft and hard)
-        mem_bytes = config.max_memory_mb * 1024 * 1024
-        resource.setrlimit(resource.RLIMIT_AS, (mem_bytes, mem_bytes))
-
-        # CPU time limit
-        resource.setrlimit(
-            resource.RLIMIT_CPU,
-            (config.max_cpu_seconds, config.max_cpu_seconds + 10),
-        )
-
-        # File descriptor limit
-        resource.setrlimit(
-            resource.RLIMIT_NOFILE,
-            (config.max_file_descriptors, config.max_file_descriptors),
-        )
-
-        # Process limit
-        try:
-            resource.setrlimit(
-                resource.RLIMIT_NPROC,
-                (config.max_processes, config.max_processes),
-            )
-        except (AttributeError, ValueError):
-            # RLIMIT_NPROC not available on all platforms
-            pass
-
-        logger.debug(
-            f"Resource limits set: mem={config.max_memory_mb}MB, "
-            f"cpu={config.max_cpu_seconds}s, fds={config.max_file_descriptors}"
-        )
-
-    except Exception as e:
-        logger.warning(f"Failed to set resource limits: {e}")
+    """Apply every configured rlimit; a failure aborts child exec."""
+    if resource is None:
+        raise RuntimeError("POSIX resource limits are unavailable")
+    mem_bytes = config.max_memory_mb * 1024 * 1024
+    resource.setrlimit(resource.RLIMIT_AS, (mem_bytes, mem_bytes))
+    resource.setrlimit(resource.RLIMIT_CPU, (config.max_cpu_seconds, config.max_cpu_seconds + 10))
+    resource.setrlimit(
+        resource.RLIMIT_NOFILE, (config.max_file_descriptors, config.max_file_descriptors)
+    )
+    resource.setrlimit(resource.RLIMIT_NPROC, (config.max_processes, config.max_processes))
 
 
 def _drop_privileges() -> None:
-    """Drop privileges if running as root."""
+    """Demote root and clear supplementary groups; never continue after failure."""
     if os.geteuid() == 0:
-        try:
-            # Try to drop to nobody user
-            import pwd
+        import pwd
 
-            nobody = pwd.getpwnam("nobody")
-            os.setgid(nobody.pw_gid)
-            os.setuid(nobody.pw_uid)
-            logger.debug("Dropped privileges to nobody user")
-        except Exception as e:
-            logger.warning(f"Failed to drop privileges: {e}")
+        nobody = pwd.getpwnam("nobody")
+        os.setgroups([])
+        os.setgid(nobody.pw_gid)
+        os.setuid(nobody.pw_uid)
+        if os.geteuid() == 0:
+            raise RuntimeError("MCP child remained root after privilege demotion")
 
 
 def _setup_sandbox_env(config: SandboxConfig) -> Dict[str, str]:
@@ -151,7 +142,7 @@ def _setup_sandbox_env(config: SandboxConfig) -> Dict[str, str]:
 
 
 class SandboxedProcess:
-    """Sandboxed subprocess wrapper with resource limits and isolation.
+    """Subprocess wrapper with resource limits; external isolation is separate.
 
     Example:
         config = SandboxConfig(max_memory_mb=256, timeout_seconds=30)
@@ -187,9 +178,6 @@ class SandboxedProcess:
             if config.drop_capabilities:
                 _drop_privileges()
 
-            # Create new session (detach from terminal)
-            os.setsid()
-
         return preexec
 
     async def start(
@@ -208,6 +196,7 @@ class SandboxedProcess:
         Returns:
             Subprocess handle
         """
+        _validate_sandbox_config(self.config)
         # Prepare environment
         sandbox_env = _setup_sandbox_env(self.config)
         if env:
@@ -220,16 +209,7 @@ class SandboxedProcess:
             sandbox_env["TMPDIR"] = temp_dir
 
         try:
-            # Platform-specific sandboxing
-            if sys.platform == "darwin":
-                # macOS: Use sandbox-exec if available
-                process = await self._start_macos(command, cwd, sandbox_env)
-            elif sys.platform == "linux":
-                # Linux: Use namespaces/seccomp if configured
-                process = await self._start_linux(command, cwd, sandbox_env)
-            else:
-                # Windows/other: Basic resource limits only
-                process = await self._start_basic(command, cwd, sandbox_env)
+            process = await self._start_basic(command, cwd, sandbox_env)
 
             self._processes[process.pid] = process
             logger.info(f"Started sandboxed process {process.pid}: {command[0]}")
@@ -271,130 +251,9 @@ class SandboxedProcess:
             env=env,
             text=True,
             bufsize=1,
-            preexec_fn=self._create_preexec_fn() if sys.platform != "win32" else None,
+            preexec_fn=self._create_preexec_fn(),
+            start_new_session=True,
         )
-
-    async def _start_macos(
-        self,
-        command: List[str],
-        cwd: Optional[str],
-        env: Dict[str, str],
-    ) -> subprocess.Popen:
-        """Start process with macOS sandbox-exec.
-
-        Args:
-            command: Command to execute
-            cwd: Working directory
-            env: Environment variables
-
-        Returns:
-            Subprocess handle
-        """
-        # Check if sandbox-exec is available
-        sandbox_exec = "/usr/bin/sandbox-exec"
-        if os.path.exists(sandbox_exec) and self.config.allowed_paths:
-            # Create sandbox profile
-            profile = self._create_macos_sandbox_profile()
-            profile_file = tempfile.NamedTemporaryFile(mode="w", suffix=".sb", delete=False)
-            profile_file.write(profile)
-            profile_file.close()
-
-            try:
-                sandboxed_command = [sandbox_exec, "-f", profile_file.name] + command
-                return subprocess.Popen(
-                    sandboxed_command,
-                    stdin=subprocess.PIPE,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    cwd=cwd,
-                    env=env,
-                    text=True,
-                    bufsize=1,
-                    preexec_fn=self._create_preexec_fn(),
-                )
-            finally:
-                os.unlink(profile_file.name)
-        else:
-            # Fall back to basic limits
-            return await self._start_basic(command, cwd, env)
-
-    async def _start_linux(
-        self,
-        command: List[str],
-        cwd: Optional[str],
-        env: Dict[str, str],
-    ) -> subprocess.Popen:
-        """Start process with Linux sandboxing.
-
-        Args:
-            command: Command to execute
-            cwd: Working directory
-            env: Environment variables
-
-        Returns:
-            Subprocess handle
-        """
-        # Use unshare for namespace isolation if configured
-        if self.config.use_namespace and os.geteuid() == 0:
-            try:
-                # Create isolated namespaces
-                ns_flags = [
-                    "--net" if not self.config.allow_network else None,
-                    "--pid",
-                    "--mount",
-                    "--uts",
-                ]
-                ns_flags = [f for f in ns_flags if f]
-
-                if ns_flags:
-                    command = ["unshare"] + ns_flags + ["--"] + command
-            except Exception as e:
-                logger.warning(f"Namespace isolation not available: {e}")
-
-        # Basic resource limits
-        return await self._start_basic(command, cwd, env)
-
-    def _create_macos_sandbox_profile(self) -> str:
-        """Create macOS sandbox profile.
-
-        Returns:
-            Sandbox profile content
-        """
-        allowed_paths = self.config.allowed_paths + [
-            "/dev/null",
-            "/dev/urandom",
-            "/usr",
-            "/bin",
-            "/sbin",
-        ]
-
-        read_only_paths = self.config.read_only_paths + [
-            "/Library",
-            "/System",
-        ]
-
-        profile_lines = [
-            "(version 1)",
-            "(deny default)",
-            "(allow process-exec)",
-            "(allow process-fork)",
-            "(allow file-read-metadata)",
-        ]
-
-        # Allow reading from specified paths
-        for path in read_only_paths:
-            profile_lines.append(f'(allow file-read* (subpath "{path}"))')
-
-        # Allow read/write to specified paths
-        for path in allowed_paths:
-            profile_lines.append(f'(allow file-read* (subpath "{path}"))')
-            profile_lines.append(f'(allow file-write* (subpath "{path}"))')
-
-        # Network access
-        if self.config.allow_network:
-            profile_lines.append("(allow network*)")
-
-        return "\n".join(profile_lines)
 
     async def communicate(
         self,
@@ -494,50 +353,15 @@ class SandboxedProcess:
 # Factory function for creating sandboxed MCP client
 def create_sandboxed_mcp_client(
     config: Optional[SandboxConfig] = None,
-) -> "Any":  # Returns MCPClient subclass (locally defined)
+) -> "Any":
     """Create an MCP client with sandboxing.
 
     Args:
         config: Sandbox configuration
 
     Returns:
-        SandboxedMCPClient instance
+        MCPClient using its configured resource-limited process lifecycle
     """
     from victor.integrations.mcp.client import MCPClient
 
-    class SandboxedMCPClient(MCPClient):
-        """MCP client with sandboxed subprocess."""
-
-        def __init__(self, sandbox_config: Optional[SandboxConfig] = None, **kwargs):
-            super().__init__(**kwargs)
-            self._sandbox = SandboxedProcess(sandbox_config)
-
-        async def connect(self, command: List[str]) -> bool:
-            """Connect using sandboxed process."""
-            self._command = command
-
-            try:
-                self.process = await self._sandbox.start(command)
-                success = await self.initialize()
-
-                if success:
-                    self._running = True
-                    return True
-
-                await self._sandbox.terminate(self.process)
-                return False
-
-            except Exception as e:
-                logger.error(f"Sandboxed connection failed: {e}")
-                return False
-
-        def disconnect(self, reason: Optional[str] = None) -> None:
-            """Disconnect and cleanup sandbox."""
-            self._running = False
-
-            if self.process:
-                asyncio.create_task(self._sandbox.terminate(self.process))
-                self.process = None
-                self.initialized = False
-
-    return SandboxedMCPClient(config)
+    return MCPClient(sandbox_config=config if config is not None else SandboxConfig())

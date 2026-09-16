@@ -117,7 +117,7 @@ def get_project_root_hash(project_root: Path) -> str:
         return dirname[:6].lower()
 
     # Otherwise, hash the directory name and encode to base62
-    hash_bytes = hashlib.md5(dirname.encode()).digest()
+    hash_bytes = hashlib.md5(dirname.encode(), usedforsecurity=False).digest()
     hash_num = int.from_bytes(hash_bytes[:4], byteorder="big")
     return encode_base62(hash_num).zfill(6)[:6].lower()
 

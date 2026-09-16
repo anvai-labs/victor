@@ -266,8 +266,10 @@ class ToolBuildersMixin:
                     )
                 # Sync from tool metadata if available
                 permission_policy.sync_from_tool_metadata()
-        except Exception:
-            pass  # Permission system is optional
+        except Exception as exc:
+            raise RuntimeError(
+                "Configured tool permission policy could not be initialized"
+            ) from exc
 
         # Read cross-turn dedup settings from ToolSettings
         cross_turn_enabled = self._tool_setting("cross_turn_dedup_enabled", True)

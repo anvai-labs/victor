@@ -245,8 +245,8 @@ class FileChangeHistory:
 
     @staticmethod
     def compute_checksum(content: str) -> str:
-        """Compute MD5 checksum of content."""
-        return hashlib.md5(content.encode("utf-8")).hexdigest()
+        """Compute SHA-256 checksum of content."""
+        return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
     def begin_change_group(
         self, tool_name: str, description: str = "", message_id: Optional[str] = None
@@ -316,8 +316,10 @@ class FileChangeHistory:
             original_content=original_content,
             new_content=new_content,
             original_path=original_path,
-            checksum_before=(self.compute_checksum(original_content) if original_content else None),
-            checksum_after=self.compute_checksum(new_content) if new_content else None,
+            checksum_before=(
+                self.compute_checksum(original_content) if original_content is not None else None
+            ),
+            checksum_after=self.compute_checksum(new_content) if new_content is not None else None,
             session_id=self.session_id,
             message_id=message_id if message_id is not None else group_message_id,
         )
@@ -649,7 +651,7 @@ class FileChangeHistory:
             raise
 
     def _current_checksum(self, file_path: str) -> Optional[str]:
-        """MD5 of the file's current on-disk content, or None if absent/unreadable."""
+        """SHA-256 of the file's current on-disk content, or None if absent/unreadable."""
         p = Path(file_path)
         if not p.exists() or not p.is_file():
             return None
@@ -667,9 +669,18 @@ class FileChangeHistory:
         """
         ct = change.change_type
         cur = self._current_checksum(change.file_path)
+
+        def matches_recorded(content: Optional[str], checksum: Optional[str]) -> bool:
+            # Old histories contain MD5 digests. Recompute from their stored
+            # content instead of trusting a weak digest or invalidating history.
+            expected = self.compute_checksum(content) if content is not None else checksum
+            return (
+                cur is not None and expected is not None and len(expected) == 64 and cur == expected
+            )
+
         if phase == "undo":
             if ct in (ChangeType.CREATE, ChangeType.MODIFY):
-                return cur != change.checksum_after
+                return not matches_recorded(change.new_content, change.checksum_after)
             if ct == ChangeType.DELETE:
                 return cur is not None  # expected absent (it was deleted)
             if ct == ChangeType.RENAME:
@@ -678,9 +689,11 @@ class FileChangeHistory:
             if ct == ChangeType.CREATE:
                 return cur is not None  # expected absent (not yet created)
             if ct == ChangeType.MODIFY:
-                return cur != change.checksum_before
+                return not matches_recorded(change.original_content, change.checksum_before)
             if ct == ChangeType.DELETE:
-                return cur != change.checksum_before  # expected original present
+                return not matches_recorded(
+                    change.original_content, change.checksum_before
+                )  # expected original present
             if ct == ChangeType.RENAME and change.original_path:
                 return not Path(change.original_path).exists()
         return False

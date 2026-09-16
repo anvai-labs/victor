@@ -903,10 +903,11 @@ class PlanningTeamExecutionAdapter:
         if callable(getter):
             try:
                 enabled = getter()
-                if enabled:
+                if enabled is not None:
                     return {canonicalize_core_tool_name(str(name)) for name in enabled}
-            except Exception:
-                pass
+                raise RuntimeError("Parent enabled-tool lookup returned no result")
+            except Exception as exc:
+                raise RuntimeError("Cannot determine parent tool permissions") from exc
 
         tools = getattr(self.orchestrator, "tools", None) or getattr(
             self.orchestrator, "tool_registry", None
@@ -922,14 +923,14 @@ class PlanningTeamExecutionAdapter:
                         name = item if isinstance(item, str) else getattr(item, "name", None)
                         if name:
                             names.add(canonicalize_core_tool_name(str(name)))
-                    if names:
-                        return names
+                    return names
                 if hasattr(registry, "get_tool_names"):
                     names = registry.get_tool_names()
-                    if names:
+                    if names is not None:
                         return {canonicalize_core_tool_name(str(name)) for name in names}
-            except Exception:
-                continue
+                    raise RuntimeError("Parent registry returned no tool list")
+            except Exception as exc:
+                raise RuntimeError("Cannot determine parent tool permissions") from exc
 
         return None
 

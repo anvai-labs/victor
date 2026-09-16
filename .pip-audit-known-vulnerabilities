@@ -1,24 +1,2 @@
-# pip-audit Known Vulnerability Exceptions
-#
-# This file documents known vulnerabilities that cannot be resolved
-# due to transitive dependency constraints or lack of available fixes.
-#
-# Format: One CVE per line with justification and re-review date
-#
-# CVE-ID | Package | Affected Versions | Justification | Re-review Date
-#
-# Example:
-# CVE-2023-12345 | package-name | >=1.0,<2.0 | No fix available upstream. Risk accepted as... | 2025-06-01
-
-# diskcache CVE-2025-69872
-# Risk: Attacker with write access to cache directory can execute arbitrary code
-# Mitigation: Cache directory is owned by the same user running the application.
-# Victor uses diskcache for local caching only, not shared caches.
-# Waiting for upstream fix or alternative caching library.
-CVE-2025-69872 | diskcache | 5.6.3 | No newer version available. Vulnerability requires attacker write access to cache directory. In Victor's use case, cache directory is owned by application user. Acceptable risk for local caching. Re-evaluate when diskcache 5.7+ is released. | 2025-07-01
-
-# PYSEC-2026-2447 is the OSV/PYSEC alias of the diskcache advisory accepted
-# above as CVE-2025-69872 (pip-audit began reporting the PYSEC id). Same
-# assessment: requires attacker write access to the cache directory; Victor
-# uses diskcache for single-user local caching only. No fixed release yet.
-PYSEC-2026-2447 | diskcache | 5.6.3 | Alias of CVE-2025-69872 (accepted above). No fix released. Local single-user cache; attacker needs cache-dir write access. Re-evaluate when diskcache >5.6.3 is released. | 2026-11-01
+# Superseded by .github/security/exceptions.json.
+# This file contains no active exceptions; use scripts/ci/security_report_check.py.

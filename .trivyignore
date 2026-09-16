@@ -1,8 +1,2 @@
-# Trivy ignore policy for explicitly accepted dependency exceptions.
-# Keep this aligned with .pip-audit-known-vulnerabilities and SECURITY.md.
-
-# diskcache CVE-2025-69872
-# Risk: attacker with write access to the cache directory can execute arbitrary code.
-# Mitigation: Victor uses diskcache only for local, user-owned caches.
-# Re-review when a fixed diskcache release is available.
-CVE-2025-69872
+# No scan-time vulnerability suppression. Full reports are retained.
+# Scoped exceptions are enforced from .github/security/exceptions.json.

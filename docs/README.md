@@ -12,9 +12,12 @@ contributor guidance from dated experiments, design proposals and review evidenc
 | Current execution plan and complete debt register | [Roadmap](roadmap.md) |
 | Feature catalog | [Features](features.md) |
 | Development environment | [Development Setup](development/setup.md) |
+| Deployment dependencies and container targets | [Dependency maintenance](development/dependencies.md) |
+| Security release candidate and remaining findings | [0.9.4 batch status](development/security-remediation-0.9.4.md) |
 | Native extension build | [Native build recipe](development/setup.md#native-extension-build) |
 | Documentation build and preview | [Documentation build](development/setup.md#documentation-build) |
 | Branches, verification and pull requests | [PR Workflow](development/PR_WORKFLOW.md) |
+| Self-hosted runner preparation | [Runner environments](development/self-hosted-runners.md) |
 | Architecture decisions | [ADR index](architecture/adr/README.md) |
 | Enhancement proposals | [Repository FEP index](https://github.com/anvai-labs/victor/blob/develop/feps/README.md) |
 | Proposal process | [FEP Process](FEP_PROCESS.md) |

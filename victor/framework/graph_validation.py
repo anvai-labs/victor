@@ -88,7 +88,7 @@ class StateValidator:
 
     def _validate_typeddict(self, state: Dict[str, Any]) -> List[str]:
         try:
-            from typing_extensions import TypedDict, get_type_hints
+            from typing_extensions import get_type_hints
 
             errors = []
             hints = get_type_hints(self._schema)

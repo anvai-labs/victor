@@ -780,7 +780,7 @@ def _runtime_feedback_scope_storage_key(scope: Any) -> str:
         sort_keys=True,
         separators=(",", ":"),
     ).encode("utf-8")
-    return hashlib.sha1(encoded).hexdigest()[:16]
+    return hashlib.sha1(encoded, usedforsecurity=False).hexdigest()[:16]
 
 
 def get_session_topology_runtime_feedback_path(

@@ -121,7 +121,7 @@ class ErrorEventEmitter(IErrorEventEmitter):
         if not self._dedup_enabled:
             return False, None
 
-        warning_hash = hashlib.md5(warning.encode()).hexdigest()
+        warning_hash = hashlib.md5(warning.encode(), usedforsecurity=False).hexdigest()
         now = time.time()
 
         if warning_hash in self._warning_dedup:
@@ -222,7 +222,7 @@ class ErrorEventEmitter(IErrorEventEmitter):
                     data = data.copy()  # Don't modify original
                     data["warning"] = warning_msg + suffix
                     data["suppressed_count"] = self._warning_dedup.get(
-                        hashlib.md5(warning_msg.encode()).hexdigest(), {}
+                        hashlib.md5(warning_msg.encode(), usedforsecurity=False).hexdigest(), {}
                     ).get("count", 1)
 
             bus = self._get_bus()

@@ -268,8 +268,9 @@ else
 fi
 
 # Check if base images are available
-if docker pull python:3.12-slim > /dev/null 2>&1; then
-    check_pass "Base Docker image (python:3.12-slim) is available"
+base_image=$(sed -n 's/^ARG UBUNTU_IMAGE=//p' Dockerfile)
+if [ -n "$base_image" ] && docker pull "$base_image" > /dev/null 2>&1; then
+    check_pass "Pinned base Docker image is available"
 else
     check_warn "Could not pull base image (may need internet connection)"
 fi

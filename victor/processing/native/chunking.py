@@ -20,6 +20,15 @@ from typing import List
 from victor.processing.native._base import _NATIVE_AVAILABLE, _native
 
 
+def _validate_chunk_parameters(chunk_size: int, overlap: int) -> None:
+    if type(chunk_size) is not int or type(overlap) is not int:
+        raise TypeError("chunk_size and overlap must be integers")
+    if chunk_size <= 0:
+        raise ValueError("chunk_size must be positive")
+    if overlap < 0 or overlap >= chunk_size:
+        raise ValueError("overlap must be nonnegative and less than chunk_size")
+
+
 def chunk_by_sentences(text: str, chunk_size: int = 1344, overlap: int = 128) -> List[str]:
     """Chunk text by sentence boundaries with overlap.
 
@@ -31,6 +40,7 @@ def chunk_by_sentences(text: str, chunk_size: int = 1344, overlap: int = 128) ->
     Returns:
         List of text chunks
     """
+    _validate_chunk_parameters(chunk_size, overlap)
     if _NATIVE_AVAILABLE:
         return _native.chunk_by_sentences(text, chunk_size, overlap)
 
@@ -67,6 +77,7 @@ def chunk_by_chars(text: str, chunk_size: int = 1344, overlap: int = 128) -> Lis
     Returns:
         List of text chunks
     """
+    _validate_chunk_parameters(chunk_size, overlap)
     if _NATIVE_AVAILABLE:
         return _native.chunk_by_chars(text, chunk_size, overlap)
 
@@ -96,6 +107,7 @@ def chunk_by_paragraphs(text: str, chunk_size: int = 1344, overlap: int = 128) -
     Returns:
         List of text chunks
     """
+    _validate_chunk_parameters(chunk_size, overlap)
     if _NATIVE_AVAILABLE:
         return _native.chunk_by_paragraphs(text, chunk_size, overlap)
 

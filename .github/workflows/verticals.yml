@@ -33,9 +33,15 @@ concurrency:
 jobs:
   boundaries:
     name: Contract-boundary audit
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Verify runner ABI
+        run: >-
+          python3 scripts/ci/runner_preflight.py
+          --require-os ubuntu
+          --min-os-version 24.04
+          --min-glibc 2.38
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
@@ -44,26 +50,44 @@ jobs:
 
   test:
     name: Vertical tests (Py${{ matrix.python-version }})
-    runs-on: ubuntu-latest
+    # ubuntu-latest also matches the organization's self-hosted overflow hosts.
+    # These tests execute LanceDB's native wheel, which SIGILLs on dataserver2.
+    # Keep native workloads on the compatible standard hosted image.
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
         python-version: ["3.11", "3.12"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Verify runner ABI
+        run: >-
+          python3 scripts/ci/runner_preflight.py
+          --require-os ubuntu
+          --min-os-version 24.04
+          --min-glibc 2.38
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install framework + contracts + verticals (editable)
         run: make install-verticals
+      - name: Verify LanceDB native backend compatibility
+        run: |
+          python -c "import lancedb; print('LanceDB native import OK:', lancedb.__version__)"
       - name: Run vertical test suites
         run: make test-verticals
 
   lint:
     name: Vertical lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Verify runner ABI
+        run: >-
+          python3 scripts/ci/runner_preflight.py
+          --require-os ubuntu
+          --min-os-version 24.04
+          --min-glibc 2.38
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"

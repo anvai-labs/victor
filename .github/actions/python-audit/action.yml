@@ -1,0 +1,25 @@
+name: Audit Python dependencies
+description: Audit the installed environment once and enforce scoped exceptions.
+runs:
+  using: composite
+  steps:
+    - name: Install maintained audit tooling
+      shell: bash
+      run: python -m pip install --upgrade 'pip>=26.2.0' 'setuptools>=83.0.0' pip-audit==2.10.1
+    - name: Audit and enforce the complete report
+      shell: bash
+      run: |
+        rm -f audit-report.json
+        audit_status=0
+        # OSV supports the unpublished first-party candidate version while still
+        # auditing every installed dependency. PyPI's version endpoint returns 404.
+        python -m pip_audit --vulnerability-service osv --format json --output audit-report.json || audit_status=$?
+        python scripts/ci/security_report_check.py audit-report.json \
+          --scope python --scanner-status "$audit_status"
+    - name: Preserve dependency audit evidence
+      if: always()
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: python-audit-${{ github.job }}
+        path: audit-report.json
+        if-no-files-found: error

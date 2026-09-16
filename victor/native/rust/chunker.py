@@ -43,7 +43,7 @@ class RustTextChunker(InstrumentedAccelerator):
     Performance characteristics:
     - count_lines: 5-10x faster (SIMD byte counting)
     - find_line_boundaries: 3-5x faster (single-pass iteration)
-    - line_at_offset: 2-3x faster (binary search)
+    - line_at_offset: character-offset scan
     - chunk_with_overlap: 3-5x faster (pre-computed boundaries)
     """
 
@@ -68,6 +68,12 @@ class RustTextChunker(InstrumentedAccelerator):
             List of ChunkInfo objects
         """
         with self._timed_call("text_chunking"):
+            if type(chunk_size) is not int or type(overlap) is not int:
+                raise TypeError("chunk_size and overlap must be integers")
+            if chunk_size <= 0:
+                raise ValueError("chunk_size must be positive")
+            if overlap < 0 or overlap >= chunk_size:
+                raise ValueError("overlap must be nonnegative and less than chunk_size")
             if not text:
                 return []
 
@@ -103,7 +109,7 @@ class RustTextChunker(InstrumentedAccelerator):
             return victor_native.count_lines(text)
 
     def find_line_boundaries(self, text: str) -> List[int]:
-        """Find byte offsets of all line starts.
+        """Find character offsets of all line starts.
 
         Delegates to Rust single-pass implementation.
 
@@ -111,7 +117,7 @@ class RustTextChunker(InstrumentedAccelerator):
             text: Text to analyze
 
         Returns:
-            List of byte offsets where lines start (including 0)
+            List of character offsets where lines start (including 0)
         """
         with self._timed_call("line_boundary_detection"):
             return victor_native.find_line_boundaries(text)
@@ -119,7 +125,7 @@ class RustTextChunker(InstrumentedAccelerator):
     def line_at_offset(self, text: str, offset: int) -> int:
         """Get line number for a character offset.
 
-        Delegates to Rust binary search implementation.
+        Delegates to Rust character-offset lookup.
 
         Args:
             text: Text
@@ -129,4 +135,6 @@ class RustTextChunker(InstrumentedAccelerator):
             Line number (1-indexed)
         """
         with self._timed_call("line_lookup"):
+            if offset < 0 or not text:
+                return 1
             return victor_native.line_at_offset(text, offset)

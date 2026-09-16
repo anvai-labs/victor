@@ -25,7 +25,7 @@ permissions:
 jobs:
   post-helpful-comment:
     name: Post PR Helper Comment
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
 
     steps:
@@ -248,7 +248,7 @@ jobs:
   # Separate job for posting validation results from other workflows
   post-validation-results:
     name: Post Validation Results
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     if: github.event_name == 'workflow_call' || github.event.action != 'opened'
     timeout-minutes: 5
 

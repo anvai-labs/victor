@@ -1,6 +1,6 @@
 [build-system]
 requires = [
-    "setuptools>=61.0",
+    "setuptools>=83.0.0",
     "wheel",
 ]
 build-backend = "setuptools.build_meta"
@@ -36,7 +36,6 @@ classifiers = [
 ]
 dependencies = [
     "victor-contracts[yaml]>=0.6.0,<1.0",  # Definition-layer contract for external verticals
-    "numpy>=1.24,<2.3",  # Required by victor.storage.embeddings; numba-compatible
     "victor-codegraph[treesitter]>=0.1.0",  # Shared code->CPG chunker (ADR-014); [treesitter] supplies the grammars the delegation parses JS/Go/TS/Rust with
     "defusedxml>=0.7,<1.0",  # XXE-hardened XML parsing for coverage reports
 ]
@@ -46,9 +45,8 @@ runtime = [
     "victor-ai>=0.7.6,<1.0",  # Runtime support - optional, contract-first architecture
 ]
 native = [
-    # Native extensions are handled by maturin
-    # Install with: pip install -e .[native]
-    # or build with: maturin develop --release
+    # Compatibility extra. Build the separate distribution from ./native;
+    # see native/README.md. Installing this empty extra does not build Rust.
 ]
 # ProximaDB embedding provider (optional backend).
 # Imported lazily with graceful ImportError fallback in
@@ -64,17 +62,18 @@ codegraph = [
     "victor-codegraph>=0.1.0,<1.0",
 ]
 dev = [
+    "numpy>=1.24,<2.3",  # Synthetic embeddings in indexer tests
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
     "pytest-cov>=4.1",
     "pytest-xdist>=3.0",
     "pytest-benchmark>=5.0",
-    "black==26.1.0",
+    "black==26.3.1",
     "ruff>=0.5",
     "mypy>=1.10",
 ]
 native-dev = [
-    "maturin>=1.0,<2.0",  # Build Rust extensions
+    "maturin>=1.10,<2.0",  # Build Rust extensions
 ]
 
 [project.urls]

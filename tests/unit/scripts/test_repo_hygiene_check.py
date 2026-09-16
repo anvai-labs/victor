@@ -1254,3 +1254,52 @@ def test_current_repo_passes_hygiene_checks() -> None:
     findings = repo_hygiene_check.run_checks(Path.cwd())
 
     assert findings == []
+
+
+def test_action_pins_cover_nested_workflows_and_composite_actions(tmp_path):
+    write_file(
+        tmp_path,
+        "verticals/example/.github/workflows/test.yaml",
+        "jobs:\n  test:\n    steps:\n      - uses: actions/checkout@v4\n",
+    )
+    write_file(
+        tmp_path,
+        ".github/actions/audit/action.yml",
+        "runs:\n  using: composite\n  steps:\n    - uses: docker://example/scanner:latest\n",
+    )
+    findings = repo_hygiene_check.check_action_pins(tmp_path)
+    assert len(findings) == 2
+    assert all("mutable or invalid action reference" in f.message for f in findings)
+
+
+def test_action_pins_accept_immutable_and_local_references(tmp_path):
+    write_file(
+        tmp_path,
+        ".github/workflows/test.yml",
+        "jobs:\n  test:\n    steps:\n"
+        "      - uses: actions/checkout@" + "a" * 40 + "\n"
+        "      - uses: docker://example/scanner@sha256:" + "b" * 64 + "\n"
+        "      - uses: ./.github/actions/audit\n",
+    )
+    assert repo_hygiene_check.check_action_pins(tmp_path) == []
+
+
+def test_shared_security_action_cannot_be_silently_bypassed(tmp_path):
+    import shutil
+    import yaml
+
+    root = Path(__file__).resolve().parents[3]
+    for name in [
+        ".github/workflows/security.yml",
+        ".github/actions/python-audit/action.yml",
+        "scripts/ci/security_report_check.py",
+    ]:
+        dest = tmp_path / name
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(root / name, dest)
+    path = tmp_path / ".github/workflows/security.yml"
+    assert repo_hygiene_check._workflow_has_blocking_local_audit(path, "python-audit")
+    doc = yaml.safe_load(path.read_text())
+    doc["jobs"]["dependency-audit"]["continue-on-error"] = True
+    path.write_text(yaml.safe_dump(doc))
+    assert not repo_hygiene_check._workflow_has_blocking_local_audit(path, "python-audit")

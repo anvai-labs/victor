@@ -841,30 +841,21 @@ class WorkflowVisualizer:
 
         d2_content = self.to_d2()
 
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".d2", delete=False) as f:
-            f.write(d2_content)
-            d2_file = f.name
-
-        svg_file = output_path or tempfile.mktemp(suffix=".svg")
-
-        try:
+        # Keep both generated paths in a private directory. An unreserved
+        # mktemp output path could be replaced with a symlink before D2 opens it.
+        with tempfile.TemporaryDirectory(prefix="victor-d2-") as temp_dir:
+            d2_file = Path(temp_dir) / "workflow.d2"
+            d2_file.write_text(d2_content, encoding="utf-8")
+            svg_file = Path(output_path) if output_path else Path(temp_dir) / "workflow.svg"
             result = subprocess.run(
-                ["d2", "--layout=dagre", d2_file, svg_file],
+                ["d2", "--layout=dagre", str(d2_file), str(svg_file)],
                 capture_output=True,
                 text=True,
                 timeout=30,
             )
             if result.returncode != 0:
                 raise RuntimeError(f"D2 error: {result.stderr}")
-
-            with open(svg_file, "r") as f:
-                svg_content = f.read()
-
-            return svg_content
-        finally:
-            Path(d2_file).unlink(missing_ok=True)
-            if not output_path:
-                Path(svg_file).unlink(missing_ok=True)
+            return svg_file.read_text(encoding="utf-8")
 
     def _to_svg_kroki(
         self,

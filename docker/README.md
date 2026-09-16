@@ -1,51 +1,37 @@
-<div align="center">
+# Victor Docker deployment
 
-![Victor Banner](../docs/assets/victor-banner.svg)
+The root Dockerfile builds four targets from installed Victor wheels. See the
+[canonical dependency and deployment guide](../docs/development/dependencies.md#container-targets)
+for their package contents, lock regeneration and security validation.
 
-# Victor Docker - Air-gapped Deployment
+| Target | Purpose | Default command |
+| --- | --- | --- |
+| `core` | HTTP and GraphQL API | `victor serve` on port 8765 |
+| `mcp` | MCP over standard input/output | `victor mcp` |
+| `native` | API dependencies and Rust acceleration | `victor --help` |
+| `full` | CPU embeddings and cached BGE model | `bash` |
 
-</div>
-
-This Docker image includes **pre-downloaded embedding models** for 100% offline operation.
-
-**If you only need commands, see `docker/QUICKREF.md`. For a guided setup, see `docs/guides/QUICKSTART.md`.**
-
-## Features
-
-✅ **Air-gapped Capable**: Works without internet after build
-✅ **Pre-bundled Model**: all-MiniLM-L12-v2 (120MB) included
-✅ **Fast Startup**: No model download on first run
-✅ **Unified Model**: Same model for tool selection and codebase search
-✅ **Memory Optimized**: 120MB model (40% reduction from separate models)
-
-## Quick Start
-
-### Fast Path (recommended)
+Build from the repository root:
 
 ```bash
-# Build, pull defaults, and smoke test
-./docker-quickstart.sh
+docker build --target full -t victor-full:local .
+docker run --rm --network none victor-full:local bash /app/docker/scripts/test-airgapped.sh
 ```
 
-### Build Air-gapped Image (manual)
+The full image caches `BAAI/bge-small-en-v1.5`. The command above requires that
+cache and verifies embedding generation with networking disabled. LLM provider
+models are separate: configure a reachable provider or provision a local model
+server and its weights before moving to an isolated environment.
+
+Tool embeddings are derived on demand from the installed tool registry. To
+prepare them in a persistent volume for a particular workspace:
 
 ```bash
-# Build Docker image with embedded model
-docker build -t vjsingh1984/victor-ai:airgapped .
+docker run --rm --network none -v victor-home:/home/victor/.victor \
+  victor-full:local bash /app/docker/scripts/init-embeddings.sh
 ```
 
-### Test Air-gapped Setup
-
-```bash
-# Run air-gapped test
-docker run --rm vjsingh1984/victor-ai:airgapped bash /app/docker/scripts/test_airgapped.sh
-```
-
-### Run Air-gapped Demo
-
-```bash
-# Run codebase search demo (100% offline)
-docker run --rm vjsingh1984/victor-ai:airgapped python3 /app/examples/airgapped_codebase_search.py
-```
-
-See full documentation in this file for more details.
+Profiles and credentials are user configuration; these helpers do not create or
+replace them. Runtime images run as UID 1000 and contain no pip installer. Add
+packages in a derived build and audit the resulting image. See the
+[MCP guide](mcp-server/README.md) for stdio client configuration.

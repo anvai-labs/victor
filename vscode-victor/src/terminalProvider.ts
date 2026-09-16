@@ -74,12 +74,14 @@ export class TerminalProvider implements vscode.Disposable {
     /**
      * Get or create the Victor terminal
      */
-    getTerminal(): vscode.Terminal {
-        if (!this._terminal) {
+    getTerminal(cwd?: string): vscode.Terminal {
+        if (!this._terminal || cwd !== undefined) {
             this._terminal = vscode.window.createTerminal({
                 name: 'Victor AI',
+                cwd: cwd || undefined,
                 iconPath: new vscode.ThemeIcon('hubot'),
             });
+            this._disposables.push(this._terminal);
         }
         return this._terminal;
     }
@@ -130,15 +132,12 @@ export class TerminalProvider implements vscode.Disposable {
 
         // Execute the command
         execution.status = 'running';
-        const terminal = this.getTerminal();
+        // Start in the requested directory through VS Code, without shell text.
+        // A fresh command terminal also avoids inheriting an interactive cd.
+        const terminal = this.getTerminal(cwd);
 
         if (showTerminal) {
             terminal.show(true);
-        }
-
-        // Change directory if needed
-        if (cwd) {
-            terminal.sendText(`cd "${cwd}"`, true);
         }
 
         // Log to output channel
