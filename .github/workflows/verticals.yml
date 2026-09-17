@@ -38,7 +38,7 @@ jobs:
 
   test:
     name: Vertical tests (Py${{ matrix.python-version }})
-    # ubuntu-latest also matches the organization's self-hosted overflow hosts.
+    # ubuntu-24.04 also matches the organization's self-hosted overflow hosts.
     # These tests execute LanceDB's native wheel, which SIGILLs on dataserver2.
     # Keep native workloads on the compatible standard hosted image.
     runs-on: ubuntu-24.04
@@ -113,7 +113,7 @@ jobs:
 
   summary:
     name: Verticals Summary
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [boundaries, test, lint]
     if: always()
     steps:

@@ -267,7 +267,7 @@ jobs:
 
   integration-summary:
     name: Integration Summary
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [integration, verticals-integration, vscode-extension, rust-native]
     if: always()
     steps:

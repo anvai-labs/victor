@@ -52,7 +52,7 @@ jobs:
 
   summary:
     name: Codegraph Summary
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: test
     if: always()
     steps:

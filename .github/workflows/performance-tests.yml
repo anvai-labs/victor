@@ -225,7 +225,7 @@ jobs:
 
   performance-summary:
     name: Performance Summary
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [performance-regression, baseline-comparison]
     # The baseline comparison exists only for pull requests. Keep scheduled,
     # push, and manual benchmark runs useful without manufacturing a red

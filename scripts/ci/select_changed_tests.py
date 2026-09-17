@@ -75,6 +75,8 @@ def select(changed: list[str]) -> list[str]:
         if p.startswith("victor/"):
             rel = path.relative_to("victor")
             test_dir = ROOT / "tests" / "unit" / rel.parent
+            related = RELATED_TESTS.get(p, ())
+            targets.update(target for target in related if (ROOT / target).exists())
             candidates: list[Path] = []
             if test_dir.is_dir():
                 candidates = list(test_dir.glob(f"test_{rel.stem}.py")) + list(
@@ -91,7 +93,10 @@ def select(changed: list[str]) -> list[str]:
                 )
             for cand in candidates:
                 targets.add(str(cand.relative_to(ROOT)))
-            if not candidates:
+            # Fail-closed only when NOTHING covers the source: an explicit
+            # RELATED_TESTS entry (e.g. the MCP lifecycle contracts for
+            # transport-only changes) is coverage, even without a mirror file.
+            if not candidates and not related:
                 unmapped_sources.append(p)
     if unmapped_sources:
         joined = "\n  - ".join(unmapped_sources)
