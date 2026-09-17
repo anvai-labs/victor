@@ -206,9 +206,9 @@ def usage_dict_from_neutral(
     if read:
         usage["cache_read_input_tokens"] = read
     if reasoning:
-        # Observability key. Whether these are folded into completion_tokens
-        # (OpenAI/Anthropic) or reported separately (Gemini thoughtsTokenCount)
-        # is decided at cost time via the same reasoning > completion heuristic
-        # sandhi's billable() uses — not here.
+        # Preserve the producer's inclusion convention; cost code must not infer
+        # it from the relative sizes of reasoning and visible-output counts.
         usage["reasoning_tokens"] = reasoning
+    if isinstance(neutral.get("reasoning_included"), bool):
+        usage["reasoning_included"] = neutral["reasoning_included"]
     return usage
