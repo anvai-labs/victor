@@ -50,11 +50,11 @@ merge; GitHub's `CLEAN`/`MERGEABLE` alone is not treated as a test signal.
 
 | Surface | Gate |
 |---------|------|
-| Core Python | 29,834 tests collected per supported Python; all 12 Python 3.11 coverage shards must be present; complete line coverage cannot fall below 40% |
+| Core Python | 29,834 tests collected per supported Python; all 12 Python 3.12 coverage shards must be present; complete line coverage cannot fall below 40% |
 | Changed core Python | A mirror test is mandatory and changed-line coverage must be at least 80% |
 | victor-contracts | 337 tests across Python 3.10–3.13; line coverage cannot fall below 50%; wheel build/install smoke test |
 | victor-codegraph | 106 tests across Python 3.10–3.12; line coverage cannot fall below 90% |
-| Verticals | Isolated suites on Python 3.11/3.12, per-package collection-count floors, and measured line-coverage ratchets: coding 33%, devops 80%, RAG 20%, data-analysis 75%, research 80% |
+| Verticals | Isolated suites on Python 3.12, per-package collection-count floors, and measured line-coverage ratchets: coding 33%, devops 80%, RAG 20%, data-analysis 75%, research 80% |
 | Rust workspace | 250 unit/doc tests, 68% line-coverage ratchet (69.26% measured), formatting, locked workspace test, and publishable-crate archive validation |
 | VS Code extension | Measured Vitest/c8 ratchets (4% lines, 18% functions, 60% branches) plus blocking Electron/package integration in the main promotion gate |
 
@@ -252,7 +252,7 @@ Test across multiple Python versions:
 ```yaml
 strategy:
   matrix:
-    python-version: ["3.11", "3.12"]
+    python-version: ["3.12", "3.13"]
 ```
 
 ### Artifact Upload
@@ -311,7 +311,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.11"
+          python-version: "3.12"
           cache: pip
 
       - name: Install dependencies
@@ -362,8 +362,8 @@ on:
 
 Check Python version:
 ```bash
-# CI uses Python 3.11
-python3.11 -m victor fep validate fep.md
+# CI uses Python 3.12
+python3.12 -m victor fep validate fep.md
 ```
 
 ### PR Comments Not Posting
