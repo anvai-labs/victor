@@ -52,6 +52,9 @@ class ParallelFormation(BaseFormationStrategy):
         race conditions. After execution, agent contexts are merged back
         into the parent context using last-writer-wins semantics.
         """
+        retries = context.get("parallel_member_retries", 0)
+        if not isinstance(retries, int) or isinstance(retries, bool) or not 0 <= retries <= 3:
+            raise ValueError("parallel_member_retries must be an integer from 0 to 3")
         # Create isolated context copies for each agent
         agent_contexts = [
             TeamContext(
@@ -69,7 +72,9 @@ class ParallelFormation(BaseFormationStrategy):
         # the gather, lane hooks, exception normalization, and the lock-protected cumulative
         # checkpoint; hooks are read off the original team_context (the isolated contexts don't
         # carry them). Member execution stays fully concurrent.
-        results = await self._execute_members_concurrently(agents, task, context, agent_contexts)
+        results = await self._execute_members_concurrently(
+            agents, task, context, agent_contexts, member_retries=retries
+        )
 
         # Merge agent contexts back into parent (last-writer-wins per key)
         for agent_ctx in agent_contexts:

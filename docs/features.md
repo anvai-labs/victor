@@ -61,6 +61,13 @@ member under the provider's declared sequence limit, with per-member throttle
 warnings. InferFlux deployments that do not expose capacity through their admin API
 must declare the verified `max_parallel_sequences` provider option.
 
+**Outcome contracts** — consensus defaults to three rounds and compares explicit
+`metadata.consensus_key` values (or exact output values). `create_consensus_team`
+exposes rounds, agreement threshold, and an optional supervisor tie-break. Reflection
+supports an opt-in JSON verdict with `create_reflection_team(..., verdict_format="json")`;
+malformed verdicts stop refinement with an explicit failure. Parallel output names
+failed members, and `parallel_member_retries` enables bounded per-member retries.
+
 ## Web Chat UI (Chainlit, optional extra)
 
 `victor ui` launches a pure-Python **Chainlit** web chat bound to `VictorClient` — streaming
