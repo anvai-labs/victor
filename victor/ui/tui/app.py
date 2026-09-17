@@ -35,6 +35,7 @@ from rich.markup import escape
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
+from textual.message import Message
 from textual.widgets import Footer, Header, Input
 from textual.worker import Worker
 
@@ -46,6 +47,7 @@ from victor.ui.tui.keybindings import load_keybindings
 from victor.ui.tui.palette import CommandPalette, HelpScreen
 from victor.ui.tui.phase import PhaseTracker
 from victor.ui.tui.prompt_input import PromptInput
+from victor.ui.tui.prompt_queue import PromptQueue
 from victor.ui.tui.sidebar import AgentState, AgentStatePanel
 from victor.ui.tui.status_bar import StatusBar
 from victor.ui.tui.themes import DEFAULT_THEME, next_theme, register_all, resolve_theme
@@ -73,6 +75,16 @@ def _abbrev_path(path: str, home: Optional[str] = None) -> str:
 class VictorTUIApp(App[None]):
     """Interactive IDE-style TUI: sidebar · conversation · status · prompt."""
 
+    class QueueChanged(Message):
+        """A prompt was enqueued, consumed, or cleared; re-project the status."""
+
+    class TurnFinished(Message):
+        """The turn identified by ``serial`` completed (success, error, interrupt)."""
+
+        def __init__(self, serial: int) -> None:
+            super().__init__()
+            self.serial = serial
+
     # Resolve at import: if the stylesheet is missing (e.g. an incomplete wheel
     # that dropped ui/tui/*.tcss), start unstyled instead of crashing Textual
     # with StylesheetError. Packaging guards keep the file present in real dists.
@@ -87,11 +99,12 @@ class VictorTUIApp(App[None]):
         self,
         *,
         client: Any,
-        agent: Any,
         settings: Any,
+        agent: Any = None,
         mode: Optional[str] = None,
         tool_budget: Optional[int] = None,
         theme: str = DEFAULT_THEME,
+        bootstrap: Optional[Any] = None,
     ) -> None:
         super().__init__()
         self._client = client
@@ -101,8 +114,22 @@ class VictorTUIApp(App[None]):
         self._tool_budget = tool_budget
         self._initial_theme = resolve_theme(theme)
 
+        # Shell-first startup: when ``bootstrap`` is given, the app mounts
+        # immediately and finishes session initialization (agent creation,
+        # resume, turn limits) in a worker; the prompt stays disabled until it
+        # resolves. Without it, the session is already initialized (REPL-style
+        # callers) and the app is usable on mount.
+        self._bootstrap = bootstrap
+        self._session_ready = bootstrap is None
+        self._bootstrap_error: Optional[str] = None
+        self._bootstrap_result: Any = None
+
         self._phase = PhaseTracker()
         self._turn_worker: Optional[Worker[None]] = None
+        self._turn_serial = 0
+
+        # Prompts typed while a turn runs; drained FIFO when the run completes.
+        self._queue = PromptQueue(on_change=self._on_queue_change)
 
         # Watchdog / "waiting on model" state.
         self._wait_timer: Any = None
@@ -136,11 +163,21 @@ class VictorTUIApp(App[None]):
         register_all(self)
         self.theme = self._initial_theme
         self.sub_title = self._model_label()
-        # Terminal-native HITL: register before the first turn (late-registration safe).
+        # Terminal-native HITL: register before the first turn — and before the
+        # bootstrap worker creates the agent (client.py requires the approval
+        # handler to exist before Agent.create()).
         try:
             self._client.set_approval_handler(make_tui_approval_handler(self))
         except Exception:  # noqa: BLE001 - approval is best-effort, never fatal
             pass
+        if self._bootstrap is not None:
+            # Shell-first: the UI is up; finish session init in the background
+            # with visible progress instead of blocking before the app mounts.
+            prompt = self.query_one("#prompt", Input)
+            prompt.disabled = True
+            self.query_one("#conversation", ConversationLog).write("[dim]initializing session…[/]")
+            self._update_status()
+            self.run_worker(self._run_bootstrap(), group="bootstrap", exclusive=True)
         # Shared slash commands, captured into the conversation log.
         try:
             from victor.ui.slash.handler import SlashCommandHandler
@@ -151,12 +188,41 @@ class VictorTUIApp(App[None]):
         self._refresh_sidebar()
         self._update_status()
         self.query_one("#diff-pane", DiffPane).display = False
-        self.query_one("#prompt", Input).focus()
+        if self._session_ready:
+            self.query_one("#prompt", Input).focus()
+
+    async def _run_bootstrap(self) -> None:
+        """Finish session initialization after the UI is already visible."""
+        started = time.monotonic()
+        bootstrap = self._bootstrap
+        assert bootstrap is not None  # guarded by _session_ready at mount
+        try:
+            result = await bootstrap()
+        except Exception as exc:  # noqa: BLE001 - surfaced, then a clean exit
+            self._bootstrap_error = str(exc) or exc.__class__.__name__
+            self.query_one("#conversation", ConversationLog).write(
+                f"[red]⚠ initialization failed: {escape(self._bootstrap_error)}[/]"
+            )
+            self.call_after_refresh(self.exit)
+            return
+        self._bootstrap_result = result
+        if result is not None:
+            self._agent = result
+        self._session_ready = True
+        self.query_one("#conversation", ConversationLog).write(
+            f"[green]✓ ready in {time.monotonic() - started:.1f}s[/]"
+        )
+        self._refresh_sidebar()
+        self.sub_title = self._model_label()
+        self._update_status()
+        prompt = self.query_one("#prompt", Input)
+        prompt.disabled = False
+        prompt.focus()
 
     # ── input handling ────────────────────────────────────────────
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
-        if event.input.id != "prompt":
+        if event.input.id != "prompt" or not self._session_ready:
             return
         text = event.value.strip()
         event.input.value = ""
@@ -165,15 +231,59 @@ class VictorTUIApp(App[None]):
         if text.startswith("/"):
             self.run_worker(self._dispatch_slash(text), group="slash")
             return
-        # Input is disabled while a turn runs, so this cannot double-fire.
-        self._turn_worker = self.run_worker(self._run_turn(text), exclusive=True, group="turn")
+        # The prompt stays live during a turn: a submission mid-run queues
+        # instead of starting a second turn, and runs when the queue drains.
+        if self._turn_running():
+            self._queue.enqueue(text)
+            return
+        self._start_turn(text)
+
+    def _turn_running(self) -> bool:
+        """True while a turn worker is live (race-free via ``Worker.is_finished``)."""
+        worker = self._turn_worker
+        return worker is not None and not worker.is_finished
+
+    def _start_turn(self, text: str, *, queued: bool = False) -> None:
+        self._turn_serial += 1
+        serial = self._turn_serial
+        self._turn_worker = self.run_worker(
+            self._run_turn(text, queued=queued, serial=serial),
+            exclusive=True,
+            group="turn",
+        )
+
+    def _on_queue_change(self, _queue: PromptQueue) -> None:
+        self.post_message(self.QueueChanged())
+
+    # Handler names follow Textual's nested-message rule: camel_to_snake of the
+    # enclosing class ("VictorTUIApp" → "victor_tuiapp", no break before the
+    # acronym) + the message name.
+    def on_victor_tuiapp_queue_changed(self, event: QueueChanged) -> None:
+        self._update_status()
+
+    def on_victor_tuiapp_turn_finished(self, event: TurnFinished) -> None:
+        """Drain the prompt queue: one queued prompt per finished turn.
+
+        Ownership is decided by turn serial, not ``Worker.is_finished`` — the
+        message is posted from the finishing worker's ``finally``, before the
+        worker's state transitions. A serial mismatch means a newer turn
+        already owns the "turn" group. Starting the next worker from the
+        message loop (not from the ``finally``) also means the
+        ``exclusive=True`` start can never cancel a worker that is still
+        closing.
+        """
+        if event.serial != self._turn_serial:
+            return  # a newer turn already owns the "turn" group
+        next_text = self._queue.consume()
+        if next_text is not None:
+            self._start_turn(next_text, queued=True)
 
     # ── the turn loop ─────────────────────────────────────────────
 
-    async def _run_turn(self, message: str) -> None:
-        prompt = self.query_one("#prompt", Input)
+    async def _run_turn(self, message: str, *, queued: bool = False, serial: int = 0) -> None:
         convo = self.query_one("#conversation", ConversationLog)
-        prompt.disabled = True
+        if queued:
+            convo.write("[dim]▲ running queued prompt[/]")
         convo.begin_turn(message)
         self.query_one("#diff-pane", DiffPane).clear_edits()
         self._phase.begin_turn()
@@ -203,8 +313,7 @@ class VictorTUIApp(App[None]):
             self._refresh_sidebar()
             self._phase.reset()
             self._update_status()
-            prompt.disabled = False
-            prompt.focus()
+            self.post_message(self.TurnFinished(serial))
 
     async def _stream_actions(self, message: str) -> Any:
         """Yield mapped ``RenderAction``s from the live client stream."""
@@ -258,7 +367,31 @@ class VictorTUIApp(App[None]):
         if name in ("clear", "cls"):
             self.query_one("#conversation", ConversationLog).clear()
             return
+        if name == "queue":
+            self._show_queue(text)
+            return
         await self._run_captured_slash(text)
+
+    def _show_queue(self, text: str) -> None:
+        """List pending queued prompts, or clear them with ``/queue clear``."""
+        convo = self.query_one("#conversation", ConversationLog)
+        args = text[1:].split()[1:] if len(text) > 1 else []
+        if args and args[0].lower() == "clear":
+            dropped = self._queue.clear()
+            if dropped:
+                convo.write(
+                    f"[dim]queue cleared ({dropped} prompt{'s' if dropped != 1 else ''})[/]"
+                )
+            else:
+                convo.write("[dim]queue is already empty[/]")
+            return
+        items = self._queue.snapshot()
+        if not items:
+            convo.write("[dim]queue is empty[/]")
+            return
+        convo.write("[bold]queued prompts (oldest first):[/]")
+        for i, item in enumerate(items, 1):
+            convo.write(f"  {i}. {escape(item)}")
 
     async def _run_captured_slash(self, text: str) -> None:
         convo = self.query_one("#conversation", ConversationLog)
@@ -291,9 +424,22 @@ class VictorTUIApp(App[None]):
         self.exit()
 
     def action_interrupt(self) -> None:
+        """Interrupt the running turn; when idle, flush the prompt queue.
+
+        With a turn live, ESC cancels it — the queue is preserved and the next
+        queued prompt starts when the cancellation settles. With no turn
+        running, ESC is the explicit way to throw the queue away.
+        """
         worker = self._turn_worker
-        if worker is not None:
+        if worker is not None and not worker.is_finished:
             worker.cancel()
+            return
+        dropped = self._queue.clear()
+        if dropped:
+            self.notify(
+                f"Queue cleared ({dropped} prompt{'s' if dropped != 1 else ''}).",
+                timeout=3,
+            )
 
     def action_command_palette(self) -> None:
         self.push_screen(CommandPalette(), self._on_palette_pick)
@@ -371,6 +517,7 @@ class VictorTUIApp(App[None]):
             total_tokens=self._last_tokens,
             cost_usd=self._last_cost,
             waiting_seconds=self._waiting_seconds,
+            queued=len(self._queue),
         )
 
     def _refresh_sidebar(self) -> None:

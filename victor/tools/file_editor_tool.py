@@ -1282,10 +1282,28 @@ async def edit(
         # Queue only, don't commit
         editor.abort()  # Abort to clean up, since we're not committing
         tracker._current_group = None  # Clear uncommitted changes
+        # Truthfulness (edit-tool reliability): this non-preview commit=False
+        # branch stages nothing durable — the FileEditor transaction was
+        # aborted above and NO flush/apply path exists for this queue.
+        # Returning bare success reads as "edit landed" to callers (model or
+        # code) that meant "don't git-commit". Flag the dead-end explicitly so
+        # the caller re-issues with commit=True (default) instead of assuming
+        # the file changed.
         return {
             "success": True,
             "operations_queued": operations_queued,
             "operations_applied": 0,
             "by_type": by_type,
-            "message": f"Queued {operations_queued} operations (not applied, commit=False)",
+            "partial": True,
+            "warning": (
+                "NOT APPLIED: commit=False staged the edit in a transient "
+                "queue that was immediately discarded — there is no "
+                "flush/apply step, and no file was modified. Re-issue the "
+                "edit with commit=True (the default) to write it. Use "
+                "preview=True if you only wanted a diff."
+            ),
+            "message": (
+                f"Queued {operations_queued} operations but NOT applied "
+                "(commit=False discards the queue; re-issue with commit=True)"
+            ),
         }

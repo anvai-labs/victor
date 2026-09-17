@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import os
 import subprocess
 import sys
 
@@ -20,6 +21,7 @@ def child(source):
         stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
         text=True,
+        start_new_session=os.name == "posix",
     )
     return client
 
@@ -177,15 +179,18 @@ async def test_cancellation_during_retirement_cannot_revive_old_transport(monkey
 
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(os.name != "posix", reason="requires POSIX process groups")
 @pytest.mark.parametrize("direction", ["read", "write"])
-async def test_inherited_pipes_cannot_block_event_loop_or_accumulate_workers(
+async def test_inherited_pipes_are_killed_without_blocking_event_loop(
     tmp_path, monkeypatch, direction
 ):
-    from unittest.mock import AsyncMock
     import time
 
     ready, release = tmp_path / "ready", tmp_path / "release"
-    descendant = f"""import pathlib,time
+    pid_file = tmp_path / "descendant.pid"
+    descendant = f"""import os,pathlib,signal,time
+pathlib.Path({str(pid_file)!r}).write_text(str(os.getpid()))
+signal.signal(signal.SIGTERM, signal.SIG_IGN)
 pathlib.Path({str(ready)!r}).write_text('ready')
 end=time.monotonic()+3
 while not pathlib.Path({str(release)!r}).exists() and time.monotonic()<end: time.sleep(.01)
@@ -195,8 +200,6 @@ subprocess.Popen([sys.executable,'-c',{descendant!r}])
 time.sleep(5)
 """
     client = child(source)
-    launch = AsyncMock()
-    monkeypatch.setattr(client, "_start_process", launch)
     monkeypatch.setattr(McpTimeouts, "RESPONSE", 0.1)
     heartbeat = asyncio.Event()
     try:
@@ -216,10 +219,23 @@ time.sleep(5)
         await asyncio.wait_for(heartbeat.wait(), 1)
         assert time.monotonic() - start < 1.5
         assert client.process is None
-        assert client.get_status()["transport_cleanup_pending"]
-        for _ in range(3):
-            assert not await client.connect(["replacement"])
-        launch.assert_not_called()
+        descendant_pid = int(pid_file.read_text())
+        for _ in range(200):
+            if not client.get_status()["transport_cleanup_pending"]:
+                break
+            await asyncio.sleep(0.01)
+        assert not client.get_status()["transport_cleanup_pending"]
+        try:
+            os.kill(descendant_pid, 0)
+        except ProcessLookupError:
+            pass
+        else:
+            # Linux can retain a reparented zombie briefly; it owns no pipe or
+            # executable resources and is no longer a live descendant.
+            proc_stat = f"/proc/{descendant_pid}/stat"
+            assert os.path.exists(proc_stat)
+            with open(proc_stat) as stat_file:
+                assert stat_file.read().split()[2] == "Z"
     finally:
         release.write_text("release")
         await client.cleanup()
@@ -228,6 +244,52 @@ time.sleep(5)
             if not client.get_status().get("transport_cleanup_pending", False):
                 break
             await asyncio.sleep(0.01)
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(os.name != "posix", reason="requires POSIX sessions")
+async def test_escaped_descendant_is_quarantined_until_its_pipe_closes(tmp_path, monkeypatch):
+    from unittest.mock import AsyncMock
+
+    ready, release = tmp_path / "escaped.ready", tmp_path / "escaped.release"
+    descendant = f"""import os,pathlib,time
+os.setsid()
+pathlib.Path({str(ready)!r}).write_text('ready')
+end=time.monotonic()+5
+while not pathlib.Path({str(release)!r}).exists() and time.monotonic()<end: time.sleep(.01)
+"""
+    source = f"""import subprocess,sys,time
+subprocess.Popen([sys.executable,'-c',{descendant!r}])
+time.sleep(5)
+"""
+    client = child(source)
+    monkeypatch.setattr(McpTimeouts, "RESPONSE", 0.1)
+    heartbeat = asyncio.Event()
+    try:
+        for _ in range(200):
+            if ready.exists():
+                break
+            await asyncio.sleep(0.01)
+        assert ready.exists()
+        asyncio.get_running_loop().call_later(0.2, heartbeat.set)
+        assert await client._send_request(MCPMessageType.PING, {}) is None
+        await asyncio.wait_for(heartbeat.wait(), 1)
+        assert client.get_status()["transport_cleanup_pending"]
+
+        launch = AsyncMock()
+        monkeypatch.setattr(client, "_start_process", launch)
+        assert not await client.connect(["replacement"])
+        launch.assert_not_called()
+
+        release.write_text("release")
+        for _ in range(300):
+            if not client.get_status()["transport_cleanup_pending"]:
+                break
+            await asyncio.sleep(0.01)
+        assert not client.get_status()["transport_cleanup_pending"]
+    finally:
+        release.write_text("release")
+        await client.cleanup()
 
 
 @pytest.mark.asyncio
@@ -271,3 +333,96 @@ async def test_retirement_at_worker_handoff_closes_every_stream():
     await asyncio.wait_for(result, 2)
     assert all(stream.closed for stream in (process.stdin, process.stdout, process.stderr))
     assert transport.settled()
+
+
+@pytest.mark.asyncio
+async def test_owner_cleanup_revokes_group_before_transport_close(monkeypatch):
+    import io
+    from unittest.mock import AsyncMock, MagicMock
+    from victor.integrations.mcp.sandbox import OwnedProcessGroup
+    from victor.integrations.mcp.stdio_transport import StdioTransport
+
+    process = MagicMock()
+    process.pid = 12345
+    process.returncode = None
+    process.stdin = io.StringIO()
+    process.stdout = io.StringIO()
+    process.stderr = io.StringIO()
+    process.wait.return_value = 0
+    group = OwnedProcessGroup(leader_pid=12345, pgid=12345)
+    owner = MagicMock()
+
+    async def terminate_all():
+        process.returncode = 0
+        group.invalidate()
+
+    owner.terminate_all = AsyncMock(side_effect=terminate_all)
+    transport = StdioTransport(process, owner, process_group=group)
+    kill_group = MagicMock()
+    monkeypatch.setattr(os, "killpg", kill_group)
+
+    await transport.cleanup()
+
+    kill_group.assert_not_called()
+    assert transport.cleanup_done.is_set()
+
+
+def test_final_group_signal_error_still_marks_cleanup_done(monkeypatch):
+    import io
+    from unittest.mock import MagicMock
+    from victor.integrations.mcp.sandbox import OwnedProcessGroup
+    from victor.integrations.mcp.stdio_transport import StdioTransport
+
+    process = MagicMock()
+    process.pid = 12345
+    process.returncode = None
+    process.stdin = io.StringIO()
+    process.stdout = io.StringIO()
+    process.stderr = io.StringIO()
+    process.wait.return_value = 0
+    group = OwnedProcessGroup(leader_pid=12345, pgid=12345)
+    transport = StdioTransport(process, process_group=group)
+    monkeypatch.setattr(
+        "victor.integrations.mcp.stdio_transport.wait_for_exit_without_reaping",
+        lambda *_: True,
+    )
+    monkeypatch.setattr(
+        "victor.integrations.mcp.stdio_transport.signal_process_tree",
+        MagicMock(side_effect=PermissionError("denied")),
+    )
+
+    transport.wait_and_close()
+
+    assert transport.cleanup_done.is_set()
+    assert not group.active
+
+
+def test_uncertain_group_exit_force_kills_and_reaps_direct_child(monkeypatch):
+    import io
+    from unittest.mock import MagicMock
+    from victor.integrations.mcp.sandbox import OwnedProcessGroup
+    from victor.integrations.mcp.stdio_transport import StdioTransport
+
+    process = MagicMock()
+    process.pid = 12345
+    process.returncode = None
+    process.stdin = io.StringIO()
+    process.stdout = io.StringIO()
+    process.stderr = io.StringIO()
+    process.wait.side_effect = [
+        subprocess.TimeoutExpired("wait", McpTimeouts.TERMINATE),
+        0,
+    ]
+    group = OwnedProcessGroup(leader_pid=12345, pgid=12345)
+    transport = StdioTransport(process, process_group=group)
+    monkeypatch.setattr(
+        "victor.integrations.mcp.stdio_transport.wait_for_exit_without_reaping",
+        lambda *_: None,
+    )
+
+    transport.wait_and_close()
+
+    process.kill.assert_called_once_with()
+    assert process.wait.call_count == 2
+    assert transport.cleanup_done.is_set()
+    assert not group.active

@@ -26,7 +26,6 @@ import pytest
 
 from victor.tools.unified.git_tool import (
     _augment_push_hint,
-    _build_gh_pr_argv,
     _fallback_command,
     _git_kwarg_map,
     create_git_parser,
@@ -85,11 +84,11 @@ class TestGitParser:
         assert _parse("git branch").name is None
         assert _parse("git branch feat/x").name == "feat/x"
 
-    def test_pr_subcommand(self):
-        ns = _parse("git pr --title T --base develop")
-        assert ns.subcommand == "pr"
-        assert ns.title == "T"
-        assert ns.base == "develop"
+    def test_pr_subcommand_is_not_registered(self):
+        # `pr` is out of scope: it shells to `gh`, which need not be installed
+        # when `git` is. Parse must fail so the model is redirected to shell(gh).
+        with pytest.raises((ValueError, argparse.ArgumentError)):
+            _parse("git pr --title T --base develop")
 
 
 class TestKwargMap:
@@ -155,8 +154,6 @@ class TestFallbackCommand:
     def test_ai_only_ops_require_devops(self):
         with pytest.raises(ValueError, match="victor-devops"):
             _fallback_command(_parse("git commit_msg"))
-        with pytest.raises(ValueError, match="victor-devops"):
-            _fallback_command(_parse("git pr --title t"))
 
 
 class TestDelegationPath:
@@ -291,34 +288,22 @@ class TestAiCommit:
 
 
 class TestPrAndEdgeCases:
-    """PR creation and edge-case handling."""
+    """PR handling (now shell-routed) and edge-case handling."""
 
     @pytest.mark.asyncio
-    async def test_pr_delegates_to_pr_callable(self):
+    async def test_pr_subcommand_is_rejected_with_shell_hint(self):
+        # gh is out of the git tool family — a machine can have git but not gh,
+        # so mixing them invites confusing failures. The parser no longer
+        # registers a `pr` subcommand; the model is pointed at shell(gh ...).
         mock_pr = AsyncMock(return_value={"success": True, "output": "PR #42 created"})
         with patch(
             "victor.tools.unified.git_tool.resolve_vertical_callable",
             return_value=(mock_pr, "victor_devops.tools.git_tool"),
         ):
             result = await git_tool('git pr --title "Add auth" --base develop')
-        mock_pr.assert_awaited_once_with(pr_title="Add auth", base_branch="develop")
-        assert "PR #42 created" in result
-
-    @pytest.mark.asyncio
-    async def test_pr_without_devops_falls_back_to_gh(self):
-        # Behavior change: without victor-devops, PR creation now falls back to the
-        # gh CLI instead of hard-failing. (shell is mocked so no real PR is created.)
-        mock_shell = AsyncMock(return_value={"success": True, "stdout": "pull/1 created"})
-        with (
-            patch(
-                "victor.tools.unified.git_tool.resolve_vertical_callable",
-                return_value=(None, None),
-            ),
-            patch("victor.tools.bash.shell", mock_shell),
-        ):
-            result = await git_tool("git pr --title T")
-        assert mock_shell.call_args.kwargs["cmd"].startswith("gh pr create")
-        assert "pull/1 created" in result
+        mock_pr.assert_not_awaited()
+        assert "### ❌ ERROR" in result
+        assert "gh" in result
 
     @pytest.mark.asyncio
     async def test_no_subcommand_returns_help(self):
@@ -502,92 +487,33 @@ class TestPushUpstreamHint:
         assert "HINT" not in out
 
 
-class TestPrGhFallback:
-    """PR creation falls back to ``gh pr create`` when victor-devops is absent."""
+class TestGhIsOutOfScope:
+    """``gh`` is deliberately not part of the git tool family.
 
-    def test_pr_new_flags_parse(self):
-        ns = _parse('git pr --title T --head feat/x --body "b" --draft --web --fill')
-        assert ns.title == "T"
-        assert ns.head == "feat/x"
-        assert ns.body == "b"
-        assert ns.draft is True
-        assert ns.web is True
-        assert ns.fill is True
-
-    def test_pr_base_defaults_to_none(self):
-        # None lets gh use the repo default / gh-merge-base rather than hardcoding main.
-        assert _parse("git pr --title T").base is None
-
-    def test_build_gh_argv_autofills_body_when_absent(self):
-        argv = _build_gh_pr_argv(_parse("git pr --title T --base develop"))
-        assert argv[:3] == ["gh", "pr", "create"]
-        assert "--title" in argv and "T" in argv
-        assert "--fill" in argv  # body autofilled → non-interactive
-        assert "--base" in argv and "develop" in argv
-
-    def test_build_gh_argv_uses_explicit_body_without_fill(self):
-        argv = _build_gh_pr_argv(_parse('git pr --title T --body "hello"'))
-        assert "--body" in argv and "hello" in argv
-        assert "--fill" not in argv
-
-    def test_build_gh_argv_strips_needless_backtick_escapes(self):
-        # argv is shlex.quoted, so `\`` was never needed for shell safety — but
-        # shipped to GitHub it is a markdown escape and breaks every code span.
-        argv = _build_gh_pr_argv(
-            _parse(r'git pr --title "promote \`main\`" --body "runs \`cargo test\` for \$HOME"')
-        )
-        assert "promote `main`" in argv
-        assert "runs `cargo test` for $HOME" in argv
-        assert not any("\\`" in a for a in argv)
-
-    def test_build_gh_argv_keeps_deliberate_markdown_escapes(self):
-        argv = _build_gh_pr_argv(_parse(r'git pr --title T --body "a \*literal\* star"'))
-        assert r"a \*literal\* star" in argv
-
-    def test_build_gh_argv_web_skips_fill(self):
-        argv = _build_gh_pr_argv(_parse("git pr --web"))
-        assert "--web" in argv
-        assert "--fill" not in argv
+    A machine can have ``git`` installed without ``gh`` (and vice versa), so a
+    ``git pr`` subcommand that silently shells out to ``gh`` produces confusing
+    failures. GitHub operations are routed through the shell escape hatch so
+    availability is the shell's concern, not the git tool's.
+    """
 
     @pytest.mark.asyncio
-    async def test_pr_uses_gh_when_devops_absent(self):
-        mock_shell = AsyncMock(
-            return_value={"success": True, "stdout": "https://github.com/o/r/pull/7"}
-        )
-        with (
-            patch(
-                "victor.tools.unified.git_tool.resolve_vertical_callable",
-                return_value=(None, None),
-            ),
-            patch("victor.tools.bash.shell", mock_shell),
-        ):
-            result = await git_tool('git pr --title "Add x" --base develop')
-        called = mock_shell.call_args.kwargs["cmd"]
-        assert called.startswith("gh pr create")
-        assert "--title" in called
-        assert "pull/7" in result
-
-    @pytest.mark.asyncio
-    async def test_pr_gh_missing_teaches_install(self):
-        mock_shell = AsyncMock(return_value={"success": False, "stderr": "gh: command not found"})
-        with (
-            patch(
-                "victor.tools.unified.git_tool.resolve_vertical_callable",
-                return_value=(None, None),
-            ),
-            patch("victor.tools.bash.shell", mock_shell),
-        ):
-            result = await git_tool("git pr --title T")
+    async def test_pr_subcommand_not_registered(self):
+        # The parser has no `pr` subcommand; usage error must surface it.
+        result = await git_tool('git pr --title "Add auth" --base develop')
         assert "### ❌ ERROR" in result
-        assert "gh auth login" in result
+        assert "gh" in result
+        assert "shell" in result
 
     @pytest.mark.asyncio
-    async def test_pr_still_prefers_devops_when_present(self):
-        mock_pr = AsyncMock(return_value={"success": True, "output": "PR #9 created"})
-        with patch(
-            "victor.tools.unified.git_tool.resolve_vertical_callable",
-            return_value=(mock_pr, "victor_devops.tools.git_tool"),
-        ):
-            result = await git_tool('git pr --title "Add auth" --base develop')
-        mock_pr.assert_awaited_once_with(pr_title="Add auth", base_branch="develop")
-        assert "PR #9 created" in result
+    async def test_pr_flags_do_not_leak_into_parser(self):
+        # Even plausible PR flags must not parse — they belong to `gh`, not `git`.
+        result = await git_tool("git pr --title T --draft --web --fill")
+        assert "### ❌ ERROR" in result
+
+    @pytest.mark.asyncio
+    async def test_supported_subcommands_still_parse(self):
+        # Sanity: the removal didn't take out legitimate subcommands.
+        ns = _parse("git status --short")
+        assert ns.subcommand == "status"
+        ns = _parse('git commit -m "x"')
+        assert ns.subcommand == "commit"

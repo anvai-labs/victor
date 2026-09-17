@@ -13,6 +13,7 @@ All entry points now use:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Type, Union
@@ -370,8 +371,21 @@ class AgentFactory:
                 registry._external_loaded = True
 
             matcher = SkillMatcher()
-            await matcher.initialize(registry)
+            # Attach first, initialize in the background: every consumer
+            # guards on the matcher's readiness (skill_runtime, planning
+            # prompt enrichment, chat preview, /skills), so a not-yet-ready
+            # matcher degrades to "no skill auto-selection" for the first
+            # turns instead of stalling bootstrap by ~6s (the
+            # sentence-transformers import + model load).
             self._orchestrator._skill_matcher = matcher
+
+            async def _initialize() -> None:
+                await matcher.initialize(registry)
+
+            init_task = asyncio.ensure_future(_initialize())
+            # Keep a strong reference so the task cannot be garbage-collected
+            # mid-flight; surfaced for tests/shutdown ordering.
+            self._skill_matcher_init_task = init_task
         except Exception as e:
             logger.debug(f"Skill matcher initialization skipped: {e}")
 

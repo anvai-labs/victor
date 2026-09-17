@@ -27,6 +27,7 @@ Features:
 
 import asyncio
 import logging
+import os
 import subprocess
 import time
 import uuid
@@ -229,6 +230,7 @@ class MCPClient:
                 stderr=subprocess.PIPE,
                 text=True,
                 bufsize=1,
+                start_new_session=os.name == "posix",
             ),
             None,
         )
@@ -243,7 +245,16 @@ class MCPClient:
         if self.process is None and self._sandboxed_process is None:
             return None
         if self._transport is None or self._transport.process is not self.process:
-            self._transport = StdioTransport(self.process, self._sandboxed_process)
+            process_group = (
+                self._sandboxed_process.process_group_for(self.process)
+                if self.process is not None and self._sandboxed_process is not None
+                else None
+            )
+            self._transport = StdioTransport(
+                self.process,
+                self._sandboxed_process,
+                process_group=process_group,
+            )
         return self._transport
 
     def _detach_transport(self, transport: StdioTransport) -> None:
@@ -280,7 +291,11 @@ class MCPClient:
         transport = None
         try:
             process, owner = await self._start_process(command)
-            transport = StdioTransport(process, owner)
+            transport = StdioTransport(
+                process,
+                owner,
+                process_group=(owner.process_group_for(process) if owner is not None else None),
+            )
             if generation != self._connection_generation:
                 await asyncio.shield(self._retire_transport(transport))
                 return False

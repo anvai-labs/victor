@@ -181,9 +181,12 @@ def _get_provider_env_vars() -> Dict[str, str]:
 
 # Provider to environment variable mapping (lazy-loaded from registry)
 PROVIDER_ENV_VARS: Dict[str, str] = _get_provider_env_vars()
+from victor.providers.provider_kinds import LOCAL_CLASS_PROVIDERS
 
 # Providers that don't require API keys
-LOCAL_PROVIDERS = {"ollama", "lmstudio", "vllm", "inferflux"}
+# Single source of truth lives in victor.providers.provider_kinds;
+# this alias keeps the historical import path stable for consumers.
+LOCAL_PROVIDERS = LOCAL_CLASS_PROVIDERS
 
 # ============================================================================
 # SERVICE API KEYS (External Data Services - not LLM providers)
