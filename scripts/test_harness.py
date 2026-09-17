@@ -13,7 +13,7 @@ Usage:
     python scripts/test_harness.py --verticals        # Test verticals only
     python scripts/test_harness.py --modes           # Test modes only
     python scripts/test_harness.py --vertical coding  # Test specific vertical
-    python scripts/test_harness.py --provider ollama  # Use specific provider
+    python scripts/test_harness.py --provider inferflux  # Use specific provider
 """
 
 from __future__ import annotations
@@ -92,7 +92,7 @@ class CaptureConsole:
 class SlashCommandTester:
     """Test harness for slash commands."""
 
-    def __init__(self, provider: str = "ollama", model: str = "qwen3-coder:30b"):
+    def __init__(self, provider: str = "inferflux", model: str = "qwen3-coder-30b"):
         self.provider = provider
         self.model = model
         self._settings = None
@@ -232,7 +232,7 @@ class VerticalTester:
 
     VERTICALS = ["coding", "devops", "research", "data_analysis"]
 
-    def __init__(self, provider: str = "ollama", model: str = "qwen3-coder:30b"):
+    def __init__(self, provider: str = "inferflux", model: str = "qwen3-coder-30b"):
         self.provider = provider
         self.model = model
 
@@ -324,7 +324,7 @@ class VerticalTester:
 class ModeTester:
     """Test harness for agent modes."""
 
-    def __init__(self, provider: str = "ollama", model: str = "qwen3-coder:30b"):
+    def __init__(self, provider: str = "inferflux", model: str = "qwen3-coder-30b"):
         self.provider = provider
         self.model = model
         self._settings = None
@@ -424,7 +424,7 @@ class ModeTester:
 class LiveChatTester:
     """Test harness for live chat interactions."""
 
-    def __init__(self, provider: str = "ollama", model: str = "qwen3-coder:30b"):
+    def __init__(self, provider: str = "inferflux", model: str = "qwen3-coder-30b"):
         self.provider = provider
         self.model = model
         self._settings = None
@@ -739,8 +739,8 @@ Examples:
     parser.add_argument(
         "--provider",
         type=str,
-        default="ollama",
-        help="Provider to use (default: ollama)",
+        default="inferflux",
+        help="Provider to use (default: inferflux)",
     )
     parser.add_argument("--model", type=str, default="qwen3-coder:30b", help="Model to use")
 

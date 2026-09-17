@@ -1,0 +1,78 @@
+# Copyright 2026 Vijaykumar Singh <vijay@anvaiops.com>
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Stage C parity: the agentic-loop transport must demand-hydrate.
+
+``TurnExecutionRuntime._select_tools_for_turn`` is the selection transport
+headless runs and benchmarks exercise. Before the Stage C parity fix it ran
+its own gate order with no demand hydration, so mention-wired tools (graph,
+gh) measured differently than the chat transports served them.
+"""
+
+import asyncio
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+
+import victor.agent.services.turn_execution_runtime as ter
+from victor.agent.services.turn_execution_runtime import TurnExecutor
+
+
+def _make_runtime(user_message: str = "open a pull request on github"):
+    chat_context = MagicMock()
+    chat_context.messages = []
+    chat_context.conversation.message_count.return_value = 0
+    tool_context = MagicMock()
+    tool_context.tool_selector.select_tools = AsyncMock(return_value=[])
+    tool_context.tool_selector.prioritize_by_stage.side_effect = lambda _m, tools: tools
+    runtime = TurnExecutor(
+        chat_context=chat_context,
+        tool_context=tool_context,
+        provider_context=MagicMock(),
+        execution_provider=MagicMock(),
+    )
+    return runtime, tool_context
+
+
+@pytest.mark.asyncio
+async def test_agentic_transport_hydrates_demand_tools(monkeypatch: pytest.MonkeyPatch):
+    """Hydration runs before selection with the turn's user message."""
+    runtime, tool_context = _make_runtime()
+    hydrated: list[tuple[Any, str]] = []
+    monkeypatch.setattr(
+        "victor.agent.services.tool_selection_runtime.hydrate_demand_tools",
+        lambda host, text: hydrated.append((host, text)),
+    )
+
+    await runtime._select_tools_for_turn("open a pull request on github")
+
+    assert len(hydrated) == 1
+    host, text = hydrated[0]
+    assert text == "open a pull request on github"
+    # The registrar handle resolves through the orchestrator facade.
+    assert getattr(host, "tool_registrar", None) is not None
+
+
+@pytest.mark.asyncio
+async def test_hydration_runs_before_pruning_gate(monkeypatch: pytest.MonkeyPatch):
+    """Hydration happens even on pruning-disabled turns (the default)."""
+    runtime, _ = _make_runtime()
+    seen = []
+    monkeypatch.setattr(
+        "victor.agent.services.tool_selection_runtime.hydrate_demand_tools",
+        lambda host, text: seen.append(text),
+    )
+    await runtime._select_tools_for_turn("summarize this repository")
+    assert seen == ["summarize this repository"]
