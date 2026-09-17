@@ -6,6 +6,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased] (develop)
 
 ### Added
+### Added
+
+- First test suite for `CodeSandbox` (code executor tool): 27 tests covering
+  init/degraded mode, lifecycle (start/stop/idempotent), execute (stdout/stderr
+  demux), file transfer (put_files/get_file with real in-memory tar), context
+  managers (sync + async), cleanup registration, and the `@tool` decorated
+  entry point — both with and without Docker available.
+
 
 - New bash-style `gh` tool (pr · issue · run · release · repo · api · auth) that
   owns the GitHub CLI dependency honestly: it returns an actionable install
