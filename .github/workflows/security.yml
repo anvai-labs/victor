@@ -255,3 +255,27 @@ jobs:
           name: license-report
           path: license-report.json
           retention-days: 30
+
+  security-summary:
+    name: Security Summary
+    runs-on: ubuntu-24.04
+    needs: [secret-scan, trivy-critical, dependency-audit, code-security, sast-scan, license-scan]
+    if: always()
+    steps:
+      - name: Require every security job to complete
+        run: |
+          results=(
+            "${{ needs.secret-scan.result }}"
+            "${{ needs.trivy-critical.result }}"
+            "${{ needs.dependency-audit.result }}"
+            "${{ needs.code-security.result }}"
+            "${{ needs.sast-scan.result }}"
+            "${{ needs.license-scan.result }}"
+          )
+          printf 'Security job result: %s\n' "${results[@]}"
+          for result in "${results[@]}"; do
+            if [ "$result" != "success" ]; then
+              echo "::error::At least one security job failed, was cancelled, or was skipped."
+              exit 1
+            fi
+          done

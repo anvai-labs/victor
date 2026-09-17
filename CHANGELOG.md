@@ -25,6 +25,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed
 ### Fixed
 
+- Headless runs and benchmarks now measure the same tool supply users get: the
+  agentic-loop selection transport runs the Stage 1 demand-hydration stage
+  (FEP-0034), so mention-wired tools (`gh`, `graph`) hydrate there too instead
+  of diverging from the chat transports. Benchmark harness and startup-KPI
+  script defaults now follow the configured default provider (inferflux)
+  instead of hardcoding Ollama.
+
+### Fixed
+
 - Runtime subsystems no longer hardcode Ollama. The inline code-completion
   provider now follows the configured default provider and actually resolves
   (the old path called nonexistent registry methods and raised on first use);

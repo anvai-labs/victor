@@ -97,6 +97,7 @@ from victor.framework.evaluation_nodes import (
     EvaluationResult,
     create_agentic_loop_graph,
 )
+from victor.framework import response_classification
 from victor.framework.fulfillment import FulfillmentDetector, TaskType
 from victor.framework.perception_integration import Perception, PerceptionIntegration
 from victor.framework.runtime_evaluation_policy import RuntimeEvaluationPolicy
@@ -2871,115 +2872,16 @@ class AgenticLoop:
         )
 
     def _is_continuation_request(self, response: str) -> bool:
-        """Check if response is asking for continuation direction.
-
-        Args:
-            response: The model's response text
-
-        Returns:
-            True if response is asking for continuation, False otherwise
-        """
-        if not response:
-            return False
-
-        response_lower = response.lower()
-
-        continuation_patterns = [
-            "would you like me to",
-            "should i continue",
-            "do you want me to",
-            "shall i proceed",
-            "let me know if you'd like",
-            "would you prefer i",
-        ]
-
-        return any(pattern in response_lower for pattern in continuation_patterns)
+        """Check if response is asking for continuation direction."""
+        return response_classification.is_continuation_request(response)
 
     def _is_intent_only_response(self, response: str) -> bool:
-        """Return True when the response is pure future-intent narration.
+        """True when the response is pure future-intent narration.
 
-        Phrases like "I'll now read…" or "Let me analyze…" describe planned
-        actions rather than completed work.  Treating them as final answers
-        causes the loop to exit before any tools are actually invoked.
-
-        Two checks are applied:
-          1. First-line prefix check (preserves legacy behavior) so responses
-             that start with intent but contain substantive findings are
-             still allowed through.
-          2. Meta-deliberation density check across the FULL response. This
-             catches the failure mode where the model narrates imminent
-             action ("Executing now", "Going now", "Calling now", "Making the
-             call", "no more deliberation") without ever invoking a tool.
-             Such narration must NOT be treated as a complete answer, or the
-             agent loop exits before any tool runs. Only fires when there is
-             no substantive payload (no code blocks / result-like content).
+        Shared implementation: victor.framework.response_classification
+        (EnhancedCompletionEvaluator used to carry a hand-synced copy).
         """
-        if not response:
-            return False
-        first_line = response.strip().split("\n")[0].strip().lower()
-        intent_prefixes = (
-            "i'll now ",
-            "i'll ",
-            "i will now ",
-            "i will ",
-            "let me now ",
-            "let me ",
-            "now i'll ",
-            "now i will ",
-            "i'm going to ",
-            "i am going to ",
-            "i'm now ",
-            "i am now ",
-            "next, i'll ",
-            "next i'll ",
-        )
-        if any(first_line.startswith(p) for p in intent_prefixes):
-            return True
-
-        # Meta-deliberation narration density check (full response).
-        # Real findings usually carry a payload (a fenced code block or a
-        # tool-result-style table). Narration-only responses do not, so we
-        # gate the density signal on the absence of such payloads.
-        if "```" in response:
-            return False
-        lowered = response.lower()
-        if lowered.count("|") >= 3 and "---" in lowered:
-            return False  # Markdown table — looks like a result dump, not narration
-
-        deliberation_markers = (
-            "executing now",
-            "executing.",
-            "going now",
-            "going.",
-            "calling now",
-            "calling.",
-            "running now",
-            "running.",
-            "making the call",
-            "making the request",
-            "let me make the call",
-            "no more deliberation",
-            "stop the meta-deliberation",
-            "stop deliberating",
-            "done deliberating",
-            "just execute",
-            "executing the",
-            "polling",
-            "no sleep",
-            "pure status read",
-            "going. (",
-            "done. (",
-            "final. (",
-            "(no sleep)",
-            "(no more deliberation)",
-            "(will act on results",
-            "(finally.)",
-            "(stop. calling.)",
-        )
-        marker_hits = sum(1 for m in deliberation_markers if m in lowered)
-        # 3+ distinct imminent-action markers without a payload is strong
-        # evidence of meta-deliberation narration, not a real answer.
-        return marker_hits >= 3
+        return response_classification.is_intent_only_response(response)
 
     @staticmethod
     def _build_rubric_evaluator(strategy: str, rubric_complete_fn: Any):
@@ -3094,6 +2996,12 @@ class AgenticLoop:
         is_substantial = len(content) > 100
         if not (had_prior_tool_usage or is_substantial):
             return False
+        # Before ANY tool usage, a future-tense plan is narration, not a
+        # delivered answer ("Let me create the file...") — accepting it as
+        # terminal let zero-work turns complete (observed in multi-agent runs:
+        # write-capable members finished without calling a single tool).
+        if not had_prior_tool_usage and self._is_future_intent_narration(content):
+            return False
         # A refusal / "I can't do this" is not a delivered answer. Treating it as
         # terminal would force a high-confidence COMPLETE (success=True) for a turn
         # that declined the task — so exclude it like narration and questions.
@@ -3103,32 +3011,17 @@ class AgenticLoop:
             and not self._is_refusal_response(content)
         )
 
-    # Phrases where the model declines/aborts the task itself (not findings like
-    # "I cannot find any bugs"). Kept tight to avoid misclassifying real answers.
-    _REFUSAL_MARKERS = (
-        "i can't read",
-        "i cannot read",
-        "i can't access",
-        "i cannot access",
-        "unable to read",
-        "unable to access",
-        "i'm unable to",
-        "i am unable to",
-        "cannot comply",
-        "can't comply",
-        "the information needed",  # "...don't have the information needed..."
-        "i can't provide a grounded",
-        "can't give a grounded",
-        "i'm sorry, but i can't",
-        "i am sorry, but i can't",
-    )
+    def _is_future_intent_narration(self, content: str) -> bool:
+        """True when the response OPENS as a plan for future work.
+
+        First-line startswith only: a substantive answer that contains
+        "Let me show an example" mid-text is a real answer, not narration.
+        """
+        return response_classification.is_future_intent_narration(content)
 
     def _is_refusal_response(self, content: str) -> bool:
         """True when the final answer declines/aborts the task (a non-answer)."""
-        if not content:
-            return False
-        lowered = content.lower()
-        return any(marker in lowered for marker in self._REFUSAL_MARKERS)
+        return response_classification.is_refusal_response(content)
 
     async def _evaluate(
         self,

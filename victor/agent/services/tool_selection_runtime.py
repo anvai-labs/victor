@@ -9,8 +9,13 @@ from __future__ import annotations
 
 from victor.core.json_utils import json_loads
 import logging
+
+from victor.config.tool_selection_access import (
+    is_tool_selection_enabled,
+)
 from typing import Any, Callable, NamedTuple
 
+from victor.agent.tool_selection.history_projection import _selector_history_projection
 from victor.tools.tool_supply_trace import TOOL_SUPPLY_TOPIC, ToolSupplyTrace
 
 logger = logging.getLogger(__name__)
@@ -242,9 +247,24 @@ class ToolSelectionRuntime:
             _emit_tool_supply_trace(trace.mark_skipped("provider_or_model_no_tools"))
             return None
 
-        # Q&A necessity gate (tool-supply P3). A trivially-safe greeting still hard-skips
-        # (no tools); a borderline Q&A turn gets a minimal read-only core instead of None,
-        # so "how does X work?" can still read X rather than looping tool-less.
+        # Tool pruning is disabled by default: expose every enabled
+        # registered tool to the LLM call as-is, byte-stable across turns.
+        # Selection/narrowing - semantic ranking, stage pruning, intent
+        # filtering AND the Q&A read-core downgrade below - is opt-in via
+        # VICTOR_TOOL_SELECTION=1, because a narrow per-turn supply starves
+        # agentic loops that need tools the ranker did not surface (observed:
+        # write-capable members reduced to read-only).
+        tool_service = getattr(runtime, "_tool_service", None)
+        tool_config = getattr(tool_service, "_config", None)
+        config_override = (
+            tool_config.tool_selection_enabled
+            if tool_config is not None and tool_config.tool_selection_enabled is not None
+            else None
+        )
+        # Q&A necessity gate - the greeting hard-skip survives pruning-off
+        # (a greeting needs no tools at all; that is necessity, not supply
+        # narrowing). The borderline read-core downgrade does not: with
+        # pruning off the full registered set is the supply.
         skip_mode_fn = getattr(runtime, "_tool_skip_mode", None)
         if skip_mode_fn is not None:
             skip_mode = skip_mode_fn(user_message_anchor)
@@ -255,6 +275,15 @@ class ToolSelectionRuntime:
         if skip_mode == "skip":
             _emit_tool_supply_trace(trace.mark_skipped("qa_greeting"))
             return None
+
+        if not is_tool_selection_enabled(
+            getattr(runtime, "settings", None), config_override=config_override
+        ):
+            stable = self._stable_all_tools(runtime)
+            if stable:
+                trace.set_candidates(stable)
+                _emit_tool_supply_trace(trace.finalize(stable))
+                return stable
         if skip_mode == "read_core":
             core = self._read_core_tools(runtime)
             trace.set_candidates(core)
@@ -269,9 +298,7 @@ class ToolSelectionRuntime:
             logger.info("available_inputs=%s", available_inputs)
 
         conversation_depth = runtime.conversation.message_count()
-        conversation_history = (
-            [msg.model_dump() for msg in runtime.messages] if runtime.messages else None
-        )
+        conversation_history = _selector_history_projection(runtime.messages) or None
         tools = await runtime.tool_selector.select_tools(
             user_message_anchor,
             use_semantic=runtime.use_semantic_selection,
@@ -377,46 +404,25 @@ class ToolSelectionRuntime:
         return None
 
     def _stable_curated_tools(self, runtime: Any, selector: Any) -> Any:
-        """Return a cached, stable ToolDefinition list for the curated tool set.
+        """Cached, stable ToolDefinition list for the curated tool set.
 
-        When the caller has curated the toolset (``_enabled_tools`` is set),
-        build a sorted, full-schema ToolDefinition list from the live registry
-        and cache it. Reused every turn → byte-identical tool schema → stable
-        prefix-cache fingerprint → no KV cache misses from tool-schema churn.
-
-        The cache key is ``frozenset(_enabled_tools)``: when the adapter calls
-        ``set_enabled_tools(new_set)`` for a new task, the key changes → the
-        cache rebuilds. No explicit reset needed.
+        Delegates to the single implementation in
+        ``victor.agent.tool_selection.stable_definitions`` (the loop used to
+        be duplicated here, in ToolSelector, and in the all-tools variant).
         """
-        cache_key = frozenset(selector._enabled_tools)
-        cached = getattr(self, "_stable_tools_cache", None)
-        if cached and cached[0] == cache_key:
-            return cached[1]
+        from victor.agent.tool_selection.stable_definitions import (
+            stable_curated_definitions,
+        )
 
-        try:
-            from victor.agent.tool_selection import tool_to_definition
-            from victor.tools.enums import SchemaLevel
-        except ImportError:
-            return None
+        return stable_curated_definitions(selector)
 
-        registry = getattr(selector, "tools", None)
-        if not registry:
-            return None
+    def _stable_all_tools(self, runtime: Any) -> Any:
+        """Byte-stable ToolDefinition list over the whole enabled registry."""
+        from victor.agent.tool_selection.stable_definitions import (
+            stable_all_definitions,
+        )
 
-        stable: list[Any] = []
-        for name in sorted(selector._enabled_tools):
-            tool = registry.get(name)
-            if tool is not None:
-                stable.append(tool_to_definition(tool, SchemaLevel.FULL))
-
-        if stable:
-            self._stable_tools_cache = (cache_key, stable)
-            logger.info(
-                "[ToolSchema] Stable curated: %d tools (%s) — prefix-cache stable",
-                len(stable),
-                ", ".join(sorted(selector._enabled_tools)),
-            )
-        return stable or None
+        return stable_all_definitions(getattr(runtime, "tool_selector", None))
 
     @staticmethod
     def _read_core_tools(runtime: Any) -> Any:
@@ -428,19 +434,16 @@ class ToolSelectionRuntime:
         registry is unavailable.
         """
         try:
-            from victor.agent.tool_selection import tool_to_definition
+            from victor.agent.tool_selection.stable_definitions import (
+                build_stable_definitions,
+            )
             from victor.tools.enums import SchemaLevel
 
             selector = getattr(runtime, "tool_selector", None)
             registry = getattr(selector, "tools", None)
             if registry is None or not hasattr(registry, "get"):
                 return []
-            out = []
-            for name in _READ_CORE_TOOL_NAMES:
-                tool = registry.get(name)
-                if tool is not None:
-                    out.append(tool_to_definition(tool, SchemaLevel.STUB))
-            return out
+            return build_stable_definitions(registry, _READ_CORE_TOOL_NAMES, SchemaLevel.STUB)
         except Exception:
             logger.debug("read-core build failed", exc_info=True)
             return []

@@ -475,7 +475,9 @@ class TestErrorHandling:
 
     @pytest.mark.asyncio
     async def test_member_failure_parallel(self):
-        """Parallel should handle member failures."""
+        """PARALLEL members are independent: one failure must not fail the
+        team when another member delivered (failed members stay visible in
+        member_results)."""
         coordinator = UnifiedTeamCoordinator(enable_observability=False)
         coordinator.add_member(MockTeamMember("m1", "OK"))
         coordinator.add_member(FailingMember("m2"))
@@ -483,9 +485,10 @@ class TestErrorHandling:
 
         result = await coordinator.execute_task("Test", {})
 
-        assert result["success"] is False
+        assert result["success"] is True
         assert result["member_results"]["m1"].success is True
         assert result["member_results"]["m2"].success is False
+        assert result["member_results"]["m2"].error is not None
 
     @pytest.mark.asyncio
     async def test_structured_member_outputs_feed_worktree_plan_and_merge_analysis(
