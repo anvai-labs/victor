@@ -127,7 +127,109 @@ swarm handoff), which requires building a transcript substrate before any of tho
 three topologies can exist; and in *ensemble aggregation*, which is substrate-light
 and could ride PARALLEL.
 
-### 2.3 What this research changes in the plan
+### 2.4 Agent-role nomenclature (standardization proposal)
+
+Role names are inconsistent across the ecosystem — and inside Victor. Sources for
+this subsection: Anthropic's multi-agent research system (LeadResearcher / subagents /
+CitationAgent), Magentic-One (Orchestrator + WebSurfer/FileSurfer/Coder/
+ComputerTerminal), CrewAI (`manager_llm`/`manager_agent`), AutoGen (`UserProxyAgent`,
+planning-agent example), OpenAI Agents SDK (triage/handoff examples), A2A (client
+agent / remote agent, donated to the Linux Foundation), and the 2026 surveys
+(worker/specialist/service/support role families).
+
+**Victor's terms today (from code):**
+
+| Concept | Victor name(s) | Inconsistency |
+|---|---|---|
+| Control-plane agent | `TeamAgentCategory.SUPERVISOR`; `_active_supervisor()` | shared-state keys set BOTH `explicit_supervisor_id` AND `explicit_manager_id` — two names for one concept |
+| Team execution unit | `TeamMember` / "member" | "worker" (`max_workers`), "sub-agent" (docs), `_MemberContextAgent` |
+| Spawned child agent | `SubAgent` / `SubAgentConfig` | consistent |
+| Domain roles | `SubAgentRole` (researcher, planner, executor, reviewer, …) | consistent; but `formation_role` adds generator/critic strings for REFLECTION |
+| Iterative evaluator | "critic" (REFLECTION formation_role) | "reviewer" (role) vs "critic" (formation role) vs "evaluator" (Anthropic's pattern name) used interchangeably in prose |
+
+**Ecosystem synonym map (what external material calls each concept):**
+
+| Victor canonical | Ecosystem synonyms | Source examples |
+|---|---|---|
+| **supervisor** (control plane) | orchestrator, manager, lead agent, coordinator, triage | Magentic-One "Orchestrator"; CrewAI `manager_agent`; Anthropic "LeadResearcher"/"lead agent"; Kore.ai/Medium "coordinator"; OpenAI "triage" |
+| **member** (execution unit) | worker, specialist, subagent, surfers/coders (domain-named) | "supervisor-worker" literature; Magentic-One specialists; Anthropic "subagents" |
+| **subagent** (spawned child) | subagent, sub-agent, child agent | LangChain/Anthropic |
+| **reviewer** (single-pass review) | reviewer, inspector, checker | Victor's review preset |
+| **critic** (iterative-loop evaluator) | critic, evaluator | REFLECTION; Anthropic evaluator-optimizer |
+| **judge** (one-shot verdict over candidates) | judge, adjudicator, LLM-as-judge | debate/MoA literature — needed by WS-G/WS-H |
+| **synthesizer** (composes final output) | synthesizer, aggregator, summarizer | Anthropic lead "synthesizes"; MoA "aggregation layer" |
+| **router** (classifies → dispatches) | router, dispatcher, triage | LangChain router; OpenAI triage |
+| **approval gate** (HITL stop) | user proxy, human-in-the-loop agent | AutoGen `UserProxyAgent` ↔ Victor `MemberApprovalPause` |
+| **client/remote member** (external, FEP-0006) | client agent, remote agent (A2A) | A2A spec (Linux Foundation) |
+
+**Mandate for the follow-up session:**
+
+1. One canonical term per concept, per the table above. Docs lead with the canonical
+   term and mention synonyms once; new APIs accept canonical names only.
+2. Collapse the supervisor/manager dual keys (`explicit_supervisor_id` +
+   `explicit_manager_id`) to one key; keep the other as a deprecated alias.
+3. Do NOT use "planner" for the control plane — it is a `SubAgentRole` domain role;
+   AutoGen's planning-agent example conflates the two and copying that usage would
+   break Victor's role/category split.
+4. Reserve **critic** for iterative-loop evaluators (REFLECTION), **judge** for
+   one-shot verdicts over candidate outputs (WS-H ensembles, WS-G debate), and
+   **reviewer** for single-pass review — the WS-G/WS-H formation APIs must use these
+   names in their `formation_role` strings.
+5. Use **member** when the formation-agnostic execution unit is meant; keep
+   `max_workers` as a compat API name but do not add new "worker" surfaces.
+6. For FEP-0006 external members, adopt A2A's client/remote terminology verbatim.
+
+### 2.5 Cross-cutting standards mandate (prompting, patterns, architecture)
+
+The follow-up session's workstreams must follow these, drawn from the researched
+sources and Victor's own codesign lessons:
+
+**Prompt engineering**
+- Member task prompts must state: objective, output format, tool/source guidance,
+  and explicit boundaries — Anthropic's research system found vague delegation
+  ("research the semiconductor shortage") caused duplicated work across subagents.
+- Prefer structured, machine-checkable output contracts over prose parsing: the
+  REFLECTION `VERDICT:` line is the right shape; generalize it (or move to
+  tool-call-shaped verdicts where the provider supports tools — G2), never add new
+  parse-the-prose contracts.
+- Keep selector/speaker/aggregation prompts minimal for small local models — AutoGen
+  explicitly warns that condition-heavy selector prompts break on smaller models and
+  to move complexity into a programmatic selector function instead (maps to G13).
+- Encode scale heuristics in prompts where Anthropic does (1 subagent + 3–10 tool
+  calls for fact-finding, 10+ for complex research) once capacity-aware defaults
+  (WS-C) exist, so member counts adapt to task class rather than being static.
+- Few-shot anchor one example per output contract for edge models (G13).
+
+**Software design patterns**
+- One registry, one dispatch: formations stay strategy classes behind the
+  `_formations` dict (no parallel dispatch chains — the #353 split-brain lesson).
+- One derivation per identifier (session ids, formation roles, event names) — the
+  codesign consolidation rule; a second copy is a defect even when it matches today.
+- Additive, opt-in contracts with byte-identical defaults (FEP-0028's "absent
+  checkpointer ⇒ byte-identical" is the model; apply to WS-G/WS-H surfaces).
+- New event variants need a consumer-decision row before landing (TD-0008 rule) —
+  applies to WS-C backpressure events and WS-G speaker/handoff events.
+- No silent fallbacks: every degrade path emits a warning-level event (G9 is the
+  counterexample being fixed, not the pattern).
+- Dead code is either wired or archived with banner + canonical pointer — never left
+  green-and-unreachable (G10; the doc-cleanup hygiene registries apply).
+
+**Architectural principles**
+- Subagents are compression boundaries: members return condensed findings or file
+  references, not raw tool dumps (Anthropic's "game of telephone" and
+  pass-references-not-payloads findings); pairs with G12's supply budget.
+- Capacity-aware defaults over static limits (WS-C): member counts and concurrency
+  derive from provider capacity and task class.
+- Isolation at trust/capacity boundaries: session-id per member, worktree per member
+  where writes may collide (WS-D).
+- Guard/classifier changes land through the FEP-0025 paired-gate process with a
+  recorded experiment — measure before tuning (G13).
+- Definition-of-done for ANY new formation: strategy module + enum value +
+  `_formations` registration + preset + docs (features.md + formations doc) +
+  coordinator-dispatch tests + durability statement (`supports_durable_pause()`).
+  G10 exists because four of those six were skipped.
+
+### 2.6 What this research changes in the plan
 
 - The orphan trio maps cleanly onto validated mainstream patterns (router,
   multi-level hierarchy, adaptivity) — strengthening the INTEGRATE option in G10:
@@ -224,7 +326,7 @@ are unchanged from the first cut of this handoff; WS-G/WS-H are new from §2's r
 1. **WS-A "Orphan trio decision" (G10)** — cheapest first: decide integrate-vs-archive,
    fix `AdaptiveFormation` stale docstrings either way, wire presets if integrating
    (enum values + `_formations` registration + `AgentTeam` preset + docs update).
-   §2.3 strengthens INTEGRATE: router / multi-level-hierarchy / adaptive are exactly
+   §2.6 strengthens INTEGRATE: router / multi-level-hierarchy / adaptive are exactly
    the three topologies mainstream frameworks ship, already 2/3-tested in-repo.
 2. **WS-B "Formation semantics hardening" (G1, G2, G3)** — consensus `max_rounds`
    default → 3 with a preset exposing it; tie-break policy (deterministic:
@@ -255,6 +357,10 @@ are unchanged from the first cut of this handoff; WS-G/WS-H are new from §2's r
    majority vote / judge / MoA-style synthesizer pass), expose as a CONSENSUS preset
    (`mode="vote"`) and a `create_ensemble_team` preset. Validate on the R9700
    (voting is the pattern most likely to help small local models).
+9. **WS-I "Nomenclature standardization" (§2.4 mandate)** — collapse the
+   supervisor/manager dual shared-state keys (canonical + deprecated alias), sweep
+   docs and formation-role strings to the §2.4 canonical terms, and land the
+   critic/judge/reviewer distinction before WS-G/WS-H name their APIs.
 
 ## 5. Pointers and sources
 
@@ -275,4 +381,8 @@ are unchanged from the first cut of this handoff; WS-G/WS-H are new from §2's r
 - Google ADK — [Multi-agent patterns](https://adk.dev/agents/multi-agents/) (Sequential/Parallel/Loop workflow agents, LLM transfer, AgentTool)
 - MDPI Future Internet — [LLM-Based Multi-Agent Orchestration survey](https://www.mdpi.com/1999-5903/18/6/326) (centralized/decentralized/hierarchical + adaptivity dimension; abstract via search)
 - arXiv 2601.13671 — [The Orchestration of Multi-Agent Systems](https://arxiv.org/html/2601.13671v1) (orchestration control plane; MCP/A2A substrate roles)
+- Anthropic — [How we built our multi-agent research system](https://www.anthropic.com/engineering/built-multi-agent-research-system) (LeadResearcher/subagents/CitationAgent roles; delegation-prompt principles; pass-references-not-payloads; scale heuristics)
+- Microsoft Research — [Magentic-One](https://www.microsoft.com/en-us/research/articles/magentic-one-a-generalist-multi-agent-system-for-solving-complex-tasks/) (Orchestrator + specialist roles; TaskLedger/ProgressLedger two-loop mechanics)
+- Google — [Announcing A2A](https://developers.googleblog.com/en/a2a-a-new-era-of-agent-interoperability/) (client agent / remote agent terminology; donated to Linux Foundation)
+- arXiv 2508.12683 — [A Taxonomy of Hierarchical Multi-Agent Systems](https://arxiv.org/html/2508.12683) (five-axis HMAS taxonomy: control hierarchy, information flow, role/task delegation)
 - Classical/paper lineage cited from prior knowledge (stable references): contract-net (Smith 1980), blackboard/Hearsay-II (Nii 1986), multiagent debate (Du et al. 2023), self-consistency (Wang et al. 2022), Mixture-of-Agents (Wang et al. 2024), Magentic-One task/progress ledgers (Microsoft 2024).
