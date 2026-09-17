@@ -254,6 +254,7 @@ suite('TerminalProvider Test Suite', () => {
         test('Should clear history', () => {
             let executions = [{ id: 'exec-1' }, { id: 'exec-2' }];
 
+            assert.strictEqual(executions.length, 2);
             executions = [];
 
             assert.strictEqual(executions.length, 0);

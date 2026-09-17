@@ -100,10 +100,12 @@ jobs:
           cache: pip
 
       - name: Install repo hygiene dependencies
-        run: pip install pyyaml
+        run: pip install packaging pyyaml
 
       - name: Check repo hygiene
-        run: python scripts/ci/repo_hygiene_check.py
+        run: |
+          python scripts/ci/repo_hygiene_check.py
+          python scripts/ci/check_dependency_locks.py
 
   docs-drift:
     name: Docs Drift (version/counts vs code)
@@ -183,6 +185,11 @@ jobs:
           pip install torch --index-url https://download.pytorch.org/whl/cpu
           # Install victor-contracts from local repository first (includes constants module)
           pip install -e ./victor-contracts
+          # Resolve the published-runtime lock under the shared constraints before
+          # installing optional test surfaces. This catches inconsistent grouped
+          # dependency updates (for example a pydantic/pydantic-core mismatch) in
+          # an existing CI job instead of spending another runner slot.
+          pip install -c constraints.txt -r requirements.txt
           # Then install victor-ai with embeddings (needed for import chain)
           pip install -e ".[embeddings]"
 
@@ -376,7 +383,7 @@ jobs:
   guards:
     name: CI Guards
     runs-on: ubuntu-24.04
-    timeout-minutes: 2
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -385,6 +392,55 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
+
+      - name: Detect VS Code extension changes
+        id: vscode-changes
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          changed=false
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            changed=true
+          elif [ "$EVENT_NAME" = "pull_request" ]; then
+            git fetch origin "$BASE_REF" --quiet
+            files=$(git diff --name-only "origin/$BASE_REF...HEAD")
+          elif [ -n "$BEFORE_SHA" ] && [ "$BEFORE_SHA" != "0000000000000000000000000000000000000000" ]; then
+            files=$(git diff --name-only "$BEFORE_SHA...HEAD")
+          else
+            changed=true
+          fi
+          if printf '%s\n' "${files:-}" | grep -Eq '^(vscode-victor/|\.github/workflows/(build|ci-fast|release)\.yml$)'; then
+            changed=true
+          fi
+          echo "changed=$changed" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Node.js
+        if: steps.vscode-changes.outputs.changed == 'true'
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: |
+            vscode-victor/package-lock.json
+            vscode-victor/webview-ui/package-lock.json
+
+      - name: Validate VS Code extension
+        if: steps.vscode-changes.outputs.changed == 'true'
+        working-directory: vscode-victor
+        run: |
+          npm ci
+          npm run lint
+          npm run compile
+          npm run coverage
+          cd webview-ui
+          npm ci
+          npm run check
+          npm run build
+          cd ..
+          xvfb-run -a npm test
+          npx vsce package --no-dependencies
 
       - name: Check archive/victor-legacy guard
         if: github.event_name == 'pull_request'

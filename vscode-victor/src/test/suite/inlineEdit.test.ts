@@ -254,6 +254,7 @@ suite('Edit State Management', () => {
             range: new vscode.Range(0, 0, 0, 3),
         };
 
+        assert.strictEqual(activeEdit.originalText, 'old');
         activeEdit = undefined;
         assert.ok(!activeEdit);
     });

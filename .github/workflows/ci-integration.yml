@@ -175,63 +175,6 @@ jobs:
             --tb=short \
             -m "not slow"
 
-  # VS Code Extension tests
-  vscode-extension:
-    name: VS Code Extension
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Set up Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: vscode-victor/package-lock.json
-
-      - name: Install dependencies
-        working-directory: vscode-victor
-        run: npm ci
-
-      - name: Build webview UI
-        working-directory: vscode-victor/webview-ui
-        run: npm ci && npm run build
-
-      - name: Lint
-        working-directory: vscode-victor
-        run: npm run lint
-        continue-on-error: true
-
-      - name: Compile
-        working-directory: vscode-victor
-        run: npm run compile
-
-      - name: Unit tests + coverage (vitest/c8)
-        working-directory: vscode-victor
-        run: npm run coverage
-
-      - name: Upload coverage
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: vscode-coverage
-          path: vscode-victor/coverage
-          if-no-files-found: ignore
-
-      - name: Run tests
-        working-directory: vscode-victor
-        run: xvfb-run -a npm test
-
-      - name: Package VSIX
-        working-directory: vscode-victor
-        run: npx vsce package --no-dependencies
-
-      - name: Upload VSIX artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: vscode-extension
-          path: vscode-victor/*.vsix
-
   # Rust native extensions
   rust-native:
     name: Rust Native Extensions
@@ -268,7 +211,7 @@ jobs:
   integration-summary:
     name: Integration Summary
     runs-on: ubuntu-24.04
-    needs: [integration, verticals-integration, vscode-extension, rust-native]
+    needs: [integration, verticals-integration, rust-native]
     if: always()
     steps:
       - name: Require every integration surface green
@@ -276,7 +219,6 @@ jobs:
           results=(
             "${{ needs.integration.result }}"
             "${{ needs.verticals-integration.result }}"
-            "${{ needs.vscode-extension.result }}"
             "${{ needs.rust-native.result }}"
           )
           printf 'Integration job result: %s\n' "${results[@]}"
