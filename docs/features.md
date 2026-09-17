@@ -51,6 +51,13 @@ team can mix a high-reasoning model for planning with a fast model for execution
 **review** and **reflection** presets are included (reflection critiques against the original task
 and judges satisfaction via a VERDICT).
 
+**Outcome contracts** — consensus defaults to three rounds and compares explicit
+`metadata.consensus_key` values (or exact output values). `create_consensus_team`
+exposes rounds, agreement threshold, and an optional supervisor tie-break. Reflection
+supports an opt-in JSON verdict with `create_reflection_team(..., verdict_format="json")`;
+malformed verdicts stop refinement with an explicit failure. Parallel output names
+failed members, and `parallel_member_retries` enables bounded per-member retries.
+
 ## Web Chat UI (Chainlit, optional extra)
 
 `victor ui` launches a pure-Python **Chainlit** web chat bound to `VictorClient` — streaming

@@ -20,6 +20,8 @@ Multiple rounds if needed until consensus or timeout.
 
 import asyncio
 import logging
+import json
+from collections import Counter
 from typing import Any, Dict, List, Optional
 
 from victor.coordination.formations.base import BaseFormationStrategy, TeamContext
@@ -40,13 +42,15 @@ class ConsensusFormation(BaseFormationStrategy):
     Use case: Critical decisions, validation, quality assurance
     """
 
-    def __init__(self, max_rounds: int = 1, agreement_threshold: float = 0.7):
+    def __init__(self, max_rounds: int = 3, agreement_threshold: float = 0.7):
         """Initialize consensus formation.
 
         Args:
-            max_rounds: Maximum number of consensus rounds (default: 1 for testing)
+            max_rounds: Maximum number of consensus rounds (default: 3)
             agreement_threshold: Fraction of agents that must agree (0.0-1.0)
         """
+        if not isinstance(max_rounds, int) or max_rounds < 1 or not 0 < agreement_threshold <= 1:
+            raise ValueError("Consensus requires positive rounds and threshold in (0, 1]")
         self.max_rounds = max_rounds
         self.agreement_threshold = agreement_threshold
 
@@ -67,6 +71,17 @@ class ConsensusFormation(BaseFormationStrategy):
         crash resumes at the next unfinished round: completed rounds are restored, not re-run.
         No checkpointer ⇒ byte-identical.
         """
+        max_rounds = context.get(
+            "consensus_max_rounds", context.metadata.get("max_consensus_rounds", self.max_rounds)
+        )
+        threshold = context.get("consensus_agreement_threshold", self.agreement_threshold)
+        if not isinstance(max_rounds, int) or max_rounds < 1 or not 0 < threshold <= 1:
+            raise ValueError("Consensus requires positive rounds and threshold in (0, 1]")
+        tie_breaker_id = context.get("consensus_tie_breaker_id") or context.get(
+            "explicit_supervisor_id"
+        )
+        if tie_breaker_id is not None and tie_breaker_id not in {agent.id for agent in agents}:
+            raise ValueError("Consensus tie breaker must be a configured member")
         checkpoint_hook = getattr(context, "checkpoint_hook", None)
         resume = getattr(context, "resume_completed", None)
         saved: Dict[str, Any] = dict(
@@ -92,7 +107,7 @@ class ConsensusFormation(BaseFormationStrategy):
             logger.info(
                 "ConsensusFormation: resume — continuing from round %d/%d",
                 round_start + 1,
-                self.max_rounds,
+                max_rounds,
             )
 
         async def _checkpoint(
@@ -116,8 +131,8 @@ class ConsensusFormation(BaseFormationStrategy):
             ]
             await checkpoint_hook(round_done - 1, marker, list(all_results), context.shared_state)
 
-        for round_num in range(round_start, self.max_rounds):
-            logger.info(f"ConsensusFormation: round {round_num + 1}/{self.max_rounds}")
+        for round_num in range(round_start, max_rounds):
+            logger.info(f"ConsensusFormation: round {round_num + 1}/{max_rounds}")
 
             # Execute all agents in parallel for this round
             round_tasks = [
@@ -142,10 +157,12 @@ class ConsensusFormation(BaseFormationStrategy):
                 else:
                     processed_results.append(result)
 
+            for result in processed_results:
+                result.metadata["round"] = round_num
             all_results.extend(processed_results)
 
             # Check for consensus
-            consensus = self._check_consensus(processed_results)
+            consensus = self._check_consensus(processed_results, threshold)
 
             if consensus:
                 logger.info(f"ConsensusFormation: consensus reached in round {round_num + 1}")
@@ -161,7 +178,7 @@ class ConsensusFormation(BaseFormationStrategy):
             current_task = AgentMessage(
                 message_type=MessageType.TASK,
                 sender_id="system",
-                content=str(
+                content=json.dumps(
                     {
                         "original_task": task.content,
                         "round": round_num + 1,
@@ -181,17 +198,32 @@ class ConsensusFormation(BaseFormationStrategy):
             await _checkpoint(round_num + 1, current_task.content, False, None)
 
         # Max rounds reached without consensus
-        logger.warning(f"ConsensusFormation: no consensus after {self.max_rounds} rounds")
+        logger.warning(f"ConsensusFormation: no consensus after {max_rounds} rounds")
         # Return final round results (last round executed)
-        final_round_num = self.max_rounds - 1
+        final_round_num = max_rounds - 1
         final_round_results = [
             r for r in all_results if r.metadata.get("round", 0) == final_round_num
         ]
+        chosen = next(
+            (
+                result
+                for result in final_round_results
+                if result.member_id == tie_breaker_id and result.success
+            ),
+            None,
+        )
+        if chosen is not None:
+            logger.warning(
+                "Consensus exhausted rounds; supervisor %s breaks the tie", chosen.member_id
+            )
         # Mark that consensus was not achieved
         for r in final_round_results:
             r.metadata["consensus_achieved"] = False
-            r.metadata["consensus_rounds"] = self.max_rounds
-        await _checkpoint(self.max_rounds, None, True, final_round_results)
+            r.metadata["consensus_rounds"] = max_rounds
+            if chosen is not None:
+                r.metadata["consensus_tie_breaker_id"] = chosen.member_id
+                r.metadata["consensus_decision"] = chosen.output
+        await _checkpoint(max_rounds, None, True, final_round_results)
         return final_round_results
 
     async def _execute_agent(
@@ -213,75 +245,26 @@ class ConsensusFormation(BaseFormationStrategy):
             agent, task, context, round_num, member_event_hook=member_event_hook
         )
 
-    def _check_consensus(self, results: List[MemberResult]) -> bool:
-        """Check if results indicate consensus.
+    def _check_consensus(
+        self, results: List[MemberResult], threshold: Optional[float] = None
+    ) -> bool:
+        """Compare explicit consensus keys (or opaque output values), never prose semantics.
 
-        Args:
-            results: Results from all agents in this round
-
-        Returns:
-            True if consensus reached
+        Successful execution alone is not agreement. Failed members remain in the
+        denominator; count the largest equivalence class, not the first member.
         """
         if not results:
             return False
-
-        # Filter successful results
-        successful = [r for r in results if r.success]
-
-        # Consensus is achieved if all agents succeed
-        # (All agents agree to execute successfully)
-        if len(successful) == len(results):
-            return True
-
-        # Not all agents succeeded, check if enough succeeded for threshold
-        if len(successful) < len(results) * self.agreement_threshold:
-            return False
-
-        # Simple consensus check: all successful results have similar content
-        # (In practice, this might use more sophisticated comparison)
-        if len(successful) == 0:
-            return False
-
-        # Get first successful result as reference
-        reference = successful[0].output
-
-        # Count how many match reference
-        matches = 0
-        for result in successful:
-            if self._content_matches(result.output, reference):
-                matches += 1
-
-        # Check if enough matches
-        return matches >= len(results) * self.agreement_threshold
-
-    def _content_matches(self, content1: Any, content2: Any) -> bool:
-        """Check if two contents match for consensus.
-
-        This is a simple implementation. In practice, you might use:
-        - Semantic similarity
-        - Fuzzy matching
-        - Content-specific comparison logic
-
-        Args:
-            content1: First content
-            content2: Second content
-
-        Returns:
-            True if contents match
-        """
-        if content1 is None or content2 is None:
-            return False
-
-        # For strings, use simple equality
-        if isinstance(content1, str) and isinstance(content2, str):
-            return content1.lower() == content2.lower()
-
-        # For dicts, compare keys and basic structure
-        if isinstance(content1, dict) and isinstance(content2, dict):
-            return set(content1.keys()) == set(content2.keys())
-
-        # Default: exact match
-        return content1 == content2
+        votes = Counter()
+        for result in results:
+            if result.success:
+                key = result.metadata.get("consensus_key", result.output)
+                if not isinstance(key, str) or not key:
+                    raise ValueError("Consensus keys must be nonempty strings")
+                votes[key] += 1
+        return bool(votes) and max(votes.values()) >= len(results) * (
+            self.agreement_threshold if threshold is None else threshold
+        )
 
     def validate_context(self, context: TeamContext) -> bool:
         """Consensus formation requires shared state for comparing results."""

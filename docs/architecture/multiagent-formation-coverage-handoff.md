@@ -251,20 +251,18 @@ sources and Victor's own codesign lessons:
 Ordered by risk-to-correctness first. G-numbers are the handoff's work items.
 G1–G13 come from the co-design sessions and code audit; G14–G16 from the §2 research.
 
-- **G1 — CONSENSUS defaults defeat the formation.** `ConsensusFormation.__init__`
-  defaults `max_rounds=1` (comment: "default: 1 for testing") and
-  `agreement_threshold=0.7`; no preset overrides them, so the shipped default runs a
-  single pass — there is no second round to reach consensus in. No tie-break policy
-  exists; agreement comparison semantics on a 30B local model are untested.
-- **G2 — REFLECTION verdict channel is fragile on small models.** Satisfaction is
-  parsed from the critic's prose via `verdict\W+(satisfied|needs[ _]work)` with a
-  keyword fallback. Small local models may omit the marker (loop then runs to
-  `reflection_max_iterations` silently burning tokens) or emit it spuriously. A
-  structured verdict (tool call or fenced marker) with a hard fallback policy is needed.
-- **G3 — PARALLEL aggregation hides partial failure.** Any-member-success means a team
-  reports success with 1/3 deliverables. Need: per-member outcome surfaced in
-  `TeamResult` (exists as `MemberResult` but final_output synthesis ignores it), a
-  partial-failure summary in `final_output`, and an optional per-member retry policy.
+- **G1 — consensus semantics hardened (WS-B, PR pending).** Default rounds are 3;
+  agreement compares explicit consensus keys or exact output values rather than
+  successful execution. The consensus preset exposes rounds/threshold and optional
+  supervisor tie-break; unresolved disagreement fails the team. Live small-model
+  comparison validation remains part of the later sweep.
+- **G2 — structured reflection contract added (WS-B, PR pending).** Opt-in JSON
+  verdicts have strict validation and immediate failure on malformed output. The
+  legacy default remains byte-compatible and warns on keyword fallback; use the JSON
+  contract for new local-model runs. Checkpoint resume preserves the verdict format.
+- **G3 — partial failure surfaced (WS-B, PR pending).** Parallel synthesis includes
+  failed-member summaries; opt-in per-member retries retain attempt costs, stop at
+  approval pauses, and complete before durable member checkpointing.
 - **G4 — shared-path write races are documented, not fixed.** The live matrix required
   disjoint file paths per member (noted in the formations doc). Worktree isolation
   exists (§1.2) but is not default-on nor formation-aware for PARALLEL. Decide: opt-in

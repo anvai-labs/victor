@@ -588,6 +588,44 @@ class AgentTeam:
         )
 
     @classmethod
+    async def create_consensus_team(
+        cls,
+        orchestrator: "AgentOrchestrator",
+        name: str,
+        goal: str,
+        members: List[TeamMemberSpec],
+        *,
+        rounds: int = 3,
+        agreement_threshold: float = 0.7,
+        supervisor: Optional[TeamMemberSpec] = None,
+        **kwargs: Any,
+    ) -> "AgentTeam":
+        """Compare structured consensus keys over bounded rounds.
+
+        An optional supervisor's successful final proposal deterministically breaks
+        a tie; this is reported as a tie-break decision, never as consensus.
+        """
+        from victor.coordination.formations.consensus import ConsensusFormation
+
+        ConsensusFormation(max_rounds=rounds, agreement_threshold=agreement_threshold)
+        shared_context = dict(kwargs.pop("shared_context", None) or {})
+        shared_context.update(
+            consensus_max_rounds=rounds, consensus_agreement_threshold=agreement_threshold
+        )
+        team = await cls.create(
+            orchestrator,
+            name,
+            goal,
+            ([supervisor] if supervisor is not None else []) + list(members),
+            formation=TeamFormation.CONSENSUS,
+            shared_context=shared_context,
+            **kwargs,
+        )
+        if supervisor is not None:
+            team._config.shared_context["consensus_tie_breaker_id"] = team._config.members[0].id
+        return team
+
+    @classmethod
     async def create_review_team(
         cls,
         orchestrator: "AgentOrchestrator",
@@ -654,6 +692,7 @@ class AgentTeam:
         generator: TeamMemberSpec,
         critic: TeamMemberSpec,
         rounds: int = 3,
+        verdict_format: str = "legacy",
         **kwargs: Any,
     ) -> "AgentTeam":
         """Create an iterative reflection team (generate → critique → refine).
@@ -689,6 +728,8 @@ class AgentTeam:
                 generator.provider,
             )
 
+        if verdict_format not in {"legacy", "json"}:
+            raise ValueError("verdict_format must be legacy or json")
         # Bind roles explicitly so context-agent binding never depends on order.
         generator.formation_role = "generator"
         critic.formation_role = "critic"
@@ -696,6 +737,8 @@ class AgentTeam:
         kwargs.pop("formation", None)
         shared_context = dict(kwargs.pop("shared_context", None) or {})
         shared_context.setdefault("reflection_max_iterations", rounds)
+        if verdict_format != "legacy":
+            shared_context["reflection_verdict_format"] = verdict_format
         return await cls.create(
             orchestrator=orchestrator,
             name=name,

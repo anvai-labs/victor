@@ -55,13 +55,12 @@ class _ConsensusAgent:
 
 
 def _agents() -> List[_ConsensusAgent]:
-    # A dissenter that never succeeds keeps consensus unreachable (ConsensusFormation treats
-    # all-success as consensus), so every run deterministically exhausts all rounds.
+    # A failed dissenter prevents unanimous agreement, exhausting all rounds.
     return [_ConsensusAgent("a"), _ConsensusAgent("d", succeed=False)]
 
 
 def _consensus(rounds: int) -> ConsensusFormation:
-    return ConsensusFormation(max_rounds=rounds, agreement_threshold=1.1)
+    return ConsensusFormation(max_rounds=rounds, agreement_threshold=1.0)
 
 
 def _consensus_snaps(checkpoints: List[Any]) -> List[Any]:
