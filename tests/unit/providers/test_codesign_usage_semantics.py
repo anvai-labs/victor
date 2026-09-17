@@ -30,9 +30,12 @@ def test_reasoning_inclusion_survives_to_cost(reasoning, included, response_type
     metrics = StreamMetrics()
     metrics.record_usage(response.usage)
     pricing = Mock(cost_enabled=True)
-    pricing.calculate_cost.return_value = dict(
-        input_cost=0, output_cost=0, cache_cost=0, total_cost=0
-    )
+    pricing.calculate_cost.return_value = {
+        "input_cost": 0,
+        "output_cost": 0,
+        "cache_cost": 0,
+        "total_cost": 0,
+    }
     metrics.calculate_cost(pricing)
     assert pricing.calculate_cost.call_args.args[1] == 40 + (0 if included else reasoning)
 
@@ -46,9 +49,12 @@ def test_reasoning_is_folded_per_call_before_accumulation():
         {"completion_tokens": 100, "reasoning_tokens": 90, "reasoning_included": True}
     )
     pricing = Mock(cost_enabled=True)
-    pricing.calculate_cost.return_value = dict(
-        input_cost=0, output_cost=0, cache_cost=0, total_cost=0
-    )
+    pricing.calculate_cost.return_value = {
+        "input_cost": 0,
+        "output_cost": 0,
+        "cache_cost": 0,
+        "total_cost": 0,
+    }
     metrics.calculate_cost(pricing)
     assert pricing.calculate_cost.call_args.args[1] == 165
 
