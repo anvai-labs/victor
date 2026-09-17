@@ -91,9 +91,9 @@ BASIC_PROFILE = ProfileTemplate(
     ),
     level=ProfileLevel.BASIC,
     settings={
-        # Use Ollama by default (local, free)
-        "default_provider": "ollama",
-        "default_model": "qwen3.5:27b-q4_K_M",  # Fast MoE model with good knowledge
+        # Default to the self-hosted InferFlux server (see bundled profiles)
+        "default_provider": "inferflux",
+        "default_model": "qwen3-coder-30b",
         "default_temperature": 0.6,
         "default_max_tokens": 4096,
         # Conservative tool budget

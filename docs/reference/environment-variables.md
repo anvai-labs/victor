@@ -298,6 +298,15 @@ These are set internally during workflow execution:
 
 ---
 
+## Chat UI
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `VICTOR_TUI_MOUSE_SUPPORT` | `unset` (off) | Set to `1`/`true`/`yes`/`on` to let the `victor chat` Textual TUI capture mouse events. Off by default so the terminal's own drag-select/copy works on the transcript; keyboard copy (`ctrl+c` → OSC 52) is unaffected either way. |
+| `VICTOR_CHAT_MOUSE_SUPPORT` | `unset` (off) | Same opt-in for the prompt_toolkit REPL surface (`--repl`). |
+
+---
+
 ## Tool-Specific Variables
 
 | Variable | Default | Description |

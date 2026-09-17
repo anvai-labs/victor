@@ -51,6 +51,32 @@ def _emit_tool_supply_trace(trace: ToolSupplyTrace) -> None:
         logger.debug("tool-supply trace emit failed", exc_info=True)
 
 
+def hydrate_demand_tools(host: Any, text: str) -> None:
+    """Register mention-wired demand tools (FEP-0034 Stage 1: DemandHydrate).
+
+    Specialty tools (graph, gh) live in ``DEMAND_TOOL_SPECS`` and register
+    only when the user message calls for them. The hook lives on the
+    session's ToolRegistrar (``ensure_tools_for_query``); hosts assembled
+    before that indirection may expose a registrar-compatible object at
+    ``tools`` instead. Failures are swallowed: hydration must never break
+    the turn.
+
+    Callers must invoke this BEFORE any session-tool freeze: the
+    cache-optimized transport freezes ``get_session_tools()`` on first use,
+    and a tool that misses that first registration never reaches the
+    schema for the rest of the session.
+    """
+    if not text:
+        return
+    registrar = getattr(host, "tool_registrar", None) or getattr(host, "tools", None)
+    ensure_for_query = getattr(registrar, "ensure_tools_for_query", None)
+    if callable(ensure_for_query):
+        try:
+            ensure_for_query(text)
+        except Exception:
+            logger.debug("Demand tool hydration failed", exc_info=True)
+
+
 # Read-oriented task types: WRITE_ALLOWED is a *permission*, not an intent to write, so we
 # do not force mutation tools (edit/write/shell) onto these pure analysis/search turns.
 _READ_ORIENTED_TASK_TYPES = frozenset({"analyze", "search", "research"})
@@ -198,6 +224,14 @@ class ToolSelectionRuntime:
         # Assistant progress narration may refine semantic context below, but it
         # must not become the anchor for intent filtering or stage prioritization.
         user_message_anchor = getattr(runtime, "_current_user_message", None) or context_msg
+
+        # Stage 1 — demand hydration (FEP-0034 pipeline). Before the gates:
+        # a mention in ANY turn must reach the registry before selection, and
+        # (in the frozen transport) before the session-tool lock computes.
+        # This hook existed only on ToolService.select_tools — a method
+        # nothing calls — so mention-wired tools never reached chat sessions
+        # (dormant-hook class: #536, #1057).
+        hydrate_demand_tools(runtime, user_message_anchor)
 
         # Per-turn tool-supply telemetry (observe-only; never alters the value
         # flowing through this method). Captures the registered set and every

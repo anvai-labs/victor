@@ -39,6 +39,7 @@ class StatusBar(Static):
         total_tokens: Optional[int] = None,
         cost_usd: Optional[float] = None,
         waiting_seconds: Optional[int] = None,
+        queued: int = 0,
     ) -> None:
         """Re-render the footer from the current turn state.
 
@@ -49,6 +50,7 @@ class StatusBar(Static):
             cost_usd: USD cost for the last completed turn, if known.
             waiting_seconds: When set, the watchdog is active; overrides the
                 phase with a "waiting on model (Ns)…" indicator.
+            queued: Prompts waiting in the mid-turn queue (hidden when 0).
         """
         self.update(
             self._compose_line(
@@ -57,6 +59,7 @@ class StatusBar(Static):
                 total_tokens=total_tokens,
                 cost_usd=cost_usd,
                 waiting_seconds=waiting_seconds,
+                queued=queued,
             )
         )
 
@@ -68,6 +71,7 @@ class StatusBar(Static):
         total_tokens: Optional[int],
         cost_usd: Optional[float],
         waiting_seconds: Optional[int],
+        queued: int = 0,
     ) -> str:
         if waiting_seconds is not None:
             head = f"[yellow]▸ waiting on model ({waiting_seconds}s)…[/]"
@@ -76,6 +80,8 @@ class StatusBar(Static):
         parts = [head]
         if tool_count:
             parts.append(f"{tool_count} tool{'s' if tool_count != 1 else ''}")
+        if queued:
+            parts.append(f"{queued} queued")
         if total_tokens is not None:
             parts.append(f"{_human_tokens(total_tokens)} tok")
         if cost_usd is not None:

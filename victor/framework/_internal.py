@@ -578,7 +578,14 @@ async def stream_with_events(
         yield error_event(error_message, recoverable=False)
         yield stream_end_event(success=False, error=error_message)
     finally:
-        current_member_sink.reset(sink_token)
+        try:
+            current_member_sink.reset(sink_token)
+        except ValueError:
+            # The generator was closed from a different context than the one
+            # that set the sink (e.g. CLI cancellation unwinding the stream).
+            # The token belongs to its creating context; nothing to restore
+            # here, and raising would mask the original error.
+            pass
 
 
 def format_context_message(context: Dict[str, Any]) -> Optional[str]:

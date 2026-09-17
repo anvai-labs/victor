@@ -2633,6 +2633,38 @@ def reset_settings_cache() -> None:
 get_settings = load_settings
 
 
+def _inferflux_reachable(victor_dir: "Path") -> bool:
+    """Best-effort probe of the default InferFlux endpoint (1s budget).
+
+    Consulted by :func:`is_first_time_user` so a tunneled-InferFlux setup
+    without cloud keys or Ollama is not treated as a first-time install.
+    Never raises; any failure counts as "not reachable".
+    """
+    import httpx
+
+    base_url = os.getenv("INFERFLUX_BASE_URL", "http://127.0.0.1:8080/v1")
+    health_url = base_url.removesuffix("/v1").removesuffix("/") + "/healthz"
+    headers = {}
+    api_key = os.getenv("INFERFLUX_API_KEY")
+    if not api_key:
+        try:
+            keys_path = victor_dir / "api_keys.yaml"
+            if keys_path.exists():
+                import yaml
+
+                data = yaml.safe_load(keys_path.read_text()) or {}
+                api_key = (data.get("api_keys") or {}).get("inferflux")
+        except Exception:
+            api_key = None
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    try:
+        response = httpx.get(health_url, headers=headers, timeout=1.0)
+        return response.status_code == 200
+    except Exception:
+        return False
+
+
 def is_first_time_user() -> bool:
     """Detect if this is a first-time user.
 
@@ -2686,7 +2718,13 @@ def is_first_time_user() -> bool:
     if has_keys:
         return False
 
-    # Also check if Ollama is available (local provider)
+    # Also check if the configured default local endpoint is reachable
+    # (InferFlux first: probing it avoids the first-run wizard for
+    # InferFlux-only setups; the Ollama check below remains the fallback).
+    if _inferflux_reachable(victor_dir):
+        return False
+
+    # Check if Ollama is available (local provider)
     # Use cached result to avoid 2-second subprocess timeout on every call
     ollama_cache_file = victor_dir / ".ollama_available"
 
