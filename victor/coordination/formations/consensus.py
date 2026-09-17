@@ -71,6 +71,10 @@ class ConsensusFormation(BaseFormationStrategy):
         crash resumes at the next unfinished round: completed rounds are restored, not re-run.
         No checkpointer ⇒ byte-identical.
         """
+        if context.get("ensemble_mode") is not None:
+            from victor.coordination.formations.ensemble import execute_ensemble
+
+            return await execute_ensemble(self, agents, context, task)
         max_rounds = context.get(
             "consensus_max_rounds", context.metadata.get("max_consensus_rounds", self.max_rounds)
         )

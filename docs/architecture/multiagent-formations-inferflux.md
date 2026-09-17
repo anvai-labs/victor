@@ -326,3 +326,24 @@ Backend: InferFlux serving Qwen3-Coder-30B-A3B (UD-Q4_K_XL, 17GB) on AMD
 Radeon AI PRO R9700 (gfx1201, ROCm 7.2, WSL2). KV pool: 65536 ctx / 2
 sequences. Per-member session ids bound via
 `SubAgentConfig.resolve_member_session_id()`.
+
+### Ensemble aggregation (WS-H)
+
+`AgentTeam.create_ensemble_team(orchestrator, name, goal, candidates, mode="vote")`
+creates an opt-in PARALLEL-shaped run. Every candidate independently receives the
+same original task plus the JSON response contract. Return exactly
+`{"vote_key": "canonical-answer", "answer": "answer or artifact reference"}`.
+Voting requires a strict majority; ties and invalid proposals fail explicitly.
+All candidate deliverables and costs remain in member results.
+
+Use `mode="judge", aggregator=judge_spec` for one verdict selecting a configured
+candidate via `{"selected_member_id": "..."}`. Use `mode="synthesizer"` for a
+single MoA-style combination pass returning `{"answer": "..."}`. These roles are
+canonical formation roles; caller specs are copied rather than mutated. Candidate
+answers exceeding 8192 characters are rejected with guidance to return references.
+`create_consensus_team(..., mode="vote")` exposes the same aggregation policy through
+CONSENSUS; the default `mode="agreement"` keeps the existing iterative behavior.
+
+Durability: ensemble aggregation rejects checkpoint/resume before member execution.
+The original PARALLEL/CONSENSUS durability contracts are unchanged without this mode.
+No extra formation enum or registry is introduced for this aggregation policy.

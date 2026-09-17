@@ -132,3 +132,8 @@ same framework through `VictorClient`.
 | Docker image | Release candidate | Advertised, but a fresh image build/run smoke is required before the release tag. |
 | VS Code extension and native Rust extensions | Preview | Their CI checks are currently advisory; do not represent them as release-blocking guarantees. |
 | Observability dashboard/API | Experimental | Product support decision remains tracked by TD-5. |
+
+**Ensemble aggregation** — independently sample one task, then choose a strict
+majority, a one-shot judge verdict, or a synthesizer pass. Opt in with
+`create_ensemble_team` or `create_consensus_team(..., mode="vote")`; all output
+contracts are JSON and malformed proposals or unresolved ties fail explicitly.

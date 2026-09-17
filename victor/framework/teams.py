@@ -706,6 +706,49 @@ class AgentTeam:
         )
 
     @classmethod
+    async def create_ensemble_team(
+        cls,
+        orchestrator: "AgentOrchestrator",
+        name: str,
+        goal: str,
+        candidates: List[TeamMemberSpec],
+        *,
+        mode: str = "vote",
+        aggregator: Optional[TeamMemberSpec] = None,
+        **kwargs: Any,
+    ) -> "AgentTeam":
+        """Sample one task independently, then vote or run a judge/synthesizer once.
+
+        Candidates must return JSON {"vote_key": str, "answer": str}. The judge
+        returns {"selected_member_id": str}; the synthesizer returns {"answer": str}.
+        Partial durable resume is not supported by this opt-in aggregation mode.
+        """
+        from dataclasses import replace
+        from victor.coordination.formations.ensemble import MODES
+
+        if mode not in MODES or len(candidates) < 2:
+            raise ValueError("Ensemble requires a supported mode and at least two candidates")
+        if (mode == "vote") != (aggregator is None):
+            raise ValueError("Only judge/synthesizer modes require an aggregator")
+        shared_context = dict(kwargs.pop("shared_context", None) or {})
+        shared_context["ensemble_mode"] = mode
+        specs = [replace(candidate, goal=goal, formation_role="member") for candidate in candidates]
+        if aggregator is not None:
+            specs.append(replace(aggregator, formation_role=mode))
+        team = await cls.create(
+            orchestrator,
+            name,
+            goal,
+            specs,
+            formation=TeamFormation.PARALLEL,
+            shared_context=shared_context,
+            **kwargs,
+        )
+        if aggregator is not None:
+            team._config.shared_context["ensemble_aggregator_id"] = team._config.members[-1].id
+        return team
+
+    @classmethod
     async def create_consensus_team(
         cls,
         orchestrator: "AgentOrchestrator",
@@ -714,6 +757,7 @@ class AgentTeam:
         members: List[TeamMemberSpec],
         *,
         rounds: int = 3,
+        mode: str = "agreement",
         agreement_threshold: float = 0.7,
         supervisor: Optional[TeamMemberSpec] = None,
         **kwargs: Any,
@@ -723,6 +767,16 @@ class AgentTeam:
         An optional supervisor's successful final proposal deterministically breaks
         a tie; this is reported as a tie-break decision, never as consensus.
         """
+        if mode == "vote":
+            if supervisor is not None:
+                raise ValueError("Vote mode does not use a supervisor tie-break")
+            team = await cls.create_ensemble_team(
+                orchestrator, name, goal, members, mode="vote", **kwargs
+            )
+            team._config.formation = TeamFormation.CONSENSUS
+            return team
+        if mode != "agreement":
+            raise ValueError("Consensus mode must be agreement or vote")
         from victor.coordination.formations.consensus import ConsensusFormation
 
         ConsensusFormation(max_rounds=rounds, agreement_threshold=agreement_threshold)
