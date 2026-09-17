@@ -68,6 +68,7 @@ from typing import (
 
 from victor.teams.types import (
     MemoryConfig,
+    FormationRole,
     TeamAgentCategory,
     TeamConfig,
     TeamMember,
@@ -397,7 +398,11 @@ class TeamMemberSpec:
             model=self.model,
             temperature=self.temperature,
             reasoning_effort=self.reasoning_effort,
-            formation_role=self.formation_role,
+            formation_role=(
+                FormationRole(self.formation_role).value
+                if self.formation_role is not None
+                else None
+            ),
         )
 
         # Auto-attach memory coordinator if memory is enabled
@@ -784,6 +789,7 @@ class AgentTeam:
                 writer.provider,
             )
 
+        reviewer = replace(reviewer, formation_role=FormationRole.REVIEWER.value)
         members = [writer, reviewer] + ([reviser] if reviser is not None else [])
         kwargs.pop("formation", None)
         return await cls.create(
@@ -844,8 +850,8 @@ class AgentTeam:
         if verdict_format not in {"legacy", "json"}:
             raise ValueError("verdict_format must be legacy or json")
         # Bind roles explicitly so context-agent binding never depends on order.
-        generator.formation_role = "generator"
-        critic.formation_role = "critic"
+        generator = replace(generator, formation_role=FormationRole.GENERATOR.value)
+        critic = replace(critic, formation_role=FormationRole.CRITIC.value)
 
         kwargs.pop("formation", None)
         shared_context = dict(kwargs.pop("shared_context", None) or {})

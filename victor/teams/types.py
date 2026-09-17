@@ -29,6 +29,7 @@ Type Consolidation:
 
 from __future__ import annotations
 
+import logging
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -40,6 +41,38 @@ if TYPE_CHECKING:
     from victor.core.shared_types import SubAgentRole
     from victor.agent.protocols import UnifiedMemoryCoordinatorProtocol
     from victor.agent.presentation import PresentationProtocol
+
+
+class FormationRole(str, Enum):
+    """Canonical coordination roles, separate from domain-specific SubAgentRole.
+
+    Reviewer is one-pass, critic is iterative, judge gives a one-shot verdict,
+    and synthesizer composes candidate outputs. Generator is reflection's producer.
+    """
+
+    SUPERVISOR = "supervisor"
+    MEMBER = "member"
+    SUBAGENT = "subagent"
+    REVIEWER = "reviewer"
+    CRITIC = "critic"
+    JUDGE = "judge"
+    SYNTHESIZER = "synthesizer"
+    ROUTER = "router"
+    GENERATOR = "generator"
+
+
+def normalize_supervisor_context(shared_state: Dict[str, Any]) -> None:
+    """Consume the deprecated manager alias once; emit only the canonical key.
+
+    Canonical input wins if both keys are present, including a deliberate None.
+    Mutates coordinator-owned state, never the caller's original context mapping.
+    """
+    if "explicit_manager_id" in shared_state:
+        legacy = shared_state.pop("explicit_manager_id")
+        logging.getLogger(__name__).warning(
+            "explicit_manager_id is deprecated; use explicit_supervisor_id (canonical value wins)"
+        )
+        shared_state.setdefault("explicit_supervisor_id", legacy)
 
 
 class TeamFormation(str, Enum):
