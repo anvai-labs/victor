@@ -59,7 +59,12 @@ def test_member_error_carries_failure_and_content() -> None:
 
 def test_member_types_are_additive_not_core() -> None:
     # The base six-type contract is unchanged; member types are a separate additive set.
-    assert MEMBER_WIRE_EVENT_TYPES == {"member_start", "member_completed", "member_error"}
+    assert MEMBER_WIRE_EVENT_TYPES == {
+        "member_start",
+        "member_completed",
+        "member_error",
+        "member_throttled",
+    }
     assert not (MEMBER_WIRE_EVENT_TYPES & WIRE_EVENT_TYPES)
 
 
@@ -69,3 +74,20 @@ def test_bare_custom_event_stays_out_of_contract() -> None:
     assert to_wire_event(bare) is None
     no_meta = SimpleNamespace(event_type="custom", content="x", metadata={})
     assert to_wire_event(no_meta) is None
+
+
+def test_throttle_wire_event_preserves_capacity_and_warning():
+    from victor.framework.events import member_event
+    from victor.framework.member_event_sink import MEMBER_THROTTLED
+    from victor.framework.wire_events import to_wire_event
+
+    event = member_event(
+        MEMBER_THROTTLED,
+        "queued",
+        content="Waiting for provider capacity",
+        metadata={"concurrency_limit": 2, "level": "warning"},
+    )
+    wire = to_wire_event(event)
+    assert wire["event"] == MEMBER_THROTTLED
+    assert wire["concurrency_limit"] == 2
+    assert wire["level"] == "warning"
