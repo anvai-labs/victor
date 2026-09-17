@@ -64,3 +64,21 @@ __all__ = [
     "AdaptiveFormation",
     "AdaptationStrategy",
 ]
+
+
+def create_formation_registry():
+    """Build the single formation registry, shared by coordinator and adaptive dispatch."""
+    from victor.teams.types import TeamFormation
+
+    formations = {
+        TeamFormation.SEQUENTIAL: SequentialFormation(),
+        TeamFormation.PARALLEL: ParallelFormation(),
+        TeamFormation.HIERARCHICAL: HierarchicalFormation(),
+        TeamFormation.PIPELINE: PipelineFormation(),
+        TeamFormation.CONSENSUS: ConsensusFormation(),
+        TeamFormation.REFLECTION: ReflectionFormation(),
+        TeamFormation.DYNAMIC_ROUTER: DynamicRouterFormation(),
+        TeamFormation.MULTI_LEVEL_HIERARCHY: MultiLevelHierarchyFormation(),
+    }
+    formations[TeamFormation.ADAPTIVE] = AdaptiveFormation(resolve_formation=formations.__getitem__)
+    return formations

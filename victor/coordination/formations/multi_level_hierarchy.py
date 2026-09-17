@@ -18,9 +18,9 @@ This module provides MultiLevelHierarchyFormation, which implements
 hierarchical agent coordination with multiple levels.
 
 Formation Pattern:
-    Level 0: Coordinator
-    Level 1: Team Leads (3-5)
-    Level 2: Team Members (each under a lead)
+    Level 0: Supervisor
+    Level 1: Supervisors
+    Level 2: Members
 
 Implements divide-and-conquer pattern for large tasks.
 
@@ -53,6 +53,7 @@ Usage:
 from __future__ import annotations
 
 import logging
+import json
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
@@ -108,18 +109,18 @@ class MultiLevelHierarchyFormation(BaseFormationStrategy):
     """Multi-level hierarchical coordination for divide-and-conquer.
 
     Formation Pattern:
-        Level 0: Coordinator
-            ├── Level 1: Team Lead 1
+        Level 0: Supervisor
+            ├── Level 1: Supervisor 1
             │   ├── Level 2: Member 1
             │   └── Level 2: Member 2
-            └── Level 1: Team Lead 2
+            └── Level 1: Supervisor 2
                 ├── Level 2: Member 3
                 └── Level 2: Member 4
 
     Implements divide-and-conquer pattern:
-    1. Coordinator receives task
-    2. Task split among team leads
-    3. Leads delegate to members
+    1. Root supervisor receives task
+    2. Task split among child supervisors
+    3. Supervisors delegate to members
     4. Results aggregated up the hierarchy
 
     SOLID: SRP (hierarchy logic only), OCP (extensible depth)
@@ -144,7 +145,7 @@ class MultiLevelHierarchyFormation(BaseFormationStrategy):
 
     def __init__(
         self,
-        hierarchy: HierarchyNode,
+        hierarchy: Optional[HierarchyNode] = None,
         max_depth: int = 3,
         split_strategy: str = "auto",
     ):
@@ -158,6 +159,8 @@ class MultiLevelHierarchyFormation(BaseFormationStrategy):
                 - "count": Split by count
                 - "auto": Automatic based on task size
         """
+        if max_depth < 1 or split_strategy not in {"line", "count", "auto"}:
+            raise ValueError("Invalid hierarchy depth or split strategy")
         self.hierarchy = hierarchy
         self.max_depth = max_depth
         self.split_strategy = split_strategy
@@ -181,6 +184,14 @@ class MultiLevelHierarchyFormation(BaseFormationStrategy):
                 - hierarchy_levels: Number of levels in hierarchy
                 - nodes_executed: Total nodes executed
         """
+        if agents:
+            return await self._execute_participants(agents, context, task)
+        if self.hierarchy is None:
+            return [
+                MemberResult(
+                    member_id="hierarchy", success=False, output="", error="No members available"
+                )
+            ]
         try:
             # Execute from root of hierarchy
             result = await self._execute_node(self.hierarchy, task, context)
@@ -207,6 +218,91 @@ class MultiLevelHierarchyFormation(BaseFormationStrategy):
                     error=str(e),
                 )
             ]
+
+    async def _execute_participants(self, agents, context, task):
+        """Execute a validated member-ID tree, retaining each member's outcome."""
+        from victor.teams.types import MessageType
+
+        by_id = {agent.id: agent for agent in agents}
+        tree = context.get("hierarchy")
+        max_depth = context.get("hierarchy_max_depth", self.max_depth)
+        if not isinstance(max_depth, int) or max_depth < 1:
+            raise ValueError("hierarchy_max_depth must be a positive integer")
+        if tree is None:
+            # Stable binary tree in member order. Explicit trees are recommended
+            # when supervisor placement matters.
+            nodes = [{"member_id": agent.id, "children": []} for agent in agents]
+            for index in range(1, len(nodes)):
+                nodes[(index - 1) // 2]["children"].append(nodes[index])
+            tree = nodes[0]
+        seen = set()
+
+        def validate(node, depth):
+            if not isinstance(node, dict) or set(node) - {"member_id", "children"}:
+                raise ValueError("Hierarchy nodes require member_id and optional children")
+            member_id = node.get("member_id")
+            if not isinstance(member_id, str) or member_id not in by_id or member_id in seen:
+                raise ValueError("Hierarchy contains an unknown or duplicate member ID")
+            if depth > max_depth:
+                raise ValueError("Hierarchy exceeds hierarchy_max_depth")
+            seen.add(member_id)
+            children = node.get("children", [])
+            if not isinstance(children, list):
+                raise ValueError("Hierarchy children must be a list")
+            for child in children:
+                validate(child, depth + 1)
+
+        validate(tree, 1)
+        if seen != set(by_id):
+            raise ValueError("Hierarchy must include every member exactly once")
+        splitter = MultiLevelHierarchyFormation(
+            split_strategy=context.get("hierarchy_split_strategy", self.split_strategy)
+        )
+        results = []
+
+        async def visit(node, objective, depth):
+            children = node.get("children", [])
+            findings = []
+            for child, subtask in zip(children, splitter._split_task(objective, len(children))):
+                findings.append(await visit(child, subtask, depth + 1))
+            prompt = (
+                f"Objective: {objective}\n"
+                "Output: condensed findings or file references. Use only assigned tools and sources.\n"
+                "Boundary: handle only this assigned portion; do not duplicate other members' work."
+            )
+            if children:
+                prompt += (
+                    "\nSynthesize these structured member outcomes; preserve failures and do not redo their tasks:\n"
+                    + json.dumps(findings)
+                )
+            result = await by_id[node["member_id"]].execute(
+                AgentMessage(
+                    sender_id=task.sender_id,
+                    content=prompt,
+                    message_type=MessageType.TASK,
+                    data=task.data,
+                ),
+                context,
+            )
+            result.metadata.update(
+                formation="multi_level_hierarchy",
+                hierarchy_level=depth,
+                hierarchy_root=node is tree,
+            )
+            results.append(result)
+            return {
+                "member_id": result.member_id,
+                "success": result.success,
+                "output": result.output,
+                "error": result.error,
+            }
+
+        await visit(tree, task.content, 1)
+        return results
+
+    def supports_durable_pause(self) -> bool:
+        """False: the recursive tree cursor is not persisted; approval stays inline."""
+        return False
 
     async def _execute_node(
         self, node: HierarchyNode, task: AgentMessage, context: TeamContext
@@ -260,34 +356,21 @@ class MultiLevelHierarchyFormation(BaseFormationStrategy):
         """
         if num_parts <= 1:
             return [task]
-
-        # Strategy: line-based splitting
-        if self.split_strategy == "line" or (self.split_strategy == "auto" and len(task) > 500):
-            lines = task.split("\n")
-            chunk_size = max(1, len(lines) // num_parts)
-            subtasks = []
-
-            for i in range(0, len(lines), chunk_size):
-                chunk = "\n".join(lines[i : i + chunk_size])
-                subtasks.append(chunk)
-
-            return subtasks[:num_parts]
-
-        # Strategy: count-based splitting
-        elif self.split_strategy == "count":
-            char_size = max(1, len(task) // num_parts)
-            subtasks = []
-
-            for i in range(0, len(task), char_size):
-                chunk = task[i : i + char_size]
-                subtasks.append(chunk)
-
-            return subtasks[:num_parts]
-
-        # Auto: simple equal splitting
-        else:
-            part_size = len(task) // num_parts
-            return [task[i : i + part_size] for i in range(0, len(task), part_size)][:num_parts]
+        # Balanced partitions preserve the remainder and handle tasks shorter than
+        # the member count. Line endings stay attached to their original lines.
+        units = (
+            task.splitlines(keepends=True)
+            if self.split_strategy == "line" or (self.split_strategy == "auto" and "\n" in task)
+            else list(task)
+        )
+        size, remainder = divmod(len(units), num_parts)
+        chunks = []
+        offset = 0
+        for index in range(num_parts):
+            end = offset + size + (index < remainder)
+            chunks.append("".join(units[offset:end]))
+            offset = end
+        return chunks
 
     async def _aggregate_results(self, results: List[Any]) -> Any:
         """Aggregate results from child nodes.
@@ -350,7 +433,7 @@ class MultiLevelHierarchyFormation(BaseFormationStrategy):
         Returns:
             True if hierarchy structure is valid
         """
-        return self._validate_node(self.hierarchy)
+        return self.hierarchy is not None and self._validate_node(self.hierarchy)
 
     def supports_early_termination(self) -> bool:
         """Check if formation supports early termination.

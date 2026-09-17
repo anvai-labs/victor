@@ -42,8 +42,13 @@ cyclic edges, checkpointing, and human-in-the-loop interrupts, with a streaming 
 ## Multi-agent teams
 
 Teams are **formations over a StateGraph** (not a separate graph): `SEQUENTIAL`, `PARALLEL`,
-`HIERARCHICAL`, `PIPELINE`, plus reflection. Use `UnifiedTeamCoordinator` directly as a StateGraph
-node.
+`HIERARCHICAL`, `PIPELINE`, `CONSENSUS`, `REFLECTION`, `ADAPTIVE`, `DYNAMIC_ROUTER`,
+and `MULTI_LEVEL_HIERARCHY`. Use `UnifiedTeamCoordinator` directly as a StateGraph node.
+`AgentTeam.create_adaptive_team`, `create_router_team`, and
+`create_multi_level_hierarchy_team` expose bounded topology retries, single-member
+routing, and recursive task splitting/synthesis. These three opt-in formations retain
+member outcomes but do **not** support durable mid-run pause/resume; approval stays
+inline. See [formation contracts and examples](architecture/multiagent-formations-inferflux.md#additional-formations-unit-validated).
 
 **Heterogeneous teams** — each member can run a different **provider / model / temperature /
 reasoning_effort** (capability-gated, e.g. OpenAI o-series / GPT-5 reasoning effort), so a single

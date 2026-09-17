@@ -11,8 +11,8 @@ co-design learnings that motivate each item.
 
 ### 1.1 Canonical formations — implemented and live-tested (6/6)
 
-`TeamFormation` ([`victor/teams/types.py`](../../victor/teams/types.py)) defines exactly six
-values, all registered in `UnifiedTeamCoordinator._formations` and all verified live on
+`TeamFormation` ([`victor/teams/types.py`](../../victor/teams/types.py)) defines nine values, all registered in `UnifiedTeamCoordinator._formations`.
+The original six below were verified live on
 2026-09-17 (single 3-member PARALLEL re-verified again on rebased develop, 48.2s green):
 
 | Formation | Live result | Notes from the run |
@@ -49,21 +49,23 @@ These shipped and are unit-tested, but the live InferFlux matrix did not exercis
   durable `MemberApprovalPause` for the four non-iterative formations, and
   `MemberEventSink` per-member streaming lanes. Not exercised over local inference.
 
-### 1.3 Implemented but UNWIRED — the orphan trio
+### 1.3 Additional formations — WS-A integration
 
-[`victor/coordination/formations/`](../../victor/coordination/formations/) contains three
-`BaseFormationStrategy` subclasses with **zero references outside their own module** — not
-in the enum, not in the coordinator's `_formations` dict, no presets, no docs:
+**Decision: INTEGRATE.** The orphan trio now has enum values, shared-registry
+registration, `AgentTeam` presets, feature/formation docs, coordinator-dispatch tests,
+and explicit `supports_durable_pause() == False` statements. Live validation remains
+outstanding; none of these rows claims a live pass.
 
-| Strategy | What it does | State |
+| Strategy | Public formation / preset | State |
 |---|---|---|
-| `AdaptiveFormation` | switches formations mid-run on performance/error-rate/feedback thresholds (bounded by `max_switches`) | unit-tested; docstring references non-existent names (`OrchestrationFormation`, `HierarchyFormation`) — stale port |
-| `DynamicRouterFormation` | analyzes the task and routes to ONE best-suited member (TaskAnalyzer category → keyword fallback → first agent) | unit-tested |
-| `MultiLevelHierarchyFormation` | N-level coordinator→lead→member tree, divide-and-conquer with line/count/auto split strategies | unit-tested |
+| `AdaptiveFormation` | ADAPTIVE / `create_adaptive_team` | Integrated; invocation-local bounded switching, real member outcomes; PR pending |
+| `DynamicRouterFormation` | DYNAMIC_ROUTER / `create_router_team` | Integrated; one-member dispatch retaining structured outcomes; PR pending |
+| `MultiLevelHierarchyFormation` | MULTI_LEVEL_HIERARCHY / `create_multi_level_hierarchy_team` | Integrated; validated member-ID tree, lossless splitting, supervisor synthesis; PR pending |
 
-They are tested in `tests/unit/coordination/formations/test_new_formations.py`, so CI
-keeps them green while nothing can reach them: code that looks supported but has no
-live path — the same drift class as the stale-copy finding in the InferFlux review.
+Regression coverage: `tests/unit/coordination/formations/test_new_formations.py`
+and `tests/unit/teams/test_integrated_formations.py`. Durable partial resume is not
+supported for these three: no topology/routing/tree cursor is persisted. Approval
+remains inline (see G17).
 
 ### 1.4 Designed, not implemented (or explicitly deferred)
 
@@ -97,13 +99,13 @@ substrate — which is the deepest structural finding of this review.
 |---|---|---|
 | Sequential chain (prompt chaining, CrewAI sequential, ADK `SequentialAgent`) | fixed order; each stage consumes prior output | ✅ SEQUENTIAL / PIPELINE |
 | Fan-out / fan-in (parallelization-sectioning, ADK `ParallelAgent`) | independent subtasks concurrently, aggregate after | ✅ PARALLEL (aggregation gaps: G3) |
-| Router (dispatch-and-synthesize; LangChain "router", Anthropic "routing") | classify input → invoke one/few specialists → synthesize | ⚠️ implemented, UNWIRED (`DynamicRouterFormation`, §1.3) |
+| Router (dispatch-and-synthesize; LangChain "router", Anthropic "routing") | classify input → invoke one/few specialists → synthesize | Integrated (`DynamicRouterFormation`, §1.3; PR pending) |
 | Supervisor / orchestrator-workers (LangChain subagents, CrewAI hierarchical with `manager_llm`) | central agent decomposes, delegates, synthesizes; workers stateless to each other | ✅ HIERARCHICAL (single level) |
-| Hierarchical multi-level (ADK transfer trees, org-chart topologies) | coordinator → leads → members, aggregate up | ⚠️ implemented, UNWIRED (`MultiLevelHierarchyFormation`) |
+| Hierarchical multi-level (ADK transfer trees, org-chart topologies) | coordinator → leads → members, aggregate up | Integrated (`MultiLevelHierarchyFormation`, §1.3; PR pending) |
 | Group chat with speaker selection (AutoGen `SelectorGroupChat`, `RoundRobinGroupChat`) | members broadcast to a SHARED TRANSCRIPT; LLM/selector/round-robin picks next speaker; termination conditions | ❌ absent — needs transcript substrate (G14) |
 | Swarm / peer handoff (OpenAI Agents SDK handoffs, AutoGen Swarm) | control MOVES agent-to-agent via handoff-as-tool-call; receiving agent continues with carried context | ❌ absent — supervisor-mediated delegation only; peer transfer needs substrate (G15) |
 | Evaluator-optimizer (generator-critic loop) | generate → critique → refine until satisfied | ✅ REFLECTION (verdict fragility: G2) |
-| Adaptive / dynamic topology switching (MDPI "adaptivity" dimension; Magentic-One replanning) | monitor progress → switch topology or replan mid-run | ⚠️ implemented, UNWIRED (`AdaptiveFormation`); Magentic-style ledger replanning not designed |
+| Adaptive / dynamic topology switching (MDPI "adaptivity" dimension; Magentic-One replanning) | monitor progress → switch topology or replan mid-run | Integrated (`AdaptiveFormation`, §1.3; PR pending); Magentic-style ledger replanning not designed |
 | Ensemble aggregation (self-consistency, "More Agents Is All You Need" voting, Mixture-of-Agents layered aggregation) | N proposals of the SAME task → vote / layered aggregation | ❌ absent — CONSENSUS checks agreement across members, it does not N-sample one task and vote (G16) |
 | Structured debate (Du et al. multiagent debate) | adversarial rounds with a judge; improves factuality | ❌ absent — rides the transcript substrate (G14) |
 | Blackboard shared memory (Hearsay-II lineage) | specialists watch/mutate a shared workspace opportunistically | ❌ absent — Victor's `shared_state` dict is coordinator-curated, not opportunistic |
@@ -291,12 +293,11 @@ G1–G13 come from the co-design sessions and code audit; G14–G16 from the §2
   DEBUG and keep the default formation — indistinguishable from a strategy that
   intentionally returns the default. Needs a warning-level event on the teams→stream
   bridge. Live e2e of dynamic selection also missing.
-- **G10 — orphan trio: integrate or delete.** Options: (a) wire DynamicRouter +
-  MultiLevelHierarchy into the enum + `_formations` + presets (they implement the
-  ITeamMember contract via the `_MemberContextAgent` shim); (b) archive behind a
-  deprecation. `AdaptiveFormation` additionally needs its stale names fixed before any
-  wiring. If deleting: `ARCHIVED_DOC_BANNERS` / `CANONICAL_POINTER_DOCS` hygiene
-  applies, and `test_new_formations.py` coverage moves with them.
+- **G10 — orphan trio: INTEGRATE (WS-A, PR pending).** All three have public enum,
+  registry, preset, docs, dispatch-test, and durability surfaces. Adaptive stale
+  names and duplicate dispatch were removed. Regression tests cover real member
+  execution/failure, concurrent adaptive calls, lossless task splitting, and invalid
+  trees. Original six defaults remain unchanged.
 - **G11 — per-member cost attribution unverified end-to-end.** Sandhi stamps
   `x-sandhi-run-id` from the member session id; the InferFlux side keys session-KV on
   it. A member-tagged cost rollup (`GET /admin/usage/run/{run_id}` → per member) has
@@ -322,6 +323,12 @@ G1–G13 come from the co-design sessions and code audit; G14–G16 from the §2
   one pass; there is no N-sample-one-task vote (self-consistency), layered
   propose→aggregate (Mixture-of-Agents), or judged debate. Substrate-light: can ride
   PARALLEL execution + a new aggregation mode on `TeamResult`.
+
+- **G17 — integrated trio has no durable partial resume.** WS-A makes this explicit:
+  adaptive requires a topology/attempt cursor; hierarchy requires a recursive cursor;
+  router requires persisted selection. `supports_durable_pause()` is false, and
+  member approvals stay inline. A separate durability design/test increment is
+  required before claiming member-granular resume for these formations.
 
 ## 4. Suggested follow-up session plan
 
