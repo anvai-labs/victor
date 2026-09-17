@@ -44,6 +44,8 @@ import json
 import logging
 from typing import Any, Dict, Mapping, Optional
 
+from victor.providers.usage_accounting import usage_total_tokens
+
 logger = logging.getLogger(__name__)
 
 try:  # optional dependency (victor[sandhi])
@@ -192,14 +194,9 @@ def usage_dict_from_neutral(
     else:
         prompt = fresh + read
 
-    try:
-        total = int(raw["total_tokens"])
-    except (KeyError, TypeError, ValueError):
-        total = prompt + completion
     usage = {
         "prompt_tokens": prompt,
         "completion_tokens": completion,
-        "total_tokens": total,
     }
     if creation:
         usage["cache_creation_input_tokens"] = creation
@@ -211,4 +208,10 @@ def usage_dict_from_neutral(
         usage["reasoning_tokens"] = reasoning
     if isinstance(neutral.get("reasoning_included"), bool):
         usage["reasoning_included"] = neutral["reasoning_included"]
+    # Derive only when the producer omitted a usable total; explicit totals remain
+    # authoritative. Separate reasoning contributes to the fallback total.
+    try:
+        usage["total_tokens"] = int(raw["total_tokens"])
+    except (KeyError, TypeError, ValueError):
+        usage["total_tokens"] = usage_total_tokens(usage)
     return usage

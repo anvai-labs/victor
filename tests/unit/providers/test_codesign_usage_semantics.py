@@ -24,6 +24,7 @@ def test_reasoning_inclusion_survives_to_cost(reasoning, included, response_type
         None,
     )
     assert usage["reasoning_included"] is included
+    assert usage["total_tokens"] == 140 + (0 if included else reasoning)
     # Pydantic's former Dict[str, int] silently coerced False/True to 0/1.
     response = response_type(content="", model="m", usage=usage)
     assert response.usage["reasoning_included"] is included

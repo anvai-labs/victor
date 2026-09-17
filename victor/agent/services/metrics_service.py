@@ -204,6 +204,8 @@ class AgentMetricsService:
             self._session_cost_tracker.record_request(
                 prompt_tokens=metrics.prompt_tokens,
                 completion_tokens=metrics.completion_tokens,
+                billable_completion_tokens=metrics.billable_completion_tokens,
+                total_tokens=metrics.total_tokens,
                 cache_read_tokens=metrics.cache_read_tokens,
                 cache_write_tokens=metrics.cache_write_tokens,
                 duration_seconds=metrics.total_duration,

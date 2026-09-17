@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Callable, Dict, List, Optional
 
 from victor.providers.base import StreamChunk
+from victor.providers.usage_accounting import billable_completion_tokens, usage_total_tokens
 
 logger = logging.getLogger(__name__)
 
@@ -98,23 +99,30 @@ class StreamMetrics:
         if usage:
             self.prompt_tokens += usage.get("prompt_tokens", 0)
             self.completion_tokens += usage.get("completion_tokens", 0)
-            self.total_tokens += usage.get("total_tokens", 0)
+            self.total_tokens += usage_total_tokens(usage)
 
             # Cache tokens (Anthropic-style naming)
             self.cache_read_tokens += usage.get("cache_read_input_tokens", 0)
             self.cache_write_tokens += usage.get("cache_creation_input_tokens", 0)
             self.reasoning_tokens += usage.get("reasoning_tokens", 0)
-            reasoning = usage.get("reasoning_tokens", 0)
-            included = usage.get("reasoning_included")
-            if included is False or (
-                included is None and reasoning > usage.get("completion_tokens", 0)
-            ):
-                self._unfolded_reasoning_tokens += reasoning
+            self._unfolded_reasoning_tokens += billable_completion_tokens(usage) - usage.get(
+                "completion_tokens", 0
+            )
             self._has_recorded_reasoning = True
 
             # Mark as actual usage if we got non-zero values
-            if self.prompt_tokens > 0 or self.completion_tokens > 0:
+            if self.prompt_tokens > 0 or self.billable_completion_tokens > 0:
                 self.has_actual_usage = True
+
+    @property
+    def billable_completion_tokens(self) -> int:
+        """Output used for pricing, retaining the reported completion count separately."""
+        unfolded_reasoning = (
+            self._unfolded_reasoning_tokens
+            if self._has_recorded_reasoning
+            else (self.reasoning_tokens if self.reasoning_tokens > self.completion_tokens else 0)
+        )
+        return self.completion_tokens + unfolded_reasoning
 
     def record_wire_latency(self, sandhi_usage: Optional[Dict[str, Any]]) -> None:
         """Record wire-truth latency from the terminal chunk's diagnostics."""
@@ -145,16 +153,9 @@ class StreamMetrics:
         if not capabilities or not capabilities.cost_enabled:
             return
 
-        # Explicit per-call inclusion wins. Directly constructed legacy metrics
-        # retain their historical fallback when no usage records were supplied.
-        unfolded_reasoning = (
-            self._unfolded_reasoning_tokens
-            if self._has_recorded_reasoning
-            else (self.reasoning_tokens if self.reasoning_tokens > self.completion_tokens else 0)
-        )
         costs = capabilities.calculate_cost(
             self.prompt_tokens,
-            self.completion_tokens + unfolded_reasoning,
+            self.billable_completion_tokens,
             self.cache_read_tokens,
             self.cache_write_tokens,
         )
