@@ -4,7 +4,7 @@ title: "Tool-Supply Pipeline Consolidation — one per-turn pipeline, one hydrat
 type: Standards Track
 status: Draft
 created: 2026-09-16
-modified: 2026-09-16
+modified: 2026-09-17
 authors:
   - name: Vijaykumar Singh
     email: vijay@anvaiops.com
@@ -82,11 +82,15 @@ stage, invoked in every transport before that transport's fork** — never a par
 hook on a service facade. Demand wiring stays in `SharedToolRegistry` (registry
 data), hydration stays a registrar method (registration), but the *invocation* is
 one shared helper called at each transport's entry (`hydrate_demand_tools`). Until
-Stage C unifies the transports, that is two call sites for one implementation —
+Stage C unifies the transports, there are three invocation sites for one implementation
+(per-turn chat, frozen chat and agentic transport) —
 deliberately: one call site per transport, one implementation, never one call site
 per transport per behavior.
 
 ## Implementation Plan
+
+Progress below describes source integration and the v0.9.5 candidate, not a published release.
+The FEP remains Draft because full transport-entry unification is incomplete.
 
 - **Stage A (this FEP's companion PR) — DONE** — a single shared
   `hydrate_demand_tools(host, text)` helper (in `tool_selection_runtime.py`)
@@ -98,7 +102,7 @@ per transport per behavior.
   now reports the dedicated gh tool present and calls it. Regression tests:
   `tests/unit/agent/test_demand_hydration_turn.py`. No removals; no behavior
   change for turns that mention nothing demand-wired.
-- **Stage B** — delete `ToolService.select_tools` and `_hydrate_tools_for_context`
+- **Stage B — implemented** — removed `ToolService.select_tools` and `_hydrate_tools_for_context`
   (zero production callers; one mock-level unit test in
   `tests/unit/agent/services/test_chat_service.py` moves with it). ToolService keeps
   parse/execute/enabled-tools duties.
@@ -108,9 +112,13 @@ per transport per behavior.
   serving's fallbacks) applied to tool supply. **Partial — done**: the agentic-loop
   transport (`TurnExecutor._select_tools_for_turn`, used by headless runs and
   benchmarks) now runs Stage 1 demand hydration via the shared `hydrate_demand_tools`
-  helper, so mention-wired tools measure and serve identically. **Remaining**: Stage 8
-  trace emission on that transport and full entry unification (it still owns its own
-  pruning-gate-first stage order).
+  helper, and emits Stage 8 supply traces. Stable schema builders are shared. The release
+  candidate additionally gives explicit curated sets precedence over hydration and the
+  pruning-disabled full-registry shortcut; missing curated tools remain an empty supply,
+  with a finalized trace. **Remaining**: full entry unification; the agentic transport still
+  owns a separate stage sequence, so complete behavioral parity is not established by these
+  shared stages alone. Regression coverage includes `test_turn_supply_parity.py` and
+  `services/test_turn_execution_runtime.py`.
 - **Stage D (optional)** — promote stages to first-class objects with per-stage trace
   records if per-stage telemetry demand materializes; not done speculatively.
 
@@ -123,7 +131,8 @@ per transport per behavior.
 
 ## Drawbacks and Alternatives
 
-Drawbacks: two call sites for one helper until Stage C lands (temporary duplication, called out above); hydration adds a per-turn substring scan (measured negligible: a frozenset membership pass over ~9 phrases). Alternatives considered:
+Drawbacks: three invocation sites remain for one helper until Stage C unifies the entry points;
+hydration adds a per-turn substring scan. Alternatives considered:
 
 - **Hydrate in `ToolSelector.select_tools` too** — rejected: two hydration sites
   recreates the divergence this FEP removes.

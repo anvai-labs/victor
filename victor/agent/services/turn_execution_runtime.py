@@ -1620,10 +1620,6 @@ class TurnExecutor:
         Returns:
             List of tool definitions or None
         """
-        # Stage 1 — demand hydration (FEP-0034 pipeline): register
-        # mention-wired tools (graph, gh) before any supply decision, exactly
-        # like the chat transports — headless runs and benchmarks must measure
-        # the same supply behavior users get (FEP-0025 lesson).
         from victor.agent.services.tool_selection_runtime import (
             ToolSelectionRuntime,
             _emit_tool_supply_trace,
@@ -1631,6 +1627,28 @@ class TurnExecutor:
         )
         from victor.tools.tool_supply_trace import ToolSupplyTrace
 
+        # Caller-curated supply is authoritative, even when automatic pruning is off.
+        # Resolve it before hydration or the all-registered shortcut can widen the set.
+        selector = self._tool_context.tool_selector
+        curated = getattr(selector, "_enabled_tools", None)
+        if isinstance(curated, (set, frozenset, list)) and curated:
+            from victor.agent.tool_selection.stable_definitions import (
+                stable_curated_definitions,
+            )
+
+            # Missing curated tools must not fall through to the unrestricted registry.
+            tools = stable_curated_definitions(selector) or []
+            trace = ToolSupplyTrace.begin(
+                ToolSelectionRuntime._registered_tools(self._resolve_orchestrator())
+            )
+            trace.set_candidates(tools)
+            _emit_tool_supply_trace(trace.finalize(tools))
+            return tools
+
+        # Stage 1 — demand hydration (FEP-0034 pipeline): register
+        # mention-wired tools (graph, gh) before any supply decision, exactly
+        # like the chat transports — headless runs and benchmarks must measure
+        # the same supply behavior users get (FEP-0025 lesson).
         hydrate_demand_tools(self._resolve_orchestrator(), user_message)
 
         # Stage 8 parity — per-turn tool-supply telemetry, the same trace the

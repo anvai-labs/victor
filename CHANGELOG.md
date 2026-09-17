@@ -5,6 +5,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased] (develop)
 
+The v0.9.5 candidate includes the current develop scope and the consumer fixes below.
+Version metadata is prepared; final promotion, CI and publication are pending.
+
 ### Added
 ### Added
 
@@ -31,7 +34,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `claude mcp add`.
 
 ### Fixed
-### Fixed
+
+- Preserve Sandhi's boolean reasoning-inclusion convention through provider responses and fold
+  reasoning per call before accumulating usage. Stream metrics and session pricing now share
+  billable output counts while preserving raw completion counts, totals and timing provenance.
+- Respect explicit curated tool sets before pruning and demand hydration on the agentic path;
+  unavailable curated tools do not fall back to the full registry. Retain supply-trace emission.
+- Restore the caller's session context before yielding subagent stream chunks, including early
+  termination and timeout cleanup. Member orchestration advances retain their isolated session ID.
 
 - The agentic-loop selection transport now emits the per-turn tool-supply
   trace (Stage 8 of FEP-0034), so benchmark and headless runs are queryable
@@ -89,7 +99,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   re-issue guidance (`commit=True` to write, `preview=True` for a diff).
 
 ### Changed
-### Changed
+
+- Advance the core `sandhi-gateway` pin to 0.7.0 and recognize chat contract minor 8.
+  Candidate tests cover accounting and context propagation; they do not establish loaded-model
+  quality or production performance. See the
+  [consumer handoff](docs/architecture/inferflux-reasoning-separation-handoff.md) for evidence
+  boundaries and remaining release gates.
 
 - CI no longer tests on Python 3.11: the 3.11 lanes (test matrix shards,
   integration, verticals, performance, quality gates) are removed, shrinking
