@@ -26,7 +26,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-import victor.agent.services.turn_execution_runtime as ter
 from victor.agent.services.turn_execution_runtime import TurnExecutor
 
 
@@ -76,3 +75,52 @@ async def test_hydration_runs_before_pruning_gate(monkeypatch: pytest.MonkeyPatc
     )
     await runtime._select_tools_for_turn("summarize this repository")
     assert seen == ["summarize this repository"]
+
+
+def test_agentic_transport_emits_tool_supply_trace(monkeypatch: pytest.MonkeyPatch):
+    """Stage 8 parity: the agentic transport emits the same supply trace the
+    chat transports do, so benchmark runs are queryable like served sessions."""
+
+    emitted = []
+    monkeypatch.setattr(
+        "victor.agent.services.tool_selection_runtime._emit_tool_supply_trace",
+        lambda trace: emitted.append(trace),
+    )
+    runtime, tool_context = _make_runtime()
+    tool_context.tool_selector.select_tools = AsyncMock(return_value=[])
+    tool_context.tool_selector.prioritize_by_stage.side_effect = lambda _m, tools: tools
+
+    asyncio.run(runtime._select_tools_for_turn("fix the bug"))
+
+    assert len(emitted) == 1
+    assert tuple(emitted[0].dispatched) == ()
+    assert tuple(emitted[0].candidates) == ()
+
+
+def test_agentic_transport_emits_skipped_trace_on_stable_definitions(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Pruning-off turns that resolve stable definitions record a skip (the
+    supply was the byte-stable definition set, selected by nothing)."""
+
+    emitted = []
+    monkeypatch.setattr(
+        "victor.agent.services.tool_selection_runtime._emit_tool_supply_trace",
+        lambda trace: emitted.append(trace),
+    )
+    monkeypatch.setattr(
+        "victor.agent.tool_selection.stable_definitions.stable_all_definitions",
+        lambda _selector: ["read", "edit"],
+    )
+    # Force the pruning-enabled branch so the stable-definitions skip runs.
+    monkeypatch.setattr(
+        "victor.agent.services.turn_execution_runtime.is_tool_selection_enabled",
+        lambda _settings: False,
+    )
+    runtime, _ = _make_runtime()
+
+    asyncio.run(runtime._select_tools_for_turn("fix the bug"))
+
+    assert len(emitted) == 1
+    assert emitted[0].skipped is True
+    assert emitted[0].skip_reason == "pruning_disabled_stable_definitions"

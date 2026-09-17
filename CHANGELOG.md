@@ -25,6 +25,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed
 ### Fixed
 
+- The agentic-loop selection transport now emits the per-turn tool-supply
+  trace (Stage 8 of FEP-0034), so benchmark and headless runs are queryable
+  exactly like served chat sessions — including skip records for
+  pruning-disabled stable-definition turns. Edge-model and bootstrap docstrings
+  no longer reference a model default that drifted from the code.
+
+### Fixed
+
 - Headless runs and benchmarks now measure the same tool supply users get: the
   agentic-loop selection transport runs the Stage 1 demand-hydration stage
   (FEP-0034), so mention-wired tools (`gh`, `graph`) hydrate there too instead
