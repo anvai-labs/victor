@@ -54,11 +54,12 @@ whether another action is appropriate.
 
 Retirement detaches the captured process and sandbox owner before awaiting cleanup,
 so delayed cleanup cannot terminate a replacement. An owned daemon worker keeps
-blocking pipe I/O off the event loop and its default executor. If a descendant
-retains a pipe, `get_status()["transport_cleanup_pending"]` remains true and this
-client refuses reconnection until cleanup settles. This bounds stranded workers
-per client but sacrifices reconnection availability; it is not a process-tree
-containment guarantee. Prefer `await client.close()` for orderly shutdown.
+blocking pipe I/O off the event loop and its default executor. On POSIX, Victor
+launches each server in a dedicated process group and terminates that group during
+retirement, including descendants that ignore the graceful signal. If a descendant
+escapes the group and retains a pipe, `get_status()["transport_cleanup_pending"]`
+remains true and this client refuses reconnection until cleanup settles. This bounds
+stranded workers per client. Prefer `await client.close()` for orderly shutdown.
 
 A stdio bridge can connect to a separately managed application service. Its exit
 must not be interpreted as closing every shared application session. Persistent

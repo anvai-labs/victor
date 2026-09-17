@@ -35,6 +35,7 @@ Usage:
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Set
 
@@ -63,14 +64,20 @@ class EdgeModelConfig:
     """
 
     enabled: bool = True
-    provider: str = "ollama"
-    model: str = "qwen3.5:2b"
+    # Edge decisions want a tiny, fast, LOCAL model — the default stays
+    # Ollama even though chat's default provider is InferFlux (a 30B coder
+    # is the wrong shape for 4s micro-decisions). Env overrides keep it
+    # configurable without code edits.
+    provider: str = field(default_factory=lambda: os.getenv("VICTOR_EDGE_MODEL_PROVIDER", "ollama"))
+    model: str = field(default_factory=lambda: os.getenv("VICTOR_EDGE_MODEL", "qwen3.5:2b"))
     timeout_ms: int = 4000
     max_tokens: int = 50
     cache_ttl: int = 120
     confidence_threshold: float = 0.6
     micro_budget: int = 20
-    base_url: str = "http://localhost:11434"
+    base_url: str = field(
+        default_factory=lambda: os.getenv("VICTOR_EDGE_MODEL_BASE_URL", "http://localhost:11434")
+    )
     tool_selection_enabled: bool = True
     prompt_focus_enabled: bool = True
     max_tools: int = 6

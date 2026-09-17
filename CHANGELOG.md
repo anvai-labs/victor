@@ -5,6 +5,98 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased] (develop)
 
+### Added
+
+- New bash-style `gh` tool (pr · issue · run · release · repo · api · auth) that
+  owns the GitHub CLI dependency honestly: it returns an actionable install
+  hint when `gh` is absent instead of a confusing shell error, and runs the
+  real binary via `shell(action='exec')` since GitHub operations are
+  network-bound by nature. Demand-wired through `SharedToolRegistry`
+  (`GH_DEMAND_KEYWORDS` hydration, like `graph`) so sessions that never touch
+  GitHub keep their bootstrap schema unchanged. Unknown `gh` flags pass
+  through; argv is `shlex.quote`d so titles/bodies with spaces, backticks or
+  `$` survive the shell verbatim.
+- `victor mcp add <name> <command> [args...]` registers a stdio MCP server,
+  verifies it completes the MCP handshake (with `--force` to persist anyway),
+  and upserts it into project (`.victor/mcp.yaml`) or global
+  (`~/.victor/mcp.yaml`) config with 0600 permissions — closing the gap with
+  `claude mcp add`.
+
+### Fixed
+### Fixed
+
+- Runtime subsystems no longer hardcode Ollama. The inline code-completion
+  provider now follows the configured default provider and actually resolves
+  (the old path called nonexistent registry methods and raised on first use);
+  the edge-model micro-decision layer gained `VICTOR_EDGE_MODEL_PROVIDER` /
+  `VICTOR_EDGE_MODEL` / `VICTOR_EDGE_MODEL_BASE_URL` overrides (defaults stay
+  a tiny local Ollama model — the right shape for 4s decisions); the
+  SkillMatcher initializes in a background task so its ~6s
+  sentence-transformers import + model load no longer sits on the bootstrap
+  critical path (every consumer already guards on readiness; early turns
+  simply have no skill auto-selection yet).
+
+
+- Session bootstrap no longer stalls ~60s when Docker Desktop is closed or
+  unresponsive. The coding vertical's sandbox constructor probes the Docker
+  daemon with a 60s requests timeout during component assembly, blocking every
+  `victor chat` start. The load+start is now bounded
+  (`VICTOR_CODE_EXEC_START_TIMEOUT`, default 5s) and degrades loudly — the
+  session runs without the code-execution sandbox and says so, matching the
+  already-handled missing-package case. Measured on a stalled machine:
+  client init 68.8s → 13.8s.
+- The chat TUI no longer freezes the input while the agent executes. The prompt
+  stays live for the whole turn: a submission mid-run enters a FIFO queue
+  (listener-notified, strictly in-order) that drains one prompt per completed
+  turn — status shows "N queued", `/queue` lists and `/queue clear` flushes,
+  ESC interrupts the current run and the next queued prompt starts, ESC while
+  idle clears the queue. Queues are session-ephemeral by design.
+- Demand-wired tools (`gh`, `graph`) never reached chat sessions: hydration lived
+  only on `ToolService.select_tools`, which no production code calls, and the
+  cache-optimized transport freezes the session toolset before per-turn selection
+  ever runs. A shared `hydrate_demand_tools` stage now runs in both transports
+  before the freeze, so a mention hydrates the tool into the locked schema
+  (live-verified; FEP-0034 Stage A).
+- `edit(commit=False)` no longer reports a bare success for a permanent
+  no-op: the staged-but-never-flushed queue is discarded when the transaction
+  aborts, so callers reading `success` as "edit landed" were misled. The
+  result now sets `partial: true` with an explicit NOT APPLIED warning and
+  re-issue guidance (`commit=True` to write, `preview=True` for a diff).
+
+### Changed
+
+- `victor chat` now mounts the TUI immediately (shell-first): the UI appears with
+  an "initializing session…" state while agent creation, session resume and turn
+  limits finish in a background worker, instead of a silent multi-second (or
+  minute-long, with Docker down) wait before anything renders. The prompt
+  enables itself with a "✓ ready in X.Xs" line; initialization failures surface
+  in-app and exit cleanly. REPL/one-shot paths are unchanged (shared helpers).
+- The chat TUI no longer captures mouse events by default: drag-select/copy of
+  transcript snippets is the terminal's own again, including mid-turn. In-app
+  keyboard copy (`ctrl+c` → OSC 52) is unchanged; widget mouse handling stays
+  available via `VICTOR_TUI_MOUSE_SUPPORT=1` (documented in
+  `docs/reference/environment-variables.md` alongside the REPL-surface
+  `VICTOR_CHAT_MOUSE_SUPPORT`).
+- **Default provider is now InferFlux** (`qwen3-coder-30b`, self-hosted
+  llama.cpp-class serving with native server-side tool calls). The bundled
+  `default` profile points at `http://127.0.0.1:8080/v1` (SSH-tunnel recipe in
+  the profile comments and docs); `local` stays the air-gapped Ollama path and
+  a new `local-llamacpp` profile targets a stock llama-server. Ollama remains
+  fully supported — it is just no longer the default. Settings/allowlist/
+  `--endpoint`/first-run detection/`victor doctor`/quickstart/`victor init`
+  all follow the new default; `victor doctor` gains an InferFlux healthz check
+  with tunnel guidance when the default provider is unreachable.
+- Raise the default bash command timeout from 60s to 120s (`Timeouts.BASH_DEFAULT`).
+  Test runs, builds, and installs routinely exceeded the old ceiling and surfaced
+  as `Command timed out after 60 seconds` even though the shell tool supports a
+  `timeout` parameter. `VICTOR_TIMEOUT_BASH_DEFAULT` still overrides, and the
+  documented default in `docs/reference/environment-variables.md` already said 120.
+- Remove the `pr` subcommand from the `git` tool. `gh` is a different binary that
+  need not be installed when `git` is, so a `git pr` that silently shells out to
+  `gh` produced confusing failures. GitHub operations (PR create/view/merge,
+  releases, runs) now route through `shell(cmd='gh ...', action='exec')` like any
+  other out-of-family command. `git push -u` still works without victor-devops.
+
 ### Security
 
 - Fail closed when approval, safety, sandbox startup or verification setup fails.

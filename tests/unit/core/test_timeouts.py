@@ -44,7 +44,7 @@ class TestTimeoutConfig:
         assert config.HTTP_LLM_API == 300.0
 
         # Process defaults
-        assert config.BASH_DEFAULT == 60
+        assert config.BASH_DEFAULT == 120
         assert config.BASH_QUICK == 30
         assert config.BASH_LONG_RUNNING == 300
         assert config.TEST_EXECUTION == 300

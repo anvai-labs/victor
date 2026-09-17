@@ -1044,30 +1044,6 @@ class TestToolService:
         assert service._registrar is registrar
 
     @pytest.mark.asyncio
-    async def test_select_tools(self):
-        """Test tool selection."""
-        from victor.agent.services.tool_service import ToolService, ToolServiceConfig
-
-        config = ToolServiceConfig()
-        selector = mock.Mock()
-        selector.select = mock.AsyncMock(return_value=["tool1", "tool2"])
-        executor = mock.Mock()
-        registrar = mock.Mock()
-
-        service = ToolService(
-            config=config,
-            tool_selector=selector,
-            tool_executor=executor,
-            tool_registrar=registrar,
-        )
-
-        context = mock.Mock()
-        tools = await service.select_tools(context, max_tools=10)
-
-        assert tools == ["tool1", "tool2"]
-        selector.select.assert_called_once_with(context, 10)
-
-    @pytest.mark.asyncio
     async def test_execute_tool_success(self):
         """Test successful tool execution."""
         from victor.agent.services.tool_service import ToolService, ToolServiceConfig

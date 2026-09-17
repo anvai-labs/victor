@@ -20,7 +20,7 @@ multi-line suggestions (Copilot-style).
 
 import logging
 import time
-from typing import Any, AsyncIterator, Optional
+from typing import Any, AsyncIterator, Dict, Optional
 
 from victor.processing.completion.protocol import (
     CompletionCapabilities,
@@ -132,17 +132,26 @@ class AICompletionProvider(StreamingCompletionProvider):
             return self._provider
 
         try:
+            from victor.config.settings import load_settings
             from victor.providers.registry import ProviderRegistry
 
-            registry = ProviderRegistry()
-            # Try to get Ollama for local completions
-            self._provider = registry.get_provider("ollama")
-            if self._provider is None:
-                # Fall back to any available provider
-                self._provider = registry.get_default_provider()
+            # Follow the session's configured default provider instead of
+            # hardcoding one (this path was doubly broken: ProviderRegistry
+            # has no get_provider/get_default_provider, so the first call
+            # raised AttributeError).
+            provider_settings = getattr(load_settings(), "provider", None)
+            provider_name = getattr(provider_settings, "default_provider", None) or "ollama"
+            pcfg = getattr(provider_settings, "providers", {}).get(provider_name)
+            kwargs: Dict[str, Any] = {}
+            if pcfg is not None:
+                if pcfg.api_key_value:
+                    kwargs["api_key"] = pcfg.api_key_value
+                if isinstance(pcfg.base_url, str) and pcfg.base_url:
+                    kwargs["base_url"] = pcfg.base_url
+            self._provider = ProviderRegistry.create(provider_name, **kwargs)
             return self._provider
-        except ImportError:
-            logger.debug("Provider registry not available")
+        except Exception:
+            logger.debug("Completion LLM provider unavailable", exc_info=True)
             return None
 
     async def provide_completions(self, params: CompletionParams) -> CompletionList:

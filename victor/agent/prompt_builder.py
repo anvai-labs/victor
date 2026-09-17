@@ -34,6 +34,7 @@ from victor.agent.prompt_section_texts import (
     PARALLEL_READ_GUIDANCE,
 )
 from victor.agent.tool_calling import BaseToolCallingAdapter, ToolCallingCapabilities
+from victor.providers.provider_kinds import LOCAL_CLASS_PROVIDERS
 from victor.agent.provider_tool_guidance import (
     get_tool_guidance_strategy,
     ToolGuidanceStrategy,
@@ -68,7 +69,7 @@ CLOUD_PROVIDERS: Set[str] = {
     "kimi",
     "deepseek",
 }
-LOCAL_PROVIDERS: Set[str] = {"ollama", "lmstudio", "vllm", "inferflux"}
+LOCAL_PROVIDERS: Set[str] = set(LOCAL_CLASS_PROVIDERS)
 
 # Task-type hints are now in vertical prompt contributors (E5 M3).
 # Use get_task_type_hint(task_type, prompt_contributors=[...]) instead.
