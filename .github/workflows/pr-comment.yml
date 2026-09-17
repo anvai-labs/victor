@@ -140,7 +140,7 @@ jobs:
 
           **CI Checks:**
           - Linting (Black, Ruff, MyPy)
-          - Unit tests across Python 3.11, 3.12, 3.13
+          - Unit tests across Python 3.12, 3.13
           - Security scanning
           - VS Code extension build (if applicable)
 
