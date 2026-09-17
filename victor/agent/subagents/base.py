@@ -967,6 +967,17 @@ class SubAgent(IAgent):  # type: ignore[misc]
 
         start_time = time.time()
 
+        # Member-scoped session binding - same contract as execute(): a
+        # streaming member must not inherit the parent's upstream
+        # session-KV handle (InferFlux x-inferflux-session-id) while other
+        # members are mid-stream, or their contexts cross-contaminate
+        # server-side.
+        from victor.core.context import (
+            set_session_id,
+            session_id as _ctx_session_id,
+        )
+
+        session_token = set_session_id(self.config.resolve_member_session_id())
         try:
             # Create constrained orchestrator lazily
             if self.orchestrator is None:
@@ -1046,6 +1057,9 @@ class SubAgent(IAgent):  # type: ignore[misc]
                     "success": False,
                 },
             )
+
+        finally:
+            _ctx_session_id.reset(session_token)
 
 
 __all__ = [
