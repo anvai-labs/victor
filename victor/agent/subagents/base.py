@@ -986,43 +986,43 @@ class SubAgent(IAgent):  # type: ignore[misc]
             )
 
             session_token = set_session_id(self.config.resolve_member_session_id())
-            if True:
-                # Stream the task using orchestrator.stream_chat()
-                async for chunk in self.orchestrator.stream_chat(self.config.task):
-                    yield chunk
 
-                    # If this was the final chunk from the orchestrator, we'll add metadata
-                    if chunk.is_final:
-                        # Extract metrics
-                        tool_calls_used = getattr(self.orchestrator, "tool_calls_used", 0)
-                        context_size = len(str(self.orchestrator.get_messages()))
-                        duration = time.time() - start_time
+            # Stream the task using orchestrator.stream_chat()
+            async for chunk in self.orchestrator.stream_chat(self.config.task):
+                yield chunk
 
-                        # Enhance the final chunk with execution metadata
-                        enhanced_metadata = chunk.metadata.copy() if chunk.metadata else {}
-                        enhanced_metadata.update(
-                            {
-                                "tool_calls_used": tool_calls_used,
-                                "context_size": context_size,
-                                "duration_seconds": duration,
-                                "role": self.config.role.value,
-                                "success": True,
-                            }
-                        )
+                # If this was the final chunk from the orchestrator, we'll add metadata
+                if chunk.is_final:
+                    # Extract metrics
+                    tool_calls_used = getattr(self.orchestrator, "tool_calls_used", 0)
+                    context_size = len(str(self.orchestrator.get_messages()))
+                    duration = time.time() - start_time
 
-                        # Yield a final chunk with metadata (if not already included)
-                        yield StreamChunk(
-                            content="",
-                            is_final=True,
-                            metadata=enhanced_metadata,
-                        )
+                    # Enhance the final chunk with execution metadata
+                    enhanced_metadata = chunk.metadata.copy() if chunk.metadata else {}
+                    enhanced_metadata.update(
+                        {
+                            "tool_calls_used": tool_calls_used,
+                            "context_size": context_size,
+                            "duration_seconds": duration,
+                            "role": self.config.role.value,
+                            "success": True,
+                        }
+                    )
 
-                        logger.info(
-                            f"{self.config.role.value} sub-agent stream completed: "
-                            f"{tool_calls_used}/{self.config.tool_budget} tool calls, "
-                            f"{duration:.1f}s"
-                        )
-                        return
+                    # Yield a final chunk with metadata (if not already included)
+                    yield StreamChunk(
+                        content="",
+                        is_final=True,
+                        metadata=enhanced_metadata,
+                    )
+
+                    logger.info(
+                        f"{self.config.role.value} sub-agent stream completed: "
+                        f"{tool_calls_used}/{self.config.tool_budget} tool calls, "
+                        f"{duration:.1f}s"
+                    )
+                    return
 
         except Exception as e:
             # Create error chunk
