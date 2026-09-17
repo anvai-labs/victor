@@ -112,7 +112,7 @@ def apply_context_aware_strategy(
     Does NOT emit tool-strategy events — that responsibility stays with the
     orchestrator shim to preserve ``AgentMetricsService`` ownership.
     """
-    if pruning_disabled_for(service):
+    if pruning_disabled(service):
         # Pruning disabled (default): expose the registered toolset as-is.
         return list(tools)
 
@@ -162,7 +162,7 @@ def semantic_select_tools(
     CRITICAL-priority tools are always included first. Remaining tools are
     added in declaration order until the budget is 90 % consumed.
     """
-    if pruning_disabled_for(service):
+    if pruning_disabled(service):
         return list(tools)
 
     from victor.tools.enums import Priority

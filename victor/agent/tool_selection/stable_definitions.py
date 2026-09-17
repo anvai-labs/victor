@@ -21,6 +21,16 @@ from typing import Any, Iterable, List, Optional
 logger = logging.getLogger(__name__)
 
 
+def _registry_version(registry: Any) -> Any:
+    """Registry-provided schema version for O(1) cache invalidation.
+
+    ToolRegistry bumps _schema_cache_version on (re-)registration; unknown
+    registries contribute a constant (name-set key still detects membership
+    changes).
+    """
+    return getattr(registry, "_schema_cache_version", 0)
+
+
 def normalize_registry_names(listed: Any) -> List[str]:
     """Normalize ``registry.list_tools()`` output (instances or names) to names."""
     return [
@@ -42,13 +52,15 @@ def build_stable_definitions(registry: Any, names: Iterable[str], schema_level: 
     return stable
 
 
-def _cached_stable(owner: Any, cache_attr: str, cache_key: Any, builder: Any) -> Any:
+def _cached_stable(owner: Any, cache_attr: str, cache_key: Any, builder: Any, label: str) -> Any:
     cached = getattr(owner, cache_attr, None)
     if cached and cached[0] == cache_key:
         return cached[1]
     stable = builder()
     if stable:
         setattr(owner, cache_attr, (cache_key, stable))
+        # Rebuild-only logging: a hit is the happy path, not a signal.
+        logger.info("[ToolSchema] %s rebuilt: %d tools", label, len(stable))
     return stable or None
 
 
@@ -63,21 +75,14 @@ def stable_curated_definitions(selector: Any) -> Optional[List[Any]]:
     registry = getattr(selector, "tools", None)
     if not registry:
         return None
-    cache_key = (id(registry), frozenset(enabled))
+    cache_key = (id(registry), _registry_version(registry), frozenset(enabled))
 
     def build() -> List[Any]:
         from victor.tools.enums import SchemaLevel
 
         return build_stable_definitions(registry, enabled, SchemaLevel.FULL)
 
-    stable = _cached_stable(selector, "_stable_tools_cache", cache_key, build)
-    if stable:
-        logger.info(
-            "[ToolSchema] Stable curated: %d tools (%s) — prefix-cache stable",
-            len(stable),
-            ", ".join(sorted(enabled)),
-        )
-    return stable or None
+    return _cached_stable(selector, "_stable_tools_cache", cache_key, build, "Stable curated")
 
 
 def stable_all_definitions(selector: Any) -> Optional[List[Any]]:
@@ -91,17 +96,11 @@ def stable_all_definitions(selector: Any) -> Optional[List[Any]]:
         return None
     if not names:
         return None
-    cache_key = (id(registry), "all_enabled", frozenset(names))
+    cache_key = (id(registry), _registry_version(registry), "all", frozenset(names))
 
     def build() -> List[Any]:
         from victor.tools.enums import SchemaLevel
 
         return build_stable_definitions(registry, names, SchemaLevel.FULL)
 
-    stable = _cached_stable(selector, "_all_tools_cache", cache_key, build)
-    if stable:
-        logger.info(
-            "[ToolSchema] Pruning disabled: %d tools exposed as-is — prefix-cache stable",
-            len(stable),
-        )
-    return stable or None
+    return _cached_stable(selector, "_all_tools_cache", cache_key, build, "Pruning-off full supply")

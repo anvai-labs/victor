@@ -261,18 +261,10 @@ class ToolSelectionRuntime:
             if tool_config is not None and tool_config.tool_selection_enabled is not None
             else None
         )
-        if not is_tool_selection_enabled(
-            getattr(runtime, "settings", None), config_override=config_override
-        ):
-            stable = self._stable_all_tools(runtime)
-            if stable:
-                trace.set_candidates(stable)
-                _emit_tool_supply_trace(trace.finalize(stable))
-                return stable
-
-        # Q&A necessity gate (tool-supply P3). A trivially-safe greeting still hard-skips
-        # (no tools); a borderline Q&A turn gets a minimal read-only core instead of None,
-        # so "how does X work?" can still read X rather than looping tool-less.
+        # Q&A necessity gate - the greeting hard-skip survives pruning-off
+        # (a greeting needs no tools at all; that is necessity, not supply
+        # narrowing). The borderline read-core downgrade does not: with
+        # pruning off the full registered set is the supply.
         skip_mode_fn = getattr(runtime, "_tool_skip_mode", None)
         if skip_mode_fn is not None:
             skip_mode = skip_mode_fn(user_message_anchor)
@@ -283,6 +275,15 @@ class ToolSelectionRuntime:
         if skip_mode == "skip":
             _emit_tool_supply_trace(trace.mark_skipped("qa_greeting"))
             return None
+
+        if not is_tool_selection_enabled(
+            getattr(runtime, "settings", None), config_override=config_override
+        ):
+            stable = self._stable_all_tools(runtime)
+            if stable:
+                trace.set_candidates(stable)
+                _emit_tool_supply_trace(trace.finalize(stable))
+                return stable
         if skip_mode == "read_core":
             core = self._read_core_tools(runtime)
             trace.set_candidates(core)

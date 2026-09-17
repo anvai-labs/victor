@@ -10,9 +10,12 @@ EnhancedCompletionEvaluator previously carried hand-synced copies of these
 
 Marker-tuple overlap note: ``_INTENT_PREFIXES`` and ``_FUTURE_INTENT_MARKERS``
 share five phrases, deliberately NOT merged — they serve different
-quantifiers (first-line ``startswith`` vs substring in the first 300 chars).
-Unioning them would change behavior (e.g. "Let's …" as an intent-only
-*prefix* would newly reject post-tool synthesis that opens with "Let's").
+quantifiers (first-line ``startswith`` vs first-line prefix).
+``_FUTURE_INTENT_MARKERS`` is checked as a first-line-startswith so a
+substantive answer containing "Let me show an example" mid-text is still a
+real answer. ``_CONTINUATION_PATTERNS`` is the union of AgenticLoop's list
+and ContextAwareKeywordDetector's continuation phrases - keep them merged
+here.
 """
 
 from __future__ import annotations
@@ -56,6 +59,7 @@ _FUTURE_INTENT_MARKERS = (
 _CONTINUATION_PATTERNS = (
     "would you like me to",
     "should i continue",
+    "should i proceed",
     "do you want me to",
     "shall i proceed",
     "let me know if you'd like",
@@ -161,6 +165,10 @@ def is_refusal_response(content: str) -> bool:
 
 
 def is_future_intent_narration(content: str) -> bool:
-    """True when the response opens as a plan for future work (pre-tool turns)."""
-    head = content[:300].lower()
-    return any(marker in head for marker in _FUTURE_INTENT_MARKERS)
+    """True when the response's first line opens as a future-work plan.
+
+    Startswith on the first line only - a substantive answer that contains
+    "Let me show an example" mid-text is still a real answer.
+    """
+    first_line = content.strip().split("\n")[0].strip().lower()
+    return any(first_line.startswith(m) for m in _FUTURE_INTENT_MARKERS)

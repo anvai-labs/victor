@@ -3012,7 +3012,11 @@ class AgenticLoop:
         )
 
     def _is_future_intent_narration(self, content: str) -> bool:
-        """True when the response opens as a plan for future work (pre-tool turns)."""
+        """True when the response OPENS as a plan for future work.
+
+        First-line startswith only: a substantive answer that contains
+        "Let me show an example" mid-text is a real answer, not narration.
+        """
         return response_classification.is_future_intent_narration(content)
 
     def _is_refusal_response(self, content: str) -> bool:

@@ -3133,9 +3133,16 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
                 # member's own spec.goal is its actual assignment. Lead with
                 # it (team goal as context) so parallel members each know
                 # what - and only what - they are responsible for.
+                # HIERARCHICAL is exempt: its `task` is the supervisor's
+                # dynamic delegation, which outranks the static spec.goal.
                 member_goal = (getattr(team_member, "goal", "") or "").strip()
                 team_task = (task or "").strip()
-                if member_goal and member_goal != team_task:
+                is_dynamic_delegation = getattr(
+                    self, "_active_formation", None
+                ) == TeamFormation.HIERARCHICAL or team_task != (
+                    getattr(self, "_team_goal", "") or ""
+                )
+                if member_goal and member_goal != team_task and not is_dynamic_delegation:
                     effective_task = (
                         f"{member_goal}\n\n(Team objective, for context: {team_task})"
                         if team_task

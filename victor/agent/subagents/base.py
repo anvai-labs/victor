@@ -146,7 +146,9 @@ class SubAgentConfig:
 
         Precedence: explicit ``child_session_id`` (worktree-isolated planning
         members set it) -> ``{parent_session_id}-{member_id or agent_id}``
-        (dash format is the verified upstream cache-key shape).
+        (dash format verified for direct-member spawns; worktree-isolated
+        planning members set an explicit colon-format child_session_id,
+        which precedence 1 returns unchanged).
         """
         if self.child_session_id:
             return self.child_session_id
