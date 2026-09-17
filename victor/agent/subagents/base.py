@@ -692,16 +692,16 @@ class SubAgent(IAgent):  # type: ignore[misc]
             # ContextVar gave every concurrent member the same upstream
             # session, cross-contaminating their contexts server-side.
             from victor.core.context import (
+                set_session_id,
                 session_id as _ctx_session_id,
             )
 
-            parent_session_id = _ctx_session_id.get()
-            _ctx_session_id.set(self.config.resolve_member_session_id())
+            session_token = set_session_id(self.config.resolve_member_session_id())
             try:
                 # Run the task with retry on rate limits
                 response = await self._execute_with_retry()
             finally:
-                _ctx_session_id.set(parent_session_id)
+                _ctx_session_id.reset(session_token)
             response_metadata = getattr(response, "metadata", None) or {}
             execution_success = response_metadata.get("agentic_loop_success") is not False
             execution_error = (
@@ -967,28 +967,43 @@ class SubAgent(IAgent):  # type: ignore[misc]
 
         start_time = time.time()
 
+        # Member-scoped session binding - same contract as execute(): a
+        # streaming member must not inherit the parent's upstream
+        # session-KV handle (InferFlux x-inferflux-session-id) while other
+        # members are mid-stream, or their contexts cross-contaminate
+        # server-side.
+        from victor.core.context import (
+            set_session_id,
+            session_id as _ctx_session_id,
+        )
+
+        member_session_id = self.config.resolve_member_session_id()
+        stream = None
         try:
-            # Create constrained orchestrator lazily
-            if self.orchestrator is None:
-                self.orchestrator = self._create_constrained_orchestrator()
+            # Bind only while advancing member work. An async generator executes in
+            # its consumer's context, so a token must never span an outward yield.
+            session_token = set_session_id(member_session_id)
+            try:
+                if self.orchestrator is None:
+                    self.orchestrator = self._create_constrained_orchestrator()
+                stream = self.orchestrator.stream_chat(self.config.task).__aiter__()
+            finally:
+                _ctx_session_id.reset(session_token)
 
             logger.info(
                 f"Stream executing {self.config.role.value} sub-agent: "
                 f"{self.config.task[:50]}..."
             )
 
-            # NOTE: streaming members do NOT modify the session-id ContextVar.
-            # set_session_id inside an async generator modifies the shared task
-            # context, and the member's session id would leak to the consumer
-            # after every yield, re-creating the session-KV cross-contamination
-            # this module's session binding was added to prevent.
-            # The LLM calls during streaming use the parent's session id from
-            # the ContextVar, which is correct: InferFlux treats all chunks
-            # from the same SSE connection as one session regardless of the
-            # ContextVar value.
-
             # Stream the task using orchestrator.stream_chat()
-            async for chunk in self.orchestrator.stream_chat(self.config.task):
+            while True:
+                session_token = set_session_id(member_session_id)
+                try:
+                    chunk = await anext(stream)
+                except StopAsyncIteration:
+                    break
+                finally:
+                    _ctx_session_id.reset(session_token)
                 yield chunk
 
                 # If this was the final chunk from the orchestrator, we'll add metadata
@@ -1023,6 +1038,7 @@ class SubAgent(IAgent):  # type: ignore[misc]
                         f"{duration:.1f}s"
                     )
                     return
+
         except Exception as e:
             # Create error chunk
             error_msg = f"{type(e).__name__}: {str(e)}"
@@ -1055,6 +1071,15 @@ class SubAgent(IAgent):  # type: ignore[misc]
                     "success": False,
                 },
             )
+
+        finally:
+            close = getattr(stream, "aclose", None)
+            if close is not None:
+                session_token = set_session_id(member_session_id)
+                try:
+                    await close()
+                finally:
+                    _ctx_session_id.reset(session_token)
 
 
 __all__ = [
