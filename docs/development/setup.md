@@ -154,7 +154,7 @@ CI builds and installs the wheel before running its required native-parity job.
 
 ## VS Code extension build
 
-Extension development requires Node.js 22.12+ within Node 22, or Node 24+.
+Extension development requires Node.js 24 or newer.
 Install and compile its dependencies
 from the repository root:
 

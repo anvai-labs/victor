@@ -349,6 +349,7 @@ suite('SettingsViewProvider Test Suite', () => {
         test('Should toggle semantic search', () => {
             let semanticSearchEnabled = true;
 
+            assert.ok(semanticSearchEnabled);
             semanticSearchEnabled = false;
             assert.ok(!semanticSearchEnabled);
         });

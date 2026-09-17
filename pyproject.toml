@@ -320,6 +320,7 @@ ci = [
     # Documentation validation
     "mkdocs>=1.5",
     "mkdocs-material>=9.5",
+    "mkdocs-git-revision-date-localized-plugin>=1.5,<2",
     "mkdocstrings[python]>=0.24",
     "pygments>=2.20.0",
 ]
@@ -327,6 +328,7 @@ ci = [
 docs = [
     "mkdocs>=1.5",
     "mkdocs-material>=9.5",
+    "mkdocs-git-revision-date-localized-plugin>=1.5,<2",
     "mkdocstrings[python]>=0.24",
     "pygments>=2.20.0",
 ]
