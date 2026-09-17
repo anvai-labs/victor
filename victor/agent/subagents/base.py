@@ -696,12 +696,12 @@ class SubAgent(IAgent):  # type: ignore[misc]
                 session_id as _ctx_session_id,
             )
 
-            session_token = set_session_id(self.config.resolve_member_session_id())
+            member_session_token = set_session_id(self.config.resolve_member_session_id())
             try:
                 # Run the task with retry on rate limits
                 response = await self._execute_with_retry()
             finally:
-                _ctx_session_id.reset(session_token)
+                _ctx_session_id.reset(member_session_token)
             response_metadata = getattr(response, "metadata", None) or {}
             execution_success = response_metadata.get("agentic_loop_success") is not False
             execution_error = (
@@ -977,15 +977,13 @@ class SubAgent(IAgent):  # type: ignore[misc]
                 f"{self.config.task[:50]}..."
             )
 
-            # Member-scoped session binding - same contract as execute():
-            # concurrent streaming members must not share the parent's
-            # upstream session-KV handle (InferFlux x-inferflux-session-id).
-            from victor.core.context import (
-                set_session_id,
-                session_id as _ctx_session_id,
-            )
-
-            set_session_id(self.config.resolve_member_session_id())
+            # NOTE: streaming members intentionally do NOT bind the member
+            # session id ContextVar — set_session_id inside an async generator
+            # leaks the member's id into the consumer task's context after
+            # every yield, re-creating the session-KV cross-contamination this
+            # module's session binding was added to prevent. The execute()
+            # path (non-streaming) handles per-member session binding
+            # correctly via the try/finally pattern.
 
             # Stream the task using orchestrator.stream_chat()
             async for chunk in self.orchestrator.stream_chat(self.config.task):
