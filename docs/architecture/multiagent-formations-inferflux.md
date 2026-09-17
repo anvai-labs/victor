@@ -311,6 +311,44 @@ InferFlux's KV pool supports `max_parallel_sequences` concurrent sequences
 to this limit. For multi-agent workloads with N concurrent members, ensure
 `max_parallel_sequences >= N` (the scheduler clamps automatically).
 
+### Capacity admission and tool supply (WS-C)
+
+Enable `shared_context={"capacity_aware_parallelism": True}` for PARALLEL teams.
+The coordinator asks the provider's `get_parallel_capacity(model)` for its declared
+limit, then queues **every** configured member through that many admission slots.
+An explicit `max_workers` further lowers concurrency in this opt-in mode. With the
+flag absent, legacy behavior and output bytes remain unchanged, including the older
+`max_workers` member-selection limit.
+
+InferFlux accepts `max_parallel_sequences=2` as a provider option, verified against
+the running server configuration. Without an operator declaration it queries
+`/v1/admin/models` and requires a positive `max_parallel_sequences` field on the
+selected model. The current R9700 ROCm server omits that field (G18), so operator
+configuration is required; missing or invalid capacity fails explicitly.
+Admission limits are per team run, not a global multi-process scheduler.
+
+Each queued member emits `member_throttled` with warning level and
+`concurrency_limit`; the normal member-start event occurs after admission. Tool
+supply remains opt-in: set each `TeamMemberSpec.allowed_tools` to the tools required
+for that member's assignment before supply. Give coding members disjoint paths (or
+worktree isolation), and give reviewers read-only tools. Do not enable semantic
+pruning merely to reduce N-member supply: it can remove tools a loop needs.
+
+| New event consumer | Decision before landing |
+|---|---|
+| `MemberEventSink` | Bounded, nonblocking warning event with member ID and capacity |
+| Framework stream bridge | Preserve structured event metadata |
+| v1 wire serializer | Additive `member_throttled` with `concurrency_limit` and `level=warning` |
+| Chat/TUI event mapper | Deliberately ignore this additive event; do not label capacity waiting as human approval |
+| Existing clients | Unknown-event ignore behavior retained; no new core event enum |
+| Live validation/evidence harness | Assert throttle event plus all deliverables and distinct wire session IDs |
+
+Live harness: `.venv-codesign/bin/python scripts/validation/multiagent_live.py
+--output-dir /private/tmp/victor-formation-evidence --capacity 2` with
+`INFERFLUX_API_KEY` in the environment and the authorized tunnel active. It records
+actual outbound `x-inferflux-session-id` headers through a local proxy, never auth
+headers, and runs generated tests using the worktree venv.
+
 ## Verified Results
 
 | Formation | Elapsed | Members | Deliverable | Correct |
@@ -326,3 +364,36 @@ Backend: InferFlux serving Qwen3-Coder-30B-A3B (UD-Q4_K_XL, 17GB) on AMD
 Radeon AI PRO R9700 (gfx1201, ROCm 7.2, WSL2). KV pool: 65536 ctx / 2
 sequences. Per-member session ids bound via
 `SubAgentConfig.resolve_member_session_id()`.
+
+### Opt-in PARALLEL worktree isolation (WS-D)
+
+Use `shared_context={"parallel_worktree_isolation": True, "repo_root": "/repo",
+"worktree_parent": "/tmp/member-worktrees", "branch_prefix": "feat/members"}`.
+Each member receives a real git worktree; allocation failure stops the run.
+The default preserves worktrees for inspection and does not auto-merge. Explicit
+`cleanup_worktrees` / `auto_merge_worktrees` retain their existing meanings.
+Defaults without the flag remain unchanged.
+
+Member `allowed_tools` must use supported path adapters: `read`, `write`, `edit`,
+`shell`, `ls`, `find`, or `overview`. Unsupported tools fail with a warning instead
+of running in the parent's directory. `edit` requires structured operation lists.
+Relative filesystem paths and shell `cwd` are rooted per member; absolute paths
+are preserved. This is working-directory isolation, not a shell security sandbox.
+The normal tool safety policy still applies. Nested members inherit bound tools.
+
+Run the worktree's `.venv-codesign/bin/python scripts/validation/multiagent_live.py
+--output-dir /tmp/formation-evidence --isolate` with `INFERFLUX_API_KEY` set.
+Live run `isolation-18b2e5c728` on 2026-09-17 finished in 37.11 seconds: three
+members wrote the same two relative filenames in separate worktrees; each
+worktree's independent pytest run passed; all three actual wire session IDs
+matched configured members and result metadata. See [recorded evidence](evidence/ws-d-isolation.json).
+
+#### WS-C recorded live evidence (2026-09-17)
+
+Run `capacity-b74af535a8`: three executor members, operator-verified capacity two,
+35.03 seconds, all six module/test deliverables present, independent pytest **3
+passed**, three distinct observed InferFlux session headers, and one
+`member_throttled` event. Evidence: [capacity admission](evidence/ws-c-capacity.json).
+The evidence records a dirty working tree because validation preceded the commit.
+Three rejected attempts are retained as observations in G19/G20; completion was
+accepted only after independent artifact and pytest checks.

@@ -81,3 +81,50 @@ def test_inferflux_api_key_env_var_is_live(monkeypatch) -> None:
     monkeypatch.setenv("INFERFLUX_API_KEY", "secret123")
     provider = InferfluxProvider()
     assert provider._api_key == "secret123"
+
+
+@pytest.mark.asyncio
+async def test_parallel_capacity_uses_explicit_serving_declaration():
+    provider = InferfluxProvider(api_key="test", max_parallel_sequences=2)
+    assert await provider.get_parallel_capacity("qwen3-coder-30b") == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("capacity", [0, -1, "2", True])
+async def test_parallel_capacity_rejects_invalid_declaration(capacity):
+    provider = InferfluxProvider(api_key="test", max_parallel_sequences=capacity)
+    with pytest.raises(ValueError, match="max_parallel_sequences"):
+        await provider.get_parallel_capacity("qwen3-coder-30b")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "model_metadata, expected",
+    [
+        ({"id": "model", "max_parallel_sequences": 2}, 2),
+        ({"id": "model"}, None),
+        ({"id": "different"}, None),
+    ],
+)
+async def test_admin_capacity_lookup_is_fail_closed(monkeypatch, model_metadata, expected):
+    import httpx
+    from unittest.mock import AsyncMock, MagicMock
+
+    client = MagicMock()
+    client.get = AsyncMock(
+        return_value=httpx.Response(
+            200,
+            json={"models": [model_metadata]},
+            request=httpx.Request("GET", "http://localhost/v1/admin/models"),
+        )
+    )
+    manager = MagicMock()
+    manager.__aenter__ = AsyncMock(return_value=client)
+    manager.__aexit__ = AsyncMock(return_value=None)
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: manager)
+    provider = InferfluxProvider(api_key="test")
+    if expected is None:
+        with pytest.raises(ValueError):
+            await provider.get_parallel_capacity("model")
+    else:
+        assert await provider.get_parallel_capacity("model") == expected

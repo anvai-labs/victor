@@ -56,6 +56,11 @@ team can mix a high-reasoning model for planning with a fast model for execution
 **review** and **reflection** presets are included (reflection critiques against the original task
 and judges satisfaction via a VERDICT).
 
+**Capacity admission** — opt-in `capacity_aware_parallelism` queues every PARALLEL
+member under the provider's declared sequence limit, with per-member throttle
+warnings. InferFlux deployments that do not expose capacity through their admin API
+must declare the verified `max_parallel_sequences` provider option.
+
 Team coordination uses canonical roles: supervisor, member, subagent, one-pass
 reviewer, iterative critic, one-shot judge, synthesizer, and router. Domain roles
 remain separate. `explicit_supervisor_id` is canonical; the old manager key is a
@@ -132,3 +137,7 @@ same framework through `VictorClient`.
 | Docker image | Release candidate | Advertised, but a fresh image build/run smoke is required before the release tag. |
 | VS Code extension and native Rust extensions | Preview | Their CI checks are currently advisory; do not represent them as release-blocking guarantees. |
 | Observability dashboard/API | Experimental | Product support decision remains tracked by TD-5. |
+
+**Parallel workspace isolation** — `parallel_worktree_isolation` gives each member
+its own git worktree and binds file/shell paths to that directory. Worktrees remain
+available for review after execution; unsupported tool adapters fail explicitly.
