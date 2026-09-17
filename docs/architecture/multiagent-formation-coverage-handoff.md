@@ -272,7 +272,7 @@ G1–G13 come from the co-design sessions and code audit; G14–G16 from the §2
   exists (§1.2) but is not default-on nor formation-aware for PARALLEL. Decide: opt-in
   per-member worktree for PARALLEL (config flag) vs. write-guard detection with a
   formation-aware error.
-- **G5 — ✅ opt-in capacity-aware admission (WS-C).** `capacity_aware_parallelism`
+- **G5 — ✅ opt-in capacity-aware admission (WS-C, [PR #1110](https://github.com/anvai-labs/victor/pull/1110)).** `capacity_aware_parallelism`
   queries the provider declaration and bounds simultaneous members without dropping
   assignments. Saturated members emit `member_throttled` through the sink and v1
   stream bridge. R9700 live validation passed with three members at capacity two;
@@ -302,7 +302,7 @@ G1–G13 come from the co-design sessions and code audit; G14–G16 from the §2
   `x-sandhi-run-id` from the member session id; the InferFlux side keys session-KV on
   it. A member-tagged cost rollup (`GET /admin/usage/run/{run_id}` → per member) has
   never been reconciled against `TeamResult` metrics.
-- **G12 — ✅ formation-aware tool supply documented (WS-C).** Member `allowed_tools`
+- **G12 — ✅ formation-aware tool supply documented (WS-C, [PR #1110](https://github.com/anvai-labs/victor/pull/1110)).** Member `allowed_tools`
   narrows the registry before provider supply. The live capacity run supplied four
   filesystem/shell tools per member; global pruning defaults remain unchanged.
 - **G13 — guard tuning is a two-model sample.** Narration/intent/refusal classifiers
