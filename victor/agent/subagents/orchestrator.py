@@ -321,6 +321,7 @@ class SubAgentOrchestrator:
         model: Optional[str] = None,
         temperature: Optional[float] = None,
         reasoning_effort: Optional[str] = None,
+        working_directory: Optional[str] = None,
     ) -> SubAgentResult:
         """Spawn a sub-agent to execute a task.
 
@@ -423,6 +424,7 @@ class SubAgentOrchestrator:
             model_override=model_override,
             temperature_override=temperature,
             reasoning_effort_override=reasoning_effort,
+            working_directory=working_directory,
         )
 
         # Create and execute sub-agent
