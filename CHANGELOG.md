@@ -25,6 +25,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed
 ### Fixed
 
+- The agentic-loop selection transport now emits the per-turn tool-supply
+  trace (Stage 8 of FEP-0034), so benchmark and headless runs are queryable
+  exactly like served chat sessions — including skip records for
+  pruning-disabled stable-definition turns. Edge-model and bootstrap docstrings
+  no longer reference a model default that drifted from the code.
+
+### Fixed
+
+- Headless runs and benchmarks now measure the same tool supply users get: the
+  agentic-loop selection transport runs the Stage 1 demand-hydration stage
+  (FEP-0034), so mention-wired tools (`gh`, `graph`) hydrate there too instead
+  of diverging from the chat transports. Benchmark harness and startup-KPI
+  script defaults now follow the configured default provider (inferflux)
+  instead of hardcoding Ollama.
+
+### Fixed
+
 - Runtime subsystems no longer hardcode Ollama. The inline code-completion
   provider now follows the configured default provider and actually resolves
   (the old path called nonexistent registry methods and raised on first use);
@@ -64,6 +81,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   re-issue guidance (`commit=True` to write, `preview=True` for a diff).
 
 ### Changed
+### Changed
+
+- CI no longer tests on Python 3.11: the 3.11 lanes (test matrix shards,
+  integration, verticals, performance, quality gates) are removed, shrinking
+  the matrix from 36 to 24 jobs. Python 3.11 support itself is unchanged —
+  wheels still build and publish for it and `security.yml` continues scanning
+  on 3.11 (security-only maintenance). Coverage measurement and the
+  coverage-gate moved from the 3.11 shards to the 3.12 shards; the test
+  matrix is now Python 3.12/3.13.
+
 
 - `victor chat` now mounts the TUI immediately (shell-first): the UI appears with
   an "initializing session…" state while agent creation, session resume and turn

@@ -1620,6 +1620,26 @@ class TurnExecutor:
         Returns:
             List of tool definitions or None
         """
+        # Stage 1 — demand hydration (FEP-0034 pipeline): register
+        # mention-wired tools (graph, gh) before any supply decision, exactly
+        # like the chat transports — headless runs and benchmarks must measure
+        # the same supply behavior users get (FEP-0025 lesson).
+        from victor.agent.services.tool_selection_runtime import (
+            ToolSelectionRuntime,
+            _emit_tool_supply_trace,
+            hydrate_demand_tools,
+        )
+        from victor.tools.tool_supply_trace import ToolSupplyTrace
+
+        hydrate_demand_tools(self._resolve_orchestrator(), user_message)
+
+        # Stage 8 parity — per-turn tool-supply telemetry, the same trace the
+        # chat transports emit, so benchmark runs are queryable like served
+        # sessions. Best-effort: telemetry never alters the supply decision.
+        trace = ToolSupplyTrace.begin(
+            ToolSelectionRuntime._registered_tools(self._resolve_orchestrator())
+        )
+
         # Tool pruning is disabled by default (VICTOR_TOOL_SELECTION=1 opts
         # in): expose every enabled registered tool as-is instead of
         # semantic top-K narrowing. A narrow per-turn supply starves agentic
@@ -1635,6 +1655,7 @@ class TurnExecutor:
 
             tools = stable_all_definitions(self._tool_context.tool_selector)
             if tools:
+                _emit_tool_supply_trace(trace.mark_skipped("pruning_disabled_stable_definitions"))
                 return tools
 
         conversation_depth = self._chat_context.conversation.message_count()
@@ -1656,6 +1677,8 @@ class TurnExecutor:
         # skip the downstream gates too so the full 6-tool set survives.
         _curated = getattr(self._tool_context.tool_selector, "_enabled_tools", None)
         if isinstance(_curated, (set, frozenset, list)) and _curated:
+            trace.set_candidates(tools)
+            _emit_tool_supply_trace(trace.finalize(tools))
             return tools
 
         # Prioritize by stage
@@ -1696,6 +1719,8 @@ class TurnExecutor:
             except (ValueError, ImportError, AttributeError):
                 pass
 
+        trace.set_candidates(tools)
+        _emit_tool_supply_trace(trace.finalize(tools))
         return tools
 
     def _build_rubric_complete_fn(self) -> Optional[Any]:

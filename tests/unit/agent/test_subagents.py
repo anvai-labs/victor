@@ -918,16 +918,16 @@ class TestMemberSessionIdResolution:
     def _config(self, **overrides):
         from victor.agent.subagents.base import SubAgentConfig, SubAgentRole
 
-        defaults = dict(
-            role=SubAgentRole.EXECUTOR,
-            task="demo",
-            allowed_tools=["read", "shell"],
-            tool_budget=5,
-            context_limit=30000,
-            member_id="m1",
-            agent_id="agent_m1",
-            parent_session_id="session_root",
-        )
+        defaults = {
+            "role": SubAgentRole.EXECUTOR,
+            "task": "demo",
+            "allowed_tools": ["read", "shell"],
+            "tool_budget": 5,
+            "context_limit": 30000,
+            "member_id": "m1",
+            "agent_id": "agent_m1",
+            "parent_session_id": "session_root",
+        }
         defaults.update(overrides)
         return SubAgentConfig(**defaults)
 

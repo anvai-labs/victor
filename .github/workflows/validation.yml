@@ -8,9 +8,6 @@ on:
     # Extensive validation runs on the develop -> main promotion PR; develop PRs
     # stay lightweight (ci-fast only) so the runner queue keeps merging fast.
     branches: [main]
-    paths:
-      - 'feps/**'
-      - 'victor/**'
   workflow_dispatch:
 
 env:
@@ -38,7 +35,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.11"
+          python-version: "3.12"
 
       - name: Cache pip dependencies
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -106,7 +103,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.11"
+          python-version: "3.12"
 
       - name: Cache pip dependencies
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -212,4 +209,9 @@ jobs:
                   body: body,
                 });
               }
+            }
+
+            if (!['success', 'skipped'].includes(fepResult) ||
+                !['success', 'skipped'].includes(verticalResult)) {
+              core.setFailed('FEP or vertical validation did not pass');
             }
