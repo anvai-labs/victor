@@ -5,8 +5,6 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased] (develop)
 
-## [0.10.0] - 2026-09-17
-
 ### Changed
 
 - Headless and benchmark turns now use the shared per-turn tool-selection
@@ -22,90 +20,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Add 77 code-search tests covering filters, cache invalidation, index integrity
   and recovery, literal retrieval, and semantic dispatch/fallback without model
   downloads or a live vector database.
-- First test suite for `CodeSandbox` (code executor tool): 27 tests covering
-  init/degraded mode, lifecycle (start/stop/idempotent), execute (stdout/stderr
-  demux), file transfer (put_files/get_file with real in-memory tar), context
-  managers (sync + async), cleanup registration, and the `@tool` decorated
-  entry point — both with and without Docker available.
 
+## [0.10.0] - 2026-09-17
 
-- New bash-style `gh` tool (pr · issue · run · release · repo · api · auth) that
-  owns the GitHub CLI dependency honestly: it returns an actionable install
-  hint when `gh` is absent instead of a confusing shell error, and runs the
-  real binary via `shell(action='exec')` since GitHub operations are
-  network-bound by nature. Demand-wired through `SharedToolRegistry`
-  (`GH_DEMAND_KEYWORDS` hydration, like `graph`) so sessions that never touch
-  GitHub keep their bootstrap schema unchanged. Unknown `gh` flags pass
-  through; argv is `shlex.quote`d so titles/bodies with spaces, backticks or
-  `$` survive the shell verbatim.
-- `victor mcp add <name> <command> [args...]` registers a stdio MCP server,
-  verifies it completes the MCP handshake (with `--force` to persist anyway),
-  and upserts it into project (`.victor/mcp.yaml`) or global
-  (`~/.victor/mcp.yaml`) config with 0600 permissions — closing the gap with
-  `claude mcp add`.
-
-### Fixed
-
-- Preserve Sandhi's boolean reasoning-inclusion convention through provider responses and fold
-  reasoning per call before accumulating usage. Stream metrics and session pricing now share
-  billable output counts while preserving raw completion counts, totals and timing provenance.
-- Respect explicit curated tool sets before pruning and demand hydration on the agentic path;
-  unavailable curated tools do not fall back to the full registry. Retain supply-trace emission.
-- Restore the caller's session context before yielding subagent stream chunks, including early
-  termination and timeout cleanup. Member orchestration advances retain their isolated session ID.
-
-- The agentic-loop selection transport now emits the per-turn tool-supply
-  trace (Stage 8 of FEP-0034), so benchmark and headless runs are queryable
-  exactly like served chat sessions — including skip records for
-  pruning-disabled stable-definition turns. Edge-model and bootstrap docstrings
-  no longer reference a model default that drifted from the code.
-
-
-- Headless runs and benchmarks now measure the same tool supply users get: the
-  agentic-loop selection transport runs the Stage 1 demand-hydration stage
-  (FEP-0034), so mention-wired tools (`gh`, `graph`) hydrate there too instead
-  of diverging from the chat transports. Benchmark harness and startup-KPI
-  script defaults now follow the configured default provider (inferflux)
-  instead of hardcoding Ollama.
-
-
-- Runtime subsystems no longer hardcode Ollama. The inline code-completion
-  provider now follows the configured default provider and actually resolves
-  (the old path called nonexistent registry methods and raised on first use);
-  the edge-model micro-decision layer gained `VICTOR_EDGE_MODEL_PROVIDER` /
-  `VICTOR_EDGE_MODEL` / `VICTOR_EDGE_MODEL_BASE_URL` overrides (defaults stay
-  a tiny local Ollama model — the right shape for 4s decisions); the
-  SkillMatcher initializes in a background task so its ~6s
-  sentence-transformers import + model load no longer sits on the bootstrap
-  critical path (every consumer already guards on readiness; early turns
-  simply have no skill auto-selection yet).
-
-
-- Session bootstrap no longer stalls ~60s when Docker Desktop is closed or
-  unresponsive. The coding vertical's sandbox constructor probes the Docker
-  daemon with a 60s requests timeout during component assembly, blocking every
-  `victor chat` start. The load+start is now bounded
-  (`VICTOR_CODE_EXEC_START_TIMEOUT`, default 5s) and degrades loudly — the
-  session runs without the code-execution sandbox and says so, matching the
-  already-handled missing-package case. Measured on a stalled machine:
-  client init 68.8s → 13.8s.
-- The chat TUI no longer freezes the input while the agent executes. The prompt
-  stays live for the whole turn: a submission mid-run enters a FIFO queue
-  (listener-notified, strictly in-order) that drains one prompt per completed
-  turn — status shows "N queued", `/queue` lists and `/queue clear` flushes,
-  ESC interrupts the current run and the next queued prompt starts, ESC while
-  idle clears the queue. Queues are session-ephemeral by design.
-- Demand-wired tools (`gh`, `graph`) never reached chat sessions: hydration lived
-  only on `ToolService.select_tools`, which no production code calls, and the
-  cache-optimized transport freezes the session toolset before per-turn selection
-  ever runs. A shared `hydrate_demand_tools` stage now runs in both transports
-  before the freeze, so a mention hydrates the tool into the locked schema
-  (live-verified; FEP-0034 Stage A).
-- `edit(commit=False)` no longer reports a bare success for a permanent
-  no-op: the staged-but-never-flushed queue is discarded when the transaction
-  aborts, so callers reading `success` as "edit landed" were misled. The
-  result now sets `partial: true` with an explicit NOT APPLIED warning and
-  re-issue guidance (`commit=True` to write, `preview=True` for a diff).
 ### Added
 
 - Add the demand-loaded `gh` tool for GitHub pull requests, issues, workflow
@@ -113,6 +30,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Add `victor mcp add` to verify and register project or user-level stdio MCP
   servers with restricted configuration permissions.
 
+### Changed
 
 - Make InferFlux with `qwen3-coder-30b` the default provider while retaining
   Ollama through the `local` profile and stock llama-server through
@@ -138,6 +56,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   their announced removal target to 0.11.0. Victor Contracts remains on its
   independent version train and keeps its existing stability schedule.
 
+### Fixed
 
 - Preserve Sandhi's reasoning-inclusion convention and per-call folding through
   provider responses, streaming metrics and session pricing while retaining raw
@@ -191,6 +110,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   publication. Move runtime images to patched Ubuntu 24.04 packages; lower-severity
   unfixed OS findings remain visible in complete image reports.
 
+### Changed
 
 - Replace the workstation requirements freeze with manifest-derived deployment
   snapshots, remove unused vertical NumPy requirements, and keep RAG storage
@@ -201,6 +121,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Update security/dependency documentation and trim development artifacts from
   the VSIX. The Svelte webview uses the supported mount entrypoint.
 
+### Fixed
 
 - Validate generated SQL backup identifiers and preserve bound candidate values.
 - Give the coding native wheel its own package metadata so installing it cannot
@@ -220,6 +141,7 @@ validated deployment shapes and retained historical-risk evidence.
 - Raise the GitPython runtime minimum and requirements pin to 3.1.59 to address
   CVE-2026-78676, which failed the blocking dependency scan on develop (#1050).
 
+### Changed
 
 - Bind chat task requirements to the existing session state owner through
   `ChatRuntimeServices.session`, preserving live state across resets and restores
@@ -234,6 +156,7 @@ validated deployment shapes and retained historical-risk evidence.
 Public agent APIs are unchanged. `victor-contracts` remains 0.9.1 and
 `victor-native` remains 0.8.0 on their independent release trains.
 
+### Fixed
 
 - Drain subprocess pipes before reaping after output caps, timeouts, cancellation
   or callback errors, preventing full pipe buffers from hanging tool execution.
@@ -241,6 +164,7 @@ Public agent APIs are unchanged. `victor-contracts` remains 0.9.1 and
 
 ## [0.9.2] - 2026-09-08
 
+### Changed
 
 - Consolidated definition-based workflow execution and streaming onto the single
   `CompiledGraph` engine (ADR-030, #1041–#1043). `WorkflowExecutor` and
@@ -253,6 +177,7 @@ Public agent APIs are unchanged. `victor-contracts` remains 0.9.1 and
   `victor-contracts` stays 0.9.1 and `victor-native` stays 0.8.0 on independent
   release trains; this release does not change their source or dependency pins.
 
+### Fixed
 
 - Preserved workflow final state, per-node diagnostics and tool counts across the
   adapter, API and YAML paths. Node and parallel failures now propagate correctly;
@@ -292,6 +217,7 @@ This patch includes removals and behavior changes for legacy workflow callers.
 
 ## [0.9.1] - 2026-09-07
 
+### Changed
 
 - Published the co-design Waves 1–2 and Wave 3 Stage A implementation, including
   boundary guards, runtime and storage fixes, exact native token counting, and
@@ -314,6 +240,7 @@ This patch includes removals and behavior changes for legacy workflow callers.
 
 ## [0.9.0] - 2026-08-16
 
+### Changed
 - **Dependency-chain bump (release train)**: `sandhi-gateway==0.1.6` (was
   `0.1.5`) and `proximadb>=0.3,<0.4` (was `>=0.2,<0.3`) across victor-ai and the
   victor-coding vertical; the `requirements.txt` proximaDB source pin advances
@@ -357,6 +284,7 @@ verified-dead code found by the F-016 call-graph audit.
   and Martin-coupling computed from `IMPORTS` edges (#481). Eager provider
   warm-up on graph build (#485).
 
+### Changed
 - **FEP-0016 implemented**: `InitializationPhaseManager` now drives all 9
   orchestrator `_initialize_*` phases via `run_phase`; a guard test prevents a
   phase being silently lost (F-002, #477/#478).
@@ -368,6 +296,7 @@ verified-dead code found by the F-016 call-graph audit.
 - Test suites run under 4 pytest-xdist workers; `lang-all` grammar wheels
   included in dev/ci extras (#482, #483).
 
+### Fixed
 - Generic-result-cache flag wiring (read the nested value); dropped dead
   `deduplication_strict_mode` + provider-optimization config (F-016e, #501).
 - Two cross-test state-pollution defects in sync/async + DB-path plumbing (#490).
@@ -390,6 +319,7 @@ verified-dead code found by the F-016 call-graph audit.
 
 Patch release: makes the public PyPI install actually work end-to-end.
 
+### Fixed
 - **Public install**: `victor-contracts` 0.7.2 is now published to PyPI (Trusted
   Publishing via `release-contracts.yml` + `pypi` environment), so
   `pip install victor-ai` resolves again (#380, #393)
@@ -403,6 +333,7 @@ Patch release: makes the public PyPI install actually work end-to-end.
   develop PR; quick-tests treats pytest exit 5 (all skipped) as pass (#382)
 - `victor-codegraph-v*` tags no longer trigger the victor-ai Release workflow
 
+### Changed
 - **`import victor` is lazy (PEP 562)** — drops from importing the whole
   runtime to ~20ms/2 modules; `victor.agent` is a callable module so
   `@victor.agent` and `mock.patch("victor.agent...")` keep working (#390)
@@ -525,6 +456,7 @@ Patch release: makes the public PyPI install actually work end-to-end.
 - **Deps**:
   - typer>=0.15 for click>=8.2 compatibility (#211)
 
+### Fixed
 - **Streaming fulfillment criteria** — Now built via real builder API instead of dead code (#184)
 - **Tool budget** — Made honestly advisory; removed dead hard-stop (#191)
 - **ProximaDB provider lifecycle** — Logs instead of stdout prints (#218)
@@ -561,6 +493,7 @@ streaming, tool-selection, governance, and indexing bugs surfaced by live use we
   databases (#153)
 - RL learning-trace merge caching within a task (L2, flag-gated)
 
+### Changed
 - **CI split** — lightweight fast checks on `develop`, extensive gating reserved for
   `develop → main`; develop quick-tests scoped to changed-file unit tests (#136, #142)
 - Scheduled security scan runs weekly instead of nightly (#145)
@@ -568,6 +501,7 @@ streaming, tool-selection, governance, and indexing bugs surfaced by live use we
 - New project databases open with `auto_vacuum=INCREMENTAL`; `graph_module_metric_history`
   is capped per module to stop unbounded growth (#153)
 
+### Fixed
 - **Streaming cleanup** — the provider SSE stream is now closed on-task across the full
   consumer → resilience → provider decorator chain, eliminating "async generator ignored
   GeneratorExit" / "exit cancel scope in a different task" spam; also corrected the streaming
@@ -619,6 +553,7 @@ streaming, tool-selection, governance, and indexing bugs surfaced by live use we
 - Deprecation warnings on all 5 contrib vertical imports
 - TODO/FIXME triage document (81 markers categorized)
 
+### Changed
 - **Consolidated to a single HTTP server** — the legacy aiohttp `VictorAPIServer` was removed; `VictorFastAPIServer` is now the sole server and its routers own the full API surface
 - **VS Code extension** upgraded to Node 22, TypeScript 5.9, and typescript-eslint 8
 - **Orchestrator** reduced from 4,514 to 3,940 LOC via property/callback extraction
@@ -654,6 +589,7 @@ streaming, tool-selection, governance, and indexing bugs surfaced by live use we
   - Migration path: `docs/architecture/migration.md`
   - Compatibility shim status: warning-backed alias remains supported through `v0.8.0`
 
+### Fixed
 - **Release pipeline** — the SBOM job installs the in-repo `victor-contracts` before victor-ai (it is not on PyPI), and the native-wheel build passes `--find-interpreter` so maturin finds a CPython under `manylinux: auto`
 - Bare `except:` in `experiments.py` → `except (ValueError, TypeError)`
 - `_send_rl_reward_signal` test updated for CallbackCoordinator delegation
@@ -704,6 +640,7 @@ streaming, tool-selection, governance, and indexing bugs surfaced by live use we
 - victor-dataanalysis, victor-research, victor-invest updated to v0.6.0
 - Validation script (`scripts/validate_verticals.py`) for automated checking
 
+### Changed
 
 **Performance**:
 - Entry point scanning: 9+ independent calls → 1 unified scan (200-500ms startup improvement)
@@ -723,6 +660,7 @@ streaming, tool-selection, governance, and indexing bugs surfaced by live use we
 - Dependency Inversion - depends on abstractions, not concretions
 - Single Responsibility - focused, cohesive modules
 
+### Fixed
 
 **Class Name Generation**:
 - Fixed: Metadata extraction using pattern matching instead of `.replace()`
@@ -810,15 +748,18 @@ See `docs/verticals/KNOWN_ISSUES_v0.6.0.md` for details.
 - Collision detection and public extension API for verticals
 - Fast CI workflow for quicker feedback
 
+### Changed
 - Black formatting applied to 79 files
 - FastAPI server hardened against injection, traversal, and data exposure
 - SecretStr for API keys to prevent credential leakage
 
+### Fixed
 - VS Code extension: handle offline servers in `supportsCapability` check
 - Build: victor-contracts built locally in release workflow
 
 ## [0.5.6] - 2026-03-01
 
+### Fixed
 - Added strawberry-graphql to dev dependencies for GraphQL integration tests
 
 ## [0.5.5] - 2026-02-28
