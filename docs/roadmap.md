@@ -16,7 +16,7 @@ evaluation loop and gating every change on it over adding new capabilities.
 
 ## Now — September 2026: v0.9.5 candidate and remaining Stage C work
 
-As of 2026-09-17, the v0.9.5 candidate includes develop through `77d06d384`, plus the reviewed
+As of 2026-09-17, the v0.9.5 candidate includes develop through `2311fa1f2`, plus the reviewed
 Sandhi consumer-accounting work and follow-up tool-curation/session-context fixes. Version
 metadata and the `sandhi-gateway==0.7.0` pin are prepared; final review, exact-commit CI,
 promotion and publication are pending. This is a source-progress report, not a release claim.

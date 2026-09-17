@@ -34,10 +34,12 @@ of the framework and runtime layers.
 
 ## Current Victor behavior
 
-The v0.9.5 candidate is rebased onto Victor develop `77d06d3842b7022f8d292edd109cdaad7fd47436`;
+The v0.9.5 candidate is rebased onto Victor develop `2311fa1f2f5454e56e144ea553751cd402117989`;
 its scope includes that develop branch, not only the original focused consumer patch.
 `pyproject.toml` pins `sandhi-gateway==0.7.0`, and the transport recognizes chat contract minor 8.
-The dependency's publication and clean-install verification are release prerequisites.
+Sandhi 0.7.0 is published and independently verified; its published Linux wheel was installed
+in the isolated review environment and passed all 18 three-repository CPU/stub probes.
+The three deployment locks match the core pin. Clean candidate installation remains a gate.
 
 The candidate preserves boolean `reasoning_included` through response models, folds separate
 reasoning into billable output per call before accumulation, and carries that numeric result
@@ -94,6 +96,9 @@ or trimming policy; InferFlux and Sandhi remain authoritative for the producer a
 
 ## Verification
 
+- The broader provider/accounting suite passed 1,585 tests (13 optional skips). Independent
+  tool/session review passed 125 tests plus cancellation, interleaved-member, cross-task cleanup
+  and early-close probes. These are local results, not a substitute for final exact-commit CI.
 - Current candidate regressions cover the production terminal-chunk consumer, turn accumulator,
   real metrics collector and session tracker in
   `tests/unit/agent/services/test_codesign_usage_pipeline.py`. They exercise folded, separate,

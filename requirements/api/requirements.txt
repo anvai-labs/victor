@@ -177,7 +177,7 @@ rpds-py==2026.6.3
     # via
     #   jsonschema
     #   referencing
-sandhi-gateway==0.6.1
+sandhi-gateway==0.7.0
     # via victor-ai (pyproject.toml)
 shellingham==1.5.4
     # via typer
