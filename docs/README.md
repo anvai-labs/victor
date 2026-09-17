@@ -13,7 +13,7 @@ contributor guidance from dated experiments, design proposals and review evidenc
 | Feature catalog | [Features](features.md) |
 | Development environment | [Development Setup](development/setup.md) |
 | Deployment dependencies and container targets | [Dependency maintenance](development/dependencies.md) |
-| Security release candidate and remaining findings | [0.9.4 batch status](development/security-remediation-0.9.4.md) |
+| Security release evidence and retained findings | [0.9.4 release record](development/security-remediation-0.9.4.md) |
 | Native extension build | [Native build recipe](development/setup.md#native-extension-build) |
 | Documentation build and preview | [Documentation build](development/setup.md#documentation-build) |
 | Branches, verification and pull requests | [PR Workflow](development/PR_WORKFLOW.md) |

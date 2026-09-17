@@ -45,10 +45,27 @@ MCP_LIFECYCLE_TESTS = (
     "tests/unit/integrations/mcp/test_client_response_correlation.py",
     "tests/unit/security/test_mcp_factory_lifecycle.py",
 )
+DEPRECATION_NOTICE_TESTS = ("tests/unit/test_release_deprecation_targets.py",)
+DEPRECATION_NOTICE_FILES = (
+    "victor/runtime/context.py",
+    "victor/framework/config.py",
+    "victor/core/verticals/registry_manager.py",
+    "victor/framework/agentic_graph/state.py",
+    "victor/agent/session_context_linker.py",
+    "victor/workflows/compute_registry.py",
+    "victor/workflows/executor.py",
+    "victor/agent/coordinators/__init__.py",
+    "victor/agent/resilience.py",
+    "victor/tools/metadata.py",
+    "victor/workflows/unified_compiler.py",
+    "victor/tools/base.py",
+    "victor/agent/sqlite_session_persistence.py",
+)
 RELATED_TESTS = {
     "victor/integrations/mcp/client.py": MCP_LIFECYCLE_TESTS,
     "victor/integrations/mcp/stdio_transport.py": MCP_LIFECYCLE_TESTS,
     "scripts/ci/select_changed_tests.py": ("tests/unit/scripts/test_select_changed_tests.py",),
+    **dict.fromkeys(DEPRECATION_NOTICE_FILES, DEPRECATION_NOTICE_TESTS),
 }
 
 

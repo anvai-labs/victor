@@ -5,8 +5,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased] (develop)
 
-The v0.9.5 candidate includes the current develop scope and the consumer fixes below.
-Version metadata is prepared; final promotion, CI and publication are pending.
+## [0.10.0] - 2026-09-17
 
 ### Changed
 
@@ -61,7 +60,6 @@ Version metadata is prepared; final promotion, CI and publication are pending.
   pruning-disabled stable-definition turns. Edge-model and bootstrap docstrings
   no longer reference a model default that drifted from the code.
 
-### Fixed
 
 - Headless runs and benchmarks now measure the same tool supply users get: the
   agentic-loop selection transport runs the Stage 1 demand-hydration stage
@@ -70,7 +68,6 @@ Version metadata is prepared; final promotion, CI and publication are pending.
   script defaults now follow the configured default provider (inferflux)
   instead of hardcoding Ollama.
 
-### Fixed
 
 - Runtime subsystems no longer hardcode Ollama. The inline code-completion
   provider now follows the configured default provider and actually resolves
@@ -109,55 +106,55 @@ Version metadata is prepared; final promotion, CI and publication are pending.
   aborts, so callers reading `success` as "edit landed" were misled. The
   result now sets `partial: true` with an explicit NOT APPLIED warning and
   re-issue guidance (`commit=True` to write, `preview=True` for a diff).
+### Added
 
-### Changed
-
-- Advance the core `sandhi-gateway` pin to 0.7.0 and recognize chat contract minor 8.
-  Candidate tests cover accounting and context propagation; they do not establish loaded-model
-  quality or production performance. See the
-  [consumer handoff](docs/architecture/inferflux-reasoning-separation-handoff.md) for evidence
-  boundaries and remaining release gates.
-
-- CI no longer tests on Python 3.11: the 3.11 lanes (test matrix shards,
-  integration, verticals, performance, quality gates) are removed, shrinking
-  the matrix from 36 to 24 jobs. Python 3.11 support itself is unchanged —
-  wheels still build and publish for it and `security.yml` continues scanning
-  on 3.11 (security-only maintenance). Coverage measurement and the
-  coverage-gate moved from the 3.11 shards to the 3.12 shards; the test
-  matrix is now Python 3.12/3.13.
+- Add the demand-loaded `gh` tool for GitHub pull requests, issues, workflow
+  runs, releases, repository queries and API calls.
+- Add `victor mcp add` to verify and register project or user-level stdio MCP
+  servers with restricted configuration permissions.
 
 
-- `victor chat` now mounts the TUI immediately (shell-first): the UI appears with
-  an "initializing session…" state while agent creation, session resume and turn
-  limits finish in a background worker, instead of a silent multi-second (or
-  minute-long, with Docker down) wait before anything renders. The prompt
-  enables itself with a "✓ ready in X.Xs" line; initialization failures surface
-  in-app and exit cleanly. REPL/one-shot paths are unchanged (shared helpers).
-- The chat TUI no longer captures mouse events by default: drag-select/copy of
-  transcript snippets is the terminal's own again, including mid-turn. In-app
-  keyboard copy (`ctrl+c` → OSC 52) is unchanged; widget mouse handling stays
-  available via `VICTOR_TUI_MOUSE_SUPPORT=1` (documented in
-  `docs/reference/environment-variables.md` alongside the REPL-surface
-  `VICTOR_CHAT_MOUSE_SUPPORT`).
-- **Default provider is now InferFlux** (`qwen3-coder-30b`, self-hosted
-  llama.cpp-class serving with native server-side tool calls). The bundled
-  `default` profile points at `http://127.0.0.1:8080/v1` (SSH-tunnel recipe in
-  the profile comments and docs); `local` stays the air-gapped Ollama path and
-  a new `local-llamacpp` profile targets a stock llama-server. Ollama remains
-  fully supported — it is just no longer the default. Settings/allowlist/
-  `--endpoint`/first-run detection/`victor doctor`/quickstart/`victor init`
-  all follow the new default; `victor doctor` gains an InferFlux healthz check
-  with tunnel guidance when the default provider is unreachable.
-- Raise the default bash command timeout from 60s to 120s (`Timeouts.BASH_DEFAULT`).
-  Test runs, builds, and installs routinely exceeded the old ceiling and surfaced
-  as `Command timed out after 60 seconds` even though the shell tool supports a
-  `timeout` parameter. `VICTOR_TIMEOUT_BASH_DEFAULT` still overrides, and the
-  documented default in `docs/reference/environment-variables.md` already said 120.
-- Remove the `pr` subcommand from the `git` tool. `gh` is a different binary that
-  need not be installed when `git` is, so a `git pr` that silently shells out to
-  `gh` produced confusing failures. GitHub operations (PR create/view/merge,
-  releases, runs) now route through `shell(cmd='gh ...', action='exec')` like any
-  other out-of-family command. `git push -u` still works without victor-devops.
+- Make InferFlux with `qwen3-coder-30b` the default provider while retaining
+  Ollama through the `local` profile and stock llama-server through
+  `local-llamacpp`. This is the release's primary breaking default change.
+- Advance `sandhi-gateway` to 0.7.0 and recognize chat-contract minor 8,
+  preserving reasoning-accounting semantics through the current consumer API.
+- Complete FEP-0034 tool-supply consolidation: demand hydration, stable tool
+  definitions, member-scoped sessions and per-turn supply traces now align
+  served chat, headless and benchmark execution.
+- Mount the TUI before background session initialization, keep its prompt live
+  during turns with a FIFO queue, and make terminal-native mouse selection the
+  default.
+- Move the supported extension toolchain to Node 24, TypeScript 6, ESLint 10,
+  Vitest 5 and Vite 8. Required CI validates the extension only when relevant
+  paths change and reuses the existing aggregate runner job.
+- Regenerate the core, API and CPU-embedding deployment locks under shared
+  constraints and enforce every lock against project metadata in required CI.
+- Run the primary Python CI matrix on 3.12 and 3.13 while continuing to build
+  Python 3.11 wheels and retain its security-maintenance scan.
+- Raise the default bash command timeout from 60 seconds to 120 seconds and
+  route GitHub operations through the dedicated `gh` tool rather than `git pr`.
+- Retain existing Victor AI compatibility shims through this release and move
+  their announced removal target to 0.11.0. Victor Contracts remains on its
+  independent version train and keeps its existing stability schedule.
+
+
+- Preserve Sandhi's reasoning-inclusion convention and per-call folding through
+  provider responses, streaming metrics and session pricing while retaining raw
+  completion counts, totals and timing provenance.
+- Respect explicit curated tool sets before pruning and demand hydration;
+  unavailable curated tools no longer expand to the full registry.
+- Isolate concurrent team-member sessions, preserve member goals, and restore
+  caller context across streaming yields, early termination and timeout cleanup.
+- Bound coding-sandbox startup when Docker is unavailable, remove hardcoded
+  provider lookups, and initialize the optional skill matcher outside the
+  startup critical path.
+- Terminate and reap owned MCP stdio process groups across normal close,
+  timeout, cancellation and failed initialization.
+- Report `edit(commit=False)` as unapplied instead of returning a misleading
+  success result.
+
+## [0.9.4] - 2026-09-16
 
 ### Security
 
@@ -194,7 +191,6 @@ Version metadata is prepared; final promotion, CI and publication are pending.
   publication. Move runtime images to patched Ubuntu 24.04 packages; lower-severity
   unfixed OS findings remain visible in complete image reports.
 
-### Changed
 
 - Replace the workstation requirements freeze with manifest-derived deployment
   snapshots, remove unused vertical NumPy requirements, and keep RAG storage
@@ -205,20 +201,17 @@ Version metadata is prepared; final promotion, CI and publication are pending.
 - Update security/dependency documentation and trim development artifacts from
   the VSIX. The Svelte webview uses the supported mount entrypoint.
 
-### Fixed
 
 - Validate generated SQL backup identifiers and preserve bound candidate values.
 - Give the coding native wheel its own package metadata so installing it cannot
   replace the Python coding package.
 - Report the installed package version from HTTP and GraphQL health metadata.
 
-Version 0.9.4 is prepared for develop; it is not published until the release
-checks and unresolved security dispositions are complete. Independently installed
-vertical/native packages require their own releases. The candidate requires
-`victor-contracts>=0.9.2` and, for the native extra, `victor-native>=0.8.1`;
-the VS Code extension candidate is 0.5.1. See the
-[security batch status](docs/development/security-remediation-0.9.4.md) for
-release prerequisites and remaining findings.
+Victor AI 0.9.4 was published on 2026-09-16 with Python packages,
+native wheels, standalone binaries, checksums, SBOM, Docker image and a GitHub
+Release. `victor-contracts` 0.9.2 followed on 2026-09-17. See the
+[security batch record](docs/development/security-remediation-0.9.4.md) for the
+validated deployment shapes and retained historical-risk evidence.
 
 ## [0.9.3] - 2026-09-10
 
@@ -227,7 +220,6 @@ release prerequisites and remaining findings.
 - Raise the GitPython runtime minimum and requirements pin to 3.1.59 to address
   CVE-2026-78676, which failed the blocking dependency scan on develop (#1050).
 
-### Changed
 
 - Bind chat task requirements to the existing session state owner through
   `ChatRuntimeServices.session`, preserving live state across resets and restores
@@ -242,7 +234,6 @@ release prerequisites and remaining findings.
 Public agent APIs are unchanged. `victor-contracts` remains 0.9.1 and
 `victor-native` remains 0.8.0 on their independent release trains.
 
-### Fixed
 
 - Drain subprocess pipes before reaping after output caps, timeouts, cancellation
   or callback errors, preventing full pipe buffers from hanging tool execution.
@@ -250,7 +241,6 @@ Public agent APIs are unchanged. `victor-contracts` remains 0.9.1 and
 
 ## [0.9.2] - 2026-09-08
 
-### Changed
 
 - Consolidated definition-based workflow execution and streaming onto the single
   `CompiledGraph` engine (ADR-030, #1041–#1043). `WorkflowExecutor` and
@@ -263,7 +253,6 @@ Public agent APIs are unchanged. `victor-contracts` remains 0.9.1 and
   `victor-contracts` stays 0.9.1 and `victor-native` stays 0.8.0 on independent
   release trains; this release does not change their source or dependency pins.
 
-### Fixed
 
 - Preserved workflow final state, per-node diagnostics and tool counts across the
   adapter, API and YAML paths. Node and parallel failures now propagate correctly;
@@ -303,7 +292,6 @@ This patch includes removals and behavior changes for legacy workflow callers.
 
 ## [0.9.1] - 2026-09-07
 
-### Changed
 
 - Published the co-design Waves 1–2 and Wave 3 Stage A implementation, including
   boundary guards, runtime and storage fixes, exact native token counting, and
@@ -326,7 +314,6 @@ This patch includes removals and behavior changes for legacy workflow callers.
 
 ## [0.9.0] - 2026-08-16
 
-### Changed
 - **Dependency-chain bump (release train)**: `sandhi-gateway==0.1.6` (was
   `0.1.5`) and `proximadb>=0.3,<0.4` (was `>=0.2,<0.3`) across victor-ai and the
   victor-coding vertical; the `requirements.txt` proximaDB source pin advances
@@ -370,7 +357,6 @@ verified-dead code found by the F-016 call-graph audit.
   and Martin-coupling computed from `IMPORTS` edges (#481). Eager provider
   warm-up on graph build (#485).
 
-### Changed
 - **FEP-0016 implemented**: `InitializationPhaseManager` now drives all 9
   orchestrator `_initialize_*` phases via `run_phase`; a guard test prevents a
   phase being silently lost (F-002, #477/#478).
@@ -382,7 +368,6 @@ verified-dead code found by the F-016 call-graph audit.
 - Test suites run under 4 pytest-xdist workers; `lang-all` grammar wheels
   included in dev/ci extras (#482, #483).
 
-### Fixed
 - Generic-result-cache flag wiring (read the nested value); dropped dead
   `deduplication_strict_mode` + provider-optimization config (F-016e, #501).
 - Two cross-test state-pollution defects in sync/async + DB-path plumbing (#490).
@@ -405,7 +390,6 @@ verified-dead code found by the F-016 call-graph audit.
 
 Patch release: makes the public PyPI install actually work end-to-end.
 
-### Fixed
 - **Public install**: `victor-contracts` 0.7.2 is now published to PyPI (Trusted
   Publishing via `release-contracts.yml` + `pypi` environment), so
   `pip install victor-ai` resolves again (#380, #393)
@@ -419,7 +403,6 @@ Patch release: makes the public PyPI install actually work end-to-end.
   develop PR; quick-tests treats pytest exit 5 (all skipped) as pass (#382)
 - `victor-codegraph-v*` tags no longer trigger the victor-ai Release workflow
 
-### Changed
 - **`import victor` is lazy (PEP 562)** — drops from importing the whole
   runtime to ~20ms/2 modules; `victor.agent` is a callable module so
   `@victor.agent` and `mock.patch("victor.agent...")` keep working (#390)
@@ -542,7 +525,6 @@ Patch release: makes the public PyPI install actually work end-to-end.
 - **Deps**:
   - typer>=0.15 for click>=8.2 compatibility (#211)
 
-### Fixed
 - **Streaming fulfillment criteria** — Now built via real builder API instead of dead code (#184)
 - **Tool budget** — Made honestly advisory; removed dead hard-stop (#191)
 - **ProximaDB provider lifecycle** — Logs instead of stdout prints (#218)
@@ -579,7 +561,6 @@ streaming, tool-selection, governance, and indexing bugs surfaced by live use we
   databases (#153)
 - RL learning-trace merge caching within a task (L2, flag-gated)
 
-### Changed
 - **CI split** — lightweight fast checks on `develop`, extensive gating reserved for
   `develop → main`; develop quick-tests scoped to changed-file unit tests (#136, #142)
 - Scheduled security scan runs weekly instead of nightly (#145)
@@ -587,7 +568,6 @@ streaming, tool-selection, governance, and indexing bugs surfaced by live use we
 - New project databases open with `auto_vacuum=INCREMENTAL`; `graph_module_metric_history`
   is capped per module to stop unbounded growth (#153)
 
-### Fixed
 - **Streaming cleanup** — the provider SSE stream is now closed on-task across the full
   consumer → resilience → provider decorator chain, eliminating "async generator ignored
   GeneratorExit" / "exit cancel scope in a different task" spam; also corrected the streaming
@@ -639,7 +619,6 @@ streaming, tool-selection, governance, and indexing bugs surfaced by live use we
 - Deprecation warnings on all 5 contrib vertical imports
 - TODO/FIXME triage document (81 markers categorized)
 
-### Changed
 - **Consolidated to a single HTTP server** — the legacy aiohttp `VictorAPIServer` was removed; `VictorFastAPIServer` is now the sole server and its routers own the full API surface
 - **VS Code extension** upgraded to Node 22, TypeScript 5.9, and typescript-eslint 8
 - **Orchestrator** reduced from 4,514 to 3,940 LOC via property/callback extraction
@@ -675,7 +654,6 @@ streaming, tool-selection, governance, and indexing bugs surfaced by live use we
   - Migration path: `docs/architecture/migration.md`
   - Compatibility shim status: warning-backed alias remains supported through `v0.8.0`
 
-### Fixed
 - **Release pipeline** — the SBOM job installs the in-repo `victor-contracts` before victor-ai (it is not on PyPI), and the native-wheel build passes `--find-interpreter` so maturin finds a CPython under `manylinux: auto`
 - Bare `except:` in `experiments.py` → `except (ValueError, TypeError)`
 - `_send_rl_reward_signal` test updated for CallbackCoordinator delegation
@@ -726,7 +704,6 @@ streaming, tool-selection, governance, and indexing bugs surfaced by live use we
 - victor-dataanalysis, victor-research, victor-invest updated to v0.6.0
 - Validation script (`scripts/validate_verticals.py`) for automated checking
 
-### Changed
 
 **Performance**:
 - Entry point scanning: 9+ independent calls → 1 unified scan (200-500ms startup improvement)
@@ -746,7 +723,6 @@ streaming, tool-selection, governance, and indexing bugs surfaced by live use we
 - Dependency Inversion - depends on abstractions, not concretions
 - Single Responsibility - focused, cohesive modules
 
-### Fixed
 
 **Class Name Generation**:
 - Fixed: Metadata extraction using pattern matching instead of `.replace()`
@@ -834,18 +810,15 @@ See `docs/verticals/KNOWN_ISSUES_v0.6.0.md` for details.
 - Collision detection and public extension API for verticals
 - Fast CI workflow for quicker feedback
 
-### Changed
 - Black formatting applied to 79 files
 - FastAPI server hardened against injection, traversal, and data exposure
 - SecretStr for API keys to prevent credential leakage
 
-### Fixed
 - VS Code extension: handle offline servers in `supportsCapability` check
 - Build: victor-contracts built locally in release workflow
 
 ## [0.5.6] - 2026-03-01
 
-### Fixed
 - Added strawberry-graphql to dev dependencies for GraphQL integration tests
 
 ## [0.5.5] - 2026-02-28

@@ -109,7 +109,7 @@ class AgentConfig:
         _warnings.warn(
             "AgentConfig is deprecated. Use UnifiedAgentConfig from "
             "victor.framework.config for advanced configuration, or Agent.create() "
-            "keyword arguments for simple cases. This will be removed in v0.10.0.",
+            "keyword arguments for simple cases. This will be removed in v0.11.0.",
             DeprecationWarning,
             stacklevel=2,
         )
