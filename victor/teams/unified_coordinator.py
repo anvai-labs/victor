@@ -985,6 +985,22 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
             else:
                 final_output = "\n\n".join(final_outputs)
 
+            if active_formation == TeamFormation.PARALLEL:
+                failed = [result for result in member_results_list if not result.success]
+                if failed:
+                    summary = "Member failures:\n" + "\n".join(
+                        f"- {result.member_id}: {result.error or 'execution failed'}"
+                        for result in failed
+                    )
+                    final_output = f"{final_output}\n\n{summary}" if final_output else summary
+            if active_formation == TeamFormation.CONSENSUS and member_results_list:
+                metadata = member_results_list[0].metadata
+                success = success and bool(
+                    metadata.get("consensus_achieved") or "consensus_decision" in metadata
+                )
+                if "consensus_decision" in metadata:
+                    final_output = metadata["consensus_decision"]
+
             # Extract consensus metadata if present (from ConsensusFormation)
             result_dict = {
                 "success": success,
