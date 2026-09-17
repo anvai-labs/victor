@@ -267,22 +267,22 @@ G1–G13 come from the co-design sessions and code audit; G14–G16 from the §2
 - **G3 — ✅ partial failure surfaced (WS-B, [PR #1108](https://github.com/anvai-labs/victor/pull/1108)).** Parallel synthesis includes
   failed-member summaries; opt-in per-member retries retain attempt costs, stop at
   approval pauses, and complete before durable member checkpointing.
-- **G4 — shared-path write races are documented, not fixed.** The live matrix required
-  disjoint file paths per member (noted in the formations doc). Worktree isolation
-  exists (§1.2) but is not default-on nor formation-aware for PARALLEL. Decide: opt-in
-  per-member worktree for PARALLEL (config flag) vs. write-guard detection with a
-  formation-aware error.
+- **G4 — ✅ opt-in PARALLEL worktrees (WS-D).** `parallel_worktree_isolation`
+  materializes one worktree per member, forwards the assigned directory through
+  public spawn, and binds supported file/shell tools without process-wide `chdir`.
+  Missing worktrees or tool adapters fail explicitly. Worktrees are preserved for
+  review by default. The live test wrote identical relative filenames in all three
+  worktrees, with no parent-directory writes and three passing independent tests.
 - **G5 — no capacity-aware admission control.** The R9700 serves 2 KV sequences; a
   3-member PARALLEL team silently serializes at the server. The formation never learns
   about provider capacity: `max_workers` exists but nothing derives it from the
   provider (InferFlux `max_parallel_sequences`), and no backpressure event reaches the
   coordinator (observability gap — members just run slower).
-- **G6 — session-id isolation is pinned by unit tests, not by a live e2e assertion.**
-  Direct spawns bind `resolve_member_session_id()` (dash format) on both `execute()` and
-  the restored per-advance streaming binding. Unverified: nested spawns (member→grandchild
-  propagation), and an e2e assertion that InferFlux actually sees DISTINCT
-  `x-inferflux-session-id` values for concurrent members (needs server-side debug
-  logging or a sandbox assertion).
+- **G6 — ✅ nested and live session isolation verified (WS-D).** Nested member
+  execution inherits the immediate parent's session and restores its caller.
+  Coordinator dispatch forwards configured member identities; observed live
+  `x-inferflux-session-id` headers match all three configured member IDs and the
+  per-member result metadata. Evidence is linked in the InferFlux formation recipe.
 - **G7 — heterogeneous presets never validated live.** The cost-optimal pattern (local
   workers + one cloud reviewer through Sandhi) has never been run. Also verify
   `reasoning_effort` stays stripped (capability-gated) for the InferFlux provider
