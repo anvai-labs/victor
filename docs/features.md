@@ -137,3 +137,7 @@ same framework through `VictorClient`.
 | Docker image | Release candidate | Advertised, but a fresh image build/run smoke is required before the release tag. |
 | VS Code extension and native Rust extensions | Preview | Their CI checks are currently advisory; do not represent them as release-blocking guarantees. |
 | Observability dashboard/API | Experimental | Product support decision remains tracked by TD-5. |
+
+**Parallel workspace isolation** — `parallel_worktree_isolation` gives each member
+its own git worktree and binds file/shell paths to that directory. Worktrees remain
+available for review after execution; unsupported tool adapters fail explicitly.

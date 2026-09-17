@@ -1,0 +1,82 @@
+{
+  "worktree_commit": "57c587efa560210034a36771ae7668c4743abe60",
+  "working_tree_dirty": true,
+  "elapsed_seconds": 37.11,
+  "provider": "inferflux",
+  "model": "qwen3-coder-30b",
+  "capacity": 2,
+  "member_ids": [
+    "executor_85865f3b",
+    "executor_8efd7ad8",
+    "executor_b426e14b"
+  ],
+  "session_ids": [
+    "isolation-18b2e5c728-executor_85865f3b",
+    "isolation-18b2e5c728-executor_8efd7ad8",
+    "isolation-18b2e5c728-executor_b426e14b"
+  ],
+  "requests": [
+    {
+      "member_name": "double",
+      "session_id": "isolation-18b2e5c728-executor_85865f3b",
+      "path": "/v1/chat/completions",
+      "time": 1789679752.1433458
+    },
+    {
+      "member_name": "square",
+      "session_id": "isolation-18b2e5c728-executor_8efd7ad8",
+      "path": "/v1/chat/completions",
+      "time": 1789679752.144039
+    },
+    {
+      "member_name": "increment",
+      "session_id": "isolation-18b2e5c728-executor_b426e14b",
+      "path": "/v1/chat/completions",
+      "time": 1789679752.183986
+    },
+    {
+      "member_name": "double",
+      "session_id": "isolation-18b2e5c728-executor_85865f3b",
+      "path": "/v1/chat/completions",
+      "time": 1789679757.586329
+    },
+    {
+      "member_name": "increment",
+      "session_id": "isolation-18b2e5c728-executor_b426e14b",
+      "path": "/v1/chat/completions",
+      "time": 1789679760.887969
+    },
+    {
+      "member_name": "square",
+      "session_id": "isolation-18b2e5c728-executor_8efd7ad8",
+      "path": "/v1/chat/completions",
+      "time": 1789679760.8931148
+    }
+  ],
+  "member_sessions": {
+    "double": [
+      "isolation-18b2e5c728-executor_85865f3b"
+    ],
+    "square": [
+      "isolation-18b2e5c728-executor_8efd7ad8"
+    ],
+    "increment": [
+      "isolation-18b2e5c728-executor_b426e14b"
+    ]
+  },
+  "pytest": [
+    ".                                                                        [100%]\n1 passed in 0.10s",
+    ".                                                                        [100%]\n1 passed in 0.09s",
+    ".                                                                        [100%]\n1 passed in 0.10s"
+  ],
+  "isolated": true,
+  "throttled_member_ids": [],
+  "deliverables": [
+    "members/UnifiedTeam-executor_85865f3b/member.py",
+    "members/UnifiedTeam-executor_85865f3b/test_member.py",
+    "members/UnifiedTeam-executor_8efd7ad8/member.py",
+    "members/UnifiedTeam-executor_8efd7ad8/test_member.py",
+    "members/UnifiedTeam-executor_b426e14b/member.py",
+    "members/UnifiedTeam-executor_b426e14b/test_member.py"
+  ]
+}
