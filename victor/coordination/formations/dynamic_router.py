@@ -175,8 +175,14 @@ class DynamicRouterFormation(BaseFormationStrategy):
                 - routing_method: How agent was selected (category/keyword/default)
                 - routing_reason: Explanation for routing choice
         """
+        if agents:
+            return await self._execute_participants(agents, context, task)
+
         # Select agent based on task analysis
         selected_agent, method, reason = self._select_agent(context, task.content)
+
+        if selected_agent is None:
+            return [MemberResult(member_id="router", success=False, output="", error=reason)]
 
         # Execute task with selected agent
         try:
@@ -211,6 +217,58 @@ class DynamicRouterFormation(BaseFormationStrategy):
                 )
             ]
 
+    async def _execute_participants(self, agents, context, task):
+        """Route through TeamParticipant to preserve failures, metrics and isolation."""
+        routes = context.get("router_routes")
+        by_id = {agent.id: agent for agent in agents}
+        selected = None
+        method = "keyword"
+        reason = ""
+        if routes is not None:
+            if not isinstance(routes, dict) or any(
+                not isinstance(keyword, str) or not keyword or member_id not in by_id
+                for keyword, member_id in routes.items()
+            ):
+                raise ValueError("router_routes must map nonempty keywords to existing member IDs")
+            for keyword, member_id in routes.items():
+                if keyword.lower() in task.content.lower():
+                    selected = by_id[member_id]
+                    reason = f"Keyword match: {keyword}"
+                    break
+        else:
+            category = self._analyze_task_category(task.content)
+            role = {
+                "coding": "executor",
+                "research": "researcher",
+                "analysis": "reviewer",
+                "writing": "executor",
+            }.get(category)
+            selected = (
+                next(
+                    (agent for agent in agents if getattr(agent.role, "value", agent.role) == role),
+                    None,
+                )
+                if role
+                else None
+            )
+            method, reason = "category", f"Task category: {category}"
+        if selected is None:
+            selected = agents[0]
+            method, reason = "default", "No matching route; first member"
+            logger.warning("Router found no matching route; selecting first member %s", selected.id)
+        result = await selected.execute(task, context)
+        result.metadata.update(
+            selected_agent=selected.id,
+            routing_method=method,
+            routing_reason=reason,
+            formation="dynamic_router",
+        )
+        return [result]
+
+    def supports_durable_pause(self) -> bool:
+        """False: routing selection is not checkpointed; approval remains inline."""
+        return False
+
     def _select_agent(self, context: TeamContext, task: str) -> tuple[Any, str, str]:
         """Select best agent for the task.
 
@@ -236,7 +294,7 @@ class DynamicRouterFormation(BaseFormationStrategy):
                         if agent:
                             return agent, "category", f"Task category: {category}"
             except Exception as e:
-                logger.debug(f"Task analysis failed: {e}")
+                logger.warning(f"Task analysis failed; using keyword routing: {e}")
 
         # Fallback to keyword-based routing
         return self._keyword_routing(context, task)
@@ -292,6 +350,9 @@ class DynamicRouterFormation(BaseFormationStrategy):
             # Filter for agent-like objects
             for obj in all_agents:
                 if hasattr(obj, "execute") and hasattr(obj, "id"):
+                    logger.warning(
+                        "Router found no matching route; selecting first member %s", obj.id
+                    )
                     return obj, "default", "First available agent"
 
         # No agent found - return error
