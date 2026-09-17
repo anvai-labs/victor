@@ -739,12 +739,9 @@ class ToolService:
         """
         self._config = config
         self._settings = settings
-        if config.tool_selection_enabled is None:
-            from victor.agent.services.tool_supply_policy import (
-                resolve_tool_selection_enabled,
-            )
-
-            config.tool_selection_enabled = resolve_tool_selection_enabled(settings)
+        # tool_selection_enabled stays None when unset: gates resolve it
+        # lazily via the canonical accessor (explicit DI bool > settings
+        # field > legacy env) so the flag is never frozen at init time.
         self._selector = tool_selector
         self._executor = tool_executor
         self._registrar = tool_registrar
