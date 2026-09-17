@@ -101,3 +101,10 @@ def test_at_or_below_cap_still_selects():
     under = real[:5]
     out = select(under)
     assert out == sorted(under) and len(out) == 5  # under cap → normal selection
+
+
+def test_deprecation_notice_sources_map_to_release_contract() -> None:
+    expected = "tests/unit/test_release_deprecation_targets.py"
+
+    for source in _mod.DEPRECATION_NOTICE_FILES:
+        assert expected in select([source])

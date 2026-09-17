@@ -535,7 +535,7 @@ def _warn_legacy_registry_usage(stacklevel: int = 2) -> None:
     warnings.warn(
         "Importing ToolMetadataRegistry from victor.tools.metadata is deprecated. "
         "Use 'from victor.tools.metadata_registry import ToolMetadataRegistry' instead. "
-        "This compatibility wrapper will be removed in version 0.10.0.",
+        "This compatibility wrapper will be removed in version 0.11.0.",
         DeprecationWarning,
         stacklevel=stacklevel,
     )

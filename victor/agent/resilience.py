@@ -336,7 +336,7 @@ class RetryHandler:
         - `from victor.core.retry import with_retry` for decorator-based usage
         - `ExponentialBackoffStrategy` for strategy configuration
 
-        This wrapper will be removed in version 0.10.0.
+        This wrapper will be removed in version 0.11.0.
 
     The canonical implementation provides:
     - More robust error handling with RetryContext

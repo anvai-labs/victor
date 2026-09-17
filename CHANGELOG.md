@@ -5,147 +5,59 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased] (develop)
 
-The v0.9.5 candidate includes the current develop scope and the consumer fixes below.
-Version metadata is prepared; final promotion, CI and publication are pending.
+## [0.10.0] - 2026-09-17
 
 ### Added
-### Added
 
-- First test suite for `CodeSandbox` (code executor tool): 27 tests covering
-  init/degraded mode, lifecycle (start/stop/idempotent), execute (stdout/stderr
-  demux), file transfer (put_files/get_file with real in-memory tar), context
-  managers (sync + async), cleanup registration, and the `@tool` decorated
-  entry point — both with and without Docker available.
-
-
-- New bash-style `gh` tool (pr · issue · run · release · repo · api · auth) that
-  owns the GitHub CLI dependency honestly: it returns an actionable install
-  hint when `gh` is absent instead of a confusing shell error, and runs the
-  real binary via `shell(action='exec')` since GitHub operations are
-  network-bound by nature. Demand-wired through `SharedToolRegistry`
-  (`GH_DEMAND_KEYWORDS` hydration, like `graph`) so sessions that never touch
-  GitHub keep their bootstrap schema unchanged. Unknown `gh` flags pass
-  through; argv is `shlex.quote`d so titles/bodies with spaces, backticks or
-  `$` survive the shell verbatim.
-- `victor mcp add <name> <command> [args...]` registers a stdio MCP server,
-  verifies it completes the MCP handshake (with `--force` to persist anyway),
-  and upserts it into project (`.victor/mcp.yaml`) or global
-  (`~/.victor/mcp.yaml`) config with 0600 permissions — closing the gap with
-  `claude mcp add`.
-
-### Fixed
-
-- Preserve Sandhi's boolean reasoning-inclusion convention through provider responses and fold
-  reasoning per call before accumulating usage. Stream metrics and session pricing now share
-  billable output counts while preserving raw completion counts, totals and timing provenance.
-- Respect explicit curated tool sets before pruning and demand hydration on the agentic path;
-  unavailable curated tools do not fall back to the full registry. Retain supply-trace emission.
-- Restore the caller's session context before yielding subagent stream chunks, including early
-  termination and timeout cleanup. Member orchestration advances retain their isolated session ID.
-
-- The agentic-loop selection transport now emits the per-turn tool-supply
-  trace (Stage 8 of FEP-0034), so benchmark and headless runs are queryable
-  exactly like served chat sessions — including skip records for
-  pruning-disabled stable-definition turns. Edge-model and bootstrap docstrings
-  no longer reference a model default that drifted from the code.
-
-### Fixed
-
-- Headless runs and benchmarks now measure the same tool supply users get: the
-  agentic-loop selection transport runs the Stage 1 demand-hydration stage
-  (FEP-0034), so mention-wired tools (`gh`, `graph`) hydrate there too instead
-  of diverging from the chat transports. Benchmark harness and startup-KPI
-  script defaults now follow the configured default provider (inferflux)
-  instead of hardcoding Ollama.
-
-### Fixed
-
-- Runtime subsystems no longer hardcode Ollama. The inline code-completion
-  provider now follows the configured default provider and actually resolves
-  (the old path called nonexistent registry methods and raised on first use);
-  the edge-model micro-decision layer gained `VICTOR_EDGE_MODEL_PROVIDER` /
-  `VICTOR_EDGE_MODEL` / `VICTOR_EDGE_MODEL_BASE_URL` overrides (defaults stay
-  a tiny local Ollama model — the right shape for 4s decisions); the
-  SkillMatcher initializes in a background task so its ~6s
-  sentence-transformers import + model load no longer sits on the bootstrap
-  critical path (every consumer already guards on readiness; early turns
-  simply have no skill auto-selection yet).
-
-
-- Session bootstrap no longer stalls ~60s when Docker Desktop is closed or
-  unresponsive. The coding vertical's sandbox constructor probes the Docker
-  daemon with a 60s requests timeout during component assembly, blocking every
-  `victor chat` start. The load+start is now bounded
-  (`VICTOR_CODE_EXEC_START_TIMEOUT`, default 5s) and degrades loudly — the
-  session runs without the code-execution sandbox and says so, matching the
-  already-handled missing-package case. Measured on a stalled machine:
-  client init 68.8s → 13.8s.
-- The chat TUI no longer freezes the input while the agent executes. The prompt
-  stays live for the whole turn: a submission mid-run enters a FIFO queue
-  (listener-notified, strictly in-order) that drains one prompt per completed
-  turn — status shows "N queued", `/queue` lists and `/queue clear` flushes,
-  ESC interrupts the current run and the next queued prompt starts, ESC while
-  idle clears the queue. Queues are session-ephemeral by design.
-- Demand-wired tools (`gh`, `graph`) never reached chat sessions: hydration lived
-  only on `ToolService.select_tools`, which no production code calls, and the
-  cache-optimized transport freezes the session toolset before per-turn selection
-  ever runs. A shared `hydrate_demand_tools` stage now runs in both transports
-  before the freeze, so a mention hydrates the tool into the locked schema
-  (live-verified; FEP-0034 Stage A).
-- `edit(commit=False)` no longer reports a bare success for a permanent
-  no-op: the staged-but-never-flushed queue is discarded when the transaction
-  aborts, so callers reading `success` as "edit landed" were misled. The
-  result now sets `partial: true` with an explicit NOT APPLIED warning and
-  re-issue guidance (`commit=True` to write, `preview=True` for a diff).
+- Add the demand-loaded `gh` tool for GitHub pull requests, issues, workflow
+  runs, releases, repository queries and API calls.
+- Add `victor mcp add` to verify and register project or user-level stdio MCP
+  servers with restricted configuration permissions.
 
 ### Changed
 
-- Advance the core `sandhi-gateway` pin to 0.7.0 and recognize chat contract minor 8.
-  Candidate tests cover accounting and context propagation; they do not establish loaded-model
-  quality or production performance. See the
-  [consumer handoff](docs/architecture/inferflux-reasoning-separation-handoff.md) for evidence
-  boundaries and remaining release gates.
+- Make InferFlux with `qwen3-coder-30b` the default provider while retaining
+  Ollama through the `local` profile and stock llama-server through
+  `local-llamacpp`. This is the release's primary breaking default change.
+- Advance `sandhi-gateway` to 0.7.0 and recognize chat-contract minor 8,
+  preserving reasoning-accounting semantics through the current consumer API.
+- Complete FEP-0034 tool-supply consolidation: demand hydration, stable tool
+  definitions, member-scoped sessions and per-turn supply traces now align
+  served chat, headless and benchmark execution.
+- Mount the TUI before background session initialization, keep its prompt live
+  during turns with a FIFO queue, and make terminal-native mouse selection the
+  default.
+- Move the supported extension toolchain to Node 24, TypeScript 6, ESLint 10,
+  Vitest 5 and Vite 8. Required CI validates the extension only when relevant
+  paths change and reuses the existing aggregate runner job.
+- Regenerate the core, API and CPU-embedding deployment locks under shared
+  constraints and enforce every lock against project metadata in required CI.
+- Run the primary Python CI matrix on 3.12 and 3.13 while continuing to build
+  Python 3.11 wheels and retain its security-maintenance scan.
+- Raise the default bash command timeout from 60 seconds to 120 seconds and
+  route GitHub operations through the dedicated `gh` tool rather than `git pr`.
+- Retain existing Victor AI compatibility shims through this release and move
+  their announced removal target to 0.11.0. Victor Contracts remains on its
+  independent version train and keeps its existing stability schedule.
 
-- CI no longer tests on Python 3.11: the 3.11 lanes (test matrix shards,
-  integration, verticals, performance, quality gates) are removed, shrinking
-  the matrix from 36 to 24 jobs. Python 3.11 support itself is unchanged —
-  wheels still build and publish for it and `security.yml` continues scanning
-  on 3.11 (security-only maintenance). Coverage measurement and the
-  coverage-gate moved from the 3.11 shards to the 3.12 shards; the test
-  matrix is now Python 3.12/3.13.
+### Fixed
 
+- Preserve Sandhi's reasoning-inclusion convention and per-call folding through
+  provider responses, streaming metrics and session pricing while retaining raw
+  completion counts, totals and timing provenance.
+- Respect explicit curated tool sets before pruning and demand hydration;
+  unavailable curated tools no longer expand to the full registry.
+- Isolate concurrent team-member sessions, preserve member goals, and restore
+  caller context across streaming yields, early termination and timeout cleanup.
+- Bound coding-sandbox startup when Docker is unavailable, remove hardcoded
+  provider lookups, and initialize the optional skill matcher outside the
+  startup critical path.
+- Terminate and reap owned MCP stdio process groups across normal close,
+  timeout, cancellation and failed initialization.
+- Report `edit(commit=False)` as unapplied instead of returning a misleading
+  success result.
 
-- `victor chat` now mounts the TUI immediately (shell-first): the UI appears with
-  an "initializing session…" state while agent creation, session resume and turn
-  limits finish in a background worker, instead of a silent multi-second (or
-  minute-long, with Docker down) wait before anything renders. The prompt
-  enables itself with a "✓ ready in X.Xs" line; initialization failures surface
-  in-app and exit cleanly. REPL/one-shot paths are unchanged (shared helpers).
-- The chat TUI no longer captures mouse events by default: drag-select/copy of
-  transcript snippets is the terminal's own again, including mid-turn. In-app
-  keyboard copy (`ctrl+c` → OSC 52) is unchanged; widget mouse handling stays
-  available via `VICTOR_TUI_MOUSE_SUPPORT=1` (documented in
-  `docs/reference/environment-variables.md` alongside the REPL-surface
-  `VICTOR_CHAT_MOUSE_SUPPORT`).
-- **Default provider is now InferFlux** (`qwen3-coder-30b`, self-hosted
-  llama.cpp-class serving with native server-side tool calls). The bundled
-  `default` profile points at `http://127.0.0.1:8080/v1` (SSH-tunnel recipe in
-  the profile comments and docs); `local` stays the air-gapped Ollama path and
-  a new `local-llamacpp` profile targets a stock llama-server. Ollama remains
-  fully supported — it is just no longer the default. Settings/allowlist/
-  `--endpoint`/first-run detection/`victor doctor`/quickstart/`victor init`
-  all follow the new default; `victor doctor` gains an InferFlux healthz check
-  with tunnel guidance when the default provider is unreachable.
-- Raise the default bash command timeout from 60s to 120s (`Timeouts.BASH_DEFAULT`).
-  Test runs, builds, and installs routinely exceeded the old ceiling and surfaced
-  as `Command timed out after 60 seconds` even though the shell tool supports a
-  `timeout` parameter. `VICTOR_TIMEOUT_BASH_DEFAULT` still overrides, and the
-  documented default in `docs/reference/environment-variables.md` already said 120.
-- Remove the `pr` subcommand from the `git` tool. `gh` is a different binary that
-  need not be installed when `git` is, so a `git pr` that silently shells out to
-  `gh` produced confusing failures. GitHub operations (PR create/view/merge,
-  releases, runs) now route through `shell(cmd='gh ...', action='exec')` like any
-  other out-of-family command. `git push -u` still works without victor-devops.
+## [0.9.4] - 2026-09-16
 
 ### Security
 
@@ -200,13 +112,11 @@ Version metadata is prepared; final promotion, CI and publication are pending.
   replace the Python coding package.
 - Report the installed package version from HTTP and GraphQL health metadata.
 
-Version 0.9.4 is prepared for develop; it is not published until the release
-checks and unresolved security dispositions are complete. Independently installed
-vertical/native packages require their own releases. The candidate requires
-`victor-contracts>=0.9.2` and, for the native extra, `victor-native>=0.8.1`;
-the VS Code extension candidate is 0.5.1. See the
-[security batch status](docs/development/security-remediation-0.9.4.md) for
-release prerequisites and remaining findings.
+Victor AI 0.9.4 was published on 2026-09-16 with Python packages,
+native wheels, standalone binaries, checksums, SBOM, Docker image and a GitHub
+Release. `victor-contracts` 0.9.2 followed on 2026-09-17. See the
+[security batch record](docs/development/security-remediation-0.9.4.md) for the
+validated deployment shapes and retained historical-risk evidence.
 
 ## [0.9.3] - 2026-09-10
 

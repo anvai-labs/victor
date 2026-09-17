@@ -79,7 +79,7 @@ class SessionContextLinker:
                 self._conversation_store = session_persistence
             elif class_name == "SQLiteSessionPersistence":
                 warnings.warn(
-                    "SQLiteSessionPersistence is deprecated and will be removed in v0.10.0. "
+                    "SQLiteSessionPersistence is deprecated and will be removed in v0.11.0. "
                     "Use ConversationStore instead. "
                     "Pass ConversationStore as conversation_store parameter.",
                     DeprecationWarning,

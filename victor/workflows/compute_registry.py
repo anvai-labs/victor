@@ -17,7 +17,7 @@ from victor_contracts.workflows import ExecutorNodeStatus, NodeResult
 
 # Prefix identifying chain handlers in YAML workflow references
 # ("chain:<vertical>:<name>"). Canonical home; victor.workflows.executor
-# re-exports it for backward compatibility until 0.10.0.
+# re-exports it for backward compatibility until 0.11.0.
 CHAIN_HANDLER_PREFIX = "chain:"
 
 if TYPE_CHECKING:

@@ -1,8 +1,12 @@
-# Security remediation: 0.9.4 candidate
+# Security remediation: 0.9.4 release record
 
-Status: #1058, #1060 and #1063 are merged on develop. The September 14 closeout adds
-review-discovered fixes and refreshed scan evidence; **0.9.4 is not released**.
-Latest verified AI GitHub release is 0.9.3. SDK 0.9.2 is not yet available on PyPI.
+Status: **released**. Victor AI 0.9.4 was published on 2026-09-16 from
+`4e4e0d640` after release workflow run 35101110707 completed successfully. The
+GitHub Release contains 14 assets, and the Python, native, binary and container
+publication jobs passed. Victor Contracts 0.9.2 was published independently to
+PyPI on 2026-09-17. As of that closeout, GitHub reports zero open Dependabot
+alerts; the historical Trivy exposure uncertainty below remains part of the
+record and is not evidence that historical credentials were unaffected.
 
 ## Integrated security changes
 
@@ -181,23 +185,20 @@ or incident-review evidence is still needed to close it. A current patched
 dependency and zero open secret alerts cannot prove that historical credentials
 were never exposed. Do not publish secret material in this record.
 
-## Release sequence
+## Release outcome
 
-Keep the prepared versions: AI **0.9.4**, contracts **0.9.2**, native **0.8.1**,
-extension **0.5.1**. This closeout fixes defects; it adds no new feature scope.
-Coding native retains its independent **0.1.0** identity.
-
-1. Complete final local artifact checks and consolidate all residual fixes into
-   one develop PR. Require review and CI Success on the final candidate.
-2. Resolve the historical-risk evidence above and any unaccepted release blocker.
-3. Publish contracts 0.9.2 via its independent release workflow and verify PyPI.
-4. Open the explicit develop-to-main promotion; pass the full required battery,
-   then merge with a merge commit.
-5. Tag the validated main commit for AI 0.9.4 and verify Python/native/container
-   publication. Deliver changed vertical and extension packages separately.
-6. Refresh main's dependency graph and scanner categories, verify alert closure,
-   and audit the downloaded artifacts. No bulk dismissal of stale alerts.
-
-Do not count version metadata, an old green commit, or a queued publication as a
-release. Keep raw reports, package inventories and image digests with the final
-release evidence.
+1. The final candidate passed independent review, required CI, deployment-lock
+   audits and the documented artifact checks.
+2. Victor Contracts 0.9.2 was tagged and published to PyPI on 2026-09-17.
+3. The develop-to-main promotion merged as `4e4e0d640`; tag `v0.9.4` triggered
+   release workflow run 35101110707, which completed successfully.
+4. The [v0.9.4 GitHub Release](https://github.com/anvai-labs/victor/releases/tag/v0.9.4)
+   published 14 assets, including Victor AI packages, native wheels, standalone
+   binaries and checksums. Docker and SBOM publication also passed.
+5. The default-branch dependency graph now reports zero open Dependabot alerts.
+   Current npm and Python deployment audits report no known actionable
+   vulnerabilities. Lower-severity unfixed OS findings remain visible as recorded
+   above.
+6. The historical Trivy incident evidence remains incomplete. Publication closed
+   the release gate after human review; it did not establish that the historical
+   mutable action reference was harmless.

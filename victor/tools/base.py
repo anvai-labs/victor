@@ -74,7 +74,7 @@ def __getattr__(name: str):
         _warnings.warn(
             "Direct import of ToolRegistry from victor.tools.base is deprecated. "
             "Use 'from victor.tools.registry import ToolRegistry' instead. "
-            "This re-export will be removed in version 0.10.0.",
+            "This re-export will be removed in version 0.11.0.",
             DeprecationWarning,
             stacklevel=2,
         )
@@ -88,7 +88,7 @@ def __getattr__(name: str):
         _warnings.warn(
             "Direct import of ToolMetadataRegistry from victor.tools.base is deprecated. "
             "Use 'from victor.tools.metadata_registry import ToolMetadataRegistry' instead. "
-            "This re-export will be removed in version 0.10.0.",
+            "This re-export will be removed in version 0.11.0.",
             DeprecationWarning,
             stacklevel=2,
         )
