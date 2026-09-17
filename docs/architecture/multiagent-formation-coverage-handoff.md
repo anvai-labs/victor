@@ -251,16 +251,16 @@ sources and Victor's own codesign lessons:
 Ordered by risk-to-correctness first. G-numbers are the handoff's work items.
 G1–G13 come from the co-design sessions and code audit; G14–G16 from the §2 research.
 
-- **G1 — consensus semantics hardened (WS-B, PR pending).** Default rounds are 3;
+- **G1 — consensus semantics hardened (WS-B, [PR #1108](https://github.com/anvai-labs/victor/pull/1108)).** Default rounds are 3;
   agreement compares explicit consensus keys or exact output values rather than
   successful execution. The consensus preset exposes rounds/threshold and optional
   supervisor tie-break; unresolved disagreement fails the team. Live small-model
   comparison validation remains part of the later sweep.
-- **G2 — structured reflection contract added (WS-B, PR pending).** Opt-in JSON
+- **G2 — structured reflection contract added (WS-B, [PR #1108](https://github.com/anvai-labs/victor/pull/1108)).** Opt-in JSON
   verdicts have strict validation and immediate failure on malformed output. The
   legacy default remains byte-compatible and warns on keyword fallback; use the JSON
   contract for new local-model runs. Checkpoint resume preserves the verdict format.
-- **G3 — partial failure surfaced (WS-B, PR pending).** Parallel synthesis includes
+- **G3 — partial failure surfaced (WS-B, [PR #1108](https://github.com/anvai-labs/victor/pull/1108)).** Parallel synthesis includes
   failed-member summaries; opt-in per-member retries retain attempt costs, stop at
   approval pauses, and complete before durable member checkpointing.
 - **G4 — shared-path write races are documented, not fixed.** The live matrix required
