@@ -977,50 +977,60 @@ class SubAgent(IAgent):  # type: ignore[misc]
                 f"{self.config.task[:50]}..."
             )
 
-            # NOTE: streaming members intentionally do NOT bind the member
-            # session id ContextVar — set_session_id inside an async generator
-            # leaks the member's id into the consumer task's context after
-            # every yield, re-creating the session-KV cross-contamination this
-            # module's session binding was added to prevent. The execute()
-            # path (non-streaming) handles per-member session binding
-            # correctly via the try/finally pattern.
+            # Member-scoped session binding for the streaming path: set the
+            # member's session id (keys the provider's session-KV cache) and
+            # restore the parent's after the stream completes. Uses set/restore
+            # rather than token-based reset because async generator cleanup
+            # may run in a different context, making token-based reset raise
+            # ValueError.
+            from victor.core.context import (
+                set_session_id,
+                session_id as _ctx_session_id,
+            )
+
+            parent_session = _ctx_session_id.get()
+            set_session_id(self.config.resolve_member_session_id())
 
             # Stream the task using orchestrator.stream_chat()
-            async for chunk in self.orchestrator.stream_chat(self.config.task):
-                yield chunk
+            try:
+                async for chunk in self.orchestrator.stream_chat(self.config.task):
+                    yield chunk
 
-                # If this was the final chunk from the orchestrator, we'll add metadata
-                if chunk.is_final:
-                    # Extract metrics
-                    tool_calls_used = getattr(self.orchestrator, "tool_calls_used", 0)
-                    context_size = len(str(self.orchestrator.get_messages()))
-                    duration = time.time() - start_time
+                    # If this was the final chunk from the orchestrator, we'll add metadata
+                    if chunk.is_final:
+                        # Extract metrics
+                        tool_calls_used = getattr(self.orchestrator, "tool_calls_used", 0)
+                        context_size = len(str(self.orchestrator.get_messages()))
+                        duration = time.time() - start_time
 
-                    # Enhance the final chunk with execution metadata
-                    enhanced_metadata = chunk.metadata.copy() if chunk.metadata else {}
-                    enhanced_metadata.update(
-                        {
-                            "tool_calls_used": tool_calls_used,
-                            "context_size": context_size,
-                            "duration_seconds": duration,
-                            "role": self.config.role.value,
-                            "success": True,
-                        }
-                    )
+                        # Enhance the final chunk with execution metadata
+                        enhanced_metadata = chunk.metadata.copy() if chunk.metadata else {}
+                        enhanced_metadata.update(
+                            {
+                                "tool_calls_used": tool_calls_used,
+                                "context_size": context_size,
+                                "duration_seconds": duration,
+                                "role": self.config.role.value,
+                                "success": True,
+                            }
+                        )
 
-                    # Yield a final chunk with metadata (if not already included)
-                    yield StreamChunk(
-                        content="",
-                        is_final=True,
-                        metadata=enhanced_metadata,
-                    )
+                        # Yield a final chunk with metadata (if not already included)
+                        yield StreamChunk(
+                            content="",
+                            is_final=True,
+                            metadata=enhanced_metadata,
+                        )
 
-                    logger.info(
-                        f"{self.config.role.value} sub-agent stream completed: "
-                        f"{tool_calls_used}/{self.config.tool_budget} tool calls, "
-                        f"{duration:.1f}s"
-                    )
-                    return
+                        logger.info(
+                            f"{self.config.role.value} sub-agent stream completed: "
+                            f"{tool_calls_used}/{self.config.tool_budget} tool calls, "
+                            f"{duration:.1f}s"
+                        )
+                        return
+            finally:
+                # Restore the parent's session id after the stream completes.
+                set_session_id(parent_session)
 
         except Exception as e:
             # Create error chunk
