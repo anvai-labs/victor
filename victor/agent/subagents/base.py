@@ -985,9 +985,7 @@ class SubAgent(IAgent):  # type: ignore[misc]
                 session_id as _ctx_session_id,
             )
 
-            session_token = set_session_id(
-                self.config.resolve_member_session_id()
-            )
+            session_token = set_session_id(self.config.resolve_member_session_id())
             try:
                 # Stream the task using orchestrator.stream_chat()
                 async for chunk in self.orchestrator.stream_chat(self.config.task):
