@@ -910,3 +910,46 @@ class TestOrchestratorSubAgentIntegration:
         # Call the property getter directly
         result = AgentOrchestrator.subagent_orchestrator.fget(mock_orchestrator)
         assert result is None
+
+
+class TestMemberSessionIdResolution:
+    """Single derivation for the member session id (provider KV-cache key)."""
+
+    def _config(self, **overrides):
+        from victor.agent.subagents.base import SubAgentConfig, SubAgentRole
+
+        defaults = dict(
+            role=SubAgentRole.EXECUTOR,
+            task="demo",
+            allowed_tools=["read", "shell"],
+            tool_budget=5,
+            context_limit=30000,
+            member_id="m1",
+            agent_id="agent_m1",
+            parent_session_id="session_root",
+        )
+        defaults.update(overrides)
+        return SubAgentConfig(**defaults)
+
+    def test_prefers_explicit_child_session_id(self, monkeypatch):
+        monkeypatch.delenv("VICTOR_TOOL_SELECTION", raising=False)
+        config = self._config(child_session_id="session_child")
+        assert config.resolve_member_session_id() == "session_child"
+
+    def test_dash_format_uses_member_then_agent_id(self, monkeypatch):
+        monkeypatch.delenv("VICTOR_TOOL_SELECTION", raising=False)
+        config = self._config()
+        assert config.resolve_member_session_id() == "session_root-m1"
+        no_member = self._config(member_id=None)
+        assert no_member.resolve_member_session_id() == "session_root-agent_m1"
+
+    def test_to_runtime_context_and_resolver_agree(self, monkeypatch):
+        monkeypatch.delenv("VICTOR_TOOL_SELECTION", raising=False)
+        config = self._config()
+        assert config.to_runtime_context().session_id == config.resolve_member_session_id()
+
+    def test_concurrent_members_never_collide(self, monkeypatch):
+        monkeypatch.delenv("VICTOR_TOOL_SELECTION", raising=False)
+        a = self._config(member_id="a")
+        b = self._config(member_id="b")
+        assert a.resolve_member_session_id() != b.resolve_member_session_id()

@@ -136,6 +136,25 @@ class SubAgentConfig:
     temperature_override: Optional[float] = None
     reasoning_effort_override: Optional[str] = None
 
+    def resolve_member_session_id(self, parent_session_id: Optional[str] = None) -> str:
+        """Resolve THE session id for this member's run.
+
+        Single derivation used for both the runtime context and the provider
+        session binding: the id keys upstream session-KV/prefix caches
+        (InferFlux ``x-inferflux-session-id``), so concurrent members must
+        never resolve to the same value.
+
+        Precedence: explicit ``child_session_id`` (worktree-isolated planning
+        members set it) -> ``{parent_session_id}-{member_id or agent_id}``
+        (dash format is the verified upstream cache-key shape).
+        """
+        if self.child_session_id:
+            return self.child_session_id
+        from victor.core.context import get_session_id
+
+        parent = parent_session_id or self.parent_session_id or get_session_id() or "subagent"
+        return f"{parent}-{self.member_id or self.agent_id}"
+
     def to_runtime_context(self) -> "AgentRuntimeContext":
         """Build the common per-agent runtime context from this config."""
         from victor.agent.runtime.context import AgentRuntimeContext
@@ -145,7 +164,7 @@ class SubAgentConfig:
             agent_id=agent_id,
             display_name=self.display_name or build_display_name(self.role, task=self.task),
             role=self.role.value,
-            session_id=self.child_session_id or agent_id,
+            session_id=self.resolve_member_session_id(),
             parent_session_id=self.parent_session_id,
             team_id=self.team_id,
             plan_id=self.plan_id,
@@ -664,23 +683,18 @@ class SubAgent(IAgent):  # type: ignore[misc]
 
             logger.info(f"Executing {self.config.role.value} sub-agent: {self.config.task[:50]}...")
 
-            # Bind a member-scoped session id for the duration of this
-            # member's run. The id keys the provider's session-KV/prefix
-            # cache (InferFlux x-inferflux-session-id); members inheriting
-            # the parent's ContextVar gave every concurrent member the same
-            # upstream session, cross-contaminating their contexts
-            # server-side. Mirrors to_runtime_context()'s derivation.
+            # Bind the member-scoped session id (single derivation, shared
+            # with to_runtime_context) for the duration of this member's run.
+            # The id keys the provider's session-KV/prefix cache (InferFlux
+            # x-inferflux-session-id); members inheriting the parent's
+            # ContextVar gave every concurrent member the same upstream
+            # session, cross-contaminating their contexts server-side.
             from victor.core.context import (
-                get_session_id,
                 set_session_id,
                 session_id as _ctx_session_id,
             )
 
-            member_session_id = (
-                self.config.child_session_id
-                or f"{get_session_id() or 'subagent'}-{self.config.member_id or self.config.agent_id}"
-            )
-            session_token = set_session_id(member_session_id)
+            session_token = set_session_id(self.config.resolve_member_session_id())
             try:
                 # Run the task with retry on rate limits
                 response = await self._execute_with_retry()

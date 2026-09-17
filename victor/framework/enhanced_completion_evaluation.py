@@ -61,6 +61,7 @@ import logging
 from dataclasses import replace
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
+from victor.framework import response_classification
 from victor.framework.completion_scorer import (
     CompletionScorer,
     CompletionScore,
@@ -440,90 +441,13 @@ class EnhancedCompletionEvaluator:
         return None
 
     def _is_intent_only_response(self, response_text: str) -> bool:
-        """Return True when the response is pure future-intent narration.
+        """True when the response is pure future-intent narration.
 
-        Phrases like "I'll now read...", "Let me now analyze..." describe
-        planned actions rather than completed work.  Treating them as final
-        answers causes the loop to exit prematurely without doing any analysis.
-
-        Two checks are applied (kept in sync with
-        ``AgenticLoop._is_intent_only_response``):
-          1. Leading-sentence prefix check (legacy behavior) so responses that
-             start with intent but contain substantive findings still pass.
-          2. Meta-deliberation density check across the FULL response. Catches
-             the failure mode where the model narrates imminent action
-             ("Executing now", "Going now", "Calling now", "Making the call",
-             "no more deliberation") without ever invoking a tool. Such
-             narration must NOT be treated as a complete answer or the loop
-             exits before any tool runs. Only fires when there is no
-             substantive payload (no code blocks / result-like content).
+        Delegates to the shared classifier
+        (victor.framework.response_classification) — this used to be a
+        hand-synced copy of AgenticLoop's predicate.
         """
-        if not response_text:
-            return False
-        first_line = response_text.strip().split("\n")[0].strip().lower()
-        intent_prefixes = (
-            "i'll now ",
-            "i'll ",
-            "i will now ",
-            "i will ",
-            "let me now ",
-            "let me ",
-            "now i'll ",
-            "now i will ",
-            "i'm going to ",
-            "i am going to ",
-            "i'm now ",
-            "i am now ",
-            "next, i'll ",
-            "next i'll ",
-        )
-        if any(first_line.startswith(p) for p in intent_prefixes):
-            return True
-
-        # Meta-deliberation narration density check (full response).
-        # Real findings usually carry a payload (a fenced code block or a
-        # tool-result-style table). Narration-only responses do not, so we
-        # gate the density signal on the absence of such payloads.
-        if "```" in response_text:
-            return False
-        lowered = response_text.lower()
-        if lowered.count("|") >= 3 and "---" in lowered:
-            return False  # Markdown table — looks like a result dump, not narration
-
-        deliberation_markers = (
-            "executing now",
-            "executing.",
-            "going now",
-            "going.",
-            "calling now",
-            "calling.",
-            "running now",
-            "running.",
-            "making the call",
-            "making the request",
-            "let me make the call",
-            "no more deliberation",
-            "stop the meta-deliberation",
-            "stop deliberating",
-            "done deliberating",
-            "just execute",
-            "executing the",
-            "polling",
-            "no sleep",
-            "pure status read",
-            "going. (",
-            "done. (",
-            "final. (",
-            "(no sleep)",
-            "(no more deliberation)",
-            "(will act on results",
-            "(finally.)",
-            "(stop. calling.)",
-        )
-        marker_hits = sum(1 for m in deliberation_markers if m in lowered)
-        # 3+ distinct imminent-action markers without a payload is strong
-        # evidence of meta-deliberation narration, not a real answer.
-        return marker_hits >= 3
+        return response_classification.is_intent_only_response(response_text)
 
     def _check_qa_shortcut(self, action_result: Any) -> Optional[Any]:
         """Check for Q&A shortcut (model answered without tools).

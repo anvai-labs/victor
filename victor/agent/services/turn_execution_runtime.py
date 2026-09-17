@@ -45,7 +45,10 @@ import asyncio
 import hashlib
 import inspect
 import logging
-import os
+
+from victor.config.tool_selection_access import (
+    is_tool_selection_enabled,
+)
 import re
 from typing import Any, Dict, List, Optional, Set, TYPE_CHECKING
 
@@ -66,25 +69,6 @@ if TYPE_CHECKING:
         StatePassedExplorationProtocol,
         ToolContextProtocol,
     )
-
-
-def _tool_selection_enabled(runtime: Any) -> bool:
-    """True when semantic per-turn tool pruning is explicitly opted in.
-
-    Mirrors ToolServiceConfig.tool_selection_enabled: default OFF so every
-    registered tool reaches the LLM call as-is.
-    """
-    service = getattr(runtime, "_tool_service", None)
-    config = getattr(service, "_config", None)
-    flag = getattr(config, "tool_selection_enabled", None)
-    if flag is not None:
-        return bool(flag)
-    return os.environ.get("VICTOR_TOOL_SELECTION", "").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
 
 
 @dataclass
@@ -1641,25 +1625,17 @@ class TurnExecutor:
         # semantic top-K narrowing. A narrow per-turn supply starves agentic
         # loops - multi-agent members were reduced to read-only and could
         # neither write nor run anything.
-        if not _tool_selection_enabled(self):
-            selector_registry = getattr(self._tool_context.tool_selector, "tools", None)
-            if selector_registry is not None:
-                try:
-                    listed = selector_registry.list_tools(only_enabled=True)
-                except Exception:
-                    listed = []
-                names = [
-                    str(getattr(t, "name", t))
-                    for t in (listed or [])
-                    if getattr(t, "name", None) or isinstance(t, str)
-                ]
-                tools = [
-                    inst
-                    for n in sorted(names)
-                    if (inst := selector_registry.get(n)) is not None
-                ]
-                if tools:
-                    return tools
+        if not is_tool_selection_enabled(getattr(self._chat_context, "settings", None)):
+            # Shared cached builder - byte-stable definitions across turns,
+            # identical wire shape to the instance list this used to build
+            # (provider codecs read only name/description/parameters).
+            from victor.agent.tool_selection.stable_definitions import (
+                stable_all_definitions,
+            )
+
+            tools = stable_all_definitions(self._tool_context.tool_selector)
+            if tools:
+                return tools
 
         conversation_depth = self._chat_context.conversation.message_count()
         from victor.agent.tool_selection.history_projection import _selector_history_projection
