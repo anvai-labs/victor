@@ -44,6 +44,8 @@ from typing import Any, AsyncIterator, Dict, Optional
 MEMBER_START = "member_start"
 MEMBER_COMPLETED = "member_completed"
 MEMBER_ERROR = "member_error"
+#: Member waiting for provider-derived admission; not a failure or approval pause.
+MEMBER_THROTTLED = "member_throttled"
 #: ADR-023 pillar 2b: member paused mid-run awaiting human approval (durable pause). Rendered as a
 #: distinct awaiting-approval lane in the TUI (map_event/map_wire_event → RenderKind.MEMBER_AWAITING).
 MEMBER_AWAITING_APPROVAL = "member_awaiting_approval"

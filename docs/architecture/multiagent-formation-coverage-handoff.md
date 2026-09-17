@@ -273,11 +273,11 @@ G1–G13 come from the co-design sessions and code audit; G14–G16 from the §2
   Missing worktrees or tool adapters fail explicitly. Worktrees are preserved for
   review by default. The live test wrote identical relative filenames in all three
   worktrees, with no parent-directory writes and three passing independent tests.
-- **G5 — no capacity-aware admission control.** The R9700 serves 2 KV sequences; a
-  3-member PARALLEL team silently serializes at the server. The formation never learns
-  about provider capacity: `max_workers` exists but nothing derives it from the
-  provider (InferFlux `max_parallel_sequences`), and no backpressure event reaches the
-  coordinator (observability gap — members just run slower).
+- **G5 — ✅ opt-in capacity-aware admission (WS-C, [PR #1110](https://github.com/anvai-labs/victor/pull/1110)).** `capacity_aware_parallelism`
+  queries the provider declaration and bounds simultaneous members without dropping
+  assignments. Saturated members emit `member_throttled` through the sink and v1
+  stream bridge. R9700 live validation passed with three members at capacity two;
+  automatic ROCm discovery remains an explicit upstream limitation (G18).
 - **G6 — ✅ nested and live session isolation verified (WS-D, [PR #1111](https://github.com/anvai-labs/victor/pull/1111)).** Nested member
   execution inherits the immediate parent's session and restores its caller.
   Coordinator dispatch forwards configured member identities; observed live
@@ -302,11 +302,9 @@ G1–G13 come from the co-design sessions and code audit; G14–G16 from the §2
   `x-sandhi-run-id` from the member session id; the InferFlux side keys session-KV on
   it. A member-tagged cost rollup (`GET /admin/usage/run/{run_id}` → per member) has
   never been reconciled against `TeamResult` metrics.
-- **G12 — tool supply is not formation-aware.** Pruning is opt-in and off by default
-  (correct for loop starvation), but PARALLEL with N members multiplies the full
-  registry N times per turn across disjoint contexts. A formation-aware supply budget
-  (e.g., intersect role `allowed_tools` before supply, which the live matrix did use)
-  should be documented as the intended pattern rather than left implicit.
+- **G12 — ✅ formation-aware tool supply documented (WS-C, [PR #1110](https://github.com/anvai-labs/victor/pull/1110)).** Member `allowed_tools`
+  narrows the registry before provider supply. The live capacity run supplied four
+  filesystem/shell tools per member; global pruning defaults remain unchanged.
 - **G13 — guard tuning is a two-model sample.** Narration/intent/refusal classifiers
   were tuned on Qwen3-Coder-30B + GLM-5.3 only. Before claiming edge-model support,
   run the same matrix on a small local model (qwen3.5:2b class) and record deltas.
@@ -333,6 +331,26 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   router requires persisted selection. `supports_durable_pause()` is false, and
   member approvals stay inline. A separate durability design/test increment is
   required before claiming member-granular resume for these formations.
+
+- **G18 — ROCm InferFlux does not publish sequence capacity.** Verified live during
+  WS-C: `/v1/admin/models` omits `max_parallel_sequences`; `/metrics` exposes only
+  CUDA capacity gauges (zero on this ROCm backend). The active serving YAML declares
+  2 sequences and the process environment sets `INFERFLUX_LLAMA_CTX_SIZE=65536`.
+  WS-C accepts that verified operator declaration on the provider, and fails clearly
+  if admission is requested without a declaration. Automatic ROCm discovery requires
+  an upstream InferFlux admin/metrics addition; no model-window heuristic is used.
+
+- **G19 — ✅ public spawn identity/context forwarding (WS-D, [PR #1111](https://github.com/anvai-labs/victor/pull/1111)).**
+  The coordinator forwards configured member/session and worktree identity to spawn.
+  Compact result attribution retains the resolved wire session ID without copying
+  full response payloads. The live worktree run matches actual headers to all three
+  configured member IDs and result metadata.
+- **G20 — generated test completion can overstate validation.** During the WS-C
+  Qwen3-Coder-30B run, members wrote module-level assertions and reported success
+  after pytest exited 5 (no collected tests). The external validation harness
+  correctly rejected the run. Delegation now anchors an explicit `def test_*`
+  contract; general completion-classifier changes require the WS-F paired-gate
+  experiment process rather than an unmeasured heuristic patch.
 
 ## 4. Suggested follow-up session plan
 

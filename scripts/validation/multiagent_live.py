@@ -25,12 +25,11 @@ from aiohttp import ClientSession, web
 
 from victor.framework import Agent
 from victor.framework.member_event_sink import (
+    MEMBER_THROTTLED,
     MemberEventSink,
     current_member_sink,
 )
 from victor.framework.teams import AgentTeam, TeamFormation, TeamMemberSpec
-
-MEMBER_THROTTLED = "member_throttled"
 
 
 async def validate(args):

@@ -62,7 +62,11 @@ WIRE_EVENT_TYPES = frozenset(
 # Additive team-member lifecycle events (ADR-023 / FEP-0028 pillar 3). Emitted only during
 # multi-agent team turns; consumers that don't render lanes ignore them. Kept separate from
 # the core set so the base single-agent contract stays exactly six types.
-MEMBER_WIRE_EVENT_TYPES = frozenset({"member_start", "member_completed", "member_error"})
+from victor.framework.member_event_sink import MEMBER_THROTTLED
+
+MEMBER_WIRE_EVENT_TYPES = frozenset(
+    {"member_start", "member_completed", "member_error", MEMBER_THROTTLED}
+)
 
 # Tool results larger than this are truncated on the wire (UIs show previews;
 # the full result lives in the conversation, not the event stream).
@@ -180,6 +184,9 @@ def to_wire_event(event: Any) -> Optional[Dict[str, Any]]:
                 member_wire["formation"] = formation
             if custom_type in ("member_completed", "member_error"):
                 member_wire["success"] = bool(getattr(event, "success", True))
+            if custom_type == MEMBER_THROTTLED:
+                member_wire["concurrency_limit"] = metadata.get("concurrency_limit")
+                member_wire["level"] = "warning"
             return member_wire
 
     return None  # outside the v1 contract (tool_progress, stage_change, ...)

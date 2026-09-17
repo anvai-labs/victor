@@ -814,12 +814,37 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
             self._active_members(),
             member_ids=self._extract_delegate_reentry_member_ids(delegate_reentry_contract),
         )
-        execution_members = self._limit_execution_members(
-            candidate_members,
-            active_formation,
-            max_workers,
-            supervisor=active_supervisor,
-        )
+        admission_limit = None
+        if active_formation == TeamFormation.PARALLEL and effective_context.get(
+            "capacity_aware_parallelism",
+            shared_state_with_supervisor.get("capacity_aware_parallelism", False),
+        ):
+            provider = getattr(self._orchestrator, "provider", None)
+            capacity_query = getattr(provider, "get_parallel_capacity", None)
+            if not callable(capacity_query):
+                raise ValueError(
+                    "Capacity-aware parallelism requires a provider capacity declaration"
+                )
+            admission_limit = await capacity_query(getattr(self._orchestrator, "model", ""))
+            if (
+                not isinstance(admission_limit, int)
+                or isinstance(admission_limit, bool)
+                or admission_limit < 1
+            ):
+                raise ValueError("Provider parallel capacity must be a positive integer")
+            if max_workers is not None:
+                admission_limit = min(admission_limit, max_workers)
+            # Admission queues every member. Legacy max_workers truncation is
+            # preserved only when the additive admission contract is disabled.
+            execution_members = list(candidate_members)
+            shared_state_with_supervisor["member_concurrency_limit"] = admission_limit
+        else:
+            execution_members = self._limit_execution_members(
+                candidate_members,
+                active_formation,
+                max_workers,
+                supervisor=active_supervisor,
+            )
         member_context_overrides = self._extract_delegate_reentry_member_context_overrides(
             delegate_reentry_contract
         )
