@@ -58,9 +58,9 @@ outstanding; none of these rows claims a live pass.
 
 | Strategy | Public formation / preset | State |
 |---|---|---|
-| `AdaptiveFormation` | ADAPTIVE / `create_adaptive_team` | Integrated; invocation-local bounded switching, real member outcomes; PR pending |
-| `DynamicRouterFormation` | DYNAMIC_ROUTER / `create_router_team` | Integrated; one-member dispatch retaining structured outcomes; PR pending |
-| `MultiLevelHierarchyFormation` | MULTI_LEVEL_HIERARCHY / `create_multi_level_hierarchy_team` | Integrated; validated member-ID tree, lossless splitting, supervisor synthesis; PR pending |
+| `AdaptiveFormation` | ADAPTIVE / `create_adaptive_team` | Integrated; invocation-local bounded switching, real member outcomes; [PR #1107](https://github.com/anvai-labs/victor/pull/1107) |
+| `DynamicRouterFormation` | DYNAMIC_ROUTER / `create_router_team` | Integrated; one-member dispatch retaining structured outcomes; [PR #1107](https://github.com/anvai-labs/victor/pull/1107) |
+| `MultiLevelHierarchyFormation` | MULTI_LEVEL_HIERARCHY / `create_multi_level_hierarchy_team` | Integrated; validated member-ID tree, lossless splitting, supervisor synthesis; [PR #1107](https://github.com/anvai-labs/victor/pull/1107) |
 
 Regression coverage: `tests/unit/coordination/formations/test_new_formations.py`
 and `tests/unit/teams/test_integrated_formations.py`. Durable partial resume is not
@@ -99,13 +99,13 @@ substrate — which is the deepest structural finding of this review.
 |---|---|---|
 | Sequential chain (prompt chaining, CrewAI sequential, ADK `SequentialAgent`) | fixed order; each stage consumes prior output | ✅ SEQUENTIAL / PIPELINE |
 | Fan-out / fan-in (parallelization-sectioning, ADK `ParallelAgent`) | independent subtasks concurrently, aggregate after | ✅ PARALLEL (aggregation gaps: G3) |
-| Router (dispatch-and-synthesize; LangChain "router", Anthropic "routing") | classify input → invoke one/few specialists → synthesize | Integrated (`DynamicRouterFormation`, §1.3; PR pending) |
+| Router (dispatch-and-synthesize; LangChain "router", Anthropic "routing") | classify input → invoke one/few specialists → synthesize | Integrated (`DynamicRouterFormation`, §1.3; [PR #1107](https://github.com/anvai-labs/victor/pull/1107)) |
 | Supervisor / orchestrator-workers (LangChain subagents, CrewAI hierarchical with `manager_llm`) | central agent decomposes, delegates, synthesizes; workers stateless to each other | ✅ HIERARCHICAL (single level) |
-| Hierarchical multi-level (ADK transfer trees, org-chart topologies) | coordinator → leads → members, aggregate up | Integrated (`MultiLevelHierarchyFormation`, §1.3; PR pending) |
+| Hierarchical multi-level (ADK transfer trees, org-chart topologies) | coordinator → leads → members, aggregate up | Integrated (`MultiLevelHierarchyFormation`, §1.3; [PR #1107](https://github.com/anvai-labs/victor/pull/1107)) |
 | Group chat with speaker selection (AutoGen `SelectorGroupChat`, `RoundRobinGroupChat`) | members broadcast to a SHARED TRANSCRIPT; LLM/selector/round-robin picks next speaker; termination conditions | ❌ absent — needs transcript substrate (G14) |
 | Swarm / peer handoff (OpenAI Agents SDK handoffs, AutoGen Swarm) | control MOVES agent-to-agent via handoff-as-tool-call; receiving agent continues with carried context | ❌ absent — supervisor-mediated delegation only; peer transfer needs substrate (G15) |
 | Evaluator-optimizer (generator-critic loop) | generate → critique → refine until satisfied | ✅ REFLECTION (verdict fragility: G2) |
-| Adaptive / dynamic topology switching (MDPI "adaptivity" dimension; Magentic-One replanning) | monitor progress → switch topology or replan mid-run | Integrated (`AdaptiveFormation`, §1.3; PR pending); Magentic-style ledger replanning not designed |
+| Adaptive / dynamic topology switching (MDPI "adaptivity" dimension; Magentic-One replanning) | monitor progress → switch topology or replan mid-run | Integrated (`AdaptiveFormation`, §1.3; [PR #1107](https://github.com/anvai-labs/victor/pull/1107)); Magentic-style ledger replanning not designed |
 | Ensemble aggregation (self-consistency, "More Agents Is All You Need" voting, Mixture-of-Agents layered aggregation) | N proposals of the SAME task → vote / layered aggregation | ❌ absent — CONSENSUS checks agreement across members, it does not N-sample one task and vote (G16) |
 | Structured debate (Du et al. multiagent debate) | adversarial rounds with a judge; improves factuality | ❌ absent — rides the transcript substrate (G14) |
 | Blackboard shared memory (Hearsay-II lineage) | specialists watch/mutate a shared workspace opportunistically | ❌ absent — Victor's `shared_state` dict is coordinator-curated, not opportunistic |
@@ -293,7 +293,7 @@ G1–G13 come from the co-design sessions and code audit; G14–G16 from the §2
   DEBUG and keep the default formation — indistinguishable from a strategy that
   intentionally returns the default. Needs a warning-level event on the teams→stream
   bridge. Live e2e of dynamic selection also missing.
-- **G10 — orphan trio: INTEGRATE (WS-A, PR pending).** All three have public enum,
+- **G10 — orphan trio: INTEGRATE (WS-A, [PR #1107](https://github.com/anvai-labs/victor/pull/1107)).** All three have public enum,
   registry, preset, docs, dispatch-test, and durability surfaces. Adaptive stale
   names and duplicate dispatch were removed. Regression tests cover real member
   execution/failure, concurrent adaptive calls, lossless task splitting, and invalid
