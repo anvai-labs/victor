@@ -986,7 +986,7 @@ class SubAgent(IAgent):  # type: ignore[misc]
             )
 
             session_token = set_session_id(self.config.resolve_member_session_id())
-            try:
+            if True:
                 # Stream the task using orchestrator.stream_chat()
                 async for chunk in self.orchestrator.stream_chat(self.config.task):
                     yield chunk
