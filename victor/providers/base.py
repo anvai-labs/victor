@@ -109,7 +109,9 @@ class CompletionResponse(BaseModel):
     role: str = Field(default="assistant", description="Response role")
     tool_calls: Optional[List[Dict[str, Any]]] = Field(None, description="Tool calls requested")
     stop_reason: Optional[str] = Field(None, description="Why generation stopped")
-    usage: Optional[Dict[str, int]] = Field(None, description="Token usage stats")
+    usage: Optional[Dict[str, int | bool]] = Field(
+        None, description="Token usage stats and reasoning inclusion convention"
+    )
     model: Optional[str] = Field(None, description="Model used")
     raw_response: Optional[Dict[str, Any]] = Field(None, description="Raw provider response")
     metadata: Optional[Dict[str, Any]] = Field(
@@ -127,7 +129,7 @@ class StreamChunk(BaseModel):
     metadata: Optional[Dict[str, Any]] = Field(
         default=None, description="Additional metadata (e.g., reasoning_content)"
     )
-    usage: Optional[Dict[str, int]] = Field(
+    usage: Optional[Dict[str, int | bool]] = Field(
         default=None,
         description="Token usage stats (typically on final chunk). Keys: prompt_tokens, completion_tokens, total_tokens, cache_creation_input_tokens, cache_read_input_tokens",
     )

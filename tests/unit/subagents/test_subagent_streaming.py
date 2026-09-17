@@ -309,7 +309,7 @@ class TestSubAgentOrchestratorStreamSpawn:
             created_configs.append(config)
             original_init(self, config, parent)
 
-        async def mock_stream_execute() -> AsyncIterator[StreamChunk]:
+        async def mock_stream_execute(self) -> AsyncIterator[StreamChunk]:
             yield StreamChunk(content="Done", is_final=True, metadata={"tool_calls_used": 5})
 
         with patch.object(SubAgent, "__init__", capture_init):
@@ -336,7 +336,7 @@ class TestSubAgentOrchestratorStreamSpawn:
             created_configs.append(config)
             original_init(self, config, parent)
 
-        async def mock_stream_execute() -> AsyncIterator[StreamChunk]:
+        async def mock_stream_execute(self) -> AsyncIterator[StreamChunk]:
             yield StreamChunk(content="Done", is_final=True)
 
         custom_tools = ["read", "write", "search"]
@@ -359,7 +359,7 @@ class TestSubAgentOrchestratorStreamSpawn:
         """Test that stream_spawn() handles timeout gracefully."""
         orchestrator = SubAgentOrchestrator(mock_parent)
 
-        async def slow_stream_execute() -> AsyncIterator[StreamChunk]:
+        async def slow_stream_execute(self) -> AsyncIterator[StreamChunk]:
             yield StreamChunk(content="Starting...", is_final=False)
             await asyncio.sleep(10)  # Simulate slow execution
             yield StreamChunk(content="Done", is_final=True)
@@ -397,7 +397,7 @@ class TestSubAgentOrchestratorStreamSpawn:
             created_configs.append(config)
             original_init(self, config, parent)
 
-        async def mock_stream_execute() -> AsyncIterator[StreamChunk]:
+        async def mock_stream_execute(self) -> AsyncIterator[StreamChunk]:
             yield StreamChunk(content="Done", is_final=True)
 
         with patch.object(SubAgent, "__init__", capture_init):
@@ -443,7 +443,7 @@ class TestSubAgentOrchestratorStreamSpawn:
         """Test that stream_spawn() handles case where stream yields nothing."""
         orchestrator = SubAgentOrchestrator(mock_parent)
 
-        async def empty_stream_execute() -> AsyncIterator[StreamChunk]:
+        async def empty_stream_execute(self) -> AsyncIterator[StreamChunk]:
             # Empty async generator
             if False:
                 yield StreamChunk()
@@ -453,9 +453,8 @@ class TestSubAgentOrchestratorStreamSpawn:
             async for chunk in orchestrator.stream_spawn(SubAgentRole.RESEARCHER, "Test task"):
                 chunks.append(chunk)
 
-            # Should handle gracefully, possibly with a final chunk indicating completion
-            # The implementation should ensure at least a final chunk is yielded
-            assert len(chunks) >= 0  # At minimum, empty is acceptable; ideally has final chunk
+            assert chunks == []
+            assert orchestrator.get_active_count() == 0
 
 
 # =============================================================================

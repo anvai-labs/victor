@@ -977,11 +977,18 @@ class SubAgent(IAgent):  # type: ignore[misc]
             session_id as _ctx_session_id,
         )
 
-        session_token = set_session_id(self.config.resolve_member_session_id())
+        member_session_id = self.config.resolve_member_session_id()
+        stream = None
         try:
-            # Create constrained orchestrator lazily
-            if self.orchestrator is None:
-                self.orchestrator = self._create_constrained_orchestrator()
+            # Bind only while advancing member work. An async generator executes in
+            # its consumer's context, so a token must never span an outward yield.
+            session_token = set_session_id(member_session_id)
+            try:
+                if self.orchestrator is None:
+                    self.orchestrator = self._create_constrained_orchestrator()
+                stream = self.orchestrator.stream_chat(self.config.task).__aiter__()
+            finally:
+                _ctx_session_id.reset(session_token)
 
             logger.info(
                 f"Stream executing {self.config.role.value} sub-agent: "
@@ -989,7 +996,14 @@ class SubAgent(IAgent):  # type: ignore[misc]
             )
 
             # Stream the task using orchestrator.stream_chat()
-            async for chunk in self.orchestrator.stream_chat(self.config.task):
+            while True:
+                session_token = set_session_id(member_session_id)
+                try:
+                    chunk = await anext(stream)
+                except StopAsyncIteration:
+                    break
+                finally:
+                    _ctx_session_id.reset(session_token)
                 yield chunk
 
                 # If this was the final chunk from the orchestrator, we'll add metadata
@@ -1059,7 +1073,13 @@ class SubAgent(IAgent):  # type: ignore[misc]
             )
 
         finally:
-            _ctx_session_id.reset(session_token)
+            close = getattr(stream, "aclose", None)
+            if close is not None:
+                session_token = set_session_id(member_session_id)
+                try:
+                    await close()
+                finally:
+                    _ctx_session_id.reset(session_token)
 
 
 __all__ = [

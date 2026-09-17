@@ -674,9 +674,11 @@ class SubAgentOrchestrator:
 
         start_time = time.time()
 
+        stream = None
         try:
+            stream = subagent.stream_execute()
             # Stream with manual timeout checking per chunk
-            async for chunk in subagent.stream_execute():
+            async for chunk in stream:
                 # Check timeout before yielding each chunk
                 elapsed = time.time() - start_time
                 if elapsed > timeout_seconds:
@@ -719,7 +721,11 @@ class SubAgentOrchestrator:
             )
 
         finally:
-            self.active_subagents.discard(subagent)
+            try:
+                if stream is not None:
+                    await stream.aclose()
+            finally:
+                self.active_subagents.discard(subagent)
 
     def get_active_count(self) -> int:
         """Get number of currently active sub-agents.

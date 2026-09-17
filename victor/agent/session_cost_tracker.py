@@ -76,6 +76,8 @@ class RequestCost:
     # unbound — bare provider usage outside a run). Populated from the correlation
     # spine so per-step cost rows join the sandhi run cost tree.
     step_id: Optional[str] = None
+    # Preserve provider completion counts while exposing the output actually priced.
+    billable_completion_tokens: int = 0
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
@@ -87,6 +89,7 @@ class RequestCost:
             "tokens": {
                 "prompt": self.prompt_tokens,
                 "completion": self.completion_tokens,
+                "billable_completion": self.billable_completion_tokens,
                 "cache_read": self.cache_read_tokens,
                 "cache_write": self.cache_write_tokens,
                 "total": self.total_tokens,
@@ -171,6 +174,9 @@ class SessionCostTracker:
         duration_seconds: float = 0.0,
         tool_calls: int = 0,
         model: Optional[str] = None,
+        *,
+        billable_completion_tokens: Optional[int] = None,
+        total_tokens: Optional[int] = None,
     ) -> RequestCost:
         """Record a single request's cost.
 
@@ -182,12 +188,20 @@ class SessionCostTracker:
             duration_seconds: Request duration
             tool_calls: Number of tool calls in response
             model: Optional model override (for multi-model sessions)
+            billable_completion_tokens: Output after per-call reasoning folding;
+                defaults to completion_tokens for legacy callers.
+            total_tokens: Provider total (or a per-call sum); derived when absent.
 
         Returns:
             RequestCost object with calculated costs
         """
         request_model = model or self.model
-        total_request_tokens = prompt_tokens + completion_tokens
+        billable_output = (
+            completion_tokens if billable_completion_tokens is None else billable_completion_tokens
+        )
+        total_request_tokens = (
+            prompt_tokens + billable_output if total_tokens is None else total_tokens
+        )
 
         # Calculate costs using capabilities
         input_cost = 0.0
@@ -196,7 +210,7 @@ class SessionCostTracker:
 
         if self._capabilities and self._capabilities.cost_enabled:
             costs = self._capabilities.calculate_cost(
-                prompt_tokens, completion_tokens, cache_read_tokens, cache_write_tokens
+                prompt_tokens, billable_output, cache_read_tokens, cache_write_tokens
             )
             input_cost = costs["input_cost"]
             output_cost = costs["output_cost"]
@@ -212,6 +226,7 @@ class SessionCostTracker:
             step_id=(get_turn_id() or None),
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
+            billable_completion_tokens=billable_output,
             cache_read_tokens=cache_read_tokens,
             cache_write_tokens=cache_write_tokens,
             total_tokens=total_request_tokens,
@@ -253,7 +268,7 @@ class SessionCostTracker:
                 provider=self.provider,
                 model=request_model,
                 prompt_tokens=prompt_tokens,
-                completion_tokens=completion_tokens,
+                completion_tokens=billable_output,
                 cache_read_tokens=cache_read_tokens,
                 cache_write_tokens=cache_write_tokens,
                 subject_id=get_auth_subject_id() or self.subject_id,

@@ -58,6 +58,8 @@ class StreamingChatContext:
         default_factory=lambda: {
             "prompt_tokens": 0,
             "completion_tokens": 0,
+            "total_tokens": 0,
+            "billable_completion_tokens": 0,
             "cache_creation_input_tokens": 0,
             "cache_read_input_tokens": 0,
             "reasoning_tokens": 0,

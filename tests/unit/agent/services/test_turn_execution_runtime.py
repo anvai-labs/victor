@@ -358,6 +358,29 @@ async def test_execute_tool_calls_requires_canonical_tool_context_method():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("pruning_enabled", [False, True])
+@pytest.mark.parametrize("curated,expected", [({"read"}, ["read"]), ({"missing"}, [])])
+async def test_curated_supply_precedes_pruning_and_hydration(
+    monkeypatch, pruning_enabled, curated, expected
+):
+    monkeypatch.delenv("VICTOR_TOOL_SELECTION", raising=False)
+    executor = _make_executor()
+    executor._chat_context.settings = SimpleNamespace(
+        tools=SimpleNamespace(tool_selection_enabled=pruning_enabled)
+    )
+    tools = {
+        name: SimpleNamespace(name=name, description=name, parameters={"type": "object"})
+        for name in ("read", "shell", "gh")
+    }
+    registry = SimpleNamespace(get=tools.get, list_tools=lambda **kwargs: list(tools.values()))
+    executor._tool_context.tool_selector = SimpleNamespace(_enabled_tools=curated, tools=registry)
+    with patch("victor.agent.services.tool_selection_runtime.hydrate_demand_tools") as hydrate:
+        result = await executor._select_tools_for_turn("use gh and shell", intent="read_only")
+    assert [tool.name for tool in result] == expected
+    hydrate.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_select_tools_for_turn_delegates_intent_filtering_to_tool_planner():
     executor = _make_executor()
     executor._chat_context.messages = []
