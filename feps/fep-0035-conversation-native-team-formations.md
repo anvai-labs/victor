@@ -124,8 +124,42 @@ Every formation also has public coordinator-dispatch and preset coverage. Follow
 WS-G's definition-of-done checklist in the multiagent handoff before marking its
 coverage rows complete.
 
-## Alternatives
+## Drawbacks and Alternatives
 
 Independent private histories cannot provide shared transcript semantics. A second
 team runtime would duplicate dispatch, attribution, and streaming. Unbounded
 transcripts and implicit fallback speakers violate the standards mandate.
+
+## Benefits
+
+A single transcript preserves ordering and provenance across conversation turns.
+Typed speaker and peer-transfer decisions eliminate ambiguous prose routing.
+Bounded transcripts and explicit failure outcomes make resource limits reviewable.
+
+## Implementation Plan
+
+1. Add typed transcript/peer-handoff records and deterministic contract validation.
+2. Add the shared runner, then GROUP_CHAT, DEBATE, and HANDOFF strategy modules.
+3. Register enum values and presets through the existing registry.
+4. Project additive conversation events through the sink, bridge, and wire consumers.
+5. Complete dispatch, preset, contract, termination, and durability tests; update
+   the handoff tables with the implementation PR and any discovered gaps.
+
+## Migration Path
+
+No migration is required for existing teams. New callers select an explicit
+conversation formation and its preset. Existing clients may ignore the additive
+conversation event kinds while continuing to render member lifecycle events.
+
+## Unresolved Questions
+
+Durable conversation replay needs a later design for pending speaker selection,
+peer transfer, and approvals. It is explicitly unsupported in this implementation.
+Native UI transcript rendering is deferred; the initial UI consumes existing
+member lanes and ignores the additive transcript notifications.
+
+## References
+
+- [Multiagent coverage handoff](../docs/architecture/multiagent-formation-coverage-handoff.md), §2.4 and WS-G.
+- [FEP-0028 team-node durability](fep-0028-team-node-durability-contract.md).
+- [FEP-0032 interrupt/resume semantics](fep-0032-interrupt-resume-semantics.md).
