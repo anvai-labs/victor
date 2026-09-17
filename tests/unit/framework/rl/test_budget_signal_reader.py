@@ -48,7 +48,7 @@ class FakeDB:
         self._outcome_rows = outcome_rows
         self._unified_rows = unified_rows or []
 
-    def cursor(self) -> FakeCursor:
+    def cursor(self) -> "_RoutingCursor":
         # Hand back a fresh cursor seeded by the *next* execute's intent.
         # We disambiguate via the query string the reader emits.
         c = _RoutingCursor(self._tool_rows, self._outcome_rows, self._unified_rows)
