@@ -274,11 +274,11 @@ G1–G13 come from the co-design sessions and code audit; G14–G16 from the §2
   exists (§1.2) but is not default-on nor formation-aware for PARALLEL. Decide: opt-in
   per-member worktree for PARALLEL (config flag) vs. write-guard detection with a
   formation-aware error.
-- **G5 — no capacity-aware admission control.** The R9700 serves 2 KV sequences; a
-  3-member PARALLEL team silently serializes at the server. The formation never learns
-  about provider capacity: `max_workers` exists but nothing derives it from the
-  provider (InferFlux `max_parallel_sequences`), and no backpressure event reaches the
-  coordinator (observability gap — members just run slower).
+- **G5 — ✅ opt-in capacity-aware admission (WS-C).** `capacity_aware_parallelism`
+  queries the provider declaration and bounds simultaneous members without dropping
+  assignments. Saturated members emit `member_throttled` through the sink and v1
+  stream bridge. R9700 live validation passed with three members at capacity two;
+  automatic ROCm discovery remains an explicit upstream limitation (G18).
 - **G6 — session-id isolation is pinned by unit tests, not by a live e2e assertion.**
   Direct spawns bind `resolve_member_session_id()` (dash format) on both `execute()` and
   the restored per-advance streaming binding. Unverified: nested spawns (member→grandchild
@@ -304,11 +304,9 @@ G1–G13 come from the co-design sessions and code audit; G14–G16 from the §2
   `x-sandhi-run-id` from the member session id; the InferFlux side keys session-KV on
   it. A member-tagged cost rollup (`GET /admin/usage/run/{run_id}` → per member) has
   never been reconciled against `TeamResult` metrics.
-- **G12 — tool supply is not formation-aware.** Pruning is opt-in and off by default
-  (correct for loop starvation), but PARALLEL with N members multiplies the full
-  registry N times per turn across disjoint contexts. A formation-aware supply budget
-  (e.g., intersect role `allowed_tools` before supply, which the live matrix did use)
-  should be documented as the intended pattern rather than left implicit.
+- **G12 — ✅ formation-aware tool supply documented (WS-C).** Member `allowed_tools`
+  narrows the registry before provider supply. The live capacity run supplied four
+  filesystem/shell tools per member; global pruning defaults remain unchanged.
 - **G13 — guard tuning is a two-model sample.** Narration/intent/refusal classifiers
   were tuned on Qwen3-Coder-30B + GLM-5.3 only. Before claiming edge-model support,
   run the same matrix on a small local model (qwen3.5:2b class) and record deltas.
@@ -331,6 +329,28 @@ G1–G13 come from the co-design sessions and code audit; G14–G16 from the §2
   router requires persisted selection. `supports_durable_pause()` is false, and
   member approvals stay inline. A separate durability design/test increment is
   required before claiming member-granular resume for these formations.
+
+- **G18 — ROCm InferFlux does not publish sequence capacity.** Verified live during
+  WS-C: `/v1/admin/models` omits `max_parallel_sequences`; `/metrics` exposes only
+  CUDA capacity gauges (zero on this ROCm backend). The active serving YAML declares
+  2 sequences and the process environment sets `INFERFLUX_LLAMA_CTX_SIZE=65536`.
+  WS-C accepts that verified operator declaration on the provider, and fails clearly
+  if admission is requested without a declaration. Automatic ROCm discovery requires
+  an upstream InferFlux admin/metrics addition; no model-window heuristic is used.
+
+- **G19 — public team spawn drops configured identity/context.** WS-C's wire probe
+  observed distinct generated-agent session IDs, but `_adapt_team_members()` omits
+  configured `member_id`, parent/child session and worktree context when calling
+  `SubAgentOrchestrator.spawn()`, and discards returned attribution details. WS-D
+  must forward these existing fields through the single session-ID derivation;
+  this also gates meaningful WS-E cost reconciliation.
+
+- **G20 — generated test completion can overstate validation.** During the WS-C
+  Qwen3-Coder-30B run, members wrote module-level assertions and reported success
+  after pytest exited 5 (no collected tests). The external validation harness
+  correctly rejected the run. Delegation now anchors an explicit `def test_*`
+  contract; general completion-classifier changes require the WS-F paired-gate
+  experiment process rather than an unmeasured heuristic patch.
 
 ## 4. Suggested follow-up session plan
 

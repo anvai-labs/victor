@@ -56,6 +56,11 @@ team can mix a high-reasoning model for planning with a fast model for execution
 **review** and **reflection** presets are included (reflection critiques against the original task
 and judges satisfaction via a VERDICT).
 
+**Capacity admission** — opt-in `capacity_aware_parallelism` queues every PARALLEL
+member under the provider's declared sequence limit, with per-member throttle
+warnings. InferFlux deployments that do not expose capacity through their admin API
+must declare the verified `max_parallel_sequences` provider option.
+
 ## Web Chat UI (Chainlit, optional extra)
 
 `victor ui` launches a pure-Python **Chainlit** web chat bound to `VictorClient` — streaming

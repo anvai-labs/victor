@@ -431,9 +431,48 @@ class BaseFormationStrategy(ABC):
                             )
             return _AWAITING if is_awaiting else result
 
+        concurrency_limit = context.get("member_concurrency_limit")
+        if concurrency_limit is not None and (
+            not isinstance(concurrency_limit, int)
+            or isinstance(concurrency_limit, bool)
+            or concurrency_limit < 1
+        ):
+            raise ValueError("member_concurrency_limit must be a positive integer")
+        semaphore = asyncio.Semaphore(concurrency_limit) if concurrency_limit is not None else None
+
+        async def _admitted_run(agent, exec_context, index, agent_task):
+            if semaphore is None or agent.id in completed_ids:
+                return await _run(agent, exec_context, index, agent_task)
+            if semaphore.locked():
+                from victor.framework.member_event_sink import (
+                    MEMBER_THROTTLED,
+                    MemberEvent,
+                    current_member_sink,
+                )
+
+                logger.warning(
+                    "Member %s waiting for provider capacity (%d concurrent members)",
+                    agent.id,
+                    concurrency_limit,
+                )
+                sink = current_member_sink.get()
+                if sink is not None:
+                    await sink.emit(
+                        MemberEvent(
+                            kind=MEMBER_THROTTLED,
+                            member_id=agent.id,
+                            formation=context.formation,
+                            index=index,
+                            content="Waiting for provider capacity",
+                            metadata={"concurrency_limit": concurrency_limit, "level": "warning"},
+                        )
+                    )
+            async with semaphore:
+                return await _run(agent, exec_context, index, agent_task)
+
         gathered = await asyncio.gather(
             *[
-                _run(a, c, i, t)
+                _admitted_run(a, c, i, t)
                 for a, c, i, t in zip(agents, exec_contexts, member_indices, member_tasks)
             ],
             return_exceptions=True,

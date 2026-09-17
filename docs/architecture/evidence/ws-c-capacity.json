@@ -1,0 +1,79 @@
+{
+  "worktree_commit": "524f830b3727918313fe68abd6bbfd2647370b7d",
+  "working_tree_dirty": true,
+  "elapsed_seconds": 35.03,
+  "provider": "inferflux",
+  "model": "qwen3-coder-30b",
+  "capacity": 2,
+  "member_ids": [
+    "executor_5018240b",
+    "executor_a3ed500d",
+    "executor_cafb6b97"
+  ],
+  "session_ids": [
+    "subagent-agent_executor_0fc3852bcc55",
+    "subagent-agent_executor_6782b156273e",
+    "subagent-agent_executor_a1c1d4d5b133"
+  ],
+  "requests": [
+    {
+      "member_name": "double",
+      "session_id": "subagent-agent_executor_0fc3852bcc55",
+      "path": "/v1/chat/completions",
+      "time": 1789677812.967891
+    },
+    {
+      "member_name": "square",
+      "session_id": "subagent-agent_executor_6782b156273e",
+      "path": "/v1/chat/completions",
+      "time": 1789677812.988418
+    },
+    {
+      "member_name": "double",
+      "session_id": "subagent-agent_executor_0fc3852bcc55",
+      "path": "/v1/chat/completions",
+      "time": 1789677819.0093708
+    },
+    {
+      "member_name": "square",
+      "session_id": "subagent-agent_executor_6782b156273e",
+      "path": "/v1/chat/completions",
+      "time": 1789677820.352763
+    },
+    {
+      "member_name": "increment",
+      "session_id": "subagent-agent_executor_a1c1d4d5b133",
+      "path": "/v1/chat/completions",
+      "time": 1789677822.714852
+    },
+    {
+      "member_name": "increment",
+      "session_id": "subagent-agent_executor_a1c1d4d5b133",
+      "path": "/v1/chat/completions",
+      "time": 1789677829.0134559
+    }
+  ],
+  "member_sessions": {
+    "double": [
+      "subagent-agent_executor_0fc3852bcc55"
+    ],
+    "square": [
+      "subagent-agent_executor_6782b156273e"
+    ],
+    "increment": [
+      "subagent-agent_executor_a1c1d4d5b133"
+    ]
+  },
+  "pytest": "...                                                                      [100%]\n3 passed in 0.10s",
+  "throttled_member_ids": [
+    "executor_a3ed500d"
+  ],
+  "deliverables": [
+    "double.py",
+    "increment.py",
+    "square.py",
+    "test_double.py",
+    "test_increment.py",
+    "test_square.py"
+  ]
+}
