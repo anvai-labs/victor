@@ -181,7 +181,7 @@ team = await Agent.create_team(
 
 These opt-in strategies are wired through the same coordinator registry. They have
 coordinator-dispatch coverage; **no live InferFlux result is claimed for them yet**.
-The six original formations retain their existing defaults.
+Their registration preserves the original formation behavior; WS-B hardening is described below.
 
 ### DYNAMIC_ROUTER
 
@@ -245,6 +245,35 @@ Member approvals remain inline; no routing choice, recursive tree cursor, or ada
 iteration cursor is persisted for partial resume. Do not treat these formations as
 member-granular resumable runs. This limitation does not change the existing six
 formations' durability support.
+
+## Formation outcome contracts (WS-B)
+
+- **CONSENSUS:** defaults to three rounds. Successful execution is not agreement:
+  members agree when their nonempty `metadata.consensus_key` strings match, or their
+  complete output strings match exactly when no key is supplied. The largest matching
+  group must meet the threshold; failed members count in the denominator.
+  `AgentTeam.create_consensus_team(..., rounds=3, agreement_threshold=0.7,
+  supervisor=spec)` lets an optional supervisor's successful final proposal break a
+  tie. This remains `consensus_achieved=False`, with `consensus_tie_breaker_id` and
+  `consensus_decision` in member metadata. Without resolution, team success is false.
+  Direct runs use `consensus_max_rounds`, `consensus_agreement_threshold`, and
+  `consensus_tie_breaker_id` in shared state. Existing round checkpointing remains.
+- **REFLECTION:** opt into `verdict_format="json"` on `create_reflection_team` (or
+  `reflection_verdict_format="json"` in shared state). The critic must return exactly
+  `{"verdict":"satisfied","feedback":"All requested checks pass."}` or a
+  `needs_work` verdict with actionable feedback. Extra keys, prose, markdown fences,
+  and malformed JSON cause an immediate failed result and warning, with no extra
+  generation attempt. The format is part of the checkpoint contract and cannot
+  change on resume. Default legacy verdict/keyword behavior is retained for
+  compatibility, with a warning whenever keyword fallback is used.
+- **PARALLEL:** per-member outcomes stay in `member_results`; `final_output` includes
+  a deterministic failed-member summary when any member fails. Existing any-member
+  success semantics remain, and all-success output is byte-identical. Opt into
+  `shared_context={"parallel_member_retries": 1}` (0–3, default 0) only for idempotent
+  member tasks. Successful members and approval pauses are never retried. Attempt
+  tool/duration totals are accumulated before the member completion checkpoint.
+
+These hardening contracts are unit-tested; the earlier live matrix predates them.
 
 ## Infrastructure Notes
 

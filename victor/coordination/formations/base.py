@@ -347,6 +347,7 @@ class BaseFormationStrategy(ABC):
         tasks: Optional[List["AgentMessage"]] = None,
         indices: Optional[List[int]] = None,
         resume_override: Optional[Dict[str, Any]] = None,
+        member_retries: int = 0,
     ) -> List[MemberResult]:
         """Run members concurrently with ADR-023 durable checkpoint/resume + streaming lanes.
 
@@ -409,9 +410,27 @@ class BaseFormationStrategy(ABC):
                     f"{type(self).__name__}: skipping completed member {agent.id} (resume)"
                 )
                 return _SKIPPED
-            result = await self._execute_member_with_events(
-                agent, agent_task, exec_context, index, member_event_hook=member_event_hook
-            )
+            total_tools = 0
+            total_duration = 0.0
+            for attempt in range(member_retries + 1):
+                result = await self._execute_member_with_events(
+                    agent, agent_task, exec_context, index, member_event_hook=member_event_hook
+                )
+                total_tools += result.tool_calls_used
+                total_duration += result.duration_seconds
+                if (
+                    result.success
+                    or result.metadata.get("awaiting_approval")
+                    or attempt == member_retries
+                ):
+                    break
+                logger.warning(
+                    "Member %s failed; retrying (%d/%d)", agent.id, attempt + 1, member_retries
+                )
+            if member_retries:
+                result.tool_calls_used = total_tools
+                result.duration_seconds = total_duration
+                result.metadata["execution_attempts"] = attempt + 1
             # A member awaiting approval durably pauses (only when the formation supports it, i.e.
             # a batch pause hook is wired): it is NOT recorded as completed, so a resumed run
             # re-runs it. Collect it for the post-wave pause aggregate instead.

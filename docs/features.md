@@ -61,6 +61,13 @@ reviewer, iterative critic, one-shot judge, synthesizer, and router. Domain role
 remain separate. `explicit_supervisor_id` is canonical; the old manager key is a
 warning-emitting input alias and is no longer emitted alongside it.
 
+**Outcome contracts** — consensus defaults to three rounds and compares explicit
+`metadata.consensus_key` values (or exact output values). `create_consensus_team`
+exposes rounds, agreement threshold, and an optional supervisor tie-break. Reflection
+supports an opt-in JSON verdict with `create_reflection_team(..., verdict_format="json")`;
+malformed verdicts stop refinement with an explicit failure. Parallel output names
+failed members, and `parallel_member_retries` enables bounded per-member retries.
+
 ## Web Chat UI (Chainlit, optional extra)
 
 `victor ui` launches a pure-Python **Chainlit** web chat bound to `VictorClient` — streaming
