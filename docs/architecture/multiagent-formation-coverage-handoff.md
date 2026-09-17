@@ -146,7 +146,7 @@ agent / remote agent, donated to the Linux Foundation), and the 2026 surveys
 
 | Concept | Victor name(s) | Inconsistency |
 |---|---|---|
-| Control-plane agent | `TeamAgentCategory.SUPERVISOR`; `_active_supervisor()` | WS-I: `explicit_supervisor_id` emitted; deprecated manager input alias normalized with warning (PR pending) |
+| Control-plane agent | `TeamAgentCategory.SUPERVISOR`; `_active_supervisor()` | WS-I: `explicit_supervisor_id` emitted; deprecated manager input alias normalized with warning ([PR #1109](https://github.com/anvai-labs/victor/pull/1109)) |
 | Team execution unit | `TeamMember` / "member" | "worker" (`max_workers`), "sub-agent" (docs), `_MemberContextAgent` |
 | Spawned child agent | `SubAgent` / `SubAgentConfig` | consistent |
 | Domain roles | `SubAgentRole` (researcher, planner, executor, reviewer, …) | consistent; but `formation_role` adds generator/critic strings for REFLECTION |
@@ -326,8 +326,8 @@ G1–G13 come from the co-design sessions and code audit; G14–G16 from the §2
   propose→aggregate (Mixture-of-Agents), or judged debate. Substrate-light: can ride
   PARALLEL execution + a new aggregation mode on `TeamResult`.
 
-WS-I status: canonical `FormationRole` identifiers and supervisor-key normalization
-implemented (PR pending). Review and reflection presets bind reviewer/critic roles
+WS-I status: ✅ canonical `FormationRole` identifiers and supervisor-key normalization
+implemented ([PR #1109](https://github.com/anvai-labs/victor/pull/1109)). Review and reflection presets bind reviewer/critic roles
 without mutating caller specs. Compatibility manager methods and `max_workers` remain.
 
 - **G17 — integrated trio has no durable partial resume.** WS-A makes this explicit:
