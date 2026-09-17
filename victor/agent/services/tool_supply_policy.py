@@ -23,13 +23,6 @@ def pruning_disabled_for(config: Any) -> bool:
     return not enabled
 
 
-def resolve_tool_selection_enabled(settings: Any = None) -> bool:
-    """Resolve the pruning flag for a service whose config defers (None)."""
-    from victor.config.tool_selection_access import is_tool_selection_enabled
-
-    return is_tool_selection_enabled(settings)
-
-
 def pruning_disabled(service: Any) -> bool:
     """Instance-bound form of ``pruning_disabled_for`` (reads service config)."""
     return pruning_disabled_for(getattr(service, "_config", None))

@@ -348,6 +348,10 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
                 - final_output: Synthesized final output
                 - formation: Formation used
         """
+        # The member-goal composition (see _make_executor) needs the run's
+        # team goal to distinguish "task = team goal" from "task = dynamic
+        # delegation" (hierarchical hand-offs).
+        self._team_goal = (task or "").strip()
         return await self._execute_with(
             task=task,
             context=context,
@@ -3217,6 +3221,10 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
             A ``TeamResult`` matching the formation in the config.
         """
         if members is None:
+            # Capture the goal before adaptation: the member-goal composition
+            # in _make_executor distinguishes the run's team goal from dynamic
+            # hierarchical delegations.
+            self._team_goal = (getattr(config, "goal", "") or "").strip()
             members = self._adapt_team_members(list(config.members))
 
         result = await self._execute_with(
