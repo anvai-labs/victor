@@ -471,6 +471,7 @@ async def stream_with_events(
                     success=member_ev.success,
                     index=member_ev.index,
                     formation=member_ev.formation,
+                    metadata=dict(member_ev.metadata),
                 )
                 continue
 
