@@ -118,6 +118,14 @@ def test_resolve_runtime_language_version_map():
         resolve_runtime(_Task(language="python", language_version=None), _Config()).base_image
         == "python:3.11-slim"
     )
+    assert (
+        resolve_runtime(_Task(language="javascript", language_version=None), _Config()).base_image
+        == "node:24-slim"
+    )
+    assert (
+        resolve_runtime(_Task(language="typescript", language_version=None), _Config()).base_image
+        == "node:24-slim"
+    )
 
 
 def test_resolve_runtime_precedence_override_then_task_image():

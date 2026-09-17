@@ -35,18 +35,26 @@ chunker or RAG tool loads its backend.
 ## Regenerate and audit resolved dependencies
 
 Use a fresh Python 3.12 environment, with `pip-tools==7.6.1`. Run from the
-repository root; add `--upgrade` when refreshing existing pins:
+repository root. Build the in-tree contracts wheel first when its required
+version has not reached PyPI yet, then expose that temporary directory to the
+resolver without emitting it into the portable lock files:
 
 ```bash
 python -m pip install --upgrade 'pip>=26.2.1'
 python -m pip install 'pip-tools==7.6.1'
-pip-compile --resolver=backtracking --strip-extras --allow-unsafe \
+python -m build --wheel --outdir /tmp/victor-contract-wheels victor-contracts
+export PIP_FIND_LINKS=/tmp/victor-contract-wheels
+pip-compile --upgrade --resolver=backtracking --strip-extras --allow-unsafe \
+  --no-emit-find-links --constraint=constraints.txt \
   --output-file=requirements.txt pyproject.toml
-pip-compile --resolver=backtracking --strip-extras --allow-unsafe --extra=api \
+pip-compile --upgrade --resolver=backtracking --strip-extras --allow-unsafe \
+  --no-emit-find-links --constraint=constraints.txt --extra=api \
   --output-file=requirements/api/requirements.txt pyproject.toml
-pip-compile --resolver=backtracking --strip-extras --allow-unsafe --extra=embeddings \
+pip-compile --upgrade --resolver=backtracking --strip-extras --allow-unsafe \
+  --no-emit-find-links --constraint=constraints.txt --extra=embeddings \
   --extra-index-url=https://download.pytorch.org/whl/cpu \
   --output-file=requirements/embeddings-cpu/requirements.txt pyproject.toml
+unset PIP_FIND_LINKS
 ```
 
 These files record resolved versions, not cross-platform lock guarantees. The
