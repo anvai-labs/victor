@@ -606,6 +606,7 @@ class ToolServiceConfig:
         max_retry_attempts: int = 3,
         retry_base_delay: float = 1.0,
         retry_max_delay: float = 10.0,
+        tool_selection_enabled: Optional[bool] = None,
     ):
         self.default_max_tools = default_max_tools
         self.default_tool_budget = default_tool_budget
@@ -616,6 +617,15 @@ class ToolServiceConfig:
         self.max_retry_attempts = max_retry_attempts
         self.retry_base_delay = retry_base_delay
         self.retry_max_delay = retry_max_delay
+        # Semantic tool selection (pruning) is OPT-IN: default off so every
+        # registered tool reaches the LLM call as-is. A narrow selection
+        # starves agentic loops that need tools the selector did not rank
+        # (observed: team members reduced to a single tool, unable to write
+        # or run anything). None defers to the canonical accessor
+        # (is_tool_selection_enabled: settings.tools.tool_selection_enabled
+        # or legacy env VICTOR_TOOL_SELECTION); an explicit bool is a DI
+        # override.
+        self.tool_selection_enabled = tool_selection_enabled
 
 
 class ToolService:
@@ -714,6 +724,7 @@ class ToolService:
         tool_selector: Any,
         tool_executor: Any,
         tool_registrar: Any,
+        settings: Any = None,
     ):
         """Initialize the tool service.
 
@@ -722,8 +733,18 @@ class ToolService:
             tool_selector: Tool selection component
             tool_executor: Tool execution component
             tool_registrar: Tool registration component
+            settings: Application settings (optional; enables settings-driven
+                tool-supply config, e.g. tools.tool_selection_enabled and
+                fallback_max_tools)
         """
         self._config = config
+        self._settings = settings
+        if config.tool_selection_enabled is None:
+            from victor.agent.services.tool_supply_policy import (
+                resolve_tool_selection_enabled,
+            )
+
+            config.tool_selection_enabled = resolve_tool_selection_enabled(settings)
         self._selector = tool_selector
         self._executor = tool_executor
         self._registrar = tool_registrar
@@ -2631,7 +2652,9 @@ class ToolService:
             return tools
 
         if kv_tool_strategy in ("session_stable", "additive"):
-            return self._merge_session_tools(tools, session_semantic_tools)
+            from victor.agent.services.tool_supply_policy import _merge_session_tools
+
+            return _merge_session_tools(tools, session_semantic_tools)
 
         return self.apply_context_aware_strategy(
             tools,
@@ -2639,24 +2662,6 @@ class ToolService:
             model=model,
             session_semantic_tools=session_semantic_tools,
         )
-
-    @staticmethod
-    def _merge_session_tools(tools: list, cached: Optional[list]) -> list:
-        """Additive session-stable merge (tool-supply P4): grow-only tool set.
-
-        Returns the cached set plus any newly-selected tools not already in it. When
-        nothing new is selected, returns the cached object unchanged so the downstream
-        name-sort yields a byte-identical prefix (KV cache hit). The set only grows —
-        it never shrinks or drops a tool the model may have started using — so a later
-        turn can surface new tools without re-locking the prefix from scratch.
-        """
-        if not cached:
-            return tools
-        cached_names = {t.name for t in cached}
-        additions = [t for t in tools if t.name not in cached_names]
-        if not additions:
-            return cached
-        return list(cached) + additions
 
     def apply_context_aware_strategy(
         self,
@@ -2666,163 +2671,51 @@ class ToolService:
         model: str,
         session_semantic_tools: Optional[list] = None,
     ) -> list:
-        """Economy-first, context-window-aware tool selection.
+        """Economy-first, context-window-aware tool selection (pruning on)."""
+        from victor.agent.services import tool_supply_policy
 
-        Decision tree (priority order):
-        1. Resolve one provider-economics profile for cache/token tradeoffs.
-        2. Demote/drop tools that exceed the profile's tool-schema budget.
-        3. Apply additive session stability when the profile asks for it.
-        4. For hard token-constrained profiles, semantic-select within budget.
-
-        Does NOT emit tool-strategy events — that responsibility stays with the
-        orchestrator shim to preserve ``AgentMetricsService`` ownership.
-        """
-        from victor.config.tool_tiers import get_provider_category
-        from victor.config.tool_tiers import resolve_tool_supply_profile
-
-        context_window = self._get_tool_context_window(provider, model)
-        fallback_max_tools = self._fallback_max_full_tools()
-        profile = resolve_tool_supply_profile(
-            provider,
-            context_window,
-            fallback_max_tools=fallback_max_tools,
+        return tool_supply_policy.apply_context_aware_strategy(
+            self,
+            tools,
+            provider=provider,
+            model=model,
+            session_semantic_tools=session_semantic_tools,
         )
-        provider_category = get_provider_category(context_window)
-        tool_tokens = sum(
-            self.estimate_tool_tokens(t, provider_category=provider_category) for t in tools
-        )
-        max_tool_tokens = profile.budget_tokens or int(context_window * 0.25)
-
-        if tool_tokens > max_tool_tokens:
-            self._logger.warning(
-                f"Tool tokens ({tool_tokens}) exceed 25% of context window ({context_window}). "
-                "Demoting low-priority tools."
-            )
-            tools = self._demote_tools_to_fit_budget(
-                tools, max_tool_tokens, context_window, provider_category
-            )
-
-        if profile.cap_mode == "none" or self._should_session_lock_tools(provider, context_window):
-            if profile.session_lock == "additive":
-                return self._merge_session_tools(tools, session_semantic_tools)
-            return tools
-
-        tools = self.semantic_select_tools(
-            tools, max_tool_tokens, provider_category=provider_category
-        )
-        if profile.session_lock == "additive":
-            return self._merge_session_tools(tools, session_semantic_tools)
-        return tools
 
     def _fallback_max_full_tools(self) -> int:
         """Return configured full-schema head size for profile resolution."""
-        try:
-            tools_settings = getattr(self._settings, "tools", None)
-            budget = getattr(tools_settings, "budget", None)
-            if budget and int(budget) > 0:
-                return int(budget)
-        except Exception:
-            pass
-        return 8
+        from victor.agent.services import tool_supply_policy
+
+        return tool_supply_policy.fallback_max_full_tools(self)
 
     def semantic_select_tools(
         self, tools, max_tokens: int, *, provider_category: Optional[str] = None
     ) -> list:
-        """Select tools by semantic relevance within a token budget.
+        """Select tools by semantic relevance within a token budget."""
+        from victor.agent.services import tool_supply_policy
 
-        CRITICAL-priority tools are always included first.  Remaining tools are
-        added in declaration order until the budget is 90 % consumed.
-        """
-        from victor.tools.enums import Priority
-
-        core_tools = [
-            t for t in tools if hasattr(t, "priority") and t.priority == Priority.CRITICAL
-        ]
-        core_tokens = sum(
-            self.estimate_tool_tokens(t, provider_category=provider_category) for t in core_tools
+        return tool_supply_policy.semantic_select_tools(
+            self, tools, max_tokens, provider_category=provider_category
         )
-
-        if core_tokens > max_tokens:
-            result, used = [], 0
-            for tool in core_tools:
-                cost = self.estimate_tool_tokens(tool)
-                if used + cost <= max_tokens:
-                    result.append(tool)
-                    used += cost
-            return result
-
-        selected = core_tools.copy()
-        for tool in (t for t in tools if t not in core_tools):
-            cost = self.estimate_tool_tokens(tool, provider_category=provider_category)
-            if core_tokens + cost <= max_tokens:
-                selected.append(tool)
-                core_tokens += cost
-                if core_tokens >= max_tokens * 0.9:
-                    break
-
-        return selected
-
-    # ------------------------------------------------------------------
-    # Internal helpers for KV strategy methods
-    # ------------------------------------------------------------------
 
     def _get_tool_context_window(self, provider: Any, model: str) -> int:
-        if hasattr(provider, "context_window"):
-            return provider.context_window(model)
-        self._logger.warning(
-            f"Provider {getattr(provider, 'name', '?')} has no context_window(); using 8192"
-        )
-        return 8192
+        from victor.agent.services import tool_supply_policy
+
+        return tool_supply_policy._get_tool_context_window(self, provider, model)
 
     def _should_session_lock_tools(self, provider: Any, context_window: int) -> bool:
-        if hasattr(provider, "supports_prompt_caching") and provider.supports_prompt_caching():
-            return True
-        return context_window >= 32000
+        from victor.agent.services import tool_supply_policy
+
+        return tool_supply_policy._should_session_lock_tools(self, provider, context_window)
 
     def _demote_tools_to_fit_budget(
-        self,
-        tools: list,
-        max_tokens: int,
-        context_window: int,
-        provider_category: Optional[str] = None,
+        self, tools, max_tool_tokens: int, context_window: int, provider_category: Any
     ) -> list:
-        from victor.tools.enums import Priority, SchemaLevel
+        from victor.agent.services import tool_supply_policy
 
-        sorted_tools = sorted(
-            tools,
-            key=lambda t: (t.priority.value if hasattr(t, "priority") else 99, t.name),
+        return tool_supply_policy._demote_tools_to_fit_budget(
+            self, tools, max_tool_tokens, context_window, provider_category
         )
-        result, used = [], 0
-        for tool in sorted_tools:
-            cost = self.estimate_tool_tokens(tool, provider_category=provider_category)
-            if used + cost <= max_tokens:
-                result.append(tool)
-                used += cost
-            elif hasattr(tool, "priority") and tool.priority == Priority.CRITICAL:
-                try:
-                    original = getattr(tool, "_schema_level", None)
-                    tool._schema_level = SchemaLevel.STUB
-                    stub_cost = self.estimate_tool_tokens(tool, _use_cache=False)
-                    tool._schema_level = original
-                    if used + stub_cost <= max_tokens:
-                        result.append(tool)
-                        used += stub_cost
-                        self._logger.debug(f"Demoted critical tool {tool.name} to STUB")
-                    else:
-                        self._logger.warning(
-                            f"Critical tool {tool.name} exceeds budget even as STUB; dropping"
-                        )
-                except Exception as exc:
-                    self._logger.warning(f"Error demoting tool {tool.name}: {exc}")
-        self._logger.info(
-            f"Demoted tools to fit context window: {len(tools)} → {len(result)} tools "
-            f"({used} tokens, budget: {max_tokens}, context: {context_window})"
-        )
-        return result
-
-    # ==========================================================================
-    # Private Methods
-    # ==========================================================================
 
     def _track_tool_usage(self, tool_name: str, success: bool) -> None:
         """Track tool usage for statistics.
