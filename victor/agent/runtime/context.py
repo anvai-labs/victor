@@ -6,6 +6,16 @@ from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
 
+def derive_scoped_session_id(parent_session_id: Optional[str], team_id: str, member_id: str) -> str:
+    """Colon-scoped child session id for team/worktree-isolated members.
+
+    Shared by AgentRuntimeContext.derive_child and TeamExecution so the
+    format has exactly one definition.
+    """
+    parent = parent_session_id or "session"
+    return f"{parent}:{team_id}:{member_id}"
+
+
 @dataclass(frozen=True)
 class AgentRuntimeContext:
     """Identity and session scope for one agent runtime instance."""
@@ -48,7 +58,9 @@ class AgentRuntimeContext:
     ) -> "AgentRuntimeContext":
         """Create a child runtime context with its own session scope."""
         resolved_team_id = team_id or self.team_id or "team"
-        child_session_id = session_id or f"{self.session_id}:{resolved_team_id}:{member_id}"
+        child_session_id = session_id or derive_scoped_session_id(
+            self.session_id, resolved_team_id, member_id
+        )
         return AgentRuntimeContext(
             agent_id=agent_id,
             display_name=display_name,

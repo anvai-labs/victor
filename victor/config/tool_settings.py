@@ -57,6 +57,18 @@ class ToolSettings(BaseModel):
             "low-confidence recommendations always retain the baseline."
         ),
     )
+    tool_selection_enabled: bool = Field(
+        default=False,
+        description=(
+            "Semantic per-turn tool pruning (top-K narrowing of the toolset "
+            "offered to the LLM). Default False: every enabled registered tool "
+            "reaches the LLM call as-is, byte-stable across turns - a narrow "
+            "per-turn supply starves agentic loops that need tools the ranker "
+            "did not surface. Opt in here or via the legacy flat env "
+            "VICTOR_TOOL_SELECTION (honored by "
+            "victor.config.tool_selection_access.is_tool_selection_enabled)."
+        ),
+    )
     tool_budget_calibration_min_confidence: float = Field(
         default=0.7,
         ge=0.0,
