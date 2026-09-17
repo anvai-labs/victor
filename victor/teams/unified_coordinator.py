@@ -67,6 +67,7 @@ from victor.teams.types import (
     TeamFormation,
     TeamParticipant,
     TeamResult,
+    normalize_supervisor_context,
 )
 from victor.teams.workspace_isolation import (
     WorkspaceIsolationService,
@@ -198,7 +199,7 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
         _orchestrator: Agent orchestrator (optional, for SubAgent spawning)
         _members: List of team members
         _formation: Current team formation
-        _manager: Supervisor member for HIERARCHICAL formation
+        _supervisor: Supervisor member for HIERARCHICAL formation
         _message_history: Log of inter-agent messages
         _shared_context: Shared context dictionary
     """
@@ -240,7 +241,7 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
         self._checkpointer: Optional["CheckpointerProtocol"] = checkpointer
         self._members: List[ITeamMember] = []
         self._formation = TeamFormation.SEQUENTIAL
-        self._manager: Optional[ITeamMember] = None
+        self._supervisor: Optional[ITeamMember] = None
         self._lightweight_mode = lightweight_mode
 
         # Communication
@@ -312,7 +313,7 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
         Returns:
             Self for fluent chaining
         """
-        self._manager = supervisor
+        self._supervisor = supervisor
         if supervisor not in self._members:
             self._members.insert(0, supervisor)
         return self
@@ -343,7 +344,7 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
             context=context,
             formation=self._formation,
             members=list(self._members),
-            supervisor=self._manager,
+            supervisor=self._supervisor,
             persist_execution_state=True,
         )
 
@@ -491,7 +492,7 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
         state = self._current_execution_state()
         if state is not None:
             return state.supervisor
-        return self._manager
+        return self._supervisor
 
     def _active_manager(self) -> Optional["ITeamMember"]:
         """Compatibility alias for _active_supervisor()."""
@@ -795,7 +796,7 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
         active_supervisor = self._active_supervisor()
         if active_supervisor is not None:
             shared_state_with_supervisor["explicit_supervisor_id"] = active_supervisor.id
-            shared_state_with_supervisor["explicit_manager_id"] = active_supervisor.id
+        normalize_supervisor_context(shared_state_with_supervisor)
 
         max_workers = self._extract_max_workers(effective_context, shared_state_with_supervisor)
         candidate_members = self._filter_execution_members(
@@ -2948,7 +2949,7 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
             Self for fluent chaining
         """
         self._members.clear()
-        self._manager = None
+        self._supervisor = None
         self._message_history.clear()
         self._shared_context.clear()
         return self
@@ -2971,7 +2972,7 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
     @property
     def supervisor(self) -> Optional["ITeamMember"]:
         """Get team supervisor (for hierarchical formation)."""
-        return self._manager
+        return self._supervisor
 
     # =========================================================================
     # Parameterised execution & TeamConfig adapter

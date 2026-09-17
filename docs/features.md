@@ -61,6 +61,11 @@ member under the provider's declared sequence limit, with per-member throttle
 warnings. InferFlux deployments that do not expose capacity through their admin API
 must declare the verified `max_parallel_sequences` provider option.
 
+Team coordination uses canonical roles: supervisor, member, subagent, one-pass
+reviewer, iterative critic, one-shot judge, synthesizer, and router. Domain roles
+remain separate. `explicit_supervisor_id` is canonical; the old manager key is a
+warning-emitting input alias and is no longer emitted alongside it.
+
 **Outcome contracts** — consensus defaults to three rounds and compares explicit
 `metadata.consensus_key` values (or exact output values). `create_consensus_team`
 exposes rounds, agreement threshold, and an optional supervisor tie-break. Reflection

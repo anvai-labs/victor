@@ -22,6 +22,7 @@ import logging
 from typing import Any, Dict, List, Optional, Tuple
 
 from victor.coordination.formations.base import BaseFormationStrategy, TeamContext
+from victor.teams.types import normalize_supervisor_context
 from victor.teams.types import AgentMessage, MemberResult, MessageType
 
 logger = logging.getLogger(__name__)
@@ -270,10 +271,8 @@ class HierarchicalFormation(BaseFormationStrategy):
         """
         # Check for explicit supervisor in context first. Keep the older
         # explicit_manager_id key readable for serialized compatibility.
-        explicit_supervisor_id = context.shared_state.get(
-            "explicit_supervisor_id",
-            context.shared_state.get("explicit_manager_id"),
-        )
+        normalize_supervisor_context(context.shared_state)
+        explicit_supervisor_id = context.shared_state.get("explicit_supervisor_id")
 
         supervisor = None
         specialists: List[Any] = []
