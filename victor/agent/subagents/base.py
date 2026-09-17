@@ -1024,10 +1024,6 @@ class SubAgent(IAgent):  # type: ignore[misc]
                             f"{duration:.1f}s"
                         )
                         return
-            finally:
-                # Restore the parent's session id after the stream completes.
-                _ctx_session_id.set(parent_session)
-
         except Exception as e:
             # Create error chunk
             error_msg = f"{type(e).__name__}: {str(e)}"
