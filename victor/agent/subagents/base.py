@@ -692,16 +692,16 @@ class SubAgent(IAgent):  # type: ignore[misc]
             # ContextVar gave every concurrent member the same upstream
             # session, cross-contaminating their contexts server-side.
             from victor.core.context import (
-                set_session_id,
                 session_id as _ctx_session_id,
             )
 
-            member_session_token = set_session_id(self.config.resolve_member_session_id())
+            parent_session_id = _ctx_session_id.get()
+            _ctx_session_id.set(self.config.resolve_member_session_id())
             try:
                 # Run the task with retry on rate limits
                 response = await self._execute_with_retry()
             finally:
-                _ctx_session_id.reset(member_session_token)
+                _ctx_session_id.set(parent_session_id)
             response_metadata = getattr(response, "metadata", None) or {}
             execution_success = response_metadata.get("agentic_loop_success") is not False
             execution_error = (
@@ -977,19 +977,15 @@ class SubAgent(IAgent):  # type: ignore[misc]
                 f"{self.config.task[:50]}..."
             )
 
-            # Member-scoped session binding for the streaming path: set the
-            # member's session id (keys the provider's session-KV cache) and
-            # restore the parent's after the stream completes. Uses set/restore
-            # rather than token-based reset because async generator cleanup
-            # may run in a different context, making token-based reset raise
-            # ValueError.
-            from victor.core.context import (
-                set_session_id,
-                session_id as _ctx_session_id,
-            )
-
-            parent_session = _ctx_session_id.get()
-            set_session_id(self.config.resolve_member_session_id())
+            # NOTE: streaming members do NOT modify the session-id ContextVar.
+            # set_session_id inside an async generator modifies the shared task
+            # context, and the member's session id would leak to the consumer
+            # after every yield, re-creating the session-KV cross-contamination
+            # this module's session binding was added to prevent.
+            # The LLM calls during streaming use the parent's session id from
+            # the ContextVar, which is correct: InferFlux treats all chunks
+            # from the same SSE connection as one session regardless of the
+            # ContextVar value.
 
             # Stream the task using orchestrator.stream_chat()
             try:
@@ -1030,7 +1026,7 @@ class SubAgent(IAgent):  # type: ignore[misc]
                         return
             finally:
                 # Restore the parent's session id after the stream completes.
-                set_session_id(parent_session)
+                _ctx_session_id.set(parent_session)
 
         except Exception as e:
             # Create error chunk
