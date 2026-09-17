@@ -51,6 +51,11 @@ team can mix a high-reasoning model for planning with a fast model for execution
 **review** and **reflection** presets are included (reflection critiques against the original task
 and judges satisfaction via a VERDICT).
 
+Team coordination uses canonical roles: supervisor, member, subagent, one-pass
+reviewer, iterative critic, one-shot judge, synthesizer, and router. Domain roles
+remain separate. `explicit_supervisor_id` is canonical; the old manager key is a
+warning-emitting input alias and is no longer emitted alongside it.
+
 ## Web Chat UI (Chainlit, optional extra)
 
 `victor ui` launches a pure-Python **Chainlit** web chat bound to `VictorClient` — streaming

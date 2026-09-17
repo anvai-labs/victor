@@ -51,7 +51,7 @@ import re
 from typing import Any, Dict, List, Optional
 
 from victor.coordination.formations.base import BaseFormationStrategy, TeamContext
-from victor.teams.types import AgentMessage, MemberResult, MessageType
+from victor.teams.types import AgentMessage, FormationRole, MemberResult, MessageType
 
 logger = logging.getLogger(__name__)
 
@@ -144,8 +144,8 @@ class ReflectionFormation(BaseFormationStrategy):
                 - satisfied: Whether critic was satisfied
         """
         # Get agents from context
-        generator = context.get("generator")
-        critic = context.get("critic")
+        generator = context.get(FormationRole.GENERATOR.value)
+        critic = context.get(FormationRole.CRITIC.value)
 
         if not generator or not critic:
             logger.error("ReflectionFormation requires 'generator' and 'critic' agents in context")
@@ -322,8 +322,8 @@ class ReflectionFormation(BaseFormationStrategy):
         Returns:
             True if context has 'generator' and 'critic' keys
         """
-        generator = context.get("generator")
-        critic = context.get("critic")
+        generator = context.get(FormationRole.GENERATOR.value)
+        critic = context.get(FormationRole.CRITIC.value)
 
         has_generator = generator is not None
         has_critic = critic is not None
@@ -342,7 +342,7 @@ class ReflectionFormation(BaseFormationStrategy):
         Returns:
             List of required role names: ['generator', 'critic']
         """
-        return ["generator", "critic"]
+        return [FormationRole.GENERATOR.value, FormationRole.CRITIC.value]
 
     def supports_early_termination(self) -> bool:
         """Check if formation supports early termination.
@@ -385,7 +385,7 @@ class ReflectionFormation(BaseFormationStrategy):
             "Refine your solution to better satisfy the original task.\n\n"
             f"ORIGINAL TASK:\n{original_task}\n\n"
             f"CURRENT SOLUTION:\n{result}\n\n"
-            f"REVIEWER FEEDBACK:\n{feedback}\n\n"
+            f"CRITIC FEEDBACK:\n{feedback}\n\n"
             "Produce an improved solution that addresses the feedback while "
             "fully satisfying the original task."
         )

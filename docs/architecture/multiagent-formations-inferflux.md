@@ -42,6 +42,22 @@ async def main():
 asyncio.run(main())
 ```
 
+## Role vocabulary
+
+Use **supervisor** for the control plane, **member** for a team execution unit, and
+**subagent** for a spawned child. A **reviewer** reviews once; a **critic** evaluates
+an iterative loop; a **judge** gives a one-shot verdict over candidates. A
+**synthesizer** composes outputs and a **router** classifies and dispatches.
+`FormationRole` in `victor.teams.types` defines these coordination identifiers
+(and reflection's `generator` producer role). Domain roles such as `executor` and
+`researcher` remain `SubAgentRole` values: a domain `reviewer` may be assigned the
+formation role `critic` explicitly. New formation APIs use canonical identifiers.
+
+`explicit_supervisor_id` is the single emitted shared-state key. The deprecated
+`explicit_manager_id` input alias is consumed with a warning; canonical input wins
+if both are present. `set_manager`/`manager` and `max_workers` remain compatibility
+API names. External FEP-0006 members use **client/remote member** terminology.
+
 ## Formations
 
 ### SEQUENTIAL
@@ -93,9 +109,9 @@ team = await Agent.create_team(
     name="independent-tasks",
     goal="Three independent file creations",
     members=[
-        TeamMemberSpec(role="executor", name="worker_a", goal="Create file A"),
-        TeamMemberSpec(role="executor", name="worker_b", goal="Create file B"),
-        TeamMemberSpec(role="executor", name="worker_c", goal="Create file C"),
+        TeamMemberSpec(role="executor", name="member_a", goal="Create file A"),
+        TeamMemberSpec(role="executor", name="member_b", goal="Create file B"),
+        TeamMemberSpec(role="executor", name="member_c", goal="Create file C"),
     ],
     formation=TeamFormation.PARALLEL,
     provider="inferflux", model="qwen3-coder-30b",
@@ -153,8 +169,8 @@ team = await Agent.create_team(
     name="generate-and-reflect",
     goal="Write and verify",
     members=[
-        TeamMemberSpec(role="executor", name="generator", goal="Write X"),
-        TeamMemberSpec(role="reviewer", name="critic", goal="Review X"),
+        TeamMemberSpec(role="executor", name="generator", goal="Write X", formation_role="generator"),
+        TeamMemberSpec(role="reviewer", name="critic", goal="Critique X until satisfied", formation_role="critic"),
     ],
     formation=TeamFormation.REFLECTION,
     provider="inferflux", model="qwen3-coder-30b",
