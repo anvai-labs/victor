@@ -57,14 +57,7 @@ from typing import (
 from victor.coordination.formations.base import BaseFormationStrategy, TeamContext
 from victor.framework.graph_checkpoint import CheckpointerProtocol, WorkflowCheckpoint
 from victor.framework.member_event_sink import MemberEvent, MemberEventSink, current_member_sink
-from victor.coordination.formations import (
-    SequentialFormation,
-    ParallelFormation,
-    HierarchicalFormation,
-    PipelineFormation,
-    ConsensusFormation,
-    ReflectionFormation,
-)
+from victor.coordination.formations import create_formation_registry
 from victor.teams.mixins.observability import ObservabilityMixin
 from victor.teams.mixins.rl import RLMixin
 from victor.teams.types import (
@@ -264,14 +257,7 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
         self._lsp: Optional[Any] = None
 
         # Formation strategies (composition over inheritance)
-        self._formations: Dict[TeamFormation, BaseFormationStrategy] = {
-            TeamFormation.SEQUENTIAL: SequentialFormation(),
-            TeamFormation.PARALLEL: ParallelFormation(),
-            TeamFormation.HIERARCHICAL: HierarchicalFormation(),
-            TeamFormation.PIPELINE: PipelineFormation(),
-            TeamFormation.CONSENSUS: ConsensusFormation(),
-            TeamFormation.REFLECTION: ReflectionFormation(),
-        }
+        self._formations: Dict[TeamFormation, BaseFormationStrategy] = create_formation_registry()
 
         # StateGraph node config (used when the coordinator is invoked as a
         # graph node via ``__call__``). Default preserves historical keys.

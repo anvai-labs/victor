@@ -35,7 +35,7 @@ from victor.coordination.formations.adaptive import (
     AdaptationStrategy,
 )
 from victor.coordination.formations.base import TeamContext
-from victor.teams.types import AgentMessage, MessageType
+from victor.teams.types import AgentMessage, MessageType, TeamParticipant
 
 
 @pytest.fixture
@@ -581,6 +581,14 @@ class TestMultiLevelHierarchyFormation:
 class TestAdaptiveFormation:
     """Tests for AdaptiveFormation."""
 
+    @staticmethod
+    def participants(context):
+        return [
+            TeamParticipant(member=agent, executor=agent.execute)
+            for agent in context.shared_state.values()
+            if hasattr(agent, "execute") and hasattr(agent, "id")
+        ]
+
     @pytest.fixture
     def mock_agents(self):
         """Create multiple mock agents."""
@@ -600,11 +608,11 @@ class TestAdaptiveFormation:
         for agent in mock_agents:
             team_context.set(agent.id, agent)
 
-        # Small task - should use orchestration
+        # Small task - should use sequential
         small_task = AgentMessage(
             sender_id="test", content="Small task", message_type=MessageType.TASK
         )
-        results = await formation.execute([], team_context, small_task)
+        results = await formation.execute(self.participants(team_context), team_context, small_task)
 
         assert results[0].success is True
         assert "current_formation" in results[0].metadata
@@ -621,7 +629,7 @@ class TestAdaptiveFormation:
         large_task = AgentMessage(
             sender_id="test", content="X" * 1500, message_type=MessageType.TASK
         )
-        results = await formation.execute([], team_context, large_task)
+        results = await formation.execute(self.participants(team_context), team_context, large_task)
 
         assert results[0].success is True
         assert results[0].metadata["current_formation"] in [
@@ -651,7 +659,7 @@ class TestAdaptiveFormation:
 
         task = AgentMessage(sender_id="test", content="Test task", message_type=MessageType.TASK)
 
-        results = await formation.execute([], team_context, task)
+        results = await formation.execute(self.participants(team_context), team_context, task)
 
         # Check metadata
         assert "current_formation" in results[0].metadata
@@ -671,7 +679,7 @@ class TestAdaptiveFormation:
 
         task = AgentMessage(sender_id="test", content="Test task", message_type=MessageType.TASK)
 
-        results = await formation.execute([], team_context, task)
+        results = await formation.execute(self.participants(team_context), team_context, task)
 
         assert results[0].success is True
         assert results[0].metadata["adaptation_strategy"] == "error_rate"
@@ -690,7 +698,7 @@ class TestAdaptiveFormation:
 
         task = AgentMessage(sender_id="test", content="Test task", message_type=MessageType.TASK)
 
-        results = await formation.execute([], team_context, task)
+        results = await formation.execute(self.participants(team_context), team_context, task)
 
         # Should not exceed max_switches
         assert results[0].metadata["formation_switches"] <= 1
@@ -705,7 +713,7 @@ class TestAdaptiveFormation:
 
         task = AgentMessage(sender_id="test", content="Test task", message_type=MessageType.TASK)
 
-        results = await formation.execute([], team_context, task)
+        results = await formation.execute(self.participants(team_context), team_context, task)
 
         # Should have formation history
         assert "formation_history" in results[0].metadata
@@ -756,7 +764,7 @@ class TestAdaptiveFormation:
 
         task = AgentMessage(sender_id="test", content="Test task", message_type=MessageType.TASK)
 
-        results = await formation.execute([], team_context, task)
+        results = await formation.execute(self.participants(team_context), team_context, task)
 
         assert results[0].success is True
         # Should use one of the formations in the custom cycle
@@ -776,14 +784,14 @@ class TestAdaptiveFormation:
             agent.execute = AsyncMock(return_value=f"Result {i}")
             team_context.set(agent.id, agent)
 
-        team_context.set("formation_hint", "consensus")
+        team_context.set("initial_formation_hint", "consensus")
         small_task = AgentMessage(
             sender_id="test",
             content="Small task",
             message_type=MessageType.TASK,
         )
 
-        results = await formation.execute([], team_context, small_task)
+        results = await formation.execute(self.participants(team_context), team_context, small_task)
 
         assert results[0].success is True
         assert results[0].metadata["current_formation"] == "consensus"

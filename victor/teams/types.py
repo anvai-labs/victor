@@ -56,6 +56,9 @@ class TeamFormation(str, Enum):
         PIPELINE: Output of one member feeds into the next
         CONSENSUS: All members must agree (multiple rounds if needed)
         REFLECTION: Generator → critic → refine loop with early-exit on satisfaction
+        ADAPTIVE: Bounded switching between registered formations
+        DYNAMIC_ROUTER: Route a task to one member
+        MULTI_LEVEL_HIERARCHY: Split tasks down a tree and synthesize upward
     """
 
     SEQUENTIAL = "sequential"
@@ -64,6 +67,9 @@ class TeamFormation(str, Enum):
     PIPELINE = "pipeline"
     CONSENSUS = "consensus"
     REFLECTION = "reflection"
+    ADAPTIVE = "adaptive"
+    DYNAMIC_ROUTER = "dynamic_router"
+    MULTI_LEVEL_HIERARCHY = "multi_level_hierarchy"
 
 
 class TeamAgentCategory(str, Enum):
