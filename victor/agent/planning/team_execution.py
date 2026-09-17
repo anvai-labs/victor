@@ -1514,8 +1514,9 @@ class PlanningTeamExecutionAdapter:
 
     @staticmethod
     def _child_session_id(parent_session_id: Optional[str], team_id: str, member_id: str) -> str:
-        parent = parent_session_id or "session"
-        return f"{parent}:{team_id}:{member_id}"
+        from victor.agent.runtime.context import derive_scoped_session_id
+
+        return derive_scoped_session_id(parent_session_id, team_id, member_id)
 
     def _root_session_id(self) -> Optional[str]:
         return (

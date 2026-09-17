@@ -45,6 +45,10 @@ import asyncio
 import hashlib
 import inspect
 import logging
+
+from victor.config.tool_selection_access import (
+    is_tool_selection_enabled,
+)
 import re
 from typing import Any, Dict, List, Optional, Set, TYPE_CHECKING
 
@@ -1616,6 +1620,23 @@ class TurnExecutor:
         Returns:
             List of tool definitions or None
         """
+        # Tool pruning is disabled by default (VICTOR_TOOL_SELECTION=1 opts
+        # in): expose every enabled registered tool as-is instead of
+        # semantic top-K narrowing. A narrow per-turn supply starves agentic
+        # loops - multi-agent members were reduced to read-only and could
+        # neither write nor run anything.
+        if not is_tool_selection_enabled(getattr(self._chat_context, "settings", None)):
+            # Shared cached builder - byte-stable definitions across turns,
+            # identical wire shape to the instance list this used to build
+            # (provider codecs read only name/description/parameters).
+            from victor.agent.tool_selection.stable_definitions import (
+                stable_all_definitions,
+            )
+
+            tools = stable_all_definitions(self._tool_context.tool_selector)
+            if tools:
+                return tools
+
         conversation_depth = self._chat_context.conversation.message_count()
         from victor.agent.tool_selection.history_projection import _selector_history_projection
 

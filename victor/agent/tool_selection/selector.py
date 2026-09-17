@@ -2013,29 +2013,11 @@ class ToolSelector(ModeAwareMixin):
         is ``frozenset(_enabled_tools)``: a new task's curated set rebuilds it.
         No-op when no curated set is active (the common auto-selected case).
         """
-        if not self._enabled_tools:
-            return None
-        cache_key = frozenset(self._enabled_tools)
-        cached = getattr(self, "_stable_tools_cache", None)
-        if cached and cached[0] == cache_key:
-            return cached[1]
-        try:
-            from victor.tools.enums import SchemaLevel
-        except ImportError:
-            return None
-        stable: List["ToolDefinition"] = []
-        for name in sorted(self._enabled_tools):
-            tool = self.tools.get(name)
-            if tool is not None:
-                stable.append(tool_to_definition(tool, SchemaLevel.FULL))
-        if stable:
-            self._stable_tools_cache = (cache_key, stable)
-            logger.info(
-                "[ToolSchema] Stable curated: %d tools (%s) — prefix-cache stable",
-                len(stable),
-                ", ".join(sorted(self._enabled_tools)),
-            )
-        return stable or None
+        from victor.agent.tool_selection.stable_definitions import (
+            stable_curated_definitions,
+        )
+
+        return stable_curated_definitions(self)
 
     def _union_curated_enabled(self, tools: List["ToolDefinition"]) -> List["ToolDefinition"]:
         """Ensure every registered curated tool reaches the LLM.
