@@ -1288,7 +1288,9 @@ class VictorAgentAdapter:
                         )
                 self._messages.append({"role": "user", "content": current_message})
 
-                # Get agent response
+                # FEP-0034 Stage C: enter through chat -> TurnExecutor ->
+                # ToolSelectionRuntime, including curation, gates, and tracing.
+                # Calling the selector directly here would bypass served policy.
                 logger.info(
                     "[AgentAdapter] Turn %d started (tool_calls=%d, "
                     "edited=%s, exploration_calls=%d)",
@@ -1473,6 +1475,7 @@ class VictorAgentAdapter:
         # ``agentic_loop_success`` is the claim compared with verifier truth.
         trace.completion_signals.update(
             {
+                "tool_supply_pipeline": "fep-0034-stage-c",
                 "agentic_loop_iterations": agentic_loop_iterations,
                 "agentic_loop_success": last_agentic_loop_success,
                 "agentic_loop_error_count": agentic_loop_error_count,

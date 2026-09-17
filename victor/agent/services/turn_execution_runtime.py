@@ -46,9 +46,6 @@ import hashlib
 import inspect
 import logging
 
-from victor.config.tool_selection_access import (
-    is_tool_selection_enabled,
-)
 import re
 from typing import Any, Dict, List, Optional, Set, TYPE_CHECKING
 
@@ -1620,126 +1617,21 @@ class TurnExecutor:
         Returns:
             List of tool definitions or None
         """
-        from victor.agent.services.tool_selection_runtime import (
-            ToolSelectionRuntime,
-            _emit_tool_supply_trace,
-            hydrate_demand_tools,
-        )
-        from victor.tools.tool_supply_trace import ToolSupplyTrace
+        from victor.agent.services.tool_selection_runtime import ToolSelectionRuntime
+        from victor.agent.services.turn_tool_selection_adapter import TurnToolSelectionAdapter
 
-        # Caller-curated supply is authoritative, even when automatic pruning is off.
-        # Resolve it before hydration or the all-registered shortcut can widen the set.
-        selector = self._tool_context.tool_selector
-        curated = getattr(selector, "_enabled_tools", None)
-        if isinstance(curated, (set, frozenset, list)) and curated:
-            from victor.agent.tool_selection.stable_definitions import (
-                stable_curated_definitions,
+        if not hasattr(self, "_turn_tool_selection_adapter"):
+            self._turn_tool_selection_lock = asyncio.Lock()
+            self._turn_tool_selection_adapter = TurnToolSelectionAdapter(self)
+            self._turn_tool_selection_runtime = ToolSelectionRuntime(
+                self._turn_tool_selection_adapter
             )
-
-            # Missing curated tools must not fall through to the unrestricted registry.
-            tools = stable_curated_definitions(selector) or []
-            trace = ToolSupplyTrace.begin(
-                ToolSelectionRuntime._registered_tools(self._resolve_orchestrator())
+        # Keep turn inputs stable across selection awaits on the shared adapter.
+        async with self._turn_tool_selection_lock:
+            self._turn_tool_selection_adapter.bind_turn(user_message, intent)
+            return await self._turn_tool_selection_runtime.select_tools_for_turn(
+                user_message, goals=None
             )
-            trace.set_candidates(tools)
-            _emit_tool_supply_trace(trace.finalize(tools))
-            return tools
-
-        # Stage 1 — demand hydration (FEP-0034 pipeline): register
-        # mention-wired tools (graph, gh) before any supply decision, exactly
-        # like the chat transports — headless runs and benchmarks must measure
-        # the same supply behavior users get (FEP-0025 lesson).
-        hydrate_demand_tools(self._resolve_orchestrator(), user_message)
-
-        # Stage 8 parity — per-turn tool-supply telemetry, the same trace the
-        # chat transports emit, so benchmark runs are queryable like served
-        # sessions. Best-effort: telemetry never alters the supply decision.
-        trace = ToolSupplyTrace.begin(
-            ToolSelectionRuntime._registered_tools(self._resolve_orchestrator())
-        )
-
-        # Tool pruning is disabled by default (VICTOR_TOOL_SELECTION=1 opts
-        # in): expose every enabled registered tool as-is instead of
-        # semantic top-K narrowing. A narrow per-turn supply starves agentic
-        # loops - multi-agent members were reduced to read-only and could
-        # neither write nor run anything.
-        if not is_tool_selection_enabled(getattr(self._chat_context, "settings", None)):
-            # Shared cached builder - byte-stable definitions across turns,
-            # identical wire shape to the instance list this used to build
-            # (provider codecs read only name/description/parameters).
-            from victor.agent.tool_selection.stable_definitions import (
-                stable_all_definitions,
-            )
-
-            tools = stable_all_definitions(self._tool_context.tool_selector)
-            if tools:
-                _emit_tool_supply_trace(trace.mark_skipped("pruning_disabled_stable_definitions"))
-                return tools
-
-        conversation_depth = self._chat_context.conversation.message_count()
-        from victor.agent.tool_selection.history_projection import _selector_history_projection
-
-        conversation_history = _selector_history_projection(self._chat_context.messages)
-
-        tools = await self._tool_context.tool_selector.select_tools(
-            user_message,
-            use_semantic=self._tool_context.use_semantic_selection,
-            conversation_history=conversation_history,
-            conversation_depth=conversation_depth,
-        )
-
-        # When the caller curated the toolset (_enabled_tools is a real non-empty
-        # collection), the schema must reach the LLM UNCHANGED — no stage
-        # prioritization or intent filtering that drops curated tools (code/graph).
-        # select_tools() already short-circuits to the stable curated set (#368);
-        # skip the downstream gates too so the full 6-tool set survives.
-        _curated = getattr(self._tool_context.tool_selector, "_enabled_tools", None)
-        if isinstance(_curated, (set, frozenset, list)) and _curated:
-            trace.set_candidates(tools)
-            _emit_tool_supply_trace(trace.finalize(tools))
-            return tools
-
-        # Prioritize by stage
-        tools = self._tool_context.tool_selector.prioritize_by_stage(user_message, tools)
-
-        # Delegate intent filtering to the canonical planner when available.
-        planner = getattr(self._tool_context, "_tool_planner", None)
-        if tools and intent and planner and hasattr(planner, "filter_tools_by_intent"):
-            try:
-                from victor.agent.action_authorizer import ActionIntent
-
-                tools = planner.filter_tools_by_intent(
-                    tools,
-                    current_intent=ActionIntent(intent),
-                    user_message=user_message,
-                )
-            except (ValueError, ImportError, AttributeError):
-                pass
-        # Backward-compatible fallback for shim contexts that have not yet been wired
-        # through the canonical planner service.
-        elif tools and intent:
-            try:
-                from victor.agent.action_authorizer import (
-                    ActionIntent,
-                    is_tool_blocked_for_intent,
-                )
-
-                action_intent = ActionIntent(intent)
-                tools = [
-                    t
-                    for t in tools
-                    if not is_tool_blocked_for_intent(
-                        (t.get("name") if isinstance(t, dict) else getattr(t, "name", None)) or "",
-                        action_intent,
-                        user_message,
-                    )
-                ]
-            except (ValueError, ImportError, AttributeError):
-                pass
-
-        trace.set_candidates(tools)
-        _emit_tool_supply_trace(trace.finalize(tools))
-        return tools
 
     def _build_rubric_complete_fn(self) -> Optional[Any]:
         """The LLM rubric judge's ``complete_fn(prompt)->text`` (ADR-009, FEP-0030).

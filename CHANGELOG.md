@@ -8,9 +8,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 The v0.9.5 candidate includes the current develop scope and the consumer fixes below.
 Version metadata is prepared; final promotion, CI and publication are pending.
 
-### Added
+### Changed
+
+- Headless and benchmark turns now use the shared per-turn tool-selection
+  runtime (FEP-0034 Stage C), including capability/Q&A gates, intent projection,
+  and KV policy. Curated schemas remain stable, pruning remains opt-in, and
+  supply traces also cover curated early returns.
+- Benchmark traces identify the tool-supply cutover with
+  `completion_signals.tool_supply_pipeline=fep-0034-stage-c`.
+- Pin the development interpreter to Python 3.12 via `.python-version`.
+
 ### Added
 
+- Add 77 code-search tests covering filters, cache invalidation, index integrity
+  and recovery, literal retrieval, and semantic dispatch/fallback without model
+  downloads or a live vector database.
 - First test suite for `CodeSandbox` (code executor tool): 27 tests covering
   init/degraded mode, lifecycle (start/stop/idempotent), execute (stdout/stderr
   demux), file transfer (put_files/get_file with real in-memory tar), context

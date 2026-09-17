@@ -403,7 +403,7 @@ async def test_select_tools_for_turn_delegates_intent_filtering_to_tool_planner(
 
     executor._tool_context._tool_planner.filter_tools_by_intent.assert_called_once_with(
         [{"name": "shell"}, {"name": "write"}],
-        current_intent=ANY,
+        ANY,
         user_message="use shell tool with sqlite commands to inspect the database",
     )
     assert result == [{"name": "shell"}]

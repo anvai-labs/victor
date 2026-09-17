@@ -207,6 +207,7 @@ class ToolSelectionRuntime:
         """Select, prioritize, and filter tools for the current turn."""
         runtime = self._runtime
 
+        user_message_anchor = getattr(runtime, "_current_user_message", None) or context_msg
         # STABLE CURATED TOOLS: when the caller has curated the toolset
         # (_enabled_tools is set), bypass ALL per-turn selection and return
         # a stable, sorted, cached ToolDefinition list. This:
@@ -218,30 +219,21 @@ class ToolSelectionRuntime:
         #   3. Skips redundant selection work (Q&A gate, semantic, stage,
         #      ACT pipeline) that the caller already decided.
         selector = getattr(runtime, "tool_selector", None)
-        if selector and getattr(selector, "_enabled_tools", None):
-            stable = self._stable_curated_tools(runtime, selector)
-            if stable:
-                return stable
+        curated = getattr(selector, "_enabled_tools", None)
+        if isinstance(curated, (set, frozenset, list)) and curated:
+            # Explicit curation precedes hydration and pruning. Unavailable
+            # curated tools must never fall through to unrestricted supply.
+            stable = self._stable_curated_tools(runtime, selector) or []
+            trace = ToolSupplyTrace.begin(self._registered_tools(runtime))
+            trace.set_candidates(stable)
+            _emit_tool_supply_trace(trace.finalize(stable))
+            return stable
+
+        hydrate_demand_tools(runtime, user_message_anchor)
+        trace = ToolSupplyTrace.begin(self._registered_tools(runtime))
 
         provider_supports_tools = runtime.provider.supports_tools()
         tooling_allowed = provider_supports_tools and runtime._model_supports_tool_calls()
-        # Intent and mutation authorization are turn-scoped user-prompt state.
-        # Assistant progress narration may refine semantic context below, but it
-        # must not become the anchor for intent filtering or stage prioritization.
-        user_message_anchor = getattr(runtime, "_current_user_message", None) or context_msg
-
-        # Stage 1 — demand hydration (FEP-0034 pipeline). Before the gates:
-        # a mention in ANY turn must reach the registry before selection, and
-        # (in the frozen transport) before the session-tool lock computes.
-        # This hook existed only on ToolService.select_tools — a method
-        # nothing calls — so mention-wired tools never reached chat sessions
-        # (dormant-hook class: #536, #1057).
-        hydrate_demand_tools(runtime, user_message_anchor)
-
-        # Per-turn tool-supply telemetry (observe-only; never alters the value
-        # flowing through this method). Captures the registered set and every
-        # narrowing stage so over-restriction is queryable, not just log-grep-able.
-        trace = ToolSupplyTrace.begin(self._registered_tools(runtime))
 
         if not tooling_allowed:
             _emit_tool_supply_trace(trace.mark_skipped("provider_or_model_no_tools"))

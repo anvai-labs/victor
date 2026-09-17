@@ -65,11 +65,10 @@ freeze substituting for per-turn re-selection. Their existing implicit stages
 become the named, ordered pipeline — each stage is a pure decision over
 (turn context, registered-tool set) and emits its outcome to `ToolSupplyTrace`:
 
-1. **DemandHydrate** — register mention-wired tools from the user-message anchor via
-   `ToolRegistrar.ensure_tools_for_query` (landed with this FEP's Stage A). Cheap
-   no-op when nothing matches or all matches are already registered.
-2. **CuratedBypass** — explicit `_enabled_tools` curation returns the stable cached
-   list (KV-cache stability, unchanged).
+1. **CuratedBypass** — explicit `_enabled_tools` curation returns the stable cached
+   list before hydration or pruning; unavailable curated tools yield an empty list.
+2. **DemandHydrate** — register mention-wired tools from the user-message anchor via
+   `ToolRegistrar.ensure_tools_for_query` for non-curated turns.
 3. **CapabilityGate** — provider/model tool support.
 4. **QnAGate** — `tool_supply_policy` three-valued skip decision.
 5. **Planner** — `planned_tools` from goals.
@@ -81,16 +80,12 @@ Rule: **any behavior that changes which tools a session can see must be a pipeli
 stage, invoked in every transport before that transport's fork** — never a parallel
 hook on a service facade. Demand wiring stays in `SharedToolRegistry` (registry
 data), hydration stays a registrar method (registration), but the *invocation* is
-one shared helper called at each transport's entry (`hydrate_demand_tools`). Until
-Stage C unifies the transports, there are three invocation sites for one implementation
-(per-turn chat, frozen chat and agentic transport) —
-deliberately: one call site per transport, one implementation, never one call site
-per transport per behavior.
+one shared helper (`hydrate_demand_tools`) called from the unified per-turn entry
+and the frozen chat transport before its session freeze.
 
 ## Implementation Plan
 
-Progress below describes source integration and the v0.9.5 candidate, not a published release.
-The FEP remains Draft because full transport-entry unification is incomplete.
+Stages A–C are integrated in source; review and release promotion remain pending.
 
 - **Stage A (this FEP's companion PR) — DONE** — a single shared
   `hydrate_demand_tools(host, text)` helper (in `tool_selection_runtime.py`)
@@ -106,19 +101,23 @@ The FEP remains Draft because full transport-entry unification is incomplete.
   (zero production callers; one mock-level unit test in
   `tests/unit/agent/services/test_chat_service.py` moves with it). ToolService keeps
   parse/execute/enabled-tools duties.
-- **Stage C** — benchmark transport unification (#353 residue): benchmarks call the
-  same pipeline entry (or an explicitly shared stage core) so measured supply
-  behavior equals served behavior — the FEP-0025 lesson (measurement must share
-  serving's fallbacks) applied to tool supply. **Partial — done**: the agentic-loop
-  transport (`TurnExecutor._select_tools_for_turn`, used by headless runs and
-  benchmarks) now runs Stage 1 demand hydration via the shared `hydrate_demand_tools`
-  helper, and emits Stage 8 supply traces. Stable schema builders are shared. The release
-  candidate additionally gives explicit curated sets precedence over hydration and the
-  pruning-disabled full-registry shortcut; missing curated tools remain an empty supply,
-  with a finalized trace. **Remaining**: full entry unification; the agentic transport still
-  owns a separate stage sequence, so complete behavioral parity is not established by these
-  shared stages alone. Regression coverage includes `test_turn_supply_parity.py` and
-  `services/test_turn_execution_runtime.py`.
+- **Stage C — DONE** — `TurnExecutor._select_tools_for_turn` delegates to
+  `ToolSelectionRuntime.select_tools_for_turn` through `TurnToolSelectionAdapter`.
+  The adapter maps chat/tool/provider contexts, binds the original user message
+  and perception intent each turn, and shares optional session state with the
+  orchestrator. A per-executor lock serializes binding and selection so overlapping
+  turns cannot overwrite each other's intent while selection awaits. Standalone contexts retain their own persistent adapter state and
+  use the canonical planner and Q&A heuristic when no owner supplies them.
+  Benchmarks already enter through `VictorAgentAdapter` → `orchestrator.chat()` →
+  `TurnExecutor`; they now exercise this unified pipeline, with a regression test
+  guarding that chain and `completion_signals.tool_supply_pipeline` set to
+  `fep-0034-stage-c` to identify the measurement cutover.
+  Curated early returns emit finalized traces and preserve the v0.9.5 ordering
+  before hydration and pruning; unavailable curated tools remain an empty supply.
+  Curation retains its stable cached definitions; pruning remains opt-in. The
+  executor adopts the shared capability/Q&A gates, service configuration override,
+  and full ACT transforms (including write-intent recovery and KV policy), replacing
+  its previous separate stage sequence. No separate benchmark stage subset remains.
 - **Stage D (optional)** — promote stages to first-class objects with per-stage trace
   records if per-stage telemetry demand materializes; not done speculatively.
 
@@ -131,8 +130,7 @@ The FEP remains Draft because full transport-entry unification is incomplete.
 
 ## Drawbacks and Alternatives
 
-Drawbacks: three invocation sites remain for one helper until Stage C unifies the entry points;
-hydration adds a per-turn substring scan. Alternatives considered:
+Drawbacks: the frozen chat transport retains its pre-freeze hydration call alongside the unified per-turn entry; hydration adds a per-turn substring scan. Alternatives considered:
 
 - **Hydrate in `ToolSelector.select_tools` too** — rejected: two hydration sites
   recreates the divergence this FEP removes.
@@ -156,8 +154,9 @@ hydration adds a per-turn substring scan. Alternatives considered:
 - Should the frozen transport ever re-lock mid-session (e.g. when a demand tool
   hydrates after the first freeze), or is first-turn hydration sufficient? Current
   answer: first-turn only; revisit if sessions routinely introduce new domains late.
-- Does the benchmark harness need the QnAGate/CuratedBypass stages, or a reduced
-  stage set? Decide in Stage C with benchmark owners.
+- Stage C decision: benchmarks use the full shared entry, including QnAGate and
+  CuratedBypass. Curated tools still bypass capability/Q&A and ACT narrowing, as
+  on the existing shared chat path.
 
 ## Migration Path
 
@@ -179,6 +178,12 @@ hydration adds a per-turn substring scan. Alternatives considered:
 - A session whose first message mentions a demand-wired tool has that tool in its
   frozen schema (covered by live smoke + `test_demand_hydration_turn.py`).
 - `grep`-verifiable: exactly one hydration implementation; per transport, one call.
+- Executor/shared-runtime parity is covered for pruning on/off, curated schemas,
+  capability/Q&A gates, demand hydration, intent filtering, session state, and traces
+  (`tests/unit/agent/test_turn_supply_parity.py`).
+- Benchmark chat-to-runtime delegation is covered in
+  `tests/unit/agent/test_agent_adapter.py`; result history identifies the Stage C
+  cutover with `completion_signals.tool_supply_pipeline=fep-0034-stage-c`.
 - CI FEP validation passes (this document).
 
 ## References
