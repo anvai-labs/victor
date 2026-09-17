@@ -107,8 +107,8 @@ class ProviderSettings(BaseModel):
     sandhi_include_native_response: bool = False
 
     # Default provider and model
-    default_provider: str = "ollama"
-    default_model: str = "qwen3.5:27b-q4_K_M"  # MoE model: fast + knowledgeable
+    default_provider: str = "inferflux"
+    default_model: str = "qwen3-coder-30b"  # InferFlux production store default
 
     # Default generation parameters
     default_temperature: float = Field(
@@ -202,6 +202,7 @@ class ProviderSettings(BaseModel):
             "llamacpp",
             "llama-cpp",
             "llama.cpp",
+            "inferflux",
             "mlx",
             "mlx-lm",
             "applesilicon",

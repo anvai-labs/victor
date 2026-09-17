@@ -45,6 +45,8 @@ Usage:
 from __future__ import annotations
 
 import logging
+import os
+import threading
 import warnings
 from typing import TYPE_CHECKING, Any, Optional
 
@@ -614,24 +616,86 @@ class OrchestratorServiceProvider:
     # =========================================================================
 
     def _create_code_execution_manager(self) -> "CodeExecutionManagerProtocol":
-        """Create CodeSandbox instance via dynamic vertical loading."""
+        """Create CodeSandbox instance via dynamic vertical loading.
+
+        The vertical's constructor contacts the Docker daemon (``docker.from_env``
+        runs a version probe whose requests timeout defaults to 60s), so with
+        Docker Desktop closed or unresponsive every session bootstrap stalled
+        for a flat minute — the dominant ``victor chat`` startup cost
+        (diagnosed 2026-09-16 via faulthandler stacks: blocked in
+        ``docker/api/client.py:_retrieve_server_version``).
+
+        Bootstrap therefore bounds the load+start with a wall-clock budget
+        (``VICTOR_CODE_EXEC_START_TIMEOUT``, default 5s — a healthy local
+        socket answers in milliseconds) and degrades loudly, exactly like the
+        already-handled missing-docker-package case. The load thread is a
+        daemon: a probe that eventually returns has its manager discarded and
+        never delays process exit.
+        """
+        timeout = float(os.getenv("VICTOR_CODE_EXEC_START_TIMEOUT", "5.0"))
+
+        class _UnavailableExecutionManager:
+            """Degraded manager: the sandbox could not be brought up."""
+
+            def start(self):
+                pass
+
+            def stop(self):
+                pass
+
+            def __getattr__(self, name: str) -> Any:
+                raise RuntimeError(
+                    "Code execution sandbox is unavailable this session "
+                    "(Docker did not answer in time). Start Docker Desktop "
+                    "and restart victor, or raise the budget via "
+                    "VICTOR_CODE_EXEC_START_TIMEOUT."
+                )
+
         try:
             from victor.core.utils.capability_loader import load_code_executor_module
-
-            module = load_code_executor_module()
-            manager = module.CodeSandbox()
-            manager.start()
-            return manager
         except ImportError:
             # Provide a dummy implementation if victor-coding is not installed
-            class DummyExecutionManager:
-                def start(self):
-                    pass
+            return _UnavailableExecutionManager()
 
-                def stop(self):
-                    pass
+        result: dict[str, Any] = {}
 
-            return DummyExecutionManager()
+        def _load_and_start() -> None:
+            try:
+                module = load_code_executor_module()
+                manager = module.CodeSandbox()
+                manager.start()
+            except ImportError as exc:
+                # victor-coding absent: the long-standing silent-dummy case.
+                result["import_error"] = exc
+            except Exception as exc:  # noqa: BLE001 - degraded mode covers all
+                result["error"] = exc
+            else:
+                result["manager"] = manager
+
+        thread = threading.Thread(
+            target=_load_and_start, name="code-exec-manager-init", daemon=True
+        )
+        thread.start()
+        thread.join(timeout=timeout)
+
+        if "manager" in result:
+            return result["manager"]
+        if "import_error" in result:
+            # victor-coding not installed — long-standing silent-dummy case.
+            return _UnavailableExecutionManager()
+
+        reason = (
+            f"timed out after {timeout:.0f}s contacting Docker"
+            if thread.is_alive()
+            else f"failed: {result.get('error')}"
+        )
+        logger.warning(
+            "Code execution sandbox unavailable this session (%s); continuing "
+            "without it. Start Docker Desktop, or tune the budget via "
+            "VICTOR_CODE_EXEC_START_TIMEOUT.",
+            reason,
+        )
+        return _UnavailableExecutionManager()
 
     def _create_workflow_registry(self) -> "WorkflowRegistryProtocol":
         """Create WorkflowRegistry instance."""

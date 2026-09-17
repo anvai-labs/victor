@@ -14,6 +14,10 @@ from __future__ import annotations
 
 import hashlib
 import logging
+
+from victor.agent.services.tool_selection_runtime import (
+    hydrate_demand_tools,
+)
 import re
 from types import SimpleNamespace
 from dataclasses import dataclass
@@ -1060,6 +1064,13 @@ class StreamingChatExecutor:
                 available_inputs.append("file_contents")
             planned_tools = self.services.tool_planner.plan_tools(goals, available_inputs)
         stream_ctx.planned_tools = planned_tools
+
+        # Stage 1 — demand hydration (FEP-0034). Must precede BOTH the Q&A
+        # branch and the session-tool freeze below: turn 1 can be
+        # Q&A-classified while turn 2 carries the mention, and the frozen set
+        # is computed on the first get_session_tools() call — a tool that
+        # misses that first registration never reaches this session's schema.
+        hydrate_demand_tools(orch, getattr(stream_ctx, "context_msg", "") or "")
 
         if getattr(stream_ctx, "is_qa_task", False):
             tools = None

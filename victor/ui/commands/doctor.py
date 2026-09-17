@@ -234,6 +234,76 @@ class DoctorChecks:
                 message=f"Could not check Ollama status: {e}",
             )
 
+    def check_inferflux(self) -> None:
+        """Check the default InferFlux endpoint (healthz, 2s budget)."""
+        import httpx
+
+        from victor.providers.inferflux_provider import DEFAULT_BASE_URL
+
+        base_url = DEFAULT_BASE_URL
+        api_key = os.getenv("INFERFLUX_API_KEY")
+        try:
+            from victor.config.settings import load_settings
+
+            settings = load_settings()
+            pcfg = getattr(settings.provider, "providers", {}).get("inferflux")
+            if pcfg is not None and getattr(pcfg, "base_url", None):
+                base_url = pcfg.base_url
+            if not api_key:
+                api_key = (
+                    settings.provider.providers.get("inferflux").api_key_value
+                    if (settings.provider.providers.get("inferflux") is not None)
+                    else None
+                )
+        except Exception:  # noqa: BLE001 - doctor is best-effort
+            pass
+
+        health_url = base_url.removesuffix("/v1").removesuffix("/") + "/healthz"
+        headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+        is_default = False
+        try:
+            from victor.config.settings import load_settings
+
+            is_default = load_settings().provider.default_provider.lower() == "inferflux"
+        except Exception:  # noqa: BLE001
+            pass
+
+        try:
+            response = httpx.get(health_url, headers=headers, timeout=2.0)
+            if response.status_code == 200:
+                self.add_check(
+                    name="Local Provider: InferFlux",
+                    severity=Severity.SUCCESS,
+                    message=f"InferFlux reachable at {health_url}",
+                )
+            elif response.status_code in (401, 403):
+                self.add_check(
+                    name="Local Provider: InferFlux",
+                    severity=Severity.WARNING,
+                    message="InferFlux requires an API key (server rejected the request)",
+                    suggestion="Set INFERFLUX_API_KEY or add inferflux to ~/.victor/api_keys.yaml",
+                )
+            else:
+                self.add_check(
+                    name="Local Provider: InferFlux",
+                    severity=Severity.WARNING,
+                    message=f"InferFlux health returned HTTP {response.status_code}",
+                )
+        except Exception:
+            self.add_check(
+                name="Local Provider: InferFlux",
+                severity=Severity.WARNING if is_default else Severity.INFO,
+                message="InferFlux is not reachable",
+                suggestion=(
+                    (
+                        "Start the tunnel: ssh -N -L 8080:127.0.0.1:8080 vsingh@aiserver1 "
+                        "(or start your local inferfluxd)"
+                    )
+                    if is_default
+                    else "Only needed when using the inferflux provider"
+                ),
+            )
+
     def check_default_model(self) -> None:
         """Check if default model is available in Ollama."""
         try:
@@ -452,6 +522,7 @@ class DoctorChecks:
         self.check_dependencies()
         self.check_api_keys()
         self.check_local_providers()
+        self.check_inferflux()
         self.check_default_model()  # Phase 6: Check model existence
         self.check_config_directory()
         self.check_performance_settings()

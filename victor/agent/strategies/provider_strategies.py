@@ -26,6 +26,7 @@ from enum import Enum
 from typing import Set
 
 from victor.agent.protocols import IProviderClassificationStrategy
+from victor.providers.provider_kinds import LOCAL_CLASS_PROVIDERS
 
 
 class ProviderCategory(str, Enum):
@@ -54,12 +55,7 @@ class DefaultProviderClassificationStrategy(IProviderClassificationStrategy):
             "moonshot",
             "groq",
         }
-        self._local_providers: Set[str] = {
-            "ollama",
-            "lmstudio",
-            "vllm",
-            "inferflux",
-        }
+        self._local_providers: Set[str] = set(LOCAL_CLASS_PROVIDERS)
 
     def is_cloud_provider(self, provider_name: str) -> bool:
         """Check if provider is cloud-based.
