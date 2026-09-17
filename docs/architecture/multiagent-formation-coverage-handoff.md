@@ -58,12 +58,14 @@ outstanding; none of these rows claims a live pass.
 
 | Strategy | Public formation / preset | State |
 |---|---|---|
-| `AdaptiveFormation` | ADAPTIVE / `create_adaptive_team` | Integrated; invocation-local bounded switching, real member outcomes; [PR #1107](https://github.com/anvai-labs/victor/pull/1107) |
-| `DynamicRouterFormation` | DYNAMIC_ROUTER / `create_router_team` | Integrated; one-member dispatch retaining structured outcomes; [PR #1107](https://github.com/anvai-labs/victor/pull/1107) |
-| `MultiLevelHierarchyFormation` | MULTI_LEVEL_HIERARCHY / `create_multi_level_hierarchy_team` | Integrated; validated member-ID tree, lossless splitting, supervisor synthesis; [PR #1107](https://github.com/anvai-labs/victor/pull/1107) |
+| `AdaptiveFormation` | ADAPTIVE / `create_adaptive_team` | ✅ Integrated; invocation-local bounded switching, real member outcomes; [PR #1107](https://github.com/anvai-labs/victor/pull/1107) |
+| `DynamicRouterFormation` | DYNAMIC_ROUTER / `create_router_team` | ✅ Integrated; one-member dispatch retaining structured outcomes; [PR #1107](https://github.com/anvai-labs/victor/pull/1107) |
+| `MultiLevelHierarchyFormation` | MULTI_LEVEL_HIERARCHY / `create_multi_level_hierarchy_team` | ✅ Integrated; validated member-ID tree, lossless splitting, supervisor synthesis; [PR #1107](https://github.com/anvai-labs/victor/pull/1107) |
 
 Regression coverage: `tests/unit/coordination/formations/test_new_formations.py`
-and `tests/unit/teams/test_integrated_formations.py`. Durable partial resume is not
+and the mirrored `test_adaptive.py`, `test_dynamic_router.py`,
+`test_multi_level_hierarchy.py`, and `test___init__.py`, plus preset coverage in
+`tests/unit/teams/test_integrated_formations.py`. Durable partial resume is not
 supported for these three: no topology/routing/tree cursor is persisted. Approval
 remains inline (see G17).
 
@@ -293,7 +295,7 @@ G1–G13 come from the co-design sessions and code audit; G14–G16 from the §2
   DEBUG and keep the default formation — indistinguishable from a strategy that
   intentionally returns the default. Needs a warning-level event on the teams→stream
   bridge. Live e2e of dynamic selection also missing.
-- **G10 — orphan trio: INTEGRATE (WS-A, [PR #1107](https://github.com/anvai-labs/victor/pull/1107)).** All three have public enum,
+- **G10 — ✅ orphan trio: INTEGRATE (WS-A, [PR #1107](https://github.com/anvai-labs/victor/pull/1107)).** All three have public enum,
   registry, preset, docs, dispatch-test, and durability surfaces. Adaptive stale
   names and duplicate dispatch were removed. Regression tests cover real member
   execution/failure, concurrent adaptive calls, lossless task splitting, and invalid
