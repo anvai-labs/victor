@@ -105,7 +105,12 @@ per transport per behavior.
 - **Stage C** — benchmark transport unification (#353 residue): benchmarks call the
   same pipeline entry (or an explicitly shared stage core) so measured supply
   behavior equals served behavior — the FEP-0025 lesson (measurement must share
-  serving's fallbacks) applied to tool supply.
+  serving's fallbacks) applied to tool supply. **Partial — done**: the agentic-loop
+  transport (`TurnExecutor._select_tools_for_turn`, used by headless runs and
+  benchmarks) now runs Stage 1 demand hydration via the shared `hydrate_demand_tools`
+  helper, so mention-wired tools measure and serve identically. **Remaining**: Stage 8
+  trace emission on that transport and full entry unification (it still owns its own
+  pruning-gate-first stage order).
 - **Stage D (optional)** — promote stages to first-class objects with per-stage trace
   records if per-stage telemetry demand materializes; not done speculatively.
 

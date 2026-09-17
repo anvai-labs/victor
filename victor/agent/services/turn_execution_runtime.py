@@ -1620,6 +1620,14 @@ class TurnExecutor:
         Returns:
             List of tool definitions or None
         """
+        # Stage 1 — demand hydration (FEP-0034 pipeline): register
+        # mention-wired tools (graph, gh) before any supply decision, exactly
+        # like the chat transports — headless runs and benchmarks must measure
+        # the same supply behavior users get (FEP-0025 lesson).
+        from victor.agent.services.tool_selection_runtime import hydrate_demand_tools
+
+        hydrate_demand_tools(self._resolve_orchestrator(), user_message)
+
         # Tool pruning is disabled by default (VICTOR_TOOL_SELECTION=1 opts
         # in): expose every enabled registered tool as-is instead of
         # semantic top-K narrowing. A narrow per-turn supply starves agentic

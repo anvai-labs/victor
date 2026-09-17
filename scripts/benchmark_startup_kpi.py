@@ -630,8 +630,8 @@ def main() -> int:
     )
     parser.add_argument(
         "--provider",
-        default="ollama",
-        help="Provider used for Agent.create() baseline (default: ollama).",
+        default="inferflux",
+        help="Provider used for Agent.create() baseline (default: inferflux).",
     )
     parser.add_argument(
         "--model",
