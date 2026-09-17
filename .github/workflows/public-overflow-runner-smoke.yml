@@ -1,13 +1,8 @@
 name: Public-overflow runner smoke
 
 # SECURITY: this workflow's trigger set is deliberately restricted to events
-<<<<<<< HEAD
 # that a fork pull request cannot cause (push to the reviewed main branch,
 # workflow_dispatch, schedule). Never add `pull_request` or
-=======
-# that a fork pull request cannot cause (push to the maintainer-controlled
-# release branch or workflow_dispatch). Never add `pull_request` or
->>>>>>> origin/develop
 # `pull_request_target` here -- that would let a fork's PR execute code on
 # this self-hosted runner. `main` retains its maintainer-controlled promotion
 # gate; `develop` deliberately does not trigger this workflow. See proximaDB's
@@ -15,12 +10,9 @@ name: Public-overflow runner smoke
 # anvai-labs public-overflow pool).
 on:
   push:
-<<<<<<< HEAD
     # The public-overflow runner group allowlists this exact workflow only at
     # refs/heads/main. Do not add develop or feature refs: those jobs cannot be
     # scheduled by the group and would remain queued indefinitely.
-=======
->>>>>>> origin/develop
     branches: [main]
     paths:
       - '.github/workflows/public-overflow-runner-smoke.yml'
@@ -59,7 +51,6 @@ jobs:
           # provisioning script must fail this, not pass silently.
           RUNNER_CGROUP=$(awk -F: '$1 == "0" { print $3 }' /proc/self/cgroup)
           test -n "$RUNNER_CGROUP"
-<<<<<<< HEAD
           # A private cgroup namespace presents the container's own cgroup as
           # `/`; that is expected and its limits live at the cgroupfs root.
           # A host namespace exposes a non-root relative path instead.
@@ -70,15 +61,6 @@ jobs:
           fi
           CPU_MAX="$(cat "${CGROUP_BASE}/cpu.max")"
           MEM_MAX="$(cat "${CGROUP_BASE}/memory.max")"
-=======
-          if [ "$RUNNER_CGROUP" = "/" ]; then
-            CGROUP_DIR="/sys/fs/cgroup"
-          else
-            CGROUP_DIR="/sys/fs/cgroup${RUNNER_CGROUP}"
-          fi
-          CPU_MAX="$(cat "${CGROUP_DIR}/cpu.max")"
-          MEM_MAX="$(cat "${CGROUP_DIR}/memory.max")"
->>>>>>> origin/develop
           echo "cpu.max: $CPU_MAX"
           echo "memory.max: $MEM_MAX"
           test "$CPU_MAX" = "200000 100000"
