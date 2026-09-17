@@ -267,7 +267,7 @@ G1–G13 come from the co-design sessions and code audit; G14–G16 from the §2
 - **G3 — ✅ partial failure surfaced (WS-B, [PR #1108](https://github.com/anvai-labs/victor/pull/1108)).** Parallel synthesis includes
   failed-member summaries; opt-in per-member retries retain attempt costs, stop at
   approval pauses, and complete before durable member checkpointing.
-- **G4 — ✅ opt-in PARALLEL worktrees (WS-D).** `parallel_worktree_isolation`
+- **G4 — ✅ opt-in PARALLEL worktrees (WS-D, [PR #1111](https://github.com/anvai-labs/victor/pull/1111)).** `parallel_worktree_isolation`
   materializes one worktree per member, forwards the assigned directory through
   public spawn, and binds supported file/shell tools without process-wide `chdir`.
   Missing worktrees or tool adapters fail explicitly. Worktrees are preserved for
@@ -278,7 +278,7 @@ G1–G13 come from the co-design sessions and code audit; G14–G16 from the §2
   about provider capacity: `max_workers` exists but nothing derives it from the
   provider (InferFlux `max_parallel_sequences`), and no backpressure event reaches the
   coordinator (observability gap — members just run slower).
-- **G6 — ✅ nested and live session isolation verified (WS-D).** Nested member
+- **G6 — ✅ nested and live session isolation verified (WS-D, [PR #1111](https://github.com/anvai-labs/victor/pull/1111)).** Nested member
   execution inherits the immediate parent's session and restores its caller.
   Coordinator dispatch forwards configured member identities; observed live
   `x-inferflux-session-id` headers match all three configured member IDs and the
