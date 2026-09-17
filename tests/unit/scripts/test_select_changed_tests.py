@@ -68,6 +68,12 @@ def test_non_python_and_unmapped_yield_nothing():
     assert select(["README.md", ".github/workflows/ci-fast.yml", "Makefile"]) == []
 
 
+def test_attribution_guard_selects_its_policy_regressions():
+    assert "tests/unit/scripts/test_check_no_agent_attribution.py" in select(
+        ["scripts/ci/check_no_agent_attribution.py"]
+    )
+
+
 def test_source_without_mirror_test_fails_closed():
     with pytest.raises(_mod.SelectionError, match="no mirrored unit test"):
         select(["victor/this_module_has_no_test_zzz.py"])

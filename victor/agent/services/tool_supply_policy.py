@@ -12,20 +12,25 @@ from __future__ import annotations
 from typing import Any, Optional
 
 
-def pruning_disabled_for(config: Any) -> bool:
+def pruning_disabled_for(config: Any, settings: Any = None) -> bool:
     """True when per-turn pruning is explicitly disabled (the default).
 
     Defensive against ``__new__``-constructed services (tests) that skip
     ``__init__``: a missing config means legacy behavior (semantic selection
     active).
     """
-    enabled = getattr(config, "tool_selection_enabled", True)
-    return not enabled
+    from victor.config.tool_selection_access import is_tool_selection_enabled
+
+    return not is_tool_selection_enabled(
+        settings, config_override=getattr(config, "tool_selection_enabled", True)
+    )
 
 
 def pruning_disabled(service: Any) -> bool:
     """Instance-bound form of ``pruning_disabled_for`` (reads service config)."""
-    return pruning_disabled_for(getattr(service, "_config", None))
+    return pruning_disabled_for(
+        getattr(service, "_config", None), getattr(service, "_settings", None)
+    )
 
 
 def fallback_max_full_tools(service: Any) -> int:

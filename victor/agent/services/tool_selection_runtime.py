@@ -218,10 +218,14 @@ class ToolSelectionRuntime:
         #   3. Skips redundant selection work (Q&A gate, semantic, stage,
         #      ACT pipeline) that the caller already decided.
         selector = getattr(runtime, "tool_selector", None)
-        if selector and getattr(selector, "_enabled_tools", None):
-            stable = self._stable_curated_tools(runtime, selector)
-            if stable:
-                return stable
+        curated = getattr(selector, "_enabled_tools", None)
+        if isinstance(curated, (set, frozenset, list)) and curated:
+            # An unavailable curated name must not widen supply to the registry.
+            stable = self._stable_curated_tools(runtime, selector) or []
+            trace = ToolSupplyTrace.begin(self._registered_tools(runtime))
+            trace.set_candidates(stable)
+            _emit_tool_supply_trace(trace.finalize(stable))
+            return stable
 
         provider_supports_tools = runtime.provider.supports_tools()
         tooling_allowed = provider_supports_tools and runtime._model_supports_tool_calls()

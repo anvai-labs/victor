@@ -20,6 +20,41 @@ class _Message:
         return {"role": self.role, "content": self.content}
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("pruning_enabled", [False, True])
+@pytest.mark.parametrize("curated,expected", [({"read"}, ["read"]), ({"missing"}, [])])
+async def test_chat_curated_supply_fails_closed_and_emits_trace(
+    monkeypatch, pruning_enabled, curated, expected
+):
+    monkeypatch.delenv("VICTOR_TOOL_SELECTION", raising=False)
+    definitions = {
+        name: SimpleNamespace(name=name, description=name, parameters={"type": "object"})
+        for name in ("read", "shell")
+    }
+    registry = SimpleNamespace(
+        get=definitions.get, list_tools=lambda **_kwargs: list(definitions.values())
+    )
+    host = SimpleNamespace(
+        tool_selector=SimpleNamespace(_enabled_tools=curated, tools=registry),
+        tools=registry,
+        settings=SimpleNamespace(tools=SimpleNamespace(tool_selection_enabled=pruning_enabled)),
+    )
+    emitted = []
+    hydrate = MagicMock()
+    monkeypatch.setattr(
+        "victor.agent.services.tool_selection_runtime._emit_tool_supply_trace", emitted.append
+    )
+    monkeypatch.setattr(
+        "victor.agent.services.tool_selection_runtime.hydrate_demand_tools", hydrate
+    )
+    result = await ToolSelectionRuntime(host).select_tools_for_turn("use shell and gh", goals=None)
+    assert [tool.name for tool in result] == expected
+    hydrate.assert_not_called()
+    assert len(emitted) == 1
+    assert list(emitted[0].candidates) == expected
+    assert list(emitted[0].dispatched) == expected
+
+
 def test_tool_strategy_runtime_defaults_to_context_aware() -> None:
     runtime = ToolStrategyRuntime(SimpleNamespace(settings=None))
     assert runtime.resolve_kv_strategy_setting() == "context_aware"

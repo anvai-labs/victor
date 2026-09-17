@@ -131,6 +131,7 @@ class _CoordinatorExecutionState:
     formation: TeamFormation
     supervisor: Optional["ITeamMember"]
     shared_context: Dict[str, Any]
+    team_goal: str = ""
     message_history: List[AgentMessage] = field(default_factory=list)
 
 
@@ -348,10 +349,6 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
                 - final_output: Synthesized final output
                 - formation: Formation used
         """
-        # The member-goal composition (see _make_executor) needs the run's
-        # team goal to distinguish "task = team goal" from "task = dynamic
-        # delegation" (hierarchical hand-offs).
-        self._team_goal = (task or "").strip()
         return await self._execute_with(
             task=task,
             context=context,
@@ -2987,6 +2984,7 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
             formation=formation,
             supervisor=supervisor,
             shared_context=copy.deepcopy(dict(effective_context)),
+            team_goal=(task or "").strip(),
         )
         token = self._execution_state.set(execution_state)
         try:
@@ -2995,6 +2993,7 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
                 effective_context,
                 default_formation=formation,
             )
+            execution_state.formation = effective_formation
 
             self._emit_team_event(
                 "started",
@@ -3141,10 +3140,9 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
                 # dynamic delegation, which outranks the static spec.goal.
                 member_goal = (getattr(team_member, "goal", "") or "").strip()
                 team_task = (task or "").strip()
-                is_dynamic_delegation = getattr(
-                    self, "_active_formation", None
-                ) == TeamFormation.HIERARCHICAL or team_task != (
-                    getattr(self, "_team_goal", "") or ""
+                execution_state = self._current_execution_state()
+                is_dynamic_delegation = self._active_formation() == TeamFormation.HIERARCHICAL or (
+                    team_task != (execution_state.team_goal if execution_state else "")
                 )
                 if member_goal and member_goal != team_task and not is_dynamic_delegation:
                     effective_task = (
@@ -3221,10 +3219,6 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
             A ``TeamResult`` matching the formation in the config.
         """
         if members is None:
-            # Capture the goal before adaptation: the member-goal composition
-            # in _make_executor distinguishes the run's team goal from dynamic
-            # hierarchical delegations.
-            self._team_goal = (getattr(config, "goal", "") or "").strip()
             members = self._adapt_team_members(list(config.members))
 
         result = await self._execute_with(

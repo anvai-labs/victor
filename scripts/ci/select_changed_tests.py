@@ -62,6 +62,9 @@ DEPRECATION_NOTICE_FILES = (
     "victor/agent/sqlite_session_persistence.py",
 )
 RELATED_TESTS = {
+    "scripts/ci/check_no_agent_attribution.py": (
+        "tests/unit/scripts/test_check_no_agent_attribution.py",
+    ),
     "victor/integrations/mcp/client.py": MCP_LIFECYCLE_TESTS,
     "victor/integrations/mcp/stdio_transport.py": MCP_LIFECYCLE_TESTS,
     "scripts/ci/select_changed_tests.py": ("tests/unit/scripts/test_select_changed_tests.py",),

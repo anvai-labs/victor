@@ -42,6 +42,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Honor tool-selection opt-in settings in both pruning gates, preserve curated
+  chat tools when missing, and isolate team goals across concurrent executions.
+- Permit only the official Dependabot co-author identity in the attribution gate;
+  forged identities and third-party AI-agent trailers remain blocked.
 - Preserve Sandhi's reasoning-inclusion convention and per-call folding through
   provider responses, streaming metrics and session pricing while retaining raw
   completion counts, totals and timing provenance.
