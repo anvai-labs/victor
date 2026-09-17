@@ -129,22 +129,22 @@ _DEPRECATED_EXPORTS = {
     "ChatContextProtocol": (
         "victor.agent.coordinators.ChatContextProtocol is deprecated compatibility "
         "surface. Prefer ChatServiceProtocol and service-owned runtime boundaries "
-        "from victor.agent.services. Will be removed in v0.10.0."
+        "from victor.agent.services. Will be removed in v0.11.0."
     ),
     "ChatOrchestratorProtocol": (
         "victor.agent.coordinators.ChatOrchestratorProtocol is deprecated "
         "compatibility surface. Prefer ChatServiceProtocol and service-owned "
-        "runtime boundaries from victor.agent.services. Will be removed in v0.10.0."
+        "runtime boundaries from victor.agent.services. Will be removed in v0.11.0."
     ),
     "ProviderContextProtocol": (
         "victor.agent.coordinators.ProviderContextProtocol is deprecated "
         "compatibility surface. Prefer ProviderServiceProtocol and service-owned "
-        "runtime boundaries from victor.agent.services. Will be removed in v0.10.0."
+        "runtime boundaries from victor.agent.services. Will be removed in v0.11.0."
     ),
     "ToolContextProtocol": (
         "victor.agent.coordinators.ToolContextProtocol is deprecated compatibility "
         "surface. Prefer ToolServiceProtocol and service-owned runtime boundaries "
-        "from victor.agent.services. Will be removed in v0.10.0."
+        "from victor.agent.services. Will be removed in v0.11.0."
     ),
 }
 
@@ -180,23 +180,23 @@ def _get_deprecation_warning(name: str) -> str | None:
             "victor.agent.coordinators.SafetyCoordinator is deprecated SDK "
             "compatibility surface. Prefer victor_contracts.safety.SafetyCoordinator "
             "for extensions or SafetyStatePassedCoordinator for agent runtime "
-            "policy seams. Will be removed in v0.10.0."
+            "policy seams. Will be removed in v0.11.0."
         )
     if name in _SDK_SAFETY_EXPORTS:
         return (
             f"victor.agent.coordinators.{name} is deprecated SDK compatibility "
-            f"surface. Prefer victor_contracts.safety.{name} directly. Will be removed in v0.10.0."
+            f"surface. Prefer victor_contracts.safety.{name} directly. Will be removed in v0.11.0."
         )
     if name == "ConversationCoordinator":
         return (
             "victor.agent.coordinators.ConversationCoordinator is deprecated SDK "
             "compatibility surface. Prefer victor_contracts.conversation."
-            "ConversationCoordinator directly. Will be removed in v0.10.0."
+            "ConversationCoordinator directly. Will be removed in v0.11.0."
         )
     if name in _SDK_CONVERSATION_EXPORTS:
         return (
             f"victor.agent.coordinators.{name} is deprecated SDK compatibility "
-            f"surface. Prefer victor_contracts.conversation.{name} directly. Will be removed in v0.10.0."
+            f"surface. Prefer victor_contracts.conversation.{name} directly. Will be removed in v0.11.0."
         )
 
     return None

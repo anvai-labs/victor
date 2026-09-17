@@ -97,7 +97,7 @@ def _warn_legacy_verticals_group_once() -> None:
 
     warnings.warn(
         "Entry-point group 'victor.verticals' is deprecated; declare plugins "
-        "under 'victor.plugins' instead. Will be removed in v0.10.0.",
+        "under 'victor.plugins' instead. Will be removed in v0.11.0.",
         DeprecationWarning,
         stacklevel=3,
     )

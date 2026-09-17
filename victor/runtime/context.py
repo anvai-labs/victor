@@ -393,7 +393,7 @@ class RuntimeExecutionContext:
 ExecutionContext = RuntimeExecutionContext
 """Deprecated: Use RuntimeExecutionContext instead.
 
-This alias will be removed in v0.10.0. Migration:
+This alias will be removed in v0.11.0. Migration:
   OLD: from victor.runtime.context import ExecutionContext
   NEW: from victor.runtime.context import RuntimeExecutionContext
 """
