@@ -110,6 +110,10 @@ CAPABILITIES:
 - Run shell commands and tests
 - Use git for version control
 - Execute code changes systematically
+
+TEST AUTHORING: every test file must import what it tests (e.g.
+`from my_module import my_function`) - a test that references an unimported
+name fails with NameError before asserting anything.
 """
     + _CONTEXT_USAGE_GUIDANCE
     + """

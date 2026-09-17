@@ -967,77 +967,66 @@ class SubAgent(IAgent):  # type: ignore[misc]
 
         start_time = time.time()
 
-        # Member-scoped session binding - same contract as execute(): a
-        # streaming member must not inherit the parent's upstream
-        # session-KV handle (InferFlux x-inferflux-session-id) while other
-        # members are mid-stream, or their contexts cross-contaminate
-        # server-side.
-        from victor.core.context import (
-            set_session_id,
-            session_id as _ctx_session_id,
-        )
-
-        member_session_id = self.config.resolve_member_session_id()
-        stream = None
         try:
-            # Bind only while advancing member work. An async generator executes in
-            # its consumer's context, so a token must never span an outward yield.
-            session_token = set_session_id(member_session_id)
-            try:
-                if self.orchestrator is None:
-                    self.orchestrator = self._create_constrained_orchestrator()
-                stream = self.orchestrator.stream_chat(self.config.task).__aiter__()
-            finally:
-                _ctx_session_id.reset(session_token)
+            # Create constrained orchestrator lazily
+            if self.orchestrator is None:
+                self.orchestrator = self._create_constrained_orchestrator()
 
             logger.info(
                 f"Stream executing {self.config.role.value} sub-agent: "
                 f"{self.config.task[:50]}..."
             )
 
-            # Stream the task using orchestrator.stream_chat()
-            while True:
-                session_token = set_session_id(member_session_id)
-                try:
-                    chunk = await anext(stream)
-                except StopAsyncIteration:
-                    break
-                finally:
-                    _ctx_session_id.reset(session_token)
-                yield chunk
+            # Member-scoped session binding - same contract as execute():
+            # concurrent streaming members must not share the parent's
+            # upstream session-KV handle (InferFlux x-inferflux-session-id).
+            from victor.core.context import (
+                set_session_id,
+                session_id as _ctx_session_id,
+            )
 
-                # If this was the final chunk from the orchestrator, we'll add metadata
-                if chunk.is_final:
-                    # Extract metrics
-                    tool_calls_used = getattr(self.orchestrator, "tool_calls_used", 0)
-                    context_size = len(str(self.orchestrator.get_messages()))
-                    duration = time.time() - start_time
+            session_token = set_session_id(
+                self.config.resolve_member_session_id()
+            )
+            try:
+                # Stream the task using orchestrator.stream_chat()
+                async for chunk in self.orchestrator.stream_chat(self.config.task):
+                    yield chunk
 
-                    # Enhance the final chunk with execution metadata
-                    enhanced_metadata = chunk.metadata.copy() if chunk.metadata else {}
-                    enhanced_metadata.update(
-                        {
-                            "tool_calls_used": tool_calls_used,
-                            "context_size": context_size,
-                            "duration_seconds": duration,
-                            "role": self.config.role.value,
-                            "success": True,
-                        }
-                    )
+                    # If this was the final chunk from the orchestrator, we'll add metadata
+                    if chunk.is_final:
+                        # Extract metrics
+                        tool_calls_used = getattr(self.orchestrator, "tool_calls_used", 0)
+                        context_size = len(str(self.orchestrator.get_messages()))
+                        duration = time.time() - start_time
 
-                    # Yield a final chunk with metadata (if not already included)
-                    yield StreamChunk(
-                        content="",
-                        is_final=True,
-                        metadata=enhanced_metadata,
-                    )
+                        # Enhance the final chunk with execution metadata
+                        enhanced_metadata = chunk.metadata.copy() if chunk.metadata else {}
+                        enhanced_metadata.update(
+                            {
+                                "tool_calls_used": tool_calls_used,
+                                "context_size": context_size,
+                                "duration_seconds": duration,
+                                "role": self.config.role.value,
+                                "success": True,
+                            }
+                        )
 
-                    logger.info(
-                        f"{self.config.role.value} sub-agent stream completed: "
-                        f"{tool_calls_used}/{self.config.tool_budget} tool calls, "
-                        f"{duration:.1f}s"
-                    )
-                    return
+                        # Yield a final chunk with metadata (if not already included)
+                        yield StreamChunk(
+                            content="",
+                            is_final=True,
+                            metadata=enhanced_metadata,
+                        )
+
+                        logger.info(
+                            f"{self.config.role.value} sub-agent stream completed: "
+                            f"{tool_calls_used}/{self.config.tool_budget} tool calls, "
+                            f"{duration:.1f}s"
+                        )
+                        return
+            finally:
+                _ctx_session_id.reset(session_token)
 
         except Exception as e:
             # Create error chunk
@@ -1071,15 +1060,6 @@ class SubAgent(IAgent):  # type: ignore[misc]
                     "success": False,
                 },
             )
-
-        finally:
-            close = getattr(stream, "aclose", None)
-            if close is not None:
-                session_token = set_session_id(member_session_id)
-                try:
-                    await close()
-                finally:
-                    _ctx_session_id.reset(session_token)
 
 
 __all__ = [
