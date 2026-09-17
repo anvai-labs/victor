@@ -64,6 +64,9 @@ DEPRECATION_NOTICE_FILES = (
 RELATED_TESTS = {
     "victor/integrations/mcp/client.py": MCP_LIFECYCLE_TESTS,
     "victor/integrations/mcp/stdio_transport.py": MCP_LIFECYCLE_TESTS,
+    "scripts/ci/check_no_agent_attribution.py": (
+        "tests/unit/scripts/test_check_no_agent_attribution.py",
+    ),
     "scripts/ci/select_changed_tests.py": ("tests/unit/scripts/test_select_changed_tests.py",),
     **dict.fromkeys(DEPRECATION_NOTICE_FILES, DEPRECATION_NOTICE_TESTS),
 }

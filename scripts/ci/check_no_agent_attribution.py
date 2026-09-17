@@ -2,8 +2,8 @@
 """Block third-party AI-agent authorship attribution in commit messages and PR text.
 
 Policy: commit titles/bodies and PR title/body must not carry *third-party* agent
-authorship attribution — co-author trailers naming another vendor's agent or a
-bot account, `Generated-by:`/`Assisted-by:` trailers, "Generated with ..."
+authorship attribution — co-author trailers naming another vendor's agent or an
+untrusted bot account, `Generated-by:`/`Assisted-by:` trailers, "Generated with ..."
 taglines, the robot emoji, agent-email trailers, or agent signature strings (e.g.
 "Claude Opus 4.8", "Claude Code", "Gemini Pro").
 
@@ -13,6 +13,9 @@ co-author trailer pass (see ALLOWED_PATTERNS). This mirrors the Sandhi policy
 (sandhi/scripts/check_no_agent_attribution.py) and the policy documented in
 Victor's CLAUDE.md, which a pre-commit hook alone never enforced — this script
 makes it real locally (``--message-file``) and in CI (``--range``).
+
+Dependabot's exact GitHub co-author identity is also permitted: dependency-update
+automation is not AI authorship. This is not a general exception for bot accounts.
 
 This targets *attribution*, not mere mention: legitimate references such as the
 `CLAUDE.md`/`GEMINI.md`/`AGENTS.md` rule files or integrating the Anthropic/OpenAI
@@ -48,14 +51,19 @@ _AGENTS = (
     r"|cursor|devin|aider|cline|windsurf|junie|jules|sourcegraph)\b"
 )
 
-# Our own agent is the exception. Victor (anvai-labs' agent) is first-party
-# tooling we credit deliberately, so `Generated-by: victor-code-ai` and a
-# `victor-code-ai` co-author trailer are ALLOWED; the rules below still block
-# third-party agent attribution. Any violation whose matched text names the
-# first-party identity is dropped in `scan`.
+# Victor is the first-party agent exception. Dependabot is trusted dependency
+# automation rather than an AI author; GitHub adds its standard co-author
+# trailer to squash merges from Dependabot PRs. Keep that allowance exact so
+# arbitrary bot accounts remain blocked. Any violation whose matched text
+# matches one of these identities is dropped in `scan`.
 ALLOWED_PATTERNS = [
     (re.compile(r"\bvictor(?:[-_.]code)?(?:[-_.]ai)?\b", re.I), "first-party agent (victor)"),
 ]
+_DEPENDABOT_TRAILER = re.compile(
+    r"^[ \t]*co-authored-by:[ \t]+dependabot\[bot\][ \t]+"
+    r"<49699333\+dependabot\[bot\]@users\.noreply\.github\.com>[ \t]*$",
+    re.I | re.M,
+)
 # Names that mark a machine author regardless of vendor: an `-ai`/`ai-` segment,
 # or a `-bot`/`[bot]` marker. Deliberately NOT keyed on `users.noreply.github.com`
 # — that is the normal privacy address for human co-authors.
@@ -124,6 +132,9 @@ def scan(text: str, source: str) -> list[str]:
     agent attribution out.
     """
     violations: list[str] = []
+    # Remove only a complete, exact non-AI automation trailer. A matching name
+    # elsewhere, a different address, or appended agent attribution is still scanned.
+    text = _DEPENDABOT_TRAILER.sub("", text)
     for rx, label in FORBIDDEN_PATTERNS:
         for m in rx.finditer(text):
             line = m.group(0).strip().replace("\n", " ")
@@ -185,8 +196,9 @@ def main() -> int:
             print(f"  - {v}", file=sys.stderr)
         print(
             "\n(Mentions of CLAUDE.md/GEMINI.md or the Anthropic/OpenAI APIs are fine; "
-            "this blocks authorship attribution only. victor-code-ai is the allowed "
-            "first-party exception. See scripts/ci/check_no_agent_attribution.py.)",
+            "this blocks authorship attribution only. victor-code-ai and the exact "
+            "Dependabot service trailer are allowed exceptions. See "
+            "scripts/ci/check_no_agent_attribution.py.)",
             file=sys.stderr,
         )
         return 1

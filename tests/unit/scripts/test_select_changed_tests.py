@@ -108,3 +108,9 @@ def test_deprecation_notice_sources_map_to_release_contract() -> None:
 
     for source in _mod.DEPRECATION_NOTICE_FILES:
         assert expected in select([source])
+
+
+def test_attribution_guard_maps_to_its_policy_tests() -> None:
+    assert select(["scripts/ci/check_no_agent_attribution.py"]) == [
+        "tests/unit/scripts/test_check_no_agent_attribution.py"
+    ]

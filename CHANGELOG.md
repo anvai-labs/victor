@@ -42,6 +42,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Allow GitHub's exact Dependabot co-author trailer in the no-agent-attribution
+  guard so main-promotion scans accept reviewed dependency-maintenance commits.
 - Preserve Sandhi's reasoning-inclusion convention and per-call folding through
   provider responses, streaming metrics and session pricing while retaining raw
   completion counts, totals and timing provenance.
