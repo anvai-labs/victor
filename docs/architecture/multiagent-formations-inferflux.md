@@ -4,8 +4,8 @@
 
 ## Overview
 
-Victor's team framework supports six formation patterns for multi-agent
-coordination. This document describes each formation with verified examples
+Victor's team framework supports nine formation patterns for multi-agent
+coordination. The original six have live-verified examples
 using InferFlux (self-hosted, Qwen3-Coder-30B on AMD Radeon AI PRO R9700).
 
 ## Prerequisites
@@ -160,6 +160,75 @@ team = await Agent.create_team(
     provider="inferflux", model="qwen3-coder-30b",
 )
 ```
+
+## Additional formations (unit validated)
+
+These opt-in strategies are wired through the same coordinator registry. They have
+coordinator-dispatch coverage; **no live InferFlux result is claimed for them yet**.
+The six original formations retain their existing defaults.
+
+### DYNAMIC_ROUTER
+
+Selects **one member**, preserving its structured outcome, tools used, and member ID.
+The default programmatic category selector matches domain roles (`executor`,
+`researcher`, `reviewer`); it does not parse model prose. An unmatched task selects the
+first member and emits a warning. Explicit routes map keywords to unique member names:
+
+```python
+team = await AgentTeam.create_router_team(
+    orchestrator=agent.get_orchestrator(), name="route", goal="Review the patch",
+    members=[
+        TeamMemberSpec(role="executor", name="builder", goal="Implement changes"),
+        TeamMemberSpec(role="reviewer", name="reviewer", goal="Review once"),
+    ],
+    routes={"review": "reviewer", "implement": "builder"},
+)
+result = await team.run()
+```
+
+The preset resolves names to the already-created member IDs once, storing
+`shared_context["router_routes"]`. Unknown names/IDs are configuration errors.
+
+### MULTI_LEVEL_HIERARCHY
+
+`AgentTeam.create_multi_level_hierarchy_team(..., members=members, max_depth=3,
+split_strategy="line")` builds a binary tree in member order. The first member is
+the root **supervisor**; internal members synthesize their children's outcomes;
+leaves execute disjoint task portions. Every member returns its own `MemberResult`.
+A failed descendant remains a failure even if a supervisor produces a synthesis.
+Final output includes the member findings and root synthesis.
+
+Use explicit line-separated assignments for meaningful boundaries. `line`, `count`,
+and `auto` splitting preserve all input, including remainder text; auto partitions
+lines when present, otherwise characters. Empty portions are explicit assignments.
+For direct coordinator use, `shared_state["hierarchy"]` accepts a structured tree:
+`{"member_id": "root-id", "children": [{"member_id": "child-id"}]}`. Every
+configured member must appear exactly once. Unknown IDs, duplicate nodes, missing
+members, and trees exceeding `hierarchy_max_depth` fail before execution.
+`hierarchy_split_strategy` controls splitting per run.
+
+### ADAPTIVE
+
+`AgentTeam.create_adaptive_team(..., members=members, max_switches=3,
+adaptation_strategy="error_rate")` executes the sequential → hierarchical → consensus
+cycle, switching within the run when the current attempt fails. Use **idempotent**
+member tasks: adaptation may repeat work. Strategy defaults also support elapsed-time
+performance scoring; structured feedback requires every member to provide a numeric
+`metadata.quality_score` in `[0, 1]`, otherwise execution fails explicitly.
+
+Direct coordinator callers may set `shared_state["adaptive_options"]` with
+`formation_cycle`, `max_switches`, `adaptation_strategy`, `performance_threshold`, and
+`max_duration_seconds`. `initial_formation_hint` must name a formation in that cycle.
+Recursive adaptive and context-role reflection cycles are rejected. All state is local
+to the invocation; the same registry resolves both direct and adaptive dispatch.
+Switches emit warnings and results contain `current_formation`, `formation_history`,
+`formation_switches`, and `performance_score` metadata.
+
+**Durability contract (all three):** `supports_durable_pause()` returns `False`.
+Member approvals remain inline; no routing choice, recursive tree cursor, or adaptive
+iteration cursor is persisted for partial resume. Do not treat these formations as
+member-granular resumable runs. This limitation does not change the existing six
+formations' durability support.
 
 ## Infrastructure Notes
 

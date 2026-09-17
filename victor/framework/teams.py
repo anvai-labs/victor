@@ -588,6 +588,119 @@ class AgentTeam:
         )
 
     @classmethod
+    async def create_adaptive_team(
+        cls,
+        orchestrator: "AgentOrchestrator",
+        name: str,
+        goal: str,
+        members: List[TeamMemberSpec],
+        *,
+        max_switches: int = 3,
+        adaptation_strategy: str = "error_rate",
+        **kwargs: Any,
+    ) -> "AgentTeam":
+        """Retry idempotent work through a bounded cycle of registered formations.
+
+        Sequential → hierarchical → consensus; each attempt retains member
+        outcomes. Durable mid-loop pause/resume is unsupported.
+        """
+        from victor.coordination.formations.adaptive import AdaptiveFormation
+
+        AdaptiveFormation(max_switches=max_switches, adaptation_strategy=adaptation_strategy)
+        shared_context = dict(kwargs.pop("shared_context", None) or {})
+        shared_context["adaptive_options"] = {
+            "max_switches": max_switches,
+            "adaptation_strategy": adaptation_strategy,
+        }
+        return await cls.create(
+            orchestrator,
+            name,
+            goal,
+            members,
+            formation=TeamFormation.ADAPTIVE,
+            shared_context=shared_context,
+            **kwargs,
+        )
+
+    @classmethod
+    async def create_router_team(
+        cls,
+        orchestrator: "AgentOrchestrator",
+        name: str,
+        goal: str,
+        members: List[TeamMemberSpec],
+        *,
+        routes: Optional[Dict[str, str]] = None,
+        **kwargs: Any,
+    ) -> "AgentTeam":
+        """Route to one member by keyword → unique member name, or domain role.
+
+        An unmatched task uses the first member with a warning. Selection is not
+        checkpointed; approval stays inline.
+        """
+        shared_context = dict(kwargs.pop("shared_context", None) or {})
+        team = await cls.create(
+            orchestrator,
+            name,
+            goal,
+            members,
+            formation=TeamFormation.DYNAMIC_ROUTER,
+            shared_context=shared_context,
+            **kwargs,
+        )
+        if routes is not None:
+            by_name = {member.name: member.id for member in team._config.members}
+            if len(by_name) != len(members) or any(
+                not keyword or member_name not in by_name for keyword, member_name in routes.items()
+            ):
+                raise ValueError(
+                    "Router routes require nonempty keywords and unique existing member names"
+                )
+            team._config.shared_context["router_routes"] = {
+                keyword: by_name[member_name] for keyword, member_name in routes.items()
+            }
+        return team
+
+    @classmethod
+    async def create_multi_level_hierarchy_team(
+        cls,
+        orchestrator: "AgentOrchestrator",
+        name: str,
+        goal: str,
+        members: List[TeamMemberSpec],
+        *,
+        max_depth: int = 3,
+        split_strategy: str = "auto",
+        **kwargs: Any,
+    ) -> "AgentTeam":
+        """Build a binary supervisor/member tree in member order.
+
+        The first member is the root supervisor; internal members synthesize
+        child outcomes. Explicit member-ID trees may be passed via shared_context
+        after member creation. No durable recursive-cursor pause is supported.
+        """
+        from victor.coordination.formations.multi_level_hierarchy import (
+            MultiLevelHierarchyFormation,
+        )
+
+        MultiLevelHierarchyFormation(max_depth=max_depth, split_strategy=split_strategy)
+        if len(members).bit_length() > max_depth:
+            raise ValueError("Member tree exceeds max_depth")
+        shared_context = dict(kwargs.pop("shared_context", None) or {})
+        shared_context.update(
+            hierarchy_max_depth=max_depth, hierarchy_split_strategy=split_strategy
+        )
+        return await cls.create(
+            orchestrator,
+            name,
+            goal,
+            members,
+            formation=TeamFormation.MULTI_LEVEL_HIERARCHY,
+            shared_context=shared_context,
+            **kwargs,
+        )
+
+    @classmethod
     async def create_review_team(
         cls,
         orchestrator: "AgentOrchestrator",
