@@ -1023,8 +1023,6 @@ class SubAgent(IAgent):  # type: ignore[misc]
                             f"{duration:.1f}s"
                         )
                         return
-            finally:
-                _ctx_session_id.reset(session_token)
 
         except Exception as e:
             # Create error chunk
