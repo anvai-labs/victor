@@ -26,8 +26,8 @@ Features:
 """
 
 import asyncio
-import json
 import logging
+import os
 import subprocess
 import time
 import uuid
@@ -35,6 +35,7 @@ from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
 
 from victor.config.timeouts import McpTimeouts
 from victor.core.async_utils import run_sync
+from victor.integrations.mcp.stdio_transport import StdioTransport
 
 if TYPE_CHECKING:
     from victor.integrations.mcp.sandbox import SandboxConfig, SandboxedProcess
@@ -180,6 +181,11 @@ class MCPClient:
 
         self.process: Optional[subprocess.Popen] = None
         self.initialized = False
+        self._request_lock = asyncio.Lock()
+        self._transport: Optional[StdioTransport] = None
+        self._retired_transports: set[StdioTransport] = set()
+        self._connecting = False
+        self._connection_generation = 0
 
         # Health monitoring configuration
         self._health_check_interval = health_check_interval
@@ -204,123 +210,144 @@ class MCPClient:
         self._on_disconnect_callbacks: List[Callable[[Optional[str]], None]] = []
         self._on_health_change_callbacks: List[Callable[[bool], None]] = []
 
+    async def _start_process(self, command: List[str]):
+        """Start with the configured policy; publish no partially started owner."""
+        if self._sandbox_config is not None:
+            from victor.integrations.mcp.sandbox import SandboxedProcess
+
+            owner = SandboxedProcess(self._sandbox_config)
+            try:
+                return await owner.start(command), owner
+            except BaseException:
+                # Retain owner cleanup even if startup is cancelled again.
+                await asyncio.shield(self._retire_transport(StdioTransport(None, owner)))
+                raise
+        return (
+            subprocess.Popen(
+                command,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                bufsize=1,
+                start_new_session=os.name == "posix",
+            ),
+            None,
+        )
+
+    def _cleanup_pending(self) -> bool:
+        self._retired_transports = {
+            transport for transport in self._retired_transports if not transport.settled()
+        }
+        return bool(self._retired_transports)
+
+    def _capture_transport(self) -> Optional[StdioTransport]:
+        if self.process is None and self._sandboxed_process is None:
+            return None
+        if self._transport is None or self._transport.process is not self.process:
+            process_group = (
+                self._sandboxed_process.process_group_for(self.process)
+                if self.process is not None and self._sandboxed_process is not None
+                else None
+            )
+            self._transport = StdioTransport(
+                self.process,
+                self._sandboxed_process,
+                process_group=process_group,
+            )
+        return self._transport
+
+    def _detach_transport(self, transport: StdioTransport) -> None:
+        # No await between ownership comparison and detachment.
+        if self.process is transport.process:
+            self.process = None
+            self.initialized = False
+            if self._sandboxed_process is transport.owner:
+                self._sandboxed_process = None
+        if self._transport is transport:
+            self._transport = None
+        transport.retire()
+
+    def _retire_transport(self, transport: StdioTransport) -> asyncio.Task:
+        self._detach_transport(transport)
+        if transport.cleanup_task is None:
+            self._retired_transports.add(transport)
+            transport.cleanup_task = asyncio.create_task(transport.cleanup())
+        return transport.cleanup_task
+
     async def connect(self, command: List[str]) -> bool:
-        """Connect to MCP server via stdio.
+        """Connect once; a still-draining transport must settle before replacement."""
+        return await self._establish_connection(command, start_health=True)
 
-        Args:
-            command: Command to start MCP server (e.g., ["python", "server.py"])
-
-        Returns:
-            True if connection successful
-        """
-        self._command = command  # Store for reconnection
-
+    async def _establish_connection(self, command: List[str], *, start_health: bool) -> bool:
+        if self._connecting or self.process is not None or self._cleanup_pending():
+            logger.warning(
+                "MCP connection unavailable: connected, connecting, or previous transport cleanup pending"
+            )
+            return False
+        self._connecting = True
+        generation = self._connection_generation
+        self._command = command
+        transport = None
         try:
-            # Start server process (with optional sandboxing)
-            if self._sandbox_config is not None:
-                # Use sandboxed process for resource limits and isolation
-                try:
-                    from victor.integrations.mcp.sandbox import SandboxedProcess
-
-                    self._sandboxed_process = SandboxedProcess(self._sandbox_config)
-                    self.process = await self._sandboxed_process.start(command)
-                    logger.info(
-                        f"Started sandboxed MCP server with limits: "
-                        f"memory={self._sandbox_config.max_memory_mb}MB, "
-                        f"timeout={self._sandbox_config.timeout_seconds}s"
-                    )
-                except Exception as e:
-                    logger.warning(f"Sandboxed process failed, falling back to regular: {e}")
-                    self.process = subprocess.Popen(
-                        command,
-                        stdin=subprocess.PIPE,
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE,
-                        text=True,
-                        bufsize=1,
-                    )
-            else:
-                # Standard subprocess without sandboxing
-                self.process = subprocess.Popen(
-                    command,
-                    stdin=subprocess.PIPE,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True,
-                    bufsize=1,
-                )
-
-            # Initialize connection
+            process, owner = await self._start_process(command)
+            transport = StdioTransport(
+                process,
+                owner,
+                process_group=(owner.process_group_for(process) if owner is not None else None),
+            )
+            if generation != self._connection_generation:
+                await asyncio.shield(self._retire_transport(transport))
+                return False
+            self.process, self._sandboxed_process, self._transport = process, owner, transport
             success = await self.initialize()
-
-            if success:
+            if success and self.process is process and not transport.retired.is_set():
                 self._consecutive_failures = 0
                 self._last_health_check = time.time()
                 self._running = True
-
-                # Emit connect event
                 for callback in self._on_connect_callbacks:
                     try:
                         callback()
-                    except Exception as e:
-                        logger.error(f"Connect callback error: {e}")
-
-                # Start health monitoring if enabled
-                if self._health_check_interval > 0:
+                    except Exception as exc:
+                        logger.error("Connect callback error: %s", exc)
+                if start_health and self._health_check_interval > 0:
                     self._health_task = asyncio.create_task(self._health_monitor_loop())
-
                 return True
-
-            # Cleanup on initialization failure
-            self._cleanup_process()
+            await asyncio.shield(self._retire_transport(transport))
             return False
-
-        except Exception as e:
-            logger.error(f"Error connecting to MCP server: {e}")
+        except asyncio.CancelledError:
+            if transport is not None:
+                self._retire_transport(transport)
+            raise
+        except Exception as exc:
+            logger.error("Error connecting to MCP server: %s", exc)
             self._consecutive_failures += 1
-            # Cleanup on exception
-            self._cleanup_process()
+            if transport is not None:
+                await asyncio.shield(self._retire_transport(transport))
             return False
+        finally:
+            self._connecting = False
 
     async def _cleanup_process_async(self) -> None:
-        """Clean up subprocess and its resources asynchronously."""
-        # Clean up sandboxed process if used
-        if self._sandboxed_process is not None:
-            try:
-                await self._sandboxed_process.terminate()
-            except Exception as e:
-                logger.debug(f"Error terminating sandboxed process: {e}")
-            self._sandboxed_process = None
-
-        self._cleanup_process_sync()
+        self._connection_generation += 1
+        transport = self._capture_transport()
+        if transport is not None:
+            await asyncio.shield(self._retire_transport(transport))
 
     def _cleanup_process_sync(self) -> None:
-        """Synchronously clean up subprocess resources (for use in sync contexts)."""
-        if self.process:
-            try:
-                if self.process.stdin:
-                    self.process.stdin.close()
-                if self.process.stdout:
-                    self.process.stdout.close()
-                if self.process.stderr:
-                    self.process.stderr.close()
-            except Exception as e:
-                logger.debug(f"Error closing process pipes during cleanup: {e}")
-
-            try:
-                self.process.terminate()
-                self.process.wait(timeout=McpTimeouts.TERMINATE)
-            except subprocess.TimeoutExpired:
-                try:
-                    self.process.kill()
-                    self.process.wait()
-                except Exception as e:
-                    logger.debug(f"Error killing process during cleanup: {e}")
-            except Exception as e:
-                logger.debug(f"Error terminating process during cleanup: {e}")
-
-            self.process = None
-            self.initialized = False
+        """Detach immediately; defer any pipe closure while a worker owns it."""
+        self._connection_generation += 1
+        transport = self._capture_transport()
+        if transport is None:
+            return
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            self._detach_transport(transport)
+            self._retired_transports.add(transport)
+            transport.wait_and_close()
+        else:
+            self._retire_transport(transport)
 
     def _cleanup_sandboxed_process_sync(self) -> None:
         """Clean up sandboxed process from sync code paths."""
@@ -329,13 +356,15 @@ class MCPClient:
 
         sandboxed_process = self._sandboxed_process
         self._sandboxed_process = None
+        if self._transport is not None and self._transport.owner is sandboxed_process:
+            self._transport.owner = None
 
         try:
             asyncio.get_running_loop()
-            asyncio.create_task(sandboxed_process.terminate())
+            asyncio.create_task(sandboxed_process.terminate_all())
         except RuntimeError:
             try:
-                run_sync(sandboxed_process.terminate())
+                run_sync(sandboxed_process.terminate_all())
             except Exception as e:
                 logger.debug(f"Error terminating sandboxed process: {e}")
 
@@ -477,7 +506,9 @@ class MCPClient:
             )
 
         return MCPToolCallResult(
-            tool_name=tool_name, success=False, error="No response from server"
+            tool_name=tool_name,
+            success=False,
+            error="No response from server; execution may have completed. Reconcile its operation ID before retrying.",
         )
 
     async def read_resource(self, uri: str) -> Optional[str]:
@@ -502,60 +533,39 @@ class MCPClient:
     async def _send_request(
         self, method: MCPMessageType, params: Dict[str, Any]
     ) -> Optional[Dict[str, Any]]:
-        """Send request to MCP server.
+        """Serialize stdio ownership and return only the matching JSON-RPC response.
 
-        Args:
-            method: Request method
-            params: Request parameters
-
-        Returns:
-            Response dictionary or None
+        A deadline or cancellation detaches the captured connection before
+        releasing the lock. An unsettled daemon I/O worker is quarantined, so
+        neither reconnect nor another request can accumulate stranded readers.
+        Tool calls are never replayed here: their external outcome may be unknown.
         """
-        if not self.process or not self.process.stdin or not self.process.stdout:
-            return None
-
-        msg_id = str(uuid.uuid4())
-        message = MCPMessage(id=msg_id, method=method, params=params)
-
-        try:
-            # Send request - use asyncio to avoid blocking
+        async with self._request_lock:
+            process = self.process
+            if not process or not process.stdin or not process.stdout:
+                return None
+            msg_id = str(uuid.uuid4())
+            message = MCPMessage(id=msg_id, method=method, params=params)
             request_json = message.model_dump_json(exclude_none=True)
-            (request_json + "\n").encode()
-
-            # Write asynchronously using run_in_executor to avoid blocking
-            loop = asyncio.get_running_loop()
-            await loop.run_in_executor(
-                None,
-                lambda: (
-                    self.process.stdin.write(request_json + "\n"),
-                    self.process.stdin.flush(),
-                ),
-            )
-
-            # Read response with timeout to avoid indefinite blocking
+            transport = self._capture_transport()
+            if transport is None or self._cleanup_pending():
+                return None
             try:
-                response_line = await asyncio.wait_for(
-                    loop.run_in_executor(None, self.process.stdout.readline),
-                    timeout=McpTimeouts.RESPONSE,
+                response = await asyncio.wait_for(
+                    transport.exchange(request_json, msg_id), timeout=McpTimeouts.RESPONSE
                 )
-            except asyncio.TimeoutError:
-                logger.warning(f"MCP request timeout for method: {method}")
+                # Concurrent cleanup must not expose a result from revoked ownership.
+                return (
+                    response if self.process is process and not transport.retired.is_set() else None
+                )
+            except asyncio.CancelledError:
+                self._retire_transport(transport)
+                raise
+            except Exception:
+                # Shield the captured cleanup, never a mutable replacement process.
+                await asyncio.shield(self._retire_transport(transport))
+                logger.warning("MCP exchange failed; transport retired; outcome may be unknown")
                 return None
-
-            if not response_line:
-                return None
-
-            response = json.loads(response_line)
-
-            # Verify response ID matches
-            if response.get("id") != msg_id:
-                logger.warning(f"Response ID mismatch: {response.get('id')} != {msg_id}")
-
-            return response
-
-        except Exception as e:
-            logger.error(f"Error sending MCP request: {e}")
-            return None
 
     async def ping(self) -> bool:
         """Ping the MCP server.
@@ -592,41 +602,18 @@ class MCPClient:
             self._health_task.cancel()
             self._health_task = None
 
-        self._cleanup_sandboxed_process_sync()
-
-        if self.process:
-            # Close file handles to prevent resource leaks
-            try:
-                if self.process.stdin:
-                    self.process.stdin.close()
-                if self.process.stdout:
-                    self.process.stdout.close()
-                if self.process.stderr:
-                    self.process.stderr.close()
-            except Exception as e:
-                logger.debug(f"Error closing process pipes: {e}")
-
-            try:
-                self.process.terminate()
-                self.process.wait(timeout=McpTimeouts.TERMINATE)
-            except subprocess.TimeoutExpired:
-                try:
-                    self.process.kill()
-                    self.process.wait()
-                except Exception as e:
-                    logger.debug(f"Error killing process: {e}")
-            except Exception as e:
-                logger.debug(f"Error terminating process: {e}")
-
-            self.process = None
-            self.initialized = False
-
-            # Emit disconnect event
+        connected = self.process is not None
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            self._cleanup_sandboxed_process_sync()
+        self._cleanup_process_sync()
+        if connected:
             for callback in self._on_disconnect_callbacks:
                 try:
                     callback(reason)
-                except Exception as e:
-                    logger.error(f"Disconnect callback error: {e}")
+                except Exception as exc:
+                    logger.error("Disconnect callback error: %s", exc)
 
     async def cleanup(self, reason: Optional[str] = None) -> None:
         """Clean up all resources properly (async).
@@ -675,60 +662,29 @@ class MCPClient:
             reason: Optional reason for cleanup
         """
         self._running = False
-
-        # Cancel and await health monitoring task
-        if self._health_task:
-            self._health_task.cancel()
+        self._connection_generation += 1
+        transport = self._capture_transport()
+        cleanup = self._retire_transport(transport) if transport is not None else None
+        # Detachment precedes awaiting the health task, which may be reconnecting.
+        health_task = self._health_task
+        self._health_task = None
+        if health_task is not None and health_task is not asyncio.current_task():
+            health_task.cancel()
             try:
-                await self._health_task
+                await health_task
             except asyncio.CancelledError:
                 pass
-            self._health_task = None
-
-        # Clean up sandboxed process if used
-        if self._sandboxed_process is not None:
-            try:
-                await self._sandboxed_process.terminate()
-            except Exception as e:
-                logger.debug(f"Error terminating sandboxed process: {e}")
-            self._sandboxed_process = None
-
-        if self.process:
-            # Close file handles to prevent resource leaks
-            try:
-                if self.process.stdin:
-                    self.process.stdin.close()
-                if self.process.stdout:
-                    self.process.stdout.close()
-                if self.process.stderr:
-                    self.process.stderr.close()
-            except Exception as e:
-                logger.debug(f"Error closing process pipes: {e}")
-
-            try:
-                self.process.terminate()
-                # Use asyncio to wait non-blocking
-                loop = asyncio.get_running_loop()
-                try:
-                    await asyncio.wait_for(
-                        loop.run_in_executor(None, self.process.wait),
-                        timeout=McpTimeouts.TERMINATE,
-                    )
-                except asyncio.TimeoutError:
-                    self.process.kill()
-                    await loop.run_in_executor(None, self.process.wait)
-            except Exception as e:
-                logger.debug(f"Error terminating process: {e}")
-
-            self.process = None
-            self.initialized = False
-
-            # Emit disconnect event
+        tasks = [
+            item.cleanup_task for item in self._retired_transports if item.cleanup_task is not None
+        ]
+        if tasks:
+            await asyncio.shield(asyncio.gather(*tasks))
+        if cleanup is not None:
             for callback in self._on_disconnect_callbacks:
                 try:
                     callback(reason)
-                except Exception as e:
-                    logger.error(f"Disconnect callback error: {e}")
+                except Exception as exc:
+                    logger.error("Disconnect callback error: %s", exc)
 
     async def _health_monitor_loop(self) -> None:
         """Background health monitoring loop."""
@@ -777,66 +733,12 @@ class MCPClient:
             f"(attempt {self._consecutive_failures + 1}/{self._max_reconnect_attempts})"
         )
 
-        # Clean up current connection properly (close pipes first)
-        if self.process:
-            try:
-                if self.process.stdin:
-                    self.process.stdin.close()
-                if self.process.stdout:
-                    self.process.stdout.close()
-                if self.process.stderr:
-                    self.process.stderr.close()
-            except Exception as e:
-                logger.debug(f"Error closing process pipes during reconnect: {e}")
-
-            try:
-                self.process.terminate()
-                self.process.wait(timeout=McpTimeouts.KILL)
-            except subprocess.TimeoutExpired:
-                try:
-                    self.process.kill()
-                    self.process.wait()
-                except Exception as e:
-                    logger.debug(f"Error killing process during reconnect: {e}")
-            except Exception as e:
-                logger.debug(f"Error terminating process during reconnect: {e}")
-
-            self.process = None
-            self.initialized = False
+        await self._cleanup_process_async()
+        self.initialized = False
 
         await asyncio.sleep(self._reconnect_delay)
 
-        # Reconnect
-        try:
-            self.process = subprocess.Popen(
-                self._command,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                bufsize=1,
-            )
-
-            success = await self.initialize()
-            if success:
-                self._consecutive_failures = 0
-                logger.info("Reconnection successful")
-
-                # Emit connect event
-                for callback in self._on_connect_callbacks:
-                    try:
-                        callback()
-                    except Exception as e:
-                        logger.error(f"Connect callback error: {e}")
-
-                return True
-
-            return False
-
-        except Exception as e:
-            logger.error(f"Reconnection failed: {e}")
-            self._consecutive_failures += 1
-            return False
+        return await self._establish_connection(self._command, start_health=False)
 
     def reset_connection(self) -> None:
         """Reset connection state to allow fresh reconnection attempts."""
@@ -898,6 +800,7 @@ class MCPClient:
         """
         return {
             "connected": self.initialized,
+            "transport_cleanup_pending": self._cleanup_pending(),
             "server": self.server_info.model_dump() if self.server_info else None,
             "tools_count": len(self.tools),
             "resources_count": len(self.resources),

@@ -32,6 +32,7 @@ export class Disposable {
 const _configStore = new Map<string, unknown>();
 
 export const workspace = {
+    applyEdit: async (_edit: unknown): Promise<boolean> => true,
     getConfiguration: (_section?: string) => ({
         get: <T>(key: string, defaultValue?: T): T | undefined =>
             (_configStore.has(key) ? (_configStore.get(key) as T) : defaultValue),
@@ -46,7 +47,29 @@ export const workspace = {
     __clearConfig: () => _configStore.clear(),
 };
 
+export class TreeItem {
+    constructor(public label: string, public collapsibleState?: number) {}
+}
+export enum TreeItemCollapsibleState { None, Collapsed, Expanded }
+export class WorkspaceEdit {
+    createFile(_uri: unknown, _options?: unknown): void {}
+    replace(_uri: unknown, _range: unknown, _text: string): void {}
+}
+export class Range {
+    constructor(..._args: unknown[]) {}
+}
+
+export class ThemeIcon {
+    constructor(public readonly id: string) {}
+}
+
 export const window = {
+    createTerminal: (_options: unknown) => ({
+        sendText: (_text: string, _newline?: boolean) => {},
+        show: (_preserveFocus?: boolean) => {},
+        dispose: () => {},
+    }),
+    onDidCloseTerminal: (_listener: (terminal: unknown) => void) => ({ dispose: () => {} }),
     createOutputChannel: (name: string) => ({
         name,
         appendLine: (_value: string) => {},

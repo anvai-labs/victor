@@ -312,7 +312,9 @@ class SharedEncoder:
         # Pad to TASK_DIM
         while len(category_scores) < self.TASK_DIM:
             # Add hash-based features for unknown task types
-            hash_val = int(hashlib.md5(task_type.encode()).hexdigest()[:8], 16)
+            hash_val = int(
+                hashlib.md5(task_type.encode(), usedforsecurity=False).hexdigest()[:8], 16
+            )
             feature = (hash_val % 1000) / 1000.0
             category_scores.append(feature)
             hash_val //= 1000
@@ -334,7 +336,7 @@ class SharedEncoder:
             return self.PROVIDER_CHARACTERISTICS[provider_lower]
 
         # Unknown provider - use hash-based embedding
-        hash_val = int(hashlib.md5(provider.encode()).hexdigest()[:8], 16)
+        hash_val = int(hashlib.md5(provider.encode(), usedforsecurity=False).hexdigest()[:8], 16)
         return [0.5 + 0.3 * ((hash_val >> (i * 8)) % 256) / 255.0 for i in range(self.PROVIDER_DIM)]
 
     def _encode_model(self, model: str, provider: str) -> List[float]:

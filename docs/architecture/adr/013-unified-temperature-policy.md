@@ -6,7 +6,7 @@
 - **Date**: 2026-06-22
 - **Decision Makers**: Vijaykumar Singh
 - **Related ADRs**: 009 (rubric completion) — shares the reproducibility concern
-- **Related**: [FEP-0007](../../../feps/fep-0007-unified-agentic-loop.md) (spin/restatement), arXiv 2606.01451, 2603.21301, 2606.13982
+- **Related**: [FEP-0007](https://github.com/anvai-labs/victor/blob/develop/feps/fep-0007-unified-agentic-loop.md) (spin/restatement), arXiv 2606.01451, 2603.21301, 2606.13982
 
 ## Context
 

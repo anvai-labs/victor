@@ -99,24 +99,8 @@ victor chat --vertical my_vertical
 
 ## Vertical Architecture
 
-```mermaid
-flowchart TB
-    VB["VerticalBase (Abstract)"] --> COD["Coding"]
-    VB --> RES["Research"]
-    VB --> DEV["DevOps"]
-    VB --> DAT["Data Analysis"]
-    VB --> RAG["RAG"]
-    VB --> CUSTOM["Your Vertical"]
-
-    VB -->|Required| TOOLS["get_tools()"]
-    VB -->|Required| PROMPT["get_system_prompt()"]
-    VB -->|Optional| STAGES["get_stages()"]
-    VB -->|Optional| WORKFLOWS["get_workflow_provider()"]
-    VB -->|Optional| EXT["get_extensions()"]
-
-    style VB fill:#e0e7ff,stroke:#4f46e5
-    style CUSTOM fill:#d1fae5,stroke:#10b981
-```
+The [vertical-contract diagram](../reference/verticals/index.md#overview) shows the
+shared contract surface and example domains. The methods below describe authoring requirements.
 
 ## Extension Points
 
@@ -147,13 +131,17 @@ class SimpleVertical(VerticalBase):
 ### Multi-Stage Vertical
 
 ```mermaid
+---
+title: Example security-vertical stages
+---
+%%{init: {"theme":"base","themeVariables":{"primaryColor":"#E8EFF7","primaryTextColor":"#17324D","primaryBorderColor":"#456987","lineColor":"#456987","fontFamily":"Arial"}}}%%
 stateDiagram-v2
     [*] --> INITIAL
-    INITIAL --> RECONNAISSANCE
-    RECONNAISSANCE --> ANALYSIS
-    ANALYSIS --> REMEDIATION
-    REMEDIATION --> VERIFICATION
-    VERIFICATION --> REPORTING
+    INITIAL --> RECONNAISSANCE: next configured stage
+    RECONNAISSANCE --> ANALYSIS: next configured stage
+    ANALYSIS --> REMEDIATION: next configured stage
+    REMEDIATION --> VERIFICATION: next configured stage
+    VERIFICATION --> REPORTING: next configured stage
     REPORTING --> [*]
 ```
 

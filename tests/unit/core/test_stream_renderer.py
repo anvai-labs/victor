@@ -677,22 +677,45 @@ class TestLiveDisplayRenderer:
         lines = renderer._calculate_adaptive_preview_lines(output, None, 3, tool_settings)
         assert lines == 5  # Within bounds
 
+    @pytest.mark.parametrize("enable_grouping", [False, True])
+    @pytest.mark.parametrize("live_logging", [False, True])
     @patch("victor.ui.rendering.live_renderer.Live")
-    def test_on_tool_result_skips_group_header_when_disabled(
-        self, mock_live_class, renderer, mock_console
+    def test_on_tool_result_has_no_category_headers(
+        self,
+        mock_live_class,
+        renderer,
+        mock_console,
+        monkeypatch,
+        caplog,
+        enable_grouping,
+        live_logging,
     ):
-        """Group header is not shown when grouping is disabled."""
-        from unittest.mock import MagicMock
+        """The deprecated grouping flag does not add headers, even with live logs."""
+        import logging
+
+        from rich.rule import Rule
+        from rich.text import Text
+
+        from victor.config.tool_settings import ToolSettings
+        from victor.ui.rendering.live_renderer import logger
+        from victor.ui.rendering.log_handler import LiveAwareLogHandler
 
         mock_live_class.return_value = MagicMock()
-        renderer.start()
+        # Reproduce the full-shard logging setup without depending on test order.
+        # Restore both logger state and the console registry after this test.
+        monkeypatch.setattr("victor.runtime.live_console._live_console", None)
+        monkeypatch.setattr(logger, "handlers", [LiveAwareLogHandler()] if live_logging else [])
+        monkeypatch.setattr(logger, "propagate", False)
 
-        # Mock tool settings to disable grouping
-        with patch("victor.config.tool_settings.get_tool_settings") as mock_settings:
-            tool_settings = MagicMock()
-            tool_settings.enable_tool_grouping = False
-            tool_settings.tool_output_preview_enabled = False
-            mock_settings.return_value = tool_settings
+        tool_settings = ToolSettings(
+            enable_tool_grouping=enable_grouping,
+            tool_output_preview_enabled=False,
+        )
+        with (
+            caplog.at_level(logging.DEBUG, logger=logger.name),
+            patch("victor.config.tool_settings.get_tool_settings", return_value=tool_settings),
+        ):
+            renderer.start()
 
             # First tool
             renderer.on_tool_result(
@@ -711,10 +734,27 @@ class TestLiveDisplayRenderer:
                 arguments={"query": "test"},
                 result="results",
             )
+            renderer.cleanup()
 
-        # Should only have status prints (no group headers)
-        # Count should be less than when grouping is enabled
-        assert mock_console.print.call_count < 4
+        # LiveAwareLogHandler legitimately prints pause/resume diagnostics on
+        # this console. Inspect display content rather than all console writes.
+        printed = [
+            arg for printed_call in mock_console.print.call_args_list for arg in printed_call.args
+        ]
+        diagnostics = [
+            item
+            for item in printed
+            if isinstance(item, Text) and item.plain.startswith("LiveDisplayRenderer: ")
+        ]
+        assert len(diagnostics) == (4 if live_logging else 0)
+        content = [item for item in printed if item not in diagnostics]
+        assert len(content) == 3  # One section separator and two result lines.
+        assert isinstance(content[0], Rule)
+        assert content[0].title == "[dim]Tool Execution[/]"
+        for line, tool_name in zip(content[1:], ("read", "codeSearch")):
+            assert isinstance(line, str)
+            assert "✓" in line
+            assert f"[bold cyan]{tool_name}[/]" in line
 
 
 class TestAccessibilityFeatures:

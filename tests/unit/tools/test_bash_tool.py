@@ -79,13 +79,15 @@ async def test_shell_with_working_dir():
 
 @pytest.mark.asyncio
 async def test_shell_timeout():
-    """Test bash command timeout."""
-    with patch("asyncio.create_subprocess_shell") as mock_subprocess:
-        mock_process = AsyncMock()
-        mock_process.communicate = AsyncMock(side_effect=asyncio.TimeoutError())
-        mock_process.kill = MagicMock()
-        mock_process.wait = AsyncMock(return_value=None)
-        mock_subprocess.return_value = mock_process
+    """Test bash command timeout.
+
+    Mocked at run_managed_process (the shared spawn/kill/timeout runner,
+    co-design review item 15) rather than asyncio.create_subprocess_shell:
+    shell() no longer calls process.communicate() directly, so mocking that
+    call would silently stop exercising shell()'s timeout-handling path.
+    """
+    with patch("victor.tools.subprocess_executor.run_managed_process") as mock_run:
+        mock_run.return_value = (b"", b"", -1, True, False)  # timed_out=True
 
         result = await shell(cmd="sleep 100", timeout=1, readonly=False)
 

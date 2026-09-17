@@ -8,7 +8,7 @@ Before installing Victor, ensure your system meets these requirements:
 
 | Requirement | Minimum | Recommended |
 |-------------|---------|-------------|
-| **Python** | 3.10 | 3.11+ |
+| **Python** | 3.11+ | 3.11+ |
 | **RAM** | 4 GB | 8 GB+ |
 | **Disk Space** | 500 MB | 1 GB (for local models: 8-32 GB) |
 | **OS** | Linux, macOS, Windows (WSL2) | Linux or macOS |
@@ -25,7 +25,7 @@ Choose the installation method that best fits your use case:
 |--------|---------|----------|
 | **pipx** (Recommended) | `pipx install victor-ai` | CLI users, isolated environment |
 | **pip** | `pip install victor-ai` | Virtual environments, Python projects |
-| **Docker** | `docker pull ghcr.io/vjsingh1984/victor` | Containers, isolated deployments |
+| **Docker** | `docker pull vjsingh1984/victor-ai` | Containers, isolated deployments |
 | **Development** | `pip install -e ./victor-contracts -e ".[dev]"` | Contributors, local development |
 
 ### Method 1: pipx (Recommended for CLI Users)
@@ -72,14 +72,14 @@ Run Victor in a container without installing Python dependencies:
 
 ```bash
 # Pull the latest image
-docker pull ghcr.io/vjsingh1984/victor:latest
+docker pull vjsingh1984/victor-ai:latest
 
 # Run Victor interactively
 docker run -it \
   -v ~/.victor:/root/.victor \
   -v "$(pwd)":/workspace \
   -w /workspace \
-  ghcr.io/vjsingh1984/victor:latest chat
+  vjsingh1984/victor-ai:latest chat
 
 # With API keys
 docker run -it \
@@ -87,7 +87,7 @@ docker run -it \
   -v ~/.victor:/root/.victor \
   -v "$(pwd)":/workspace \
   -w /workspace \
-  ghcr.io/vjsingh1984/victor:latest chat
+  vjsingh1984/victor-ai:latest chat
 ```
 
 **Docker Compose example:**
@@ -96,7 +96,7 @@ docker run -it \
 version: '3.8'
 services:
   victor:
-    image: ghcr.io/vjsingh1984/victor:latest
+    image: vjsingh1984/victor-ai:latest
     volumes:
       - ~/.victor:/root/.victor
       - .:/workspace
@@ -109,25 +109,10 @@ services:
 
 ### Method 4: Development Installation
 
-For contributors or those who want to modify Victor:
-
-```bash
-# Clone the repository
-git clone https://github.com/anvai-labs/victor.git
-cd victor
-
-# Create virtual environment
-python -m venv .venv
-source .venv/bin/activate
-
-# Install in development mode with all dependencies
-# (contracts first — victor-ai depends on the in-repo SDK)
-pip install -e ./victor-contracts -e ".[dev]"
-
-# Verify installation
-victor --version
-pytest tests/unit -v  # Run tests to verify
-```
+Follow the canonical [development setup guide](../development/setup.md), which
+installs the in-repository contracts package before Victor. Native extension
+builds and contribution worktrees are documented there and in the
+[pull-request workflow](../development/PR_WORKFLOW.md).
 
 ---
 
@@ -183,7 +168,7 @@ victor tools
 **Expected output:**
 ```
 Victor AI v0.x.x
-24 providers available
+25 providers available
 34 tools available
 ```
 
@@ -327,7 +312,7 @@ pipx install victor-ai
    source ~/.bashrc
    ```
 
-### "Package requires Python >= 3.10"
+### "Package requires Python >= 3.11"
 
 **Cause**: Your Python version is too old.
 
@@ -411,12 +396,13 @@ pip install --upgrade victor-ai
 
 ### Docker
 ```bash
-docker pull ghcr.io/vjsingh1984/victor:latest
+docker pull vjsingh1984/victor-ai:latest
 ```
 
 ### Development
 ```bash
-git pull origin main
+git fetch origin
+# Update your task branch using the pull-request workflow; do not switch the main checkout.
 pip install -e ./victor-contracts -e ".[dev]"
 ```
 
@@ -436,7 +422,7 @@ pip uninstall victor-ai
 
 ### Docker
 ```bash
-docker rmi ghcr.io/vjsingh1984/victor:latest
+docker rmi vjsingh1984/victor-ai:latest
 ```
 
 ### Remove configuration
@@ -452,7 +438,7 @@ After installation:
 
 1. **[Quickstart](quickstart.md)** - Run your first conversation
 2. **[Configuration](configuration.md)** - Customize settings and profiles
-3. **[User Guide](../user-guide/)** - Learn daily usage patterns
+3. **[User Guide](../user-guide/index.md)** - Learn daily usage patterns
 
 ---
 

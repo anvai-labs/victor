@@ -650,7 +650,7 @@ observability:
 
 ## API Reference
 
-See the [API Reference](../api-reference/framework-capabilities.md) for detailed API documentation.
+See the [API Reference](FRAMEWORK_CAPABILITIES.md) for detailed API documentation.
 
 ---
 
@@ -695,7 +695,7 @@ manager.register_source("my_source", lambda: {...})
 
 ## Further Reading
 
-- [Architecture Guide](../architecture/index.md)
+- [Architecture Guide](../architecture.md)
 - [Vertical Development Guide](./vertical-quickstart.md)
 - [Observability Guide](./OBSERVABILITY.md)
 - [Performance Optimization Guide](./BENCHMARKING.md)

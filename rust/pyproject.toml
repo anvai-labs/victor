@@ -18,7 +18,7 @@ build-backend = "maturin"
 
 [project]
 name = "victor_native"
-version = "0.8.0"
+version = "0.8.1"
 description = "High-performance native extensions for Victor AI coding assistant"
 readme = "README.md"
 license = {text = "Apache-2.0"}

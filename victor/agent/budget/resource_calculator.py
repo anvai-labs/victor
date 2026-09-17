@@ -54,7 +54,7 @@ _PROVIDER_SPEED_MULTIPLIERS = {
 }
 
 # Local providers that run on GPU (can only serve 1 model at a time)
-_LOCAL_PROVIDERS = {"ollama", "lmstudio", "vllm", "llamacpp"}
+_LOCAL_PROVIDERS = {"ollama", "lmstudio", "vllm", "llamacpp", "inferflux"}
 
 
 def calculate_exploration_budget(

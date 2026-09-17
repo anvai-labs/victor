@@ -466,7 +466,9 @@ class ExperimentCoordinator:
 
         # Consistent hash for assignment
         hash_input = f"{experiment_id}:{session_id}"
-        hash_value = int(hashlib.md5(hash_input.encode()).hexdigest()[:8], 16)
+        hash_value = int(
+            hashlib.md5(hash_input.encode(), usedforsecurity=False).hexdigest()[:8], 16
+        )
         hash_fraction = hash_value / 0xFFFFFFFF
 
         # Assign based on traffic split

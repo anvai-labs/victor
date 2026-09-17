@@ -43,8 +43,8 @@ Architecture (Facade + Chain of Responsibility patterns):
 
 Usage:
     pipeline = await RuntimeIntelligencePipeline.create(
-        provider_name="ollama",
-        model="qwen2.5:32b",
+        provider_name="inferflux",
+        model="qwen3-coder-30b",
         profile_name="local-qwen",
         project_root="/path/to/project",
     )

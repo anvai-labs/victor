@@ -6,7 +6,7 @@
 - **Date**: 2026-06-21
 - **Decision Makers**: Vijaykumar Singh
 - **Related ADRs**: 009 (rubric completion), 011 (judge reliability), 012 (regression-gated harness)
-- **Related**: [FEP-0008](../../../feps/fep-0008-evaluation-centric-completion.md)
+- **Related**: [FEP-0008](https://github.com/anvai-labs/victor/blob/develop/feps/fep-0008-evaluation-centric-completion.md)
 
 ## Context
 

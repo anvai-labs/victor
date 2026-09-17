@@ -41,7 +41,7 @@ permissions:
 jobs:
   performance-regression:
     name: Performance Regression Tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
 
     strategy:
@@ -141,7 +141,7 @@ jobs:
 
   baseline-comparison:
     name: Compare to Baseline
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: performance-regression
     if: github.event_name == 'pull_request'
 
@@ -233,7 +233,7 @@ jobs:
 
   notify:
     name: Notify on failure
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [performance-regression, baseline-comparison]
     if: failure()
 

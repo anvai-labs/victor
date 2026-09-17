@@ -196,6 +196,19 @@ class LifecycleManager:
         else:
             results["session_ended"] = True
 
+        # Flush any buffered usage-logger events (co-design review item 14:
+        # log_event() can defer writes to a batched flush, so this is the
+        # one guaranteed drain point before process exit).
+        if self._usage_logger is not None and hasattr(self._usage_logger, "close"):
+            try:
+                self._usage_logger.close()
+                results["usage_logger_closed"] = True
+            except Exception as e:
+                logger.warning(f"Failed to close usage logger during shutdown: {e}")
+                results["usage_logger_closed"] = False
+        else:
+            results["usage_logger_closed"] = True
+
         logger.debug(f"Graceful shutdown complete: {results}")
         return results
 

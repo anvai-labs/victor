@@ -14,6 +14,13 @@ implementation: null
 
 # FEP-0002: RL-Driven Tool-Budget Calibration
 
+> **Legacy proposal series.** This document retains the old `docs/feps` number 0002
+> as historical context. It is distinct from canonical
+> [FEP-0002](https://github.com/anvai-labs/victor/blob/develop/feps/fep-0002-documentation-style-guide.md) in the root `feps/` series.
+> Its Draft metadata is preserved. See [ADR-017](https://github.com/anvai-labs/victor/blob/develop/docs/architecture/adr/017-rl-budget-calibration.md)
+> for the related current proposal or decision, and the [canonical FEP index](https://github.com/anvai-labs/victor/blob/develop/feps/README.md).
+
+
 ## Abstract
 
 Introduce an opt-in, settings-gated pipeline that calibrates the session tool

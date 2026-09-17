@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Protocol
 
@@ -72,14 +73,22 @@ class MemoryCheckpointer:
     async def save(self, checkpoint: WorkflowCheckpoint) -> None:
         if checkpoint.thread_id not in self._checkpoints:
             self._checkpoints[checkpoint.thread_id] = []
-        self._checkpoints[checkpoint.thread_id].append(checkpoint)
+        # Snapshot at save: the caller's live state keeps mutating after this
+        # point (e.g. _bind_graph_checkpoint_id rewrites state["context"] on
+        # every subsequent node), so by-reference storage would retroactively
+        # rewrite earlier checkpoints through shared nested dicts.
+        self._checkpoints[checkpoint.thread_id].append(copy.deepcopy(checkpoint))
 
     async def load(self, thread_id: str) -> Optional[WorkflowCheckpoint]:
         checkpoints = self._checkpoints.get(thread_id, [])
-        return checkpoints[-1] if checkpoints else None
+        # Copy on load too: callers mutate the resumed state in place.
+        return copy.deepcopy(checkpoints[-1]) if checkpoints else None
 
     async def list(self, thread_id: str) -> List[WorkflowCheckpoint]:
-        return self._checkpoints.get(thread_id, [])
+        # Copies: callers (get_checkpoints, replay_from) must not be able to
+        # mutate the stored snapshots through the returned list
+        # (adversarial-review finding — save/load were isolated, list was not).
+        return [copy.deepcopy(c) for c in self._checkpoints.get(thread_id, [])]
 
 
 class RLCheckpointerAdapter:

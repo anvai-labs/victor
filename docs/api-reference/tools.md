@@ -1002,9 +1002,9 @@ async def code_metrics(
 
 ## See Also
 
-- [CLAUDE.md](/CLAUDE.md) - Project conventions and tool patterns
-- [victor/tools/base.py](/victor/tools/base.py) - BaseTool implementation
-- [victor/tools/registry.py](/victor/tools/registry.py) - ToolRegistry implementation
-- [victor/tools/decorators.py](/victor/tools/decorators.py) - @tool decorator
-- [victor/tools/enums.py](/victor/tools/enums.py) - CostTier, AccessMode, Priority enums
-- [victor/tools/metadata.py](/victor/tools/metadata.py) - ToolMetadata and registry
+- [Tool architecture](../architecture.md#tool-system) - Tool registration and execution
+- [victor/tools/base.py](https://github.com/anvai-labs/victor/blob/develop/victor/tools/base.py) - BaseTool implementation
+- [victor/tools/registry.py](https://github.com/anvai-labs/victor/blob/develop/victor/tools/registry.py) - ToolRegistry implementation
+- [victor/tools/decorators.py](https://github.com/anvai-labs/victor/blob/develop/victor/tools/decorators.py) - @tool decorator
+- [victor/tools/enums.py](https://github.com/anvai-labs/victor/blob/develop/victor/tools/enums.py) - CostTier, AccessMode, Priority enums
+- [victor/tools/metadata.py](https://github.com/anvai-labs/victor/blob/develop/victor/tools/metadata.py) - ToolMetadata and registry

@@ -4,7 +4,7 @@ The Data Analysis vertical provides comprehensive data exploration, statistical 
 
 ## Overview
 
-The Data Analysis vertical (`victor/dataanalysis/`) enables end-to-end data science workflows from data loading through visualization and machine learning. It integrates with pandas, matplotlib, seaborn, plotly, scipy, and scikit-learn for comprehensive analysis capabilities.
+The Data Analysis vertical (`verticals/victor-dataanalysis/victor_dataanalysis/`) enables end-to-end data science workflows from data loading through visualization and machine learning. It integrates with pandas, matplotlib, seaborn, plotly, scipy, and scikit-learn for comprehensive analysis capabilities.
 
 ### Key Use Cases
 
@@ -246,7 +246,7 @@ The Data Analysis vertical provides these capabilities:
 ### Vertical Configuration
 
 ```python
-from victor.dataanalysis.assistant import DataAnalysisAssistant
+from victor_dataanalysis.assistant import DataAnalysisAssistant
 
 # Get system prompt
 prompt = DataAnalysisAssistant.get_system_prompt()
@@ -297,73 +297,29 @@ timeout: 300            # Node timeout
 
 ## Example Usage
 
-### Exploratory Data Analysis
+Use the public factory with the `dataanalysis` vertical. Install the corresponding
+`victor-dataanalysis` package if it is not already available in your environment.
 
 ```python
-from victor.dataanalysis.workflows import DataAnalysisWorkflowProvider
+import asyncio
+from victor.framework import Agent
 
-provider = DataAnalysisWorkflowProvider()
-workflow = provider.compile_workflow("eda_pipeline")
+async def main():
+    async with await Agent.create(
+        vertical="dataanalysis", provider="ollama", model="llama3.1:8b"
+    ) as agent:
+        result = await agent.run("Summarize the columns and missing values in data.csv")
+        print(result.content)
 
-result = await workflow.invoke({
-    "data_path": "/path/to/data.csv",
-    "output_dir": "/path/to/output",
-    "quality_threshold": 0.8,
-    "visualization_format": "png"
-})
-
-print(result["report"])
+asyncio.run(main())
 ```
 
-### ML Training
-
-```python
-result = await workflow.invoke({
-    "train_data": "/path/to/train.csv",
-    "target_column": "target",
-    "model_types": ["random_forest", "xgboost", "lightgbm"],
-    "cv_folds": 5,
-    "early_stopping": True
-})
-
-print(f"Best model: {result['best_model']}")
-print(f"Performance: {result['best_score']}")
-```
-
-### Using the Assistant Directly
-
-```python
-from victor.agent.orchestrator import AgentOrchestrator
-
-orchestrator = AgentOrchestrator(
-    vertical="data_analysis",
-    provider="anthropic",
-    model="claude-sonnet-4-5"
-)
-
-# Analyze data
-response = await orchestrator.chat(
-    "Load sales_data.csv and show me the distribution of revenue by region"
-)
-
-# Statistical analysis
-response = await orchestrator.chat(
-    "Test if there's a significant difference in sales between Q1 and Q2"
-)
-```
-
-### CLI Usage
-
-```bash
-# Run EDA pipeline
-victor analyze eda /path/to/data.csv --output /path/to/output
-
-# Train ML model
-victor analyze ml /path/to/train.csv --target revenue --models rf,xgb
-
-# Generate statistics
-victor analyze stats /path/to/data.csv --tests normality,correlation
-```
+For a named workflow supplied by the installed vertical, call
+`await agent.run_workflow(workflow_name, context={...})` on the configured agent.
+Use the installed package's workflow catalog to select a name and its expected input
+keys. A bare workflow compiler does not create the agent runtime or provider.
+See [Python API](../reference/api/python-api.md) and
+[workflow execution](../tutorials/create-workflow.md).
 
 ## Integration with Other Verticals
 
@@ -376,7 +332,7 @@ The Data Analysis vertical integrates with:
 ## File Structure
 
 ```
-victor/dataanalysis/
+verticals/victor-dataanalysis/victor_dataanalysis/
 ├── assistant.py          # DataAnalysisAssistant definition
 ├── capabilities.py       # Capability providers
 ├── mode_config.py        # Mode configurations

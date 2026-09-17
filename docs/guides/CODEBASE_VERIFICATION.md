@@ -561,5 +561,5 @@ class IssueCategory(str, Enum):
 ## See Also
 
 - [Tool Reference](tool-reference.md) - General tool usage
-- [Development Guide](../developers/) - Extension development
-- [Testing](../developers/testing/) - Testing patterns
+- [Development Guide](../development/index.md) - Extension development
+- [Testing](../development/testing.md) - Testing patterns

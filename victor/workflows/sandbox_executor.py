@@ -338,10 +338,11 @@ class SandboxedExecutor:
         )
 
         sandbox = SandboxedProcess(sandbox_config)
+        process = None
 
         try:
             # Prepare environment
-            exec_env = env or {}
+            exec_env = dict(env or {})
             if not isolation.network_allowed:
                 exec_env["VICTOR_NETWORK_DISABLED"] = "1"
 
@@ -351,25 +352,13 @@ class SandboxedExecutor:
                 env=exec_env,
             )
 
-            # Communicate with process
-            stdout, stderr = await asyncio.wait_for(
-                asyncio.to_thread(
-                    process.communicate,
-                    input_data.encode() if input_data else None,
-                ),
-                timeout=limits.timeout_seconds,
-            )
-
-            await sandbox.terminate(process)
+            # The MCP backend owns text I/O and its configured timeout.
+            stdout, stderr = await sandbox.communicate(process, input_data)
 
             return SandboxExecutionResult(
                 success=process.returncode == 0,
-                output=stdout.decode("utf-8", errors="replace") if stdout else "",
-                error=(
-                    stderr.decode("utf-8", errors="replace")
-                    if stderr and process.returncode != 0
-                    else ""
-                ),
+                output=stdout,
+                error=stderr if process.returncode != 0 else "",
                 exit_code=process.returncode or 0,
                 sandbox_type="process",
             )
@@ -387,6 +376,9 @@ class SandboxedExecutor:
                 error=str(e),
                 sandbox_type="process",
             )
+        finally:
+            if process is not None:
+                await sandbox.terminate(process)
 
     async def _execute_docker(
         self,

@@ -1027,171 +1027,370 @@ class TestToolPipeline:
 
 
 class TestToolPipelineParallelExecution:
-    """Tests for parallel tool execution."""
+    """Co-design review item 16: allowlisted, opt-in parallel tool dispatch.
+
+    Uses real read-only-allowlisted tool names ("read", "grep", "ls") so
+    _compute_parallel_eligible_tools() actually admits them, and a write
+    tool ("write") which is always excluded via get_write_tool_names().
+    """
 
     @pytest.fixture
-    def parallel_pipeline(self, mock_tool_registry, mock_tool_executor):
-        """Create a pipeline with parallel execution enabled."""
+    def concurrency_tracker(self):
+        """Tracks (name, start, end) for every executed call plus the max
+        number of calls simultaneously in flight — the ground truth for
+        proving concurrency actually happened (or didn't)."""
+
+        class Tracker:
+            def __init__(self):
+                self.spans = []
+                self.in_flight = 0
+                self.max_in_flight = 0
+                self.start_order = []
+
+        return Tracker()
+
+    def _make_executor(self, tracker, delay: float = 0.05):
+        """A tool executor whose calls overlap in wall-clock time when
+        dispatched concurrently, and record that overlap for assertions."""
+        executor = MagicMock()
+
+        async def _execute(tool_name, arguments, context=None):
+            tracker.start_order.append(tool_name)
+            tracker.in_flight += 1
+            tracker.max_in_flight = max(tracker.max_in_flight, tracker.in_flight)
+            start = asyncio.get_event_loop().time()
+            await asyncio.sleep(delay)
+            end = asyncio.get_event_loop().time()
+            tracker.in_flight -= 1
+            tracker.spans.append((tool_name, start, end))
+            return ToolExecutionResult(tool_name=tool_name, success=True, result=f"{tool_name}-ok")
+
+        executor.execute = AsyncMock(side_effect=_execute)
+        return executor
+
+    @pytest.fixture
+    def registry(self):
+        registry = MagicMock()
+        registry.is_tool_enabled = MagicMock(return_value=True)
+        registry.get_tool = MagicMock(return_value=None)
+        return registry
+
+    def _make_pipeline(self, registry, executor, *, budget=25, max_concurrent=5):
+        from victor.agent.tool_pipeline import ToolPipeline, ToolPipelineConfig
+
         config = ToolPipelineConfig(
-            tool_budget=20,
-            enable_parallel_execution=True,
-            max_concurrent_tools=5,
+            tool_budget=budget,
+            parallel_tool_execution=True,
+            max_concurrent_tools=max_concurrent,
         )
-        return ToolPipeline(
-            tool_registry=mock_tool_registry,
-            tool_executor=mock_tool_executor,
-            config=config,
-        )
-
-    def test_parallel_executor_property(self, parallel_pipeline):
-        """Test that parallel executor is lazily initialized."""
-        # First access creates it
-        executor = parallel_pipeline.parallel_executor
-        assert executor is not None
-
-        # Second access returns same instance
-        assert parallel_pipeline.parallel_executor is executor
+        return ToolPipeline(tool_registry=registry, tool_executor=executor, config=config)
 
     @pytest.mark.asyncio
-    async def test_parallel_execution_single_tool(self, parallel_pipeline, mock_tool_executor):
-        """Test parallel execution with single tool falls back to sequential."""
-        tool_calls = [{"name": "test_tool", "arguments": {"x": 1}}]
+    async def test_default_off_in_fresh_settings(self):
+        """The flag ships OFF: fresh Settings/AgentConfig must not enable it."""
+        from victor.config.settings import Settings
+        from victor.agent.config import UnifiedAgentConfig
+        from victor.framework.config import AgentConfig
 
-        result = await parallel_pipeline.execute_tool_calls_parallel(tool_calls, {})
-
-        # Single tool uses sequential execution
-        assert result.total_calls == 1
-        assert not result.parallel_execution_used
+        assert Settings().parallel_tool_execution is False
+        assert AgentConfig().enable_parallel_tools is False
+        assert UnifiedAgentConfig().enable_parallel_tools is False
 
     @pytest.mark.asyncio
-    async def test_parallel_execution_disabled(self, mock_tool_registry, mock_tool_executor):
-        """Test parallel execution when disabled."""
-        config = ToolPipelineConfig(
-            tool_budget=20,
-            enable_parallel_execution=False,
-        )
-        pipeline = ToolPipeline(
-            tool_registry=mock_tool_registry,
-            tool_executor=mock_tool_executor,
-            config=config,
-        )
+    async def test_default_config_is_sequential(self, registry):
+        """ToolPipelineConfig() with no override stays off."""
+        from victor.agent.tool_pipeline import ToolPipelineConfig
+
+        assert ToolPipelineConfig().parallel_tool_execution is False
+
+    @pytest.mark.asyncio
+    async def test_read_only_batch_runs_concurrently(self, registry, concurrency_tracker):
+        """Allowlisted read-only calls in one batch actually overlap in
+        wall-clock time — the positive case this feature exists for."""
+        executor = self._make_executor(concurrency_tracker, delay=0.05)
+        pipeline = self._make_pipeline(registry, executor)
 
         tool_calls = [
-            {"name": "tool1", "arguments": {}},
-            {"name": "tool2", "arguments": {}},
+            {"id": "c1", "name": "read", "arguments": {"path": "/a"}},
+            {"id": "c2", "name": "grep", "arguments": {"path": "/b"}},
+            {"id": "c3", "name": "ls", "arguments": {"path": "/c"}},
         ]
 
-        result = await pipeline.execute_tool_calls_parallel(tool_calls, {})
+        result = await pipeline.execute_tool_calls(tool_calls, {})
 
-        # Falls back to sequential
-        assert not result.parallel_execution_used
+        assert concurrency_tracker.max_in_flight >= 2
+        assert result.parallel_execution_used is True
+        assert [r.success for r in result.results] == [True, True, True]
+        # Original order preserved regardless of dispatch/completion order.
+        assert [r.tool_name for r in result.results] == ["read", "grep", "ls"]
 
     @pytest.mark.asyncio
-    async def test_parallel_skips_invalid_tools(self, parallel_pipeline, mock_tool_registry):
-        """Test that parallel execution skips invalid tool names."""
-
-        # Disable one tool
-        def is_tool_enabled(name):
-            return name != "disabled_tool"
-
-        mock_tool_registry.is_tool_enabled.side_effect = is_tool_enabled
+    async def test_write_tool_never_gathered_concurrently(self, registry, concurrency_tracker):
+        """A write-capable tool must never run inside a concurrent gather —
+        even alongside read-only calls in the same batch."""
+        executor = self._make_executor(concurrency_tracker, delay=0.05)
+        pipeline = self._make_pipeline(registry, executor)
 
         tool_calls = [
-            {"name": "test_tool", "arguments": {}},
-            {"name": "Invalid-Name", "arguments": {}},
-            {"name": "disabled_tool", "arguments": {}},
+            {"id": "c1", "name": "read", "arguments": {"path": "/a"}},
+            {"id": "c2", "name": "write", "arguments": {"path": "/b"}},
+            {"id": "c3", "name": "grep", "arguments": {"path": "/c"}},
         ]
 
-        result = await parallel_pipeline.execute_tool_calls_parallel(
-            tool_calls, {}, force_parallel=True
-        )
+        result = await pipeline.execute_tool_calls(tool_calls, {})
 
-        # Should have skipped results for invalid tools
-        assert result.skipped_calls >= 2
+        write_span = next(s for s in concurrency_tracker.spans if s[0] == "write")
+        for name, start, end in concurrency_tracker.spans:
+            if name == "write":
+                continue
+            # No other call's interval overlaps the write call's interval.
+            overlaps = start < write_span[2] and end > write_span[1]
+            assert not overlaps, f"{name} overlapped with write: {(start, end)} vs {write_span}"
+        assert [r.tool_name for r in result.results] == ["read", "write", "grep"]
+        assert all(r.success for r in result.results)
 
     @pytest.mark.asyncio
-    async def test_parallel_normalizes_camel_case_before_tool_lookup(
-        self, parallel_pipeline, mock_tool_registry
+    async def test_unknown_tool_runs_sequential(self, registry, concurrency_tracker):
+        """Soundness negative: an unrecognized tool name must NOT be treated
+        as parallel-eligible just because it isn't in the write-tools set —
+        the allowlist is an intersection, not the authorizer's inverse."""
+        executor = self._make_executor(concurrency_tracker, delay=0.05)
+        pipeline = self._make_pipeline(registry, executor)
+
+        tool_calls = [
+            {"id": "c1", "name": "read", "arguments": {"path": "/a"}},
+            {"id": "c2", "name": "totally_unclassified_tool", "arguments": {}},
+        ]
+
+        result = await pipeline.execute_tool_calls(tool_calls, {})
+
+        unknown_span = next(
+            s for s in concurrency_tracker.spans if s[0] == "totally_unclassified_tool"
+        )
+        read_span = next(s for s in concurrency_tracker.spans if s[0] == "read")
+        overlaps = read_span[1] < unknown_span[2] and read_span[2] > unknown_span[1]
+        assert not overlaps
+
+    @pytest.mark.asyncio
+    async def test_shell_never_parallel_eligible_even_if_idempotent_like(
+        self, registry, concurrency_tracker
     ):
-        """Provider camelCase names should fail as normalized unavailable tools."""
-        mock_tool_registry.is_tool_enabled.return_value = False
-
-        result = await parallel_pipeline.execute_tool_calls_parallel(
-            [{"name": "setGlobalAxisManager", "arguments": {}}],
-            {},
-            force_parallel=True,
-        )
-
-        call_result = result.results[0]
-        assert call_result.skipped is True
-        assert call_result.tool_name == "set_global_axis_manager"
-        assert call_result.outcome_kind == "tool_unavailable"
-
-    @pytest.mark.asyncio
-    async def test_parallel_skips_repeated_failures(self, parallel_pipeline, mock_tool_executor):
-        """Test that parallel execution skips repeated failing calls."""
-        # Add a failed signature using the actual signature format
-        # Compute the signature the same way the pipeline does
-        failing_sig = parallel_pipeline._get_call_signature("failing_tool", {"x": 1})
-        parallel_pipeline._failed_signatures.add(failing_sig)
+        """shell is hard-excluded regardless of any read-only-looking
+        classification (co-design review item 16's explicit safety floor)."""
+        executor = self._make_executor(concurrency_tracker, delay=0.05)
+        pipeline = self._make_pipeline(registry, executor)
 
         tool_calls = [
-            {"name": "test_tool", "arguments": {"a": 1}},
-            {"name": "failing_tool", "arguments": {"x": 1}},  # Should be skipped
+            {"id": "c1", "name": "read", "arguments": {"path": "/a"}},
+            {"id": "c2", "name": "shell", "arguments": {"cmd": "ls"}},
         ]
 
-        result = await parallel_pipeline.execute_tool_calls_parallel(
-            tool_calls, {}, force_parallel=True
-        )
+        result = await pipeline.execute_tool_calls(tool_calls, {})
 
-        # The failing_tool should be skipped
-        skip_reasons = [r.skip_reason for r in result.results if r.skipped]
-        assert any("Repeated failing" in (r or "") for r in skip_reasons)
+        shell_span = next(s for s in concurrency_tracker.spans if s[0] == "shell")
+        read_span = next(s for s in concurrency_tracker.spans if s[0] == "read")
+        overlaps = read_span[1] < shell_span[2] and read_span[2] > shell_span[1]
+        assert not overlaps
 
     @pytest.mark.asyncio
-    async def test_parallel_budget_enforcement(self, mock_tool_registry, mock_tool_executor):
-        """Test that parallel execution enforces budget."""
-        config = ToolPipelineConfig(
-            tool_budget=2,
-            enable_parallel_execution=True,
+    async def test_duplicate_signatures_collapse_before_dispatch(
+        self, registry, concurrency_tracker
+    ):
+        """Two calls with the identical (tool, args) signature are
+        deduplicated upstream of dispatch — the real executor only runs
+        once regardless of parallel_tool_execution."""
+        executor = self._make_executor(concurrency_tracker, delay=0.01)
+        pipeline = self._make_pipeline(registry, executor)
+
+        tool_calls = [
+            {"id": "c1", "name": "read", "arguments": {"path": "/a"}},
+            {"id": "c2", "name": "read", "arguments": {"path": "/a"}},
+        ]
+
+        result = await pipeline.execute_tool_calls(tool_calls, {})
+
+        assert len(concurrency_tracker.spans) == 1
+        assert len(result.results) == 2
+        assert sum(1 for r in result.results if r.cached) == 1
+
+    @pytest.mark.asyncio
+    async def test_mixed_batch_preserves_original_order(self, registry, concurrency_tracker):
+        """Reads run in parallel, writes run sequentially, but the final
+        result list always matches the input's original order."""
+        executor = self._make_executor(concurrency_tracker, delay=0.02)
+        pipeline = self._make_pipeline(registry, executor)
+
+        tool_calls = [
+            {"id": "c1", "name": "write", "arguments": {"path": "/a"}},
+            {"id": "c2", "name": "read", "arguments": {"path": "/b"}},
+            {"id": "c3", "name": "grep", "arguments": {"path": "/c"}},
+            {"id": "c4", "name": "write", "arguments": {"path": "/d"}},
+            {"id": "c5", "name": "ls", "arguments": {"path": "/e"}},
+        ]
+
+        result = await pipeline.execute_tool_calls(tool_calls, {})
+
+        assert [r.tool_name for r in result.results] == [
+            "write",
+            "read",
+            "grep",
+            "write",
+            "ls",
+        ]
+        assert [r.tool_call_id for r in result.results] == ["c1", "c2", "c3", "c4", "c5"]
+
+    @pytest.mark.asyncio
+    async def test_budget_exhaustion_computed_before_dispatch(self, registry, concurrency_tracker):
+        """Budget is a hard cap on the whole batch even under concurrency:
+        exactly `tool_budget` calls execute, the rest are skipped, and the
+        skip decision doesn't overshoot from a concurrent-check race."""
+        executor = self._make_executor(concurrency_tracker, delay=0.03)
+        pipeline = self._make_pipeline(registry, executor, budget=2)
+
+        tool_calls = [
+            {"id": "c1", "name": "read", "arguments": {"path": "/a"}},
+            {"id": "c2", "name": "grep", "arguments": {"path": "/b"}},
+            {"id": "c3", "name": "ls", "arguments": {"path": "/c"}},
+        ]
+
+        result = await pipeline.execute_tool_calls(tool_calls, {})
+
+        assert result.budget_exhausted is True
+        assert len(concurrency_tracker.spans) == 2
+        skipped = [r for r in result.results if r.skipped]
+        assert len(skipped) == 1
+        assert skipped[0].outcome_kind == "budget_exhausted"
+        assert [r.tool_name for r in result.results] == ["read", "grep", "ls"]
+
+    @pytest.mark.asyncio
+    async def test_max_concurrent_tools_bounds_in_flight_count(self, registry, concurrency_tracker):
+        """The semaphore actually caps concurrency at max_concurrent_tools,
+        not just "more than one"."""
+        executor = self._make_executor(concurrency_tracker, delay=0.05)
+        pipeline = self._make_pipeline(registry, executor, budget=25, max_concurrent=2)
+
+        tool_calls = [
+            {"id": f"c{i}", "name": "read", "arguments": {"path": f"/{i}"}} for i in range(6)
+        ]
+
+        result = await pipeline.execute_tool_calls(tool_calls, {})
+
+        assert concurrency_tracker.max_in_flight <= 2
+        assert all(r.success for r in result.results)
+
+    @pytest.mark.asyncio
+    async def test_first_call_always_attempts_even_when_budget_already_exhausted(
+        self, registry, concurrency_tracker
+    ):
+        """Regression guard: when the session's tool_budget was already
+        exhausted by a PRIOR turn (not by this batch), the batch's FIRST
+        call must still be dispatched and hit _execute_single_call's own
+        internal budget check — not this method's pre-dispatch tail-skip.
+        The two produce different, caller-visible results (retryable=False
+        + no explicit user_message from the internal check, vs.
+        retryable=True + an explicit message from the tail-skip), and only
+        the internal-check outcome matches the pre-parallelism behavior for
+        a batch's first call. A second call in the SAME already-exhausted
+        batch, by contrast, must get the pre-dispatch tail-skip, since by
+        then admitted > 0."""
+        executor = self._make_executor(concurrency_tracker, delay=0.01)
+        pipeline = self._make_pipeline(registry, executor, budget=2)
+        pipeline._calls_used = 2  # already exhausted before this batch starts
+
+        tool_calls = [
+            {"id": "c1", "name": "read", "arguments": {"path": "/a"}},
+            {"id": "c2", "name": "grep", "arguments": {"path": "/b"}},
+        ]
+
+        result = await pipeline.execute_tool_calls(tool_calls, {})
+
+        first, second = result.results
+        assert first.skipped is True
+        assert first.outcome_kind == "budget_exhausted"
+        assert first.retryable is False
+        assert first.skip_reason == "Tool budget exhausted"
+
+        assert second.skipped is True
+        assert second.outcome_kind == "budget_exhausted"
+        assert second.retryable is True
+        assert second.skip_reason == "Tool budget exhausted — call not executed"
+        assert second.user_message == (
+            "The tool budget was exhausted before this call could be executed."
         )
+
+        # Neither call actually ran the tool.
+        assert len(concurrency_tracker.spans) == 0
+
+
+class TestLRUToolCacheConcurrency:
+    """Co-design review item 16: LRUToolCache under concurrent access."""
+
+    @pytest.mark.asyncio
+    async def test_concurrent_get_set_does_not_corrupt_state(self):
+        from victor.agent.tool_pipeline import LRUToolCache
+
+        cache = LRUToolCache(max_size=10, ttl_seconds=60)
+        assert isinstance(cache.lock, asyncio.Lock)
+
+        async def _writer(i: int):
+            for _ in range(20):
+                cache.set(f"key-{i}", i)
+                cache.get(f"key-{i}")
+                await asyncio.sleep(0)
+
+        await asyncio.gather(*(_writer(i) for i in range(20)))
+
+        # No corruption: cache stayed within its bound and every remaining
+        # entry is internally consistent (key matches the value it was set
+        # with).
+        assert len(cache) <= 10
+        for key, value in cache.items():
+            assert key == f"key-{value}"
+
+    @pytest.mark.asyncio
+    async def test_concurrent_cache_result_for_same_signature_is_wasteful_not_corrupting(
+        self, mock_tool_registry
+    ):
+        """Pins the real risk this lock exists for: deduplicate_tool_calls()
+        signatures RAW args while get_cached_result()/cache_result()
+        signature NORMALIZED args, so two calls that survive dedup as
+        "different" (e.g. because a parameter enforcer defaults one's
+        missing argument to the value the other already had) can still
+        converge on the same cache signature and be dispatched
+        concurrently. Reproduced directly at the cache-method level (two
+        concurrent cache_result() calls for the identical tool+args, as
+        real convergence would produce) rather than via the full
+        normalization pipeline: confirms the race is benign — one write
+        clobbers the other, but both represent the exact same idempotent
+        operation, so the surviving cached value is correct either way —
+        without the LRUToolCache lock ever needing to be held for it.
+        """
+        from victor.agent.tool_pipeline import ToolCallResult, ToolPipeline, ToolPipelineConfig
+
         pipeline = ToolPipeline(
             tool_registry=mock_tool_registry,
-            tool_executor=mock_tool_executor,
-            config=config,
+            tool_executor=MagicMock(),
+            config=ToolPipelineConfig(tool_budget=25),
         )
+        args = {"path": "/a"}
 
-        tool_calls = [
-            {"name": "tool1", "arguments": {}},
-            {"name": "tool2", "arguments": {}},
-            {"name": "tool3", "arguments": {}},
-        ]
+        async def _race_writer(i: int) -> None:
+            # Same tool+args as every other writer -> identical signature.
+            result = ToolCallResult(tool_name="read", arguments=args, success=True, result=i)
+            pipeline.cache_result("read", args, result)
+            await asyncio.sleep(0)
+            cached = pipeline.get_cached_result("read", args)
+            assert cached is not None
+            assert cached.success is True
 
-        result = await pipeline.execute_tool_calls_parallel(tool_calls, {}, force_parallel=True)
+        await asyncio.gather(*(_race_writer(i) for i in range(10)))
 
-        # Should stop after budget exhausted
-        assert result.budget_exhausted is True
-
-    def test_parallel_progress_callback(self, parallel_pipeline):
-        """Test parallel progress callback."""
-        start_calls = []
-        parallel_pipeline.on_tool_start = lambda name, args: start_calls.append(name)
-
-        # Call the progress callback directly
-        parallel_pipeline._parallel_progress_callback("test_tool", "started", True)
-
-        assert "test_tool" in start_calls
-
-    def test_parallel_progress_callback_not_started(self, parallel_pipeline):
-        """Test parallel progress callback for non-started status."""
-        start_calls = []
-        parallel_pipeline.on_tool_start = lambda name, args: start_calls.append(name)
-
-        # Call with status other than "started"
-        parallel_pipeline._parallel_progress_callback("test_tool", "completed", True)
-
-        # Should not call on_tool_start
-        assert "test_tool" not in start_calls
+        # Exactly one entry for the shared signature — no corruption, no
+        # duplicate/split entries from the concurrent unlocked writes.
+        assert len(pipeline._idempotent_cache) == 1
+        final = pipeline.get_cached_result("read", args)
+        assert final is not None
+        assert final.success is True
 
 
 class TestToolPipelineNormalization:

@@ -2,7 +2,7 @@
 
 **Status**: Historical consolidation guide with some still-useful framework examples
 **Last Reviewed**: 2026-05-04
-**Authoritative current agent runtime doc**: `docs/architecture/CURRENT_STATE.md`
+**Authoritative current agent runtime doc**: [System architecture](../architecture.md)
 
 > Historical note: this guide mixes framework-side `StateGraph` migration
 > examples with older `victor/agent` rollout guidance. Use it for background
@@ -160,7 +160,7 @@ surfaces. `UnifiedTeamCoordinator` is the primary runtime abstraction.
 
 The compatibility and removal targets below reflect the migration plan at the
 time this guide was drafted. Verify current deprecations and ownership against
-`docs/architecture/CURRENT_STATE.md` and the seam-by-seam migration audit
+[System architecture](../architecture.md) and the seam-by-seam migration audit
 before using them for new work.
 
 ### None During Migration

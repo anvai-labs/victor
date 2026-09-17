@@ -31,6 +31,7 @@ from victor.tools.decorators import tool
 
 # PathResolver for centralized path normalization
 from victor.protocols.path_resolver import PathResolver, create_path_resolver
+from victor.providers.provider_kinds import LOCAL_CLASS_PROVIDERS
 
 logger = logging.getLogger(__name__)
 
@@ -1544,7 +1545,8 @@ async def read(
             if not _path_within_workspace(file_path, _project_root):
                 return _out_of_workspace_message(path, file_path, _project_root)
         except Exception:
-            pass
+            logger.warning("Workspace read guard could not be evaluated", exc_info=True)
+            return "Error: workspace access could not be verified; read was not performed."
 
     # Early return for directory paths (handles "", ".", "src/", etc.)
     if file_path.is_dir():
@@ -1705,7 +1707,7 @@ async def read(
         "pickle": {
             "extensions": {".pkl", ".pickle"},
             "suggestion": "This is serialized Python data. To inspect, use: "
-            "`python -c \"import pickle; print(pickle.load(open('file.pkl', 'rb')))\"`",
+            "`python -m pickletools file.pkl` (disassembles without executing the payload).",
         },
         # Archives
         "archive": {
@@ -1929,7 +1931,9 @@ async def read(
                 if hasattr(provider_obj, "default_provider")
                 else str(provider_obj or "")
             ).lower()
-            local_providers = {"ollama", "lmstudio", "vllm", "llamacpp", "local"}
+            # Substring match is deliberate (matches e.g. provider:local variants);
+            # names come from the canonical classification.
+            local_providers = {"local", *LOCAL_CLASS_PROVIDERS}
             if any(p in provider for p in local_providers):
                 # Try to get model context size from capabilities
                 try:

@@ -63,7 +63,9 @@ DEFAULT_PROVIDER_MODELS = {
     "azure": "gpt-4o",
 }
 
-LOCAL_ENDPOINT_PROVIDERS = frozenset({"ollama", "lmstudio", "vllm", "mlx", "llama.cpp"})
+LOCAL_ENDPOINT_PROVIDERS = frozenset(
+    {"ollama", "lmstudio", "vllm", "mlx", "llama.cpp", "llamacpp", "llama-cpp", "inferflux"}
+)
 
 
 def _default_model_for_provider(provider: str) -> Optional[str]:
@@ -170,7 +172,7 @@ class ProviderOverrideConfig:
         if endpoint and normalized_provider and normalized_provider not in LOCAL_ENDPOINT_PROVIDERS:
             raise ValueError(
                 "--endpoint is only supported for local providers "
-                "(ollama, lmstudio, vllm, mlx, llama.cpp)."
+                "(ollama, lmstudio, vllm, mlx, llama.cpp/llamacpp, inferflux)."
             )
         if timeout is not None and timeout <= 0:
             raise ValueError("--provider-timeout must be greater than 0.")
@@ -665,6 +667,22 @@ class SessionConfig:
                         "vllm_base_url",
                         provider_override.endpoint,
                     )
+                elif provider_override.provider in {
+                    "llamacpp",
+                    "llama.cpp",
+                    "llama-cpp",
+                    "inferflux",
+                }:
+                    # No dedicated settings field by design — both providers
+                    # take a generic per-provider base_url the factory forwards
+                    # to the constructor (factory.py providers[name].base_url).
+                    pcfg = provider_settings.providers.get(provider_override.provider)
+                    if pcfg is None:
+                        from victor.config.groups.provider_config import ProviderConfig
+
+                        pcfg = ProviderConfig()
+                        provider_settings.providers[provider_override.provider] = pcfg
+                    object.__setattr__(pcfg, "base_url", provider_override.endpoint)
 
         # Smart routing settings
         if self.smart_routing.enabled:
@@ -683,6 +701,8 @@ class SessionConfig:
         # resolves via ask_fallback (default "deny").
         if self.tool_approval.enabled:
             governance = getattr(settings, "governance", None)
+            if governance is None:
+                raise RuntimeError("Requested tool approval requires governance settings")
             if governance is not None:
                 if hasattr(governance, "enabled"):
                     object.__setattr__(governance, "enabled", True)
@@ -703,5 +723,5 @@ class SessionConfig:
                     from victor.core.feature_flags import FeatureFlag, enable_feature
 
                     enable_feature(FeatureFlag.USE_POLICY_ENGINE)
-                except Exception:  # pragma: no cover - defensive
-                    pass
+                except Exception as exc:
+                    raise RuntimeError("Requested tool approval could not be enabled") from exc

@@ -9,6 +9,8 @@ from victor.agent.services.orchestrator_protocol_adapter import (
     OrchestratorProtocolAdapter,
 )
 from victor.agent.services.chat_stream_runtime import ServiceStreamingRuntime
+from victor.agent.session_state_accessor import SessionStateAccessor
+from victor.agent.session_state_manager import SessionStateManager
 from victor.agent.streaming.context import StreamingChatContext
 from victor.agent.unified_task_tracker import TrackerTaskType
 from victor.agent.topology_contract import (
@@ -28,6 +30,7 @@ from victor.teams.types import TeamFormation
 
 def _make_orchestrator_stub():
     orch = MagicMock()
+    orch._session_accessor = SessionStateAccessor(SessionStateManager())
     orch.has_capability.return_value = False
     orch.get_capability_value.return_value = None
     orch._cumulative_token_usage = {

@@ -565,13 +565,14 @@ make lint
 
 ```python
 # Bad
-from victor.agent.orchestrator import AgentOrchestrator, ConversationController, ToolPipeline
+from victor.framework import Agent, EventType, StateGraph, ToolSet
 
 # Good
-from victor.agent.orchestrator import (
-    AgentOrchestrator,
-    ConversationController,
-    ToolPipeline,
+from victor.framework import (
+    Agent,
+    EventType,
+    StateGraph,
+    ToolSet,
 )
 ```
 
@@ -622,7 +623,7 @@ except Exception as e:
 
 - [Setup Guide](setup.md) - Development environment setup
 - [Testing Guide](testing.md) - Testing patterns and fixtures
-- [Contributing Guide](../../CONTRIBUTING.md) - Pull request process
+- [Contributing Guide](https://github.com/anvai-labs/victor/blob/develop/CONTRIBUTING.md) - Pull request process
 
 ---
 

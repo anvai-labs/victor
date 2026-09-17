@@ -48,9 +48,7 @@ def test_definition_exposes_tools_and_capabilities() -> None:
 
     capability_ids = [req.capability_id for req in definition.capability_requirements]
     assert capability_ids == ["file_ops", "git", "web_access"]
-    optional_ids = {
-        req.capability_id for req in definition.capability_requirements if req.optional
-    }
+    optional_ids = {req.capability_id for req in definition.capability_requirements if req.optional}
     assert optional_ids == {"git", "web_access"}
 
 
@@ -60,9 +58,7 @@ def test_definition_workflow_metadata_matches_stages() -> None:
 
     assert list(stages) == EXPECTED_STAGE_ORDER
     assert definition.workflow_metadata.initial_stage == "reconnaissance"
-    assert definition.workflow_metadata.workflow_spec == {
-        "stage_order": EXPECTED_STAGE_ORDER
-    }
+    assert definition.workflow_metadata.workflow_spec == {"stage_order": EXPECTED_STAGE_ORDER}
 
 
 def test_task_type_hints_cover_declared_workflows() -> None:

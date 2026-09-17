@@ -1566,9 +1566,9 @@ You have learned how to:
 6. Write comprehensive tests
 
 For more advanced topics, see:
-- [Tool Calling Adapters](/docs/architecture/tool-calling.md)
-- [Circuit Breaker Configuration](/docs/guides/RESILIENCE.md)
-- [Provider Registry](/docs/reference/providers.md)
+- [Tool Calling Adapters](../reference/tools/tool-calling.md)
+- [Circuit Breaker Configuration](../guides/RESILIENCE.md)
+- [Provider Registry](../user-guide/providers.md)
 
 ---
 

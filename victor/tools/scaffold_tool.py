@@ -22,7 +22,6 @@ Features:
 - Development tooling
 """
 
-import subprocess
 from pathlib import Path
 from typing import Any, Dict, Optional
 import logging
@@ -631,37 +630,43 @@ async def scaffold(
     # Init-git operation
     elif operation == "init-git":
         try:
-            # Use asyncio subprocess to avoid blocking event loop
-            import asyncio
+            # Route through the shared subprocess runner (co-design review
+            # item 15) instead of a bare communicate(): these three git
+            # invocations previously had NO timeout at all, so a hook or a
+            # locked/slow filesystem could hang the tool call forever.
+            from victor.config.timeouts import ProcessTimeouts
+            from victor.tools.subprocess_executor import run_managed_process
 
-            # Initialize git
-            proc = await asyncio.create_subprocess_exec(
-                "git",
-                "init",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            await proc.communicate()
-
-            # Create initial commit
-            proc = await asyncio.create_subprocess_exec(
-                "git",
-                "add",
-                ".",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            await proc.communicate()
-
-            proc = await asyncio.create_subprocess_exec(
-                "git",
-                "commit",
-                "-m",
-                "Initial commit",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            await proc.communicate()
+            for git_argv in (
+                ["git", "init"],
+                ["git", "add", "."],
+                ["git", "commit", "-m", "Initial commit"],
+            ):
+                stdout, stderr, return_code, timed_out, _capped = await run_managed_process(
+                    argv=git_argv, timeout=ProcessTimeouts.GIT
+                )
+                if timed_out:
+                    return {
+                        "success": False,
+                        "error": (
+                            f"Git initialization timed out after {ProcessTimeouts.GIT}s "
+                            f"running: {' '.join(git_argv)}"
+                        ),
+                    }
+                if return_code != 0:
+                    stderr_text = stderr.decode("utf-8", "replace")
+                    # "git commit" on nothing staged (e.g. init-git run on an
+                    # already-empty or already-committed directory) is not a
+                    # real failure — the repo is still correctly initialized.
+                    if git_argv[:2] == ["git", "commit"] and "nothing to commit" in stderr_text:
+                        break
+                    return {
+                        "success": False,
+                        "error": (
+                            f"Git initialization failed running {' '.join(git_argv)}: "
+                            f"{stderr_text}"
+                        ),
+                    }
 
             return {
                 "success": True,
@@ -669,11 +674,6 @@ async def scaffold(
                 "message": "Git repository initialized with initial commit",
             }
 
-        except subprocess.CalledProcessError as e:
-            return {
-                "success": False,
-                "error": f"Git initialization failed: {e.stderr.decode()}",
-            }
         except FileNotFoundError:
             return {
                 "success": False,

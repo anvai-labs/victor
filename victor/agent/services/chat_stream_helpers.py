@@ -24,6 +24,7 @@ from victor.agent.topology_telemetry import (
     emit_topology_telemetry_event,
 )
 from victor.agent.runtime.context import AgentRuntimeContext
+from victor.agent.services.chat_runtime_services import ChatRuntimeServices
 from victor.agent.services.context_service import compact_context_if_recommended
 from victor.agent.unified_task_tracker import TrackerTaskType
 from victor.core.loop_thresholds import DEFAULT_BLOCKED_CONSECUTIVE_THRESHOLD
@@ -45,12 +46,24 @@ from victor.providers.openai_compat import consume_last_tool_message_cleanup_sta
 if TYPE_CHECKING:
     from victor.agent.streaming.context import StreamingChatContext
 
+from victor.agent.services.runtime_overrides import (
+    OverrideRestorationError,
+    apply_overrides,
+    attribute_change,
+    budget_changes,
+    restore_overrides,
+    mark_override_failed,
+    override_failed,
+)
+
 logger = logging.getLogger(__name__)
 _MISSING = object()
 
 
 class ChatStreamHelperMixin:
     """Shared streaming helper methods reused by service and compatibility shims."""
+
+    services: ChatRuntimeServices
 
     @staticmethod
     def _get_runtime_state_host(runtime_host: Any) -> Any:
@@ -237,6 +250,8 @@ class ChatStreamHelperMixin:
         int,
     ]:
         """Prepare streaming state and return commonly used values."""
+        if override_failed(self) or override_failed(self._orchestrator):
+            raise OverrideRestorationError("Recreate the session after failed override restoration")
         orch = self._orchestrator
 
         orch._cancel_event = asyncio.Event()
@@ -848,139 +863,43 @@ class ChatStreamHelperMixin:
         self,
         overrides: Dict[str, Any],
     ) -> Optional[Dict[str, Any]]:
-        """Apply temporary runtime overrides for the streaming turn."""
+        """Apply context and budget changes as one reversible update."""
+        orch = self._orchestrator
+        if override_failed(self) or override_failed(orch):
+            raise OverrideRestorationError("Recreate the session after failed override restoration")
         if not overrides:
             return None
-
-        orch = self._orchestrator
-        state_dict = self._get_runtime_state_dict(orch)
-        snapshot: Dict[str, Any] = {
-            "orchestrator_runtime_context": state_dict.get(
+        previous = self._get_runtime_state_dict(orch).get("_runtime_tool_context_overrides")
+        merged = dict(previous) if isinstance(previous, dict) else {}
+        merged.update(overrides)
+        changes = [
+            attribute_change(
+                "orchestrator_runtime_context",
+                orch,
                 "_runtime_tool_context_overrides",
-                _MISSING,
-            ),
-        }
-
-        merged_context: Dict[str, Any] = {}
-        previous_runtime_context = snapshot["orchestrator_runtime_context"]
-        if isinstance(previous_runtime_context, dict):
-            merged_context.update(previous_runtime_context)
-        merged_context.update(overrides)
-        orch._runtime_tool_context_overrides = merged_context
-
+                merged,
+                state=self._get_runtime_state_dict(orch),
+            )
+        ]
         tool_budget = self._coerce_stream_int_override(overrides.get("tool_budget"))
         if tool_budget is not None:
-            if hasattr(orch, "tool_budget"):
-                snapshot["orchestrator_tool_budget"] = getattr(orch, "tool_budget", _MISSING)
-                try:
-                    orch.tool_budget = max(0, tool_budget)
-                except Exception:
-                    pass
+            changes.extend(budget_changes(orch, None, tool_budget))
+        try:
+            return apply_overrides(changes)
+        except OverrideRestorationError:
+            mark_override_failed(self)
+            mark_override_failed(orch)
+            raise
 
-            task_coordinator = getattr(orch, "task_coordinator", None)
-            if task_coordinator is not None and hasattr(task_coordinator, "tool_budget"):
-                snapshot["task_coordinator_tool_budget"] = getattr(
-                    task_coordinator,
-                    "tool_budget",
-                    _MISSING,
-                )
-                try:
-                    task_coordinator.tool_budget = max(0, tool_budget)
-                except Exception:
-                    pass
-
-            tool_service = getattr(orch, "_tool_service", None)
-            if tool_service is not None and hasattr(tool_service, "get_tool_budget"):
-                snapshot["tool_service_budget"] = getattr(
-                    tool_service,
-                    "budget",
-                    (
-                        tool_service.get_budget_info().get("max")
-                        if hasattr(tool_service, "get_budget_info")
-                        else tool_service.get_tool_budget()
-                    ),
-                )
-                if hasattr(tool_service, "set_tool_budget"):
-                    try:
-                        tool_service.set_tool_budget(max(0, tool_budget))
-                    except Exception:
-                        pass
-
-            tool_pipeline = getattr(orch, "_tool_pipeline", None)
-            pipeline_config = getattr(tool_pipeline, "config", None)
-            if pipeline_config is not None and hasattr(pipeline_config, "tool_budget"):
-                snapshot["pipeline_tool_budget"] = getattr(
-                    pipeline_config,
-                    "tool_budget",
-                    _MISSING,
-                )
-                try:
-                    pipeline_config.tool_budget = max(0, tool_budget)
-                except Exception:
-                    pass
-
-        return snapshot
-
-    def _restore_stream_runtime_overrides(
-        self,
-        snapshot: Optional[Dict[str, Any]],
-    ) -> None:
-        """Restore runtime state after one streaming turn completes."""
-        if not snapshot:
-            return
-
-        orch = self._orchestrator
-        state_dict = self._get_runtime_state_dict(orch)
-        previous_runtime_context = snapshot.get("orchestrator_runtime_context", _MISSING)
-        if previous_runtime_context is _MISSING:
-            if "_runtime_tool_context_overrides" in state_dict:
-                delattr(orch, "_runtime_tool_context_overrides")
-        else:
-            orch._runtime_tool_context_overrides = previous_runtime_context
-
-        previous_orchestrator_budget = snapshot.get("orchestrator_tool_budget", _MISSING)
-        if previous_orchestrator_budget is not _MISSING and hasattr(orch, "tool_budget"):
+    def _restore_stream_runtime_overrides(self, snapshot: Optional[Dict[str, Any]]) -> None:
+        if snapshot:
+            orch = self._orchestrator
             try:
-                orch.tool_budget = previous_orchestrator_budget
-            except Exception:
-                pass
-
-        task_coordinator = getattr(orch, "task_coordinator", None)
-        previous_task_coordinator_budget = snapshot.get("task_coordinator_tool_budget", _MISSING)
-        if (
-            previous_task_coordinator_budget is not _MISSING
-            and task_coordinator is not None
-            and hasattr(task_coordinator, "tool_budget")
-        ):
-            try:
-                task_coordinator.tool_budget = previous_task_coordinator_budget
-            except Exception:
-                pass
-
-        tool_service = getattr(orch, "_tool_service", None)
-        previous_service_budget = snapshot.get("tool_service_budget", _MISSING)
-        if (
-            previous_service_budget is not _MISSING
-            and tool_service is not None
-            and hasattr(tool_service, "set_tool_budget")
-        ):
-            try:
-                tool_service.set_tool_budget(previous_service_budget)
-            except Exception:
-                pass
-
-        tool_pipeline = getattr(orch, "_tool_pipeline", None)
-        pipeline_config = getattr(tool_pipeline, "config", None)
-        previous_pipeline_budget = snapshot.get("pipeline_tool_budget", _MISSING)
-        if (
-            previous_pipeline_budget is not _MISSING
-            and pipeline_config is not None
-            and hasattr(pipeline_config, "tool_budget")
-        ):
-            try:
-                pipeline_config.tool_budget = previous_pipeline_budget
-            except Exception:
-                pass
+                restore_overrides(snapshot)
+            except OverrideRestorationError:
+                mark_override_failed(self)
+                mark_override_failed(orch)
+                raise
 
     @staticmethod
     def _coerce_stream_int_override(value: Any) -> Optional[int]:
@@ -1831,8 +1750,7 @@ class ChatStreamHelperMixin:
         garbage_detected: bool,
     ) -> tuple[Any, int, bool]:
         """Handle garbage detection for a streaming chunk."""
-        orch = self._orchestrator
-        if chunk.content and orch.sanitizer.is_garbage_content(chunk.content):
+        if chunk.content and self.services.delivery.is_garbage_content(chunk.content):
             consecutive_garbage_chunks += 1
             if consecutive_garbage_chunks >= max_garbage_chunks:
                 if not garbage_detected:
@@ -1968,7 +1886,7 @@ class ChatStreamHelperMixin:
                         f"Recovery at temperature {temp} produced content "
                         f"({len(full_content)} chars)"
                     )
-                    sanitized = orch.sanitizer.sanitize(full_content)
+                    sanitized = self.services.delivery.sanitize(full_content)
                     if sanitized:
                         from victor.agent.conversation.types import (
                             MESSAGE_SOURCE_METADATA_KEY,
@@ -1982,7 +1900,7 @@ class ChatStreamHelperMixin:
                                 MESSAGE_SOURCE_METADATA_KEY: MessageSource.AGENT_RESPONSE.value
                             },
                         )
-                    final_chunk = orch._chunk_generator.generate_content_chunk(
+                    final_chunk = self.services.delivery.content_chunk(
                         sanitized or full_content, is_final=True
                     )
                     return True, None, final_chunk

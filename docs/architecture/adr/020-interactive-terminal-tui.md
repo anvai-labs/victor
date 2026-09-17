@@ -13,7 +13,7 @@
 - **Decision Makers**: Vijaykumar Singh
 - **Related ADRs**: 021 (terminal-native HITL & loop transparency — shares the surface), 005 (event
   system — the `RenderAction` vocabulary this reuses)
-- **Work tracked by**: [TD-22](../../tech-stack.md#technical-debt-register)
+- **Work tracked by**: [TD-22](../../roadmap.md#technical-debt-register)
 - **Benchmark**: [competitive-benchmark-2026-07.md](../competitive-benchmark-2026-07.md) §2
 
 ## Context

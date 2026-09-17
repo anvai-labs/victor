@@ -38,21 +38,25 @@ victor workflow execute my_workflow
 
 ## Workflow Structure
 
-```
-┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│  Start      │────▶│   Node 1    │────▶│   Node 2    │
-└─────────────┘     └─────────────┘     └─────────────┘
-                            │
-                    ┌───────┴───────┐
-                    ▼               ▼
-              ┌───────────┐   ┌───────────┐
-              │ Condition │   │  Parallel │
-              └───────────┘   └───────────┘
-                    │               │
-                    ▼               ▼
-              ┌────────────────────────┐
-              │        End Node        │
-              └────────────────────────┘
+The example topology below illustrates authoring constructs. The
+[single execution engine](../architecture.md#workflow-engine) compiles the definition.
+
+```mermaid
+---
+title: Example workflow with conditional and parallel stages
+---
+%%{init: {"theme":"base","themeVariables":{"primaryColor":"#E8EFF7","primaryTextColor":"#17324D","primaryBorderColor":"#456987","lineColor":"#456987","fontFamily":"Arial"}}}%%
+flowchart LR
+  S["Start node"]
+  C{"Condition node"}
+  P["Parallel group<br/>child executors and join policy"]
+  F["Fallback node"]
+  E["End node"]
+  S -->|"next node"| C
+  C -->|"selected branch"| P
+  C -->|"alternative branch"| F
+  P -->|"join succeeds"| E
+  F -->|"next node"| E
 ```
 
 ## Node Fields

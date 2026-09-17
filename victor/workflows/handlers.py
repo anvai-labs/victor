@@ -39,10 +39,8 @@ Example YAML usage:
 
 from __future__ import annotations
 
-import ast
 import asyncio
 import logging
-import operator
 import time
 import traceback
 from dataclasses import dataclass, field
@@ -50,6 +48,7 @@ from functools import wraps
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
 from victor_contracts.workflows import ExecutorNodeStatus, NodeResult
+from victor.core.conditions import compile_condition
 
 if TYPE_CHECKING:
     from victor.tools.registry import ToolRegistry
@@ -931,7 +930,7 @@ class ConditionalBranchHandler:
         The expression is parsed and walked as a restricted AST. Only literals,
         boolean/comparison/unary operators and names resolved from
         ``context_data`` are permitted — there is no call, attribute, or
-        subscript access, so arbitrary code execution is not possible.
+        subscript access. State operands must be plain data.
         """
         import re
 
@@ -940,71 +939,11 @@ class ConditionalBranchHandler:
         normalized = re.sub(r"\$\{(\w+)\}", r"\1", expr)
         normalized = re.sub(r"\$(\w+)", r"\1", normalized)
 
-        names: Dict[str, Any] = {"True": True, "False": False, "None": None}
-        names.update(context_data)
-
         try:
-            tree = ast.parse(normalized, mode="eval")
-            return bool(_safe_eval_node(tree.body, names))
+            return compile_condition(normalized)(context_data)
         except Exception as e:
             logger.warning(f"Condition eval failed: {expr} -> {normalized}: {e}")
             return False
-
-
-# Restricted operators permitted in workflow condition expressions. No call,
-# attribute, subscript, or name binding is allowed by _safe_eval_node, so these
-# expressions cannot execute arbitrary code (unlike the eval() they replace).
-_SAFE_COMPARE_OPS = {
-    ast.Eq: operator.eq,
-    ast.NotEq: operator.ne,
-    ast.Lt: operator.lt,
-    ast.LtE: operator.le,
-    ast.Gt: operator.gt,
-    ast.GtE: operator.ge,
-    ast.In: lambda a, b: a in b,
-    ast.NotIn: lambda a, b: a not in b,
-    ast.Is: operator.is_,
-    ast.IsNot: operator.is_not,
-}
-_SAFE_UNARY_OPS = {
-    ast.Not: operator.not_,
-    ast.USub: operator.neg,
-    ast.UAdd: operator.pos,
-}
-
-
-def _safe_eval_node(node: ast.AST, names: Dict[str, Any]) -> Any:
-    """Evaluate a restricted AST node for workflow condition expressions.
-
-    Only literals, names resolved from ``names``, boolean operators,
-    comparisons and unary operators are supported. Any other node type raises
-    ``ValueError`` so untrusted expressions cannot reach dangerous constructs.
-    """
-    if isinstance(node, ast.Constant):
-        return node.value
-    if isinstance(node, ast.Name):
-        if node.id in names:
-            return names[node.id]
-        raise ValueError(f"Unknown name in condition: {node.id}")
-    if isinstance(node, ast.BoolOp):
-        values = [_safe_eval_node(v, names) for v in node.values]
-        if isinstance(node.op, ast.And):
-            return all(values)
-        return any(values)
-    if isinstance(node, ast.UnaryOp) and type(node.op) in _SAFE_UNARY_OPS:
-        return _SAFE_UNARY_OPS[type(node.op)](_safe_eval_node(node.operand, names))
-    if isinstance(node, ast.Compare):
-        left = _safe_eval_node(node.left, names)
-        for op, comparator in zip(node.ops, node.comparators):
-            op_type = type(op)
-            if op_type not in _SAFE_COMPARE_OPS:
-                raise ValueError(f"Unsupported comparison: {op_type.__name__}")
-            right = _safe_eval_node(comparator, names)
-            if not _SAFE_COMPARE_OPS[op_type](left, right):
-                return False
-            left = right
-        return True
-    raise ValueError(f"Unsupported expression element: {type(node).__name__}")
 
 
 # Framework handler instances

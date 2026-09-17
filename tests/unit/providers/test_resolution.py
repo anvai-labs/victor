@@ -181,7 +181,7 @@ class TestUnifiedApiKeyResolver:
                 assert any(source.source == "sentinelpass" for source in result.sources_attempted)
 
     def test_get_key_from_sentinelpass_invokes_secret_get_without_logging_value(self):
-        """SentinelPass helper shells out to `sentinelpass secret-get` and returns stdout."""
+        """SentinelPass helper shells out to `sentinelpass secret get --client-id` (allowlisted)."""
         completed = MagicMock()
         completed.returncode = 0
         completed.stdout = "sk-ant-from-vault\n"
@@ -199,7 +199,11 @@ class TestUnifiedApiKeyResolver:
 
         assert key == "sk-ant-from-vault"
         cmd = run.call_args.args[0]
-        assert cmd[:2] == ["/usr/bin/sentinelpass", "secret-get"]
+        assert cmd[:3] == ["/usr/bin/sentinelpass", "secret", "get"]
+        assert "--client-id" in cmd
+        assert "victor" in cmd
+        assert "--output" in cmd
+        assert "plain" in cmd
         assert "--domain" in cmd
         assert "anthropic" in cmd
         assert "sk-ant-from-vault" not in cmd

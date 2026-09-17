@@ -220,6 +220,14 @@ providers:
     free_tier: true
     notes: "Desktop app with OpenAI-compatible API."
 
+  inferflux:
+    env_var: "INFERFLUX_API_KEY"
+    description: "Self-hosted InferFlux inference server"
+    registration_url: "https://github.com/anvai-labs/inferflux"
+    docs_url: "https://github.com/anvai-labs/inferflux"
+    free_tier: true
+    notes: "Keyless when the server has no api_keys configured; set INFERFLUX_API_KEY for a secured deployment."
+
   vllm:
     env_var: null
     description: "High-throughput LLM serving"

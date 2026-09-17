@@ -116,6 +116,10 @@ DEMAND_TOOL_SPECS: Dict[str, tuple[str, str]] = {
     # the victor-coding entry-point. Import fails gracefully when victor-coding
     # is absent (caught in _load_tool_spec → returns None).
     "graph": ("victor_coding.tools.graph_tool", "graph"),
+    # gh is core-repo (not a vertical) but backs an OPTIONAL binary: a machine
+    # with git need not have gh, and bootstrap schema space is spent only on
+    # tools every session needs. Hydrated via GH_DEMAND_KEYWORDS like graph.
+    "gh": ("victor.tools.unified.gh_tool", "gh_tool_registered"),
 }
 
 
@@ -133,6 +137,23 @@ GRAPH_DEMAND_KEYWORDS = frozenset(
         "neighbors",
         "trace",
         "call flow",
+    }
+)
+
+# Hydrate the `gh` tool when the request is GitHub-flavored. Deliberately no
+# bare "pr" (substring of prompt/print/process) and no bare "gh" (ugh, gherkin):
+# every phrase here is specific enough for plain substring matching.
+GH_DEMAND_KEYWORDS = frozenset(
+    {
+        "github",
+        "pull request",
+        "gh pr",
+        "gh issue",
+        "gh run",
+        "gh release",
+        "gh repo",
+        "gh api",
+        "gh auth",
     }
 )
 
@@ -383,6 +404,8 @@ class SharedToolRegistry:
         demand: List[str] = []
         if any(keyword in lowered for keyword in GRAPH_DEMAND_KEYWORDS):
             demand.append("graph")
+        if any(keyword in lowered for keyword in GH_DEMAND_KEYWORDS):
+            demand.append("gh")
         return demand
 
     def _discover_tools(self) -> None:

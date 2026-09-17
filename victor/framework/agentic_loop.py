@@ -157,8 +157,9 @@ class StreamingActProvider(Protocol):
     for live delivery, and write the produced ``TurnResult`` to ``outcome``. Letting the loop
     depend on this narrow seam keeps PERCEIVE/PLAN/EVALUATE/DECIDE shared while the I/O shape
     differs only in ACT. The concrete implementation — an adapter over the service-layer
-    ``StreamingChatExecutor.execute_turn_streaming`` — is wired at cutover; until then
-    ``run_streaming`` is unwired (no default provider).
+    ``StreamingChatExecutor.execute_turn_streaming`` (``StreamingActAdapter``) — is wired at the
+    FEP-0007 step-3 cutover: ``StreamingChatExecutor.run_unified`` builds the loop with this
+    adapter, making ``run_streaming`` the live streaming loop body.
     """
 
     def stream_turn_act(
@@ -1781,12 +1782,14 @@ class AgenticLoop:
         ``TurnResult`` the shared EVALUATE phase consumes. Streaming thus becomes a pure I/O mode
         of the one research-rooted loop rather than a separate, thinner loop.
 
-        NOT yet wired into the live streaming path: it requires an injected ``streaming_act_port``
-        and currently covers the core phase loop. The run()-only preamble bands (fast-slow
-        planning gate, semantic response cache, paradigm/topology routing) and the richer DECIDE
-        bands (content-repetition controller, adaptive termination) are reconciled into this shared
-        path at cutover; until then ``StreamingChatExecutor.run()`` remains the single live
-        streaming loop body.
+        This is the LIVE streaming path as of the FEP-0007 step-3 cutover: ``run_streaming`` is
+        driven via ``StreamingChatExecutor.run_unified`` (``ChatStreamRuntime``'s stream entry
+        point), with the service-layer ``StreamingActAdapter`` wired as the ``streaming_act_port``.
+        Still owned by the buffered ``run()``'s preamble only (reconciling them here is the
+        remaining FEP-0007 follow-up): the fast-slow planning gate, the semantic response cache,
+        paradigm/topology routing, the content-repetition controller feed, and adaptive
+        termination. Run/stream behavioral parity is pinned by
+        ``tests/integration/streaming/test_run_stream_parity.py``.
 
         Args:
             query: User's natural language query.
@@ -1958,88 +1961,6 @@ class AgenticLoop:
                 EvaluationDecision.FAIL,
             ):
                 break
-
-    async def stream_chat(
-        self,
-        query: str,
-        streaming_executor: Any = None,
-        context: Optional[Dict[str, Any]] = None,
-    ) -> AsyncIterator[Any]:
-        """Stream chat with perception and evaluation lifecycle.
-
-        Wraps the canonical StreamingChatExecutor with AgenticLoop's
-        PERCEIVE and EVALUATE phases. The streaming executor handles
-        the ACT phase (LLM streaming + tool execution + recovery).
-
-        Perception runs concurrently with streaming start to avoid
-        blocking the first chunk (TaskAnalyzer cold start is ~5s on
-        first call due to embedding model loading).
-
-        Args:
-            query: User's natural language query
-            streaming_executor: StreamingChatExecutor instance
-            context: Additional context
-
-        Yields:
-            StreamChunk objects from the streaming executor
-        """
-        # Reset spin detector for this conversation turn
-        self.turn_evaluation_controller.reset()  # resets spin_detector + content-repetition + plateau
-        self.criteria_builder.reset()
-        # ADR-010: session-scoped effect ledger + downgrade budget (getattr: tests build
-        # partial loops via __new__ without the gate; a missing gate means no gating).
-        _effect_gate = getattr(self, "effect_gate", None)
-        if _effect_gate is not None:
-            _effect_gate.reset()
-        _auditor = getattr(self, "per_turn_auditor", None)
-        if _auditor is not None:
-            _auditor.reset()
-
-        # PERCEIVE (before streaming — understands task before LLM call)
-        perception = await self._analyze_turn(query, context)
-        logger.info(
-            f"[stream] Perceived: intent={perception.intent.value}, "
-            f"complexity={perception.complexity.value}, "
-            f"confidence={perception.confidence:.2f}"
-        )
-
-        # ACT via streaming executor (yields chunks token-by-token)
-        if streaming_executor is not None:
-            try:
-                # FEP-0007: use the canonical run_unified() entry point. The
-                # legacy run() alias on StreamingChatExecutor is LTS-deprecated;
-                # the hasattr fallback keeps the duck-typed test executors
-                # (which may only implement run()) working during the cutover.
-                if hasattr(streaming_executor, "run_unified"):
-                    run_streaming = streaming_executor.run_unified
-                else:
-                    run_streaming = streaming_executor.run
-                async for chunk in run_streaming(query):
-                    yield chunk
-            except Exception as e:
-                if "request format error" in str(e).lower():
-                    logger.warning(
-                        f"[stream] Streaming failed due to message format error, "
-                        f"falling back to non-streaming: {e}"
-                    )
-                    # Fall back: yield a simple text chunk with error info
-                    # In production, you might want to call a non-streaming chat method here
-                    from victor.providers.base import StreamChunk
-
-                    yield StreamChunk(
-                        content=f"[Streaming error: {str(e)}. The system encountered a message format issue. "
-                        f"This has been logged and will be fixed in future updates.]",
-                        is_final=True,
-                    )
-                else:
-                    # Re-raise non-format errors
-                    raise
-        else:
-            logger.warning("[stream] No streaming executor provided")
-            return
-
-        # EVALUATE (post-hoc — decisions need full response context)
-        logger.debug("[stream] Streaming complete, post-hoc evaluation done")
 
     async def _initialize_topology_plan(
         self,

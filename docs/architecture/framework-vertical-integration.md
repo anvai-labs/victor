@@ -6,38 +6,30 @@
 
 Victor's architecture follows SOLID principles with a protocol-first design that separates concerns between the framework core and domain-specific verticals.
 
-```
-┌──────────────────────────────────────────────────────────────────────┐
-│                           REQUEST FLOW                                │
-├──────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│  CLI ──▶ AgentOrchestrator ──▶ VerticalIntegrationPipeline          │
-│                                        │                              │
-│                                        ▼                              │
-│                              StepHandlerRegistry                     │
-│                                  ┌─────┴─────┐                        │
-│                                  │ Handlers │                        │
-│                                  │ ┌───────┐ │                        │
-│                                  │ │ Tools │ │                        │
-│                                  │ │ Prompt│ │                        │
-│                                  │ │ Config│ │                        │
-│                                  │ │ Extend│ │                        │
-│                                  │ │Framework│ │                       │
-│                                  │ └───────┘ │                        │
-│                                  └─────┬─────┘                        │
-│                                        │                              │
-│                                        ▼                              │
-│                               VerticalBase                         │
-│                            (Coding, Research, ...)                   │
-│                                                                      │
-└──────────────────────────────────────────────────────────────────────┘
+```mermaid
+---
+title: Framework integration of vertical capabilities
+---
+%%{init: {"theme":"base","themeVariables":{"primaryColor":"#E8EFF7","primaryTextColor":"#17324D","primaryBorderColor":"#456987","lineColor":"#456987","fontFamily":"Arial"}}}%%
+flowchart TB
+  C["Client"]
+  F["Framework factory"]
+  P["VerticalIntegrationPipeline"]
+  H["StepHandlerRegistry"]
+  V["VerticalBase contract"]
+  R["Configured runtime"]
+  C -->|"request configured agent"| F
+  F -->|"apply selected vertical"| P
+  V -->|"supply capabilities"| P
+  P -->|"dispatch integration steps"| H
+  H -->|"bind tools, prompts and extensions"| R
 ```
 
 ## Core Components
 
 ### 1. VerticalIntegrationPipeline
 
-**Location**: [`victor/framework/vertical_integration.py`](../../../victor/framework/vertical_integration.py)
+**Location**: [`victor/framework/vertical_integration.py`](https://github.com/anvai-labs/victor/blob/develop/victor/framework/vertical_integration.py)
 
 Facade that applies vertical configurations to orchestrators via step handlers.
 
@@ -55,7 +47,7 @@ result = pipeline.apply(orchestrator, CodingAssistant)
 
 ### 2. StepHandler System
 
-**Location**: [`victor/framework/step_handlers.py`](../../../victor/framework/step_handlers.py)
+**Location**: [`victor/framework/step_handlers.py`](https://github.com/anvai-labs/victor/blob/develop/victor/framework/step_handlers.py)
 
 Single Responsibility Principle: each handler manages one integration concern.
 
@@ -83,7 +75,7 @@ def _check_capability(obj: Any, capability_name: str) -> bool:
 
 ### 3. VerticalBase
 
-**Location**: [`victor/core/verticals/base.py`](../../../victor/core/verticals/base.py)
+**Location**: [`victor/core/verticals/base.py`](https://github.com/anvai-labs/victor/blob/develop/victor/core/verticals/base.py)
 
 Abstract base class for all verticals with built-in caching.
 
@@ -114,7 +106,7 @@ def get_safety_extension(cls):
 
 ### Capability Registry Protocol
 
-**Location**: [`victor/framework/protocols.py`](../../../victor/framework/protocols.py)
+**Location**: [`victor/framework/protocols.py`](https://github.com/anvai-labs/victor/blob/develop/victor/framework/protocols.py)
 
 Replaces `hasattr` duck-typing with explicit capability contracts.
 
@@ -141,7 +133,7 @@ class OrchestratorVerticalProtocol(Protocol):
 
 ### Framework Capabilities
 
-**Location**: [`victor/framework/capabilities/`](../../../victor/framework/capabilities/)
+**Location**: [`victor/framework/capabilities/`](https://github.com/anvai-labs/victor/tree/develop/victor/framework/capabilities/)
 
 Reusable capabilities across verticals following DRY:
 
@@ -178,11 +170,11 @@ class CodingCapabilityProvider(BaseCapabilityProvider):
 
 | Principle | Implementation | File |
 |-----------|----------------|------|
-| **SRP** | Each StepHandler handles one concern | [`step_handlers.py`](../../../victor/framework/step_handlers.py) |
-| **OCP** | ExtensionsStepHandler extension registry for pluggable handlers | [`step_handlers.py`](../../../victor/framework/step_handlers.py) |
-| **LSP** | StepHandlerProtocol ensures substitutability | [`step_handlers.py:278`](../../../victor/framework/step_handlers.py#L278) |
-| **ISP** | Focused protocols (CapabilityRegistry, SubAgentContext) | [`protocols.py`](../../../victor/framework/protocols.py) |
-| **DIP** | `_check_capability`/`_invoke_capability` use protocols | [`step_handlers.py:120`](../../../victor/framework/step_handlers.py#L120) |
+| **SRP** | Each StepHandler handles one concern | [`step_handlers.py`](https://github.com/anvai-labs/victor/blob/develop/victor/framework/step_handlers.py) |
+| **OCP** | ExtensionsStepHandler extension registry for pluggable handlers | [`step_handlers.py`](https://github.com/anvai-labs/victor/blob/develop/victor/framework/step_handlers.py) |
+| **LSP** | StepHandlerProtocol ensures substitutability | [`step_handlers.py:278`](https://github.com/anvai-labs/victor/blob/develop/victor/framework/step_handlers.py#L278) |
+| **ISP** | Focused protocols (CapabilityRegistry, SubAgentContext) | [`protocols.py`](https://github.com/anvai-labs/victor/blob/develop/victor/framework/protocols.py) |
+| **DIP** | `_check_capability`/`_invoke_capability` use protocols | [`step_handlers.py:120`](https://github.com/anvai-labs/victor/blob/develop/victor/framework/step_handlers.py#L120) |
 
 ## Extension Points
 
@@ -231,27 +223,9 @@ extensions.extension_registry.register(
 
 ## Data Flow Summary
 
-```
-User Request
-    │
-    ▼
-AgentOrchestrator.set_enabled_tools()          ◀─── ToolStepHandler
-    │
-    ▼
-AgentOrchestrator.set_system_prompt()          ◀─── PromptStepHandler
-    │
-    ▼
-AgentOrchestrator.apply_vertical_middleware()   ◀─── MiddlewareStepHandler
-    │
-    ▼
-AgentOrchestrator.apply_vertical_safety_patterns() ◀─── SafetyStepHandler
-    │
-    ▼
-AgentOrchestrator.set_vertical_context()        ◀─── ContextStepHandler
-    │
-    ▼
-Response
-```
+See the [integration diagram](#overview): framework construction applies a vertical
+through the integration pipeline and registered handlers before runtime execution.
+The [runtime service map](../architecture.md#service-layer) describes the owning services.
 
 ## Cancellation-Aware Tool Discovery
 
@@ -261,14 +235,23 @@ entry-point scan without forcing a blocking operation to run to completion.
 
 The token is threaded down the full call chain:
 
-```
-discover_tool_plugins(cancel_event)          # module-level convenience fn
-    └── VerticalLoader.discover_tools(cancel_event=...)        # public API
-            └── VerticalLoader._discover_tools_internal(*, cancel_event=...)  # scan
-
-async discover_tool_plugins_async(cancel_event)
-    └── VerticalLoader.discover_tools_async(cancel_event=...)  # offloaded via asyncio.to_thread
-            └── VerticalLoader._discover_tools_internal(*, cancel_event=...)  # scan
+```mermaid
+---
+title: Cooperative cancellation during tool discovery
+---
+%%{init: {"theme":"base","themeVariables":{"primaryColor":"#E8EFF7","primaryTextColor":"#17324D","primaryBorderColor":"#456987","lineColor":"#456987","fontFamily":"Arial"}}}%%
+flowchart TB
+  S["discover_tool_plugins(cancel_event)"]
+  A["discover_tool_plugins_async(cancel_event)"]
+  DS["VerticalLoader.discover_tools"]
+  DA["VerticalLoader.discover_tools_async"]
+  I["_discover_tools_internal"]
+  E["threading.Event"]
+  S -->|"delegate synchronous discovery"| DS
+  A -->|"delegate asynchronous discovery"| DA
+  DS -->|"scan in caller thread"| I
+  DA -->|"asyncio.to_thread"| I
+  E -.->|"check before scan and class loading"| I
 ```
 
 **Cancellation semantics:**
@@ -294,10 +277,10 @@ only way to short-circuit it.
 
 | Component | File |
 |-----------|------|
-| Pipeline | [`victor/framework/vertical_integration.py`](../../../victor/framework/vertical_integration.py) |
-| Step Handlers | [`victor/framework/step_handlers.py`](../../../victor/framework/step_handlers.py) |
-| Protocols | [`victor/framework/protocols.py`](../../../victor/framework/protocols.py) |
-| Vertical Base | [`victor/core/verticals/base.py`](../../../victor/core/verticals/base.py) |
-| Vertical Loader | [`victor/core/verticals/vertical_loader.py`](../../../victor/core/verticals/vertical_loader.py) |
-| Framework Capabilities | [`victor/framework/capabilities/`](../../../victor/framework/capabilities/) |
-| WorkflowEngine | [`victor/framework/workflow_engine.py`](../../../victor/framework/workflow_engine.py) |
+| Pipeline | [`victor/framework/vertical_integration.py`](https://github.com/anvai-labs/victor/blob/develop/victor/framework/vertical_integration.py) |
+| Step Handlers | [`victor/framework/step_handlers.py`](https://github.com/anvai-labs/victor/blob/develop/victor/framework/step_handlers.py) |
+| Protocols | [`victor/framework/protocols.py`](https://github.com/anvai-labs/victor/blob/develop/victor/framework/protocols.py) |
+| Vertical Base | [`victor/core/verticals/base.py`](https://github.com/anvai-labs/victor/blob/develop/victor/core/verticals/base.py) |
+| Vertical Loader | [`victor/core/verticals/vertical_loader.py`](https://github.com/anvai-labs/victor/blob/develop/victor/core/verticals/vertical_loader.py) |
+| Framework Capabilities | [`victor/framework/capabilities/`](https://github.com/anvai-labs/victor/tree/develop/victor/framework/capabilities/) |
+| WorkflowEngine | [`victor/framework/workflow_engine.py`](https://github.com/anvai-labs/victor/blob/develop/victor/framework/workflow_engine.py) |

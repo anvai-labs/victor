@@ -69,8 +69,6 @@ from typing import (
     TypeVar,
 )
 
-from typing_extensions import TypeAlias
-
 logger = logging.getLogger(__name__)
 
 # Import RL types

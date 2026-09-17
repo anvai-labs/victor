@@ -338,55 +338,6 @@ class WorkflowStateModel(BaseModel):
             hitl_response=data.get("_hitl_response"),
         )
 
-    # Dict-like methods for compatibility with StateGraph
-    def get(self, key: str, default: Any = None) -> Any:
-        """Get a value by key (dict-like interface)."""
-        # First check if it's a direct attribute (data, messages, etc.)
-        if hasattr(self.__class__, key):
-            return getattr(self, key)
-
-        # Check if it's in the data field (user data)
-        if hasattr(self, "data") and key in self.data:
-            return self.data[key]
-
-        # Otherwise convert to dict format with underscore prefixes
-        dict_key = f"_{key}" if not key.startswith("_") else key
-        dict_repr = self.to_dict()
-        return dict_repr.get(dict_key, default)
-
-    def keys(self) -> list:
-        """Return list of keys (dict-like interface)."""
-        dict_repr = self.to_dict()
-        # Include data field contents at top level
-        keys = list(dict_repr.keys())
-        if hasattr(self, "data"):
-            # Remove "data" key and add its contents at top level
-            keys.remove("data")
-            keys.extend(self.data.keys())
-        return keys
-
-    def items(self) -> list:
-        """Return list of (key, value) tuples (dict-like interface)."""
-        dict_repr = self.to_dict()
-        # Include data field contents at top level
-        items = list(dict_repr.items())
-        if hasattr(self, "data") and "data" in dict_repr:
-            # Remove "data" entry and add its contents at top level
-            items = [kv for kv in items if kv[0] != "data"]
-            items.extend(self.data.items())
-        return items
-
-    def values(self) -> list:
-        """Return list of values (dict-like interface)."""
-        dict_repr = self.to_dict()
-        # Include data field contents at top level
-        values = list(dict_repr.values())
-        if hasattr(self, "data") and "data" in dict_repr:
-            # Remove "data" value and add its contents at top level
-            values = [v for k, v in dict_repr.items() if k != "data"]
-            values.extend(self.data.values())
-        return values
-
     def __getitem__(self, key: str) -> Any:
         """Get item by key (dict-like subscript access)."""
         return self.get(key)
@@ -404,13 +355,12 @@ class WorkflowStateModel(BaseModel):
     # Dict-like methods for compatibility with StateGraph
     def get(self, key: str, default: Any = None) -> Any:
         """Get a value by key (dict-like interface)."""
-        # First check if it's a direct attribute (data, messages, etc.)
-        if hasattr(self.__class__, key):
-            return getattr(self, key)
-
-        # Check if it's in the data field (user data)
-        if hasattr(self, "data") and key in self.data:
+        # User keys may share names with mapping methods or model fields.
+        # The flat mapping must return the payload, never a bound method.
+        if key in self.data:
             return self.data[key]
+        if key in type(self).model_fields:
+            return getattr(self, key)
 
         # Otherwise convert to dict format with underscore prefixes
         dict_key = f"_{key}" if not key.startswith("_") else key

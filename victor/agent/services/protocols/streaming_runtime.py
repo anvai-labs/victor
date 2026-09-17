@@ -25,6 +25,8 @@ larger dependency, this module defines a focused structural protocol.
 
 from __future__ import annotations
 
+from victor.agent.services.chat_runtime_services import ChatRuntimeServices
+
 from typing import (
     Any,
     AsyncIterator,
@@ -147,6 +149,7 @@ class ToolExecutionRecoveryRuntimeProtocol(Protocol):
 class StreamingExecutionRuntimeProtocol(Protocol):
     """Structural runtime contract consumed by streaming chat executors."""
 
+    services: "ChatRuntimeServices"
     _orchestrator: Any
     _intent_classification_handler: Any
     _continuation_handler: Any

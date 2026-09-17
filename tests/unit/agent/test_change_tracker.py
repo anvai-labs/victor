@@ -777,3 +777,49 @@ class TestCrossSessionScoping:
         assert ok_a and fa in files_a and fb not in files_a
         ok_b, _, files_b = t_b.undo()
         assert ok_b and fb in files_b
+
+
+@pytest.mark.parametrize("content", ["", "changed"])
+def test_legacy_undo_history_uses_recorded_content_not_weak_digest(tracker, tmp_path, content):
+    import hashlib
+
+    file = tmp_path / "legacy.txt"
+    file.write_text(content)
+    record = FileChange(
+        id="legacy",
+        change_type=ChangeType.MODIFY,
+        file_path=str(file),
+        timestamp=1,
+        tool_name="edit",
+        tool_args={},
+        original_content="original",
+        new_content=content,
+        checksum_before=hashlib.md5(b"original", usedforsecurity=False).hexdigest(),
+        checksum_after=hashlib.md5(content.encode(), usedforsecurity=False).hexdigest(),
+    )
+    # Exercise the persisted representation, not just new in-memory records.
+    record = FileChange.from_dict(record.to_dict())
+    assert not tracker._has_conflict(record, "undo")
+    file.write_text("external edit")
+    # Even a matching legacy checksum cannot override the recorded expected text.
+    record.checksum_after = hashlib.md5(b"external edit", usedforsecurity=False).hexdigest()
+    assert tracker._has_conflict(record, "undo")
+    file.write_text("original")
+    assert not tracker._has_conflict(record, "redo")
+    file.write_text("another edit")
+    assert tracker._has_conflict(record, "redo")
+
+
+def test_new_checksums_and_empty_file_undo_redo(tracker, tmp_path):
+    import hashlib
+
+    file = tmp_path / "empty.txt"
+    file.write_text("")
+    assert tracker.compute_checksum("") == hashlib.sha256(b"").hexdigest()
+    tracker.begin_change_group("write", "empty file")
+    tracker.record_change(str(file), ChangeType.CREATE, None, "", tool_name="write")
+    tracker.commit_change_group()
+    success, _, _ = tracker.undo()
+    assert success and not file.exists()
+    success, _, _ = tracker.redo()
+    assert success and file.read_text() == ""

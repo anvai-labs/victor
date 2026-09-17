@@ -592,9 +592,46 @@ class TestCompiledGraphExecution:
         assert result.state["value"] == 12  # (5+1)*2
         assert result.state["history"] == ["increment", "double"]
         assert result.node_history == ["inc", "double"]
+        # state_history is opt-in (co-design review item 11): a plain
+        # invoke() records none, since each snapshot is a full deep copy.
+        assert result.state_history == []
+
+    @pytest.mark.asyncio
+    async def test_invoke_records_state_history_when_enabled(self):
+        """record_state_history=True populates the per-node snapshot list."""
+        graph = StateGraph(SimpleState)
+        graph.add_node("inc", increment_node)
+        graph.add_node("double", double_node)
+        graph.add_edge("inc", "double")
+        graph.add_edge("double", END)
+        graph.set_entry_point("inc")
+        compiled = graph.compile(record_state_history=True)
+
+        state: SimpleState = {"value": 5, "history": []}
+        result = await compiled.invoke(state)
+
         assert [node_id for node_id, _ in result.state_history] == ["inc", "double"]
         assert result.state_history[0][1]["value"] == 6
         assert result.state_history[1][1]["value"] == 12
+
+    @pytest.mark.asyncio
+    async def test_invoke_default_skips_state_snapshot_deepcopy(self, simple_graph, monkeypatch):
+        """Perf negative: with the default off, no per-node state snapshot is
+        taken at all — not just an empty list from a skipped append."""
+        from victor.framework.graph_execution import snapshot_state_for_result as original
+
+        calls = []
+
+        def _spy(state):
+            calls.append(state)
+            return original(state)
+
+        monkeypatch.setattr("victor.framework.graph.snapshot_state_for_result", _spy)
+
+        state: SimpleState = {"value": 5, "history": []}
+        await simple_graph.invoke(state)
+
+        assert calls == []
 
     @pytest.mark.asyncio
     async def test_invoke_tracks_iterations(self, simple_graph):

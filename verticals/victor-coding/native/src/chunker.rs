@@ -19,7 +19,6 @@
 
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
-use std::collections::HashMap;
 
 /// High-performance code chunker.
 ///
@@ -48,7 +47,7 @@ impl FastChunker {
     #[new]
     #[pyo3(signature = (config=None, max_tokens=None, overlap_tokens=None, priority=None))]
     fn new(
-        config: Option<PyObject>,
+        config: Option<Py<PyAny>>,
         max_tokens: Option<usize>,
         overlap_tokens: Option<usize>,
         priority: Option<i32>,
@@ -56,7 +55,7 @@ impl FastChunker {
         // Determine values from various sources
         let (final_max_tokens, final_overlap_tokens, final_priority) = if let Some(cfg) = config {
             // Extract from config object
-            Python::with_gil(|py| {
+            Python::attach(|py| {
                 let mut max_tok = max_tokens.unwrap_or(512);
                 let mut overlap_tok = overlap_tokens.unwrap_or(64);
                 let mut prio = priority.unwrap_or(80);
@@ -86,7 +85,11 @@ impl FastChunker {
             })
         } else {
             // Use direct arguments or defaults
-            (max_tokens.unwrap_or(512), overlap_tokens.unwrap_or(64), priority.unwrap_or(80))
+            (
+                max_tokens.unwrap_or(512),
+                overlap_tokens.unwrap_or(64),
+                priority.unwrap_or(80),
+            )
         };
 
         Ok(Self {
@@ -131,13 +134,13 @@ impl FastChunker {
         content: &str,
         language: &str,
         file_path: Option<&str>,
-    ) -> PyResult<PyObject> {
-        Python::with_gil(|py| {
+    ) -> PyResult<Py<PyAny>> {
+        Python::attach(|py| {
             let chunks = PyList::empty(py);
 
             // Skip empty content
             if content.trim().is_empty() {
-                return Ok(chunks.to_object(py));
+                return Ok(chunks.into_any().unbind());
             }
 
             let lines: Vec<&str> = content.lines().collect();
@@ -155,7 +158,7 @@ impl FastChunker {
                     file_path,
                 )?;
                 chunks.append(chunk)?;
-                return Ok(chunks.to_object(py));
+                return Ok(chunks.into_any().unbind());
             }
 
             // Sliding window chunking with overlap
@@ -164,10 +167,9 @@ impl FastChunker {
 
             while current_line < total_lines {
                 let start_line = current_line + 1; // 1-indexed
-                let end_line = (current_line + self.count_lines_for_chars(
-                    &lines[current_line..],
-                    self.max_chars,
-                )).min(total_lines);
+                let end_line = (current_line
+                    + self.count_lines_for_chars(&lines[current_line..], self.max_chars))
+                .min(total_lines);
 
                 // Collect lines for this chunk
                 let chunk_content: String = lines[current_line..end_line].join("\n");
@@ -205,15 +207,14 @@ impl FastChunker {
                 }
 
                 // Calculate overlap (number of lines to overlap)
-                let overlap_lines = self.count_lines_for_chars(
-                    &lines[current_line..end_line],
-                    self.overlap_chars,
-                ).min(self.overlap_tokens);
+                let overlap_lines = self
+                    .count_lines_for_chars(&lines[current_line..end_line], self.overlap_chars)
+                    .min(self.overlap_tokens);
 
                 current_line = end_line - overlap_lines.min(end_line - current_line);
             }
 
-            Ok(chunks.to_object(py))
+            Ok(chunks.into_any().unbind())
         })
     }
 
@@ -234,13 +235,13 @@ impl FastChunker {
         content: &str,
         max_chars: usize,
         overlap_chars: usize,
-    ) -> PyResult<PyObject> {
-        Python::with_gil(|py| {
+    ) -> PyResult<Py<PyAny>> {
+        Python::attach(|py| {
             let chunks = PyList::empty(py);
 
             // Skip empty content
             if content.trim().is_empty() {
-                return Ok(chunks.to_object(py));
+                return Ok(chunks.into_any().unbind());
             }
 
             let lines: Vec<&str> = content.lines().collect();
@@ -248,17 +249,10 @@ impl FastChunker {
 
             // If content fits in one chunk, return it
             if content.len() <= max_chars {
-                let chunk = self.create_chunk_info(
-                    py,
-                    content,
-                    "file",
-                    1,
-                    total_lines,
-                    "unknown",
-                    None,
-                )?;
+                let chunk =
+                    self.create_chunk_info(py, content, "file", 1, total_lines, "unknown", None)?;
                 chunks.append(chunk)?;
-                return Ok(chunks.to_object(py));
+                return Ok(chunks.into_any().unbind());
             }
 
             // Sliding window chunking
@@ -267,10 +261,9 @@ impl FastChunker {
 
             while current_line < total_lines {
                 let start_line = current_line + 1;
-                let end_line = (current_line + self.count_lines_for_chars(
-                    &lines[current_line..],
-                    max_chars,
-                )).min(total_lines);
+                let end_line = (current_line
+                    + self.count_lines_for_chars(&lines[current_line..], max_chars))
+                .min(total_lines);
 
                 let chunk_content: String = lines[current_line..end_line].join("\n");
 
@@ -295,15 +288,14 @@ impl FastChunker {
                 }
 
                 // Calculate overlap
-                let overlap_lines = self.count_lines_for_chars(
-                    &lines[current_line..end_line],
-                    overlap_chars,
-                ).min(overlap_chars / 40); // Approximate lines from chars
+                let overlap_lines = self
+                    .count_lines_for_chars(&lines[current_line..end_line], overlap_chars)
+                    .min(overlap_chars / 40); // Approximate lines from chars
 
                 current_line = end_line - overlap_lines.min(end_line - current_line);
             }
 
-            Ok(chunks.to_object(py))
+            Ok(chunks.into_any().unbind())
         })
     }
 
@@ -316,9 +308,9 @@ impl FastChunker {
     /// Returns:
     ///     List of chunk dictionaries
     #[pyo3(signature = (file_path, language=None))]
-    fn chunk_file(&self, file_path: PyObject, language: Option<&str>) -> PyResult<PyObject> {
+    fn chunk_file(&self, file_path: Py<PyAny>, language: Option<&str>) -> PyResult<Py<PyAny>> {
         // Convert file_path to string (handles both str and PathLike)
-        let file_path_str: String = Python::with_gil(|py| {
+        let file_path_str: String = Python::attach(|py| {
             if let Ok(s) = file_path.extract::<String>(py) {
                 Ok(s)
             } else if let Ok(path) = file_path.getattr(py, "__str__") {
@@ -327,7 +319,7 @@ impl FastChunker {
                 result.extract(py)
             } else {
                 Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(
-                    "file_path must be str or PathLike"
+                    "file_path must be str or PathLike",
                 ))
             }
         })?;
@@ -381,11 +373,35 @@ impl FastChunker {
     fn supports_language(&self, language: &str) -> bool {
         matches!(
             language,
-            "python" | "javascript" | "typescript" | "go" | "rust"
-                | "java" | "kotlin" | "c" | "cpp" | "csharp" | "ruby"
-                | "php" | "swift" | "scala" | "r" | "julia" | "lua"
-                | "bash" | "zsh" | "sql" | "html" | "css" | "scss"
-                | "less" | "json" | "yaml" | "toml" | "xml" | "markdown"
+            "python"
+                | "javascript"
+                | "typescript"
+                | "go"
+                | "rust"
+                | "java"
+                | "kotlin"
+                | "c"
+                | "cpp"
+                | "csharp"
+                | "ruby"
+                | "php"
+                | "swift"
+                | "scala"
+                | "r"
+                | "julia"
+                | "lua"
+                | "bash"
+                | "zsh"
+                | "sql"
+                | "html"
+                | "css"
+                | "scss"
+                | "less"
+                | "json"
+                | "yaml"
+                | "toml"
+                | "xml"
+                | "markdown"
                 | "restructuredtext"
         )
     }
@@ -438,7 +454,7 @@ impl FastChunker {
         end_line: usize,
         language: &str,
         file_path: Option<&str>,
-    ) -> PyResult<PyObject> {
+    ) -> PyResult<Py<PyAny>> {
         let chunk = PyDict::new(py);
         chunk.set_item("content", content)?;
         chunk.set_item("text", content)?; // Alias for compatibility
@@ -459,7 +475,7 @@ impl FastChunker {
         metadata.set_item("line_count", end_line - start_line + 1)?;
         chunk.set_item("metadata", metadata)?;
 
-        Ok(chunk.to_object(py))
+        Ok(chunk.into_any().unbind())
     }
 
     /// Count how many lines are needed to reach approximately target_chars.
@@ -487,10 +503,7 @@ impl FastChunker {
 #[pyfunction]
 pub fn detect_language(file_path: &str) -> PyResult<&'static str> {
     let path = std::path::Path::new(file_path);
-    let ext = path
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("");
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
 
     Ok(match ext {
         "py" | "pyi" | "pyx" => "python",

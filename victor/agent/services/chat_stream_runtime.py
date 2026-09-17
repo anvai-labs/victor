@@ -20,6 +20,8 @@ if TYPE_CHECKING:
     from victor.agent.streaming.continuation import ContinuationHandler
     from victor.agent.streaming.tool_execution import ToolExecutionHandler
 
+from victor.agent.services.chat_runtime_services import ChatRuntimeServices
+
 logger = logging.getLogger(__name__)
 
 
@@ -99,7 +101,14 @@ class ServiceStreamingRuntime(ChatStreamHelperMixin):
     shim while reusing the shared service-owned streaming helper implementations.
     """
 
-    def __init__(self, orchestrator: Any) -> None:
+    def __init__(
+        self, orchestrator: Any, *, services: Optional[ChatRuntimeServices] = None
+    ) -> None:
+        from victor.agent.factory.chat_runtime_bindings import bind_chat_runtime_services
+
+        self.services = (
+            services if services is not None else bind_chat_runtime_services(orchestrator)
+        )
         self._orchestrator = orchestrator
         self._intent_classification_handler: Optional["IntentClassificationHandler"] = None
         self._continuation_handler: Optional["ContinuationHandler"] = None

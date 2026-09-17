@@ -43,7 +43,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from victor.core.context import get_auth_group_id, get_auth_subject_id
+from victor.core.context import get_auth_group_id, get_auth_subject_id, get_turn_id
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +72,10 @@ class RequestCost:
     # Metadata
     duration_seconds: float = 0.0
     tool_calls: int = 0
+    # The agentic-loop turn this call served (sandhi x-sandhi-step-id; None when
+    # unbound — bare provider usage outside a run). Populated from the correlation
+    # spine so per-step cost rows join the sandhi run cost tree.
+    step_id: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
@@ -96,6 +100,7 @@ class RequestCost:
             "metadata": {
                 "duration_seconds": self.duration_seconds,
                 "tool_calls": self.tool_calls,
+                **({"step_id": self.step_id} if self.step_id else {}),
             },
         }
 
@@ -204,6 +209,7 @@ class SessionCostTracker:
             request_id=str(uuid.uuid4()),
             timestamp=time.time(),
             model=request_model,
+            step_id=(get_turn_id() or None),
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
             cache_read_tokens=cache_read_tokens,

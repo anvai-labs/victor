@@ -4,10 +4,10 @@ Welcome to Victor! This guide will help you install, configure, and run Victor i
 
 ## What is Victor?
 
-**Victor** is an open-source agentic AI framework that supports 24 LLM providers (both local and cloud) through a unified CLI/TUI interface.
+**Victor** is an open-source agentic AI framework that supports 25 LLM providers (both local and cloud) through a unified CLI/TUI interface.
 
 **Key Features:**
-- **24 LLM Providers**: Cloud (Anthropic, OpenAI, Google, Vertex) and local (Ollama, LM Studio, vLLM)
+- **25 LLM Providers**: Cloud (Anthropic, OpenAI, Google, Vertex) and local (Ollama, LM Studio, vLLM)
 - **Provider Switching**: Switch between any provider mid-conversation without losing context
 - **No API Key Required**: Use local models by default for privacy and cost savings
 - **34 Tool Modules**: File operations, code editing, git, testing, search, and more
@@ -132,15 +132,15 @@ Customize Victor for your needs:
 
 After getting started:
 
-1. **[User Guide](../user-guide/)** - Daily usage patterns and workflows
-2. **[Provider Reference](../reference/providers/)** - All 24 providers detailed
+1. **[User Guide](../user-guide/index.md)** - Daily usage patterns and workflows
+2. **[Provider Reference](../reference/providers/index.md)** - All 25 providers detailed
 3. **[Tool Catalog](../reference/tools/catalog.md)** - 34 tool modules
 4. **[Workflow DSL](../guides/workflow-development/dsl.md)** - YAML workflow automation
 
 ## Need Help?
 
 - **Troubleshooting**: [Troubleshooting Guide](../user-guide/troubleshooting.md)
-- **Documentation**: [Full docs](../README.md)
+- **Documentation**: [Full docs](../index.md)
 - **Community**: [GitHub Discussions](https://github.com/anvai-labs/victor/discussions)
 - **Issues**: [Report bugs](https://github.com/anvai-labs/victor/issues)
 

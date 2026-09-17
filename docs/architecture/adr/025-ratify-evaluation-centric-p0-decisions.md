@@ -1,5 +1,9 @@
 # ADR-025: Ratify the Evaluation-Centric P0 Decisions
 
+> **Execution update.** P0 gates have since shipped or resolved; the later production-distribution
+> judge gate was NO-GO, so the default remains `enhanced`. The context and commitments below
+> are the original decision record. See the [current EVR ledger](../../roadmap.md#evaluation-roadmap-existing-gates-and-remaining-work).
+
 ## Metadata
 
 - **Status**: Accepted (2026-08-23 — P0 gates shipped or resolved; ADR-009 default flip correctly stopped by failed production-distribution evidence)
@@ -9,7 +13,7 @@
   reliability gating), 012 (regression-gated harness acceptance)
 - **Work tracked by**: [EVR-4, EVR-5, EVR-2, EVR-3](../evaluation-centric-runtime-backlog.md)
   (existing — this ADR does **not** create new work items)
-- **Governed by**: [FEP-0008](../../../feps/fep-0008-evaluation-centric-completion.md)
+- **Governed by**: [FEP-0008](https://github.com/anvai-labs/victor/blob/develop/feps/fep-0008-evaluation-centric-completion.md)
 - **Benchmark**: [competitive-benchmark-2026-07.md](../competitive-benchmark-2026-07.md) §5
 
 ## Context

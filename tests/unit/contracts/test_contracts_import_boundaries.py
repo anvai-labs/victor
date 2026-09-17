@@ -16,29 +16,21 @@ from typing import List, Tuple
 
 import pytest
 
-BANNED_PREFIXES = (
-    "victor.agent",
-    "victor.core",
-    "victor.framework",
-    "victor.providers",
-    "victor.security",
-    "victor.storage",
-    "victor.tools",
-    "victor.workflows",
-    "victor.evaluation",
-    "victor.observability",
+from victor_contracts.testing.boundaries import (
+    DEFINITION_LAYER_FORBIDDEN_PREFIXES,
+    KNOWN_VERTICAL_PACKAGE_NAMES,
 )
+
+# Sourced from the tiered manifest (co-design review item 22b) rather than a
+# locally maintained list, so this stays in sync with the definition-layer
+# tier every other consumer of victor_contracts.testing.boundaries enforces.
+BANNED_PREFIXES = DEFINITION_LAYER_FORBIDDEN_PREFIXES
 
 DEFINITION_FILES = {"assistant.py", "plugin.py"}
 
-VERTICALS = [
-    "victor_invest",
-    "victor_coding",
-    "victor_research",
-    "victor_devops",
-    "victor_rag",
-    "victor_dataanalysis",
-]
+# Sourced from the shared manifest (co-design review item 22b) rather than a
+# locally maintained list.
+VERTICALS = list(KNOWN_VERTICAL_PACKAGE_NAMES)
 
 
 def _find_source(pkg: str) -> Path:
@@ -140,6 +132,26 @@ def test_module_level_import_scanner_flags_dynamic_forbidden_imports() -> None:
         (2, "victor.agent.orchestrator"),
         (3, "victor.core.container"),
     ]
+
+
+def test_banned_prefixes_has_not_shrunk() -> None:
+    """Regression guard (co-design review item 22b): BANNED_PREFIXES is sourced
+    from victor_contracts.testing.boundaries.DEFINITION_LAYER_FORBIDDEN_PREFIXES.
+    Pin the exact expected set so a future edit to the shared manifest can't
+    silently loosen this guard without a visible, deliberate test change here.
+    """
+    assert set(BANNED_PREFIXES) == {
+        "victor.agent",
+        "victor.core",
+        "victor.framework",
+        "victor.providers",
+        "victor.security",
+        "victor.storage",
+        "victor.tools",
+        "victor.workflows",
+        "victor.evaluation",
+        "victor.observability",
+    }
 
 
 @pytest.mark.parametrize("pkg", VERTICALS)

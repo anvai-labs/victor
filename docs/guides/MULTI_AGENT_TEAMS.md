@@ -1,496 +1,67 @@
-# Multi-Agent Teams Guide
+# Multi-Agent Teams
 
-This guide covers Victor's multi-agent team system for orchestrating collaborative AI agents.
+Create a team through the public `Agent.create_team` factory. `TeamFormation` is an
+enum selecting how the team coordinates; it is not a team constructor.
 
-## Overview
+## Quick start
 
-Victor supports multi-agent workflows where multiple specialized agents collaborate to solve complex tasks. Key features:
-
-- **4 Team Formations**: Sequential, Parallel, Hierarchical, Pipeline
-- **Rich Personas**: Communication styles, expertise levels, backstories
-- **Inter-Agent Communication**: Message bus and shared memory
-- **Pre-built Team Specs**: Feature implementation, code review, bug fix teams
-- **Progress Tracking**: Real-time callbacks and observability
-
-## Quick Start
+Configure an Ollama server and pull the chosen model before running this example.
 
 ```python
-from victor.framework import Agent
-
-# Create an agent
-agent = await Agent.create(provider="anthropic")
-
-# Create a team from preset spec
-team = agent.create_team("feature_implementation")
-
-# Run the team
-result = await agent.run_team(team, task="Add user authentication")
-print(result.final_output)
-```
-
-## Team Formations
-
-### Sequential
-
-Agents execute one after another, each receiving the previous agent's output.
-
-```python
-from victor.teams import TeamConfig, TeamFormation, TeamMember
-
-config = TeamConfig(
-    name="review_pipeline",
-    formation=TeamFormation.SEQUENTIAL,
-    members=[
-        TeamMember(id="analyzer", role="Code Analyzer", ...),
-        TeamMember(id="reviewer", role="Code Reviewer", ...),
-        TeamMember(id="approver", role="Final Approver", ...),
-    ],
-    task="Review the authentication module"
-)
-```
-
-**Use when**: Tasks have clear stages that must happen in order.
-
-### Parallel
-
-All agents work simultaneously on the same task.
-
-```python
-config = TeamConfig(
-    name="multi_review",
-    formation=TeamFormation.PARALLEL,
-    members=[
-        TeamMember(id="security", role="Security Reviewer", ...),
-        TeamMember(id="style", role="Style Reviewer", ...),
-        TeamMember(id="logic", role="Logic Reviewer", ...),
-    ],
-    task="Review this pull request"
-)
-```
-
-**Use when**: Multiple perspectives needed independently.
-
-### Hierarchical
-
-A supervisor agent delegates to specialists, then synthesizes results.
-
-```python
-from victor.teams import TeamAgentCategory
-
-config = TeamConfig(
-    name="complex_feature",
-    formation=TeamFormation.HIERARCHICAL,
-    members=[
-        TeamMember(
-            id="supervisor",
-            role="planner",
-            name="Tech Lead",
-            goal="Plan work, delegate to specialists, and synthesize results",
-            agent_category=TeamAgentCategory.SUPERVISOR,
-            ...
-        ),
-        TeamMember(id="dev1", role="Backend Developer", ...),
-        TeamMember(id="dev2", role="Frontend Developer", ...),
-    ],
-    task="Implement user dashboard"
-)
-```
-
-**Use when**: Complex tasks requiring planning, delegation, and synthesis.
-
-### Pipeline
-
-Each agent's output becomes the next agent's input, with handoff messages.
-
-```python
-config = TeamConfig(
-    name="code_pipeline",
-    formation=TeamFormation.PIPELINE,
-    members=[
-        TeamMember(id="researcher", role="Researcher", ...),
-        TeamMember(id="implementer", role="Implementer", ...),
-        TeamMember(id="tester", role="Tester", ...),
-    ],
-    task="Add caching to the API"
-)
-```
-
-**Use when**: Tasks with clear input/output transformations.
-
-## Personas
-
-Define agent personalities with `PersonaTraits`:
-
-```python
-from victor.framework.multi_agent import (
-    PersonaTraits,
-    CommunicationStyle,
-    ExpertiseLevel,
-)
-
-security_expert = PersonaTraits(
-    name="SecurityBot",
-    role="Security Analyst",
-    description="Expert in application security and vulnerability detection",
-    communication_style=CommunicationStyle.TECHNICAL,
-    expertise_level=ExpertiseLevel.SPECIALIST,
-    strengths=["vulnerability detection", "secure coding", "threat modeling"],
-    weaknesses=["UI/UX design"],
-    preferred_tools=["security_scan", "dependency_audit"],
-    risk_tolerance=0.1,  # Very risk-averse
-    creativity=0.3,      # Methodical
-    verbosity=0.7,       # Detailed explanations
-)
-```
-
-### Communication Styles
-
-| Style | Description | Best For |
-|-------|-------------|----------|
-| `FORMAL` | Professional, structured | Documentation, reports |
-| `CASUAL` | Friendly, conversational | User interactions |
-| `TECHNICAL` | Precise, detailed | Code analysis, debugging |
-| `CONCISE` | Brief, to-the-point | Quick tasks, summaries |
-
-### Expertise Levels
-
-| Level | Description | Tool Budget |
-|-------|-------------|-------------|
-| `NOVICE` | Learning, needs guidance | 5-10 |
-| `INTERMEDIATE` | Competent, reliable | 10-20 |
-| `EXPERT` | Deep knowledge | 20-30 |
-| `SPECIALIST` | Domain authority | 30-50 |
-
-## Team Members
-
-Create team members with rich context:
-
-```python
-from victor.teams import TeamAgentCategory, TeamMember, MemoryConfig
-
-researcher = TeamMember(
-    id="researcher",
-    role="Code Researcher",
-    goal="Understand the codebase structure and find relevant patterns",
-    tool_budget=25,
-    persona=PersonaTraits(
-        name="ResearchBot",
-        communication_style=CommunicationStyle.TECHNICAL,
-        expertise_level=ExpertiseLevel.EXPERT,
-    ),
-    backstory="You have analyzed thousands of codebases and can quickly identify patterns, anti-patterns, and architectural decisions.",
-    memory=MemoryConfig(
-        enabled=True,
-        persist=True,
-        namespace="research_findings"
-    ),
-    max_delegation_depth=1,  # Can delegate once
-    can_delegate=True,
-)
-```
-
-### Roles vs Categories
-
-Victor separates what a member does from how it coordinates:
-
-| Concept | Purpose | Examples |
-|---------|---------|----------|
-| `role` | Domain work a member performs | `researcher`, `planner`, `executor`, `reviewer` |
-| `agent_category` | Coordination responsibility | `specialist`, `supervisor` |
-| `formation` | Team execution pattern | `sequential`, `parallel`, `hierarchical`, `pipeline`, `consensus`, `reflection` |
-
-Use `agent_category=TeamAgentCategory.SUPERVISOR` for the single coordinating member in a hierarchical team. The older `is_manager=True` flag remains a compatibility alias, but new code should use `agent_category` because it makes the supervisor contract explicit.
-
-```python
-lead = TeamMember(
-    id="lead",
-    role="planner",
-    name="Technical Lead",
-    goal="Decompose work, delegate to specialists, and synthesize results",
-    agent_category=TeamAgentCategory.SUPERVISOR,
-)
-```
-
-### Runtime Model
-
-Victor uses one execution path for teams:
-
-| Layer | Responsibility |
-|-------|----------------|
-| `TeamMember` / `TeamMemberSpec` | Declarative member configuration |
-| `TeamParticipant` | Runtime executable participant used by formations |
-| `UnifiedTeamCoordinator` | Selects members, prepares context, invokes a formation |
-| Formation strategy | Defines execution topology and result ordering |
-
-This keeps the supervisor concept native to the team model instead of hidden in coordinator-local adapters. Formation strategies execute `TeamParticipant` objects directly and receive normalized `MemberResult` values.
-
-### Member Properties
-
-| Property | Description | Default |
-|----------|-------------|---------|
-| `id` | Unique identifier | Required |
-| `role` | Role description | Required |
-| `goal` | Task-specific objective | None |
-| `tool_budget` | Max tool calls | 20 |
-| `persona` | PersonaTraits | None |
-| `backstory` | Context/history | None |
-| `agent_category` | Coordination category | `specialist` |
-| `memory` | Memory config | Disabled |
-| `can_delegate` | Allow delegation | False |
-
-## Pre-built Team Specs
-
-Victor includes pre-configured teams in `victor/coding/teams/specs.py`:
-
-### Feature Implementation Team
-
-```python
-from victor_coding.teams import FEATURE_IMPLEMENTATION_TEAM
-
-team = FEATURE_IMPLEMENTATION_TEAM
-# Pipeline: Researcher → Planner → Implementer → Reviewer
-```
-
-### Bug Fix Team
-
-```python
-from victor_coding.teams import BUG_FIX_TEAM
-
-# Pipeline: Investigator → Fixer → Verifier
-```
-
-### Code Review Team
-
-```python
-from victor_coding.teams import CODE_REVIEW_TEAM
-
-# Parallel: Security + Style + Logic + Synthesizer
-```
-
-### Refactoring Team
-
-```python
-from victor_coding.teams import REFACTORING_TEAM
-
-# Hierarchical: Supervisor → Executors → Quality Verifier
-```
-
-## Inter-Agent Communication
-
-### Message Bus
-
-Agents can send messages to each other:
-
-```python
-from victor.teams import AgentMessage, MessageType
-
-# Send a message
-message = AgentMessage(
-    sender_id="researcher",
-    recipient_id="implementer",
-    message_type=MessageType.HANDOFF,
-    content="Found the pattern at src/auth/handler.py:45"
-)
-
-# Broadcast to all members
-await coordinator.broadcast(message)
-```
-
-### Message Types
-
-| Type | Description |
-|------|-------------|
-| `DISCOVERY` | Share a finding |
-| `REQUEST` | Ask for help |
-| `RESPONSE` | Reply to request |
-| `STATUS` | Progress update |
-| `ALERT` | Important notification |
-| `HANDOFF` | Transfer task |
-| `RESULT` | Final output |
-
-### Shared Memory
-
-Teams share discoveries across members:
-
-```python
-# Store a discovery
-await team.remember(
-    key="auth_pattern",
-    value={"file": "auth.py", "pattern": "decorator-based"},
-    metadata={"confidence": 0.9}
-)
-
-# Recall relevant memories
-memories = await team.recall("authentication patterns")
-```
-
-## Progress Tracking
-
-Monitor team execution in real-time:
-
-```python
-from victor.teams import TeamCoordinator
-
-coordinator = TeamCoordinator(orchestrator)
-
-def on_member_complete(member_id: str, result: MemberResult):
-    print(f"{member_id} completed: {result.success}")
-
-result = await coordinator.execute_team(
-    config,
-    on_member_complete=on_member_complete
-)
-```
-
-### Team Result
-
-```python
-result = await coordinator.execute_team(config)
-
-print(f"Success: {result.success}")
-print(f"Final output: {result.final_output}")
-print(f"Formation used: {result.formation_used}")
-print(f"Total duration: {result.total_duration}s")
-
-# Individual member results
-for member_id, member_result in result.member_results.items():
-    print(f"  {member_id}: {member_result.success}")
-
-# Communication log
-for message in result.communication_log:
-    print(f"  {message.sender_id} → {message.recipient_id}: {message.content}")
-```
-
-## Team Registry
-
-Register and discover teams:
-
-```python
-from victor.framework.team_registry import get_team_registry
-
-registry = get_team_registry()
-
-# Register a custom team
-registry.register(
-    name="my_team",
-    spec=my_team_spec,
-    vertical="coding",
-    tags=["custom", "review"],
-    description="My custom review team"
-)
-
-# Find teams by vertical
-coding_teams = registry.find_by_vertical("coding")
-
-# Find teams by tag
-review_teams = registry.find_by_tag("review")
-
-# List all teams
-all_teams = registry.list_teams()
-```
-
-## Best Practices
-
-### 1. Right-Size Your Teams
-
-```python
-# Good - focused team with clear roles
-config = TeamConfig(
-    formation=TeamFormation.PIPELINE,
-    members=[
-        TeamMember(id="analyzer", role="Analyzer", tool_budget=15),
-        TeamMember(id="fixer", role="Fixer", tool_budget=25),
-    ]
-)
-
-# Avoid - too many agents with overlapping roles
-```
-
-### 2. Use Appropriate Formations
-
-| Task Type | Recommended Formation |
-|-----------|----------------------|
-| Multi-step process | PIPELINE |
-| Independent reviews | PARALLEL |
-| Complex planning | HIERARCHICAL |
-| Simple handoffs | SEQUENTIAL |
-
-### 3. Set Tool Budgets Wisely
-
-```python
-# Researchers need fewer tools
-researcher = TeamMember(tool_budget=15, ...)
-
-# Implementers need more
-implementer = TeamMember(tool_budget=40, ...)
-```
-
-### 4. Enable Memory for Learning
-
-```python
-member = TeamMember(
-    memory=MemoryConfig(
-        enabled=True,
-        persist=True,  # Persist across sessions
-        namespace="findings"
+import asyncio
+from victor.framework import Agent, TeamFormation, TeamMemberSpec
+
+async def main():
+    team = await Agent.create_team(
+        name="design-review",
+        goal="Propose and review a small REST API design",
+        provider="ollama",
+        model="llama3.1:8b",
+        formation=TeamFormation.SEQUENTIAL,
+        members=[
+            TeamMemberSpec(role="researcher", goal="Find relevant API design practices"),
+            TeamMemberSpec(role="reviewer", goal="Review the proposed design for gaps"),
+        ],
     )
-)
+    result = await team.run()
+    print(result.final_output)
+
+asyncio.run(main())
 ```
 
-### 5. Use Backstories for Context
+## Formations
 
-```python
-member = TeamMember(
-    backstory="""You are a senior security engineer with 10 years
-    of experience. You've seen every type of vulnerability and
-    know the OWASP Top 10 by heart. Your reviews have prevented
-    countless breaches."""
-)
-```
+| Formation | Coordination |
+| --- | --- |
+| `SEQUENTIAL` | Members run in sequence with shared context |
+| `PARALLEL` | Members perform independent work concurrently |
+| `HIERARCHICAL` | A supervisor coordinates specialists |
+| `PIPELINE` | Each stage supplies input to the next |
+| `CONSENSUS` | Members work toward agreement |
+| `REFLECTION` | A generator and critic refine a result |
 
-## Observability
+Hierarchical teams coordinate through a supervisor. The factory promotes the first
+member when none is explicitly designated. To designate one, use the team member's
+`agent_category` field with the corresponding `TeamAgentCategory`; `is_manager`
+is a compatibility alias. The shared coordinator validates formation requirements.
 
-Team events are emitted to EventBus:
+## Team configuration
 
-```python
-from victor.observability.event_bus import get_event_bus, EventCategory
+`Agent.create_team` takes `name`, `goal`, and a list of `TeamMemberSpec` objects.
+Optional factory arguments include `total_tool_budget`, `max_iterations`,
+`timeout_seconds`, and `shared_context`. A member specifies its role and goal;
+optional fields include name, tool budget, priority, expertise, and backstory.
 
-bus = get_event_bus()
+`await team.run()` executes the configured goal and returns a `TeamResult`, including
+`final_output`. For an existing vertical's named team use the separate named-team API
+on a configured agent; do not pass an `AgentTeam` object to `Agent.run_team`.
 
-bus.subscribe(EventCategory.LIFECYCLE, lambda e:
-    print(f"Team event: {e.event_type} - {e.data}")
-)
+## Events and workflow integration
 
-# Events emitted:
-# - team_started
-# - member_started
-# - member_completed
-# - team_completed
-# - team_error
-```
+Application-facing agent streams use [framework events](../reference/api/python-api.md).
+Runtime instrumentation uses asynchronous [topic subscriptions](observability/event-bus.md).
+Team workflow nodes execute through the same compiled graph engine as other node types;
+see [workflow syntax](../user-guide/yaml_workflow_syntax.md).
 
-## Troubleshooting
-
-### Team Not Making Progress
-
-1. Check individual member tool budgets
-2. Verify formation matches task structure
-3. Review member goals for clarity
-
-### Poor Collaboration
-
-1. Enable shared memory
-2. Add explicit handoff messages
-3. Use hierarchical formation for complex tasks
-
-### Inconsistent Results
-
-1. Set lower creativity for deterministic tasks
-2. Use SPECIALIST expertise for critical roles
-3. Add verification member at end of pipeline
-
-## Related Resources
-
-- [Observability Guide](OBSERVABILITY.md) - Team event monitoring
-- [Workflow DSL Guide](workflow-development/dsl.md) - Team nodes in workflows
-- [User Guide](../user-guide/index.md) - General usage
+The [team architecture diagram](../architecture.md#multi-agent-teams) shows the runtime
+boundary. Earlier low-level examples are preserved in [page history](https://github.com/anvai-labs/victor/commits/develop/docs/guides/MULTI_AGENT_TEAMS.md).

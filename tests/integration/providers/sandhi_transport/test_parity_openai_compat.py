@@ -8,12 +8,14 @@ the sandhi recorded corpus (commit 3102dd8) plus tool-call shapes the corpus lac
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 
 import pytest
 
 pytest.importorskip("sandhi_gateway", reason="requires the victor[sandhi] extra")
 
 from victor.providers.base import (
+    CompletionResponse,
     Message,
     ProviderAuthError,
     ProviderError,
@@ -84,6 +86,66 @@ STREAM_SSE = (
 MESSAGES = [Message(role="user", content="hi there")]
 
 
+def semantic_response(response):
+    """Compare all response fields except independently measured latency values.
+
+    Preserve latency field presence and validate its shape. Only these two
+    diagnostic locations are normalized; token accounting, other metadata,
+    tool arguments and request bodies must still match exactly.
+    """
+    result = deepcopy(response.model_dump())
+    for container, field in (("raw_response", "usage"), ("metadata", "sandhi_usage")):
+        usage = (result.get(container) or {}).get(field) or {}
+        for key in ("duration_ms", "time_to_first_token_ms"):
+            if key in usage:
+                assert type(usage[key]) is int and usage[key] >= 0
+                usage[key] = 0
+    return result
+
+
+class TestSemanticResponseComparison:
+    def test_different_timings_match_without_mutating_responses(self):
+        first = CompletionResponse(
+            content="same",
+            raw_response={"usage": {"duration_ms": 1, "time_to_first_token_ms": 0}},
+            metadata={"sandhi_usage": {"duration_ms": 1, "time_to_first_token_ms": 0}},
+        )
+        second = first.model_copy(deep=True)
+        second.raw_response["usage"].update(duration_ms=7, time_to_first_token_ms=2)
+        second.metadata["sandhi_usage"].update(duration_ms=7, time_to_first_token_ms=2)
+        before = second.model_dump()
+        assert first.model_dump() != before
+        assert semantic_response(first) == semantic_response(second)
+        assert second.model_dump() == before
+
+    @pytest.mark.parametrize(
+        "field,value",
+        [
+            ("content", "different"),
+            ("usage", {"prompt_tokens": 9}),
+            ("tool_calls", [{"name": "changed_tool", "arguments": {"duration_ms": 9}}]),
+            ("raw_response", {"usage": {"tokens_in": 9}}),
+            ("metadata", {"sandhi_usage": {"attempts": 2}}),
+            ("metadata", {"sandhi_usage": {"duration_ms": 0}}),
+        ],
+    )
+    def test_semantic_or_latency_presence_changes_still_differ(self, field, value):
+        first = CompletionResponse(content="same")
+        second = first.model_copy(update={field: value}, deep=True)
+        assert semantic_response(first) != semantic_response(second)
+
+    @pytest.mark.parametrize("value", [-1, True, "1", None])
+    @pytest.mark.parametrize(
+        "container,field", [("raw_response", "usage"), ("metadata", "sandhi_usage")]
+    )
+    def test_invalid_latency_is_rejected(self, value, container, field):
+        response = CompletionResponse(
+            content="same", **{container: {field: {"duration_ms": value}}}
+        )
+        with pytest.raises(AssertionError):
+            semantic_response(response)
+
+
 async def run_chat(provider):
     return await provider.chat(MESSAGES, model="deepseek-chat", temperature=0.2, max_tokens=64)
 
@@ -100,15 +162,15 @@ async def run_stream(provider):
 class TestCompletionParity:
     async def test_completion_response_and_request_parity(self, fixture_server, make_pair):
         native_srv = fixture_server(body=json.dumps(COMPLETE_BODY).encode())
-        sandhi_srv = fixture_server(body=json.dumps(COMPLETE_BODY).encode())
+        sandhi_srv = fixture_server(body=json.dumps(COMPLETE_BODY).encode(), delay_secs=0.025)
         native, _ = make_pair(native_srv.url)
         _, sandhi = make_pair(sandhi_srv.url)
 
         native_resp = await run_chat(native)
         sandhi_resp = await run_chat(sandhi)
 
-        # (a) semantic response parity — full model comparison
-        assert native_resp.model_dump() == sandhi_resp.model_dump()
+        # (a) semantic response parity — wall-clock latency is independently measured.
+        assert semantic_response(native_resp) == semantic_response(sandhi_resp)
         assert sandhi_resp.content == "Hello, world"
         assert sandhi_resp.usage["prompt_tokens"] == 1000
         assert sandhi_resp.usage["cache_read_input_tokens"] == 800
@@ -122,13 +184,13 @@ class TestCompletionParity:
 
     async def test_tool_call_parity(self, fixture_server, make_pair):
         native_srv = fixture_server(body=json.dumps(TOOL_CALL_BODY).encode())
-        sandhi_srv = fixture_server(body=json.dumps(TOOL_CALL_BODY).encode())
+        sandhi_srv = fixture_server(body=json.dumps(TOOL_CALL_BODY).encode(), delay_secs=0.025)
         native, _ = make_pair(native_srv.url)
         _, sandhi = make_pair(sandhi_srv.url)
 
         native_resp = await run_chat(native)
         sandhi_resp = await run_chat(sandhi)
-        assert native_resp.model_dump() == sandhi_resp.model_dump()
+        assert semantic_response(native_resp) == semantic_response(sandhi_resp)
         assert sandhi_resp.tool_calls == [
             {"id": "call_1", "name": "get_weather", "arguments": {"city": "Paris"}}
         ]
@@ -152,7 +214,9 @@ class TestStreamParity:
         native_chunks = await run_stream(native)
         sandhi_chunks = await run_stream(sandhi)
 
-        assert [c.model_dump() for c in native_chunks] == [c.model_dump() for c in sandhi_chunks]
+        assert [semantic_response(c) for c in native_chunks] == [
+            semantic_response(c) for c in sandhi_chunks
+        ]
         assert "".join(c.content for c in sandhi_chunks) == "Hello, world"
         final = sandhi_chunks[-1]
         assert final.is_final

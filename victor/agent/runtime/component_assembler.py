@@ -78,16 +78,13 @@ class ComponentAssembler:
         orchestrator._safety_checker = factory.create_safety_checker()
         orchestrator._auto_committer = factory.create_auto_committer()
 
-        # Tool executor and parallel executor
+        # Tool executor
         orchestrator.tool_executor = factory.create_tool_executor(
             tools=orchestrator.tools,
             argument_normalizer=orchestrator.argument_normalizer,
             tool_cache=orchestrator.tool_cache,
             safety_checker=orchestrator._safety_checker,
             code_correction_middleware=orchestrator._code_correction_middleware,
-        )
-        orchestrator.parallel_executor = factory.create_parallel_executor(
-            orchestrator.tool_executor
         )
 
         # Response completer

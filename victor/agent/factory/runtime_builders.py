@@ -157,7 +157,11 @@ class RuntimeBuildersMixin:
         """Create the canonical service-owned chat-stream adapter."""
         from victor.agent.services.chat_stream_runtime import ServiceStreamingRuntime
 
-        adapter = ServiceStreamingRuntime(runtime_owner)
+        from victor.agent.factory.chat_runtime_bindings import bind_chat_runtime_services
+
+        adapter = ServiceStreamingRuntime(
+            runtime_owner, services=bind_chat_runtime_services(runtime_owner)
+        )
         logger.debug("Streaming chat adapter created")
         return adapter
 

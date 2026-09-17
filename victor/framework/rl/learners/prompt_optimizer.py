@@ -1027,8 +1027,8 @@ class PromptOptimizerLearner(BaseLearner):
             return None
 
         # Create candidate
-        text_hash = hashlib.md5(new_text.encode()).hexdigest()[:12]
-        parent_hash = hashlib.md5(current_text.encode()).hexdigest()[:12]
+        text_hash = hashlib.md5(new_text.encode(), usedforsecurity=False).hexdigest()[:12]
+        parent_hash = hashlib.md5(current_text.encode(), usedforsecurity=False).hexdigest()[:12]
         key = self._candidate_key(section_name, provider)
         generation = self._get_max_generation(key) + 1
         strategies = self._strategies_for_section(section_name)
@@ -1774,7 +1774,7 @@ class PromptOptimizerLearner(BaseLearner):
             text=merged_entry.text,
             text_hash=merged_entry.text_hash,
             generation=max(merged_entry.generation, self._get_max_generation(key) + 1),
-            parent_hash=hashlib.md5(current_text.encode()).hexdigest()[:12],
+            parent_hash=hashlib.md5(current_text.encode(), usedforsecurity=False).hexdigest()[:12],
             strategy_name=self._strategy_name_for_candidate(strategies),
             strategy_chain=f"{self._strategy_chain_for_candidate(strategies)}+merge",
             instance_scores=dict(merged_entry.instance_scores),

@@ -37,7 +37,7 @@ class _FakeTyped:
     def __init__(self, events):
         self._events = events
 
-    def stream_json(self, request_json):
+    def stream_json(self, request_json, wire_headers_json=None):
         events = self._events
 
         async def _gen():
@@ -82,9 +82,33 @@ FULL_SCRIPT = [
             "tokens_out": 5,
             "cache_creation_tokens": 0,
             "cache_read_tokens": 0,
+            "reasoning_tokens": 3,
         },
     },
     {"event": "finish", "reason": "tool_calls"},
+]
+
+
+# Sandhi's typed representation of an InferFlux OpenAI-compatible stream whose
+# upstream frames carry delta.reasoning_content before delta.content, followed by
+# completion_tokens_details.reasoning_tokens in the terminal usage frame.
+INFERFLUX_REASONING_SCRIPT = [
+    {"event": "response_start", "id": "chatcmpl_reasoning", "model": "qwen3"},
+    {"event": "reasoning_delta", "delta": "First reason. "},
+    {"event": "reasoning_delta", "delta": "Then conclude."},
+    {"event": "text_delta", "delta": "Final "},
+    {"event": "text_delta", "delta": "answer."},
+    {"event": "finish", "reason": "stop"},
+    {
+        "event": "usage",
+        "usage": {
+            "tokens_in": 12,
+            "tokens_out": 9,
+            "cache_creation_tokens": 0,
+            "cache_read_tokens": 0,
+            "reasoning_tokens": 4,
+        },
+    },
 ]
 
 
@@ -121,7 +145,35 @@ class TestEveryVariantHasAConsumptionDecision:
         # finish -> stop_reason
         assert final.stop_reason == "tool_calls"
         # usage -> final usage dict
-        assert final.usage and final.usage.get("prompt_tokens") == 10
+        assert final.usage == {
+            "prompt_tokens": 10,
+            "completion_tokens": 5,
+            "total_tokens": 15,
+            "reasoning_tokens": 3,
+        }
+
+    @pytest.mark.asyncio
+    async def test_inferflux_reasoning_frames_stay_separate_and_ordered(self):
+        chunks = await _collect(INFERFLUX_REASONING_SCRIPT)
+
+        # Victor must preserve Sandhi's reasoning-before-answer ordering without
+        # leaking reasoning into user-visible content or annotating answer chunks.
+        assert [
+            (chunk.content, (chunk.metadata or {}).get("reasoning_content"))
+            for chunk in chunks[:-1]
+        ] == [
+            ("", "First reason. "),
+            ("", "Then conclude."),
+            ("Final ", None),
+            ("answer.", None),
+        ]
+        assert chunks[-1].is_final
+        assert chunks[-1].usage == {
+            "prompt_tokens": 12,
+            "completion_tokens": 9,
+            "total_tokens": 21,
+            "reasoning_tokens": 4,
+        }
 
     @pytest.mark.asyncio
     async def test_response_start_and_tool_call_end_are_explicitly_ignored(self):

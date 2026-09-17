@@ -703,10 +703,10 @@ victor keys --set anthropic --keyring
 
 ## Next Steps
 
-- [User Guide](../user-guide/) - Daily usage patterns
-- [Provider Reference](../reference/providers/) - All 24 providers
+- [User Guide](../user-guide/index.md) - Daily usage patterns
+- [Provider Reference](../reference/providers/index.md) - All 24 providers
 - [Tool Catalog](../reference/tools/catalog.md) - 34 tool modules
-- [Workflow Guide](../guides/workflow-development/) - Automation
+- [Workflow Guide](../guides/workflow-development/dsl.md) - Automation
 
 ---
 

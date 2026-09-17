@@ -38,6 +38,7 @@ Usage:
 from __future__ import annotations
 
 from victor.core.json_utils import json_loads
+from victor.providers.provider_kinds import ON_BOX_PROVIDERS
 import asyncio
 import logging
 import subprocess
@@ -112,7 +113,7 @@ class ResourceAvailabilityDetector:
     """
 
     # Local providers that require GPU
-    LOCAL_PROVIDERS = {"ollama", "lmstudio", "vllm"}
+    LOCAL_PROVIDERS = ON_BOX_PROVIDERS
 
     # Cloud providers that use API quotas
     CLOUD_PROVIDERS = {

@@ -102,8 +102,7 @@ class ResearchSafetyRules:
                 action=SafetyAction.REQUIRE_CONFIRMATION,
                 severity=8,
                 confirmation_prompt=(
-                    "This will delete experiment data. Consider archiving "
-                    "instead. Continue?"
+                    "This will delete experiment data. Consider archiving " "instead. Continue?"
                 ),
                 tool_names=["shell", "execute_bash", "file_ops"],
             ),
@@ -167,8 +166,7 @@ class ResearchSafetyRules:
                 action=SafetyAction.REQUIRE_CONFIRMATION,
                 severity=9,
                 confirmation_prompt=(
-                    "This will publish research results. Review before "
-                    "publishing. Continue?"
+                    "This will publish research results. Review before " "publishing. Continue?"
                 ),
                 tool_names=["shell", "execute_bash"],
             ),

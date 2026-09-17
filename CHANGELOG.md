@@ -5,6 +5,251 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased] (develop)
 
+### Added
+
+- New bash-style `gh` tool (pr · issue · run · release · repo · api · auth) that
+  owns the GitHub CLI dependency honestly: it returns an actionable install
+  hint when `gh` is absent instead of a confusing shell error, and runs the
+  real binary via `shell(action='exec')` since GitHub operations are
+  network-bound by nature. Demand-wired through `SharedToolRegistry`
+  (`GH_DEMAND_KEYWORDS` hydration, like `graph`) so sessions that never touch
+  GitHub keep their bootstrap schema unchanged. Unknown `gh` flags pass
+  through; argv is `shlex.quote`d so titles/bodies with spaces, backticks or
+  `$` survive the shell verbatim.
+- `victor mcp add <name> <command> [args...]` registers a stdio MCP server,
+  verifies it completes the MCP handshake (with `--force` to persist anyway),
+  and upserts it into project (`.victor/mcp.yaml`) or global
+  (`~/.victor/mcp.yaml`) config with 0600 permissions — closing the gap with
+  `claude mcp add`.
+
+### Fixed
+### Fixed
+
+- Runtime subsystems no longer hardcode Ollama. The inline code-completion
+  provider now follows the configured default provider and actually resolves
+  (the old path called nonexistent registry methods and raised on first use);
+  the edge-model micro-decision layer gained `VICTOR_EDGE_MODEL_PROVIDER` /
+  `VICTOR_EDGE_MODEL` / `VICTOR_EDGE_MODEL_BASE_URL` overrides (defaults stay
+  a tiny local Ollama model — the right shape for 4s decisions); the
+  SkillMatcher initializes in a background task so its ~6s
+  sentence-transformers import + model load no longer sits on the bootstrap
+  critical path (every consumer already guards on readiness; early turns
+  simply have no skill auto-selection yet).
+
+
+- Session bootstrap no longer stalls ~60s when Docker Desktop is closed or
+  unresponsive. The coding vertical's sandbox constructor probes the Docker
+  daemon with a 60s requests timeout during component assembly, blocking every
+  `victor chat` start. The load+start is now bounded
+  (`VICTOR_CODE_EXEC_START_TIMEOUT`, default 5s) and degrades loudly — the
+  session runs without the code-execution sandbox and says so, matching the
+  already-handled missing-package case. Measured on a stalled machine:
+  client init 68.8s → 13.8s.
+- The chat TUI no longer freezes the input while the agent executes. The prompt
+  stays live for the whole turn: a submission mid-run enters a FIFO queue
+  (listener-notified, strictly in-order) that drains one prompt per completed
+  turn — status shows "N queued", `/queue` lists and `/queue clear` flushes,
+  ESC interrupts the current run and the next queued prompt starts, ESC while
+  idle clears the queue. Queues are session-ephemeral by design.
+- Demand-wired tools (`gh`, `graph`) never reached chat sessions: hydration lived
+  only on `ToolService.select_tools`, which no production code calls, and the
+  cache-optimized transport freezes the session toolset before per-turn selection
+  ever runs. A shared `hydrate_demand_tools` stage now runs in both transports
+  before the freeze, so a mention hydrates the tool into the locked schema
+  (live-verified; FEP-0034 Stage A).
+- `edit(commit=False)` no longer reports a bare success for a permanent
+  no-op: the staged-but-never-flushed queue is discarded when the transaction
+  aborts, so callers reading `success` as "edit landed" were misled. The
+  result now sets `partial: true` with an explicit NOT APPLIED warning and
+  re-issue guidance (`commit=True` to write, `preview=True` for a diff).
+
+### Changed
+
+- `victor chat` now mounts the TUI immediately (shell-first): the UI appears with
+  an "initializing session…" state while agent creation, session resume and turn
+  limits finish in a background worker, instead of a silent multi-second (or
+  minute-long, with Docker down) wait before anything renders. The prompt
+  enables itself with a "✓ ready in X.Xs" line; initialization failures surface
+  in-app and exit cleanly. REPL/one-shot paths are unchanged (shared helpers).
+- The chat TUI no longer captures mouse events by default: drag-select/copy of
+  transcript snippets is the terminal's own again, including mid-turn. In-app
+  keyboard copy (`ctrl+c` → OSC 52) is unchanged; widget mouse handling stays
+  available via `VICTOR_TUI_MOUSE_SUPPORT=1` (documented in
+  `docs/reference/environment-variables.md` alongside the REPL-surface
+  `VICTOR_CHAT_MOUSE_SUPPORT`).
+- **Default provider is now InferFlux** (`qwen3-coder-30b`, self-hosted
+  llama.cpp-class serving with native server-side tool calls). The bundled
+  `default` profile points at `http://127.0.0.1:8080/v1` (SSH-tunnel recipe in
+  the profile comments and docs); `local` stays the air-gapped Ollama path and
+  a new `local-llamacpp` profile targets a stock llama-server. Ollama remains
+  fully supported — it is just no longer the default. Settings/allowlist/
+  `--endpoint`/first-run detection/`victor doctor`/quickstart/`victor init`
+  all follow the new default; `victor doctor` gains an InferFlux healthz check
+  with tunnel guidance when the default provider is unreachable.
+- Raise the default bash command timeout from 60s to 120s (`Timeouts.BASH_DEFAULT`).
+  Test runs, builds, and installs routinely exceeded the old ceiling and surfaced
+  as `Command timed out after 60 seconds` even though the shell tool supports a
+  `timeout` parameter. `VICTOR_TIMEOUT_BASH_DEFAULT` still overrides, and the
+  documented default in `docs/reference/environment-variables.md` already said 120.
+- Remove the `pr` subcommand from the `git` tool. `gh` is a different binary that
+  need not be installed when `git` is, so a `git pr` that silently shells out to
+  `gh` produced confusing failures. GitHub operations (PR create/view/merge,
+  releases, runs) now route through `shell(cmd='gh ...', action='exec')` like any
+  other out-of-family command. `git push -u` still works without victor-devops.
+
+### Security
+
+- Fail closed when approval, safety, sandbox startup or verification setup fails.
+  Apply temporary runtime budgets transactionally and reject session reuse if
+  restoration fails; preserve inherited tool restrictions.
+- Keep SDK vertical validation active under optimized Python, and use SHA-256
+  for undo integrity checks while validating legacy histories against their text.
+
+- Bind table-description parameters, quote generated SQLite identifiers, and
+  validate update columns, metric groups and learner prefixes before SQL execution.
+- Restrict debug/workflow text conditions to bounded plain-data expressions and
+  reject coverage XML entities and oversized reports.
+- Confine Composer edits to workspace paths, allowlist Git context commands and
+  pass terminal working directories through the editor API.
+- Launch the VS Code backend with separate executable/argument values, without
+  shell interpolation. Render temporary D2 diagrams inside a private directory.
+- Replace diskcache and persisted Python-object caches with versioned data-only
+  storage. Legacy files are rebuilt rather than deserialized; malformed snapshots
+  are rejected before replacing live state.
+- Update vulnerable JavaScript and Rust dependencies, patched Python build floors
+  and CPU embedding constraints. Remove unused GitPython and Python codecov
+  dependencies, and omit pip from runtime containers.
+- Calculate real CVSS base scores, retain unknown ratings, follow all OSV pages,
+  and reject incomplete advisory/manifest results. Query caches now include exact
+  package versions; legacy or malformed offline coverage cannot clear a scan.
+- Reject unsupported MCP isolation policies before launch, and abort child exec
+  if resource limits or root user demotion fail. Use an external sandbox/container
+  for filesystem, network, namespace or seccomp restrictions.
+- Match complete OS package versions in Trivy inventories, including release
+  and epoch fields, so valid image reports retain their actual blocking findings.
+- Preserve complete scan coverage for separately resolved core, API and CPU
+  embedding deployments. Unaccepted container high/critical findings still block
+  publication. Move runtime images to patched Ubuntu 24.04 packages; lower-severity
+  unfixed OS findings remain visible in complete image reports.
+
+### Changed
+
+- Replace the workstation requirements freeze with manifest-derived deployment
+  snapshots, remove unused vertical NumPy requirements, and keep RAG storage
+  exports lazy during package discovery.
+- Consolidate containers into core, MCP, native and full targets with installed
+  wheels and separate dependency/build stages. Correct obsolete build paths and
+  remove unsupported MCP environment-variable examples.
+- Update security/dependency documentation and trim development artifacts from
+  the VSIX. The Svelte webview uses the supported mount entrypoint.
+
+### Fixed
+
+- Validate generated SQL backup identifiers and preserve bound candidate values.
+- Give the coding native wheel its own package metadata so installing it cannot
+  replace the Python coding package.
+- Report the installed package version from HTTP and GraphQL health metadata.
+
+Version 0.9.4 is prepared for develop; it is not published until the release
+checks and unresolved security dispositions are complete. Independently installed
+vertical/native packages require their own releases. The candidate requires
+`victor-contracts>=0.9.2` and, for the native extra, `victor-native>=0.8.1`;
+the VS Code extension candidate is 0.5.1. See the
+[security batch status](docs/development/security-remediation-0.9.4.md) for
+release prerequisites and remaining findings.
+
+## [0.9.3] - 2026-09-10
+
+### Security
+
+- Raise the GitPython runtime minimum and requirements pin to 3.1.59 to address
+  CVE-2026-78676, which failed the blocking dependency scan on develop (#1050).
+
+### Changed
+
+- Bind chat task requirements to the existing session state owner through
+  `ChatRuntimeServices.session`, preserving live state across resets and restores
+  (#1049).
+- Route streaming chunk generation, sanitization, terminal recovery and garbage
+  detection through `ChatRuntimeServices.delivery`, using the existing components
+  and preserving chunk metadata, error propagation and policy ordering (#1051).
+- Lower chat-runtime boundary ratchets and guard against reintroducing direct
+  chunk-generator or sanitizer lookups. These are partial FEP-0031 phase-1 slices;
+  turn-frame ownership and the remaining Stage C work are still pending.
+
+Public agent APIs are unchanged. `victor-contracts` remains 0.9.1 and
+`victor-native` remains 0.8.0 on their independent release trains.
+
+### Fixed
+
+- Drain subprocess pipes before reaping after output caps, timeouts, cancellation
+  or callback errors, preventing full pipe buffers from hanging tool execution.
+  Execution timeouts also cover commands that close their output pipes early.
+
+## [0.9.2] - 2026-09-08
+
+### Changed
+
+- Consolidated definition-based workflow execution and streaming onto the single
+  `CompiledGraph` engine (ADR-030, #1041–#1043). `WorkflowExecutor` and
+  `CompiledWorkflowExecutor` remain import aliases for `StateGraphWorkflowExecutor`.
+- Consolidated documentation, replaced stale API examples, refreshed architecture
+  diagrams, and validated the GitHub Pages build with the pinned MkDocs toolchain
+  and an advisory local link/anchor checker. FEP-0031/0032/0033 diagrams describe
+  future ownership and resume changes, not completed implementations.
+- Made native/Python parity part of the required CI Success aggregate (#1038).
+  `victor-contracts` stays 0.9.1 and `victor-native` stays 0.8.0 on independent
+  release trains; this release does not change their source or dependency pins.
+
+### Fixed
+
+- Preserved workflow final state, per-node diagnostics and tool counts across the
+  adapter, API and YAML paths. Node and parallel failures now propagate correctly;
+  condition routing, compute results and parallel child accounting are aligned.
+- Closing or cancelling a workflow stream now cancels and awaits its downstream
+  execution. Concurrent runs keep lifecycle observations separate, and configured
+  workflow timeouts and checkpointers reach the canonical engine.
+- Moved SQLite query-result materialization onto the dedicated store worker (#1039)
+  and routed integration agent creation through the framework boundary (#1040).
+
+### Migration notes
+
+This patch includes removals and behavior changes for legacy workflow callers.
+
+- Execute a loaded `WorkflowDefinition` with
+  `execute(definition, initial_context=...)`. Executor-only `execute_by_name`,
+  cache-stat methods and private BFS helpers are removed. Standalone workflow
+  definition/cache infrastructure remains available.
+- Legacy executor `cache`/`cache_config`, workflow
+  `metadata["continue_on_failure"] = True`, and definition execution with a legacy
+  checkpoint ID now fail explicitly. Use a graph checkpointer and `thread_id`;
+  old BFS checkpoint payloads are not silently migrated. Handle recoverable
+  errors explicitly inside nodes.
+- Failed graph streams raise after any earlier successful updates. Handle the
+  terminal exception and close the iterator when stopping consumption early.
+- Ordinary multi-successor DAGs use breadth-first traversal with shared-descendant
+  deduplication and a persisted pending frontier. Combining ordinary fan-out with
+  cycles or dynamic `Send` is unsupported. Node-based replay and explicit start-node
+  overrides reject sequential-frontier checkpoints; ordinary invocation resumes
+  them. Existing single-path cycles and `Send` graphs retain their semantics.
+- The deprecated `StreamingChatExecutor.run()` alias and unused
+  `AgenticLoop.stream_chat()` wrapper are removed. The canonical chat stream is
+  `ServiceStreamingRuntime` → `run_unified()` → `AgenticLoop.run_streaming()`.
+- The presence of pause metadata does not implement FEP-0032's general
+  interrupt-after/resume contract. Chat runtime inversion, graph resume redesign,
+  RL relocation and the remaining Stage C work are outside this release.
+
+## [0.9.1] - 2026-09-07
+
+### Changed
+
+- Published the co-design Waves 1–2 and Wave 3 Stage A implementation, including
+  boundary guards, runtime and storage fixes, exact native token counting, and
+  removal of unused modules. Stage B added the subsequent execution designs.
+- The [Victor AI 0.9.1 release](https://github.com/anvai-labs/victor/releases/tag/v0.9.1)
+  published on 2026-09-07. Contracts 0.9.1 followed independently via `sdk-v0.9.1`.
+  Post-release #1038–#1043 workflow, integration and CI changes belong to 0.9.2.
+
 ## [Rust crates 0.8.0] - 2026-08-21
 
 ### Added

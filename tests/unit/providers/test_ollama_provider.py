@@ -29,7 +29,7 @@ def ollama_provider():
     provider._get_client = lambda: provider.client
     # Reset circuit breaker to CLOSED so earlier real-server errors don't trip it
     if hasattr(provider, "_circuit_breaker"):
-        provider._circuit_breaker._state = "CLOSED"
+        provider.circuit_breaker._state = "CLOSED"  # lazy since the stable-key fix
         provider._circuit_breaker._failure_count = 0
     return provider
 

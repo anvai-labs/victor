@@ -22,10 +22,10 @@ import asyncio
 import json
 import sys
 import uuid
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Protocol, Tuple
 
 if TYPE_CHECKING:
-    from victor.agent.orchestrator import AgentOrchestrator
+    from victor.tools.registry import ToolRegistry
 
 from victor.core.async_utils import run_sync
 from victor.integrations.mcp.protocol import (
@@ -609,8 +609,19 @@ class MCPServer:
         return server
 
 
+class ToolsProvider(Protocol):
+    """Anything exposing a tool registry — the only surface the MCP server needs.
+
+    Structural stand-in for the agent's runtime object, so this inbound
+    integration surface never depends on (or names) it directly.
+    """
+
+    @property
+    def tools(self) -> "ToolRegistry": ...
+
+
 def create_mcp_server_from_orchestrator(
-    orchestrator: "AgentOrchestrator",
+    orchestrator: "ToolsProvider",
     name: str = "Victor MCP Server",
 ) -> MCPServer:
     """Create MCP server from an existing orchestrator.
@@ -618,7 +629,7 @@ def create_mcp_server_from_orchestrator(
     This allows exposing the orchestrator's registered tools via MCP.
 
     Args:
-        orchestrator: AgentOrchestrator instance
+        orchestrator: any object exposing a ``tools`` registry attribute
         name: Server name
 
     Returns:

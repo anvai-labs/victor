@@ -39,7 +39,7 @@ from victor.workflows.definition import (
     ParallelNode,
 )
 from victor.workflows.context import WorkflowContext, WorkflowResult
-from victor.workflows.unified_executor import WorkflowExecutor
+from victor.workflows.state_graph_adapter import StateGraphWorkflowExecutor as WorkflowExecutor
 from victor_contracts.workflows import ExecutorNodeStatus, NodeResult
 
 # ============ Test State Classes ============
@@ -333,34 +333,31 @@ class TestCheckpointFunctionality:
     """Tests for checkpoint save/resume functionality."""
 
     async def test_checkpoint_saved_after_each_node(self, mock_orchestrator, simple_workflow):
-        """Test that checkpoints are saved after each node execution."""
-        # Create a mock checkpointer
-        mock_checkpointer = MagicMock()
-        mock_checkpointer.get_latest_checkpoint.return_value = None
-        mock_checkpointer.create_checkpoint = MagicMock()
+        from victor.framework.graph import MemoryCheckpointer
 
-        executor = WorkflowExecutor(mock_orchestrator, checkpointer=mock_checkpointer)
-
-        # Execute workflow with thread_id
-        await executor.execute(
-            simple_workflow,
-            initial_context={"counter": 0},
-            thread_id="test-checkpoint-123",
+        checkpointer = MemoryCheckpointer()
+        executor = WorkflowExecutor(mock_orchestrator, checkpointer=checkpointer)
+        result = await executor.execute(
+            simple_workflow, initial_context={"counter": 0}, thread_id="checkpoint-test"
         )
-
-        # Checkpoints should have been created (one per node)
-        assert mock_checkpointer.create_checkpoint.call_count >= 1
+        assert result.success is True
+        checkpoints = await checkpointer.list("checkpoint-test")
+        assert len(checkpoints) == len(simple_workflow.nodes)
+        assert {checkpoint.node_id for checkpoint in checkpoints} == set(simple_workflow.nodes)
 
     async def test_resume_from_checkpoint(self, mock_orchestrator):
-        """Test resuming workflow execution from a checkpoint."""
+        from victor.framework.graph import MemoryCheckpointer
+        from victor.framework.graph_checkpoint import WorkflowCheckpoint
 
-        def step_a(ctx: Dict[str, Any]) -> Dict[str, Any]:
-            ctx["a_executed"] = True
-            return ctx
+        executed = []
 
-        def step_b(ctx: Dict[str, Any]) -> Dict[str, Any]:
-            ctx["b_executed"] = True
-            return ctx
+        def step_a(state):
+            executed.append("a")
+            return {"a_executed": True}
+
+        def step_b(state):
+            executed.append("b")
+            return {"b_executed": True}
 
         workflow = (
             WorkflowBuilder("checkpoint_workflow")
@@ -368,62 +365,48 @@ class TestCheckpointFunctionality:
             .add_transform("step_b", step_b)
             .build()
         )
-
-        # Create a mock checkpoint representing a resumed state
-        mock_checkpoint = MagicMock()
-        mock_checkpoint.state = {
-            "last_node": "step_a",
-            "next_node": "step_b",
-            "context": {"a_executed": True},
-        }
-
-        mock_checkpointer = MagicMock()
-        mock_checkpointer.get_latest_checkpoint.return_value = mock_checkpoint
-        mock_checkpointer.create_checkpoint = MagicMock()
-
-        executor = WorkflowExecutor(mock_orchestrator, checkpointer=mock_checkpointer)
-
-        # Execute - should resume from step_b
-        result = await executor.execute(
-            workflow,
-            thread_id="resume-test-123",
+        checkpointer = MemoryCheckpointer()
+        await checkpointer.save(
+            WorkflowCheckpoint(
+                checkpoint_id="after-a",
+                thread_id="resume-test",
+                node_id="step_a",
+                state={"a_executed": True},
+                timestamp=0.0,
+                metadata={
+                    "sequential_frontier": {
+                        "pending_nodes": ["step_b"],
+                        "visited_nodes": ["step_a"],
+                    }
+                },
+            )
         )
-
-        # Workflow should complete successfully
+        result = await WorkflowExecutor(mock_orchestrator, checkpointer=checkpointer).execute(
+            workflow, thread_id="resume-test"
+        )
         assert result.success is True
-
-        # Step B should have been executed
-        assert result.context.data.get("b_executed") is True
+        assert result.context.data["a_executed"] is True
+        assert result.context.data["b_executed"] is True
+        assert executed == ["b"]
 
     async def test_checkpoint_contains_workflow_state(self, mock_orchestrator):
-        """Test that checkpoint contains complete workflow state."""
-        captured_checkpoints = []
-
-        def capture_checkpoint(*args, **kwargs):
-            captured_checkpoints.append(kwargs)
-
-        def step_a(ctx: Dict[str, Any]) -> Dict[str, Any]:
-            ctx["step"] = "a"
-            ctx["data"] = {"key": "value"}
-            return ctx
+        from victor.framework.graph import MemoryCheckpointer
 
         workflow = (
-            WorkflowBuilder("state_checkpoint_workflow").add_transform("step_a", step_a).build()
+            WorkflowBuilder("state_checkpoint")
+            .add_transform("step_a", lambda state: {"step": "a", "data": {"key": "value"}})
+            .build()
         )
-
-        mock_checkpointer = MagicMock()
-        mock_checkpointer.get_latest_checkpoint.return_value = None
-        mock_checkpointer.create_checkpoint = MagicMock(side_effect=capture_checkpoint)
-
-        executor = WorkflowExecutor(mock_orchestrator, checkpointer=mock_checkpointer)
-
-        await executor.execute(workflow, thread_id="state-test-123")
-
-        # Verify checkpoint structure
-        assert len(captured_checkpoints) > 0
-        checkpoint = captured_checkpoints[0]
-        assert "state" in checkpoint
-        assert "context" in checkpoint["state"]
+        checkpointer = MemoryCheckpointer()
+        result = await WorkflowExecutor(mock_orchestrator, checkpointer=checkpointer).execute(
+            workflow, thread_id="state-test"
+        )
+        assert result.success is True
+        checkpoint = await checkpointer.load("state-test")
+        assert checkpoint.state["step"] == "a"
+        assert checkpoint.state["data"] == {"key": "value"}
+        assert checkpoint.node_id == "step_a"
+        assert checkpoint.thread_id == "state-test"
 
 
 @pytest.mark.asyncio
@@ -449,28 +432,14 @@ class TestErrorHandlingAndRetry:
         assert result.context.data.get("cleaned_up") is not True
 
     async def test_continue_on_failure_option(self, mock_orchestrator):
-        """Test workflow continues on failure when configured."""
-
-        def failing_step(ctx: Dict[str, Any]) -> Dict[str, Any]:
-            raise ValueError("Intentional failure")
-
-        def next_step(ctx: Dict[str, Any]) -> Dict[str, Any]:
-            ctx["next_executed"] = True
-            return ctx
-
         workflow = (
-            WorkflowBuilder("continue_on_failure_workflow")
-            .add_transform("failing", failing_step, next_nodes=["next"])
-            .add_transform("next", next_step)
+            WorkflowBuilder("unsupported_continue")
+            .add_transform("step", lambda state: {})
             .set_metadata("continue_on_failure", True)
             .build()
         )
-
-        executor = WorkflowExecutor(mock_orchestrator)
-        result = await executor.execute(workflow)
-
-        # Workflow should have failures
-        assert result.context.has_failures() is True
+        with pytest.raises(ValueError, match="continue_on_failure is unsupported"):
+            await WorkflowExecutor(mock_orchestrator).execute(workflow)
 
     async def test_error_message_captured(self, mock_orchestrator, error_workflow):
         """Test that error messages are captured in node results."""
@@ -774,27 +743,33 @@ class TestWorkflowCancellation:
         assert result.context.data.get("quick_completed") is True
 
     async def test_cancellation_cleanup(self, mock_orchestrator):
-        """Test that cancellation properly cleans up resources."""
-        cleanup_called = {"value": False}
+        started = asyncio.Event()
+        cleaned_up = asyncio.Event()
 
-        def transform_with_cleanup(ctx: Dict[str, Any]) -> Dict[str, Any]:
-            ctx["processed"] = True
-            return ctx
+        async def waiting_agent(node, state):
+            started.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cleaned_up.set()
 
-        workflow = (
-            WorkflowBuilder("cleanup_workflow")
-            .add_transform("process", transform_with_cleanup)
-            .build()
-        )
-
+        workflow = WorkflowBuilder("cancelled").add_agent("agent", "executor", "Wait").build()
         executor = WorkflowExecutor(mock_orchestrator)
-
-        # Normal execution should complete
-        result = await executor.execute(workflow)
+        with patch(
+            "victor.workflows.executors.agent.AgentNodeExecutor.execute", side_effect=waiting_agent
+        ):
+            task = asyncio.create_task(executor.execute(workflow))
+            await asyncio.wait_for(started.wait(), timeout=1.0)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+        assert cleaned_up.is_set()
+        following = (
+            WorkflowBuilder("following").add_transform("step", lambda state: {"done": True}).build()
+        )
+        result = await executor.execute(following)
         assert result.success is True
-
-        # Active executions should be cleaned up
-        assert len(executor._active_executions) == 0
+        assert result.context.data["done"] is True
 
 
 @pytest.mark.asyncio
@@ -913,15 +888,22 @@ class TestWorkflowExecutorConfiguration:
         assert executor.default_timeout == 600.0
 
     async def test_cache_configuration(self, mock_orchestrator):
-        """Test workflow cache configuration."""
         from victor.workflows.cache import WorkflowCacheConfig
 
-        cache_config = WorkflowCacheConfig(enabled=True, ttl_seconds=3600)
-        executor = WorkflowExecutor(mock_orchestrator, cache_config=cache_config)
-
-        assert executor.cache is not None
+        with pytest.raises(ValueError, match="Node-result caching is unsupported"):
+            WorkflowExecutor(mock_orchestrator, cache_config=WorkflowCacheConfig(enabled=True))
 
     async def test_cache_disabled_by_default(self, mock_orchestrator):
-        """Test that cache is disabled by default."""
+        # Repeated executions run node code: the adapter has no node-result cache.
+        executed = []
+
+        def step(state):
+            executed.append(1)
+            return {"result": len(executed)}
+
+        workflow = WorkflowBuilder("uncached").add_transform("step", step).build()
         executor = WorkflowExecutor(mock_orchestrator)
-        assert executor.cache is None
+        first = await executor.execute(workflow)
+        second = await executor.execute(workflow)
+        assert first.context.data["result"] == 1
+        assert second.context.data["result"] == 2

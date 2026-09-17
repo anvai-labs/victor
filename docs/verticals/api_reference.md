@@ -889,6 +889,6 @@ telemetry = get_telemetry()
 
 ---
 
-For usage examples, see [Migration Guide](migration_guide.md).
+For usage examples, see [Migration Guide](../architecture/EXTERNAL_VERTICALS_MIGRATION.md).
 For best practices, see [Best Practices](best_practices.md).
 For architecture overview, see [Architecture Refactoring](architecture_refactoring.md).

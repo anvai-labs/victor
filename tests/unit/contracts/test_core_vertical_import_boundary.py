@@ -14,19 +14,16 @@ from typing import Dict, List, Set, Tuple
 
 import pytest
 
+from victor_contracts.testing.boundaries import KNOWN_VERTICAL_PACKAGE_NAMES
+
 # Root of the victor core package (not victor-contracts, not external verticals)
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 VICTOR_ROOT = REPO_ROOT / "victor"
 
-# External vertical package prefixes that core must never import
-EXTERNAL_VERTICAL_PREFIXES = (
-    "victor_coding",
-    "victor_devops",
-    "victor_research",
-    "victor_rag",
-    "victor_dataanalysis",
-    "victor_invest",
-)
+# External vertical package prefixes that core must never import. Sourced from
+# the shared manifest (co-design review item 22b) rather than a locally
+# maintained list.
+EXTERNAL_VERTICAL_PREFIXES = KNOWN_VERTICAL_PACKAGE_NAMES
 
 # Known violations to track migration progress (baseline).
 # These are architectural violations that should be migrated to entry points.
@@ -131,6 +128,22 @@ def _collect_dynamic_import_calls(root: Path) -> List[Tuple[str, int, str]]:
 
 class TestCoreDoesNotImportExternalVerticals:
     """Ensure victor/ has zero static or dynamic imports from external verticals."""
+
+    def test_external_vertical_prefixes_has_not_shrunk(self) -> None:
+        """Regression guard (co-design review item 22b): EXTERNAL_VERTICAL_PREFIXES
+        is sourced from victor_contracts.testing.boundaries.KNOWN_VERTICAL_PACKAGE_NAMES.
+        Pin the exact expected set so a future edit to the shared manifest can't
+        silently shrink this guard's scan target without a visible, deliberate
+        test change here.
+        """
+        assert set(EXTERNAL_VERTICAL_PREFIXES) == {
+            "victor_coding",
+            "victor_devops",
+            "victor_research",
+            "victor_rag",
+            "victor_dataanalysis",
+            "victor_invest",
+        }
 
     def test_dynamic_import_collector_flags_import_module_and_dunder_import(
         self,

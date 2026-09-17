@@ -4,11 +4,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from collections.abc import Iterator
 from pathlib import Path
 import argparse
 import importlib
+import os
 import re
 import sys
+from types import ModuleType
+from typing import cast
 
 import yaml
 
@@ -145,7 +149,7 @@ STALE_VERTICAL_CONTRACT_PATTERNS = {
     ),
 }
 
-ARCHIVED_DOC_BANNERS = {
+ARCHIVED_DOC_BANNERS: dict[Path, str] = {
     # Known archived planning docs that must advertise their non-canonical status.
     # docs/COMPREHENSIVE_IMPROVEMENT_ROADMAP.md was removed during doc consolidation.
 }
@@ -555,7 +559,7 @@ PUBLIC_SHIM_DEPRECATION_CONTRACTS = (
 )
 
 
-def _load_toml_module():
+def _load_toml_module() -> ModuleType:
     """Load a TOML parser compatible with Python 3.10+."""
     try:
         return importlib.import_module("tomllib")
@@ -598,9 +602,9 @@ def _workflow_on_config(data: object) -> object | None:
     if not isinstance(data, dict):
         return None
     if "on" in data:
-        return data["on"]
+        return cast(object, data["on"])
     if True in data:
-        return data[True]
+        return cast(object, data[True])
     return None
 
 
@@ -635,6 +639,103 @@ def check_workflow_yaml(root: Path) -> list[HygieneFinding]:
             )
 
     return findings
+
+
+def check_action_pins(root: Path) -> list[HygieneFinding]:
+    """Cover nested workflows and composite actions, not just root workflows."""
+    findings: list[HygieneFinding] = []
+
+    def references(value: object) -> Iterator[object]:
+        if isinstance(value, dict):
+            if "uses" in value:
+                yield value["uses"]
+            for child in value.values():
+                yield from references(child)
+        elif isinstance(value, list):
+            for child in value:
+                yield from references(child)
+
+    for directory, subdirs, files in os.walk(root):
+        subdirs[:] = [
+            name
+            for name in subdirs
+            if name not in {".git", ".worktrees", ".venv", "venv", "node_modules", "target"}
+        ]
+        parent = Path(directory)
+        if ".github" not in parent.relative_to(root).parts:
+            continue
+        for name in files:
+            if not name.endswith((".yml", ".yaml")):
+                continue
+            path = parent / name
+            try:
+                loaded = yaml.safe_load(path.read_text())
+            except yaml.YAMLError:
+                findings.append(
+                    HygieneFinding(path.relative_to(root), "invalid action/workflow YAML")
+                )
+                continue
+            for ref in references(loaded):
+                if isinstance(ref, str) and ref.startswith("./"):
+                    continue
+                pattern = r"[^\s@]+@[0-9a-f]{40}"
+                if isinstance(ref, str) and ref.startswith("docker://"):
+                    pattern = r"docker://[^\s@]+@sha256:[0-9a-f]{64}"
+                if not isinstance(ref, str) or not re.fullmatch(pattern, ref):
+                    findings.append(
+                        HygieneFinding(
+                            path.relative_to(root), f"mutable or invalid action reference: {ref}"
+                        )
+                    )
+    return findings
+
+
+def _workflow_has_blocking_local_audit(path: Path, action_name: str) -> bool:
+    """Recognize the repository's shared report gates without accepting bypasses."""
+    root = path.parents[2]
+    action_path = root / ".github/actions" / action_name / "action.yml"
+    if not action_path.is_file() or not (root / "scripts/ci/security_report_check.py").is_file():
+        return False
+    try:
+        workflow = yaml.safe_load(path.read_text())
+        action = yaml.safe_load(action_path.read_text())
+    except yaml.YAMLError:
+        return False
+    if not isinstance(workflow, dict) or not isinstance(action, dict):
+        return False
+    runs = action.get("runs")
+    if not isinstance(runs, dict) or runs.get("using") != "composite":
+        return False
+    action_steps = runs.get("steps")
+    jobs = workflow.get("jobs")
+    if not isinstance(action_steps, list) or not isinstance(jobs, dict):
+        return False
+    gates = [
+        s
+        for s in action_steps
+        if isinstance(s, dict) and "security_report_check.py" in str(s.get("run", ""))
+    ]
+    if not gates or any(
+        gate.get("continue-on-error")
+        or "|| true" in gate.get("run", "")
+        or gate.get("if", "always()") != "always()"
+        for gate in gates
+    ):
+        return False
+    for job in jobs.values():
+        if not isinstance(job, dict) or job.get("continue-on-error") or job.get("if"):
+            continue
+        for step in job.get("steps", []):
+            if not isinstance(step, dict) or step.get("continue-on-error") or step.get("if"):
+                continue
+            if step.get("uses") != f"./.github/actions/{action_name}":
+                continue
+            if action_name == "security-scan":
+                config = step.get("with", {})
+                if config.get("scope") != "filesystem" or config.get("minimum") != "CRITICAL":
+                    continue
+            return True
+    return False
 
 
 def check_nightly_workflow_contract(root: Path) -> list[HygieneFinding]:
@@ -956,6 +1057,8 @@ def check_primary_vertical_contract_docs(root: Path) -> list[HygieneFinding]:
 
 
 def _workflow_has_blocking_trivy_step(path: Path) -> bool:
+    if _workflow_has_blocking_local_audit(path, "security-scan"):
+        return True
     try:
         loaded = yaml.safe_load(path.read_text())
     except yaml.YAMLError:
@@ -998,6 +1101,8 @@ def _workflow_has_blocking_trivy_step(path: Path) -> bool:
 
 
 def _workflow_has_blocking_pip_audit_step(path: Path) -> bool:
+    if _workflow_has_blocking_local_audit(path, "python-audit"):
+        return True
     try:
         loaded = yaml.safe_load(path.read_text())
     except yaml.YAMLError:
@@ -1258,6 +1363,7 @@ def run_checks(root: Path) -> list[HygieneFinding]:
     """Run all foundational repo hygiene checks."""
     findings: list[HygieneFinding] = []
     findings.extend(check_workflow_yaml(root))
+    findings.extend(check_action_pins(root))
     findings.extend(check_nightly_workflow_contract(root))
     findings.extend(check_banned_repo_urls(root))
     findings.extend(check_uppercase_roadmap_links(root))

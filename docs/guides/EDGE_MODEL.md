@@ -342,5 +342,5 @@ See [FEP-0001](../feps/fep-0001-edge-model.md) for full roadmap.
 
 - [FEP-0001: Edge Model for Micro-Decisions](../feps/fep-0001-edge-model.md)
 - [Feature Flags Documentation](./FEATURE_FLAGS.md)
-- [Configuration Guide](../users/reference/config.md)
+- [Configuration Guide](../reference/configuration-options.md)
 - [Local Models Guide](./development/local-models.md)

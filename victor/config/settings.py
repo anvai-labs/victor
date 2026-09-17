@@ -16,6 +16,7 @@ from __future__ import annotations
 
 """Configuration management for CodingAgent."""
 
+import threading
 import logging
 import os
 import warnings
@@ -342,7 +343,15 @@ class ProviderGatewayConfig(BaseModel):
     provider in direct FFI mode (unchanged behavior).
     """
 
-    url: str = Field(..., description="Sandhi proxy URL, e.g. http://localhost:8600")
+    url: str = Field(
+        default="",
+        description=(
+            "Sandhi proxy ROOT, e.g. http://localhost:8600 — a trailing /v1 or "
+            "/v1beta is accepted and stripped (the transport derives the "
+            "per-family prefix). May be omitted entirely when "
+            "SANDHI_GATEWAY_URL is set."
+        ),
+    )
     virtual_key: Optional[SecretStr] = Field(
         default=None,
         description=(
@@ -1773,7 +1782,15 @@ class Settings(BaseSettings):
     # Parallel Tool Execution (from VictorSettings merge)
     # ==========================================================================
     parallel_tool_execution: bool = Field(
-        default=True, description="Enable parallel execution of independent tools"
+        default=False,
+        description=(
+            "Enable concurrent execution of read-only-allowlisted tool calls "
+            "within a batch (co-design review item 16). Off by default — the "
+            "allowlist gate (registry write-tools complement intersected with "
+            "the idempotent-tools set; shell is never eligible) is the "
+            "soundness floor, but this still changes execution ordering/timing "
+            "for a broad swath of tool calls, so it ships opt-in."
+        ),
     )
     max_concurrent_tools: int = Field(
         default=5, ge=1, description="Maximum tools to execute concurrently"
@@ -2562,17 +2579,90 @@ class Settings(BaseSettings):
         return registry.get_settings(provider, self, profile_overrides, account_data)
 
 
-def load_settings() -> Settings:
-    """Load application settings.
+_settings_snapshot: Optional["Settings"] = None
+_settings_snapshot_lock = threading.Lock()
+
+
+def load_settings(fresh: bool = False) -> Settings:
+    """Load application settings (process-cached snapshot by default).
+
+    ``Settings()`` construction parses .env, scans os.environ twice through
+    legacy mapping validators, and validates 155 pydantic fields (~5 ms) —
+    previously paid per LLM request (sandhi transport) and per graph
+    invocation (co-design review U3-F1 / U2-F3).
+
+    The cached instance is shared across the process: treat it as
+    READ-ONLY. Callers that will MUTATE the returned settings (Agent.create,
+    VictorClient, config overlays) must pass ``fresh=True`` — that returns a
+    new uncached instance without disturbing the snapshot. Tests that change
+    os.environ and expect new reads should call ``reset_settings_cache()``
+    first.
+
+    Args:
+        fresh: Build and return a new instance, bypassing (and not
+            updating) the cache — for callers that mutate the result.
 
     Returns:
-        Settings instance
+        Settings instance (shared snapshot unless ``fresh=True``).
     """
-    return Settings()
+    if fresh:
+        return Settings()
+    global _settings_snapshot
+    if _settings_snapshot is None:
+        # Lock-guarded cold start: an unlocked global let N concurrent
+        # threads each build their own instance (measured 8/8 distinct),
+        # silently breaking the shared-snapshot contract (adversarial-
+        # review finding). Settings construction cannot await, so a plain
+        # threading lock is safe inside async code.
+        with _settings_snapshot_lock:
+            if _settings_snapshot is None:
+                _settings_snapshot = Settings()
+    return _settings_snapshot
 
 
-# Alias for compatibility with packages/victor-core
+def reset_settings_cache() -> None:
+    """Drop the cached settings snapshot so the next ``load_settings()``
+    rebuilds from current environment/config sources."""
+    global _settings_snapshot
+    _settings_snapshot = None
+
+
+# Alias for compatibility with packages/victor-core.
+# NOTE: kept as a module attribute (not a def) so tests can monkeypatch the
+# symbol — test_sandhi_transport patches victor.config.settings.get_settings.
 get_settings = load_settings
+
+
+def _inferflux_reachable(victor_dir: "Path") -> bool:
+    """Best-effort probe of the default InferFlux endpoint (1s budget).
+
+    Consulted by :func:`is_first_time_user` so a tunneled-InferFlux setup
+    without cloud keys or Ollama is not treated as a first-time install.
+    Never raises; any failure counts as "not reachable".
+    """
+    import httpx
+
+    base_url = os.getenv("INFERFLUX_BASE_URL", "http://127.0.0.1:8080/v1")
+    health_url = base_url.removesuffix("/v1").removesuffix("/") + "/healthz"
+    headers = {}
+    api_key = os.getenv("INFERFLUX_API_KEY")
+    if not api_key:
+        try:
+            keys_path = victor_dir / "api_keys.yaml"
+            if keys_path.exists():
+                import yaml
+
+                data = yaml.safe_load(keys_path.read_text()) or {}
+                api_key = (data.get("api_keys") or {}).get("inferflux")
+        except Exception:
+            api_key = None
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    try:
+        response = httpx.get(health_url, headers=headers, timeout=1.0)
+        return response.status_code == 200
+    except Exception:
+        return False
 
 
 def is_first_time_user() -> bool:
@@ -2628,7 +2718,13 @@ def is_first_time_user() -> bool:
     if has_keys:
         return False
 
-    # Also check if Ollama is available (local provider)
+    # Also check if the configured default local endpoint is reachable
+    # (InferFlux first: probing it avoids the first-run wizard for
+    # InferFlux-only setups; the Ollama check below remains the fallback).
+    if _inferflux_reachable(victor_dir):
+        return False
+
+    # Check if Ollama is available (local provider)
     # Use cached result to avoid 2-second subprocess timeout on every call
     ollama_cache_file = victor_dir / ".ollama_available"
 

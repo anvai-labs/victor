@@ -452,8 +452,8 @@ my_tool = "my_victor_plugin.tools:MyCustomTool"
 ```
 
 For detailed custom tool development, see:
-- [Custom Tool Tutorial](../guides/custom-tools/)
-- [Plugin Development](../guides/plugins/)
+- [Custom Tool Tutorial](../tutorials/build-custom-tool.md)
+- [Plugin Development](../development/extending/plugins.md)
 
 ## Best Practices
 
@@ -543,8 +543,8 @@ If wrong tools are being selected:
 
 - [Full Tool Catalog](../reference/tools/catalog.md) - All 34 tool modules with parameters
 - [Tool Calling Details](../reference/tools/tool-calling.md) - Provider-specific behavior
-- [Configuration Reference](../reference/configuration/) - All settings
-- [Custom Tool Tutorial](../guides/custom-tools/) - Build your own tools
+- [Configuration Reference](../reference/configuration/index.md) - All settings
+- [Custom Tool Tutorial](../tutorials/build-custom-tool.md) - Build your own tools
 
 ---
 

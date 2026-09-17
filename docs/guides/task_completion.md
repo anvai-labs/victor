@@ -275,26 +275,10 @@ If you encounter issues:
 
 ### Architecture
 
-```
-LLM Response
-    ↓
-TaskCompletionDetector.analyze_response()
-    ↓
-get_completion_confidence()
-    ↓
-┌─────────────────────────────────┐
-│ Confidence Level?               │
-├─────────────────────────────────┤
-│ HIGH → Force completion         │
-│ MEDIUM → Log + continue          │
-│ LOW → Continue                  │
-│ NONE → Use normal logic         │
-└─────────────────────────────────┘
-    ↓
-ContinuationStrategy / IntentClassifier
-    ↓
-Final Decision (Finish/Continue)
-```
+This section describes the response-heuristic components. The
+[unified agentic-loop diagram](../architecture.md#agenticloop) is the canonical execution
+sequence: the shared EVALUATE and DECIDE phases own the run’s continuation decision.
+A detector confidence score alone should not be read as a separate execution authority.
 
 ### Components
 

@@ -204,7 +204,11 @@ class TestCreateStreamingChatAdapter:
 
     def test_create_streaming_chat_adapter_returns_adapter(self, factory):
         """create_streaming_chat_adapter returns the canonical chat-stream adapter."""
+        from victor.agent.session_state_accessor import SessionStateAccessor
+        from victor.agent.session_state_manager import SessionStateManager
+
         runtime_owner = MagicMock()
+        runtime_owner._session_accessor = SessionStateAccessor(SessionStateManager())
 
         adapter = factory.create_streaming_chat_adapter(runtime_owner)
 

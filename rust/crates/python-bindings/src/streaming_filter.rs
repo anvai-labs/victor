@@ -185,6 +185,34 @@ impl StreamingFilter {
         self.total_thinking_length
     }
 
+    /// Flush the residual buffer at end-of-stream.
+    ///
+    /// `process_chunk` buffers a potential partial pattern at the end of a
+    /// chunk; if the stream ends before that pattern completes, the buffered
+    /// bytes belong to the output. Previously they were silently dropped on
+    /// the native path while the Python fallback's flush emitted them
+    /// (co-design review U8-F7) — a response ending in a partial `<thi`
+    /// lost those bytes only when the Rust wheel was installed.
+    pub fn flush(&mut self) -> StreamingChunkResult {
+        let content = std::mem::take(&mut self.buffer);
+        let is_thinking = self.state == ThinkingState::InThinking;
+        if is_thinking {
+            self.thinking_content_length += content.len();
+            self.total_thinking_length += content.len();
+        }
+        StreamingChunkResult {
+            content: if is_thinking && self.suppress_thinking {
+                String::new()
+            } else {
+                content
+            },
+            is_thinking,
+            state_changed: false,
+            entering_thinking: false,
+            exiting_thinking: false,
+        }
+    }
+
     /// Process a content chunk, detecting thinking state transitions.
     ///
     /// This is the hot path - called for every streaming chunk.

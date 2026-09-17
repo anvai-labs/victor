@@ -378,3 +378,40 @@ class TestDatabaseUnknownAction:
         result = await database(action="invalid_action")
         assert result["success"] is False
         assert "Unknown action" in result["error"]
+
+
+@pytest.mark.asyncio
+async def test_describe_treats_sqlite_table_name_as_data():
+    import sqlite3
+    from victor.tools.database_tool import _do_describe
+
+    connection = sqlite3.connect(":memory:")
+    name = "odd' table); DROP TABLE guard; --"
+    quoted = name.replace('"', '""')
+    try:
+        connection.execute("CREATE TABLE guard (id INTEGER)")
+        connection.execute(f'CREATE TABLE "{quoted}" (value TEXT)')
+        result = await _do_describe("sqlite_probe", name, {"sqlite_probe": connection})
+        assert result["success"]
+        assert [column["name"] for column in result["columns"]] == ["value"]
+        connection.execute("SELECT * FROM guard")
+    finally:
+        connection.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("backend", ["postgresql", "mysql"])
+async def test_describe_binds_catalog_table_name(backend):
+    from unittest.mock import Mock
+    from victor.tools.database_tool import _do_describe
+
+    connection = Mock()
+    connection.cursor.return_value.fetchall.return_value = []
+    name = "users' OR 1=1; DROP TABLE guard; --"
+    key = f"{backend}_probe"
+    result = await _do_describe(key, name, {key: connection})
+    assert result["success"]
+    sql, parameters = connection.cursor.return_value.execute.call_args.args
+    assert name not in sql
+    assert parameters == (name,)
+    assert "%s" in sql

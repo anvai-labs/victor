@@ -526,6 +526,15 @@ def _register_default_providers() -> None:
         module_path="victor.providers.llamacpp_provider",
         class_name="LlamaCppProvider",
     )
+    # Self-hosted InferFlux inference server (sister project; OpenAI-compatible
+    # dialect). Unlike the local trio above it has an own-slug Sandhi catalog
+    # descriptor (ADR-0008), so it routes by slug instead of the default openai
+    # dispatch with an explicit base_url.
+    _register_lazy_provider(
+        ["inferflux"],
+        module_path="victor.providers.inferflux_provider",
+        class_name="InferfluxProvider",
+    )
     # MLX LM (Apple Silicon-optimized inference)
     # NOTE: Must remain lazy. Importing mlx_lm can hard-abort on unsupported
     # Metal runtime environments (e.g., missing visible MPS device).

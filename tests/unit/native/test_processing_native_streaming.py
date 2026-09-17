@@ -20,6 +20,7 @@ from types import SimpleNamespace
 
 from victor.processing.native import _base
 from victor.processing.native import streaming
+from victor.processing.native._base import _NATIVE_AVAILABLE, _native
 
 
 def test_get_native_version_handles_string_and_non_string_versions(monkeypatch) -> None:
@@ -69,3 +70,48 @@ def test_streaming_helpers_delegate_to_native_module_when_present(monkeypatch) -
     assert streaming.detect_circular_phrases("abc") is True
     assert streaming.count_circular_patterns("abc") == 4
     assert streaming.find_circular_patterns("abc") == [(0, 3, "abc")]
+
+
+class TestStreamingFlushTail:
+    """End-of-stream flush parity (co-design review U8-F7).
+
+    process_chunk buffers a potential partial thinking-tag; at end of stream
+    those bytes belong to the output. The native filter gained flush(); the
+    fallback always had it. Both backends must emit identical tails.
+    """
+
+    @staticmethod
+    def _fallback_chunks(chunks):
+        from victor.agent.response_sanitizer import StreamingContentFilter
+
+        filt = StreamingContentFilter()
+        out = []
+        for chunk in chunks:
+            out.append(filt.process_chunk(chunk).content)
+        out.append(filt.flush().content)
+        return "".join(out)
+
+    @staticmethod
+    def _native_chunks(chunks):
+        from victor.agent.response_sanitizer import _NativeFilterWrapper
+
+        filt = _NativeFilterWrapper(_native.StreamingFilter(False, 50000), 50000)
+        out = []
+        for chunk in chunks:
+            out.append(filt.process_chunk(chunk).content)
+        out.append(filt.flush().content)
+        return "".join(out)
+
+    def _assert_parity(self, chunks, expected_substring):
+        fallback = self._fallback_chunks(chunks)
+        assert expected_substring in fallback, f"fallback lost tail: {fallback!r}"
+        if _NATIVE_AVAILABLE and hasattr(_native.StreamingFilter, "flush"):
+            native = self._native_chunks(chunks)
+            assert expected_substring in native, f"native lost tail: {native!r}"
+            assert native == fallback, f"native/fallback divergence: {native!r} != {fallback!r}"
+
+    def test_partial_open_tag_tail_is_emitted(self):
+        self._assert_parity(["hello ", "world <thi"], "world <thi")
+
+    def test_clean_end_flushes_nothing_extra(self):
+        self._assert_parity(["hello ", "world"], "hello world")

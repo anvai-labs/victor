@@ -208,13 +208,21 @@ def _get_key_from_sentinelpass(provider: str, *, force: bool = False) -> Optiona
         logger.debug("SentinelPass lookup enabled but `sentinelpass` was not found")
         return None
 
+    # Allowlisted, token-enforced lookup (SentinelPass v0.8+). The legacy
+    # unscoped `secret-get` path no longer exists; the per-client grant token
+    # is inherited from SENTINELPASS_CLIENT_TOKEN in the environment.
     cmd = [
         sentinelpass_bin,
-        "secret-get",
+        "secret",
+        "get",
+        "--client-id",
+        os.environ.get("VICTOR_SENTINELPASS_CLIENT_ID", "victor"),
         "--domain",
         configured_domain or _sentinelpass_domain_for_provider(provider),
         "--field",
         "password",
+        "--output",
+        "plain",
     ]
     if _truthy_env("VICTOR_SENTINELPASS_BIOMETRIC"):
         cmd.append("--biometric-unlock")
@@ -524,7 +532,22 @@ class UnifiedApiKeyResolver:
         except Exception as e:
             logger.debug(f"Config file check failed: {e}")
 
-        # No key found
+        # No key found. Local providers are keyless BY DESIGN (anonymous local
+        # servers): fall through to the EMPTY key rather than None, so policy shells
+        # don't raise and sandhi's empty-secret convention applies (0.3.0 sends no
+        # Authorization header at all for an empty key — ADR-0008 D1).
+        from victor.config.api_keys import LOCAL_PROVIDERS as _LOCAL_PROVIDERS
+
+        if provider in _LOCAL_PROVIDERS:
+            result = APIKeyResult(
+                key="",
+                source="local",
+                source_detail="Local provider: keyless by design",
+                sources_attempted=sources,
+                non_interactive=self.non_interactive,
+                confidence="high",
+            )
+            return self._cache_result(provider, result)
         result = APIKeyResult(
             key=None,
             source="none",

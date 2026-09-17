@@ -237,13 +237,13 @@ class EmbeddingCacheManager:
                 "name": "Tool Embeddings",
                 "desc": "Semantic tool selection (project-isolated)",
                 "path": self._global_embeddings,
-                "pattern": "tool_embeddings_*_*.pkl",  # model_hash pattern
+                "pattern": "tool_embeddings_*_*.v2.json",  # model_hash pattern
             },
             CacheType.INTENT: {
                 "name": "Task Classifier",
                 "desc": "Task type detection (unified)",
                 "path": self._global_embeddings,
-                "pattern": "task_classifier_collection.pkl",
+                "pattern": "task_classifier_collection.v2.json",
             },
             CacheType.TIERED: {
                 "name": "Tiered Cache",
@@ -259,13 +259,21 @@ class EmbeddingCacheManager:
             },
         }
 
+    @staticmethod
+    def _matching_cache_paths(path: Path, pattern: str) -> List[Path]:
+        """Include obsolete files for explicit cleanup, never deserialization."""
+        patterns = [pattern]
+        if pattern.endswith(".v2.json"):
+            patterns.append(pattern.removesuffix(".v2.json") + ".pkl")
+        return [file for glob in patterns for file in path.glob(glob) if file.is_file()]
+
     def _scan_cache_files(self, path: Path, pattern: str) -> List[CacheFileInfo]:
         """Scan directory for cache files matching pattern."""
         files = []
         if not path.exists():
             return files
 
-        for f in path.glob(pattern):
+        for f in self._matching_cache_paths(path, pattern):
             if f.is_file():
                 try:
                     stat = f.stat()
@@ -374,7 +382,7 @@ class EmbeddingCacheManager:
                             progress_callback(f"  {cat['name']}: empty")
                 else:
                     # Clear matching files only
-                    files = list(path.glob(pattern))
+                    files = self._matching_cache_paths(path, pattern)
                     file_count = len(files)
                     total_size = sum(f.stat().st_size for f in files if f.is_file())
 

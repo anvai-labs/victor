@@ -135,15 +135,21 @@ the final result. This makes long operations feel responsive rather than stalled
 
 **How it works (architecture):**
 
-```
-tool (e.g. shell)                  rendering layer
-  emit_tool_progress(...)  ──►  framework/tool_progress.py (process-global sink)
-                                        │  registered around a turn by
-                                        ▼  ui/rendering/handler.stream_response()
-                                 renderer.on_tool_progress(name, stdout, stderr, …)
-                                        │
-                                        ▼  LiveDisplayRenderer renders a throttled
-                                           Rich panel; torn down on on_tool_result
+```mermaid
+---
+title: Tool progress reaches the active terminal renderer
+---
+%%{init: {"theme":"base","themeVariables":{"primaryColor":"#E8EFF7","primaryTextColor":"#17324D","primaryBorderColor":"#456987","lineColor":"#456987","fontFamily":"Arial"}}}%%
+flowchart TB
+  T["Running tool"]
+  P["emit_tool_progress<br/>framework/tool_progress.py"]
+  S["Process-global progress sink<br/>single active interactive turn"]
+  R["renderer.on_tool_progress"]
+  D["LiveDisplayRenderer<br/>throttled Rich panel"]
+  T -->|"emit stdout / stderr progress"| P
+  P -->|"forward if sink is registered"| S
+  S -->|"deliver progress callback"| R
+  R -->|"refresh live panel"| D
 ```
 
 Key properties:

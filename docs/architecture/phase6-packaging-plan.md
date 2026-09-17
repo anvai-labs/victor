@@ -1,4 +1,10 @@
 # Phase 6: Packaging & Distribution -- Comprehensive Analysis & Plan
+
+> **Historical packaging analysis.** Package sizes, dependency counts and rollout proposals
+> below describe the planning snapshot, not the current release. Use the
+> [publishing guide](../development/releasing/publishing.md) for the supported release flow
+> and [ADR-016](adr/016-distribution-packaging-strategy.md) for the packaging decision.
+
 Victor's current packaging is a monolithic victor-ai wheel shipping ~1,900 Python files (~818K LOC) with ~20 core dependencies and ~30 optional extras. This document analyzes the full dependency surface, identifies redundancy and sprawl, evaluates Rust/PyO3 native wheel candidates, studies distribution strategies from comparable projects (Claude Code, Codex CLI, OpenCode), and recommends a phased packaging modernization plan.
 ---
 | Package | Type | Dependencies | Size | Purpose |

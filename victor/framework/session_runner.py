@@ -20,6 +20,7 @@ framework layer so UI entrypoints stay focused on parsing and rendering.
 
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass, replace
 from typing import Any, Callable, Optional, TYPE_CHECKING
 
@@ -60,7 +61,13 @@ class FrameworkSessionRunner:
         *,
         client_factory: Optional[Callable[["SessionConfig"], "VictorClient"]] = None,
     ) -> None:
-        self._settings = settings
+        # Adopt a PRIVATE copy: prepare_state() applies sticky session
+        # overrides (headless_mode, tool budgets, provider/model overrides)
+        # via apply_to_settings, and callers hand us load_settings() — the
+        # process-wide shared snapshot since the settings-cache change. A
+        # private copy keeps run 1's overrides out of run 2 (adversarial-
+        # review finding: cross-run settings bleed).
+        self._settings = copy.deepcopy(settings)
         self._config = config
         self._client_factory = client_factory
 

@@ -19,6 +19,7 @@
 //! counts use a lightweight heuristic (word-count * 1.3) so there is no
 //! dependency on an external tokenizer.
 
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
 // ---------------------------------------------------------------------------
@@ -105,12 +106,13 @@ pub struct FitResult {
 ///
 /// - `"fifo"` — Keep newest messages, drop oldest first.  System messages
 ///   are always preserved when `preserve_system` is true.
-/// - `"priority"` — Score each message as `priority * 0.4 + recency * 0.6`,
-///   keep the highest-scoring messages that fit within the budget.
+/// - `"priority"` — Score each message as `0.4 * (priority / 100) +
+///   recency * 0.6`, keep the highest-scoring messages that fit.
 /// - `"smart"` — Always keep system messages, the first user message, and
-///   the last 2 messages.  Score the remaining messages by
-///   `priority * 0.4 + recency * 0.6` and drop the lowest until the budget
-///   is met.
+///   the last 2 messages.  Score the remaining messages by the same
+///   formula and drop the lowest until the budget is met.
+///
+/// Unknown strategy names raise `ValueError` (no silent default).
 ///
 /// # Arguments
 /// * `messages` - List of `MessageSlot` instances
@@ -127,26 +129,36 @@ pub fn fit_context(
     budget: usize,
     strategy: &str,
     preserve_system: bool,
-) -> FitResult {
+) -> PyResult<FitResult> {
+    // Validate the strategy FIRST — the early returns below (empty list,
+    // everything-fits) previously skipped validation entirely, so unknown
+    // names were silently accepted whenever no drops were needed
+    // (adversarial-review finding).
+    if !matches!(strategy, "fifo" | "priority" | "smart") {
+        return Err(PyValueError::new_err(format!(
+            "unknown fit strategy '{strategy}' (expected 'fifo', 'priority', or 'smart')"
+        )));
+    }
+
     if messages.is_empty() {
-        return FitResult {
+        return Ok(FitResult {
             kept_indices: Vec::new(),
             total_tokens: 0,
             dropped_count: 0,
             freed_tokens: 0,
-        };
+        });
     }
 
     let total_all: usize = messages.iter().map(|m| m.token_count).sum();
 
     // If everything fits, keep all
     if total_all <= budget {
-        return FitResult {
+        return Ok(FitResult {
             kept_indices: messages.iter().map(|m| m.index).collect(),
             total_tokens: total_all,
             dropped_count: 0,
             freed_tokens: 0,
-        };
+        });
     }
 
     let kept_indices = match strategy {
@@ -163,12 +175,12 @@ pub fn fit_context(
     let dropped_count = messages.len() - kept_indices.len();
     let freed_tokens = total_all - total_tokens;
 
-    FitResult {
+    Ok(FitResult {
         kept_indices,
         total_tokens,
         dropped_count,
         freed_tokens,
-    }
+    })
 }
 
 /// FIFO: keep newest, drop oldest.  System messages are pinned when requested.
@@ -198,7 +210,11 @@ fn fit_fifo(messages: &[MessageSlot], budget: usize, preserve_system: bool) -> V
     kept
 }
 
-/// Priority: score = priority * 0.4 + recency * 0.6, keep highest.
+/// Priority: score = 0.4 * (priority / 100) + recency * 0.6, keep highest.
+///
+/// Priority is a 0-255 u8 but is scored on the documented /100 scale (see
+/// batch_score_messages) — the previous raw `priority * 0.4` made priority
+/// dominate recency by ~40x (co-design review U8 scale-drift finding).
 fn fit_priority(messages: &[MessageSlot], budget: usize, preserve_system: bool) -> Vec<usize> {
     let (pinned, rest): (Vec<&MessageSlot>, Vec<&MessageSlot>) = if preserve_system {
         messages.iter().partition(|m| m.role == "system")
@@ -210,10 +226,13 @@ fn fit_priority(messages: &[MessageSlot], budget: usize, preserve_system: bool) 
     let remaining_budget = budget.saturating_sub(pinned_cost);
 
     // Score and sort descending
-    let mut scored: Vec<(&MessageSlot, f32)> = rest
+    let mut scored: Vec<(&MessageSlot, f64)> = rest
         .iter()
         .map(|m| {
-            let score = (m.priority as f32) * 0.4 + m.recency * 0.6;
+            // f64 to match the Python fallback bit-for-bit: f32 rounded
+            // equal scores into stable-sort ties while f64 ordered them,
+            // diverging native vs fallback selection on collisions.
+            let score = (m.priority as f64 / 100.0) * 0.4 + (m.recency as f64) * 0.6;
             (*m, score)
         })
         .collect();
@@ -280,12 +299,12 @@ fn fit_smart(messages: &[MessageSlot], budget: usize) -> Vec<usize> {
 
     let remaining_budget = budget - pinned_cost;
 
-    // Score the rest
-    let mut scored: Vec<(&MessageSlot, f32)> = messages
+    // Score the rest (same normalized formula as fit_priority)
+    let mut scored: Vec<(&MessageSlot, f64)> = messages
         .iter()
         .filter(|m| !pinned_set.contains(&m.index))
         .map(|m| {
-            let score = (m.priority as f32) * 0.4 + m.recency * 0.6;
+            let score = (m.priority as f64 / 100.0) * 0.4 + (m.recency as f64) * 0.6;
             (m, score)
         })
         .collect();
@@ -454,7 +473,7 @@ mod tests {
 
     #[test]
     fn test_fit_context_empty() {
-        let result = fit_context(vec![], 1000, "smart", true);
+        let result = fit_context(vec![], 1000, "smart", true).unwrap();
         assert!(result.kept_indices.is_empty());
         assert_eq!(result.total_tokens, 0);
         assert_eq!(result.dropped_count, 0);
@@ -467,7 +486,7 @@ mod tests {
             MessageSlot::new(0, 50, 5, "system".to_string(), 0.0),
             MessageSlot::new(1, 50, 5, "user".to_string(), 1.0),
         ];
-        let result = fit_context(messages, 200, "fifo", true);
+        let result = fit_context(messages, 200, "fifo", true).unwrap();
         assert_eq!(result.kept_indices, vec![0, 1]);
         assert_eq!(result.total_tokens, 100);
         assert_eq!(result.dropped_count, 0);
@@ -484,7 +503,7 @@ mod tests {
             MessageSlot::new(2, 100, 5, "user".to_string(), 1.0), // newest
         ];
         // Budget 200: can keep 2 of 3 (total 300)
-        let result = fit_context(messages, 200, "fifo", false);
+        let result = fit_context(messages, 200, "fifo", false).unwrap();
         assert_eq!(result.kept_indices, vec![1, 2]); // newest two
         assert_eq!(result.total_tokens, 200);
         assert_eq!(result.dropped_count, 1);
@@ -500,7 +519,7 @@ mod tests {
             MessageSlot::new(3, 100, 5, "user".to_string(), 1.0),
         ];
         // Budget 200: system (100) pinned + 1 more
-        let result = fit_context(messages, 200, "fifo", true);
+        let result = fit_context(messages, 200, "fifo", true).unwrap();
         assert!(result.kept_indices.contains(&0)); // system preserved
         assert!(result.kept_indices.contains(&3)); // newest non-system
         assert_eq!(result.total_tokens, 200);
@@ -512,13 +531,13 @@ mod tests {
     #[test]
     fn test_fit_priority_keeps_high_priority() {
         let messages = vec![
-            MessageSlot::new(0, 100, 10, "user".to_string(), 0.0), // score: 10*0.4 + 0*0.6 = 4.0
-            MessageSlot::new(1, 100, 1, "user".to_string(), 0.5),  // score: 1*0.4 + 0.5*0.6 = 0.7
-            MessageSlot::new(2, 100, 8, "user".to_string(), 1.0),  // score: 8*0.4 + 1.0*0.6 = 3.8
+            MessageSlot::new(0, 100, 10, "user".to_string(), 0.0), // score: 0.4*0.10 + 0.6*0.0 = 0.040
+            MessageSlot::new(1, 100, 1, "user".to_string(), 0.5), // score: 0.4*0.01 + 0.6*0.5 = 0.304
+            MessageSlot::new(2, 100, 8, "user".to_string(), 1.0), // score: 0.4*0.08 + 0.6*1.0 = 0.632
         ];
-        // Budget 200: keep top 2 by score → indices 0 (4.0) and 2 (3.8)
-        let result = fit_context(messages, 200, "priority", false);
-        assert_eq!(result.kept_indices, vec![0, 2]);
+        // Budget 200: keep top 2 by score → indices 2 (0.632) and 1 (0.304).
+        let result = fit_context(messages, 200, "priority", false).unwrap();
+        assert_eq!(result.kept_indices, vec![1, 2]);
         assert_eq!(result.dropped_count, 1);
     }
 
@@ -530,7 +549,7 @@ mod tests {
             MessageSlot::new(2, 100, 1, "assistant".to_string(), 0.5),
         ];
         // Budget 200: system pinned (100), then best scored non-system
-        let result = fit_context(messages, 200, "priority", true);
+        let result = fit_context(messages, 200, "priority", true).unwrap();
         assert!(result.kept_indices.contains(&0)); // system
         assert!(result.kept_indices.contains(&1)); // highest score
         assert_eq!(result.total_tokens, 200);
@@ -549,7 +568,7 @@ mod tests {
             MessageSlot::new(5, 50, 5, "user".to_string(), 1.0),      // pinned (last)
         ];
         // Budget 200: 4 pinned messages = 200 tokens, no room for rest
-        let result = fit_context(messages, 200, "smart", true);
+        let result = fit_context(messages, 200, "smart", true).unwrap();
         assert!(result.kept_indices.contains(&0)); // system
         assert!(result.kept_indices.contains(&1)); // first user
         assert!(result.kept_indices.contains(&4)); // 2nd to last
@@ -568,13 +587,20 @@ mod tests {
             MessageSlot::new(5, 30, 5, "user".to_string(), 1.0),
         ];
         // Budget 150: pinned = {0,1,4,5} = 120, room for 1 more (30)
-        // index 3 score = 9*0.4 + 0.6*0.6 = 3.96
-        // index 2 score = 1*0.4 + 0.4*0.6 = 0.64
+        // index 3 score = 0.4*0.09 + 0.6*0.6 = 0.396
+        // index 2 score = 0.4*0.01 + 0.6*0.4 = 0.244
         // Should pick index 3
-        let result = fit_context(messages, 150, "smart", true);
+        let result = fit_context(messages, 150, "smart", true).unwrap();
         assert!(result.kept_indices.contains(&3));
         assert!(!result.kept_indices.contains(&2));
         assert_eq!(result.total_tokens, 150);
+    }
+
+    #[test]
+    fn test_fit_context_unknown_strategy_errors() {
+        let messages = vec![MessageSlot::new(0, 100, 5, "user".to_string(), 1.0)];
+        let result = fit_context(messages, 50, "bogus", true);
+        assert!(result.is_err());
     }
 
     // -- truncate_message ---------------------------------------------------

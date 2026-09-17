@@ -33,6 +33,12 @@ except ImportError:
 # Cached tiktoken encoder for fallback
 _tiktoken_encoder = None
 
+# Cached native BPE tokenizer (co-design review item 17a). Built lazily from
+# tiktoken's cl100k_base ranks so the exact-count path runs real BPE in Rust
+# instead of the heuristic ``count_tokens_fast`` it was misrouted to.
+_bpe_tokenizer = None
+_bpe_tokenizer_failed = False
+
 
 def _get_tiktoken_encoder():
     """Get or create cached tiktoken encoder."""
@@ -42,11 +48,53 @@ def _get_tiktoken_encoder():
     return _tiktoken_encoder
 
 
+def _get_bpe_tokenizer():
+    """Get or create the cached native BpeTokenizer from tiktoken's ranks.
+
+    Returns None when the native module lacks BpeTokenizer (stale wheel) or
+    tiktoken is unavailable — callers fall through to the existing chain.
+    Construction failures are remembered so we don't retry per call.
+
+    Known divergence from tiktoken (documented in the Rust source): the
+    pre-tokenizer's ``\\s+(?!\\S)`` negative lookahead is approximated as
+    ``\\s+$`` (the Rust regex crate has no lookahead), so runs of 2+
+    whitespace *before a word* can split differently — e.g. ``"a\\t\\tb"``
+    counts one fewer token than tiktoken. Token *counts* on ordinary prose
+    are unaffected; only mid-string multi-whitespace runs diverge.
+    """
+    global _bpe_tokenizer, _bpe_tokenizer_failed
+    if _bpe_tokenizer is not None or _bpe_tokenizer_failed:
+        return _bpe_tokenizer
+    if not (_NATIVE_AVAILABLE and hasattr(_native, "BpeTokenizer")):
+        _bpe_tokenizer_failed = True
+        return None
+    if not _TIKTOKEN_AVAILABLE:
+        _bpe_tokenizer_failed = True
+        return None
+    try:
+        encoder = _get_tiktoken_encoder()
+        if encoder is None:
+            _bpe_tokenizer_failed = True
+            return None
+        _bpe_tokenizer = _native.BpeTokenizer(
+            "cl100k_base",
+            list(encoder._mergeable_ranks.items()),
+            list(encoder._special_tokens.items()),
+        )
+    except Exception:
+        _bpe_tokenizer_failed = True
+        _bpe_tokenizer = None
+    return _bpe_tokenizer
+
+
 def count_tokens(text: str) -> int:
     """Count tokens in text using exact BPE tokenization.
 
-    Uses Rust BPE tokenizer when available for high-performance counting.
-    Falls back to tiktoken, then to word-based estimation.
+    Uses the native BpeTokenizer (real BPE over tiktoken's cl100k_base
+    ranks) when both the native extension and tiktoken are available, so the
+    count matches tiktoken exactly outside the documented whitespace-run
+    divergence (see ``_get_bpe_tokenizer``). Falls back to tiktoken, then to
+    word-based estimation.
 
     Args:
         text: Text to count tokens for
@@ -54,8 +102,10 @@ def count_tokens(text: str) -> int:
     Returns:
         Number of tokens
     """
-    if _NATIVE_AVAILABLE and hasattr(_native, "count_tokens_fast"):
-        return _native.count_tokens_fast(text)
+    if _NATIVE_AVAILABLE and hasattr(_native, "BpeTokenizer"):
+        tokenizer = _get_bpe_tokenizer()
+        if tokenizer is not None:
+            return tokenizer.count_tokens(text)
 
     # Pure Python fallback using tiktoken
     encoder = _get_tiktoken_encoder()
@@ -89,7 +139,9 @@ def count_tokens_batch(texts: List[str]) -> List[int]:
     """Count tokens for multiple texts in batch.
 
     More efficient than calling count_tokens() in a loop when
-    Rust extensions are available (amortizes FFI overhead).
+    Rust extensions are available (amortizes FFI overhead). Uses the same
+    exact BpeTokenizer as count_tokens() when available (the native batch
+    method is rayon-parallel), so batch and single counts agree.
 
     Args:
         texts: List of texts to count tokens for
@@ -97,6 +149,10 @@ def count_tokens_batch(texts: List[str]) -> List[int]:
     Returns:
         List of token counts, one per input text
     """
+    if _NATIVE_AVAILABLE and hasattr(_native, "BpeTokenizer"):
+        tokenizer = _get_bpe_tokenizer()
+        if tokenizer is not None and hasattr(tokenizer, "count_tokens_batch"):
+            return tokenizer.count_tokens_batch(texts)
     # Prefer a single native crossing for the whole batch — this is what
     # actually amortises the FFI overhead (a per-item loop does not).
     if _NATIVE_AVAILABLE and hasattr(_native, "count_tokens_fast_batch"):

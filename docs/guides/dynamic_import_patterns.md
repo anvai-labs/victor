@@ -248,6 +248,6 @@ analysis = tracker.augment_graph_analysis(
 
 ## Related Documentation
 
-- [Graph Tool Modes](../../victor/tools/graph_tool.py)
-- [Codebase Indexing](../codebase/indexer.py)
-- [Vertical Development Guide](../../victor-contracts/VERTICAL_DEVELOPMENT.md)
+- [Graph Tool Modes](https://github.com/anvai-labs/victor/blob/ff9129a8de9eb8788a260c5fa20b27ef323ca7bc/victor/tools/graph_tool.py)
+- [Codebase Indexing](https://github.com/anvai-labs/victor/blob/develop/victor/contrib/codebase/indexer.py)
+- [Vertical Development Guide](https://github.com/anvai-labs/victor/blob/develop/victor-contracts/VERTICAL_DEVELOPMENT.md)

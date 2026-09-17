@@ -39,6 +39,8 @@ from typing import Dict, List, Set, Tuple
 
 import pytest
 
+from victor_contracts.testing.boundaries import KNOWN_VERTICAL_PACKAGE_NAMES
+
 # Allowed import prefixes for external verticals
 ALLOWED_PREFIXES = frozenset(
     {
@@ -171,8 +173,10 @@ def _scan_package_imports(
     return violations
 
 
-# External vertical packages to check if installed
-EXTERNAL_VERTICALS = ["victor_coding", "victor_research", "victor_invest"]
+# External vertical packages to check if installed. Sourced from the shared
+# manifest (co-design review item 22b) rather than a locally maintained list —
+# this had drifted stale at 3 of the 6 known verticals before the migration.
+EXTERNAL_VERTICALS = list(KNOWN_VERTICAL_PACKAGE_NAMES)
 
 
 @pytest.mark.parametrize("package_name", EXTERNAL_VERTICALS)

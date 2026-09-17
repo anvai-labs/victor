@@ -76,7 +76,7 @@ def _serialized_tools_fingerprint(converted: List[Dict[str, Any]]) -> str:
     prefix; if it churns, the prefix cache misses every turn.
     """
     payload = json_dumps(converted, sort_keys=True, separators=(",", ":"))
-    return hashlib.md5(payload.encode("utf-8")).hexdigest()[:12]
+    return hashlib.md5(payload.encode("utf-8"), usedforsecurity=False).hexdigest()[:12]
 
 
 _LAST_TOOL_MESSAGE_CLEANUP_STATS: ContextVar[Optional[Dict[str, Any]]] = ContextVar(

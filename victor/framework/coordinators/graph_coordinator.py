@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import logging
 import time
+from contextlib import aclosing
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -200,13 +201,14 @@ class GraphTurnExecutor:
         try:
             # Use the graph's stream method if available
             if hasattr(graph, "stream"):
-                async for node_id, state in graph.stream(initial_state or {}):
-                    yield WorkflowEvent(
-                        event_type="node_complete",
-                        node_id=node_id,
-                        timestamp=time.time(),
-                        state_snapshot=state,
-                    )
+                async with aclosing(graph.stream(initial_state or {})) as events:
+                    async for node_id, state in events:
+                        yield WorkflowEvent(
+                            event_type="node_complete",
+                            node_id=node_id,
+                            timestamp=time.time(),
+                            state_snapshot=state,
+                        )
             else:
                 # Fallback to invoke
                 result = await graph.invoke(initial_state or {})

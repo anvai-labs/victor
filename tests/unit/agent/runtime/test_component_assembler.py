@@ -26,7 +26,6 @@ def test_assemble_tools_prefers_canonical_registrar_registration_surface():
     factory.create_safety_checker.return_value = MagicMock()
     factory.create_auto_committer.return_value = MagicMock()
     factory.create_tool_executor.return_value = MagicMock()
-    factory.create_parallel_executor.return_value = MagicMock()
     factory.create_response_completer.return_value = MagicMock()
     factory.setup_semantic_selection.return_value = (False, None)
     factory.create_semantic_selector.return_value = MagicMock()

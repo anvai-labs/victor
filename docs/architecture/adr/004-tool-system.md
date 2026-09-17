@@ -255,7 +255,7 @@ agent.add_tools(["shell", "docker"])
 
 - [Tool Design Patterns](https://martinfowler.com/bliki/ToolDefinition.html)
 - [Progressive Disclosure](https://en.wikipedia.org/wiki/Progressive_disclosure)
-- [Victor Tools](../tools/)
+- [Victor Tools](https://github.com/anvai-labs/victor/tree/develop/victor/tools/)
 
 ## Revision History
 

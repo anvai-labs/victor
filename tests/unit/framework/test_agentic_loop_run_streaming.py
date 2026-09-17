@@ -16,8 +16,9 @@
 
 These drive ``run_streaming`` with a fake streaming ACT port and stubbed phase methods, so they
 assert the shared loop wiring — that streaming reuses the same PERCEIVE/PLAN/EVALUATE/DECIDE phase
-sequence as run() and differs only in the ACT (yielding chunks + producing a TurnResult). The
-port is unwired in production; these cover the framework loop in isolation.
+sequence as run() and differs only in the ACT (yielding chunks + producing a TurnResult). In
+production the port is wired to the service-layer ``StreamingActAdapter`` via
+``StreamingChatExecutor.run_unified``; these cover the framework loop in isolation.
 """
 
 from types import SimpleNamespace

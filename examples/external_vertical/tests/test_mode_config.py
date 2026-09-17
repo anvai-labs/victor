@@ -50,9 +50,7 @@ def test_task_budgets_match_assistant_task_type_hints() -> None:
 
     assert hints, "assistant should declare task type hints"
     for task_type, hint in hints.items():
-        assert (
-            provider.get_tool_budget_for_task(task_type) == hint["tool_budget"]
-        ), task_type
+        assert provider.get_tool_budget_for_task(task_type) == hint["tool_budget"], task_type
 
 
 def test_allowed_stages_are_consistent_with_assistant_stages() -> None:

@@ -33,7 +33,7 @@ jobs:
   # Verify versions are in sync before anything else
   version-check:
     name: Version Sync Check
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 1
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -46,7 +46,7 @@ jobs:
   # Build and test victor-contracts first (victor-ai depends on it)
   build-sdk:
     name: Build victor-contracts
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: version-check
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -73,7 +73,7 @@ jobs:
   test-packages:
     name: Test victor-ai (Python ${{ matrix.python-version }})
     needs: [version-check, build-sdk]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     strategy:
       fail-fast: false
@@ -125,7 +125,7 @@ jobs:
   # Build package
   build-packages:
     name: Build victor-ai
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: test-packages
     if: always() && (needs.test-packages.result == 'success' || needs.test-packages.result == 'failure')
     steps:
@@ -152,7 +152,7 @@ jobs:
   # Integration test with package installed
   integration-test:
     name: Integration Test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [build-sdk, build-packages]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -198,7 +198,7 @@ jobs:
   # SDK publishing is handled by release-sdk.yml (sdk-v* tags)
   publish-testpypi:
     name: Publish to TestPyPI
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [build-sdk, build-packages, integration-test]
     if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
     environment: testpypi
@@ -212,7 +212,7 @@ jobs:
           path: dist/
 
       - name: Publish victor-ai to TestPyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
         with:
           repository-url: https://test.pypi.org/legacy/
           packages-dir: dist/

@@ -43,6 +43,7 @@ import contextlib
 import logging
 import random
 import re
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -71,8 +72,10 @@ from victor.core.circuit_breaker import (
     CircuitBreakerConfig,
     CircuitBreakerError as CanonicalCircuitBreakerError,
 )
+from victor.core.context import bind_call_id_once, call_id
 
 # Import the canonical CircuitBreaker for composition
+from victor.providers import failure_taxonomy
 from victor.providers.circuit_breaker import CircuitBreaker as CanonicalCircuitBreaker
 
 
@@ -275,7 +278,6 @@ class ProviderRetryConfig:
     Renamed from RetryConfig to be semantically distinct:
     - ProviderRetryConfig (here): Provider-specific with retryable_patterns
     - AgentRetryConfig (victor.agent.resilience): Agent-specific with jitter flag
-    - ObservabilityRetryConfig (victor.observability.resilience): With BackoffStrategy
 
     Attributes:
         max_retries: Maximum number of retry attempts
@@ -294,28 +296,20 @@ class ProviderRetryConfig:
     jitter_factor: float = 0.1
 
     # Retryable error conditions
+    # CircuitBreakerError/CircuitOpenError are deliberately NOT retryable:
+    # an open circuit must fail fast into the fallback chain instead of being
+    # slept through for retries × timeout (matches BaseProvider's own retry
+    # set, which excludes them with the same fail-fast intent).
     retryable_exceptions: tuple = (
         ConnectionError,
         TimeoutError,
         asyncio.TimeoutError,
-        CanonicalCircuitBreakerError,
-        CircuitOpenError,
         # httpx transport errors: RemoteProtocolError, ReadError, etc.
         # "Server disconnected without sending a response"
     )
 
     # Extended patterns that catch httpx transport errors by class name
-    retryable_exception_names: tuple = (
-        "APIConnectionError",
-        "RemoteProtocolError",
-        "ProtocolError",
-        "TransportError",
-        "ConnectTimeout",
-        "ReadError",
-        "ReadTimeout",
-        "ConnectError",
-        "WriteError",
-    )
+    retryable_exception_names: tuple = failure_taxonomy.RETRYABLE_EXCEPTION_NAMES
 
     retryable_status_codes: tuple = (429, 500, 502, 503, 504)
 
@@ -532,6 +526,20 @@ class ProviderRetryStrategy:
         while isinstance(current, Exception) and id(current) not in seen:
             seen.add(id(current))
 
+            # Circuit-breaker errors are never retryable via the FUZZY
+            # classifiers below: an open circuit must fail fast into the
+            # fallback chain. The message-substring and status-code checks
+            # would otherwise re-admit them whenever the breaker NAME (which
+            # embeds base_url) or the retry_after value contains a
+            # retryable-looking number (e.g. localhost:5000), and the
+            # cause-chain walk would re-admit them when the breaker error
+            # was raised from a retryable transport error
+            # (adversarial-review finding). An EXPLICIT opt-in — the config
+            # listing the breaker error in retryable_exceptions — still
+            # wins, preserving the retry-after-cooldown capability.
+            if isinstance(current, (CanonicalCircuitBreakerError, CircuitOpenError)):
+                return isinstance(current, self.config.retryable_exceptions)
+
             # Check exception type
             if isinstance(current, self.config.retryable_exceptions):
                 return True
@@ -565,20 +573,6 @@ class ProviderRetryStrategy:
 
     def _is_hard_rate_limit(self, error: Exception) -> bool:
         """Check whether a 429 is a quota/billing failure rather than a transient limit."""
-        hard_limit_tokens = (
-            "billing",
-            "credit balance",
-            "credits exhausted",
-            "current quota",
-            "hard limit",
-            "insufficient balance",
-            "insufficient credits",
-            "insufficient quota",
-            "payment required",
-            "quota exceeded",
-            "quota exhausted",
-            "resource exhausted",
-        )
         seen: set[int] = set()
         current: Optional[BaseException] = error
 
@@ -597,7 +591,7 @@ class ProviderRetryStrategy:
                 if isinstance(response_text, str) and response_text:
                     error_text_parts.append(response_text)
                 error_text = " ".join(error_text_parts).lower()
-                if any(token in error_text for token in hard_limit_tokens):
+                if any(token in error_text for token in failure_taxonomy.HARD_RATE_LIMIT_TOKENS):
                     return True
 
             current = getattr(current, "__cause__", None) or getattr(current, "__context__", None)
@@ -779,6 +773,14 @@ class ResilientProvider:
     ) -> Any:
         """Execute chat with resilience features.
 
+        One invocation of this method is ONE logical call for gateway metering
+        (sandhi TD-0021 P4): the logical-call id is bound here — outermost
+        binding wins — so every retry and every fallback of this call carries
+        the same ``Idempotency-Key`` and the gateway's meter counts the call
+        once (enforcement still counts every physical settlement). Only a
+        plain coroutine gets this treatment — see ``stream`` for why an async
+        generator cannot.
+
         Args:
             messages: List of messages
             model: Model identifier
@@ -790,6 +792,23 @@ class ResilientProvider:
         Raises:
             ProviderUnavailableError: If all providers fail
         """
+        try:
+            token = bind_call_id_once(uuid.uuid4().hex)
+        except Exception:  # pragma: no cover - os.urandom failure must not block transport
+            token = None  # unbound: the transport mints per invocation instead
+        try:
+            return await self._chat_with_retry(messages, model=model, **kwargs)
+        finally:
+            if token is not None:
+                call_id.reset(token)
+
+    async def _chat_with_retry(
+        self,
+        messages: List[Any],
+        *,
+        model: str,
+        **kwargs,
+    ) -> Any:
         self._stats["total_requests"] += 1
         primary_retry_events: List[Dict[str, Any]] = []
 
@@ -928,6 +947,17 @@ class ResilientProvider:
         **kwargs,
     ):
         """Stream chat with resilience features.
+
+        Deliberately does NOT bind the logical-call id, unlike ``chat``: this is
+        an async GENERATOR, and a ``ContextVar.set()`` in a generator frame
+        executes in the resumer's context — an early consumer break without
+        ``aclosing`` would leak the binding into the caller's context (every
+        later logical call in that task reusing a stale ``Idempotency-Key`` and
+        being dropped by the gateway's dedup = silent under-metering), and the
+        asyncgen finalizer resets the token from a different context
+        (``ValueError``). The transport therefore mints a per-invocation key on
+        the stream path; stream-setup retries are counted per attempt — the
+        fail-toward-counting direction sandhi specifies (ADR-0005 D3).
 
         Note: Streaming has limited retry capability. If the stream fails
         midway, it cannot be resumed.

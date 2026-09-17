@@ -11,14 +11,17 @@ This walkthrough uses only published artifacts: the `vjsingh1984/proximadb` Dock
 and the [`victor-codegraph`](https://pypi.org/project/victor-codegraph/) PyPI package —
 the shared code→Code-Property-Graph chunker that Victor, the ProximaDB SDK, and AnvaiOps
 all consume (see [ADR-014](architecture/adr/014-shared-codegraph-chunker-package.md)).
-Everything below was run end-to-end against `vjsingh1984/proximadb:0.2.0`.
+The REST walkthrough below is a **historical, version-pinned example**, previously run
+end-to-end against `vjsingh1984/proximadb:0.2.0`; it has not been revalidated against
+the current SDK/backend. For Victor integration use the current dependency and backend
+status below, rather than treating this REST script as its setup path.
 
 ## Integration status (honest version)
 
 | Piece | Status |
 |---|---|
 | `victor-codegraph` → `ProximaRecord` projection (this quickstart) | **Shipped** — PyPI `victor-codegraph>=0.1.2`, pure Python, no Victor install required |
-| Victor's in-tree ProximaDB backends (`EmbeddingRegistry` providers `proximadb` / `proximadb_multi`, `create_graph_store("proxima")`, per-repo `.victor/graph_backend` marker) | **Implemented, flag-gated** — requires the `proximadb_sdk` Python SDK, which is not yet published to PyPI (install it from the ProximaDB repo, `clients/python`). SQLite + LanceDB remain Victor's defaults; nothing flips automatically. |
+| Victor's in-tree ProximaDB backends (`EmbeddingRegistry` providers `proximadb` / `proximadb_multi`, `create_graph_store("proxima")`, per-repo `.victor/graph_backend` marker) | **Implemented, flag-gated** — uses the optional `proximadb>=0.3,<0.4` distribution (`proximadb_sdk` import namespace), declared by Victor’s `proximadb` extra. SQLite + LanceDB remain Victor's defaults; nothing flips automatically. |
 | Conversational-memory backend + multi-tenant service mode | **In progress** — see [ProximaDB as the CCG Backend](architecture/proximadb-codegraph-backend.md) and VISION.md bet 4 ("durable code memory") |
 
 ## Prerequisites
@@ -197,11 +200,13 @@ code memory bet (VISION.md, bet 4).
   `victor/storage/graph/proxima_store.py`), selected via
   `create_graph_store("proxima", ...)` or a per-repo `.victor/graph_backend` marker.
   They are parity-tested against the SQLite defaults but flag-gated, and they need the
-  `proximadb_sdk` package from the ProximaDB repo (`clients/python`) — not yet on PyPI.
+  optional `proximadb>=0.3,<0.4` distribution (`pip install "victor-ai[proximadb]"`).
+  Embedded operation also needs its compatible native/server artifact; the Python SDK
+  requirement alone does not establish that the embedded backend is available.
   Design + status: [ProximaDB as the CCG Backend](architecture/proximadb-codegraph-backend.md).
 - **Chunking for RAG** — `victor_codegraph.chunk_repo` emits size-capped, AST-aligned
   chunks (never split mid-statement) if you want plain retrieval instead of the graph
-  projection. See the [victor-codegraph README](../victor-codegraph/README.md).
+  projection. See the [victor-codegraph README](https://github.com/anvai-labs/victor/blob/develop/victor-codegraph/README.md).
 - **Managed / multi-tenant** — the same `victor-codegraph` seam powers the AnvaiOps
   managed code-graph service on top of ProximaDB, so the local path above scales to a
   hosted one without changing the record shape.

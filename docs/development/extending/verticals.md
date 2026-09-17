@@ -331,7 +331,7 @@ Verticals can define complex workflows using YAML with Python escape hatches for
 ### Workflow Directory Structure
 
 ```
-victor/security/
+victor_security/
     workflows/
         __init__.py           # WorkflowProvider implementation
         security_audit.yaml   # Workflow definition
@@ -341,7 +341,7 @@ victor/security/
 ### Creating a YAML Workflow
 
 ```yaml
-# victor/security/workflows/security_audit.yaml
+# victor_security/workflows/security_audit.yaml
 workflows:
   security_audit:
     description: "Comprehensive security audit workflow"
@@ -405,7 +405,7 @@ workflows:
 ### Escape Hatches for Complex Logic
 
 ```python
-# victor/security/escape_hatches.py
+# victor_security/escape_hatches.py
 """Escape hatches for Security YAML workflows.
 
 Complex conditions and transforms that cannot be expressed in YAML.
@@ -511,25 +511,25 @@ TRANSFORMS = {
 ### Implementing WorkflowProviderProtocol
 
 ```python
-# victor/security/workflows/__init__.py
+# victor_security/workflows/__init__.py
 """Security workflow provider."""
 
 from pathlib import Path
 from typing import List, Tuple
 
-from victor.framework.workflows.base_yaml_provider import BaseYAMLWorkflowProvider
+from victor_contracts.workflow_runtime import BaseYAMLWorkflowProvider
 
 
 class SecurityWorkflowProvider(BaseYAMLWorkflowProvider):
     """Provides security-specific YAML workflows.
 
-    Workflows are loaded from victor/security/workflows/*.yaml
-    with escape hatches from victor/security/escape_hatches.py
+    Workflows are loaded from victor_security/workflows/*.yaml
+    with escape hatches from victor_security/escape_hatches.py
     """
 
     def _get_escape_hatches_module(self) -> str:
         """Return the module path for escape hatches."""
-        return "victor.security.escape_hatches"
+        return "victor_security.escape_hatches"
 
     def get_auto_workflows(self) -> List[Tuple[str, str]]:
         """Get automatic workflow triggers based on query patterns."""
@@ -556,7 +556,7 @@ Then connect it to your vertical:
 @classmethod
 def get_workflow_provider(cls) -> Optional[WorkflowProviderProtocol]:
     """Get security-specific workflow provider."""
-    from victor.security.workflows import SecurityWorkflowProvider
+    from victor_security.workflows import SecurityWorkflowProvider
     return SecurityWorkflowProvider()
 ```
 
@@ -654,50 +654,15 @@ class SecurityAssistant(VerticalBase):
 
 ### Registering Custom Workflow Node Executors
 
-If your package introduces a custom workflow node type, register its executor
-through the same plugin context instead of patching the core workflow factory.
+A vertical plugin registers custom executor factories through
+`PluginContext.register_workflow_node_executor`. Definition packages must continue to
+import only `victor_contracts`; put runtime-specific implementations and their engine
+result types in a separate runtime integration. The older example imported
+`victor.workflows` directly into the vertical package and violated that boundary.
 
-```python
-# victor_security/plugin.py
-from victor_contracts import PluginContext, VictorPlugin
-from victor.workflows import CompiledGraphNodeResult
-
-
-class ThreatModelExecutor:
-    def __init__(self, container=None):
-        self._container = container
-
-    async def execute(self, node, state):
-        result = {"threat_model": f"modeled:{node.id}"}
-        state.setdefault("_node_results", {})[node.id] = CompiledGraphNodeResult(
-            node_id=node.id,
-            success=True,
-            output=result,
-            metadata={"node_type": "threat_model"},
-        )
-        state.update(result)
-        return state
-
-
-class SecurityPlugin(VictorPlugin):
-    @property
-    def name(self) -> str:
-        return "security"
-
-    def register(self, context: PluginContext) -> None:
-        context.register_vertical(SecurityAssistant)
-        context.register_workflow_node_executor("threat_model", ThreatModelExecutor)
-```
-
-For application-local extensions that are not packaged as plugins, the same
-registration helpers are also available from `victor.workflows`:
-
-```python
-from victor.workflows import register_workflow_node_executor
-
-
-register_workflow_node_executor("threat_model", ThreatModelExecutor)
-```
+Application-local runtime extensions can use the registration helpers in
+`victor.workflows`. Those runtime imports do not belong in the separately distributed
+vertical definition package.
 
 ### Installation and Discovery
 
@@ -818,7 +783,7 @@ class TestSecurityEscapeHatches:
 
     def test_has_critical_findings_with_critical(self):
         """Should return 'critical' when critical findings exist."""
-        from victor.security.escape_hatches import has_critical_findings
+        from victor_security.escape_hatches import has_critical_findings
 
         ctx = {
             "prioritized_findings": [
@@ -832,7 +797,7 @@ class TestSecurityEscapeHatches:
 
     def test_has_critical_findings_without_critical(self):
         """Should return 'non_critical' when no critical findings."""
-        from victor.security.escape_hatches import has_critical_findings
+        from victor_security.escape_hatches import has_critical_findings
 
         ctx = {
             "prioritized_findings": [
@@ -871,7 +836,7 @@ class TestSecurityWorkflowIntegration:
     @pytest.mark.asyncio
     async def test_workflow_execution(self, mock_orchestrator):
         """Security audit workflow should execute."""
-        from victor.security.workflows import SecurityWorkflowProvider
+        from victor_security.workflows import SecurityWorkflowProvider
 
         provider = SecurityWorkflowProvider()
         workflow = provider.get_workflow("security_audit")
@@ -910,7 +875,7 @@ Verticals use caching to avoid repeated computation:
 def get_safety_extension(cls) -> Optional[SafetyExtensionProtocol]:
     """Get safety extension with caching."""
     def _create() -> SafetyExtensionProtocol:
-        from victor.security.safety import SecuritySafetyExtension
+        from victor_security.safety import SecuritySafetyExtension
         return SecuritySafetyExtension()
 
     return cls._get_cached_extension("safety_extension", _create)
@@ -945,7 +910,7 @@ Define tool tiers for intelligent selection:
 @classmethod
 def get_tiered_tool_config(cls) -> Optional[TieredToolConfig]:
     """Configure tool tiers for security analysis."""
-    from victor.core.vertical_types import TieredToolConfig
+    from victor_contracts import TieredToolConfig
 
     return TieredToolConfig(
         # Always included
@@ -971,7 +936,7 @@ Define team configurations for complex tasks:
 @classmethod
 def get_team_spec_provider(cls) -> Optional[TeamSpecProviderProtocol]:
     """Get security team specifications."""
-    from victor.security.teams import SecurityTeamSpecProvider
+    from victor_security.teams import SecurityTeamSpecProvider
     return SecurityTeamSpecProvider()
 ```
 

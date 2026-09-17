@@ -1,29 +1,29 @@
 # Contracts Boundary Architecture
 
 This document describes the boundary between the contract package currently
-published as `victor-contracts` and `victor-ai` (the framework runtime). New code
-should use the semantic `victor_contracts` import alias and target the future
-`victor-contracts` distribution name; `victor_contracts` remains a compatibility
-namespace during the transition. External verticals depend only on the contract
-package.
+published as `victor-contracts` and `victor-ai` (the framework runtime). Use the `victor_contracts` import namespace and the independently released
+`victor-contracts` distribution. External vertical **definitions** use the contract
+package; runtime extension allowances and remaining violations are separately audited.
+See the [canonical layering rules](../architecture.md#layer-architecture) for the
+enforcement scope; the entire external package is not yet a zero-runtime-import guarantee.
 
 ## Overview
 
-```
-External Vertical (victor-coding, etc.)
-    │
-    ▼
-victor-contracts / victor-contracts compatibility
-            ← Zero dependencies on victor-ai
-    │           Provides: VerticalBase, PluginContext, VictorPlugin,
-    │                     ExtensionManifest, ToolProvider, MockPluginContext
-    ▼
-victor-ai   ← Framework runtime
-                Provides: AgentOrchestrator, ProviderRegistry, ToolExecutor,
-                          CapabilityNegotiator, entry point loading
+```mermaid
+---
+title: Contracts define the external vertical boundary
+---
+%%{init: {"theme":"base","themeVariables":{"primaryColor":"#E8EFF7","primaryTextColor":"#17324D","primaryBorderColor":"#456987","lineColor":"#456987","fontFamily":"Arial"}}}%%
+flowchart TB
+  V["External vertical definitions"]
+  C["victor_contracts<br/>protocols · types · manifests"]
+  F["Victor framework<br/>loads and integrates vertical capabilities"]
+  V -->|"import definitions"| C
+  F -->|"consume shared definitions"| C
+  F -->|"discover registered verticals"| V
 ```
 
-## Contract Package (`victor-contracts/`, future `victor-contracts`)
+## Contract Package (`victor-contracts/`)
 
 The contract package has **zero dependencies** on `victor-ai`. Its only runtime
 dependency is `typing-extensions>=4.9`.

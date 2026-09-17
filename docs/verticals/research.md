@@ -4,7 +4,7 @@ The Research vertical provides web research, fact-checking, literature synthesis
 
 ## Overview
 
-The Research vertical (`victor/research/`) is specialized for web research tasks. Unlike coding assistants that focus on local codebases, the Research vertical searches the internet, fetches web pages, synthesizes information from multiple sources, and provides researched answers with citations.
+The Research vertical (`verticals/victor-research/victor_research/`) is specialized for web research tasks. Unlike coding assistants that focus on local codebases, the Research vertical searches the internet, fetches web pages, synthesizes information from multiple sources, and provides researched answers with citations.
 
 ### Key Use Cases
 
@@ -240,7 +240,7 @@ The Research vertical provides these capabilities:
 ### Vertical Configuration
 
 ```python
-from victor.research.assistant import ResearchAssistant
+from victor_research.assistant import ResearchAssistant
 
 # Get system prompt
 prompt = ResearchAssistant.get_system_prompt()
@@ -298,76 +298,29 @@ timeout: 600            # Longer for research
 
 ## Example Usage
 
-### Deep Research
+Use the public factory with the `research` vertical. Install the corresponding
+`victor-research` package if it is not already available in your environment.
 
 ```python
-from victor.research.workflows import ResearchWorkflowProvider
+import asyncio
+from victor.framework import Agent
 
-provider = ResearchWorkflowProvider()
-workflow = provider.compile_workflow("deep_research")
+async def main():
+    async with await Agent.create(
+        vertical="research", provider="ollama", model="llama3.1:8b"
+    ) as agent:
+        result = await agent.run("Research the design tradeoffs of embedded vector databases")
+        print(result.content)
 
-result = await workflow.invoke({
-    "query": "What are the latest developments in quantum computing?",
-    "citation_format": "APA",
-    "coverage_threshold": 0.7
-})
-
-print(result["final_report"])
-print(f"\nSources: {result['source_count']}")
+asyncio.run(main())
 ```
 
-### Fact Checking
-
-```python
-result = await workflow.invoke({
-    "content_to_check": """
-    Climate scientists predict sea levels will rise
-    by 3 feet by 2050 due to melting ice caps.
-    """,
-    "source_types": ["primary_sources", "fact_check_sites", "news_archives"]
-})
-
-for verdict in result["verdicts"]:
-    print(f"Claim: {verdict['claim']}")
-    print(f"Verdict: {verdict['verdict']}")
-    print(f"Confidence: {verdict['confidence']}")
-    print(f"Evidence: {verdict['evidence_summary']}")
-```
-
-### Using the Research Assistant Directly
-
-```python
-from victor.agent.orchestrator import AgentOrchestrator
-
-orchestrator = AgentOrchestrator(
-    vertical="research",
-    provider="anthropic",
-    model="claude-sonnet-4-5"
-)
-
-# Research query
-response = await orchestrator.chat(
-    "Research the current state of AI regulation in the European Union"
-)
-
-# Fact check
-response = await orchestrator.chat(
-    "Fact-check: The Eiffel Tower was built in 1889 for the World's Fair"
-)
-```
-
-### CLI Usage
-
-```bash
-# Deep research
-victor research "Impact of remote work on productivity" --format APA
-
-# Fact check
-victor fact-check "Claim to verify here"
-
-# Quick research
-victor research --quick "When was Python created?"
-```
+For a named workflow supplied by the installed vertical, call
+`await agent.run_workflow(workflow_name, context={...})` on the configured agent.
+Use the installed package's workflow catalog to select a name and its expected input
+keys. A bare workflow compiler does not create the agent runtime or provider.
+See [Python API](../reference/api/python-api.md) and
+[workflow execution](../tutorials/create-workflow.md).
 
 ## Integration with Other Verticals
 
@@ -380,7 +333,7 @@ The Research vertical integrates with:
 ## File Structure
 
 ```
-victor/research/
+verticals/victor-research/victor_research/
 ├── assistant.py          # ResearchAssistant definition
 ├── capabilities.py       # Capability providers
 ├── mode_config.py        # Mode configurations

@@ -88,9 +88,7 @@ def test_entry_points_match_pyproject_metadata() -> None:
 async def test_secret_pattern_scan_finds_and_masks_secrets(tmp_path: Path) -> None:
     secret_file = tmp_path / "config.py"
     secret_file.write_text(
-        'AWS_KEY = "AKIAABCDEFGHIJKLMNOP"\n'
-        'password = "hunter2hunter2"\n'
-        "safe_value = 42\n",
+        'AWS_KEY = "AKIAABCDEFGHIJKLMNOP"\n' 'password = "hunter2hunter2"\n' "safe_value = 42\n",
         encoding="utf-8",
     )
 

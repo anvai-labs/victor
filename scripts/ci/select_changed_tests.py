@@ -38,6 +38,19 @@ ROOT = Path(__file__).resolve().parents[2]
 # any real feature PR's footprint so it only trips on mechanical sweeps.
 MAX_SELECTED_TARGETS = 200
 
+# Lifecycle contracts span the extracted transport and the older client layout.
+# Keep these bounded suites in the fast gate even for transport-only changes.
+MCP_LIFECYCLE_TESTS = (
+    "tests/unit/agent/test_mcp_client.py",
+    "tests/unit/integrations/mcp/test_client_response_correlation.py",
+    "tests/unit/security/test_mcp_factory_lifecycle.py",
+)
+RELATED_TESTS = {
+    "victor/integrations/mcp/client.py": MCP_LIFECYCLE_TESTS,
+    "victor/integrations/mcp/stdio_transport.py": MCP_LIFECYCLE_TESTS,
+    "scripts/ci/select_changed_tests.py": ("tests/unit/scripts/test_select_changed_tests.py",),
+}
+
 
 def select(changed: list[str]) -> list[str]:
     targets: set[str] = set()
@@ -45,6 +58,7 @@ def select(changed: list[str]) -> list[str]:
         p = raw.strip()
         if not p.endswith(".py"):
             continue
+        targets.update(target for target in RELATED_TESTS.get(p, ()) if (ROOT / target).exists())
         path = Path(p)
         name = path.name
         # Changed test file -> run it directly.

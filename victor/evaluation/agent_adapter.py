@@ -635,7 +635,7 @@ class VictorAgentAdapter:
 
         import hashlib
 
-        error_hash = hashlib.md5(error[:200].encode()).hexdigest()
+        error_hash = hashlib.md5(error[:200].encode(), usedforsecurity=False).hexdigest()
         if self._tool_failures.get(tool_name) == error_hash:
             self._tool_failure_counts[tool_name] = self._tool_failure_counts.get(tool_name, 1) + 1
         else:
@@ -1746,7 +1746,11 @@ class VictorAgentAdapter:
         Returns:
             VictorAgentAdapter instance
         """
-        settings = load_settings()
+        # fresh=True, NOT the shared snapshot: this path writes provider env
+        # overrides below (OLLAMA_HOST etc.) and passes the instance into
+        # ProviderRegistry/Orchestrator — a process-wide snapshot would
+        # freeze pre-override values.
+        settings = load_settings(fresh=True)
         profiles = settings.load_profiles()
 
         if profile not in profiles:

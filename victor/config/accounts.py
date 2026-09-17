@@ -55,6 +55,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Set, Tuple, Union
 
+from victor.providers.provider_kinds import LOCAL_CLASS_PROVIDERS
+
 import yaml
 
 logger = logging.getLogger(__name__)
@@ -169,7 +171,7 @@ class ProviderAccount:
 
     def is_local(self) -> bool:
         """Check if this is a local provider (no API key required)."""
-        return self.provider in {"ollama", "lmstudio", "vllm"}
+        return self.provider in {"ollama", "lmstudio", "vllm", "inferflux"}
 
     def is_oauth_enabled(self) -> bool:
         """Check if this account uses OAuth authentication."""
@@ -393,7 +395,7 @@ class AccountManager:
     OAUTH_PROVIDERS: Set[str] = {"openai", "qwen"}
 
     # Local providers (no API key required)
-    LOCAL_PROVIDERS: Set[str] = {"ollama", "lmstudio", "vllm"}
+    LOCAL_PROVIDERS: Set[str] = set(LOCAL_CLASS_PROVIDERS)
 
     def __init__(self, config_path: Optional[Path] = None):
         """Initialize AccountManager.

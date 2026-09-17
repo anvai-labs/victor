@@ -45,6 +45,7 @@ from typing import Any, Dict, List, Optional
 
 from victor.core.health import HealthStatus
 from victor.providers.registry import ProviderRegistry
+from victor.providers.provider_kinds import LOCAL_CLASS_PROVIDERS
 from victor.providers.resolution import (
     UnifiedApiKeyResolver,
     APIKeyNotFoundError,
@@ -125,7 +126,7 @@ class ProviderHealthChecker:
     }
 
     # Providers that don't need API keys
-    LOCAL_PROVIDERS = {"ollama", "lmstudio", "vllm"}
+    LOCAL_PROVIDERS = LOCAL_CLASS_PROVIDERS
 
     def __init__(self, non_interactive: Optional[bool] = None):
         """Initialize health checker.

@@ -195,7 +195,7 @@ class PromptNormalizer:
         """
         # Normalize whitespace before hashing
         normalized = " ".join(content.split())
-        return hashlib.md5(normalized.encode()).hexdigest()[:12]
+        return hashlib.md5(normalized.encode(), usedforsecurity=False).hexdigest()[:12]
 
     def deduplicate_sections(self, sections: List[str]) -> List[str]:
         """Remove duplicate sections from prompt components.

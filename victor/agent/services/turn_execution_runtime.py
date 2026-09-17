@@ -134,6 +134,14 @@ class TurnResult:
         return signatures
 
 
+from victor.agent.services.runtime_overrides import (
+    OverrideRestorationError,
+    apply_overrides,
+    attribute_change,
+    budget_changes,
+    restore_overrides,
+)
+
 logger = logging.getLogger(__name__)
 _MISSING = object()
 
@@ -439,22 +447,22 @@ class TurnExecutor:
                             stderr = task_res.get("stderr", "").strip()
                             out = []
                             if stdout:
-                                out.append(f"### STDOUT\\n```text\\n{stdout}\\n```")
+                                out.append(f"### STDOUT\n```text\n{stdout}\n```")
                             if stderr:
-                                out.append(f"### STDERR\\n```text\\n{stderr}\\n```")
+                                out.append(f"### STDERR\n```text\n{stderr}\n```")
                             msg = (
-                                "\\n\\n".join(out)
+                                "\n\n".join(out)
                                 if out
                                 else "Command executed successfully with no output."
                             )
                         else:
                             msg = str(task_res)
                     except asyncio.CancelledError:
-                        msg = "### ❌ ERROR\\nBackground task was cancelled."
+                        msg = "### ❌ ERROR\nBackground task was cancelled."
                     except Exception as e:
-                        msg = f"### ❌ ERROR\\nBackground task failed: {e}"
+                        msg = f"### ❌ ERROR\nBackground task failed: {e}"
 
-                    content = f"Background task {task_id} ({raw_result.context}) finished with result:\\n\\n{msg}"
+                    content = f"Background task {task_id} ({raw_result.context}) finished with result:\n\n{msg}"
                     self._chat_context.add_message(role="system", content=content)
 
                 # The task is already executing in the background, just attach the callback
@@ -463,7 +471,7 @@ class TurnExecutor:
 
                 tool_results[i][
                     "result"
-                ] = f"### 💡 SYSTEM HINT\\nTask is running in the background.\\nTask ID: {task_id}\\n\\nThe watcher will notify you when it completes."
+                ] = f"### 💡 SYSTEM HINT\nTask is running in the background.\nTask ID: {task_id}\n\nThe watcher will notify you when it completes."
 
         return tool_results
 
@@ -986,7 +994,9 @@ class TurnExecutor:
     @staticmethod
     def _deterministic_tool_call(name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
         """Build a stable OpenAI-compatible tool call envelope."""
-        digest = hashlib.sha1(f"{name}:{arguments!r}".encode("utf-8")).hexdigest()[:12]
+        digest = hashlib.sha1(
+            f"{name}:{arguments!r}".encode("utf-8"), usedforsecurity=False
+        ).hexdigest()[:12]
         return {
             "id": f"call_deterministic_{digest}",
             "name": name,
@@ -1123,7 +1133,7 @@ class TurnExecutor:
         # doesn't fall back to the hardcoded default of 10.  Without this seed,
         # sub-agents whose ToolService starts at 50 (or any value > 10) have
         # their topology plan compute tool_budget=10 and then apply it via
-        # _apply_tool_budget_override, which collapses every sub-agent to 10
+        # temporary tool-budget overrides, which collapse every sub-agent to 10
         # tool calls regardless of the configured step budget.
         _service_budget = getattr(self._tool_context, "tool_budget", None)
         if isinstance(_service_budget, int) and _service_budget > 10:
@@ -1607,11 +1617,9 @@ class TurnExecutor:
             List of tool definitions or None
         """
         conversation_depth = self._chat_context.conversation.message_count()
-        conversation_history = (
-            [msg.model_dump() for msg in self._chat_context.messages]
-            if self._chat_context.messages
-            else None
-        )
+        from victor.agent.tool_selection.history_projection import _selector_history_projection
+
+        conversation_history = _selector_history_projection(self._chat_context.messages)
 
         tools = await self._tool_context.tool_selector.select_tools(
             user_message,
@@ -1780,155 +1788,56 @@ class TurnExecutor:
         self,
         overrides: Dict[str, Any],
     ) -> Optional[Dict[str, Any]]:
-        """Apply temporary runtime overrides for the duration of one turn."""
+        """Apply context and budget changes together, rolling back on failure."""
+        orchestrator = self._resolve_orchestrator()
+        if (
+            getattr(self, "_runtime_override_error", False) is True
+            or getattr(orchestrator, "_runtime_override_error", False) is True
+        ):
+            raise OverrideRestorationError("Recreate the session after failed override restoration")
         if not overrides:
             return None
-
-        snapshot: Dict[str, Any] = {}
-        orchestrator = self._resolve_orchestrator()
-        snapshot["orchestrator"] = orchestrator
-        snapshot["chat_runtime_context"] = getattr(
-            self._chat_context,
-            "_runtime_context_overrides",
-            _MISSING,
-        )
-        self._chat_context._runtime_context_overrides = dict(overrides)
-
-        if orchestrator is not None:
-            snapshot["orchestrator_runtime_context"] = getattr(
-                orchestrator,
-                "_runtime_tool_context_overrides",
-                _MISSING,
+        changes = [
+            attribute_change(
+                "chat_runtime_context",
+                self._chat_context,
+                "_runtime_context_overrides",
+                dict(overrides),
             )
-            merged_context = {}
-            previous_runtime_context = snapshot["orchestrator_runtime_context"]
-            if isinstance(previous_runtime_context, dict):
-                merged_context.update(previous_runtime_context)
-            merged_context.update(overrides)
-            orchestrator._runtime_tool_context_overrides = merged_context
-
+        ]
+        if orchestrator is not None:
+            previous = getattr(orchestrator, "_runtime_tool_context_overrides", None)
+            merged = dict(previous) if isinstance(previous, dict) else {}
+            merged.update(overrides)
+            changes.append(
+                attribute_change(
+                    "orchestrator_runtime_context",
+                    orchestrator,
+                    "_runtime_tool_context_overrides",
+                    merged,
+                )
+            )
         tool_budget = self._coerce_int_override(overrides.get("tool_budget"))
         if tool_budget is not None:
-            self._apply_tool_budget_override(tool_budget, snapshot, orchestrator)
-
-        # NOTE: ``iteration_budget`` is no longer applied here by mutating the
-        # shared ``settings.chat_max_iterations``; it is read directly in
-        # ``_execute_via_agentic_loop`` from ``runtime_context_overrides``.
-
-        return snapshot
+            changes.extend(budget_changes(orchestrator, self._tool_context, tool_budget))
+        try:
+            return apply_overrides(changes)
+        except OverrideRestorationError:
+            self._runtime_override_error = True
+            if orchestrator is not None:
+                orchestrator._runtime_override_error = True
+            raise
 
     def _restore_runtime_context_overrides(self, snapshot: Optional[Dict[str, Any]]) -> None:
-        """Restore runtime state after one turn completes."""
-        if not snapshot:
-            return
-
-        orchestrator = snapshot.get("orchestrator")
-        if orchestrator is not None:
-            previous_context = snapshot.get("orchestrator_runtime_context", _MISSING)
-            if previous_context is _MISSING:
-                if hasattr(orchestrator, "_runtime_tool_context_overrides"):
-                    delattr(orchestrator, "_runtime_tool_context_overrides")
-            else:
-                orchestrator._runtime_tool_context_overrides = previous_context
-
-        previous_chat_context = snapshot.get("chat_runtime_context", _MISSING)
-        if previous_chat_context is _MISSING:
-            if hasattr(self._chat_context, "_runtime_context_overrides"):
-                delattr(self._chat_context, "_runtime_context_overrides")
-        else:
-            self._chat_context._runtime_context_overrides = previous_chat_context
-
-        self._restore_tool_budget_override(snapshot, orchestrator)
-
-    def _apply_tool_budget_override(
-        self,
-        tool_budget: int,
-        snapshot: Dict[str, Any],
-        orchestrator: Any,
-    ) -> None:
-        """Apply a temporary tool budget override to known runtime owners."""
-        if orchestrator is not None and hasattr(orchestrator, "tool_budget"):
-            snapshot["orchestrator_tool_budget"] = getattr(orchestrator, "tool_budget", _MISSING)
+        if snapshot:
             try:
-                orchestrator.tool_budget = max(0, tool_budget)
-            except Exception:
-                pass
-
-        tool_service = (
-            getattr(orchestrator, "_tool_service", None) if orchestrator is not None else None
-        )
-        if tool_service is None:
-            tool_service = getattr(self._tool_context, "_tool_service", None)
-        if tool_service is not None and hasattr(tool_service, "get_tool_budget"):
-            snapshot["tool_service_budget"] = getattr(
-                tool_service,
-                "budget",
-                (
-                    tool_service.get_budget_info().get("max")
-                    if hasattr(tool_service, "get_budget_info")
-                    else tool_service.get_tool_budget()
-                ),
-            )
-            if hasattr(tool_service, "set_tool_budget"):
-                try:
-                    tool_service.set_tool_budget(max(0, tool_budget))
-                except Exception:
-                    pass
-
-        tool_pipeline = (
-            getattr(orchestrator, "_tool_pipeline", None) if orchestrator is not None else None
-        )
-        if tool_pipeline is None:
-            tool_pipeline = getattr(self._tool_context, "_tool_pipeline", None)
-        pipeline_config = getattr(tool_pipeline, "config", None)
-        if pipeline_config is not None and hasattr(pipeline_config, "tool_budget"):
-            snapshot["pipeline_tool_budget"] = getattr(pipeline_config, "tool_budget", _MISSING)
-            try:
-                pipeline_config.tool_budget = max(0, tool_budget)
-            except Exception:
-                pass
-
-    def _restore_tool_budget_override(
-        self,
-        snapshot: Dict[str, Any],
-        orchestrator: Any,
-    ) -> None:
-        """Restore prior tool budget state after a temporary override."""
-        previous_orchestrator_budget = snapshot.get("orchestrator_tool_budget", _MISSING)
-        if orchestrator is not None and previous_orchestrator_budget is not _MISSING:
-            try:
-                orchestrator.tool_budget = previous_orchestrator_budget
-            except Exception:
-                pass
-
-        tool_service = (
-            getattr(orchestrator, "_tool_service", None) if orchestrator is not None else None
-        )
-        if tool_service is None:
-            tool_service = getattr(self._tool_context, "_tool_service", None)
-        previous_service_budget = snapshot.get("tool_service_budget", _MISSING)
-        if (
-            tool_service is not None
-            and previous_service_budget is not _MISSING
-            and hasattr(tool_service, "set_tool_budget")
-        ):
-            try:
-                tool_service.set_tool_budget(previous_service_budget)
-            except Exception:
-                pass
-
-        tool_pipeline = (
-            getattr(orchestrator, "_tool_pipeline", None) if orchestrator is not None else None
-        )
-        if tool_pipeline is None:
-            tool_pipeline = getattr(self._tool_context, "_tool_pipeline", None)
-        pipeline_config = getattr(tool_pipeline, "config", None)
-        previous_pipeline_budget = snapshot.get("pipeline_tool_budget", _MISSING)
-        if pipeline_config is not None and previous_pipeline_budget is not _MISSING:
-            try:
-                pipeline_config.tool_budget = previous_pipeline_budget
-            except Exception:
-                pass
+                restore_overrides(snapshot)
+            except OverrideRestorationError:
+                self._runtime_override_error = True
+                orchestrator = self._resolve_orchestrator()
+                if orchestrator is not None:
+                    orchestrator._runtime_override_error = True
+                raise
 
     @staticmethod
     def _coerce_int_override(value: Any) -> Optional[int]:

@@ -640,7 +640,7 @@ class UnifiedTaskClassifier:
             Hash string suitable for cache key
         """
         # Use MD5 for speed (not security-sensitive)
-        return hashlib.md5(message.encode()).hexdigest()
+        return hashlib.md5(message.encode(), usedforsecurity=False).hexdigest()
 
     def _check_cache(self, message: str) -> Optional[ClassificationResult]:
         """Check cache for a classification result.

@@ -1,5 +1,13 @@
 # EVR-3 Parity Results: Rubric vs Enhanced Completion Evaluation
 
+> **Historical record — status checked 2026-09-06.** The concluded judge-calibration and
+> training apparatus had been removed in [#1019](https://github.com/anvai-labs/victor/pull/1019)
+> (commit dated 2026-09-05). References to its commands, labels and reports describe that
+> historical experiment, not runnable files in the current checkout. Recover the original
+> [apparatus from git history](https://github.com/anvai-labs/victor/tree/d0ea2aac0e920e8af8116b182ebb18383e9b7c7b/benchmarks/judge_calibration).
+> Recorded findings and the decision to keep the production default unchanged still apply.
+
+
 Status: calibration-corpus result measured 2026-08-02; default decision
 superseded by the 2026-08-05 SWE-bench-lite re-gate. The result below remains
 valid for its corpus, but neither calibrated LLM judge cleared reliability on
@@ -33,7 +41,7 @@ is worse than a coin flip because it reads the agent's live narrative (the
 trailing / self-doubting "I was unable to…" final messages that accompany
 genuinely-complete work), whereas the rubric judge scores the workspace
 evidence. See `docs/architecture/judge-independence-experiments.md` for the
-full ladder and [FINDINGS](../../benchmarks/judge_calibration/FINDINGS.md)
+full ladder and [FINDINGS](https://github.com/anvai-labs/victor/blob/d0ea2aac0e920e8af8116b182ebb18383e9b7c7b/benchmarks/judge_calibration/FINDINGS.md)
 runs 11–13.
 
 ## What this establishes and what it does not
@@ -44,7 +52,7 @@ runs 11–13.
 - **Does not clear the production gate**: the later in-container-verified
   SWE-bench-lite stratum measured llama3.3:70b at α=0.26 and gemma4:31b at
   α=−0.52. Both fail the ≥0.7 requirement; only the programmatic verifier
-  discriminated. See [FINDINGS](../../benchmarks/judge_calibration/FINDINGS.md)
+  discriminated. See [FINDINGS](https://github.com/anvai-labs/victor/blob/d0ea2aac0e920e8af8116b182ebb18383e9b7c7b/benchmarks/judge_calibration/FINDINGS.md)
   and [judge independence experiments](judge-independence-experiments.md).
 - **Prong B is necessary but not sufficient**: a task-success pass cannot
   override a failed judge-reliability prerequisite.

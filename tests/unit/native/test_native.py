@@ -442,14 +442,20 @@ class TestTokenCountBatch:
         )
 
     def test_batch_matches_single_elementwise(self):
-        """Batch result equals per-element counting (the wrapper's invariant)."""
+        """Batch result equals per-element counting (the wrapper's invariant).
+
+        Per-element reference is count_tokens (exact BPE since co-design
+        review 17a redirected the exact path); count_tokens_batch delegates
+        to the same engine's rayon batch, so both are exact and agree —
+        including on whitespace-run inputs where exact and the legacy
+        count_tokens_fast heuristic diverge."""
         pytest.importorskip("victor_native")
         from victor.native.rust.tokenizer import RustTokenCounter
 
         tc = RustTokenCounter()
         texts = ["", "hello", "the quick brown fox", "   \n  ", "你好世界"]
         batched = tc.count_tokens_batch(texts)
-        single = [tc.count_tokens_fast(t) for t in texts]
+        single = [tc.count_tokens(t) for t in texts]
         assert batched == single
 
     def test_batch_empty(self):

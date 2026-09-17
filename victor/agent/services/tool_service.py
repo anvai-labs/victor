@@ -55,9 +55,6 @@ from victor.tools.core_tool_aliases import (
     normalize_model_tool_name,
 )
 
-if TYPE_CHECKING:
-    from victor.agent.services.protocols.tool_service import ToolSelectionContext
-
 logger = logging.getLogger(__name__)
 
 
@@ -755,35 +752,6 @@ class ToolService:
         self._tool_call_validator: Optional[Any] = ToolCallValidator()
         self._last_tool_call_parse_diagnostics: Optional[Dict[str, Any]] = None
 
-    def _hydrate_tools_for_context(self, context: Any) -> None:
-        """Hydrate demand tools before selection when startup is lazy."""
-        ensure_for_query = getattr(self._registrar, "ensure_tools_for_query", None)
-        if not callable(ensure_for_query):
-            return
-
-        fragments: List[str] = []
-        for attr in ("user_message", "message", "prompt", "query", "task_type"):
-            try:
-                value = getattr(context, attr, None)
-            except Exception:
-                value = None
-            if isinstance(value, str) and value:
-                fragments.append(value)
-
-        metadata = getattr(context, "metadata", None)
-        if isinstance(metadata, dict):
-            for key in ("user_message", "message", "prompt", "query", "task_type"):
-                value = metadata.get(key)
-                if isinstance(value, str) and value:
-                    fragments.append(value)
-
-        text = "\n".join(fragments)
-        if text:
-            try:
-                ensure_for_query(text)
-            except Exception:
-                self._logger.debug("Demand tool hydration failed", exc_info=True)
-
     def _hydrate_tool_if_missing(self, tool_name: str) -> None:
         """Hydrate one lazily registered tool if the registrar supports it."""
         ensure_tool = getattr(self._registrar, "ensure_tool_registered", None)
@@ -906,41 +874,6 @@ class ToolService:
     def _consume_budget(self, amount: int = 1) -> None:
         """Record tool usage against the active runtime budget."""
         self._budget_runtime.consume(amount)
-
-    async def select_tools(
-        self,
-        context: "ToolSelectionContext",
-        max_tools: int = 10,
-    ) -> List[str]:
-        """Select tools based on context.
-
-        Uses the tool selector to analyze the context and select
-        the most relevant tools for the task.
-
-        Args:
-            context: Tool selection context
-            max_tools: Maximum number of tools to select
-
-        Returns:
-            List of selected tool names, ordered by relevance
-
-        Raises:
-            ToolSelectionError: If tool selection fails
-        """
-        self._logger.debug(f"Selecting tools (max={max_tools})")
-
-        try:
-            self._hydrate_tools_for_context(context)
-            # Use selector to choose tools
-            selected = await self._selector.select(context, max_tools)
-
-            self._logger.debug(f"Selected {len(selected)} tools: {selected}")
-            return selected
-
-        except Exception as e:
-            self._logger.error(f"Tool selection failed: {str(e)[:500]}")
-            # Return empty list on failure for resilience
-            return []
 
     async def execute_tool(
         self,
@@ -2333,135 +2266,6 @@ class ToolService:
         except Exception as exc:
             return None, False, str(exc)
 
-    # ==========================================================================
-    # Tool Selection Convenience Methods
-    # ==========================================================================
-
-    def can_select_tools(self) -> bool:
-        """Check if tool selection is available.
-
-        Returns True if a tool selector is configured and ready.
-
-        Returns:
-            True if tool selection is available
-
-        Example:
-            if service.can_select_tools():
-                tools = await service.select_tools(context)
-        """
-        return self._selector is not None
-
-    def get_selection_config(self) -> Dict[str, Any]:
-        """Get tool selection configuration.
-
-        Returns the current configuration for tool selection
-        including max tools, thresholds, etc.
-
-        Returns:
-            Dictionary with selection configuration
-
-        Example:
-            config = service.get_selection_config()
-            print(f"Max tools: {config['max_tools']}")
-        """
-        return {
-            "max_tools": self._config.default_max_tools,
-            "has_selector": self._selector is not None,
-            "selector_type": type(self._selector).__name__ if self._selector else None,
-        }
-
-    async def select_tools_sync(
-        self,
-        message: str,
-        task_type: str = "unknown",
-        max_tools: Optional[int] = None,
-        context: Optional[Dict[str, Any]] = None,
-    ) -> List[str]:
-        """Select tools with simplified synchronous-style interface.
-
-        Convenience wrapper around select_tools that provides a simpler
-        interface for basic tool selection.
-
-        Args:
-            message: User message/query
-            task_type: Task type (e.g., "edit", "analyze", "debug")
-            max_tools: Maximum tools to select (uses config default if None)
-            context: Additional context for selection
-
-        Returns:
-            List of selected tool names
-
-        Example:
-            tools = await service.select_tools_sync(
-                message="Search for foo function",
-                task_type="analyze",
-                max_tools=5
-            )
-        """
-        if not self._selector:
-            self._logger.warning("No tool selector configured")
-            return []
-
-        # Build context dict
-        selection_context: "ToolSelectionContext" = {
-            "message": message,
-            "task_type": task_type,
-            "max_tools": max_tools or self._config.default_max_tools,
-        }
-
-        if context:
-            selection_context.update(context)
-
-        # Call the async select_tools method
-        return await self.select_tools(
-            selection_context, max_tools or self._config.default_max_tools
-        )
-
-    def estimate_tools_needed(
-        self,
-        message: str,
-        task_type: str = "unknown",
-    ) -> int:
-        """Estimate number of tools needed for a task.
-
-        Provides a quick heuristic estimate without full selection.
-        Useful for budget planning and early filtering.
-
-        Args:
-            message: User message/query
-            task_type: Task type
-
-        Returns:
-            Estimated number of tools needed
-
-        Example:
-            estimated = service.estimate_tools_needed(message, "edit")
-            if estimated > remaining_budget:
-                # Handle budget constraint
-        """
-        # Simple heuristic based on message length and task type
-        word_count = len(message.split())
-
-        # Base estimate on task type
-        base_estimate = {
-            "edit": 3,
-            "analyze": 4,
-            "debug": 5,
-            "search": 2,
-            "refactor": 4,
-            "test": 3,
-            "unknown": 3,
-        }.get(task_type, 3)
-
-        # Adjust based on message complexity
-        if word_count > 50:
-            base_estimate += 1
-        if word_count > 100:
-            base_estimate += 1
-
-        # Cap at configured max
-        return min(base_estimate, self._config.default_max_tools)
-
     def get_recommended_tools(
         self,
         task_type: str = "unknown",
@@ -2781,24 +2585,16 @@ class ToolService:
             ),
         )
 
-    def estimate_tool_tokens(self, tool, *, provider_category: Optional[str] = None) -> int:
-        """Estimate token cost for a tool at its current schema level.
+    def estimate_tool_tokens(
+        self, tool, *, provider_category: Optional[str] = None, _use_cache: bool = True
+    ) -> int:
+        """Estimate token cost for a tool; see tool_estimate_cache for the
+        caching contract (co-design review U4-F1)."""
+        from victor.agent.services.tool_estimate_cache import estimate_tool_tokens
 
-        Falls back to a name-length heuristic when the tool's schema cannot be
-        generated (e.g. missing ``to_schema`` implementation).
-        """
-        from victor.config.tool_tiers import get_provider_tool_tier, get_tool_tier
-
-        try:
-            tier = (
-                get_provider_tool_tier(tool.name, provider_category)
-                if provider_category
-                else get_tool_tier(tool.name)
-            )
-            schema = tool.to_schema(tier)
-            return len(str(schema)) // 4
-        except Exception:
-            return len(tool.name) + 50
+        return estimate_tool_tokens(
+            self, tool, provider_category=provider_category, use_cache=_use_cache
+        )
 
     def apply_kv_tool_strategy(
         self,
@@ -3006,7 +2802,7 @@ class ToolService:
                 try:
                     original = getattr(tool, "_schema_level", None)
                     tool._schema_level = SchemaLevel.STUB
-                    stub_cost = self.estimate_tool_tokens(tool)
+                    stub_cost = self.estimate_tool_tokens(tool, _use_cache=False)
                     tool._schema_level = original
                     if used + stub_cost <= max_tokens:
                         result.append(tool)

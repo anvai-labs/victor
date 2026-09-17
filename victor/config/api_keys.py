@@ -153,6 +153,8 @@ _PROVIDER_ENV_VARS_FALLBACK: Dict[str, str] = {
     "together": "TOGETHER_API_KEY",
     "openrouter": "OPENROUTER_API_KEY",
     "fireworks": "FIREWORKS_API_KEY",
+    # Self-hosted inference servers
+    "inferflux": "INFERFLUX_API_KEY",
     # Enterprise cloud providers
     "vertex": "GOOGLE_APPLICATION_CREDENTIALS",  # Service account JSON path or ADC
     "vertexai": "GOOGLE_APPLICATION_CREDENTIALS",  # Alias
@@ -179,9 +181,12 @@ def _get_provider_env_vars() -> Dict[str, str]:
 
 # Provider to environment variable mapping (lazy-loaded from registry)
 PROVIDER_ENV_VARS: Dict[str, str] = _get_provider_env_vars()
+from victor.providers.provider_kinds import LOCAL_CLASS_PROVIDERS
 
 # Providers that don't require API keys
-LOCAL_PROVIDERS = {"ollama", "lmstudio", "vllm"}
+# Single source of truth lives in victor.providers.provider_kinds;
+# this alias keeps the historical import path stable for consumers.
+LOCAL_PROVIDERS = LOCAL_CLASS_PROVIDERS
 
 # ============================================================================
 # SERVICE API KEYS (External Data Services - not LLM providers)

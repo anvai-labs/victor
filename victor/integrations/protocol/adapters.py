@@ -40,7 +40,7 @@ class DirectProtocolAdapter(VictorProtocol):
         """Initialize with an orchestrator instance.
 
         Args:
-            orchestrator: AgentOrchestrator instance
+            orchestrator: Agent runtime instance (Agent-created)
         """
         self._orchestrator = orchestrator
 
@@ -60,10 +60,11 @@ class DirectProtocolAdapter(VictorProtocol):
             Configured adapter
         """
         from victor.config.settings import load_settings
-        from victor.agent.orchestrator import AgentOrchestrator
+        from victor.framework.agent_factory import AgentFactory
 
         settings = load_settings()
-        orchestrator = await AgentOrchestrator.from_settings(settings, profile, thinking=thinking)
+        factory = AgentFactory(settings, profile=profile, thinking=thinking)
+        orchestrator = await factory.create()
         return cls(orchestrator)
 
     async def chat(self, messages: list[ChatMessage]) -> ChatResponse:

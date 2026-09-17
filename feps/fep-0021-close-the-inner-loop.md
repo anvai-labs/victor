@@ -189,3 +189,11 @@ census is inert outside the eval job.
 - Phase 1 PRs: #555 (docs-truth), #557 (Probe C), #558 (Probe B)
 - Generated inventory: `docs/architecture/feature-flags.md`;
   policy: `docs/architecture/flag-graduation-policy.md`
+
+
+### Historical apparatus
+
+The `benchmarks/judge_calibration/run_offline_calibration.py` example above is a
+historical template, removed with the concluded apparatus in #1019. Recover it from
+[the preserved source revision](https://github.com/anvai-labs/victor/tree/d0ea2aac0e920e8af8116b182ebb18383e9b7c7b/benchmarks/judge_calibration).
+It is not a runnable command in the current checkout.

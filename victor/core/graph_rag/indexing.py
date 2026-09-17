@@ -605,6 +605,10 @@ class GraphIndexingPipeline:
         if getattr(self.config, "enable_module_metrics", True) and graph_changed:
             stats.module_metrics_computed = self._refresh_module_metrics(root)
 
+        if not self.config.incremental and graph_changed:
+            _status("Reclaiming database space…")
+            await self._maintain_project_db_after_rebuild(root)
+
         stats.processing_time_seconds = time.time() - start_time
 
         logger.info(
@@ -613,6 +617,24 @@ class GraphIndexingPipeline:
         )
 
         return stats
+
+    async def _maintain_project_db_after_rebuild(self, root_path: Path) -> None:
+        """Reclaim database space after a force rebuild (co-design review item 26a).
+
+        A full rebuild deletes and rewrites the whole graph, leaving a large WAL
+        and many free pages; historically the only way to reclaim them was a
+        manual ``victor db maintain``. Run the project database manager's
+        ``maintain()`` (WAL checkpoint + VACUUM) automatically as the last step
+        of the rebuild. Best-effort: a maintenance failure is logged and never
+        fails an otherwise-successful rebuild.
+        """
+        try:
+            from victor.core.database import get_project_database
+
+            db = get_project_database(root_path)
+            await asyncio.to_thread(db.maintain)
+        except Exception as exc:
+            logger.debug("Post-rebuild database maintenance skipped: %s", exc)
 
     def _prepare_codegraph_repository(self, root_path: Path, files: List[Path]) -> None:
         """Prepare one filtered semantic snapshot for this indexing run.
@@ -3052,20 +3074,38 @@ class GraphIndexingPipeline:
                     continue  # don't mark nodes embedded if vectors didn't persist
 
                 if atomic_record_store is None:
-                    for node_id in persisted_ids:
+                    pairs = [
+                        (
+                            node_id,
+                            {
+                                "embedding_ref": f"emb:{node_id}",
+                                "has_embedding": True,
+                                "content_version": versions[node_id],
+                            },
+                        )
+                        for node_id in persisted_ids
+                    ]
+                    batch_update = getattr(self.graph_store, "update_nodes_metadata", None)
+                    if callable(batch_update):
                         try:
-                            await self.graph_store.update_node_metadata(
-                                node_id,
-                                {
-                                    "embedding_ref": f"emb:{node_id}",
-                                    "has_embedding": True,
-                                    "content_version": versions[node_id],
-                                },
-                            )
+                            async with self._graph_store_write_batch():
+                                await batch_update(pairs)
                         except Exception as e:
-                            logger.warning(f"Failed to mark embedding for {node_id}: {e}")
+                            logger.warning(
+                                "Batched embedding metadata update failed (%d nodes): %s",
+                                len(pairs),
+                                e,
+                            )
                             stats.error_count += 1
-                            stats.errors.append(f"Embedding metadata failed for {node_id}: {e}")
+                            stats.errors.append(f"Batched embedding metadata: {e}")
+                    else:
+                        for node_id, metadata in pairs:
+                            try:
+                                await self.graph_store.update_node_metadata(node_id, metadata)
+                            except Exception as e:
+                                logger.warning(f"Failed to mark embedding for {node_id}: {e}")
+                                stats.error_count += 1
+                                stats.errors.append(f"Embedding metadata failed for {node_id}: {e}")
 
                 embedded_total += len(persisted_ids)
                 logger.debug(f"Embedded batch {i // batch_size + 1}")

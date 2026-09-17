@@ -73,7 +73,10 @@ Respond with just the command to run."""
                 "dd if=",
                 "sudo rm",
                 ":(){",
-                "chmod -R 777",
+                # Matched against the lowercased command — keep the pattern
+                # lowercase too (the previous "chmod -R 777" could never
+                # match; same bug fixed in /terminal/execute).
+                "chmod -r 777",
                 "curl | sh",
                 "wget | sh",
             ]
@@ -104,7 +107,12 @@ Respond with just the command to run."""
 
         resolved_dir = Path(working_dir).resolve()
         workspace_resolved = Path(server.workspace_root).resolve()
-        if not str(resolved_dir).startswith(str(workspace_resolved)):
+        # True path containment (not string-prefix): a sibling directory
+        # like /ws/victor-evil beside workspace /ws/victor passed the old
+        # startswith check (adversarial-review finding).
+        try:
+            resolved_dir.relative_to(workspace_resolved)
+        except ValueError:
             return TerminalCommandResponse(
                 command_id=cmd_id,
                 command=request.command,
@@ -123,11 +131,17 @@ Respond with just the command to run."""
             "dd if=",
             "sudo rm",
             ":(){",
-            "chmod -R 777",
+            # Matched against the lowercased command — keep the pattern
+            # lowercase too (the previous "chmod -R 777" could never match).
+            "chmod -r 777",
         ]
         is_dangerous = any(p in request.command.lower() for p in dangerous_patterns)
 
-        if is_dangerous and request.require_approval:
+        # Server-side approval policy: blocklisted (dangerous) commands ALWAYS
+        # return pending — the caller-attested require_approval flag can no
+        # longer bypass execution of a dangerous command (co-design review
+        # U7-F2). Route auth is enforced by the app-level dependency.
+        if is_dangerous:
             return TerminalCommandResponse(
                 command_id=cmd_id,
                 command=request.command,

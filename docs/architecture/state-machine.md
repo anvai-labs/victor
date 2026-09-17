@@ -11,25 +11,24 @@ The state machine tracks the agent's workflow through discrete stages, from init
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                    ConversationStateMachine                         │
-│                                                                     │
-│  ┌─────────┐    ┌──────────┐    ┌─────────┐    ┌───────────┐       │
-│  │ INITIAL │───>│ PLANNING │───>│ READING │───>│ ANALYSIS  │       │
-│  └─────────┘    └──────────┘    └─────────┘    └───────────┘       │
-│       │              │               │               │              │
-│       │              │               │               │              │
-│       v              v               v               v              │
-│  ┌───────────────────────────────────────────────────────────────┐ │
-│  │                        EXECUTION                               │ │
-│  └───────────────────────────────────────────────────────────────┘ │
-│                              │                                      │
-│                              v                                      │
-│  ┌──────────────┐    ┌─────────────┐                               │
-│  │ VERIFICATION │───>│ COMPLETION  │                               │
-│  └──────────────┘    └─────────────┘                               │
-└─────────────────────────────────────────────────────────────────────┘
+This diagram lists the conversation stage categories; it is not a fixed transition chain.
+The [agentic-loop sequence](../architecture.md#agenticloop) describes execution authority.
+
+```mermaid
+---
+title: Conversation stages are distinct from loop execution phases
+---
+%%{init: {"theme":"base","themeVariables":{"primaryColor":"#E8EFF7","primaryTextColor":"#17324D","primaryBorderColor":"#456987","lineColor":"#456987","fontFamily":"Arial"}}}%%
+flowchart TB
+  C["ConversationStateMachine"]
+  I["INITIAL"]
+  P["PLANNING"]
+  R["READING"]
+  A["ANALYSIS"]
+  E["EXECUTION"]
+  V["VERIFICATION"]
+  D["COMPLETION"]
+  C -->|"track conversation stage"| I & P & R & A & E & V & D
 ```
 
 ## Stages
@@ -127,18 +126,20 @@ valid = sm.get_valid_transitions()  # [ConversationStage.READING, ...]
 ### Observability Integration
 
 ```python
-from victor.observability import EventBus, EventCategory
+from victor.core.events import get_observability_bus
 
-bus = EventBus.get_instance()
+async def watch_state_events():
+    bus = get_observability_bus()
 
-# Subscribe to state change events
-def on_state_event(event):
-    old = event.data["old_stage"]
-    new = event.data["new_stage"]
-    print(f"Transition: {old} -> {new}")
+    async def on_state_event(event):
+        print(event.topic, event.data)
 
-bus.subscribe(EventCategory.STATE, on_state_event)
+    return await bus.subscribe("state.*", on_state_event)
 ```
+
+The returned subscription handle can be passed to `await bus.unsubscribe(handle)`.
+Event payload fields vary by producer; use the transition hooks below when you need
+conversation-stage transitions specifically.
 
 ### Using StateHooks
 
@@ -256,6 +257,6 @@ class MyStageDetector:
 
 ## Related Documentation
 
-- [Verticals →](../../reference/verticals/index.md) - Domain-specific stage configurations
-- [Tool Catalog →](../../reference/tools/catalog.md) - Complete tool reference
-- [Development Guide →](../../development/) - Framework entrypoints and structure
+- [Verticals →](../reference/verticals/index.md) - Domain-specific stage configurations
+- [Tool Catalog →](../reference/tools/catalog.md) - Complete tool reference
+- [Development Guide →](../development/index.md) - Framework entrypoints and structure

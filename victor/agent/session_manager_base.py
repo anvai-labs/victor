@@ -164,7 +164,10 @@ class BaseSessionHandler(ISessionHandler):
         from victor.config.settings import load_settings
         from victor.core.verticals import get_vertical
 
-        settings = load_settings()
+        # fresh=True: AgentFactory monkey-patches load_profiles on the instance
+        # it receives (agent_factory._apply_profile_overrides) — must never be
+        # the shared process snapshot (adversarial-review finding).
+        settings = load_settings(fresh=True)
         vertical_class = get_vertical(config.vertical) if config.vertical else None
 
         context = AgentCreationContext(

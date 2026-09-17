@@ -50,14 +50,16 @@ class PythonTextChunker(InstrumentedAccelerator):
             List of ChunkInfo objects
         """
         with self._timed_call("text_chunking"):
-            if not text:
-                return []
-
+            if type(chunk_size) is not int or type(overlap) is not int:
+                raise TypeError("chunk_size and overlap must be integers")
             if chunk_size <= 0:
                 raise ValueError("chunk_size must be positive")
 
-            if overlap >= chunk_size:
-                raise ValueError("overlap must be less than chunk_size")
+            if overlap < 0 or overlap >= chunk_size:
+                raise ValueError("overlap must be nonnegative and less than chunk_size")
+
+            if not text:
+                return []
 
             # Pre-compute line boundaries for efficient line number lookup
             line_starts = self.find_line_boundaries(text)
@@ -65,6 +67,7 @@ class PythonTextChunker(InstrumentedAccelerator):
             chunks = []
             pos = 0
             chunk_index = 0
+            previous_end = 0
 
             while pos < len(text):
                 # Calculate chunk end
@@ -85,9 +88,7 @@ class PythonTextChunker(InstrumentedAccelerator):
                 end_line = self._line_at_offset_cached(line_starts, chunk_end - 1)
 
                 # Calculate overlap with previous chunk
-                overlap_prev = 0
-                if chunk_index > 0 and pos > 0:
-                    overlap_prev = min(overlap, pos)
+                overlap_prev = max(0, previous_end - pos)
 
                 chunks.append(
                     ChunkInfo(
@@ -101,17 +102,13 @@ class PythonTextChunker(InstrumentedAccelerator):
                     )
                 )
 
-                # Move position forward, accounting for overlap
-                step = max(1, chunk_size - overlap)
-                pos += step
+                if chunk_end == len(text):
+                    break
+                # Advance from the emitted end, preserving trimmed input and
+                # making progress even when a short line is smaller than overlap.
+                previous_end = chunk_end
+                pos = max(pos + 1, chunk_end - overlap)
                 chunk_index += 1
-
-                # Adjust position to line boundary if we have overlap
-                if pos < len(text) and overlap > 0:
-                    # Find the start of the next line after pos
-                    next_newline = text.find("\n", max(0, pos - overlap))
-                    if next_newline >= 0 and next_newline < pos:
-                        pos = next_newline + 1
 
             return chunks
 
@@ -130,13 +127,13 @@ class PythonTextChunker(InstrumentedAccelerator):
             return text.count("\n") + 1
 
     def find_line_boundaries(self, text: str) -> List[int]:
-        """Find byte offsets of all line starts.
+        """Find character offsets of all line starts.
 
         Args:
             text: Text to analyze
 
         Returns:
-            List of byte offsets where lines start (including 0)
+            List of character offsets where lines start (including 0)
         """
         with self._timed_call("line_boundary_detection"):
             if not text:

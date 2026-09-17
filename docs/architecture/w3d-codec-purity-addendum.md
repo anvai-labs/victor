@@ -1,5 +1,10 @@
 # W3d Addendum — Codec Purity (G7), Evidence-Grounded Design
 
+> **Historical design/review snapshot.** The findings, proposed APIs, diagrams, and rollout
+> status below describe their original review context. For current implementation and remaining
+> work, use [Architecture](../architecture.md) and the [Roadmap](../roadmap.md); this document
+> is not an installation guide or a certification that every proposed feature shipped.
+
 **Status:** Design gate for W3d implementation. Extends
 `foundations-strategy-2026-07.md` §4.4. **Evidence:** parallel sweeps of
 victor develop (`b3c52736f`) and sandhi develop (2026-07-26); every claim

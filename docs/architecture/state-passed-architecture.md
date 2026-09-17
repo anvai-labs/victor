@@ -398,7 +398,7 @@ def test_coordinator():
 ```
 victor/agent/coordinators/
 ├── state_context.py                      # Core abstractions
-├── example_state_passed_coordinator.py   # Example implementation
+├── exploration_state_passed.py   # Implemented exploration coordinator
 ├── chat_coordinator.py                   # Deprecated shim over service-first runtime
 ├── planning_coordinator.py               # [TODO: Refactor]
 ├── execution_coordinator.py              # [TODO: Refactor]
@@ -414,7 +414,7 @@ tests/unit/agent/coordinators/
 
 ### Phase 1: Foundation (✅ COMPLETE)
 - [x] Create `state_context.py` with core abstractions
-- [x] Create `example_state_passed_coordinator.py` template
+- [x] Selective exploration coordinator: `exploration_state_passed.py`
 - [x] Create comprehensive unit tests (34 tests)
 - [x] Document the pattern
 
@@ -483,9 +483,9 @@ tests/unit/agent/coordinators/
 
 ## References
 
-- **Gemini Feedback**: Verified claim about 3,915 LOC orchestrator complexity
+- **Historical feedback**: The 3,915 LOC count belongs to the original review, not the current tree
 - **Implementation**: `victor/agent/coordinators/state_context.py`
-- **Example**: `victor/agent/coordinators/example_state_passed_coordinator.py`
+- **Example**: `victor/agent/coordinators/exploration_state_passed.py`
 - **Tests**: `tests/unit/agent/coordinators/test_state_context.py`
 
 ---
@@ -495,12 +495,12 @@ tests/unit/agent/coordinators/
 | Concern | Status | Notes |
 |---------|--------|-------|
 | Core abstractions | ✅ Complete | Context snapshot, transitions, and result types exist |
-| Example coordinator | ✅ Complete | Reference implementation remains useful |
+| Exploration coordinator | ✅ Implemented | `ExplorationStatePassedCoordinator` is a current selective example |
 | Service-owned effectful runtime | ✅ Canonical | Chat, tool, session, context, provider, and recovery stay service-owned |
 | Exploration / system prompt / safety | ✅ Canonical selective seams | State-passed is the preferred pattern here |
 | Coordination recommendation | ✅ Canonical selective seam | `coordination_state_passed.py` |
 | Blanket coordinator rewrites | 🚫 Not the goal | Do not create a second parallel runtime layer |
-| Remaining orchestrator shrink work | ⏳ In progress | `AgentOrchestrator` is still ~4,593 LOC |
+| Remaining orchestrator shrink work | ⏳ In progress | Size is ratcheted in `tests/unit/runtime/test_hotspot_size_guard.py` |
 
 **Overall Progress**: State-passed is now an established selective pattern inside
 the broader service-first runtime. Future work should target seams that still
@@ -510,6 +510,6 @@ by services.
 ---
 
 **Next Steps**: Keep service-owned domains service-owned, continue deleting dead
-compatibility paths, and use `example_state_passed_coordinator.py` as the
+compatibility paths, and use `exploration_state_passed.py` as the
 reference when a remaining decision seam genuinely benefits from explicit
 snapshot/transition modeling.

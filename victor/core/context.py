@@ -39,6 +39,19 @@ turn_id: contextvars.ContextVar[str] = contextvars.ContextVar("turn_id", default
 # Request ID for the current single operation (one tool call / decision) within a turn.
 request_id: contextvars.ContextVar[str] = contextvars.ContextVar("request_id", default="")
 
+# Logical model-call ID for the current single provider invocation (sandhi TD-0021 P4
+# sender half). One logical call = every retry AND fallback of one request through the
+# resilience layer; they share this id so the gateway's idempotency dedup counts the
+# call once at the meter. Bound by the retry owner (ResilientProvider.chat — the
+# outermost binding wins) and consumed by the sandhi transport as the
+# ``Idempotency-Key`` wire header. CHAT ONLY: an async generator cannot bind safely
+# (ContextVar.set in a generator frame lands in the resumer's context, and a
+# non-aclosing early break would leak the binding — see ResilientProvider.stream),
+# so the stream path mints per invocation instead. Deliberately NOT ``request_id``:
+# that is per tool-operation, and two distinct model calls inside one request
+# context must never share a dedup key.
+call_id: contextvars.ContextVar[str] = contextvars.ContextVar("call_id", default="")
+
 # Authenticated attribution identity (FEP-0020). Bound at the API-server auth
 # seam (the resolved ``client_id`` becomes the subject) for the duration of a
 # request so cost/usage records emitted downstream carry the authenticated
@@ -123,6 +136,28 @@ def get_request_id() -> str:
 def set_request_id(rid: str) -> contextvars.Token:
     """Set the current request/operation ID."""
     return request_id.set(rid)
+
+
+def get_call_id() -> str:
+    """Get the current logical model-call ID (empty string if none is bound)."""
+    return call_id.get()
+
+
+def set_call_id(cid: str) -> contextvars.Token:
+    """Set the current logical model-call ID."""
+    return call_id.set(cid)
+
+
+def bind_call_id_once(cid: str) -> Optional[contextvars.Token]:
+    """Bind the logical model-call ID only when none is bound.
+
+    The retry owner calls this at the top of one logical call; a nested/stacked
+    resilience layer keeps the OUTER call's identity (returns ``None``, nothing
+    to reset). Returns the reset token for the binder.
+    """
+    if call_id.get():
+        return None
+    return call_id.set(cid)
 
 
 def get_correlation() -> dict[str, str]:

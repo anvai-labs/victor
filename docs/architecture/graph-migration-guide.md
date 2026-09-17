@@ -1,5 +1,11 @@
 # Graph Schema Migration Guide (v4 → v5)
 
+> **Historical v4→v5 migration reference.** The schema sketches, database paths, rollback SQL,
+> and `get_schema_version()` example below belong to the original migration design; the current
+> store exposes no such version-query method. Do not use the historical rollback as a current
+> upgrade procedure. Use the [graph quickstart](graph-quickstart.md) to rebuild an index and the
+> [store API source map](graph-api-reference.md) for current behavior.
+
 This guide helps you migrate from the v4 graph schema to v5, which adds Code Context Graph (CCG) support.
 
 ## Overview of Changes

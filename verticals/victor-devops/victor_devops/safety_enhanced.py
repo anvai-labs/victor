@@ -160,8 +160,7 @@ class DevOpsSafetyRules:
                 action=SafetyAction.REQUIRE_CONFIRMATION,
                 severity=7,
                 confirmation_prompt=(
-                    "This will apply infrastructure changes without review. "
-                    "Continue?"
+                    "This will apply infrastructure changes without review. " "Continue?"
                 ),
                 tool_names=["shell", "execute_bash"],
             ),

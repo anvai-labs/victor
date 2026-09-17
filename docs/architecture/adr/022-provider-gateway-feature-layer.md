@@ -7,13 +7,13 @@
 - **Decision Makers**: Vijaykumar Singh
 - **Related ADRs**: 006 (provider integration improvements), 018 (adopt `sandhi` usage gateway — the
   transport/metering layer this sits above)
-- **Work tracked by**: [TD-24](../../tech-stack.md#technical-debt-register); depends on
-  [TD-21](../../tech-stack.md#technical-debt-register) (typed provider runtime / sandhi)
+- **Work tracked by**: [TD-24](../../roadmap.md#technical-debt-register); depends on
+  [TD-21](../../roadmap.md#technical-debt-register) (typed provider runtime / sandhi)
 - **Benchmark**: [competitive-benchmark-2026-07.md](../competitive-benchmark-2026-07.md) §3
 
 ## Context
 
-Victor has 24 provider adapters behind `BaseProvider`, cost/latency `smart_router.py` (on by
+Victor has 25 provider adapters behind `BaseProvider`, cost/latency `smart_router.py` (on by
 default per TD-17's correction), resilience (circuit breaker + retry, `resilience.py`), and
 prompt/KV-prefix caching. The typed *transport + usage-metering* layer is being homed in `sandhi`
 (Rust; TD-21, ADR-018) — retries, HTTP/SSE, structured errors, and `UsageV2` move under FFI.
@@ -99,7 +99,7 @@ is the decision plane above it.
 ## References
 
 - [ADR-006](006-provider-integration-improvements.md), [ADR-018](018-adopt-sandhi-usage-gateway.md)
-- [TD-21](../../tech-stack.md#technical-debt-register), [flag-graduation-policy.md](../flag-graduation-policy.md)
+- [TD-21](../../roadmap.md#technical-debt-register), [flag-graduation-policy.md](../flag-graduation-policy.md)
 - `victor/providers/base.py`, `victor/providers/smart_router.py`, `victor/providers/resilience.py`,
   FEP-0020 (usage attribution)
 

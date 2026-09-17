@@ -5,7 +5,14 @@ per-repo flag; SQLite remains default (tracked as TD-11, TD-12, TD-13 in
 `../tech-stack.md`). Proxima columnar/service mode is WIP.
 Date: 2026-08-12
 
-## Implementation status (2026-08-05)
+## Dependency status (2026-09-08)
+
+Victor’s optional extra now declares `proximadb>=0.3,<0.4`; install it with
+`pip install "victor-ai[proximadb]"`. Embedded execution additionally needs its compatible
+native/server artifact. The August live-run notes below preserve their original evidence
+and are not a claim that every later backend version was retested.
+
+## Implementation evidence (2026-08-05)
 
 The embedded ProximaDB backend is implemented and parity-verified at the adapter
 level; SQLite stays the default and nothing flips automatically.
@@ -71,9 +78,9 @@ level; SQLite stays the default and nothing flips automatically.
   - **Stale parity fixture.** The embedded parity test injected a pre-built
     graph/client, bypassing the connection that owns the record collection, so it
     failed before any assertion. It now drives the production bootstrap.
-- **Local source dependency gate:** Victor's development virtualenv resolves the
+- **Historical local source dependency gate (August run):** The development virtualenv resolved the
   pure-Python `proximadb` 0.2.2 SDK directly from `../proximaDB/clients/python`.
-  Do not pin a newer PyPI version until ProximaDB publishes it. The native
+  That run predated the current declared SDK range above. The native
   `proximadb_embedded` wheel could not be rebuilt because ProximaDB #1021 moved
   the PyO3 bindings into `crates/binding/proximadb-embedded` without updating the
   Python build config: maturin still targeted the root manifest (whose `python`

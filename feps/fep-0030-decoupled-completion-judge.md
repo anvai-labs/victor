@@ -195,3 +195,12 @@ public framework-API break; existing gate tests pass unchanged.
 - `benchmarks/judge_calibration/FINDINGS.md`,
   `benchmarks/judge_training/FINDINGS.md` — judge and trained-judge findings.
 - PRs #844 (seam), #845 (side-LLM backend), #848 (SWE-bench stratum converter).
+
+
+### Historical experiment artifacts
+
+As of 2026-09-06, the concluded judge experiment apparatus had been removed in
+[#1019](https://github.com/anvai-labs/victor/pull/1019) (commit dated 2026-09-05).
+The calibration and training references above are historical evidence, recoverable as
+[calibration findings](https://github.com/anvai-labs/victor/blob/d0ea2aac0e920e8af8116b182ebb18383e9b7c7b/benchmarks/judge_calibration/FINDINGS.md)
+and [training findings](https://github.com/anvai-labs/victor/blob/d0ea2aac0e920e8af8116b182ebb18383e9b7c7b/benchmarks/judge_training/FINDINGS.md).

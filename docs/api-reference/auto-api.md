@@ -2,8 +2,8 @@
 
 !!! info "Generated from source docstrings"
     The signatures and docstrings on this page are rendered directly from the code by
-    [mkdocstrings](https://mkdocstrings.github.io/) at build time. They cannot drift from the
-    implementation — when the code changes, this page changes with it. The hand-written pages
+    [mkdocstrings](https://mkdocstrings.github.io/) at build time. Signatures follow the
+    implementation; docstring explanations and examples still require review when behavior changes. The hand-written pages
     under **API Reference** (Protocols, Providers, Tools, Workflows) provide the prose,
     guidance, and examples that complement these signatures.
 

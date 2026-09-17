@@ -8,7 +8,7 @@
 - **Related ADRs**: 023 (multi-agent team durability — the pause/resume primitives this generalizes),
   021 (terminal-native HITL — the inline modal this parks instead of blocking), 020 (interactive TUI —
   the paused-lane rendering reused for `AWAITING_APPROVAL`)
-- **Companion FEP**: [FEP-0029](../../../feps/fep-0029-single-agent-durable-chat-continuation.md)
+- **Companion FEP**: [FEP-0029](https://github.com/anvai-labs/victor/blob/develop/feps/fep-0029-single-agent-durable-chat-continuation.md)
 
 ## Context
 
@@ -83,7 +83,7 @@ Phased per FEP-0029: (1) pause mechanism (in-memory), (2) durable `paused_run` p
 
 ## References
 
-- [FEP-0029](../../../feps/fep-0029-single-agent-durable-chat-continuation.md),
+- [FEP-0029](https://github.com/anvai-labs/victor/blob/develop/feps/fep-0029-single-agent-durable-chat-continuation.md),
   [ADR-023](023-multi-agent-team-durability.md), [ADR-021](021-terminal-native-hitl-and-loop-transparency.md),
   [ADR-020](020-interactive-terminal-tui.md)
 - Anchors: `victor/framework/policies/middleware.py`, `victor/agent/tool_pipeline.py`,

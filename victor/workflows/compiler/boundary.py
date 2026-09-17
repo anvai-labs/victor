@@ -76,28 +76,21 @@ def create_condition_router(node: ConditionNode) -> Callable[[WorkflowState], st
     """Build a condition router shared across compiler compatibility layers."""
 
     def route(state: WorkflowState) -> str:
-        try:
+        recorded = state.get("_node_results", {}).get(node.id)
+        output = (
+            recorded.get("output")
+            if isinstance(recorded, dict)
+            else getattr(recorded, "output", None)
+        )
+        if isinstance(output, dict) and "branch" in output:
+            branch = output["branch"]
+        else:
             branch = node.condition(dict(state))
-            if branch in node.branches:
-                return branch
-            if "default" in node.branches:
-                return "default"
-
-            logger.warning(
-                "Condition node '%s' returned '%s' without a matching branch",
-                node.id,
-                branch,
-            )
-        except Exception as exc:
-            logger.error(
-                "Condition evaluation failed for node '%s': %s",
-                node.id,
-                exc,
-                exc_info=True,
-            )
-            if "default" in node.branches:
-                return "default"
-        return "__END__"
+        if branch in node.branches:
+            return branch
+        if "default" in node.branches:
+            return "default"
+        raise ValueError(f"Condition node '{node.id}' returned unknown branch {branch!r}")
 
     return route
 
@@ -204,6 +197,36 @@ class WorkflowDefinitionValidator:
         return []
 
 
+def _state_values_equal(left: Any, right: Any) -> bool:
+    """Compare branch snapshots without requiring scalar equality results."""
+    if left is right:
+        return True
+    if type(left) is not type(right):
+        return False
+    if isinstance(left, dict):
+        return left.keys() == right.keys() and all(
+            _state_values_equal(value, right[key]) for key, value in left.items()
+        )
+    if isinstance(left, (list, tuple)):
+        return len(left) == len(right) and all(
+            _state_values_equal(a, b) for a, b in zip(left, right)
+        )
+    try:
+        # DataFrame/Series.equals and ndarray equality avoid ambiguous truth
+        # values, without requiring numerical libraries for workflow execution.
+        equals = getattr(left, "equals", None)
+        if callable(equals):
+            return bool(equals(right))
+        equal = left == right
+        if hasattr(equal, "all"):
+            # NaN is unequal to itself, but unchanged NaNs in independent
+            # snapshots must not make a read-only branch overwrite a writer.
+            return bool((equal | ((left != left) & (right != right))).all())
+        return bool(equal) or bool(left != left and right != right)
+    except (TypeError, ValueError):
+        return False
+
+
 class NativeWorkflowGraphCompiler:
     """Compiler backend that builds StateGraph directly from WorkflowDefinition.
 
@@ -219,7 +242,11 @@ class NativeWorkflowGraphCompiler:
         checkpointer_factory: Optional[Callable[[], Any]] = None,
         enable_checkpointing: bool = True,
         interrupt_on_hitl: bool = True,
+        max_parallel: Optional[int] = None,
     ):
+        if max_parallel is not None and max_parallel <= 0:
+            raise ValueError("max_parallel must be positive")
+        self._max_parallel = max_parallel
         self._node_executor_factory = node_executor_factory
         self._checkpointer_factory = checkpointer_factory or self._create_checkpointer
         self._enable_checkpointing = enable_checkpointing
@@ -314,38 +341,104 @@ class NativeWorkflowGraphCompiler:
         ]
 
         async def execute_parallel_group(state: WorkflowState) -> WorkflowState:
-            current_state = dict(state)
+            base_state = dict(state)
+            current_state = dict(base_state)
             start_time = time.time()
-            parallel_results = dict(current_state.get("_parallel_results", {}))
+            from victor.workflows.executors.compatibility import WorkflowNodeExecutionError
+
+            # Only this group's children participate in its join policy. Earlier
+            # groups' diagnostics must not turn a later successful join into failure.
+            parallel_results: dict[str, Any] = {}
             node_results = dict(current_state.get("_node_results", {}))
 
-            tasks = [executor(copy.deepcopy(current_state)) for _, executor in child_executors]
-            results = await asyncio.gather(*tasks, return_exceptions=True)
+            semaphore = asyncio.Semaphore(self._max_parallel) if self._max_parallel else None
+
+            async def execute_child(executor: Any) -> Any:
+                child_state = copy.deepcopy(base_state)
+                if semaphore is None:
+                    return await executor(child_state)
+                async with semaphore:
+                    return await executor(child_state)
+
+            results = await asyncio.gather(
+                *(execute_child(executor) for _, executor in child_executors),
+                return_exceptions=True,
+            )
 
             for (child_node, _), result in zip(child_executors, results):
+                if isinstance(result, BaseException) and not isinstance(result, Exception):
+                    raise result
                 if isinstance(result, Exception):
+                    failure_state = getattr(result, "result_state", {})
+                    node_results.update(failure_state.get("_node_results", {}))
+                    if child_node.id not in node_results:
+                        node_results[child_node.id] = GraphNodeResult(
+                            node_id=child_node.id, success=False, error=str(result)
+                        )
                     parallel_results[child_node.id] = {
                         "success": False,
                         "error": str(result),
                     }
                     continue
 
-                for key, value in result.items():
-                    if not key.startswith("_"):
-                        current_state[key] = value
+                child_failed = result.get("_error") is not None
+                node_results.update(result.get("_node_results", {}))
+                if not child_failed:
+                    # Merge changes against the shared pre-fan-out snapshot.
+                    # A later child's unchanged inputs must not erase a prior
+                    # child's writes. Changed keys (including deletions) use
+                    # declaration order when successful children conflict.
+                    for key in base_state:
+                        if not key.startswith("_") and key not in result:
+                            current_state.pop(key, None)
+                    for key, value in result.items():
+                        if not key.startswith("_") and (
+                            key not in base_state or not _state_values_equal(value, base_state[key])
+                        ):
+                            current_state[key] = value
                 parallel_results[child_node.id] = {
-                    "success": True,
+                    "success": not child_failed,
+                    "error": str(result.get("_error")) if child_failed else None,
                     "output": result.get(getattr(child_node, "output_key", None) or child_node.id),
                 }
 
-            current_state["_parallel_results"] = parallel_results
+            join_strategy = getattr(parallel_node, "join_strategy", "all")
+            failures = {
+                child_id: info
+                for child_id, info in parallel_results.items()
+                if not info.get("success", False)
+            }
+            group_failed = bool(
+                (join_strategy == "all" and failures)
+                or (
+                    join_strategy in ("any", "first")
+                    and not any(info.get("success", False) for info in parallel_results.values())
+                )
+            )
+            error = None
+            if group_failed:
+                first_error = next(iter(failures.values()), {}).get("error")
+                error = (
+                    f"Parallel node '{parallel_node.id}' failed "
+                    f"(join_strategy={join_strategy}): "
+                    f"{first_error or 'not all parallel nodes succeeded'}"
+                )
+
+            current_state["_parallel_results"] = {
+                **current_state.get("_parallel_results", {}),
+                **parallel_results,
+            }
             node_results[parallel_node.id] = GraphNodeResult(
                 node_id=parallel_node.id,
-                success=all(result.get("success", False) for result in parallel_results.values()),
+                success=not group_failed,
+                error=error,
                 output=parallel_results,
                 duration_seconds=time.time() - start_time,
             )
             current_state["_node_results"] = node_results
+            if error is not None:
+                current_state["_error"] = error
+                raise WorkflowNodeExecutionError(error, current_state)
             return current_state
 
         graph.add_node(parallel_node.id, execute_parallel_group)

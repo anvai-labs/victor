@@ -24,6 +24,7 @@ including:
 """
 
 import asyncio
+import time
 from typing import Any, Dict
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -70,6 +71,22 @@ def mock_subagent_result():
     return result
 
 
+def _agent_executor_from_callback(callback):
+    """Keep scenario callbacks while mocking the canonical node execution seam."""
+    from victor.workflows.context import WorkflowContext
+
+    async def execute(node, state):
+        current = dict(state)
+        context = WorkflowContext(data=current)
+        result = await callback(node, context, time.monotonic())
+        current.setdefault("_node_results", {})[node.id] = result
+        if not result.success:
+            current["_error"] = result.error or "Agent execution failed"
+        return current
+
+    return execute
+
+
 class TestWorkflowExecution:
     """Integration tests for workflow execution."""
 
@@ -98,7 +115,10 @@ class TestWorkflowExecution:
                 tool_calls_used=5,
             )
 
-        with patch.object(executor, "_execute_agent_node", side_effect=mock_execute):
+        with patch(
+            "victor.workflows.executors.agent.AgentNodeExecutor.execute",
+            side_effect=_agent_executor_from_callback(mock_execute),
+        ):
             result = await executor.execute(workflow, {"input": "test data"})
 
         assert result.success
@@ -136,7 +156,10 @@ class TestWorkflowExecution:
                 tool_calls_used=3,
             )
 
-        with patch.object(executor, "_execute_agent_node", side_effect=mock_execute):
+        with patch(
+            "victor.workflows.executors.agent.AgentNodeExecutor.execute",
+            side_effect=_agent_executor_from_callback(mock_execute),
+        ):
             result = await executor.execute(workflow, {"has_issues": True})
 
         assert result.success
@@ -173,7 +196,10 @@ class TestWorkflowExecution:
                 tool_calls_used=2,
             )
 
-        with patch.object(executor, "_execute_agent_node", side_effect=mock_execute):
+        with patch(
+            "victor.workflows.executors.agent.AgentNodeExecutor.execute",
+            side_effect=_agent_executor_from_callback(mock_execute),
+        ):
             result = await executor.execute(workflow, {"has_issues": False})
 
         assert result.success
@@ -209,7 +235,10 @@ class TestWorkflowExecution:
                 tool_calls_used=3,
             )
 
-        with patch.object(executor, "_execute_agent_node", side_effect=mock_execute):
+        with patch(
+            "victor.workflows.executors.agent.AgentNodeExecutor.execute",
+            side_effect=_agent_executor_from_callback(mock_execute),
+        ):
             result = await executor.execute(workflow, {"initial": "data"})
 
         assert result.success
@@ -239,11 +268,14 @@ class TestWorkflowExecution:
                 tool_calls_used=1,
             )
 
-        with patch.object(executor, "_execute_agent_node", side_effect=slow_execute):
+        with patch(
+            "victor.workflows.executors.agent.AgentNodeExecutor.execute",
+            side_effect=_agent_executor_from_callback(slow_execute),
+        ):
             result = await executor.execute(workflow, timeout=0.1)
 
         assert not result.success
-        assert "timed out" in result.error.lower()
+        assert "timeout" in result.error.lower() or "timed out" in result.error.lower()
 
     @pytest.mark.asyncio
     async def test_workflow_context_passing(self, mock_orchestrator):
@@ -282,7 +314,10 @@ class TestWorkflowExecution:
                     tool_calls_used=3,
                 )
 
-        with patch.object(executor, "_execute_agent_node", side_effect=mock_execute):
+        with patch(
+            "victor.workflows.executors.agent.AgentNodeExecutor.execute",
+            side_effect=_agent_executor_from_callback(mock_execute),
+        ):
             result = await executor.execute(workflow)
 
         assert result.success
@@ -319,7 +354,10 @@ workflows:
                 tool_calls_used=5,
             )
 
-        with patch.object(executor, "_execute_agent_node", side_effect=mock_execute):
+        with patch(
+            "victor.workflows.executors.agent.AgentNodeExecutor.execute",
+            side_effect=_agent_executor_from_callback(mock_execute),
+        ):
             result = await executor.execute(workflow)
 
         assert result.success
@@ -350,7 +388,10 @@ workflows:
                 tool_calls_used=2,
             )
 
-        with patch.object(executor, "_execute_agent_node", side_effect=mock_execute):
+        with patch(
+            "victor.workflows.executors.agent.AgentNodeExecutor.execute",
+            side_effect=_agent_executor_from_callback(mock_execute),
+        ):
             result = await executor.execute(workflow)
 
         assert result.success

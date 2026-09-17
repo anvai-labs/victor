@@ -40,6 +40,7 @@ class CVESeverity(Enum):
     - ReviewSeverity: Code review severity (ERROR, WARNING, INFO, HINT)
     """
 
+    UNKNOWN = "unknown"
     NONE = "none"
     LOW = "low"
     MEDIUM = "medium"
@@ -219,6 +220,11 @@ class SecurityScanResult:
         """Number of low severity vulnerabilities."""
         return sum(1 for v in self.vulnerabilities if v.cve.severity == Severity.LOW)
 
+    @property
+    def unknown_count(self) -> int:
+        """Number of findings without a reliable severity assessment."""
+        return sum(v.cve.severity == Severity.UNKNOWN for v in self.vulnerabilities)
+
     def get_by_severity(self, severity: Severity) -> list[Vulnerability]:
         """Get vulnerabilities by severity.
 
@@ -266,7 +272,7 @@ class SecurityPolicy:
         Returns:
             Tuple of (passed, list of failure messages)
         """
-        failures = []
+        failures = [f"Incomplete scan: {error}" for error in result.errors]
 
         # Filter out ignored vulnerabilities
         active_vulns = [
@@ -275,6 +281,10 @@ class SecurityPolicy:
             if v.cve.cve_id not in self.ignored_cves
             and v.dependency.name not in self.ignored_dependencies
         ]
+
+        unknown = sum(v.cve.severity == Severity.UNKNOWN for v in active_vulns)
+        if unknown:
+            failures.append(f"Found {unknown} vulnerabilities with unknown severity")
 
         critical = sum(1 for v in active_vulns if v.cve.severity == Severity.CRITICAL)
         high = sum(1 for v in active_vulns if v.cve.severity == Severity.HIGH)

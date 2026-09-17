@@ -1581,7 +1581,7 @@ class UnifiedTaskTracker(ModeAwareMixin):
         else:
             # For tools without signature_params, use all arguments
             args_str = str(sorted(arguments.items()))
-            base_sig = f"{canonical_tool_name}:{hashlib.md5(args_str.encode()).hexdigest()[:8]}"
+            base_sig = f"{canonical_tool_name}:{hashlib.md5(args_str.encode(), usedforsecurity=False).hexdigest()[:8]}"
 
             # Add stage for context-awareness
             if include_stage:
@@ -1675,9 +1675,20 @@ class UnifiedTaskTracker(ModeAwareMixin):
 
         # Use the singleton classifier instance
         classifier = TaskTypeClassifier.get_instance()
-        # Initialize synchronously if not already initialized
-        classifier.initialize_sync()
-        result = classifier.classify_sync(message)
+        try:
+            # Initialize synchronously if not already initialized
+            classifier.initialize_sync()
+            result = classifier.classify_sync(message)
+        except Exception as exc:
+            # Classification only tunes tracker limits; a broken or missing
+            # embedding backend must not abort stream preparation. Degrade
+            # loudly to the general task type instead.
+            logger.warning(
+                "task-type classifier unavailable (%s); falling back to GENERAL",
+                exc,
+            )
+            self.set_task_type(TrackerTaskType.GENERAL)
+            return TrackerTaskType.GENERAL
         classifier_type = result.task_type
 
         type_map = {

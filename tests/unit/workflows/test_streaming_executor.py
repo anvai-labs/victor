@@ -77,7 +77,6 @@ def streaming_executor(mock_orchestrator) -> StreamingWorkflowExecutor:
 def test_constructor_uses_runtime_executor_factory(mock_orchestrator) -> None:
     runtime = MagicMock()
     runtime.default_timeout = 42.0
-    runtime.sub_agents = MagicMock()
 
     with patch(
         "victor.workflows.streaming_executor.create_legacy_workflow_executor",
@@ -97,7 +96,6 @@ def test_constructor_uses_runtime_executor_factory(mock_orchestrator) -> None:
         cache=None,
         cache_config=None,
     )
-    assert executor.sub_agents is runtime.sub_agents
     assert executor.default_timeout == 42.0
 
 
@@ -209,8 +207,8 @@ class TestStreamingWorkflowExecutorAstream:
         mock_result.error = None
         mock_result.tool_calls_used = 0
 
-        with patch.object(
-            streaming_executor.sub_agents, "spawn", new_callable=AsyncMock
+        with patch(
+            "victor.agent.subagents.SubAgentOrchestrator.spawn", new_callable=AsyncMock
         ) as mock_spawn:
             mock_spawn.return_value = mock_result
 
@@ -230,8 +228,8 @@ class TestStreamingWorkflowExecutorAstream:
         mock_result.error = None
         mock_result.tool_calls_used = 0
 
-        with patch.object(
-            streaming_executor.sub_agents, "spawn", new_callable=AsyncMock
+        with patch(
+            "victor.agent.subagents.SubAgentOrchestrator.spawn", new_callable=AsyncMock
         ) as mock_spawn:
             mock_spawn.return_value = mock_result
 
@@ -255,8 +253,8 @@ class TestStreamingWorkflowExecutorAstream:
         mock_result.error = None
         mock_result.tool_calls_used = 0
 
-        with patch.object(
-            streaming_executor.sub_agents, "spawn", new_callable=AsyncMock
+        with patch(
+            "victor.agent.subagents.SubAgentOrchestrator.spawn", new_callable=AsyncMock
         ) as mock_spawn:
             mock_spawn.return_value = mock_result
 
@@ -282,8 +280,8 @@ class TestStreamingWorkflowExecutorAstream:
         mock_result.error = None
         mock_result.tool_calls_used = 0
 
-        with patch.object(
-            streaming_executor.sub_agents, "spawn", new_callable=AsyncMock
+        with patch(
+            "victor.agent.subagents.SubAgentOrchestrator.spawn", new_callable=AsyncMock
         ) as mock_spawn:
             mock_spawn.return_value = mock_result
 
@@ -304,8 +302,8 @@ class TestStreamingWorkflowExecutorAstream:
         mock_result.error = None
         mock_result.tool_calls_used = 0
 
-        with patch.object(
-            streaming_executor.sub_agents, "spawn", new_callable=AsyncMock
+        with patch(
+            "victor.agent.subagents.SubAgentOrchestrator.spawn", new_callable=AsyncMock
         ) as mock_spawn:
             mock_spawn.return_value = mock_result
 
@@ -334,8 +332,8 @@ class TestStreamingWorkflowExecutorErrorHandling:
         mock_result.error = "Something went wrong"
         mock_result.tool_calls_used = 0
 
-        with patch.object(
-            streaming_executor.sub_agents, "spawn", new_callable=AsyncMock
+        with patch(
+            "victor.agent.subagents.SubAgentOrchestrator.spawn", new_callable=AsyncMock
         ) as mock_spawn:
             mock_spawn.return_value = mock_result
 
@@ -360,8 +358,8 @@ class TestStreamingWorkflowExecutorErrorHandling:
         mock_result.error = "Node failed"
         mock_result.tool_calls_used = 0
 
-        with patch.object(
-            streaming_executor.sub_agents, "spawn", new_callable=AsyncMock
+        with patch(
+            "victor.agent.subagents.SubAgentOrchestrator.spawn", new_callable=AsyncMock
         ) as mock_spawn:
             mock_spawn.return_value = mock_result
 
@@ -394,8 +392,8 @@ class TestStreamingWorkflowExecutorSubscribe:
         # Subscribe to NODE_START events only
         unsubscribe = streaming_executor.subscribe([WorkflowEventType.NODE_START], callback)
 
-        with patch.object(
-            streaming_executor.sub_agents, "spawn", new_callable=AsyncMock
+        with patch(
+            "victor.agent.subagents.SubAgentOrchestrator.spawn", new_callable=AsyncMock
         ) as mock_spawn:
             mock_spawn.return_value = mock_result
 
@@ -437,7 +435,7 @@ class TestStreamingWorkflowExecutorCancellation:
             await asyncio.sleep(0.5)
             return mock_result
 
-        with patch.object(streaming_executor.sub_agents, "spawn", side_effect=slow_spawn):
+        with patch("victor.agent.subagents.SubAgentOrchestrator.spawn", side_effect=slow_spawn):
             async for chunk in streaming_executor.astream(simple_workflow):
                 chunks_before_cancel.append(chunk)
                 if chunk.event_type == WorkflowEventType.WORKFLOW_START:
@@ -467,8 +465,8 @@ class TestStreamingWorkflowExecutorBackwardCompatibility:
         mock_result.error = None
         mock_result.tool_calls_used = 0
 
-        with patch.object(
-            streaming_executor.sub_agents, "spawn", new_callable=AsyncMock
+        with patch(
+            "victor.agent.subagents.SubAgentOrchestrator.spawn", new_callable=AsyncMock
         ) as mock_spawn:
             mock_spawn.return_value = mock_result
 
@@ -486,8 +484,8 @@ class TestStreamingWorkflowExecutorBackwardCompatibility:
         mock_result.error = None
         mock_result.tool_calls_used = 0
 
-        with patch.object(
-            streaming_executor.sub_agents, "spawn", new_callable=AsyncMock
+        with patch(
+            "victor.agent.subagents.SubAgentOrchestrator.spawn", new_callable=AsyncMock
         ) as mock_spawn:
             mock_spawn.return_value = mock_result
 
@@ -508,8 +506,8 @@ class TestStreamingWorkflowExecutorIntegration:
         mock_result.error = None
         mock_result.tool_calls_used = 0
 
-        with patch.object(
-            streaming_executor.sub_agents, "spawn", new_callable=AsyncMock
+        with patch(
+            "victor.agent.subagents.SubAgentOrchestrator.spawn", new_callable=AsyncMock
         ) as mock_spawn:
             mock_spawn.return_value = mock_result
 
@@ -536,8 +534,8 @@ class TestStreamingWorkflowExecutorIntegration:
         mock_result.error = None
         mock_result.tool_calls_used = 0
 
-        with patch.object(
-            streaming_executor.sub_agents, "spawn", new_callable=AsyncMock
+        with patch(
+            "victor.agent.subagents.SubAgentOrchestrator.spawn", new_callable=AsyncMock
         ) as mock_spawn:
             mock_spawn.return_value = mock_result
 

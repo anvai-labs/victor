@@ -194,7 +194,7 @@ result = await agent.run("Hello!")
 
 - [SOLID Principles](https://en.wikipedia.org/wiki/SOLID)
 - [Coordinator Pattern](https://martinfowler.com/eaaDev/Coordinator.html)
-- [Victor AgentOrchestrator Implementation](../agent/orchestrator.py)
+- [Victor AgentOrchestrator Implementation](https://github.com/anvai-labs/victor/blob/develop/victor/agent/orchestrator.py)
 
 ## Revision History
 

@@ -29,6 +29,7 @@ import os
 import re
 import shutil
 import threading
+import time
 import uuid
 from datetime import datetime, timezone
 from enum import Enum
@@ -342,6 +343,10 @@ class EnhancedUsageLogger:
         backup_count: int = 5,
         compress_rotated: bool = True,
         sampling_filter: Optional[Any] = None,
+        buffered: bool = False,
+        batch_size: int = 100,
+        flush_interval: float = 5.0,
+        max_buffer_size: int = 10_000,
     ):
         """Initialize enhanced usage logger.
 
@@ -355,6 +360,23 @@ class EnhancedUsageLogger:
             backup_count: Number of backup files to keep
             compress_rotated: Whether to compress rotated files
             sampling_filter: Optional SemanticSamplingFilter for noise reduction.
+            buffered: When True, log_event() only appends to an in-memory
+                buffer; rotation checks and disk writes happen once per
+                flush() instead of once per event (co-design review item
+                14). Off by default so log_event() stays fully synchronous
+                for every existing caller and test that reads back the log
+                file immediately after logging — opt in explicitly for the
+                production hot path via the batch_size/flush_interval
+                knobs, and call close() (or flush()) before relying on the
+                file being current. The crash-window trade-off (up to
+                batch_size events or flush_interval seconds unflushed) is
+                acceptable since consumers are offline readers.
+            batch_size: Buffered events before an automatic flush.
+            flush_interval: Seconds since the last flush before an
+                automatic flush, regardless of buffer size.
+            max_buffer_size: Hard cap on buffered events; oldest events are
+                dropped (counted in dropped_event_count) once exceeded, so
+                a stalled writer can't grow memory unboundedly.
         """
         self._enabled = enabled
         self._log_file = Path(log_file).expanduser()
@@ -363,6 +385,14 @@ class EnhancedUsageLogger:
         self._sampling_filter = sampling_filter
         # Backward compat: UsageLogger used self._logger
         self._logger = logger
+
+        self._buffered = buffered
+        self._batch_size = batch_size
+        self._flush_interval = flush_interval
+        self._max_buffer_size = max_buffer_size
+        self._buffer: List[tuple] = []
+        self._last_flush_time = time.monotonic()
+        self.dropped_event_count = 0
 
         # Initialize components
         self._scrubber = PIIScrubber() if scrub_pii else None
@@ -500,6 +530,14 @@ class EnhancedUsageLogger:
         if self._sampling_filter and not self._sampling_filter.should_emit(event_type, data):
             return
 
+        if self._buffered:
+            self._buffer_event(event_type, data)
+            return
+
+        self._write_event_sync(event_type, data)
+
+    def _write_event_sync(self, event_type: str, data: Dict[str, Any]) -> None:
+        """Serialize and write a single event immediately (the default path)."""
         try:
             # Check for rotation
             self._rotator.rotate()
@@ -538,6 +576,77 @@ class EnhancedUsageLogger:
             logger.error(f"Failed to serialize log entry: {e}")
         except Exception as e:
             logger.error(f"Failed to write to log file: {e}")
+
+    def _buffer_event(self, event_type: str, data: Dict[str, Any]) -> None:
+        """Append to the in-memory buffer; capture event-time facts now,
+        defer scrubbing/serialization/rotation/write to flush()."""
+        record = (event_type, data, datetime.now(timezone.utc).isoformat(), current_run_kind())
+        should_flush = False
+        with self._lock:
+            self._buffer.append(record)
+            if len(self._buffer) > self._max_buffer_size:
+                self._buffer.pop(0)
+                self.dropped_event_count += 1
+            should_flush = (
+                len(self._buffer) >= self._batch_size
+                or (time.monotonic() - self._last_flush_time) >= self._flush_interval
+            )
+        if should_flush:
+            self.flush()
+
+    def flush(self) -> None:
+        """Flush any buffered events to disk in a single write.
+
+        A no-op (aside from resetting the flush clock) when nothing is
+        buffered, and safe to call from the sync path too — it just has
+        nothing to do there.
+        """
+        with self._lock:
+            pending = self._buffer
+            self._buffer = []
+            self._last_flush_time = time.monotonic()
+
+        if not pending:
+            return
+
+        lines = []
+        for event_type, data, timestamp, run_kind in pending:
+            try:
+                if self._scrubber:
+                    data = self._scrubber.scrub_dict(data)
+                sanitized_data = self._sanitize_log_data(data)
+                log_entry = {
+                    "session_id": self.session_id,
+                    "run_kind": run_kind,
+                    "timestamp": timestamp,
+                    "event_type": event_type,
+                    "data": sanitized_data,
+                }
+                log_line = json.dumps(log_entry)
+                if self._encryptor and self._encryptor.enabled:
+                    log_line = self._encryptor.encrypt(log_line).decode("utf-8")
+                lines.append(log_line)
+            except TypeError as e:
+                logger.error(f"Failed to serialize log entry: {e}")
+            except Exception as e:
+                logger.error(f"Failed to serialize log entry: {e}")
+
+        if not lines:
+            return
+
+        try:
+            # One rotation check for the whole batch, not one per event.
+            self._rotator.rotate()
+            with self._lock:
+                with open(self._log_file, "a") as f:
+                    f.write("\n".join(lines) + "\n")
+        except Exception as e:
+            logger.error(f"Failed to write to log file: {e}")
+
+    def close(self) -> None:
+        """Flush any buffered events. Safe to call multiple times."""
+        if self._buffered:
+            self.flush()
 
     def read_logs(
         self,

@@ -1,7 +1,7 @@
 # Vision: Evaluation-Centric Agent Runtime
 
 **Status:** Draft (north star) · **Created:** 2026-06-21 · **Owner:** Vijaykumar Singh
-**Companion artifacts:** [FEP-0008](../../feps/fep-0008-evaluation-centric-completion.md) · ADR-009/010/011/012 · [Backlog & spec](evaluation-centric-runtime-backlog.md) (the internal `docs/roadmap.md` carries the same epic for local planning)
+**Companion artifacts:** [FEP-0008](https://github.com/anvai-labs/victor/blob/develop/feps/fep-0008-evaluation-centric-completion.md) · ADR-009/010/011/012 · [Backlog & spec](evaluation-centric-runtime-backlog.md) (the internal `docs/roadmap.md` carries the same epic for local planning)
 
 > Derived from a survey of the local arXiv corpus (49,273 papers) against Victor's current
 > evaluation, agentic-loop, and harness code. This doc is the *why* and *where*; the FEP/ADRs are

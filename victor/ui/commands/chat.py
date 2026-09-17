@@ -1584,6 +1584,71 @@ def _tui_capable() -> bool:
         return False
 
 
+def _restore_session_into_agent(
+    agent: Any,
+    resume_session_id: Optional[str],
+    console: Any,
+) -> Optional[str]:
+    """Restore a prior conversation into ``agent``; returns the resume message.
+
+    Raises ``ValueError`` when the requested session does not exist. Shared by
+    the REPL path (inline) and the TUI bootstrap (deferred, in-app).
+    """
+    if not resume_session_id:
+        return None
+    from victor.agent.conversation.store import ConversationStore
+    from victor.agent.message_history import MessageHistory
+    from victor.agent.conversation_state import ConversationStateMachine
+
+    session_data = ConversationStore().load_session(resume_session_id)
+
+    if not session_data:
+        raise ValueError(f"Session not found: {resume_session_id}")
+
+    # Restore conversation
+    metadata = session_data.get("metadata", {})
+    conversation_dict = session_data.get("conversation", {})
+
+    agent.conversation = MessageHistory.from_dict(conversation_dict)
+    agent.active_session_id = resume_session_id
+
+    # Restore conversation state if available
+    conversation_state_dict = session_data.get("conversation_state")
+    if conversation_state_dict:
+        try:
+            agent.conversation_state = ConversationStateMachine.from_dict(conversation_state_dict)
+        except Exception as e:
+            console.print(f"[yellow]Warning:[/] Failed to restore conversation state: {e}")
+
+    return (
+        f"Resumed session: {metadata.get('title', 'Untitled')} "
+        f"({metadata.get('message_count', 0)} messages)"
+    )
+
+
+def _pin_session_id(agent: Any) -> None:
+    """Ensure a non-empty session id so decisions join to outcomes (FEP-0012 P0).
+
+    Fresh chat starts with ``active_session_id=None`` (→ ``get_session_id()``
+    returns ``""``), which would make ``record_session_outcome`` a no-op.
+    Mirrors the benchmark adapter (agent_adapter.py). Resumed sessions keep
+    their id.
+    """
+    try:
+        import uuid as _uuid
+
+        from victor.core.context import set_session_id
+
+        _chat_sid = getattr(agent, "active_session_id", None) or _uuid.uuid4().hex
+        agent.active_session_id = _chat_sid
+        _orch = agent.get_orchestrator() if hasattr(agent, "get_orchestrator") else None
+        if _orch is not None:
+            _orch.active_session_id = _chat_sid
+        set_session_id(_chat_sid)
+    except Exception:
+        pass
+
+
 async def _run_tui_app(
     client: Any,
     agent: Any,
@@ -1592,8 +1657,15 @@ async def _run_tui_app(
     mode: Optional[str] = None,
     tool_budget: Optional[int] = None,
     theme: str = "dark",
-) -> None:
-    """Launch the interactive Textual TUI over an already-initialized session."""
+    bootstrap: Optional[Any] = None,
+) -> Any:
+    """Launch the interactive Textual TUI.
+
+    With ``bootstrap`` (an async callable finishing session initialization),
+    the app mounts immediately — shell-first — and the callable runs in-app
+    with visible progress; its result (the agent) is returned to the caller.
+    Otherwise the session must already be initialized (legacy path).
+    """
     from victor.ui.tui.app import VictorTUIApp
 
     app = VictorTUIApp(
@@ -1603,8 +1675,14 @@ async def _run_tui_app(
         mode=mode,
         tool_budget=tool_budget,
         theme=theme,
+        bootstrap=bootstrap,
     )
-    await app.run_async()
+    # Mouse capture (any-event tracking + alt-screen click handling) is OFF by
+    # default: the terminal's own drag-select/copy beats in-app mouse features,
+    # and Textual's capture intercepts the native selection. Opt in via
+    # VICTOR_TUI_MOUSE_SUPPORT.
+    await app.run_async(mouse=_tui_mouse_support_enabled())
+    return app._bootstrap_result
 
 
 def run_tui_entry(
@@ -2210,77 +2288,96 @@ async def run_interactive(
         # Unified initialization via AgentFactory
         from victor.framework.agent_factory import InitializationError
 
-        # ✅ PROPER: Create VictorClient (replaces AgentFactory)
+        def _apply_turn_limits(agent: Any) -> None:
+            if tool_budget is not None:
+                agent.set_tool_budget(tool_budget, user_override=True)
+            if max_iterations is not None:
+                agent.set_max_iterations(max_iterations, user_override=True)
+            _configure_agent_compaction(
+                agent,
+                compaction_threshold=compaction_threshold,
+                adaptive_threshold=adaptive_threshold,
+                compaction_min_threshold=compaction_min_threshold,
+                compaction_max_threshold=compaction_max_threshold,
+                con=console,
+                show_status=show_startup_cli_chrome,
+            )
+            if mode:
+                session_runner.apply_agent_mode(mode)
+
+        def _finish_tui_session_setup() -> Any:
+            """Finish initialization after the TUI is already on screen."""
+
+            async def _run() -> Any:
+                agent = await session_runner.initialize_client(
+                    client,
+                    planning_model=planning_model,
+                )
+                _restore_session_into_agent(agent, resume_session_id, console)
+                _pin_session_id(agent)
+                _apply_turn_limits(agent)
+                return agent
+
+            return _run()
+
+        # Interactive TUI (ADR-020/021) is the default on capable terminals; the REPL is
+        # the fallback for dumb terminals / pipes / CI. ``surface="auto"`` (the default)
+        # selects silently by capability; an explicit ``--tui`` on a terminal that can't
+        # host it says so before falling back; ``--repl`` forces the REPL.
+        tui_surface = surface in ("tui", "auto") and _tui_capable()
+
+        # ✅ PROPER: Create VictorClient (replaces AgentFactory). Cheap — the
+        # heavy initialize happens below, in-app for the TUI (shell-first), so
+        # the UI appears immediately instead of after a silent bootstrap.
         try:
             client = session_runner.create_client(config)
-            agent = await session_runner.initialize_client(
-                client,
-                planning_model=planning_model,
-            )
-
-            # Resume session if requested
-            if resume_session_id:
-                from victor.agent.conversation.store import ConversationStore
-                from victor.agent.message_history import MessageHistory
-                from victor.agent.conversation_state import ConversationStateMachine
-
-                session_data = ConversationStore().load_session(resume_session_id)
-
-                if not session_data:
-                    console.print(f"[bold red]Error:[/ ] Session not found: {resume_session_id}")
-                    raise typer.Exit(1)
-
-                # Restore conversation
-                metadata = session_data.get("metadata", {})
-                conversation_dict = session_data.get("conversation", {})
-
-                agent.conversation = MessageHistory.from_dict(conversation_dict)
-                agent.active_session_id = resume_session_id
-
-                # Restore conversation state if available
-                conversation_state_dict = session_data.get("conversation_state")
-                if conversation_state_dict:
-                    try:
-                        agent.conversation_state = ConversationStateMachine.from_dict(
-                            conversation_state_dict
-                        )
-                    except Exception as e:
-                        console.print(
-                            f"[yellow]Warning:[/] Failed to restore conversation state: {e}"
-                        )
-
-                resumed_message = (
-                    f"Resumed session: {metadata.get('title', 'Untitled')} "
-                    f"({metadata.get('message_count', 0)} messages)"
-                )
-                console.print(f"[green]✓[/] {resumed_message}\n")
-
-            # FEP-0012 Phase 0: ensure a non-empty session_id so every decision
-            # logged this session can join to its outcome. Fresh chat starts with
-            # active_session_id=None (→ get_session_id() returns ""), which would
-            # make record_session_outcome a no-op. Mirror the benchmark adapter
-            # (agent_adapter.py). Resumed sessions keep their id from above.
-            try:
-                import uuid as _uuid
-
-                from victor.core.context import set_session_id
-
-                _chat_sid = getattr(agent, "active_session_id", None) or _uuid.uuid4().hex
-                agent.active_session_id = _chat_sid
-                _orch = agent.get_orchestrator() if hasattr(agent, "get_orchestrator") else None
-                if _orch is not None:
-                    _orch.active_session_id = _chat_sid
-                set_session_id(_chat_sid)
-            except Exception:
-                pass
-
-            # Note: Observability (shim) is handled by AgentFactory internally
-            # The factory creates the agent with framework features already wired
 
             if _should_start_file_watchers_on_startup(settings):
                 # Optional eager watcher mode. Default is demand-driven startup
                 # through graph/code_search so large repos do not cold-scan here.
                 watcher_init_task = _start_file_watcher_initialization(settings)
+
+            if not tool_banner_shown:
+                _print_tool_output_mode_banner(console, tool_settings)
+                tool_banner_shown = True
+            if enable_smart_routing and not smart_routing_status_shown:
+                _configure_smart_routing(
+                    settings,
+                    console,
+                    enable_smart_routing,
+                    routing_profile,
+                    fallback_chain,
+                    show_status=True,
+                )
+                smart_routing_status_shown = True
+
+            if tui_surface:
+                agent = await _run_tui_app(
+                    client,
+                    None,
+                    settings,
+                    mode=mode,
+                    tool_budget=tool_budget,
+                    theme=tui_theme,
+                    bootstrap=_finish_tui_session_setup(),
+                )
+                if agent is None:
+                    # Bootstrap failed in-app; the reason was shown in the TUI.
+                    raise typer.Exit(1)
+                return
+            try:
+                agent = await session_runner.initialize_client(
+                    client,
+                    planning_model=planning_model,
+                )
+                resumed_message = _restore_session_into_agent(agent, resume_session_id, console)
+                if resumed_message:
+                    console.print(f"[green]✓[/] {resumed_message}\n")
+            except ValueError as e:
+                console.print(f"[bold red]Error:[/ ] {e}")
+                raise typer.Exit(1)
+
+            _pin_session_id(agent)
         except InitializationError as e:
             console.print(f"[red]Error ({e.stage}):[/] {e.message}")
             for s in e.suggestions:
@@ -2289,19 +2386,9 @@ async def run_interactive(
                 console.print(f"\nRun: [bold]{e.run_command}[/]")
             raise typer.Exit(1)
 
-        if tool_budget is not None:
-            agent.set_tool_budget(tool_budget, user_override=True)
-        if max_iterations is not None:
-            agent.set_max_iterations(max_iterations, user_override=True)
-        _configure_agent_compaction(
-            agent,
-            compaction_threshold=compaction_threshold,
-            adaptive_threshold=adaptive_threshold,
-            compaction_min_threshold=compaction_min_threshold,
-            compaction_max_threshold=compaction_max_threshold,
-            con=console,
-            show_status=show_startup_cli_chrome,
-        )
+        # Note: Observability (shim) is handled by AgentFactory internally
+        # The factory creates the agent with framework features already wired
+        _apply_turn_limits(agent)
         compaction_status_shown = show_startup_cli_chrome and any(
             (
                 compaction_threshold is not None,
@@ -2310,25 +2397,6 @@ async def run_interactive(
                 compaction_max_threshold is not None,
             )
         )
-        if mode:
-            try:
-                session_runner.apply_agent_mode(mode)
-            except Exception:
-                pass
-
-        if enable_smart_routing and not smart_routing_status_shown:
-            _configure_smart_routing(
-                settings,
-                console,
-                enable_smart_routing,
-                routing_profile,
-                fallback_chain,
-                show_status=True,
-            )
-            smart_routing_status_shown = True
-        if not tool_banner_shown:
-            _print_tool_output_mode_banner(console, tool_settings)
-            tool_banner_shown = True
         if not compaction_status_shown and any(
             (
                 compaction_threshold is not None,
@@ -2350,27 +2418,11 @@ async def run_interactive(
         from victor.ui.commands import SlashCommandHandler
 
         cmd_handler = SlashCommandHandler(console, settings, agent)
-
-        # Interactive TUI (ADR-020/021) is the default on capable terminals; the REPL is
-        # the fallback for dumb terminals / pipes / CI. ``surface="auto"`` (the default)
-        # selects silently by capability; an explicit ``--tui`` on a terminal that can't
-        # host it says so before falling back; ``--repl`` forces the REPL.
-        if surface in ("tui", "auto"):
-            if _tui_capable():
-                await _run_tui_app(
-                    client,
-                    agent,
-                    settings,
-                    mode=mode,
-                    tool_budget=tool_budget,
-                    theme=tui_theme,
-                )
-                return
-            if surface == "tui":
-                console.print(
-                    "[yellow]This terminal can't host the interactive TUI; "
-                    "using the REPL instead.[/]"
-                )
+        if surface == "tui" and not _tui_capable():
+            console.print(
+                "[yellow]This terminal can't host the interactive TUI; "
+                "using the REPL instead.[/]"
+            )
 
         rl_suggestion = get_rl_profile_suggestion(profile_display.provider, profiles)
         await _run_cli_repl(
@@ -3012,6 +3064,22 @@ def _normalize_cli_input_alias(user_input: str) -> str:
 def _cli_mouse_support_enabled() -> bool:
     """Return whether interactive chat should let prompt_toolkit capture mouse events."""
     return os.getenv("VICTOR_CHAT_MOUSE_SUPPORT", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def _tui_mouse_support_enabled() -> bool:
+    """Return whether the Textual TUI should capture mouse events (default: off).
+
+    With capture off, drag-select/copy is the terminal's own (native
+    scrollback-style selection); keyboard copy (``ctrl+c`` → OSC 52) is
+    unaffected. Set ``VICTOR_TUI_MOUSE_SUPPORT=1`` to hand mouse events to
+    Textual widgets instead.
+    """
+    return os.getenv("VICTOR_TUI_MOUSE_SUPPORT", "").strip().lower() in {
         "1",
         "true",
         "yes",

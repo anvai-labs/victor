@@ -185,3 +185,43 @@ class TestNodeExecutorLegacyDelegate:
         )
         assert success is False
         assert "missing" in (error_msg or "")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("use_copy_on_write", [False, True])
+async def test_node_failure_preserves_explicit_result_state(use_copy_on_write):
+    from victor.framework.graph_execution import NodeExecutor, TimeoutManager
+
+    failure_state = {"partial": 1, "diagnostics": {"failed_node": "broken"}}
+
+    class FailureWithState(RuntimeError):
+        result_state = failure_state
+
+    class FailingNode:
+        async def execute(self, state):
+            raise FailureWithState("broken")
+
+    original_state = {"input": 1}
+    executor = NodeExecutor({"fail": FailingNode()}, use_copy_on_write=use_copy_on_write)
+    result = await executor.execute_typed("fail", original_state, TimeoutManager(timeout=None))
+    assert result.success is False
+    assert result.state is failure_state
+    assert original_state == {"input": 1}
+
+
+@pytest.mark.asyncio
+async def test_node_failure_ignores_invalid_result_state():
+    from victor.framework.graph_execution import NodeExecutor, TimeoutManager
+
+    class FailureWithInvalidState(RuntimeError):
+        result_state = None
+
+    class FailingNode:
+        async def execute(self, state):
+            raise FailureWithInvalidState("broken")
+
+    original_state = {"input": 1}
+    executor = NodeExecutor({"fail": FailingNode()}, use_copy_on_write=True)
+    result = await executor.execute_typed("fail", original_state, TimeoutManager(timeout=None))
+    assert result.success is False
+    assert result.state is original_state

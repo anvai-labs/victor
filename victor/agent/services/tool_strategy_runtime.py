@@ -78,11 +78,14 @@ class ToolStrategyRuntime:
         )
         return 8192
 
-    def estimate_tool_tokens(self, tool: Any, provider_category: str | None = None) -> int:
+    def estimate_tool_tokens(
+        self, tool: Any, provider_category: str | None = None, _use_cache: bool = True
+    ) -> int:
         """Delegate schema-token estimation to the canonical ToolService."""
         return self._runtime._tool_service.estimate_tool_tokens(
             tool,
             provider_category=provider_category,
+            _use_cache=_use_cache,
         )
 
     def semantic_select_tools(

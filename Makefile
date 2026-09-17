@@ -7,7 +7,7 @@
 #   make build        # Build distribution packages
 #   make release      # Create a release (requires version)
 
-.PHONY: help install install-dev install-standalone install-verticals test-verticals check-vertical-test-floor check-vertical-boundaries lint-verticals lint-verticals-ruff lint-verticals-fmt-types test test-definition-boundaries lint check-repo-hygiene check-extracted-vertical-boundaries format clean build build-binary docker release sync-version check-version
+.PHONY: help install install-dev install-standalone install-verticals test-verticals check-vertical-test-floor check-vertical-boundaries lint-verticals lint-verticals-ruff lint-verticals-fmt-types test test-definition-boundaries lint check-repo-hygiene format clean build build-binary docker release sync-version check-version
 
 PYTEST_TIMEOUT_ARG := $(shell pytest --help 2>/dev/null | grep -q -- "--timeout" && echo --timeout=120)
 
@@ -32,7 +32,7 @@ help:
 	@echo "  make test-definition-boundaries  Run SDK-definition import guardrails"
 	@echo "  make lint          Run linters"
 	@echo "  make check-repo-hygiene  Validate workflow/link/metadata drift guards"
-	@echo "  make check-extracted-vertical-boundaries  Audit extracted plugin repos when present"
+	@echo "  make check-vertical-boundaries  Audit extracted plugin repos when present"
 	@echo "  make format        Format code"
 	@echo "  make clean         Clean build artifacts"
 	@echo ""
@@ -223,9 +223,6 @@ lint:
 
 check-repo-hygiene:
 	python scripts/ci/repo_hygiene_check.py
-
-check-extracted-vertical-boundaries:
-	python scripts/ci/check_extracted_vertical_boundaries.py
 
 format:
 	black victor tests

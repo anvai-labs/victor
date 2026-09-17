@@ -36,6 +36,7 @@ Victor provides two approaches for creating tools:
 The decorator automatically extracts metadata from your function's signature and docstring:
 
 ```python
+from typing import Any, Dict
 from victor.tools.decorators import tool
 from victor.tools.base import CostTier
 
@@ -839,6 +840,6 @@ For more examples, explore the existing tools in `victor/tools/` - they demonstr
 
 ## Next Steps
 
-- Read the [Tool Selection Guide](/docs/guides/development/TOOL_SELECTION.md)
-- Explore [Tool Calling Formats](/docs/guides/development/TOOL_CALLING_FORMATS.md)
-- Learn about [Creating Verticals](/docs/development/extending/verticals.md)
+- Read the [Tool Selection Guide](../guides/development/TOOL_SELECTION.md)
+- Explore [Tool Calling Formats](../guides/development/TOOL_CALLING_FORMATS.md)
+- Learn about [Creating Verticals](../development/extending/verticals.md)

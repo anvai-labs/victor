@@ -403,6 +403,8 @@ class CreditAssignmentDB:
         Returns:
             List of agent summaries
         """
+        if metric not in {"total_credit", "direct_credit", "received_credit"}:
+            raise ValueError("Unsupported agent ranking metric")
         with self._get_connection() as conn:
             cursor = conn.execute(
                 f"""

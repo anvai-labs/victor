@@ -332,28 +332,15 @@ def _run_agentic_synthesis(
         # listing, so the model has no escape hatch and must return the
         # init.md content as its message.
         try:
-            _SYNTHESIS_DISABLED_TOOLS = (
-                "write",
-                "edit",
-                "rename",
-                "extract",
-                "shell",
-                "test",
-                "docker",
-            )
-            _orchestrator = getattr(agent, "_orchestrator", None) or agent
-            _tool_registry = getattr(_orchestrator, "tools", None)
-            if _tool_registry is not None and hasattr(_tool_registry, "disable_tool"):
-                for _t in _SYNTHESIS_DISABLED_TOOLS:
-                    try:
-                        _tool_registry.disable_tool(_t)
-                    except Exception:
-                        pass
-        except Exception:
-            pass
+            disabled_tools = ("write", "edit", "rename", "extract", "shell", "test", "docker")
+            orchestrator = getattr(agent, "_orchestrator", None) or agent
+            registry = getattr(orchestrator, "tools", None)
+            if registry is None or not callable(getattr(registry, "disable_tool", None)):
+                raise RuntimeError("Cannot restrict tools for init synthesis")
+            for tool_name in disabled_tools:
+                registry.disable_tool(tool_name)
 
-        synthesizer = InitSynthesizer()
-        try:
+            synthesizer = InitSynthesizer()
             return await synthesizer.synthesize_with_tools(
                 agent=agent,
                 graph_context=graph_context,
@@ -788,8 +775,8 @@ def _ensure_profile_preset(
     profiles_file: Path,
     name: str,
     description: str,
-    provider: str = "ollama",
-    model: str = "qwen2.5-coder:7b",
+    provider: str = "inferflux",
+    model: str = "qwen3-coder-30b",
 ) -> Optional[bool]:
     """Add a profile preset if missing. True=added, False=exists, None=error."""
     data: dict = {}
@@ -983,15 +970,13 @@ def init(
             # Create a basic default profile
             default_config = """profiles:
   default:
-    provider: ollama
-    model: qwen2.5-coder:7b
+    provider: inferflux
+    model: qwen3-coder-30b
     temperature: 0.7
-    max_tokens: 4096
-
-providers:
-  ollama:
-    base_url: http://localhost:11434
+    max_tokens: 8192
 """
+            # No provider credentials written here; set INFERFLUX_API_KEY if the server
+            # requires auth (see docs/reference/providers/setup.md).
             profiles_file.write_text(default_config)
             console.print(f"[green]✓[/] Global config created at {config_dir}")
             created_profiles = True

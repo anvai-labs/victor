@@ -1,59 +1,66 @@
-"""Focused tests for workflow sandbox executor async boundaries."""
+"""Workflow process execution respects actual MCP text I/O and cleanup."""
 
-from __future__ import annotations
-
+import asyncio
+import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from victor.workflows.isolation import IsolationConfig, ResourceLimits
+from victor.workflows.isolation import IsolationConfig
 from victor.workflows.sandbox_executor import SandboxedExecutor
 
 
-@pytest.mark.asyncio
-async def test_process_sandbox_uses_asyncio_to_thread_for_communicate() -> None:
-    executor = SandboxedExecutor(docker_available=False)
-    isolation = IsolationConfig(
-        sandbox_type="process",
-        network_allowed=False,
-        resource_limits=ResourceLimits(timeout_seconds=5.0),
+async def test_process_workflow_round_trips_text_through_real_backend():
+    result = await SandboxedExecutor(docker_available=False)._execute_process(
+        [sys.executable, "-c", "import sys; print(sys.stdin.read().upper())"],
+        IsolationConfig(sandbox_type="process", network_allowed=True),
+        working_dir=None,
+        env=None,
+        input_data="payload",
     )
-
-    process = MagicMock()
-    process.returncode = 0
-    process.communicate = MagicMock(return_value=(b"stdout", b""))
-
-    sandbox = MagicMock()
-    sandbox.start = AsyncMock(return_value=process)
-    sandbox.terminate = AsyncMock()
-
-    async def call_to_thread(func, *args, **kwargs):
-        return func(*args, **kwargs)
-
-    with (
-        patch("victor.integrations.mcp.sandbox.SandboxedProcess", return_value=sandbox),
-        patch(
-            "victor.workflows.sandbox_executor.asyncio.to_thread",
-            side_effect=call_to_thread,
-        ) as mock_to_thread,
-    ):
-        result = await executor._execute_process(
-            ["python", "-c", "print('ok')"],
-            isolation,
-            working_dir=None,
-            env={"CUSTOM_ENV": "1"},
-            input_data="payload",
-        )
-
-    assert result.success is True
-    assert result.output == "stdout"
+    assert result.success, result.error
+    assert result.output == "PAYLOAD\n"
     assert result.error == ""
-    sandbox.start.assert_awaited_once()
-    sandbox.terminate.assert_awaited_once_with(process)
-    mock_to_thread.assert_awaited_once()
-    called = mock_to_thread.await_args
-    assert called.args[0] is process.communicate
-    assert called.args[1] == b"payload"
-    sandbox.start.assert_awaited_once()
-    assert sandbox.start.await_args.kwargs["env"]["CUSTOM_ENV"] == "1"
-    assert sandbox.start.await_args.kwargs["env"]["VICTOR_NETWORK_DISABLED"] == "1"
+
+
+async def test_process_workflow_cannot_pretend_network_denial_is_enforced():
+    with patch("victor.integrations.mcp.sandbox.subprocess.Popen") as launch:
+        result = await SandboxedExecutor(docker_available=False)._execute_process(
+            ["ignored"],
+            IsolationConfig(sandbox_type="process", network_allowed=False),
+            working_dir=None,
+            env=None,
+            input_data=None,
+        )
+    assert not result.success
+    assert "cannot enforce" in result.error
+    launch.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "failure", [asyncio.TimeoutError(), RuntimeError("broken pipe"), asyncio.CancelledError()]
+)
+async def test_workflow_process_is_reaped_after_communication_failure(failure):
+    process = MagicMock()
+    backend = MagicMock()
+    backend.start = AsyncMock(return_value=process)
+    backend.communicate = AsyncMock(side_effect=failure)
+    backend.terminate = AsyncMock()
+    caller_env = {"CUSTOM": "value"}
+    with patch("victor.integrations.mcp.sandbox.SandboxedProcess", return_value=backend):
+        call = SandboxedExecutor(docker_available=False)._execute_process(
+            ["ignored"],
+            IsolationConfig(sandbox_type="process", network_allowed=True),
+            working_dir=None,
+            env=caller_env,
+            input_data="text",
+        )
+        if isinstance(failure, asyncio.CancelledError):
+            with pytest.raises(asyncio.CancelledError):
+                await call
+        else:
+            result = await call
+            assert not result.success
+    backend.communicate.assert_awaited_once_with(process, "text")
+    backend.terminate.assert_awaited_once_with(process)
+    assert caller_env == {"CUSTOM": "value"}

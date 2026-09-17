@@ -10,7 +10,7 @@
 - **Decision Makers**: Vijaykumar Singh
 - **Related ADRs**: 020 (interactive TUI — the surface these render on), 001 (service-first runtime —
   the loop being surfaced)
-- **Work tracked by**: [TD-23](../../tech-stack.md#technical-debt-register)
+- **Work tracked by**: [TD-23](../../roadmap.md#technical-debt-register)
 - **Benchmark**: [competitive-benchmark-2026-07.md](../competitive-benchmark-2026-07.md) §2, §4
 
 ## Context
@@ -97,7 +97,7 @@ ADR consumes it.
 - [ADR-020](020-interactive-terminal-tui.md), [ADR-005](005-event-system.md)
 - `victor/framework/agentic_loop.py` (PPAED loop), `victor/ui/slash/handler.py`,
   `victor/ui/rendering/live_renderer.py`, `victor/ui/chat_app/approval.py` (Chainlit path)
-- [TD-20](../../tech-stack.md#technical-debt-register) (wedged-loop / log-flood lesson)
+- [TD-20](../../roadmap.md#technical-debt-register) (wedged-loop / log-flood lesson)
 
 ## Revision History
 

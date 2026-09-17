@@ -23,6 +23,7 @@ final assistant output.
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+from victor.agent.services.chat_delivery import ChatDelivery
 from victor.agent.services.chat_stream_executor import StreamingChatExecutor
 from victor.framework.policies import (
     BlockPatternPolicy,
@@ -93,6 +94,7 @@ async def _drain(agen):
 def _runtime_owner_with_orch(orch):
     runtime_owner = MagicMock()
     runtime_owner._orchestrator = orch
+    runtime_owner.services = SimpleNamespace(delivery=ChatDelivery(chunks=orch._chunk_generator))
     return runtime_owner
 
 

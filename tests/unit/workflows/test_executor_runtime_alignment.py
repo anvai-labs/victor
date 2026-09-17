@@ -9,12 +9,6 @@ import pytest
 # Import subagents module to ensure it's loaded before monkeypatching
 from victor.agent.subagents import orchestrator as subagents_orchestrator_module
 
-from victor.workflows.adapters import (
-    AdapterWorkflowState,
-    WorkflowState as AdapterWorkflowStateAlias,
-)
-from victor.workflows.adapters import WorkflowToGraphAdapter
-from victor.core.async_utils import run_sync as shared_run_sync, run_sync_in_thread
 from victor.core.container import ServiceContainer
 from victor.workflows.definition import (
     AgentNode,
@@ -52,7 +46,7 @@ async def test_transform_executor_records_runtime_graph_node_result() -> None:
     node_result = result["_node_results"]["double"]
     assert isinstance(node_result, GraphNodeResult)
     assert node_result.success is True
-    assert node_result.output == {"transformed_keys": ["value"]}
+    assert node_result.output == {"value": 8}
 
 
 @pytest.mark.asyncio
@@ -78,7 +72,7 @@ async def test_compute_executor_uses_input_mapping_and_output_key() -> None:
 
 
 @pytest.mark.asyncio
-async def test_condition_executor_records_passthrough_output() -> None:
+async def test_condition_executor_records_evaluated_branch() -> None:
     executor = ConditionNodeExecutor(context=None)
     node = ConditionNode(
         id="decide",
@@ -92,7 +86,7 @@ async def test_condition_executor_records_passthrough_output() -> None:
     node_result = result["_node_results"]["decide"]
     assert isinstance(node_result, GraphNodeResult)
     assert node_result.success is True
-    assert node_result.output == {"passthrough": True, "branches": ["yes"]}
+    assert node_result.output == {"branch": "yes", "next_node": "done"}
 
 
 @pytest.mark.asyncio
@@ -165,16 +159,16 @@ async def test_agent_executor_uses_output_key_and_runtime_graph_node_result() ->
 
             result = await executor.execute(node, {"task": "repo"})
 
-            assert result["agent_output"] is fake_result
+            assert result["agent_output"] == fake_result.summary
             node_result = result["_node_results"]["analyze"]
             assert isinstance(node_result, GraphNodeResult)
             assert node_result.success is True
-            assert node_result.output is fake_result
+            assert node_result.output == fake_result.summary
             assert node_result.tool_calls_used == 2
 
 
 @pytest.mark.asyncio
-async def test_agent_executor_returns_placeholder_without_orchestrator() -> None:
+async def test_agent_executor_fails_without_orchestrator() -> None:
     executor = AgentNodeExecutor(context=None)
     node = AgentNode(
         id="analyze",
@@ -186,11 +180,11 @@ async def test_agent_executor_returns_placeholder_without_orchestrator() -> None
 
     result = await executor.execute(node, {"task": "repo"})
 
-    assert result["analyze"]["status"] == "placeholder"
+    assert "No orchestrator available" in result["_error"]
     node_result = result["_node_results"]["analyze"]
     assert isinstance(node_result, GraphNodeResult)
-    assert node_result.success is True
-    assert node_result.output["input_context"] == {"task": "repo"}
+    assert node_result.success is False
+    assert node_result.error == result["_error"]
 
 
 @pytest.mark.asyncio
@@ -268,10 +262,6 @@ async def test_hitl_executor_records_response_and_rejection() -> None:
     assert node_result.output["response"]["status"] == "rejected"
 
 
-def test_adapter_workflow_state_alias_remains_available() -> None:
-    assert AdapterWorkflowStateAlias is AdapterWorkflowState
-
-
 def test_executor_package_exports_team_step_aliases() -> None:
     with pytest.warns(DeprecationWarning, match="TeamNodeExecutor"):
         from victor.workflows.executors import TeamNodeExecutor
@@ -326,53 +316,6 @@ def test_package_alias_warnings_publish_removal_milestone() -> None:
     assert "v0.9.0" in executor_message
     assert "2027-03-31" in executor_message
     assert "TeamStepExecutor" in executor_message
-
-
-def test_adapter_execution_handler_uses_shared_sync_bridge_without_running_loop() -> None:
-    adapter = WorkflowToGraphAdapter()
-    executor = SimpleNamespace()
-
-    async def execute_node(node, context):
-        return {"status": "ok", "context": context}
-
-    executor.execute_node = execute_node
-    node = TransformNode(id="transform", name="Transform", transform=lambda state: {})
-    handler = adapter._create_execution_handler(node, executor)
-
-    with patch(
-        "victor.workflows.adapters.run_sync",
-        side_effect=lambda coro: shared_run_sync(coro),
-    ) as mock_run_sync:
-        result = handler({"context": {"value": 1}})
-
-    assert result["current_node"] == "Transform"
-    assert result["results"]["Transform"] == {"status": "ok", "context": {"value": 1}}
-    assert result["visited_nodes"] == ["Transform"]
-    mock_run_sync.assert_called_once()
-
-
-@pytest.mark.asyncio
-async def test_adapter_execution_handler_uses_thread_bridge_with_running_loop() -> None:
-    adapter = WorkflowToGraphAdapter()
-    executor = SimpleNamespace()
-
-    async def execute_node(node, context):
-        return {"status": "ok", "context": context}
-
-    executor.execute_node = execute_node
-    node = TransformNode(id="transform", name="Transform", transform=lambda state: {})
-    handler = adapter._create_execution_handler(node, executor)
-
-    with patch(
-        "victor.workflows.adapters.run_sync_in_thread",
-        side_effect=lambda coro: run_sync_in_thread(coro),
-    ) as mock_run_sync_in_thread:
-        result = handler({"context": {"value": 2}})
-
-    assert result["current_node"] == "Transform"
-    assert result["results"]["Transform"] == {"status": "ok", "context": {"value": 2}}
-    assert result["visited_nodes"] == ["Transform"]
-    mock_run_sync_in_thread.assert_called_once()
 
 
 def test_node_executor_factory_prefers_registered_executor_classes() -> None:

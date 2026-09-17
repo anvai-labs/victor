@@ -281,6 +281,8 @@ class TestWorkflowEngineExecution:
             mock_result.final_state = {"output": "done"}
             mock_result.nodes_executed = ["node1", "node2"]
             mock_result.error = None
+            mock_result.interrupted = False
+            mock_result.interrupt_node = None
 
             mock_executor.execute = AsyncMock(return_value=mock_result)
             mock_get_executor.return_value = mock_executor
@@ -296,6 +298,36 @@ class TestWorkflowEngineExecution:
             assert result.success is True
             assert result.final_state == {"output": "done"}
             assert result.nodes_executed == ["node1", "node2"]
+
+    @pytest.mark.asyncio
+    async def test_execute_definition_preserves_pause_metadata(self, engine):
+        from victor.workflows.context import WorkflowContext, WorkflowResult
+
+        workflow_result = WorkflowResult(
+            workflow_name="paused",
+            success=True,
+            context=WorkflowContext(data={"value": 7}),
+            interrupted=True,
+            interrupt_node="approval",
+        )
+        executor = MagicMock(execute=AsyncMock(return_value=workflow_result))
+        workflow = MagicMock()
+        with (
+            patch.object(engine, "_get_executor", return_value=executor),
+            patch.object(engine, "_emit_workflow_event") as emit,
+        ):
+            result = await engine.execute_definition(
+                workflow, thread_id="resume-me", workflow_id="event-id"
+            )
+
+        assert result.interrupted is True
+        assert result.interrupt_node == "approval"
+        assert result.final_state == {"value": 7}
+        assert emit.call_args.args[0] == "workflow_paused"
+        assert emit.call_args.args[1] == "event-id"
+        executor.execute.assert_awaited_once_with(
+            workflow, initial_context={}, thread_id="resume-me"
+        )
 
 
 class TestWorkflowEngineStreaming:

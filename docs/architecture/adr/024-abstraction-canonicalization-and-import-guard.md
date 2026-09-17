@@ -7,7 +7,7 @@
 - **Decision Makers**: Vijaykumar Singh
 - **Related ADRs**: 007 (contracts boundary — the layering this hardens), 002 (state management),
   019 (decomposition — a smaller runtime makes canonicalization tractable)
-- **Work tracked by**: [TD-26](../../tech-stack.md#technical-debt-register)
+- **Work tracked by**: [TD-26](../../roadmap.md#technical-debt-register)
 - **Benchmark**: [competitive-benchmark-2026-07.md](../competitive-benchmark-2026-07.md) §4 (scoped state)
 
 ## Context

@@ -61,32 +61,58 @@ ALLOWED_PATTERNS = [
 # — that is the normal privacy address for human co-authors.
 _BOT_NAME = r"(?:[-_.]ai\b|\bai[-_.]|\[bot\]|[-_.]bot\b|\bbot\b)"
 FORBIDDEN_PATTERNS = [
-    (re.compile(rf"^\s*co-authored-by:.*(?:{_AGENTS})", re.I | re.M),
-     "co-author trailer naming an AI agent"),
-    (re.compile(rf"^\s*co-authored-by:.*{_BOT_NAME}", re.I | re.M),
-     "co-author trailer naming a bot/AI account"),
+    (
+        re.compile(rf"^\s*co-authored-by:.*(?:{_AGENTS})", re.I | re.M),
+        "co-author trailer naming an AI agent",
+    ),
+    (
+        re.compile(rf"^\s*co-authored-by:.*{_BOT_NAME}", re.I | re.M),
+        "co-author trailer naming a bot/AI account",
+    ),
     # These consume the REST OF THE LINE on purpose: the reported match is what
     # ALLOWED_PATTERNS is tested against, so a one-char `\S` would hide the name
     # and the first-party carve-out could never fire.
-    (re.compile(r"^\s*generated-by:[ \t]*\S.*$", re.I | re.M),
-     "'Generated-by:' trailer (machine authorship attribution)"),
-    (re.compile(r"^\s*(?:assisted-by|written-by|authored-by|ai-assisted(?:-by)?|agent):[ \t]*\S.*$", re.I | re.M),
-     "machine-authorship trailer"),
-    (re.compile(r"generated\s+with\s+\[?\s*(?:claude|codex|gemini|copilot|chatgpt)", re.I),
-     '"Generated with <agent>" tagline'),
-    (re.compile(r"🤖"),
-     "robot emoji (agent-generated marker)"),
-    (re.compile(r"(?:authored|written|created|generated|produced)\s+by\s+(?:claude|codex|gemini|copilot|chatgpt|anthropic|openai)", re.I),
-     '"<verb> by <agent>" attribution'),
+    (
+        re.compile(r"^\s*generated-by:[ \t]*\S.*$", re.I | re.M),
+        "'Generated-by:' trailer (machine authorship attribution)",
+    ),
+    (
+        re.compile(
+            r"^\s*(?:assisted-by|written-by|authored-by|ai-assisted(?:-by)?|agent):[ \t]*\S.*$",
+            re.I | re.M,
+        ),
+        "machine-authorship trailer",
+    ),
+    (
+        re.compile(r"generated\s+with\s+\[?\s*(?:claude|codex|gemini|copilot|chatgpt)", re.I),
+        '"Generated with <agent>" tagline',
+    ),
+    (re.compile(r"🤖"), "robot emoji (agent-generated marker)"),
+    (
+        re.compile(
+            r"(?:authored|written|created|generated|produced)\s+by\s+(?:claude|codex|gemini|copilot|chatgpt|anthropic|openai)",
+            re.I,
+        ),
+        '"<verb> by <agent>" attribution',
+    ),
     # Word-anchored on BOTH sides: without the trailing \b this fires on ordinary technical
     # prose in a repo that integrates these vendors — "Gemini codec", "Gemini code path",
     # "claude-3 codegen" — and blocking a legitimate commit teaches people to bypass the hook.
-    (re.compile(r"\b(?:claude|gemini)\s+(?:opus|sonnet|haiku|code|pro|flash|\d+)\b", re.I),
-     "agent model/product signature (e.g. 'Claude Opus', 'Claude Code')"),
-    (re.compile(r"noreply@anthropic\.com|noreply@openai\.com|@users\.noreply\.github\.com.*(?:claude|copilot)", re.I),
-     "agent no-reply email trailer"),
-    (re.compile(r"\bco-authored-by:\s*(?:claude|copilot|codex)\b", re.I),
-     "agent co-author trailer"),
+    (
+        re.compile(r"\b(?:claude|gemini)\s+(?:opus|sonnet|haiku|code|pro|flash|\d+)\b", re.I),
+        "agent model/product signature (e.g. 'Claude Opus', 'Claude Code')",
+    ),
+    (
+        re.compile(
+            r"noreply@anthropic\.com|noreply@openai\.com|@users\.noreply\.github\.com.*(?:claude|copilot)",
+            re.I,
+        ),
+        "agent no-reply email trailer",
+    ),
+    (
+        re.compile(r"\bco-authored-by:\s*(?:claude|copilot|codex)\b", re.I),
+        "agent co-author trailer",
+    ),
 ]
 
 
@@ -111,13 +137,17 @@ def commit_messages_in_range(rng: str) -> list[tuple[str, str]]:
     """Return [(sha, message)] for each commit in the range."""
     out = subprocess.run(
         ["git", "rev-list", "--no-merges", rng],
-        capture_output=True, text=True, check=True,
+        capture_output=True,
+        text=True,
+        check=True,
     ).stdout.split()
     msgs = []
     for sha in out:
         msg = subprocess.run(
             ["git", "log", "-1", "--format=%B", sha],
-            capture_output=True, text=True, check=True,
+            capture_output=True,
+            text=True,
+            check=True,
         ).stdout
         msgs.append((sha, msg))
     return msgs
@@ -146,14 +176,19 @@ def main() -> int:
             return 2
 
     if violations:
-        print("ERROR: AI-agent authorship attribution is not allowed in commit/PR text.", file=sys.stderr)
+        print(
+            "ERROR: AI-agent authorship attribution is not allowed in commit/PR text.",
+            file=sys.stderr,
+        )
         print("The human drives the code; remove the agent attribution below:\n", file=sys.stderr)
         for v in violations:
             print(f"  - {v}", file=sys.stderr)
-        print("\n(Mentions of CLAUDE.md/GEMINI.md or the Anthropic/OpenAI APIs are fine; "
-              "this blocks authorship attribution only. victor-code-ai is the allowed "
-              "first-party exception. See scripts/ci/check_no_agent_attribution.py.)",
-              file=sys.stderr)
+        print(
+            "\n(Mentions of CLAUDE.md/GEMINI.md or the Anthropic/OpenAI APIs are fine; "
+            "this blocks authorship attribution only. victor-code-ai is the allowed "
+            "first-party exception. See scripts/ci/check_no_agent_attribution.py.)",
+            file=sys.stderr,
+        )
         return 1
     return 0
 

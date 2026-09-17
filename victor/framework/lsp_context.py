@@ -224,7 +224,7 @@ def _signature(gathered: dict) -> str:
         names = sorted(getattr(s, "name", "") for s in symbols)
         err_count = sum(1 for d in diagnostics if getattr(d, "severity", 1) == 1)
         parts.append(f"{rel}|{','.join(names)}|{err_count}")
-    return hashlib.md5("\n".join(parts).encode("utf-8")).hexdigest()
+    return hashlib.md5("\n".join(parts).encode("utf-8"), usedforsecurity=False).hexdigest()
 
 
 def _render(gathered: dict, char_budget: int) -> str:

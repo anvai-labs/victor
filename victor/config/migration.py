@@ -36,6 +36,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
+from victor.providers.provider_kinds import LOCAL_CLASS_PROVIDERS
+
 import yaml
 
 logger = logging.getLogger(__name__)
@@ -96,7 +98,7 @@ class ConfigMigrator:
     OAUTH_PROVIDERS: Set[str] = {"openai", "qwen"}
 
     # Local providers (no API key)
-    LOCAL_PROVIDERS: Set[str] = {"ollama", "lmstudio", "vllm"}
+    LOCAL_PROVIDERS: Set[str] = set(LOCAL_CLASS_PROVIDERS)
 
     def __init__(
         self,

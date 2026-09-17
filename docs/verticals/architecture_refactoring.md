@@ -1,5 +1,7 @@
 # Victor Verticals Architecture - Refactored Design
 
+> **Historical refactoring record.** The diagrams and rollout steps below retain their original design context. The [canonical layering diagram](../architecture.md#system-overview) and [vertical contracts](../reference/verticals/index.md#overview) describe current boundaries; subsequent template-base extraction is tracked separately in [ADR-031](../architecture/adr/031-vertical-template-bases-promotion.md).
+
 **Version**: 1.0
 **Date**: 2026-03-31
 **Status**: Production-Ready
@@ -634,6 +636,6 @@ The Victor verticals architecture refactoring successfully addresses all 10 iden
 **Test Coverage**: ✅ **93%**
 **Performance Improvement**: ✅ **200-500ms faster startup**
 
-For migration instructions, see [Migration Guide](migration_guide.md).
+For migration instructions, see [Migration Guide](../architecture/EXTERNAL_VERTICALS_MIGRATION.md).
 For API reference, see [API Reference](api_reference.md).
 For best practices, see [Best Practices](best_practices.md).

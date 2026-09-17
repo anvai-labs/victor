@@ -1,5 +1,9 @@
 # FEP-0025 checkpoint — the loop runs, and nothing has earned promotion
 
+> **Historical experiment record.** Dates, candidate outcomes, commands, and local artifacts
+> below belong to this experiment. Preserve its verdict; use the [Roadmap](../roadmap.md)
+> for current execution status, and do not treat local database paths as distributed fixtures.
+
 Date: 2026-07-27
 Status: paused at a clean boundary; nothing in flight
 
