@@ -124,10 +124,11 @@ def test_union_curated_enabled_noop_without_curated_set():
 
 
 async def test_select_tools_short_circuits_to_stable_curated_set():
-    """select_tools (the path the benchmark actually calls) returns the stable
-    6-tool curated set immediately, bypassing semantic/keyword selection that
-    drops code/graph (#353 fix — the short-circuit previously lived only in
-    select_tools_for_turn, which the benchmark never calls)."""
+    """Direct selector consumers retain the stable curated-set guarantee.
+
+    Chat and benchmarks now bypass selection in ToolSelectionRuntime (FEP-0034);
+    this lower-level API still must preserve all six tools for direct callers.
+    """
     selector = ToolSelector(tools=_make_registry(), tool_selection_config={})
     selector.set_enabled_tools(set(_CURATED))
 

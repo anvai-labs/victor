@@ -53,7 +53,8 @@ HOTSPOT_LINE_CAPS = {
     "victor/framework/vertical_integration.py": 2631,
     # FEP-0030 Phase 2: _build_rubric_complete_fn delegates to the judge-backend
     # resolver (judge_calibration_gate.build_judge_complete_fn) — shrinks the hotspot.
-    "victor/agent/services/turn_execution_runtime.py": 2378,
+    # FEP-0034 Stage C: delegate selection to the shared runtime.
+    "victor/agent/services/turn_execution_runtime.py": 2243,
     # F-004: package-ified tool_selection; parent capped at current size
     # (extraction deferred — this ratchet only prevents further growth).
     "victor/agent/tool_selection/selector.py": 2765,
