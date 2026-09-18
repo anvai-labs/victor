@@ -182,6 +182,7 @@ class TestInitializeSkillMatcherUsesRegistry:
         factory._orchestrator = SimpleNamespace()
 
         await factory._initialize_skill_matcher()
+        await factory._skill_matcher_init_task
 
         assert "registry" in captured, "matcher.initialize was not called"
         # The matcher received a registry that exposes list_all() AND contains

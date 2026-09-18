@@ -33,6 +33,16 @@ from typing import Iterator, Optional, Tuple
 import click
 import typer
 
+try:
+    # Typer 0.27+ ships a private Click compatibility layer.  Its UsageError
+    # and group classes are distinct from the external ``click`` package.
+    from typer.core import _click as _typer_click
+except ImportError:  # Typer <=0.26 delegates directly to external Click.
+    _typer_click = click
+
+
+_UsageError = _typer_click.exceptions.UsageError
+
 #: Minimum similarity for a candidate to be offered as a suggestion.
 _SUGGEST_CUTOFF = 0.45
 #: How many suggestions to show at most.
@@ -52,7 +62,10 @@ def _iter_command_paths(group: click.Group, ctx: click.Context) -> Iterator[Tupl
         if cmd is None:
             continue
         yield name, f"{program} {name}"
-        if isinstance(cmd, click.Group):
+        # Typer 0.27's TyperGroup no longer subclasses external click.Group.
+        # Check both public group types so nested discovery works across the
+        # supported Typer range.
+        if isinstance(cmd, (click.Group, typer.core.TyperGroup)):
             for sub in sorted(cmd.list_commands(ctx)):
                 if sub == "help":
                     continue
@@ -119,12 +132,12 @@ class SuggestingGroup(typer.core.TyperGroup):
             )
         try:
             return super().resolve_command(ctx, args)
-        except click.exceptions.UsageError as exc:
+        except _UsageError as exc:
             attempted = args[0] if args else ""
             # Only enhance true "command not found" failures: the attempted
             # name must actually be absent from this group.
             if attempted and self.get_command(ctx, attempted) is None:
                 hint = suggest_command(ctx, attempted, self)
                 if hint:
-                    raise click.exceptions.UsageError(hint, ctx=ctx) from exc
+                    raise _UsageError(hint, ctx=ctx) from exc
             raise

@@ -63,6 +63,10 @@ def test_selector_changes_select_its_own_regressions():
     )
 
 
+def test_cli_group_maps_to_command_resolution_contracts():
+    assert select(["victor/ui/cli_group.py"]) == ["tests/unit/ui/test_cli_command_resolution.py"]
+
+
 def test_non_python_and_unmapped_yield_nothing():
     # Docs/CI/config changes map to no unit tests -> empty (caller treats as pass).
     assert select(["README.md", ".github/workflows/ci-fast.yml", "Makefile"]) == []

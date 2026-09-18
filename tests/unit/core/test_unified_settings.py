@@ -26,7 +26,7 @@ class TestVictorSettingsBasic:
         """Test that default values are set correctly."""
         settings = VictorSettings()
 
-        assert settings.provider.default_provider == "ollama"
+        assert settings.provider.default_provider == "inferflux"
         assert settings.provider.default_temperature == 0.6  # ADR-013 default flip
         assert settings.provider.default_max_tokens == 4096
         assert settings.airgapped_mode is False
@@ -145,7 +145,7 @@ class TestVictorSettingsPrecedence:
         """Test from_sources with no overrides (uses defaults)."""
         settings = VictorSettings.from_sources()
 
-        assert settings.provider.default_provider == "ollama"
+        assert settings.provider.default_provider == "inferflux"
         assert settings.tools.tool_cache_ttl == 600
 
     def test_from_sources_with_profiles_yaml(self, tmp_path):
@@ -396,7 +396,7 @@ class TestVictorSettingsEdgeCases:
             config_dir=tmp_path,
         )
 
-        assert settings.provider.default_provider == "ollama"  # Default, not from profile
+        assert settings.provider.default_provider == "inferflux"  # Default, not from profile
 
     def test_invalid_yaml_graceful_handling(self, tmp_path):
         """Test that invalid YAML is handled gracefully."""
@@ -407,7 +407,7 @@ class TestVictorSettingsEdgeCases:
 
         # Should not crash, should use defaults
         settings = VictorSettings.from_sources(config_dir=tmp_path)
-        assert settings.provider.default_provider == "ollama"
+        assert settings.provider.default_provider == "inferflux"
 
     def test_extra_fields_allowed(self):
         """Test that extra fields are allowed (for forward compatibility)."""

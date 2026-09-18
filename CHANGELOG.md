@@ -42,6 +42,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Preserve full and nested CLI command suggestions under Typer 0.27's Click
+  compatibility layer.
 - Allow GitHub's exact Dependabot co-author trailer in the no-agent-attribution
   guard so main-promotion scans accept reviewed dependency-maintenance commits.
 - Preserve Sandhi's reasoning-inclusion convention and per-call folding through

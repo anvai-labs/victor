@@ -68,6 +68,7 @@ RELATED_TESTS = {
         "tests/unit/scripts/test_check_no_agent_attribution.py",
     ),
     "scripts/ci/select_changed_tests.py": ("tests/unit/scripts/test_select_changed_tests.py",),
+    "victor/ui/cli_group.py": ("tests/unit/ui/test_cli_command_resolution.py",),
     **dict.fromkeys(DEPRECATION_NOTICE_FILES, DEPRECATION_NOTICE_TESTS),
 }
 

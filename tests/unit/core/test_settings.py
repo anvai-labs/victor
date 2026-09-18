@@ -166,9 +166,9 @@ class TestSettings:
         """Test Settings with default values."""
         settings = Settings()
 
-        # Note: default_provider is "ollama" in Settings class
-        assert settings.provider.default_provider == "ollama"
-        assert settings.provider.default_model == "qwen3.5:27b-q4_K_M"
+        # InferFlux is the zero-configuration local default.
+        assert settings.provider.default_provider == "inferflux"
+        assert settings.provider.default_model == "qwen3-coder-30b"
         assert settings.provider.default_temperature == 0.6  # ADR-013 default flip
         assert settings.provider.default_max_tokens == 4096
         assert settings.log_level == "INFO"
@@ -305,7 +305,7 @@ class TestSettings:
 
         assert (tmp_path / "profiles.yaml").exists()
         assert "default" in profiles
-        assert profiles["default"].provider == "ollama"
+        assert profiles["default"].provider == "inferflux"
 
     def test_load_profiles_no_file_legacy_lmstudio_fallback(self):
         """Without the bundled resource (unusual install), the legacy
@@ -615,8 +615,7 @@ class TestLoadSettings:
         settings = load_settings()
 
         assert isinstance(settings, Settings)
-        # Note: default_provider is "ollama" in Settings class
-        assert settings.provider.default_provider == "ollama"
+        assert settings.provider.default_provider == "inferflux"
 
 
 class TestToolSelectionValidation:
