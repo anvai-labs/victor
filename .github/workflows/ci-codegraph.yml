@@ -33,6 +33,28 @@ jobs:
           pip install -e "./victor-codegraph[dev]"
           pip install pytest-cov
 
+      - name: Load required tree-sitter grammars
+        run: |
+          python - <<'PYTHON'
+          import time
+          from tree_sitter import Parser
+          from tree_sitter_language_pack import get_language
+
+          # Recent grammar packs download native libraries lazily. Make that
+          # setup explicit: tests must not silently skip unavailable grammars.
+          for language in ("javascript", "typescript", "go", "rust", "java", "c", "cpp"):
+              for attempt in range(3):
+                  try:
+                      Parser(get_language(language))
+                      print(f"Loaded {language}", flush=True)
+                      break
+                  except Exception as error:
+                      print(f"::warning::Grammar {language} attempt {attempt + 1}: {error}", flush=True)
+                      if attempt == 2:
+                          raise
+                      time.sleep(2 ** attempt)
+          PYTHON
+
       - name: Lint (ruff)
         working-directory: victor-codegraph
         run: ruff check victor_codegraph tests
