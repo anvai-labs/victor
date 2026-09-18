@@ -168,3 +168,52 @@ async def test_spawn_synchronous_stream_factory_error_cleans_active_member(
     assert chunks[0].metadata["success"] is False
     assert not parent.active_subagents
     assert get_session_id() == parent_session
+
+
+@pytest.mark.asyncio
+async def test_nested_spawn_inherits_member_session_and_restores_parent(
+    parent_session, monkeypatch
+):
+    from unittest.mock import AsyncMock
+
+    observed = []
+    child = _member()
+    child.config.member_id = "grandchild"
+    child.config.parent_session_id = None
+    child._run_context_lifecycle = AsyncMock(return_value={})
+
+    async def child_run():
+        observed.append(get_session_id())
+        return SimpleNamespace(content="ok", tool_calls=[], metadata={})
+
+    child._execute_with_retry = child_run
+    member = _member()
+    member._run_context_lifecycle = AsyncMock(return_value={})
+
+    async def member_run():
+        observed.append(get_session_id())
+        result = await child.execute()
+        assert result.success
+        assert get_session_id() == "session_root-m1"
+        return SimpleNamespace(content="ok", tool_calls=[], metadata={})
+
+    member._execute_with_retry = member_run
+    assert (await member.execute()).success
+    assert observed == ["session_root-m1", "session_root-m1-grandchild"]
+    assert get_session_id() == parent_session
+
+
+def test_constrained_registry_wraps_worktree_tools(tmp_path):
+    from victor.tools.workspace_bound import WorkspaceBoundTool
+
+    member = _member()
+    member.config.allowed_tools = ["write"]
+    member.config.working_directory = str(tmp_path)
+    raw_tool = MagicMock()
+    raw_tool.name = "write"
+    member._context.tool_registry.get.return_value = raw_tool
+    target = MagicMock()
+    member._configure_allowed_tools(target)
+    bound = target.tool_registry.register.call_args.args[0]
+    assert isinstance(bound, WorkspaceBoundTool)
+    assert bound._tool is raw_tool

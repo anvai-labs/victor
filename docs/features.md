@@ -143,3 +143,7 @@ same framework through `VictorClient`.
 and explicit termination. Each is registered and tested through the coordinator;
 initial transcript modes reject durable partial resume. See FEP-0035 for consumer
 and compatibility decisions.
+
+**Parallel workspace isolation** — `parallel_worktree_isolation` gives each member
+its own git worktree and binds file/shell paths to that directory. Worktrees remain
+available for review after execution; unsupported tool adapters fail explicitly.

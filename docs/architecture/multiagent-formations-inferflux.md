@@ -365,6 +365,29 @@ Radeon AI PRO R9700 (gfx1201, ROCm 7.2, WSL2). KV pool: 65536 ctx / 2
 sequences. Per-member session ids bound via
 `SubAgentConfig.resolve_member_session_id()`.
 
+### Opt-in PARALLEL worktree isolation (WS-D)
+
+Use `shared_context={"parallel_worktree_isolation": True, "repo_root": "/repo",
+"worktree_parent": "/tmp/member-worktrees", "branch_prefix": "feat/members"}`.
+Each member receives a real git worktree; allocation failure stops the run.
+The default preserves worktrees for inspection and does not auto-merge. Explicit
+`cleanup_worktrees` / `auto_merge_worktrees` retain their existing meanings.
+Defaults without the flag remain unchanged.
+
+Member `allowed_tools` must use supported path adapters: `read`, `write`, `edit`,
+`shell`, `ls`, `find`, or `overview`. Unsupported tools fail with a warning instead
+of running in the parent's directory. `edit` requires structured operation lists.
+Relative filesystem paths and shell `cwd` are rooted per member; absolute paths
+are preserved. This is working-directory isolation, not a shell security sandbox.
+The normal tool safety policy still applies. Nested members inherit bound tools.
+
+Run the worktree's `.venv-codesign/bin/python scripts/validation/multiagent_live.py
+--output-dir /tmp/formation-evidence --isolate` with `INFERFLUX_API_KEY` set.
+Live run `isolation-18b2e5c728` on 2026-09-17 finished in 37.11 seconds: three
+members wrote the same two relative filenames in separate worktrees; each
+worktree's independent pytest run passed; all three actual wire session IDs
+matched configured members and result metadata. See [recorded evidence](evidence/ws-d-isolation.json).
+
 #### WS-C recorded live evidence (2026-09-17)
 
 Run `capacity-b74af535a8`: three executor members, operator-verified capacity two,

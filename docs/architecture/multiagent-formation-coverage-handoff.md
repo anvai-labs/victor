@@ -267,22 +267,22 @@ G1–G13 come from the co-design sessions and code audit; G14–G16 from the §2
 - **G3 — ✅ partial failure surfaced (WS-B, [PR #1108](https://github.com/anvai-labs/victor/pull/1108)).** Parallel synthesis includes
   failed-member summaries; opt-in per-member retries retain attempt costs, stop at
   approval pauses, and complete before durable member checkpointing.
-- **G4 — shared-path write races are documented, not fixed.** The live matrix required
-  disjoint file paths per member (noted in the formations doc). Worktree isolation
-  exists (§1.2) but is not default-on nor formation-aware for PARALLEL. Decide: opt-in
-  per-member worktree for PARALLEL (config flag) vs. write-guard detection with a
-  formation-aware error.
+- **G4 — ✅ opt-in PARALLEL worktrees (WS-D, [PR #1111](https://github.com/anvai-labs/victor/pull/1111)).** `parallel_worktree_isolation`
+  materializes one worktree per member, forwards the assigned directory through
+  public spawn, and binds supported file/shell tools without process-wide `chdir`.
+  Missing worktrees or tool adapters fail explicitly. Worktrees are preserved for
+  review by default. The live test wrote identical relative filenames in all three
+  worktrees, with no parent-directory writes and three passing independent tests.
 - **G5 — ✅ opt-in capacity-aware admission (WS-C, [PR #1110](https://github.com/anvai-labs/victor/pull/1110)).** `capacity_aware_parallelism`
   queries the provider declaration and bounds simultaneous members without dropping
   assignments. Saturated members emit `member_throttled` through the sink and v1
   stream bridge. R9700 live validation passed with three members at capacity two;
   automatic ROCm discovery remains an explicit upstream limitation (G18).
-- **G6 — session-id isolation is pinned by unit tests, not by a live e2e assertion.**
-  Direct spawns bind `resolve_member_session_id()` (dash format) on both `execute()` and
-  the restored per-advance streaming binding. Unverified: nested spawns (member→grandchild
-  propagation), and an e2e assertion that InferFlux actually sees DISTINCT
-  `x-inferflux-session-id` values for concurrent members (needs server-side debug
-  logging or a sandbox assertion).
+- **G6 — ✅ nested and live session isolation verified (WS-D, [PR #1111](https://github.com/anvai-labs/victor/pull/1111)).** Nested member
+  execution inherits the immediate parent's session and restores its caller.
+  Coordinator dispatch forwards configured member identities; observed live
+  `x-inferflux-session-id` headers match all three configured member IDs and the
+  per-member result metadata. Evidence is linked in the InferFlux formation recipe.
 - **G7 — heterogeneous presets never validated live.** The cost-optimal pattern (local
   workers + one cloud reviewer through Sandhi) has never been run. Also verify
   `reasoning_effort` stays stripped (capability-gated) for the InferFlux provider
@@ -308,11 +308,11 @@ G1–G13 come from the co-design sessions and code audit; G14–G16 from the §2
 - **G13 — guard tuning is a two-model sample.** Narration/intent/refusal classifiers
   were tuned on Qwen3-Coder-30B + GLM-5.3 only. Before claiming edge-model support,
   run the same matrix on a small local model (qwen3.5:2b class) and record deltas.
-- **G14 — ✅ shared-transcript substrate and conversation formations (WS-G).**
-  FEP-0035 defines bounded immutable transcript snapshots, explicit speaker
+- **G14 — ✅ shared-transcript substrate and conversation formations (WS-G, [PR #1113](https://github.com/anvai-labs/victor/pull/1113)).**
+  FEP-0035 ([PR #1112](https://github.com/anvai-labs/victor/pull/1112)) defines bounded immutable transcript snapshots, explicit speaker
   selection/termination, and consumer decisions. GROUP_CHAT and DEBATE have enum,
   registry, preset, docs, dispatch-test, and explicit non-durable contracts.
-- **G15 — ✅ peer-to-peer control transfer (WS-G).** HANDOFF consumes validated
+- **G15 — ✅ peer-to-peer control transfer (WS-G, [PR #1113](https://github.com/anvai-labs/victor/pull/1113)).** HANDOFF consumes validated
   peer destinations and carries the shared transcript; invalid/self destinations
   fail explicitly, and cycles are bounded by max_turns. Typed `PeerHandoff`
   records cross the member sink and v1 wire bridge.
@@ -339,13 +339,11 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   if admission is requested without a declaration. Automatic ROCm discovery requires
   an upstream InferFlux admin/metrics addition; no model-window heuristic is used.
 
-- **G19 — public team spawn drops configured identity/context.** WS-C's wire probe
-  observed distinct generated-agent session IDs, but `_adapt_team_members()` omits
-  configured `member_id`, parent/child session and worktree context when calling
-  `SubAgentOrchestrator.spawn()`, and discards returned attribution details. WS-D
-  must forward these existing fields through the single session-ID derivation;
-  this also gates meaningful WS-E cost reconciliation.
-
+- **G19 — ✅ public spawn identity/context forwarding (WS-D, [PR #1111](https://github.com/anvai-labs/victor/pull/1111)).**
+  The coordinator forwards configured member/session and worktree identity to spawn.
+  Compact result attribution retains the resolved wire session ID without copying
+  full response payloads. The live worktree run matches actual headers to all three
+  configured member IDs and result metadata.
 - **G20 — generated test completion can overstate validation.** During the WS-C
   Qwen3-Coder-30B run, members wrote module-level assertions and reported success
   after pytest exited 5 (no collected tests). The external validation harness

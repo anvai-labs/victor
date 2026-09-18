@@ -543,6 +543,10 @@ class SubAgent(IAgent):  # type: ignore[misc]
                     shared_registry = SharedToolRegistry.get_instance()
                 tool = shared_registry.create_tool_instance(tool_name)
             if tool:
+                if self.config.working_directory:
+                    from victor.tools.workspace_bound import WorkspaceBoundTool
+
+                    tool = WorkspaceBoundTool(tool, self.config.working_directory)
                 orchestrator.tool_registry.register(tool)
             else:
                 missing_tools.append(tool_name)
@@ -696,7 +700,8 @@ class SubAgent(IAgent):  # type: ignore[misc]
                 session_id as _ctx_session_id,
             )
 
-            session_token = set_session_id(self.config.resolve_member_session_id())
+            self._resolved_session_id = self.config.resolve_member_session_id()
+            session_token = set_session_id(self._resolved_session_id)
             try:
                 # Run the task with retry on rate limits
                 response = await self._execute_with_retry()
@@ -829,6 +834,7 @@ class SubAgent(IAgent):  # type: ignore[misc]
             "plan_step_id": self.config.plan_step_id,
             "parent_session_id": self.config.parent_session_id,
             "child_session_id": self.config.child_session_id,
+            "session_id": getattr(self, "_resolved_session_id", None),
         }
 
     async def _run_context_lifecycle(
@@ -978,6 +984,7 @@ class SubAgent(IAgent):  # type: ignore[misc]
         )
 
         member_session_id = self.config.resolve_member_session_id()
+        self._resolved_session_id = member_session_id
         stream = None
         try:
             # Bind only while advancing member work. An async generator executes in
