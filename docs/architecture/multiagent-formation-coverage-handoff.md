@@ -32,23 +32,27 @@ The original matrix omitted these surfaces; follow-up validation is recorded per
   formation per invocation from graph state (sync-only; async strategies raise
   `TypeError`), and `formation_hint` / `topology_formation_hint` context keys override
   per call (`_resolve_effective_formation`, unified_coordinator.py). A raising strategy
-  falls back to the default formation — logged at **DEBUG only**.
+  falls back to the default formation with a warning log and additive
+  `team_formation_warning` stream/wire event (WS-E). Invalid returned identifiers
+  use the same observable failure path.
 - **Capacity admission** — ✅ WS-C ([PR #1110](https://github.com/anvai-labs/victor/pull/1110))
   verified three members against capacity two, with throttling and all assignments
   retained. Legacy `max_workers` alone still limits member count.
 - **Worktree-isolated members.** `victor/teams/worktree_runtime.py`
   (`WorktreeAssignment`, `WorktreeExecutionPlan`) plus `worktree_planner`/`worktree_runtime`
   coordinator params and colon-format `child_session_id` for isolated planning members.
-  Not part of the live matrix.
+  ✅ WS-D live validation covered materialized per-member worktrees, independent
+  pytest, and wire/result session attribution ([PR #1111](https://github.com/anvai-labs/victor/pull/1111)).
 - **Heterogeneous members.** Per-member `provider` / `model` / `temperature` /
   `reasoning_effort` (`TeamMemberSpec`), with `create_review_team` (PIPELINE preset,
   same-vendor warning) and `create_reflection_team` (rounds=3) presets. Unit-tested
-  (24 tests across heterogeneous-member and review-preset suites); never run live,
-  and never cross-vendor (the preset's actual purpose).
+  (heterogeneous-member and review-preset suites). WS-E adds a ZAI-only gateway
+  live harness; cross-vendor local/cloud validation remains pending LAN recovery.
 - **Member-granular durability** (FEP-0028 / ADR-023 / TD-25, shipped #733–#752):
   per-member checkpoint/resume at formation-natural granularity across all six,
   durable `MemberApprovalPause` for the four non-iterative formations, and
-  `MemberEventSink` per-member streaming lanes. Not exercised over local inference.
+  `MemberEventSink` per-member streaming lanes. WS-E validates an injected approval
+  pause/resume on ZAI; the requested local-inference rerun remains pending.
 
 ### 1.3 Additional formations — WS-A integration
 
@@ -283,25 +287,27 @@ G1–G13 come from the co-design sessions and code audit; G14–G16 from the §2
   Coordinator dispatch forwards configured member identities; observed live
   `x-inferflux-session-id` headers match all three configured member IDs and the
   per-member result metadata. Evidence is linked in the InferFlux formation recipe.
-- **G7 — heterogeneous presets never validated live.** The cost-optimal pattern (local
-  workers + one cloud reviewer through Sandhi) has never been run. Also verify
-  `reasoning_effort` stays stripped (capability-gated) for the InferFlux provider
-  rather than erroring.
-- **G8 — durability untested over local inference.** Pause/resume mid-PIPELINE with
-  `MemberApprovalPause` against InferFlux; FEP-0028's deferred items stay deferred.
-- **G9 — dynamic selection fails silently.** `formation_strategy` exceptions log at
-  DEBUG and keep the default formation — indistinguishable from a strategy that
-  intentionally returns the default. Needs a warning-level event on the teams→stream
-  bridge. Live e2e of dynamic selection also missing.
+- **G7 — cross-vendor live validation pending.** The ZAI-only Sandhi gateway and
+  review preset are exercised by the WS-E harness. Local InferFlux workers plus
+  a cloud reviewer, including InferFlux reasoning-effort stripping, await LAN
+  recovery; the user explicitly restricted current runs to ZAI on 2026-09-18.
+- **G8 — local-inference durability validation pending.** WS-E covers an injected
+  mid-PIPELINE `MemberApprovalPause`, checkpoint, and resume over ZAI. The completed
+  writer must not rerun. InferFlux replay remains pending; FEP-0028 non-goals remain.
+- **G9 — ✅ observable dynamic selection (WS-E).** Exceptions and invalid formation
+  identifiers emit warning logs plus `team_formation_warning` through the member
+  sink, client stream, and v1 wire. The ZAI harness asserts PARALLEL selection and
+  warned default dispatch. Async selectors retain explicit TypeError rejection.
 - **G10 — ✅ orphan trio: INTEGRATE (WS-A, [PR #1107](https://github.com/anvai-labs/victor/pull/1107)).** All three have public enum,
   registry, preset, docs, dispatch-test, and durability surfaces. Adaptive stale
   names and duplicate dispatch were removed. Regression tests cover real member
   execution/failure, concurrent adaptive calls, lossless task splitting, and invalid
   trees. Original six defaults remain unchanged.
-- **G11 — per-member cost attribution unverified end-to-end.** Sandhi stamps
-  `x-sandhi-run-id` from the member session id; the InferFlux side keys session-KV on
-  it. A member-tagged cost rollup (`GET /admin/usage/run/{run_id}` → per member) has
-  never been reconciled against `TeamResult` metrics.
+- **G11 — ✅ ZAI member accounting validation; R9700 pending (WS-E).** Opt-in `capture_member_usage`
+  exposes neutral counters in member metadata; retry totals preserve all attempts.
+  Seven members passed exact input/output/total reconciliation against each Sandhi
+  run tree; fourteen files and seven independent pytest tests passed in 167.93s.
+  The R9700-specific reconciliation remains pending LAN recovery.
 - **G12 — ✅ formation-aware tool supply documented (WS-C, [PR #1110](https://github.com/anvai-labs/victor/pull/1110)).** Member `allowed_tools`
   narrows the registry before provider supply. The live capacity run supplied four
   filesystem/shell tools per member; global pruning defaults remain unchanged.
@@ -356,6 +362,36 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   conversation modes reject checkpoint/resume before execution. Pending speaker
   selection, transcript restoration, and in-flight peer transfers need a dedicated
   durable-state design. This is explicit; no partial replay is claimed.
+
+- **G22 — ✅ public pipeline pause metadata loss (WS-E).** The spawn adapter dropped
+  `awaiting_approval` and `approval_request`, and TeamResult dropped aggregate pause
+  fields. Both boundaries now preserve the structured signal. Absent pause state,
+  TeamResult serialization remains unchanged.
+- **G23 — ✅ usage writes mutated snapshots (WS-E).** SessionStateAccessor returned
+  a copy while runtime writers and metrics expected a live accumulator. Internal
+  access now preserves one dictionary's identity, including assignment; the public
+  SessionStateManager snapshot remains defensive. Real-runtime regression tests
+  cover inclusive input, output, cache, reasoning, and reset visibility.
+- **G24 — ✅ explicit member overrides bypassed gateways (WS-E).** Overrides now use
+  the existing canonical gateway resolver for configured provider blocks/environment,
+  pass the gateway to the managed factory, and use its virtual key. Invalid explicit
+  gateway setup fails closed. Legacy direct-provider warned inheritance remains.
+- **G25 — Sandhi transparent ZAI requests omitted JSON Content-Type.** Fixed and
+  live-tested in [Sandhi PR #265](https://github.com/anvai-labs/sandhi/pull/265);
+  23 raw-forwarding tests passed and all CI gates are green. Repository policy
+  requires an approving review before merge; the patched local binary is in use.
+
+WS-E consumer decisions:
+
+| Contract | Producer | Consumer decision | Compatibility |
+|---|---|---|---|
+| `team_formation_warning` | StateGraph selector failure | Member sink → client CUSTOM event → v1 wire; UI lanes intentionally ignore, warning log remains visible | Additive; successful/no selector emits none |
+| Member `metadata.usage` | SubAgent with `capture_member_usage` | TeamResult and validation harness; Sandhi run tree comparison | Opt-in; absent flag retains old payload |
+| TeamResult pause fields | Durable coordinator aggregate | API callers inspect status, paused member, approval request, thread ID | Serialized only when status is present |
+
+Current live constraint (2026-09-18): router down; user requested **ZAI-only through
+Sandhi**. Do not mark G7/G8's R9700 steps or WS-F/G13 complete from cloud-model data.
+The [loopback gateway walkthrough](sandhi-zai-loopback.md) covers the active setup.
 
 ## 4. Suggested follow-up session plan
 
