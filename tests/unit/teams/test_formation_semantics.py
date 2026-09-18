@@ -131,3 +131,28 @@ async def test_presets_expose_contracts_without_mutating_legacy_defaults():
         assert (
             team._config.shared_context.get("reflection_verdict_format", "legacy") == verdict_format
         )
+
+
+async def test_parallel_retry_rolls_up_neutral_usage():
+    item = member(
+        "a",
+        [
+            {
+                "success": False,
+                "metadata": {"usage": {"input_tokens": 11, "output_tokens": 2, "total_tokens": 13}},
+            },
+            {
+                "success": True,
+                "output": "done",
+                "metadata": {"usage": {"input_tokens": 17, "output_tokens": 3, "total_tokens": 20}},
+            },
+        ],
+    )
+    result = await coordinator(TeamFormation.PARALLEL, [item]).execute_task(
+        "work", {"parallel_member_retries": 1}
+    )
+    assert result["member_results"]["a"].metadata["usage"] == {
+        "input_tokens": 28,
+        "output_tokens": 5,
+        "total_tokens": 33,
+    }

@@ -117,6 +117,7 @@ class SubAgentConfig:
     context_limit: int
     can_spawn_subagents: bool = False
     working_directory: Optional[str] = None
+    capture_usage: bool = False
     timeout_seconds: int = 300
     system_prompt_override: Optional[str] = None
     disable_embeddings: bool = False
@@ -717,6 +718,16 @@ class SubAgent(IAgent):  # type: ignore[misc]
             tool_calls_used = getattr(self.orchestrator, "tool_calls_used", 0)
             context_size = len(str(self.orchestrator.get_messages()))
 
+            usage_metadata = {}
+            if self.config.capture_usage:
+                from dataclasses import asdict
+                from victor.evaluation.protocol import TokenUsage
+
+                usage = self.orchestrator.get_token_usage()
+                if not isinstance(usage, TokenUsage):
+                    raise ValueError("Member usage capture requires a TokenUsage result")
+                usage_metadata["usage"] = asdict(usage)
+
             # Create structured result. A failed agentic loop is a real sub-agent
             # failure even when the provider returned a final response object.
             runtime_context = self.config.to_runtime_context()
@@ -729,6 +740,7 @@ class SubAgent(IAgent):  # type: ignore[misc]
                     self.config.result_summary_max_chars,
                 ),
                 details={
+                    **usage_metadata,
                     "full_response": response.content,
                     "tool_calls": getattr(response, "tool_calls", []) or [],
                     "tool_evidence": self._build_tool_evidence_handoff(),
