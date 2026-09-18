@@ -434,7 +434,7 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   Follow-up: retain both model traces, isolate tool/prose and artifact-validity
   decisions under FEP-0025, and separately measure CPU admission/deadline behavior.
   Keep strict structured verdicts and independent pytest as acceptance gates.
-- **G33 — ✅ deterministic spin-guard regression coverage (PR pending).** The
+- **G33 — ✅ deterministic spin-guard regression coverage ([PR #1119](https://github.com/anvai-labs/victor/pull/1119)).** The
   failing test mixed classifier/plugin initialization with its loop deadline and
   could pass the iteration assertion after an unrelated early failure. Tests now
   supply deterministic TaskAnalysis while retaining the real perception/offload
