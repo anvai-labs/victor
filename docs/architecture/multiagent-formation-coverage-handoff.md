@@ -411,10 +411,13 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   still report zero task tokens while opt-in member counters and Sandhi reconcile.
   The separate SessionCostTracker needs explicit integration; no monetary accuracy
   is claimed by WS-E's neutral-token validation.
-- **G30 — session reset can replace the metrics accumulator.** Internal assignment
-  now preserves dictionary identity, but SessionStateManager.reset replaces its
-  execution state. Reset/rebind lifecycle coverage remains a separate follow-up;
-  fresh member sessions in the live sweep do not exercise that boundary.
+- **G30 — ✅ shared usage survives reset and checkpoint restore (PR pending).**
+  SessionStateManager retains the live accumulator when replacing execution state,
+  so runtime writers and metrics readers remain attached after either reset mode
+  and checkpoint restore. Restored values are copied to avoid aliasing caller-owned
+  checkpoint data. A regression reproduces the original stale-reference failure
+  and verifies subsequent response accounting through all three transitions;
+  124 session, metrics, runtime, and size-guard tests passed.
 
 - **G31 — cache observability needs a paired workload replay.** The mixed Victor run
   reported zero InferFlux cache tokens, but controlled direct/gateway probes showed
