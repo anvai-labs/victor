@@ -788,6 +788,17 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
             delegate_reentry_contract=delegate_reentry_contract,
         )
 
+        parallel_isolation = bool(
+            active_formation == TeamFormation.PARALLEL
+            and effective_context.get("parallel_worktree_isolation", False)
+        )
+        if parallel_isolation:
+            effective_context = dict(effective_context)
+            effective_context.update(worktree_isolation=True, materialize_worktrees=True)
+            # Preserve deliverables for review; merging/cleanup remain explicit.
+            effective_context.setdefault("cleanup_worktrees", False)
+            effective_context.setdefault("auto_merge_worktrees", False)
+
         # Wrap team members with participants
         shared_state_with_supervisor = self._active_shared_context()
         context_shared_state = effective_context.get("shared_state")
@@ -865,6 +876,9 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
                 if worktree_overrides_source
                 else {}
             )
+        if parallel_isolation and (worktree_session is None or not worktree_session.materialized):
+            logger.warning("PARALLEL workspace isolation could not be materialized")
+            raise ValueError("PARALLEL workspace isolation requires materialized git worktrees")
         participants = [
             TeamParticipant(
                 member=m,
@@ -3200,6 +3214,14 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
                     model=getattr(team_member, "model", None),
                     temperature=getattr(team_member, "temperature", None),
                     reasoning_effort=getattr(team_member, "reasoning_effort", None),
+                    member_id=team_member.id,
+                    display_name=getattr(team_member, "name", None),
+                    team_id=context.get("team_id"),
+                    plan_id=context.get("plan_id"),
+                    plan_step_id=context.get("plan_step_id"),
+                    parent_session_id=context.get("parent_session_id"),
+                    child_session_id=context.get("child_session_id"),
+                    working_directory=context.get("worktree_path"),
                 )
                 return {
                     "success": getattr(spawn_result, "success", False),
@@ -3207,6 +3229,22 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
                     "error": getattr(spawn_result, "error", None),
                     "tool_calls_used": getattr(spawn_result, "tool_calls_used", 0),
                     "duration_seconds": getattr(spawn_result, "duration_seconds", 0.0),
+                    "metadata": {
+                        key: value
+                        for key, value in (getattr(spawn_result, "details", {}) or {}).items()
+                        if key
+                        in {
+                            "member_id",
+                            "agent_id",
+                            "display_name",
+                            "team_id",
+                            "plan_id",
+                            "plan_step_id",
+                            "parent_session_id",
+                            "child_session_id",
+                            "session_id",
+                        }
+                    },
                 }
 
             return executor

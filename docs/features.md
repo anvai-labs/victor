@@ -142,3 +142,7 @@ same framework through `VictorClient`.
 majority, a one-shot judge verdict, or a synthesizer pass. Opt in with
 `create_ensemble_team` or `create_consensus_team(..., mode="vote")`; all output
 contracts are JSON and malformed proposals or unresolved ties fail explicitly.
+
+**Parallel workspace isolation** — `parallel_worktree_isolation` gives each member
+its own git worktree and binds file/shell paths to that directory. Worktrees remain
+available for review after execution; unsupported tool adapters fail explicitly.

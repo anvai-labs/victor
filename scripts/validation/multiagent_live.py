@@ -33,10 +33,22 @@ from victor.framework.teams import AgentTeam, TeamFormation, TeamMemberSpec
 
 
 async def validate(args):
-    output_dir = Path(args.output_dir).resolve() / f"capacity-{uuid.uuid4().hex[:10]}"
+    output_dir = (
+        Path(args.output_dir).resolve()
+        / f"{'isolation' if args.isolate else 'capacity'}-{uuid.uuid4().hex[:10]}"
+    )
     output_dir.mkdir(parents=True)
     python = WORKTREE / ".venv-codesign/bin/python"
     observed = []
+    member_names = {}
+    if args.isolate:
+        for command in (
+            ["init"],
+            ["config", "user.email", "validation@example.com"],
+            ["config", "user.name", "Validation"],
+            ["commit", "--allow-empty", "-m", "seed"],
+        ):
+            subprocess.run(["git", *command], cwd=output_dir, check=True, capture_output=True)
     async with ClientSession() as upstream:
 
         async def forward(request):
@@ -46,8 +58,15 @@ async def validate(args):
                 assigned = [
                     name
                     for name in ("double", "square", "increment")
-                    if f"Assigned module: {output_dir}/{name}.py" in prompt
+                    if f"Assigned member: {name}." in prompt
                 ]
+                wire_session = request.headers.get("x-inferflux-session-id") or ""
+                if args.ensemble_vote:
+                    assigned = [
+                        name
+                        for identifier, name in member_names.items()
+                        if wire_session.endswith("-" + identifier)
+                    ]
                 observed.append(
                     {
                         "member_name": assigned[0] if len(assigned) == 1 else None,
@@ -111,17 +130,20 @@ async def validate(args):
                 ("square", "x * x", "assert square(5) == 25"),
                 ("increment", "x + 1", "assert increment(9) == 10"),
             ]:
+                module = "member" if args.isolate else name
+                target = Path(".") if args.isolate else output_dir
+                sample = example.replace(name, module)
                 members.append(
                     TeamMemberSpec(
                         role="executor",
                         name=name,
                         goal=(
-                            f"Assigned module: {output_dir}/{name}.py. "
+                            f"Assigned member: {name}. "
                             "Complete these three steps in order:\n"
-                            f"1. Write {output_dir}/{name}.py with function {name}(x) returning {expression}.\n"
-                            f"2. Write {output_dir}/test_{name}.py importing {name} and defining "
-                            f"a pytest function named test_{name} whose body is: {example}.\n"
-                            f"3. Run {python} -m pytest {output_dir}/test_{name}.py -q.\n"
+                            f"1. Write {target}/{module}.py with function {module}(x) returning {expression}.\n"
+                            f"2. Write {target}/test_{module}.py importing {module} and defining "
+                            f"a pytest function named test_{module} whose body is: {sample}.\n"
+                            f"3. Run {python} -m pytest {target}/test_{module}.py -q.\n"
                             "Both files must exist and pytest must collect and pass one test. "
                             "Use write twice, then shell. Return file references and the test result."
                         ),
@@ -130,15 +152,44 @@ async def validate(args):
                         max_iterations=12,
                     )
                 )
-            team = await AgentTeam.from_agent(
-                agent,
-                "Capacity live validation",
-                "Each member delivers its assigned module and passing test.",
-                members,
-                formation=TeamFormation.PARALLEL,
-                shared_context={"capacity_aware_parallelism": True},
-                timeout_seconds=420,
-            )
+            shared = {
+                "capacity_aware_parallelism": not args.isolate,
+                **(
+                    {
+                        "parallel_worktree_isolation": True,
+                        "repo_root": str(output_dir),
+                        "worktree_parent": str(output_dir / "members"),
+                        "branch_prefix": "feat/live-isolation",
+                        "parent_session_id": output_dir.name,
+                    }
+                    if args.isolate
+                    else {}
+                ),
+            }
+            if args.ensemble_vote:
+                goal = members[0].goal.replace(
+                    "Return file references and the test result.",
+                    'Return only JSON {"vote_key":"double","answer":"member.py"} after tests pass.',
+                )
+                team = await AgentTeam.create_ensemble_team(
+                    orchestrator,
+                    "Ensemble live validation",
+                    goal,
+                    members,
+                    shared_context=shared,
+                    timeout_seconds=420,
+                )
+            else:
+                team = await AgentTeam.from_agent(
+                    agent,
+                    "Capacity live validation",
+                    "Each member delivers its assigned module and passing test.",
+                    members,
+                    formation=TeamFormation.PARALLEL,
+                    shared_context=shared,
+                    timeout_seconds=420,
+                )
+            member_names.update({member.id: member.name for member in team._config.members})
             sink = MemberEventSink()
             token = current_member_sink.set(sink)
             try:
@@ -160,18 +211,49 @@ async def validate(args):
             assert all(len(ids) == 1 for ids in member_sessions.values()), member_sessions
             assert len({ids[0] for ids in member_sessions.values()}) == 3, member_sessions
             assert result.success, result.final_output
-            for name in ("double", "square", "increment"):
-                assert (output_dir / f"{name}.py").is_file(), name
-                assert (output_dir / f"test_{name}.py").is_file(), name
-            tests = subprocess.run(
-                [str(python), "-m", "pytest", "-q", str(output_dir)],
-                cwd=output_dir,
-                text=True,
-                capture_output=True,
+            if args.ensemble_vote:
+                assert result.final_output == "member.py", result.final_output
+                assert all(
+                    member.metadata["ensemble_success"] for member in result.member_results.values()
+                )
+            artifact_roots = (
+                [
+                    Path(member.metadata["worktree_assignment"]["worktree_path"])
+                    for member in result.member_results.values()
+                ]
+                if args.isolate
+                else [output_dir]
             )
-            (output_dir / "pytest.log").write_text(tests.stdout + tests.stderr)
-            assert tests.returncode == 0, tests.stdout + tests.stderr
-            assert any(event.kind == MEMBER_THROTTLED for event in events), "Missing throttle event"
+            if args.isolate:
+                assert len(set(artifact_roots)) == 3
+                assert not (output_dir / "member.py").exists()
+                assert session_ids == {
+                    f"{output_dir.name}-{identifier}" for identifier in expected_ids
+                }
+                assert {
+                    member.metadata["session_id"] for member in result.member_results.values()
+                } == session_ids
+            pytest_results = []
+            deliverables = []
+            for root in artifact_roots:
+                names = ("member",) if args.isolate else ("double", "square", "increment")
+                for name in names:
+                    assert (root / f"{name}.py").is_file(), (root, name)
+                    assert (root / f"test_{name}.py").is_file(), (root, name)
+                tests = subprocess.run(
+                    [str(python), "-m", "pytest", "-q", str(root)],
+                    cwd=root,
+                    text=True,
+                    capture_output=True,
+                )
+                (root / "pytest.log").write_text(tests.stdout + tests.stderr)
+                assert tests.returncode == 0, tests.stdout + tests.stderr
+                pytest_results.append(tests.stdout.strip())
+                deliverables.extend(str(path.relative_to(output_dir)) for path in root.glob("*.py"))
+            if not args.isolate:
+                assert any(
+                    event.kind == MEMBER_THROTTLED for event in events
+                ), "Missing throttle event"
             evidence = {
                 "worktree_commit": subprocess.check_output(
                     ["git", "-C", str(WORKTREE), "rev-parse", "HEAD"], text=True
@@ -189,11 +271,13 @@ async def validate(args):
                 "session_ids": sorted(session_ids),
                 "requests": observed,
                 "member_sessions": member_sessions,
-                "pytest": tests.stdout.strip(),
+                "pytest": pytest_results,
+                "isolated": args.isolate,
+                "ensemble_vote": args.ensemble_vote,
                 "throttled_member_ids": [
                     event.member_id for event in events if event.kind == MEMBER_THROTTLED
                 ],
-                "deliverables": sorted(path.name for path in output_dir.glob("*.py")),
+                "deliverables": sorted(deliverables),
             }
             (output_dir / "evidence.json").write_text(json.dumps(evidence, indent=2) + "\n")
             print(json.dumps({"evidence": str(output_dir / "evidence.json"), **evidence}, indent=2))
@@ -210,7 +294,11 @@ def main():
     parser.add_argument("--upstream", default="http://127.0.0.1:8080")
     parser.add_argument("--proxy-port", type=int, default=18081)
     parser.add_argument("--capacity", type=int, default=2)
+    parser.add_argument("--isolate", action="store_true")
+    parser.add_argument("--ensemble-vote", action="store_true")
     args = parser.parse_args()
+    if args.ensemble_vote:
+        args.isolate = True
     asyncio.run(validate(args))
 
 

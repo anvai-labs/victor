@@ -386,6 +386,29 @@ Durability: ensemble aggregation rejects checkpoint/resume before member executi
 The original PARALLEL/CONSENSUS durability contracts are unchanged without this mode.
 No extra formation enum or registry is introduced for this aggregation policy.
 
+### Opt-in PARALLEL worktree isolation (WS-D)
+
+Use `shared_context={"parallel_worktree_isolation": True, "repo_root": "/repo",
+"worktree_parent": "/tmp/member-worktrees", "branch_prefix": "feat/members"}`.
+Each member receives a real git worktree; allocation failure stops the run.
+The default preserves worktrees for inspection and does not auto-merge. Explicit
+`cleanup_worktrees` / `auto_merge_worktrees` retain their existing meanings.
+Defaults without the flag remain unchanged.
+
+Member `allowed_tools` must use supported path adapters: `read`, `write`, `edit`,
+`shell`, `ls`, `find`, or `overview`. Unsupported tools fail with a warning instead
+of running in the parent's directory. `edit` requires structured operation lists.
+Relative filesystem paths and shell `cwd` are rooted per member; absolute paths
+are preserved. This is working-directory isolation, not a shell security sandbox.
+The normal tool safety policy still applies. Nested members inherit bound tools.
+
+Run the worktree's `.venv-codesign/bin/python scripts/validation/multiagent_live.py
+--output-dir /tmp/formation-evidence --isolate` with `INFERFLUX_API_KEY` set.
+Live run `isolation-18b2e5c728` on 2026-09-17 finished in 37.11 seconds: three
+members wrote the same two relative filenames in separate worktrees; each
+worktree's independent pytest run passed; all three actual wire session IDs
+matched configured members and result metadata. See [recorded evidence](evidence/ws-d-isolation.json).
+
 #### WS-C recorded live evidence (2026-09-17)
 
 Run `capacity-b74af535a8`: three executor members, operator-verified capacity two,
@@ -395,3 +418,13 @@ passed**, three distinct observed InferFlux session headers, and one
 The evidence records a dirty working tree because validation preceded the commit.
 Three rejected attempts are retained as observations in G19/G20; completion was
 accepted only after independent artifact and pytest checks.
+
+WS-H R9700 live evidence (2026-09-17): three independent candidates sampled the
+same doubling task in isolated worktrees and returned validated JSON proposals.
+Strict majority selected `member.py`; all six deliverables existed, each worktree's
+pytest run passed, and the three observed session headers matched configured
+member IDs and result metadata. Elapsed: 35.13 seconds.
+Run with `scripts/validation/multiagent_live.py --ensemble-vote --output-dir /tmp/evidence`
+using the worktree `.venv-codesign/bin/python` and `INFERFLUX_API_KEY`.
+See [recorded evidence](evidence/ws-h-ensemble.json). Judge and synthesizer modes
+are unit-validated; this live run validates voting.
