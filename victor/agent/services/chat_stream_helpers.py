@@ -42,6 +42,7 @@ from victor.framework.topology_runtime import prepare_topology_runtime_contract
 from victor.framework.task import TaskComplexity
 from victor.providers.base import Message, StreamChunk
 from victor.providers.openai_compat import consume_last_tool_message_cleanup_stats
+from victor.providers.usage_accounting import accumulate_usage
 
 if TYPE_CHECKING:
     from victor.agent.streaming.context import StreamingChatContext
@@ -265,6 +266,8 @@ class ChatStreamHelperMixin:
             "prompt_tokens": 0,
             "completion_tokens": 0,
             "total_tokens": 0,
+            "reasoning_tokens": 0,
+            "billable_completion_tokens": 0,
             "cache_creation_input_tokens": 0,
             "cache_read_input_tokens": 0,
         }
@@ -1497,8 +1500,7 @@ class ChatStreamHelperMixin:
 
                 raw_usage = getattr(chunk, "usage", None)
                 if raw_usage:
-                    for key in stream_ctx.cumulative_usage:
-                        stream_ctx.cumulative_usage[key] += raw_usage.get(key, 0)
+                    accumulate_usage(stream_ctx.cumulative_usage, raw_usage)
                     logger.debug(
                         f"Chunk usage: in={raw_usage.get('prompt_tokens', 0)} "
                         f"out={raw_usage.get('completion_tokens', 0)} "

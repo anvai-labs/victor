@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from victor.agent.streaming.tool_execution import ToolExecutionHandler
 
 from victor.agent.services.chat_runtime_services import ChatRuntimeServices
+from victor.providers.usage_accounting import accumulate_usage
 
 logger = logging.getLogger(__name__)
 
@@ -442,13 +443,7 @@ class ServiceStreamingRuntime(ChatStreamHelperMixin):
                     if not isinstance(cumulative_usage, dict):
                         cumulative_usage = state_dict.get("_cumulative_token_usage")
                     if isinstance(cumulative_usage, dict):
-                        for key, value in ctx.cumulative_usage.items():
-                            if key in cumulative_usage:
-                                cumulative_usage[key] += value
-                        if cumulative_usage.get("total_tokens", 0) == 0:
-                            cumulative_usage["total_tokens"] = cumulative_usage.get(
-                                "prompt_tokens", 0
-                            ) + cumulative_usage.get("completion_tokens", 0)
+                        accumulate_usage(cumulative_usage, ctx.cumulative_usage)
 
                     # Close the cost-measurement wire (C0): the service streaming runtime
                     # never finalized stream metrics, so per-turn tokens/cost stayed 0 and the

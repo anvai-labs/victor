@@ -755,19 +755,19 @@ def test_installed_minor_read_from_binding(monkeypatch):
 
 
 def test_handshake_accepts_current_known_minor(monkeypatch, caplog):
-    """The 0.1.5 floor speaks contract minor 6 (UsageV2.basis + run cost tree);
+    """The 0.7.0 pin speaks contract minor 8 (reasoning inclusion + timing sources);
     the handshake reads it exactly and does not warn it is 'ahead'."""
     import types
 
-    assert st.KNOWN_CONTRACT_MINOR == 6
+    assert st.KNOWN_CONTRACT_MINOR == 8
     fake_sg = types.SimpleNamespace(
-        wire_contract_version=lambda: "1", chat_contract_minor=lambda: 6
+        wire_contract_version=lambda: "1", chat_contract_minor=lambda: 8
     )
     monkeypatch.setitem(sys.modules, "sandhi_gateway", fake_sg)
     monkeypatch.setattr(st, "_wire_contract_checked", False)
     monkeypatch.setattr(st, "_installed_contract_minor", 0)
     with caplog.at_level("INFO"):
-        assert st.installed_chat_contract_minor() == 6
+        assert st.installed_chat_contract_minor() == 8
     assert not any("ahead of victor" in r.getMessage() for r in caplog.records)
 
 

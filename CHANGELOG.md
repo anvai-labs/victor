@@ -3,7 +3,29 @@
 All notable changes to Victor are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased] (develop)
+## [Unreleased] — focused v0.9.5 co-design candidate
+
+This candidate is cut from protected `main` at `4e4e0d6405b4ff2a353aafa9adce1aac8aa4e993`,
+not from the broader v0.10.0 develop promotion. Independent review, second-account approval,
+canonical CI, main promotion, exact-main verification and publication are still required.
+
+### Fixed
+
+- Preserve Sandhi's boolean reasoning-inclusion convention through response and stream models;
+  fold separate reasoning into billable output once per call before aggregation and session pricing.
+- Retain raw completion counts alongside billable completion counts, preserve reported totals,
+  and include separate reasoning when deriving missing totals.
+- Preserve independent origin/boundary timing provenance through transport and canonical metrics;
+  reject invalid timing values and avoid assigning stale provenance to later measurements.
+
+### Changed
+
+- Pin `sandhi-gateway==0.7.0` in package metadata and all three existing deployment snapshots,
+  and recognize chat contract minor 8. No other deployment dependency versions are refreshed.
+- Add production-stream/accounting regressions. Provider defaults, tool/session behavior,
+  reasoning replay policy, TUI, MCP and workflow/runtime changes from develop are not included.
+
+## Historical v0.9.4 preparation record
 
 ### Security
 

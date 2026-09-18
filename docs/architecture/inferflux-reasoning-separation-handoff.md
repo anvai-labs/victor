@@ -1,7 +1,7 @@
 # InferFlux reasoning-separation consumer contract
 
-**Date:** 2026-09-15 · **Status:** Stream consumption and usage accounting implemented.
-Context replay policy remains a separate product decision.
+**Date:** 2026-09-17 · **Status:** Focused v0.9.5 consumer correction candidate; review,
+CI, main promotion and publication pending. Context replay policy remains a separate product decision.
 
 ## Context
 
@@ -31,6 +31,26 @@ Victor consumes the resulting typed events through Sandhi and keeps format-speci
 of the framework and runtime layers.
 
 ## Current Victor behavior
+
+The focused v0.9.5 candidate starts at protected main
+`4e4e0d6405b4ff2a353aafa9adce1aac8aa4e993`. It carries only consumer usage/accounting
+corrections and their tests from `f6776dc59`, `502a46355`, `6140260d2` and `730a47a30`,
+plus aligned dependency pins and release records. It does not include the broader v0.10.0
+develop cut, tool/session changes, FEP-0034, provider-default changes or new TUI/MCP behavior.
+
+`pyproject.toml` and all three existing deployment snapshots pin `sandhi-gateway==0.7.0`;
+the transport recognizes chat contract minor 8. The candidate preserves boolean
+`reasoning_included`, folds separate reasoning into billable output per call before aggregation,
+and carries the result through stream finalization and session pricing. Raw completion counts
+remain separately observable. Explicit provider totals are retained; fallback totals include
+separate reasoning. Duration and TTFT keep independent origin/boundary provenance.
+
+Sandhi 0.7.0 is published and independently verified. Fresh validation of this focused source
+with its published binding passed all 18 three-repository CPU/stub probes, using the earlier
+reviewed InferFlux `3f45fed87` runtime binary. That binary is not a build of InferFlux's later
+exact-main `12cf` revision, and these results establish wire behavior, not loaded-model or
+publication readiness. Earlier candidate results remain historical. Detailed local evidence and
+open gates are recorded in the [release checkpoint](../release-readiness-mvp.md#focused-v095-co-design-candidate).
 
 `tests/unit/providers/test_sandhi_event_conformance.py` pins Sandhi's `reasoning_delta` event to
 `chunk.metadata["reasoning_content"]`. Its InferFlux-shaped typed-event fixture verifies that
@@ -73,9 +93,11 @@ or trimming policy; InferFlux and Sandhi remain authoritative for the producer a
 
 ## Verification
 
-- The focused Sandhi contract and transport suite passes 96 tests. The change adds contract
-  assertions without changing runtime behavior.
-- Manual e2e (once, not CI-gated): a real InferFlux reasoning-model call, through Sandhi, into
+- The original #1066 consumer-contract change passed 96 tests without changing runtime behavior.
+  That is historical evidence; this v0.9.5 correction changes accounting and provenance handling.
+- New regressions cover inclusion preservation, per-call accumulation, real production stream
+  consumption/finalization, session pricing, reported/fallback totals and canonical timing labels.
+- Still required for broader behavioral acceptance: a real InferFlux reasoning-model call, through Sandhi, into
   a Victor session — confirm `reasoning_content` displays separately from the final answer in
   whatever UI surface renders it (grep found `test_stream_renderer.py`,
   `test_event_dispatcher.py`, `test_console_rendering_e2e.py` as the render-side tests most
