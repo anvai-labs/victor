@@ -16,29 +16,71 @@ red-before / green-after.
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from victor.framework.agentic_loop import AgenticLoop, LoopResult
 from victor.framework.loop import guards as loop_guards
+from victor.agent.task_analyzer import TaskAnalysis, TaskAnalyzer
+from victor.framework.task.protocols import TaskComplexity
+from victor.framework.evaluation_nodes import EvaluationDecision, EvaluationResult
+from victor.agent.services.turn_execution_runtime import TurnResult
+from victor.providers.base import CompletionResponse
+
+
+@pytest.fixture(autouse=True)
+def deterministic_task_analysis(monkeypatch):
+    """Keep real perception/offloading, without loading classifiers or plugins."""
+
+    def analyze(self, query, context=None):
+        return TaskAnalysis(
+            complexity=TaskComplexity.SIMPLE,
+            tool_budget=10,
+            complexity_confidence=1.0,
+        )
+
+    monkeypatch.setattr(TaskAnalyzer, "analyze", analyze)
+
+
+def continuing_loop(max_iterations):
+    """Exercise real loop termination with an explicitly nonterminal workload."""
+    loop = AgenticLoop(
+        orchestrator=MagicMock(spec=[]),
+        max_iterations=max_iterations,
+        enable_fulfillment_check=False,
+        enable_adaptive_iterations=False,
+        config={"enable_topology_routing": False, "disable_enhanced_completion": True},
+    )
+    loop._act = AsyncMock(
+        return_value=TurnResult(response=CompletionResponse(content="", role="assistant"))
+    )
+    loop._evaluate = AsyncMock(
+        side_effect=lambda *args: EvaluationResult(
+            decision=EvaluationDecision.CONTINUE, score=0.5, reason="Work remains"
+        )
+    )
+    return loop
 
 
 @pytest.mark.timeout(30)
 class TestIterationBoundHolds:
-    async def test_never_complete_loop_stops_at_max_iterations(self):
+    @pytest.mark.parametrize("max_iterations", [1, 4])
+    async def test_never_complete_loop_stops_at_max_iterations(self, max_iterations):
         # A stub orchestrator that never signals COMPLETE must still terminate
         # within max_iterations (the iteration axis is bounded).
-        loop = AgenticLoop(
-            orchestrator=MagicMock(spec=[]),
-            max_iterations=4,
-            enable_fulfillment_check=False,
-            enable_adaptive_iterations=False,
-        )
+        loop = continuing_loop(max_iterations)
         result = await loop.run("Do something that never completes")
         assert isinstance(result, LoopResult)
         # Adaptive extension is off, so iterations must not exceed the cap.
-        assert len(result.iterations) <= 4
+        assert len(result.iterations) == max_iterations
+        assert loop._act.await_count == max_iterations
+        assert loop._evaluate.await_count == max_iterations
+        assert all(
+            iteration.evaluation.decision == EvaluationDecision.CONTINUE
+            for iteration in result.iterations
+        )
+        assert result.success is False
         assert result.total_duration < 20  # fast, not a spin
 
 
@@ -62,17 +104,12 @@ class TestPerceptionOncePerIteration:
             "victor.framework.loop.guards.set_current_guards", _capture, raising=False
         )
 
-        loop = AgenticLoop(
-            orchestrator=MagicMock(spec=[]),
-            max_iterations=3,
-            enable_fulfillment_check=False,
-            enable_adaptive_iterations=False,
-        )
+        loop = continuing_loop(3)
         await loop.run("A healthy bounded task")
 
         g = captured.get("guards")
         assert g is not None, "loop must install LoopGuards"
-        assert g.iteration_count >= 1
+        assert g.iteration_count == 3
         # Healthy invariant: perception is called exactly once per iteration.
         assert g.perception_calls == g.iteration_count, (
             f"perception_calls={g.perception_calls} != iterations={g.iteration_count} "
