@@ -1601,3 +1601,36 @@ async def test_recovery_provider_usage_is_counted_once_including_empty_attempts(
     # Reusing an already complete response does not re-account its generation.
     await executor._ensure_complete_response(response, context)
     assert executor._chat_context._cumulative_token_usage["total_tokens"] == expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failed_tools", [False, True])
+async def test_empty_recovery_records_one_fallback_message(failed_tools):
+    from victor.agent.conversation.types import MESSAGE_SOURCE_METADATA_KEY, MessageSource
+
+    from victor.agent.response_completer import (
+        CompletionResult,
+        CompletionStatus,
+        ToolFailureContext,
+    )
+
+    executor = _make_executor()
+    executor._provider_context.temperature = 0.2
+    executor._provider_context.max_tokens = 100
+    executor._provider_context.response_completer = SimpleNamespace(
+        ensure_response=AsyncMock(return_value=CompletionResult(status=CompletionStatus.EMPTY)),
+        format_tool_failure_message=lambda context: "The write tool failed.",
+    )
+    context = ToolFailureContext(failed_tools=[{"name": "write"}] if failed_tools else [])
+    response = await executor._ensure_complete_response(None, context)
+    expected = (
+        "The write tool failed."
+        if failed_tools
+        else "I was unable to generate a complete response. Please try rephrasing your request."
+    )
+    assert response.content == expected
+    executor._chat_context.add_message.assert_called_once_with(
+        "assistant",
+        expected,
+        metadata={MESSAGE_SOURCE_METADATA_KEY: MessageSource.AGENT_RESPONSE.value},
+    )
