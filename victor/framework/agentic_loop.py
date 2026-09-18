@@ -1349,7 +1349,8 @@ class AgenticLoop:
                 # DECIDE
                 logger.info(f"[Iteration {i}/{effective_max}] DECIDE: {evaluation.decision}")
                 iteration.stage = LoopStage.DECIDE
-                iteration.evaluation = evaluation
+                if getattr(self, "_verifier", None) is not None:
+                    iteration.evaluation = evaluation
                 iterations.append(iteration)
 
                 # Check termination conditions
@@ -1358,7 +1359,8 @@ class AgenticLoop:
                 # be considered done yet.
                 if evaluation.decision == EvaluationDecision.COMPLETE:
                     evaluation = self._apply_backslide_guard(evaluation)
-                    iteration.evaluation = evaluation
+                    if getattr(self, "_verifier", None) is not None:
+                        iteration.evaluation = evaluation
                     # FEP-0018: framework verification hook — verify before accepting.
                     if await self._maybe_verify_and_retry(i, evaluation, state, streaming=False):
                         continue  # re-enter the loop (skip break)

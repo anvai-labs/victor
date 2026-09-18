@@ -445,14 +445,15 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   exactly 1 or 4 iterations; perception must run once per iteration. The original
   20s assertion and 30s timeout remain. Five focused tests passed in 2.66s, and
   135 completion/intent/perception tests passed. Production classifiers are unchanged.
-- **G35 — ✅ verification retry exhaustion cannot accept COMPLETE (PR pending).**
+- **G35 — ✅ verification retry exhaustion cannot accept COMPLETE ([PR #1122](https://github.com/anvai-labs/victor/pull/1122)).**
   The shared buffered/streaming verification gate previously skipped zero-budget
   checks and the last repair attempt, and could leave failed verification marked
   COMPLETE when the outer iteration limit fired. It now checks every completion
   claim, records structured results, and changes unsuccessful evaluations to RETRY
   or FAIL with zero reward score. Configured verification bypasses cached prose;
   unsupported StateGraph and iteration-stream paths fail explicitly. Default runs
-  without a verifier retain their behavior. This is prerequisite correctness for
+  without a verifier retain their behavior. Validation: 81 focused gate/loop tests
+  plus 127 loop/integration/session-ledger/size-guard tests passed. This is prerequisite correctness for
   G32 experiments, not evidence that either model now passes the formation battery.
 - **G36 — built-in verifier process outcomes need structured acceptance.**
   LocalTestVerifier parses test-count prose and can ignore a nonzero process exit
