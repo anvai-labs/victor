@@ -1565,6 +1565,8 @@ def test_iteration_budget_override_does_not_mutate_settings():
 @pytest.mark.parametrize("failure", [False, True])
 async def test_recovery_provider_usage_is_counted_once_including_empty_attempts(failure):
     from victor.agent.response_completer import ResponseCompleter, ToolFailureContext
+    from victor.agent.services.metrics_service import AgentMetricsService
+    from victor.agent.session_cost_tracker import SessionCostTracker
 
     responses = [
         CompletionResponse(
@@ -1585,6 +1587,10 @@ async def test_recovery_provider_usage_is_counted_once_including_empty_attempts(
         "completion_tokens": 0,
         "total_tokens": 0,
     }
+    metrics = AgentMetricsService(
+        MagicMock(), SessionCostTracker(), executor._chat_context._cumulative_token_usage
+    )
+    metrics.start_task_report("recover a response")
     executor._chat_context.messages = []
     executor._provider_context.response_completer = ResponseCompleter(provider)
     executor._provider_context.temperature = 0.2
@@ -1601,6 +1607,7 @@ async def test_recovery_provider_usage_is_counted_once_including_empty_attempts(
     # Reusing an already complete response does not re-account its generation.
     await executor._ensure_complete_response(response, context)
     assert executor._chat_context._cumulative_token_usage["total_tokens"] == expected
+    assert metrics.finish_task_report(not failure)["api_total_tokens"] == expected
 
 
 @pytest.mark.asyncio

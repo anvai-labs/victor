@@ -10,6 +10,8 @@ import pytest
 
 from victor.agent.session_cost_tracker import SessionCostTracker
 from victor.agent.services.metrics_service import AgentMetricsService
+from victor.agent.services.turn_execution_runtime import TurnExecutor
+from victor.providers.base import CompletionResponse
 
 
 def _make_metrics_coordinator() -> AgentMetricsService:
@@ -143,6 +145,36 @@ def test_task_report_captures_token_deltas_and_success_average():
     assert report["metadata"]["compaction_reason"] == "pre_tool_output"
     assert report["metadata"]["compaction_policy_reason"] == "tool_output_exceeds_remaining_budget"
     assert coordinator.get_last_task_report()["task_id"] == report["task_id"]
+
+
+def test_buffered_task_reports_use_runtime_counters_across_task_boundaries():
+    cumulative = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+    tracker = SessionCostTracker(provider="unknown", model="test-model")
+    coordinator = AgentMetricsService(MagicMock(), tracker, cumulative)
+    executor = TurnExecutor(
+        chat_context=SimpleNamespace(_cumulative_token_usage=cumulative),
+        tool_context=MagicMock(),
+        provider_context=MagicMock(),
+        execution_provider=MagicMock(),
+    )
+    response = CompletionResponse(
+        content="ok",
+        role="assistant",
+        usage={"prompt_tokens": 19, "completion_tokens": 7, "total_tokens": 26},
+    )
+    # Usage before the task belongs to the session, not this task's delta.
+    executor._accumulate_token_usage(response)
+    for count, success in ((2, True), (1, False), (0, True)):
+        coordinator.start_task_report("buffered task")
+        for _ in range(count):
+            executor._accumulate_token_usage(response)
+        report = coordinator.finish_task_report(success)
+        assert report["api_prompt_tokens"] == 19 * count
+        assert report["api_completion_tokens"] == 7 * count
+        assert report["api_total_tokens"] == 26 * count
+    assert coordinator.get_token_usage().total_tokens == 104
+    # Token reporting does not pretend the unwired buffered cost tracker was updated.
+    assert tracker.total_tokens == 0
 
 
 def test_task_report_promotes_workspace_policy_and_diagnostics():

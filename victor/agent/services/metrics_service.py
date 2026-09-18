@@ -717,27 +717,16 @@ class AgentMetricsService:
         if request_count is None and isinstance(tracker_requests, list):
             request_count = len(tracker_requests)
 
-        # Source token counts from the SessionCostTracker summary — the same authoritative
-        # cumulative the cache/cost fields below already read, and the one `finalize_stream_metrics`
-        # actually updates per turn via `record_request`. The legacy `_cumulative_token_usage`
-        # dict has no writer in the service path (`update_cumulative_token_usage` is unused), so
-        # reading it produced total_tokens=0 task reports despite real usage. Fall back to it only
-        # if the tracker summary is unavailable.
+        # Both buffered TurnExecutor calls (including recovery) and the streaming
+        # runtime update this session accumulator. The cost tracker is finalized
+        # only by streaming, so its token summary cannot represent buffered tasks.
+        # Read one token source; never add the tracker copy or select the larger total.
+        # Cache/cost/request fields retain their existing tracker semantics until
+        # buffered cost recording is integrated separately (handoff G34).
         return _TaskUsageSnapshot(
-            prompt_tokens=int(
-                token_summary.get("prompt", self._cumulative_token_usage.get("prompt_tokens", 0))
-                or 0
-            ),
-            completion_tokens=int(
-                token_summary.get(
-                    "completion",
-                    self._cumulative_token_usage.get("completion_tokens", 0),
-                )
-                or 0
-            ),
-            total_tokens=int(
-                token_summary.get("total", self._cumulative_token_usage.get("total_tokens", 0)) or 0
-            ),
+            prompt_tokens=int(self._cumulative_token_usage.get("prompt_tokens", 0) or 0),
+            completion_tokens=int(self._cumulative_token_usage.get("completion_tokens", 0) or 0),
+            total_tokens=int(self._cumulative_token_usage.get("total_tokens", 0) or 0),
             cached_tokens=int(self._cumulative_token_usage.get("cached_tokens", 0) or 0),
             cache_read_tokens=int(
                 token_summary.get(
