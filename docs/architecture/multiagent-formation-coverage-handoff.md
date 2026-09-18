@@ -407,7 +407,7 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   a successful recovery summary without the requested test file. The independent
   artifact gate rejected it. A clearer task passed the rerun; classifiers were not
   changed. Follow-up must use the paired guard experiment process before tuning.
-- **G29 — ✅ task-report API tokens use the shared session accumulator (PR pending).**
+- **G29 — ✅ task-report API tokens use the shared session accumulator ([PR #1121](https://github.com/anvai-labs/victor/pull/1121)).**
   Buffered members and recovery calls updated the live accumulator while task
   reports preferred the streaming-only cost tracker, producing zero API tokens.
   Reports now derive prompt/completion/total deltas from the same counters used by
