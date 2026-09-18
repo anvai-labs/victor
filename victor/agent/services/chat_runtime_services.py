@@ -9,6 +9,7 @@ The view freezes its bindings while preserving the session owner's live state.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 from typing import Protocol
 
@@ -83,6 +84,7 @@ class ChatRuntimeServices:
     """Explicit capabilities already migrated from the chat runtime facade."""
 
     session: TaskRequirementState
+    stream_turn_lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False, compare=False)
     delivery: ChatDelivery = field(default_factory=ChatDelivery)
     # Recovery is a turn capability, not a property of the orchestrator facade.
     recovery: object | None = None

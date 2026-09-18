@@ -6,6 +6,7 @@ The orchestrator delegates session state access through this class.
 
 from __future__ import annotations
 
+import asyncio
 from typing import Dict, List, Set, Tuple, TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -22,6 +23,12 @@ class SessionStateAccessor:
 
     def __init__(self, session_state: SessionStateManager) -> None:
         self._session_state = session_state
+        self._stream_turn_lock = asyncio.Lock()
+
+    @property
+    def stream_turn_lock(self) -> asyncio.Lock:
+        """Return the concurrency gate shared by streaming views of this session."""
+        return self._stream_turn_lock
 
     @property
     def session_state(self) -> SessionStateManager:

@@ -125,11 +125,12 @@ EXPECTED_WIRE_CONTRACT = "1"
 # 3 = wire-truth latency on UsageV2 (sandhi#97); 4 = reasoning_effort +
 # thinking typed request fields (W3d/G7); 5 = UsageV2.basis measured-vs-estimated
 # (TD-0013 D5); 6 = RunCostTreeV1 server-side run cost tree (ADR-0005 D7,
-# sandhi PR #149). The installed runtime's minor is read once by the handshake
+# sandhi PR #149); 7 = explicit reasoning inclusion; 8 = origin/boundary timing
+# provenance. The installed runtime's minor is read once by the handshake
 # below; bindings predating chat_contract_minor() report 0 — their documents
 # simply never carry the newer fields, which every consumer tolerates by
 # construction. installed_minor > KNOWN stays valid forward-compat.
-KNOWN_CONTRACT_MINOR = 6
+KNOWN_CONTRACT_MINOR = 8
 
 # The typed request fields land at minor 4 (W3d/G7). Below it, the runtime has
 # no such fields, so Victor dual-writes into extensions and only drops the
@@ -591,8 +592,8 @@ def _native_only_usage(raw_usage: Any) -> Dict[str, int]:
     return fields
 
 
-def _latency_fields(usage: Any) -> Dict[str, int]:
-    """Wire-truth latency measured at sandhi's typed boundary (W3b).
+def _latency_fields(usage: Any) -> Dict[str, Any]:
+    """Preserve Sandhi's timing values and per-field measurement provenance.
 
     Present from contract minor 3, so guaranteed at victor's >= 0.3.0 floor;
     the field-shape checks below stay tolerant-absent defensively. Carried on
@@ -601,11 +602,18 @@ def _latency_fields(usage: Any) -> Dict[str, int]:
     """
     if not isinstance(usage, dict):
         return {}
-    fields: Dict[str, int] = {}
+    fields: Dict[str, Any] = {}
     for key in ("duration_ms", "time_to_first_token_ms"):
         value = usage.get(key)
-        if isinstance(value, (int, float)) and value >= 0:
+        if (
+            isinstance(value, (int, float))
+            and not isinstance(value, bool)
+            and 0 <= value < float("inf")
+        ):
             fields[key] = int(value)
+            source_key = key.removesuffix("_ms") + "_source"
+            if usage.get(source_key) in ("origin", "boundary"):
+                fields[source_key] = usage[source_key]
     return fields
 
 
@@ -888,7 +896,7 @@ class SandhiTypedProviderMixin:
         )
         calls: Dict[int, Dict[str, Any]] = {}
         finish_reason: Optional[str] = None
-        usage: Optional[Dict[str, int]] = None
+        usage: Optional[Dict[str, int | bool]] = None
         usage_diagnostics: Optional[Dict[str, Any]] = None
         try:
             async for event_json in provider.stream_json(json.dumps(request), wire_headers):

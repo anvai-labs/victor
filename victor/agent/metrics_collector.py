@@ -320,12 +320,16 @@ class MetricsCollector:
             "total_chunks": metrics.total_chunks,
             "prompt_tokens": metrics.prompt_tokens,
             "completion_tokens": metrics.completion_tokens,
-            "total_tokens": metrics.prompt_tokens + metrics.completion_tokens,
+            "billable_completion_tokens": metrics.billable_completion_tokens,
+            "total_tokens": metrics.total_tokens,
             "cache_read_tokens": metrics.cache_read_tokens,
             "cache_write_tokens": metrics.cache_write_tokens,
         }
         if metrics.reasoning_tokens:
             log_data["reasoning_tokens"] = metrics.reasoning_tokens
+        for source in ("duration_source", "time_to_first_token_source"):
+            if source in metrics.metadata:
+                log_data[source] = metrics.metadata[source]
         if metrics.cost_calculated:
             log_data["total_cost"] = metrics.total_cost
         if provider_diagnostics:

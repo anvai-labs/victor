@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Callable, Dict, List, Optional
 
 from victor.providers.base import StreamChunk
+from victor.providers.usage_accounting import billable_completion_tokens, usage_total_tokens
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +67,9 @@ class StreamMetrics:
     # reasoning_tokens). May be folded into completion_tokens depending on the
     # provider — see calculate_cost for the folding-aware pricing rule.
     reasoning_tokens: int = 0
+    # Fold per call before summing: inclusion can differ between calls/providers.
+    _unfolded_reasoning_tokens: int = 0
+    _has_recorded_reasoning: bool = False
 
     # Cost tracking (USD)
     input_cost: float = 0.0
@@ -95,27 +99,50 @@ class StreamMetrics:
         if usage:
             self.prompt_tokens += usage.get("prompt_tokens", 0)
             self.completion_tokens += usage.get("completion_tokens", 0)
-            self.total_tokens += usage.get("total_tokens", 0)
+            self.total_tokens += usage_total_tokens(usage)
 
             # Cache tokens (Anthropic-style naming)
             self.cache_read_tokens += usage.get("cache_read_input_tokens", 0)
             self.cache_write_tokens += usage.get("cache_creation_input_tokens", 0)
             self.reasoning_tokens += usage.get("reasoning_tokens", 0)
+            self._unfolded_reasoning_tokens += billable_completion_tokens(usage) - usage.get(
+                "completion_tokens", 0
+            )
+            self._has_recorded_reasoning = True
 
             # Mark as actual usage if we got non-zero values
-            if self.prompt_tokens > 0 or self.completion_tokens > 0:
+            if self.prompt_tokens > 0 or self.billable_completion_tokens > 0:
                 self.has_actual_usage = True
+
+    @property
+    def billable_completion_tokens(self) -> int:
+        """Output used for pricing, retaining the reported completion count separately."""
+        unfolded_reasoning = (
+            self._unfolded_reasoning_tokens
+            if self._has_recorded_reasoning
+            else (self.reasoning_tokens if self.reasoning_tokens > self.completion_tokens else 0)
+        )
+        return self.completion_tokens + unfolded_reasoning
 
     def record_wire_latency(self, sandhi_usage: Optional[Dict[str, Any]]) -> None:
         """Record wire-truth latency from the terminal chunk's diagnostics."""
         if not isinstance(sandhi_usage, dict):
             return
-        duration = sandhi_usage.get("duration_ms")
-        if isinstance(duration, (int, float)) and duration >= 0:
-            self.wire_duration_ms = int(duration)
-        ttft = sandhi_usage.get("time_to_first_token_ms")
-        if isinstance(ttft, (int, float)) and ttft >= 0:
-            self.wire_ttft_ms = int(ttft)
+        for key, attribute in (
+            ("duration_ms", "wire_duration_ms"),
+            ("time_to_first_token_ms", "wire_ttft_ms"),
+        ):
+            value = sandhi_usage.get(key)
+            if (
+                isinstance(value, (int, float))
+                and not isinstance(value, bool)
+                and 0 <= value < float("inf")
+            ):
+                setattr(self, attribute, int(value))
+                source_key = key.removesuffix("_ms") + "_source"
+                self.metadata.pop(source_key, None)
+                if sandhi_usage.get(source_key) in ("origin", "boundary"):
+                    self.metadata[source_key] = sandhi_usage[source_key]
 
     def calculate_cost(self, capabilities: Any) -> None:
         """Calculate cost using provider capabilities.
@@ -126,18 +153,9 @@ class StreamMetrics:
         if not capabilities or not capabilities.cost_enabled:
             return
 
-        # Folding invariant (mirrors sandhi billable()): providers either fold
-        # reasoning tokens into completion_tokens (OpenAI, Anthropic) or report
-        # them separately (Gemini). Unfolded reasoning is billed output that
-        # completion_tokens does not contain — price it at the output rate.
-        # Detection is total: reasoning that cannot fit inside completion_tokens
-        # is unfolded; otherwise assume folded and never double-count.
-        unfolded_reasoning = (
-            self.reasoning_tokens if self.reasoning_tokens > self.completion_tokens else 0
-        )
         costs = capabilities.calculate_cost(
             self.prompt_tokens,
-            self.completion_tokens + unfolded_reasoning,
+            self.billable_completion_tokens,
             self.cache_read_tokens,
             self.cache_write_tokens,
         )

@@ -223,7 +223,7 @@ rpds-py==2026.6.3
     #   referencing
 safetensors==0.8.0
     # via transformers
-sandhi-gateway==0.5.0
+sandhi-gateway==0.7.0
     # via victor-ai (pyproject.toml)
 scikit-learn==1.9.1
     # via sentence-transformers

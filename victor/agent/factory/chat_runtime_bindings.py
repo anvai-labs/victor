@@ -33,6 +33,7 @@ def bind_chat_runtime_services(runtime_owner: Any) -> ChatRuntimeServices:
         )
     return ChatRuntimeServices(
         session=SessionTaskRequirementState(accessor),
+        stream_turn_lock=accessor.stream_turn_lock,
         delivery=ChatDelivery(
             chunks=getattr(owner, "_chunk_generator", None),
             sanitizer=getattr(owner, "sanitizer", None),
