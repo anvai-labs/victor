@@ -403,9 +403,17 @@ class ServiceStreamingRuntime(ChatStreamHelperMixin):
         # and finalization in one critical section so overlapping callers cannot replace
         # or clear another turn's state.
         async with self.services.stream_turn_lock:
-            async with aclosing(self._stream_chat_exclusive(user_message, **kwargs)) as stream:
+            async with aclosing(self.stream_chat_under_turn_lock(user_message, **kwargs)) as stream:
                 async for chunk in stream:
                     yield chunk
+
+    async def stream_chat_under_turn_lock(
+        self, user_message: str, **kwargs: Any
+    ) -> AsyncIterator["StreamChunk"]:
+        """Stream for a ChatService caller that already owns the session turn lock."""
+        async with aclosing(self._stream_chat_exclusive(user_message, **kwargs)) as stream:
+            async for chunk in stream:
+                yield chunk
 
     async def _stream_chat_exclusive(
         self, user_message: str, **kwargs: Any

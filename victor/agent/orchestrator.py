@@ -765,14 +765,14 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
                     name="turn_executor",
                 ),
                 planning_handler=self._get_planning_chat_runtime().run,
-                stream_chat_handler=chat_stream_adapter.stream_chat,
+                stream_chat_handler=chat_stream_adapter.stream_chat_under_turn_lock,
                 context_limit_handler=self._get_context_limit_runtime().handle_limits,
                 task_report_start_handler=self._start_task_report,
                 task_report_finish_handler=self._finish_task_report,
                 turn_setup_handler=self._prepare_chat_service_turn_runtime,
                 turn_teardown_handler=self._teardown_chat_service_turn_runtime,
+                stream_turn_lock=chat_stream_adapter.services.stream_turn_lock,
             )
-
         if self._provider_service is not None and hasattr(
             self._provider_service, "bind_runtime_components"
         ):
