@@ -434,12 +434,15 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   Follow-up: retain both model traces, isolate tool/prose and artifact-validity
   decisions under FEP-0025, and separately measure CPU admission/deadline behavior.
   Keep strict structured verdicts and independent pytest as acceptance gates.
-- **G33 — existing spin-guard wall-clock failure.** The WS-F diagnostic
-  suite's iteration-bound test stayed within four iterations but failed its <20s
-  duration assertion twice (22.68s / 23.38s) with plugin startup logs. Isolate
-  external initialization from the loop-bound invariant and separately measure
-  startup; do not simply raise the threshold. No production loop or test threshold
-  was changed in WS-F.
+- **G33 — ✅ deterministic spin-guard regression coverage ([PR #1119](https://github.com/anvai-labs/victor/pull/1119)).** The
+  failing test mixed classifier/plugin initialization with its loop deadline and
+  could pass the iteration assertion after an unrelated early failure. Tests now
+  supply deterministic TaskAnalysis while retaining the real perception/offload
+  seam, loop counters, and timeout limits. A nonterminal workload must execute
+  exactly 1 or 4 iterations; perception must run once per iteration. The original
+  20s assertion and 30s timeout remain. Five focused tests passed in 2.66s, and
+  135 completion/intent/perception tests passed. Production classifiers are unchanged.
+
 
 WS-E implementation/evidence: [PR #1115](https://github.com/anvai-labs/victor/pull/1115).
 
