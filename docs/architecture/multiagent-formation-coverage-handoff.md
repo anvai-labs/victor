@@ -24,6 +24,10 @@ The original six below were verified live on
 | CONSENSUS | ✅ 18.5s | agreement reached in one pass |
 | REFLECTION | ✅ 48.2s | generator→critic→refine, early exit |
 
+The WS-F paired artifact battery (2026-09-18) uses a different strict task and
+records failures separately: [matrix and follow-ups](multiagent-edge-model-battery.md).
+Its Qwen 1/6 and small-MoE 0/6 results do not establish general edge-model support.
+
 ### 1.2 Additional surfaces — verification status
 
 The original matrix omitted these surfaces; follow-up validation is recorded per item:
@@ -315,9 +319,13 @@ G1–G13 come from the co-design sessions and code audit; G14–G16 from the §2
 - **G12 — ✅ formation-aware tool supply documented (WS-C, [PR #1110](https://github.com/anvai-labs/victor/pull/1110)).** Member `allowed_tools`
   narrows the registry before provider supply. The live capacity run supplied four
   filesystem/shell tools per member; global pruning defaults remain unchanged.
-- **G13 — guard tuning is a two-model sample.** Narration/intent/refusal classifiers
-  were tuned on Qwen3-Coder-30B + GLM-5.3 only. Before claiming edge-model support,
-  run the same matrix on a small local model (qwen3.5:2b class) and record deltas.
+- **G13 — ✅ edge-model battery executed (WS-F; PR reference pending).** The same
+  six-formation harness ran against Qwen3-Coder-30B/ROCm and the available
+  LFM2.5-8B-A1B/CPU small MoE through Sandhi. Strict artifact gates passed 1/6 and
+  0/6 respectively; failures and deadline limits are retained, not reported as
+  support. [Matrix and evidence](multiagent-edge-model-battery.md) record the
+  differences and follow-ups G32/G33. No classifiers were tuned; dense 2B support
+  remains unvalidated.
 - **G14 — ✅ shared-transcript substrate and conversation formations (WS-G, [PR #1113](https://github.com/anvai-labs/victor/pull/1113)).**
   FEP-0035 ([PR #1112](https://github.com/anvai-labs/victor/pull/1112)) defines bounded immutable transcript snapshots, explicit speaker
   selection/termination, and consumer decisions. GROUP_CHAT and DEBATE have enum,
@@ -417,6 +425,21 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   /home/vsingh/code/inferflux/docs/planning/SANDHI_CACHE_CODESIGN_HANDOFF_2026-09-18.md.
   Follow-ups cover actual-reuse accounting, path diagnostics, and distinguishing
   absent cache fields from explicit zero. No caching heuristic was changed in Victor.
+
+- **G32 — edge/baseline completion guard gaps (WS-F).** Successful member status
+  did not imply complete artifacts. Qwen omitted requested test files in four
+  formations and emitted invalid REFLECTION JSON; LFM emitted proposed commands
+  as final text and literal backslash-n in Python files. Four LFM cases also hit
+  240s deadlines with gateway 504s, which are not proven classifier defects.
+  Follow-up: retain both model traces, isolate tool/prose and artifact-validity
+  decisions under FEP-0025, and separately measure CPU admission/deadline behavior.
+  Keep strict structured verdicts and independent pytest as acceptance gates.
+- **G33 — existing spin-guard wall-clock failure.** The WS-F diagnostic
+  suite's iteration-bound test stayed within four iterations but failed its <20s
+  duration assertion twice (22.68s / 23.38s) with plugin startup logs. Isolate
+  external initialization from the loop-bound invariant and separately measure
+  startup; do not simply raise the threshold. No production loop or test threshold
+  was changed in WS-F.
 
 WS-E implementation/evidence: [PR #1115](https://github.com/anvai-labs/victor/pull/1115).
 
