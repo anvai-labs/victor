@@ -1050,6 +1050,13 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
                     metadata["ensemble_decision"] if success else metadata["ensemble_error"]
                 )
 
+            if member_results_list and "conversation_success" in member_results_list[0].metadata:
+                metadata = member_results_list[0].metadata
+                success = bool(metadata["conversation_success"]) and all(
+                    r.success for r in member_results_list
+                )
+                final_output = metadata["conversation_output"]
+
             # Extract consensus metadata if present (from ConsensusFormation)
             result_dict = {
                 "success": success,

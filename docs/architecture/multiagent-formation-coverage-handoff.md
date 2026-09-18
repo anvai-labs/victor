@@ -11,7 +11,7 @@ co-design learnings that motivate each item.
 
 ### 1.1 Canonical formations — implemented and live-tested (6/6)
 
-`TeamFormation` ([`victor/teams/types.py`](../../victor/teams/types.py)) defines nine values, all registered in `UnifiedTeamCoordinator._formations`.
+`TeamFormation` ([`victor/teams/types.py`](../../victor/teams/types.py)) defines twelve values, all registered in `UnifiedTeamCoordinator._formations`.
 The original six below were verified live on
 2026-09-17 (single 3-member PARALLEL re-verified again on rebased develop, 48.2s green):
 
@@ -24,17 +24,18 @@ The original six below were verified live on
 | CONSENSUS | ✅ 18.5s | agreement reached in one pass |
 | REFLECTION | ✅ 48.2s | generator→critic→refine, early exit |
 
-### 1.2 Implemented, real user surface — NOT live-tested
+### 1.2 Additional surfaces — verification status
 
-These shipped and are unit-tested, but the live InferFlux matrix did not exercise them:
+The original matrix omitted these surfaces; follow-up validation is recorded per item:
 
 - **Dynamic formation selection.** `StateGraphNodeConfig.formation_strategy` picks a
   formation per invocation from graph state (sync-only; async strategies raise
   `TypeError`), and `formation_hint` / `topology_formation_hint` context keys override
   per call (`_resolve_effective_formation`, unified_coordinator.py). A raising strategy
   falls back to the default formation — logged at **DEBUG only**.
-- **`max_workers` clamping** (`_extract_max_workers` / `_limit_execution_members`) —
-  bounds concurrent member execution; untested against a capacity-limited server.
+- **Capacity admission** — ✅ WS-C ([PR #1110](https://github.com/anvai-labs/victor/pull/1110))
+  verified three members against capacity two, with throttling and all assignments
+  retained. Legacy `max_workers` alone still limits member count.
 - **Worktree-isolated members.** `victor/teams/worktree_runtime.py`
   (`WorktreeAssignment`, `WorktreeExecutionPlan`) plus `worktree_planner`/`worktree_runtime`
   coordinator params and colon-format `child_session_id` for isolated planning members.
@@ -78,9 +79,8 @@ remains inline (see G17).
 - **FEP-0006 external-harness executors** (Draft) — members backed by agents outside
   Victor's process; the remaining Omnigent cross-learning.
 - **Patterns with no Victor counterpart**: see the researched catalog in §2 — the
-  group-chat/debate/swarm family (blocked by the missing shared-transcript
-  substrate), ensemble aggregation (self-consistency, Mixture-of-Agents),
-  peer-to-peer handoff, blackboard, and contract-net.
+  blackboard and contract-net remain absent. Conversation-native formations now
+  use the FEP-0035 transcript substrate; ensemble status is tracked separately (G16).
 
 ## 2. Industry pattern catalog (researched 2026-09-17)
 
@@ -104,12 +104,12 @@ substrate — which is the deepest structural finding of this review.
 | Router (dispatch-and-synthesize; LangChain "router", Anthropic "routing") | classify input → invoke one/few specialists → synthesize | Integrated (`DynamicRouterFormation`, §1.3; [PR #1107](https://github.com/anvai-labs/victor/pull/1107)) |
 | Supervisor / orchestrator-workers (LangChain subagents, CrewAI hierarchical with `manager_llm`) | central agent decomposes, delegates, synthesizes; workers stateless to each other | ✅ HIERARCHICAL (single level) |
 | Hierarchical multi-level (ADK transfer trees, org-chart topologies) | coordinator → leads → members, aggregate up | Integrated (`MultiLevelHierarchyFormation`, §1.3; [PR #1107](https://github.com/anvai-labs/victor/pull/1107)) |
-| Group chat with speaker selection (AutoGen `SelectorGroupChat`, `RoundRobinGroupChat`) | members broadcast to a SHARED TRANSCRIPT; LLM/selector/round-robin picks next speaker; termination conditions | ❌ absent — needs transcript substrate (G14) |
-| Swarm / peer handoff (OpenAI Agents SDK handoffs, AutoGen Swarm) | control MOVES agent-to-agent via handoff-as-tool-call; receiving agent continues with carried context | ❌ absent — supervisor-mediated delegation only; peer transfer needs substrate (G15) |
+| Group chat with speaker selection (AutoGen `SelectorGroupChat`, `RoundRobinGroupChat`) | members broadcast to a SHARED TRANSCRIPT; LLM/selector/round-robin picks next speaker; termination conditions | ✅ GROUP_CHAT; bounded shared transcript, router/callback/round-robin selection (WS-G) |
+| Swarm / peer handoff (OpenAI Agents SDK handoffs, AutoGen Swarm) | control MOVES agent-to-agent via handoff-as-tool-call; receiving agent continues with carried context | ✅ HANDOFF; structured peer destination with carried transcript (WS-G) |
 | Evaluator-optimizer (generator-critic loop) | generate → critique → refine until satisfied | ✅ REFLECTION (verdict fragility: G2) |
 | Adaptive / dynamic topology switching (MDPI "adaptivity" dimension; Magentic-One replanning) | monitor progress → switch topology or replan mid-run | Integrated (`AdaptiveFormation`, §1.3; [PR #1107](https://github.com/anvai-labs/victor/pull/1107)); Magentic-style ledger replanning not designed |
 | Ensemble aggregation (self-consistency, "More Agents Is All You Need" voting, Mixture-of-Agents layered aggregation) | N proposals of the SAME task → vote / layered aggregation | ✅ opt-in ensemble vote/judge/synthesizer; R9700 voting validated (WS-H) |
-| Structured debate (Du et al. multiagent debate) | adversarial rounds with a judge; improves factuality | ❌ absent — rides the transcript substrate (G14) |
+| Structured debate (Du et al. multiagent debate) | adversarial rounds with a judge; improves factuality | ✅ DEBATE; bounded contributions followed by one judge (WS-G) |
 | Blackboard shared memory (Hearsay-II lineage) | specialists watch/mutate a shared workspace opportunistically | ❌ absent — Victor's `shared_state` dict is coordinator-curated, not opportunistic |
 | Contract-net / auction task bidding (Smith 1980) | manager announces tasks; agents bid on capability/load | ❌ absent |
 | External/inter-system agents (A2A protocol, MCP ecosystems, FEP-0006) | members are remote/foreign agents behind a protocol | 🚧 FEP-0006 Draft; Sandhi already gives the transport seam |
@@ -308,20 +308,23 @@ G1–G13 come from the co-design sessions and code audit; G14–G16 from the §2
 - **G13 — guard tuning is a two-model sample.** Narration/intent/refusal classifiers
   were tuned on Qwen3-Coder-30B + GLM-5.3 only. Before claiming edge-model support,
   run the same matrix on a small local model (qwen3.5:2b class) and record deltas.
-- **G14 — no shared-transcript substrate (blocks group chat, debate, swarm).** Members
-  own private orchestrator histories; there is no broadcast conversation to select
-  speakers over or carry across a handoff. Building one (transcript-backed
-  `TeamContext` + speaker-selection contract + termination conditions) is FEP-scale
-  work; none of the conversation-native topologies in §2.1 can be added before it.
-- **G15 — no peer-to-peer control transfer.** All delegation is supervisor-mediated
-  (HIERARCHICAL) or statically ordered; an agent cannot MOVE control to a peer with
-  carried context (OpenAI/AutoGen handoff semantics). The delegate re-entry contract
-  is coordinator-driven re-entry, not agent-initiated transfer. Rides G14's substrate.
+- **G14 — ✅ shared-transcript substrate and conversation formations (WS-G, [PR #1113](https://github.com/anvai-labs/victor/pull/1113)).**
+  FEP-0035 ([PR #1112](https://github.com/anvai-labs/victor/pull/1112)) defines bounded immutable transcript snapshots, explicit speaker
+  selection/termination, and consumer decisions. GROUP_CHAT and DEBATE have enum,
+  registry, preset, docs, dispatch-test, and explicit non-durable contracts.
+- **G15 — ✅ peer-to-peer control transfer (WS-G, [PR #1113](https://github.com/anvai-labs/victor/pull/1113)).** HANDOFF consumes validated
+  peer destinations and carries the shared transcript; invalid/self destinations
+  fail explicitly, and cycles are bounded by max_turns. Typed `PeerHandoff`
+  records cross the member sink and v1 wire bridge.
 - **G16 — ✅ ensemble aggregation (WS-H, [PR #1114](https://github.com/anvai-labs/victor/pull/1114)).** One shared policy implements independent
   proposals followed by strict-majority vote, one-shot judge, or a synthesizer pass.
   Public `create_ensemble_team` and CONSENSUS `mode="vote"` presets use validated
   JSON contracts. R9700 voting passed with three deliverables/test pairs and
   distinct member wire sessions. Judge/synthesizer modes have dispatch tests.
+
+WS-I status: ✅ canonical `FormationRole` identifiers and supervisor-key normalization
+implemented ([PR #1109](https://github.com/anvai-labs/victor/pull/1109)). Review and reflection presets bind reviewer/critic roles
+without mutating caller specs. Compatibility manager methods and `max_workers` remain.
 
 - **G17 — integrated trio has no durable partial resume.** WS-A makes this explicit:
   adaptive requires a topology/attempt cursor; hierarchy requires a recursive cursor;
@@ -348,6 +351,11 @@ G1–G13 come from the co-design sessions and code audit; G14–G16 from the §2
   correctly rejected the run. Delegation now anchors an explicit `def test_*`
   contract; general completion-classifier changes require the WS-F paired-gate
   experiment process rather than an unmeasured heuristic patch.
+
+- **G21 — conversation and ensemble durable replay is not implemented.** New
+  conversation modes reject checkpoint/resume before execution. Pending speaker
+  selection, transcript restoration, and in-flight peer transfers need a dedicated
+  durable-state design. This is explicit; no partial replay is claimed.
 
 ## 4. Suggested follow-up session plan
 

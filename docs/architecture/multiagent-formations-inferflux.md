@@ -4,7 +4,7 @@
 
 ## Overview
 
-Victor's team framework supports nine formation patterns for multi-agent
+Victor's team framework supports twelve formation patterns for multi-agent
 coordination. The original six have live-verified examples
 using InferFlux (self-hosted, Qwen3-Coder-30B on AMD Radeon AI PRO R9700).
 
@@ -428,3 +428,36 @@ Run with `scripts/validation/multiagent_live.py --ensemble-vote --output-dir /tm
 using the worktree `.venv-codesign/bin/python` and `INFERFLUX_API_KEY`.
 See [recorded evidence](evidence/ws-h-ensemble.json). Judge and synthesizer modes
 are unit-validated; this live run validates voting.
+
+### Conversation-native formations (WS-G / FEP-0035)
+
+| Formation | Preset | Selection and termination | Durable partial resume |
+|---|---|---|---|
+| GROUP_CHAT | `create_group_chat_team` | Round-robin; optional `candidate_func` + `selector_func`, or structured router; done/predicate/max turns | Unsupported; rejected before execution |
+| DEBATE | `create_debate_team(..., judge=spec)` | Bounded contributions then one judge verdict | Unsupported; rejected before execution |
+| HANDOFF | `create_handoff_team(..., start_member="name")` | Structured peer destination carries transcript until done/max turns | Unsupported; rejected before execution |
+
+All three are registered in the canonical formation registry and exercised through
+coordinator dispatch. These rows claim unit validation; live validation is not
+claimed for the conversation formations. Existing formations retain their defaults.
+
+Each speaking turn returns exactly
+`{"content":"message or artifact reference","done":false,"handoff_to":null}`.
+Only HANDOFF may supply a destination, and unfinished handoff turns require one.
+Self/unknown destinations, contradictory done+handoff, and malformed JSON fail.
+A router returns `{"speaker_id":"configured-id"}`; a judge returns
+`{"selected_member_id":"speaker-id","verdict":"decision"}`. Contract examples
+are included in every structured prompt. No prose parsing or fallback speaker exists.
+
+`conversation_max_turns` defaults to six. `transcript_max_chars` defaults to 32768;
+exhaustion fails explicitly rather than silently trimming shared context. Large
+artifacts should be referenced by path. Callbacks receive immutable transcript
+snapshots; candidate filters return unique eligible IDs, selectors choose one ID,
+and `termination_func` returns a boolean. Callback exceptions fail with warnings.
+Member results accumulate repeated-turn costs while `shared_context` exposes
+`conversation_transcript` and `conversation_termination`.
+
+Consumer decisions are in [FEP-0035](../../feps/fep-0035-conversation-native-team-formations.md).
+`member_spoke` carries a transcript sequence; `member_handoff` carries source,
+target, and sequence. The stream/wire bridge preserves these fields. Existing UI
+lanes intentionally ignore these additive events and retain lifecycle rendering.

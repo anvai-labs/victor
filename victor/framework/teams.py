@@ -593,6 +593,117 @@ class AgentTeam:
         )
 
     @classmethod
+    async def _create_conversation_team(
+        cls,
+        orchestrator: "AgentOrchestrator",
+        name: str,
+        goal: str,
+        members: List[TeamMemberSpec],
+        formation: TeamFormation,
+        *,
+        max_turns: int = 6,
+        router: Optional[TeamMemberSpec] = None,
+        judge: Optional[TeamMemberSpec] = None,
+        start_member: Optional[str] = None,
+        **kwargs: Any,
+    ) -> "AgentTeam":
+        from dataclasses import replace
+
+        if len(members) < 2 or type(max_turns) is not int or max_turns < 1:
+            raise ValueError("Conversation requires at least two members and positive max_turns")
+        specs = list(members)
+        if router is not None:
+            specs.append(replace(router, formation_role="router"))
+        if judge is not None:
+            specs.append(replace(judge, formation_role="judge"))
+        if len({member.name for member in specs}) != len(specs):
+            raise ValueError("Conversation member names must be unique")
+        if start_member is not None and start_member not in {member.name for member in members}:
+            raise ValueError("start_member must name a configured speaking member")
+        shared = dict(kwargs.pop("shared_context", None) or {})
+        shared["conversation_max_turns"] = max_turns
+        team = await cls.create(
+            orchestrator, name, goal, specs, formation=formation, shared_context=shared, **kwargs
+        )
+        ids = {member.name: member.id for member in team._config.members}
+        for key, spec in (("conversation_router_id", router), ("conversation_judge_id", judge)):
+            if spec is not None:
+                team._config.shared_context[key] = ids[spec.name]
+        if start_member is not None:
+            team._config.shared_context["handoff_start_id"] = ids[start_member]
+        return team
+
+    @classmethod
+    async def create_group_chat_team(
+        cls,
+        orchestrator: "AgentOrchestrator",
+        name: str,
+        goal: str,
+        members: List[TeamMemberSpec],
+        *,
+        router: Optional[TeamMemberSpec] = None,
+        selector_func: Optional[Any] = None,
+        candidate_func: Optional[Any] = None,
+        **kwargs: Any,
+    ) -> "AgentTeam":
+        """Shared transcript with round-robin, callback, or structured router selection."""
+        if router is not None and selector_func is not None:
+            raise ValueError("Choose either a router or selector_func")
+        shared = dict(kwargs.pop("shared_context", None) or {})
+        if selector_func is not None:
+            shared["selector_func"] = selector_func
+        if candidate_func is not None:
+            shared["candidate_func"] = candidate_func
+        return await cls._create_conversation_team(
+            orchestrator,
+            name,
+            goal,
+            members,
+            TeamFormation.GROUP_CHAT,
+            router=router,
+            shared_context=shared,
+            **kwargs,
+        )
+
+    @classmethod
+    async def create_debate_team(
+        cls,
+        orchestrator: "AgentOrchestrator",
+        name: str,
+        goal: str,
+        members: List[TeamMemberSpec],
+        *,
+        judge: TeamMemberSpec,
+        **kwargs: Any,
+    ) -> "AgentTeam":
+        """Bounded contributions followed by exactly one structured judge verdict."""
+        return await cls._create_conversation_team(
+            orchestrator, name, goal, members, TeamFormation.DEBATE, judge=judge, **kwargs
+        )
+
+    @classmethod
+    async def create_handoff_team(
+        cls,
+        orchestrator: "AgentOrchestrator",
+        name: str,
+        goal: str,
+        members: List[TeamMemberSpec],
+        *,
+        start_member: Optional[str] = None,
+        **kwargs: Any,
+    ) -> "AgentTeam":
+        """Peer-directed structured handoff with bounded turns and carried transcript."""
+        return await cls._create_conversation_team(
+            orchestrator,
+            name,
+            goal,
+            members,
+            TeamFormation.HANDOFF,
+            start_member=start_member,
+            **kwargs,
+        )
+
+    @classmethod
     async def create_adaptive_team(
         cls,
         orchestrator: "AgentOrchestrator",

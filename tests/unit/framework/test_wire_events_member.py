@@ -64,6 +64,8 @@ def test_member_types_are_additive_not_core() -> None:
         "member_completed",
         "member_error",
         "member_throttled",
+        "member_spoke",
+        "member_handoff",
     }
     assert not (MEMBER_WIRE_EVENT_TYPES & WIRE_EVENT_TYPES)
 
