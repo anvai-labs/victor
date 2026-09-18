@@ -317,7 +317,7 @@ G1–G13 come from the co-design sessions and code audit; G14–G16 from the §2
   (HIERARCHICAL) or statically ordered; an agent cannot MOVE control to a peer with
   carried context (OpenAI/AutoGen handoff semantics). The delegate re-entry contract
   is coordinator-driven re-entry, not agent-initiated transfer. Rides G14's substrate.
-- **G16 — ✅ ensemble aggregation (WS-H).** One shared policy implements independent
+- **G16 — ✅ ensemble aggregation (WS-H, [PR #1114](https://github.com/anvai-labs/victor/pull/1114)).** One shared policy implements independent
   proposals followed by strict-majority vote, one-shot judge, or a synthesizer pass.
   Public `create_ensemble_team` and CONSENSUS `mode="vote"` presets use validated
   JSON contracts. R9700 voting passed with three deliverables/test pairs and
