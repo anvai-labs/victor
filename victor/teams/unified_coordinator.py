@@ -3229,6 +3229,7 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
                     parent_session_id=context.get("parent_session_id"),
                     child_session_id=context.get("child_session_id"),
                     working_directory=context.get("worktree_path"),
+                    capture_usage=bool(context.get("capture_member_usage", False)),
                 )
                 return {
                     "success": getattr(spawn_result, "success", False),
@@ -3250,6 +3251,9 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
                             "parent_session_id",
                             "child_session_id",
                             "session_id",
+                            "usage",
+                            "awaiting_approval",
+                            "approval_request",
                         }
                     },
                 }
@@ -3277,6 +3281,10 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
             consensus_achieved=result.get("consensus_achieved"),
             consensus_rounds=result.get("consensus_rounds"),
             error=result.get("error"),
+            status=result.get("status"),
+            paused_member_id=result.get("paused_member_id"),
+            approval_request=result.get("approval_request"),
+            thread_id=result.get("thread_id"),
         )
 
     async def execute_team_config(
@@ -3490,8 +3498,31 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
         if callable(config.formation_strategy):
             try:
                 selected_formation = config.formation_strategy(strategy_state)
+                if selected_formation is not None and not asyncio.iscoroutine(selected_formation):
+                    selected_formation = TeamFormation(
+                        getattr(
+                            selected_formation, "value", str(selected_formation).strip().lower()
+                        )
+                    )
             except Exception as exc:
-                logger.debug("Formation strategy failed; keeping default formation: %s", exc)
+                logger.warning("Formation strategy failed; keeping default formation: %s", exc)
+                sink = current_member_sink.get()
+                if sink is not None:
+                    from victor.framework.member_event_sink import (
+                        TEAM_FORMATION_WARNING,
+                        MemberEvent,
+                    )
+
+                    await sink.emit(
+                        MemberEvent(
+                            kind=TEAM_FORMATION_WARNING,
+                            member_id="coordinator",
+                            formation=self._formation.value,
+                            success=False,
+                            content="Formation strategy failed; using configured default",
+                            metadata={"reason": type(exc).__name__, "level": "warning"},
+                        )
+                    )
             else:
                 if asyncio.iscoroutine(selected_formation):
                     close_coro = getattr(selected_formation, "close", None)

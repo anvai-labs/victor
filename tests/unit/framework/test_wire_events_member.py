@@ -93,3 +93,16 @@ def test_throttle_wire_event_preserves_capacity_and_warning():
     assert wire["event"] == MEMBER_THROTTLED
     assert wire["concurrency_limit"] == 2
     assert wire["level"] == "warning"
+
+
+def test_formation_warning_wire_contract():
+    event = _custom("team_formation_warning", content="Using default", formation="pipeline")
+    event.metadata["reason"] = "ValueError"
+    assert to_wire_event(event) == {
+        "v": WIRE_VERSION,
+        "event": "team_formation_warning",
+        "level": "warning",
+        "formation": "pipeline",
+        "reason": "ValueError",
+        "content": "Using default",
+    }

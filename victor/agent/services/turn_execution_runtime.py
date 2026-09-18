@@ -2042,46 +2042,28 @@ class TurnExecutor:
             failure_context=(failure_context if failure_context.failed_tools else None),
         )
 
-        if completion_result.content:
-            from victor.agent.conversation.types import (
-                MESSAGE_SOURCE_METADATA_KEY,
-                MessageSource,
-            )
+        for provider_response in completion_result.provider_responses:
+            self._accumulate_token_usage(provider_response)
 
-            self._chat_context.add_message(
-                "assistant",
-                completion_result.content,
-                metadata={MESSAGE_SOURCE_METADATA_KEY: MessageSource.AGENT_RESPONSE.value},
+        content = completion_result.content
+        if not content:
+            # Last resort fallback; normal and fallback content share one recording path.
+            content = (
+                "I was unable to generate a complete response. "
+                "Please try rephrasing your request."
             )
-            return CompletionResponse(
-                content=completion_result.content,
-                role="assistant",
-                tool_calls=None,
-            )
-
-        # Last resort fallback
-        fallback_content = (
-            "I was unable to generate a complete response. " "Please try rephrasing your request."
-        )
-        if failure_context.failed_tools:
-            fallback_content = (
-                self._provider_context.response_completer.format_tool_failure_message(
+            if failure_context.failed_tools:
+                content = self._provider_context.response_completer.format_tool_failure_message(
                     failure_context
                 )
-            )
-
-        from victor.agent.conversation.types import (
-            MESSAGE_SOURCE_METADATA_KEY,
-            MessageSource,
-        )
 
         self._chat_context.add_message(
             "assistant",
-            fallback_content,
+            content,
             metadata={MESSAGE_SOURCE_METADATA_KEY: MessageSource.AGENT_RESPONSE.value},
         )
         return CompletionResponse(
-            content=fallback_content,
+            content=content,
             role="assistant",
             tool_calls=None,
         )

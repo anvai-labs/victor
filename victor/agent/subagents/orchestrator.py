@@ -322,6 +322,7 @@ class SubAgentOrchestrator:
         temperature: Optional[float] = None,
         reasoning_effort: Optional[str] = None,
         working_directory: Optional[str] = None,
+        capture_usage: bool = False,
     ) -> SubAgentResult:
         """Spawn a sub-agent to execute a task.
 
@@ -425,6 +426,7 @@ class SubAgentOrchestrator:
             temperature_override=temperature,
             reasoning_effort_override=reasoning_effort,
             working_directory=working_directory,
+            capture_usage=capture_usage,
         )
 
         # Create and execute sub-agent
@@ -470,8 +472,9 @@ class SubAgentOrchestrator:
 
         Builds a managed provider for ``provider``/``model`` via the shared
         factory, resolving the API key the same way the main provider does.
-        Returns None on any failure so the caller inherits the parent provider
-        rather than blocking the run.
+        Direct-provider failures retain the legacy warned parent inheritance.
+        Explicit gateway configuration uses the canonical gateway resolver and
+        fails closed; it must never bypass the gateway or require an upstream key.
 
         Args:
             provider: Provider name (e.g. "openai", "anthropic").
@@ -480,18 +483,43 @@ class SubAgentOrchestrator:
         Returns:
             A provider instance, or None to inherit the parent provider.
         """
+        from victor.config.provider_config_registry import resolve_provider_gateway
+
+        gateway_settings: Dict[str, Any] = {}
+        settings = getattr(self.parent, "settings", None)
+        configured = getattr(settings, "providers", {})
+        if isinstance(configured, dict) and provider in configured:
+            entry = configured[provider]
+            gateway = (
+                entry.get("gateway") if isinstance(entry, dict) else getattr(entry, "gateway", None)
+            )
+            if gateway is not None:
+                gateway_settings["gateway"] = gateway
+        resolve_provider_gateway(gateway_settings, provider)
+        gateway = gateway_settings.get("gateway")
         try:
             from victor.config.api_keys import get_api_key
             from victor.providers.factory import ManagedProviderFactory
 
             effective_model = model or getattr(self.parent, "model", None) or ""
-            api_key = get_api_key(provider)
+            if gateway is not None:
+                api_key = gateway["virtual_key"]
+                if not api_key:
+                    raise ValueError("Member gateway requires a virtual key")
+            else:
+                api_key = get_api_key(provider)
             return await ManagedProviderFactory.create(
                 provider_name=provider,
                 model=effective_model,
                 api_key=api_key,
+                **gateway_settings,
             )
         except Exception as exc:
+            if gateway is not None:
+                logger.warning(
+                    "Per-member gateway resolution failed for %s: %s", provider, type(exc).__name__
+                )
+                raise ValueError(f"Per-member gateway resolution failed for {provider}") from exc
             logger.warning(
                 "Per-member provider override '%s' could not be resolved (%s); "
                 "inheriting parent provider.",

@@ -46,6 +46,7 @@ MEMBER_COMPLETED = "member_completed"
 MEMBER_ERROR = "member_error"
 #: Member waiting for provider-derived admission; not a failure or approval pause.
 MEMBER_THROTTLED = "member_throttled"
+TEAM_FORMATION_WARNING = "team_formation_warning"
 MEMBER_SPOKE = "member_spoke"
 MEMBER_HANDOFF = "member_handoff"
 #: ADR-023 pillar 2b: member paused mid-run awaiting human approval (durable pause). Rendered as a

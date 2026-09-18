@@ -94,3 +94,30 @@ async def test_member_start_precedes_completed() -> None:
     events = await _collect(_FakeOrchestrator(emit_members=True))
     order = [e.metadata.get("custom_type") for e in events if e.type == EventType.CUSTOM]
     assert order.index("member_start") < order.index("member_completed")
+
+
+async def test_formation_warning_crosses_stream_and_wire_without_changing_lanes():
+    from victor.framework.wire_events import to_wire_event
+    from victor.framework.member_event_sink import TEAM_FORMATION_WARNING
+    from victor.ui.chat_app.event_mapping import RenderKind, map_wire_event
+
+    class WarningOrchestrator:
+        async def stream_chat(self, prompt):
+            await current_member_sink.get().emit(
+                MemberEvent(
+                    TEAM_FORMATION_WARNING,
+                    "coordinator",
+                    formation="pipeline",
+                    content="Using configured default",
+                    success=False,
+                    metadata={"reason": "ValueError", "level": "warning"},
+                )
+            )
+            yield _chunk("done")
+
+    events = await _collect(WarningOrchestrator())
+    warning = next(e for e in events if e.metadata.get("custom_type") == TEAM_FORMATION_WARNING)
+    wire = to_wire_event(warning)
+    assert wire["reason"] == "ValueError"
+    assert wire["formation"] == "pipeline"
+    assert map_wire_event(wire).kind == RenderKind.IGNORE

@@ -412,12 +412,15 @@ class BaseFormationStrategy(ABC):
                 return _SKIPPED
             total_tools = 0
             total_duration = 0.0
+            total_usage: Dict[str, int] = {}
             for attempt in range(member_retries + 1):
                 result = await self._execute_member_with_events(
                     agent, agent_task, exec_context, index, member_event_hook=member_event_hook
                 )
                 total_tools += result.tool_calls_used
                 total_duration += result.duration_seconds
+                for key, value in result.metadata.get("usage", {}).items():
+                    total_usage[key] = total_usage.get(key, 0) + value
                 if (
                     result.success
                     or result.metadata.get("awaiting_approval")
@@ -431,6 +434,8 @@ class BaseFormationStrategy(ABC):
                 result.tool_calls_used = total_tools
                 result.duration_seconds = total_duration
                 result.metadata["execution_attempts"] = attempt + 1
+                if total_usage:
+                    result.metadata["usage"] = total_usage
             # A member awaiting approval durably pauses (only when the formation supports it, i.e.
             # a batch pause hook is wired): it is NOT recorded as completed, so a resumed run
             # re-runs it. Collect it for the post-wave pause aggregate instead.

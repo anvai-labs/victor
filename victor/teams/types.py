@@ -954,10 +954,14 @@ class TeamResult:
     consensus_achieved: Optional[bool] = None
     consensus_rounds: Optional[int] = None
     error: Optional[str] = None
+    status: Optional[str] = None
+    paused_member_id: Optional[str] = None
+    approval_request: Optional[Dict[str, Any]] = None
+    thread_id: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
-        return {
+        result = {
             "success": self.success,
             "final_output": self.final_output,
             "member_results": {k: v.to_dict() for k, v in self.member_results.items()},
@@ -968,6 +972,14 @@ class TeamResult:
             "consensus_rounds": self.consensus_rounds,
             "error": self.error,
         }
+        if self.status is not None:
+            result.update(
+                status=self.status,
+                paused_member_id=self.paused_member_id,
+                approval_request=self.approval_request,
+                thread_id=self.thread_id,
+            )
+        return result
 
 
 def normalize_member_execution_result(

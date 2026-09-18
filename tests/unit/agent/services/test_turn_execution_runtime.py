@@ -655,7 +655,8 @@ async def test_execute_via_agentic_loop_synthesizes_after_tool_evidence_spin():
     response_completer = SimpleNamespace(
         ensure_response=AsyncMock(
             return_value=SimpleNamespace(
-                content="Cargo.toml defines a Rust workspace with clients/rust included."
+                content="Cargo.toml defines a Rust workspace with clients/rust included.",
+                provider_responses=(),
             )
         )
     )
@@ -1558,3 +1559,78 @@ def test_iteration_budget_override_does_not_mutate_settings():
     assert executor._chat_context.settings.chat_max_iterations == 9
     # and chat_max_iterations is no longer snapshotted for restore.
     assert "chat_max_iterations" not in (snapshot or {})
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", [False, True])
+async def test_recovery_provider_usage_is_counted_once_including_empty_attempts(failure):
+    from victor.agent.response_completer import ResponseCompleter, ToolFailureContext
+
+    responses = [
+        CompletionResponse(
+            content="",
+            role="assistant",
+            usage={"prompt_tokens": 7, "completion_tokens": 2, "total_tokens": 9},
+        ),
+        CompletionResponse(
+            content="A complete answer from the model.",
+            role="assistant",
+            usage={"prompt_tokens": 11, "completion_tokens": 5, "total_tokens": 16},
+        ),
+    ]
+    provider = SimpleNamespace(chat=AsyncMock(side_effect=responses))
+    executor = _make_executor()
+    executor._chat_context._cumulative_token_usage = {
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+    }
+    executor._chat_context.messages = []
+    executor._provider_context.response_completer = ResponseCompleter(provider)
+    executor._provider_context.temperature = 0.2
+    executor._provider_context.max_tokens = 100
+    context = (
+        ToolFailureContext(failed_tools=[{"name": "write", "error": "blocked"}])
+        if failure
+        else ToolFailureContext()
+    )
+    response = await executor._ensure_complete_response(None, context)
+    assert response.content
+    expected = 9 if failure else 25
+    assert executor._chat_context._cumulative_token_usage["total_tokens"] == expected
+    # Reusing an already complete response does not re-account its generation.
+    await executor._ensure_complete_response(response, context)
+    assert executor._chat_context._cumulative_token_usage["total_tokens"] == expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failed_tools", [False, True])
+async def test_empty_recovery_records_one_fallback_message(failed_tools):
+    from victor.agent.conversation.types import MESSAGE_SOURCE_METADATA_KEY, MessageSource
+
+    from victor.agent.response_completer import (
+        CompletionResult,
+        CompletionStatus,
+        ToolFailureContext,
+    )
+
+    executor = _make_executor()
+    executor._provider_context.temperature = 0.2
+    executor._provider_context.max_tokens = 100
+    executor._provider_context.response_completer = SimpleNamespace(
+        ensure_response=AsyncMock(return_value=CompletionResult(status=CompletionStatus.EMPTY)),
+        format_tool_failure_message=lambda context: "The write tool failed.",
+    )
+    context = ToolFailureContext(failed_tools=[{"name": "write"}] if failed_tools else [])
+    response = await executor._ensure_complete_response(None, context)
+    expected = (
+        "The write tool failed."
+        if failed_tools
+        else "I was unable to generate a complete response. Please try rephrasing your request."
+    )
+    assert response.content == expected
+    executor._chat_context.add_message.assert_called_once_with(
+        "assistant",
+        expected,
+        metadata={MESSAGE_SOURCE_METADATA_KEY: MessageSource.AGENT_RESPONSE.value},
+    )

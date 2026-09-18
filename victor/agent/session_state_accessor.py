@@ -146,13 +146,17 @@ class SessionStateAccessor:
 
     @property
     def cumulative_token_usage(self) -> Dict[str, int]:
-        """Get cumulative token usage for evaluation/benchmarking.
+        """Return the live accumulator shared by runtime writers and metrics readers.
 
-        Delegates to SessionStateManager.
+        Public SessionStateManager.get_token_usage() remains a defensive snapshot;
+        this internal accessor must preserve identity for in-place accumulation.
         """
-        return self._session_state.get_token_usage()
+        return self._session_state.execution_state.token_usage
 
     @cumulative_token_usage.setter
     def cumulative_token_usage(self, value: Dict[str, int]) -> None:
         """Set cumulative token usage (for backward compatibility)."""
-        self._session_state.execution_state.token_usage = dict(value)
+        replacement = dict(value)
+        usage = self._session_state.execution_state.token_usage
+        usage.clear()
+        usage.update(replacement)

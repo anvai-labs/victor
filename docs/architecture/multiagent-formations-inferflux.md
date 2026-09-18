@@ -461,3 +461,23 @@ Consumer decisions are in [FEP-0035](../../feps/fep-0035-conversation-native-tea
 `member_spoke` carries a transcript sequence; `member_handoff` carries source,
 target, and sequence. The stream/wire bridge preserves these fields. Existing UI
 lanes intentionally ignore these additive events and retain lifecycle rendering.
+
+### WS-E ZAI gateway validation (2026-09-18)
+
+After LAN loss, the user restricted current live testing to ZAI behind loopback
+Sandhi. This run makes no InferFlux or cross-vendor claim. The
+[setup walkthrough](sandhi-zai-loopback.md) explains provisioning and dashboard access.
+
+The [recorded run](evidence/ws-e-zai-gateway.json) passed in 167.93 seconds: seven
+members, fourteen Python deliverables, seven independently passing pytest tests,
+and seven distinct observed session/run IDs. A three-member review pipeline paused
+on an injected `MemberApprovalPause` before the reviewer's first LLM call; resume
+skipped the completed writer. Dynamic selection dispatched PARALLEL; an injected
+selector failure dispatched the configured default and emitted a warning event.
+All seven member input/output/total usage counters exactly reconciled with
+`GET /admin/usage/run/{member_session_id}`. Monetary pricing is not asserted.
+
+New defects discovered by the live sweep are G22–G25 in the handoff. The initial
+run was rejected because Victor reported zero usage; a second rejected run exposed
+member overrides bypassing the gateway. The accepted evidence uses the corrected
+shared accumulator and gateway resolver. Classifiers were not changed.
