@@ -1,5 +1,7 @@
 # WS-F: paired local-model formation battery
 
+Implementation/report: [PR #1118](https://github.com/anvai-labs/victor/pull/1118).
+
 The six-formation battery is an artifact gate, not a claim that TeamResult.success
 proves task completion. It uses the same harness and task on Qwen3-Coder-30B and
 the locally available LFM2.5-8B-A1B Q4_K_M model, through Sandhi. Classifiers and
@@ -82,3 +84,6 @@ usage-accounting changes. WS-E's separate mixed run provides that accounting evi
 - Any guard tuning needs the paired FEP-0025 experiment process, retained false
   positives/negatives, and independent artifact verification. This increment
   records follow-ups instead of silently changing shared completion heuristics.
+
+Final environment check: Sandhi stop/start restored both permanent scoped keys;
+one real Qwen completion and one real ZAI completion succeeded through the gateway.
