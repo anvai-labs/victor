@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Manage a loopback Sandhi gateway backed only by a configured Victor ZAI account.
+"""Manage a loopback Sandhi gateway with ZAI and optional InferFlux credentials.
 
 Run using the worktree .venv-codesign/bin/python. Provider credentials are read
 from Victor's account/keyring and provisioned into Sandhi's OS-keyring vault.
@@ -46,10 +46,14 @@ def request(url, token=None, payload=None):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=["setup", "start", "status", "smoke", "stop"])
+    parser.add_argument(
+        "action", choices=["setup", "start", "status", "smoke", "stop", "add-inferflux"]
+    )
     parser.add_argument("--state-dir", type=Path, required=True)
     parser.add_argument("--binary", type=Path)
     parser.add_argument("--port", type=int, default=18788)
+    parser.add_argument("--inferflux-url", default="http://127.0.0.1:18080/v1")
+    parser.add_argument("--inferflux-model", default="qwen3-coder-30b")
     parser.add_argument("--account", default="zai-glm53-openai")
     parser.add_argument("--model", default="glm-5.3")
     args = parser.parse_args()
@@ -138,10 +142,15 @@ def main():
                 client_path, json.dumps({"url": url, "virtual_key": shared["virtual_key"]})
             )
         client = json.loads(client_path.read_text())
+        local_path = root / "inferflux.json"
+        local_env = ""
+        if local_path.exists():
+            local = json.loads(local_path.read_text())
+            local_env = f"export SANDHI_GATEWAY_VIRTUAL_KEY_INFERFLUX='{local['virtual_key']}'\n"
         private_write(
             root / "client.env",
             f"export SANDHI_GATEWAY_URL='{url}'\n"
-            f"export SANDHI_GATEWAY_VIRTUAL_KEY_ZAI='{client['virtual_key']}'\n",
+            f"export SANDHI_GATEWAY_VIRTUAL_KEY_ZAI='{client['virtual_key']}'\n" + local_env,
         )
         print(
             json.dumps(
@@ -151,6 +160,74 @@ def main():
                     "provider": "zai",
                     "model": config["model"],
                     "state_dir": str(root),
+                }
+            )
+        )
+    elif args.action == "add-inferflux":
+        secret = os.environ.get("INFERFLUX_API_KEY")
+        if not secret:
+            raise ValueError("Set INFERFLUX_API_KEY before provisioning InferFlux")
+        local_path = root / "inferflux.json"
+        if local_path.exists():
+            existing = json.loads(local_path.read_text())
+            if (existing["model"], existing["upstream"]) != (
+                args.inferflux_model,
+                args.inferflux_url,
+            ):
+                raise ValueError("Existing InferFlux key has a different model/upstream scope")
+        models = request(args.inferflux_url.rstrip("/") + "/models", secret)
+        assert any(
+            m["id"] == args.inferflux_model and m.get("ready", True) for m in models["data"]
+        ), "Requested InferFlux model is not ready"
+        request(
+            url + "/admin/keys",
+            token,
+            {
+                "provider": "inferflux",
+                "label": "victor-local",
+                "scheme": "bearer",
+                "base_url": args.inferflux_url,
+                "secret": secret,
+            },
+        )
+        if not local_path.exists():
+            shared = request(
+                url + "/admin/keys/share",
+                token,
+                {
+                    "upstream": "inferflux:victor-local",
+                    "subject": "victor-local",
+                    "group": "multiagent-validation",
+                    "models": [args.inferflux_model],
+                },
+            )
+            private_write(
+                local_path,
+                json.dumps(
+                    {
+                        "url": url,
+                        "virtual_key": shared["virtual_key"],
+                        "model": args.inferflux_model,
+                        "upstream": args.inferflux_url,
+                    }
+                ),
+            )
+        local = json.loads(local_path.read_text())
+        client = json.loads((root / "client.json").read_text())
+        private_write(
+            root / "client.env",
+            f"export SANDHI_GATEWAY_URL='{url}'\n"
+            f"export SANDHI_GATEWAY_VIRTUAL_KEY_ZAI='{client['virtual_key']}'\n"
+            f"export SANDHI_GATEWAY_VIRTUAL_KEY_INFERFLUX='{local['virtual_key']}'\n",
+        )
+        print(
+            json.dumps(
+                {
+                    "configured": True,
+                    "provider": "inferflux",
+                    "model": args.inferflux_model,
+                    "gateway": url,
+                    "upstream": args.inferflux_url,
                 }
             )
         )
@@ -180,7 +257,18 @@ def main():
         version = request(url + "/admin/version", token)
         print(json.dumps({"url": url, "ready": True, "version": version}, indent=2))
     elif args.action == "stop":
+        request(url + "/admin/version", token)
         os.kill(int((root / "proxy.pid").read_text()), signal.SIGTERM)
+        # Wait for graceful drain to release the listener before a subsequent start.
+        # Otherwise start can mistake the retiring process for a ready replacement.
+        for _ in range(600):
+            try:
+                request(url + "/admin/version", token)
+            except (URLError, ConnectionError):
+                break
+            time.sleep(0.1)
+        else:
+            raise RuntimeError("Gateway has not finished draining after 60 seconds")
         print("Stopped configured gateway")
     else:
         print(f"Gateway ready at {url}")

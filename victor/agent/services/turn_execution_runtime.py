@@ -2042,6 +2042,9 @@ class TurnExecutor:
             failure_context=(failure_context if failure_context.failed_tools else None),
         )
 
+        for provider_response in completion_result.provider_responses:
+            self._accumulate_token_usage(provider_response)
+
         if completion_result.content:
             from victor.agent.conversation.types import (
                 MESSAGE_SOURCE_METADATA_KEY,

@@ -1,7 +1,8 @@
-# ZAI behind a loopback Sandhi gateway
+# Local InferFlux and ZAI behind a loopback Sandhi gateway
 
-This setup runs Victor's multiagent tests over ZAI (`glm-5.3`) when the InferFlux
-LAN is unavailable. It does not replace the R9700 or small-local-model evidence.
+This setup routes routine members to InferFlux (`qwen3-coder-30b`) and a reasoning
+reviewer to ZAI (`glm-5.3`), with separate scoped virtual keys in one gateway.
+ZAI-only validation remains available when the InferFlux LAN is unavailable.
 The proxy listens only on `127.0.0.1:18788`; ZAI traffic uses your internet connection.
 
 ## 1. Build Sandhi
@@ -34,7 +35,7 @@ It mints one model-scoped virtual key for subject `victor-local`, group
 The state directory is private (0700). Its admin token and client credential files
 are 0600; `var/` is git-ignored. SQLite persists usage, provider metadata, virtual-key
 hashes, and enforcement state. The upstream credential stays in the OS keyring.
-There is no demo key or InferFlux upstream in this setup.
+Provision the optional InferFlux upstream using step 4 below.
 
 ## 3. Verify and view the dashboard
 
@@ -70,11 +71,44 @@ transport uses the virtual key; members do not need the upstream ZAI key. Explic
 member gateway configuration fails closed if its key or construction is invalid.
 Direct-provider defaults remain unchanged when no gateway is configured.
 
-The gateway environment applies to the launched process. For mixed-provider teams,
-configure `providers.<provider>.gateway` separately instead of routing every provider
-through this ZAI-only upstream. A member session becomes both `x-sandhi-session`
-and `x-sandhi-run-id`; inspect that run in the dashboard or via
-`GET /admin/usage/run/{run_id}` with the admin bearer.
+For the verified R9700 rig, keep this tunnel running (18080 avoids an existing local
+service on 8080):
+
+```bash
+ssh -N -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 \
+  -L 18080:127.0.0.1:8080 vsingh@aiserver1
+```
+
+In another shell set INFERFLUX_API_KEY to the rig's configured credential, then:
+
+```bash
+.venv-codesign/bin/python scripts/validation/sandhi_zai_gateway.py add-inferflux \
+  --state-dir /path/to/victor/var/sandhi-zai \
+  --inferflux-url http://127.0.0.1:18080/v1 --inferflux-model qwen3-coder-30b
+source /path/to/victor/var/sandhi-zai/client.env
+```
+
+The helper checks model readiness before provisioning. client.env now contains
+provider-specific virtual keys for both ZAI and InferFlux. Select provider/model
+explicitly per TeamMemberSpec: inferflux/qwen3-coder-30b for routine members,
+zai/glm-5.3 with reasoning_effort="high" for the reviewer. There is no automatic
+complexity classifier or provider failover. The rig's verified context is 65536
+and declared sequence capacity is two; local reasoning-effort is stripped.
+
+A member session becomes both x-sandhi-session and x-sandhi-run-id. In the dashboard
+Run cost tree, look up gateway-d759056a3f-executor_718fea13 for the verified reviewer,
+or GET /admin/usage/run/{run_id} using the admin bearer. The database records request,
+provider, model, session/run IDs, usage, and duration. This is gateway call accounting;
+OTEL distributed tracing is not enabled. Local logs are in proxy.log.
+
+Identical attribution rows are expected when all calls share one subject, group,
+provider, and model. After the mixed run, provider/model rows differ; subject/group
+remain equal because both routes share those identities. Inspect usage.db read-only:
+
+```bash
+sqlite3 -readonly -header -column /path/to/victor/var/sandhi-zai/usage.db \
+  "SELECT provider,model,count(*) calls,sum(tokens_in) input,sum(tokens_out) output,round(avg(duration_ms)) avg_ms FROM usage_events GROUP BY provider,model;"
+```
 
 ## 5. Run the multiagent validation
 
@@ -90,7 +124,11 @@ reviewer executes. Resume must skip the completed writer. It also tests dynamic
 PARALLEL selection and a failed selector's warning/default dispatch. Seven members
 must deliver fourteen Python files; independent pytest must pass. Every member's
 input/output/total token counts must reconcile with Sandhi's run-usage API.
-The review preset is same-vendor here; it does not claim cross-vendor validation.
+Add --mixed to the command to use six InferFlux members plus the ZAI reviewer.
+The reviewer reads/tests the writer's artifact and emits a structured review.json;
+the injected gate moves before the reviser. Both completed writer and reviewer must
+be restored on resume. The recorded mixed run passed seven tests in 308.15s with
+33 gateway calls across seven sessions and exact per-member usage reconciliation.
 
 Opt in to result counters with `shared_context={"capture_member_usage": True}`.
 Counters live at `result.member_results[id].metadata["usage"]`. Sandhi's uncached

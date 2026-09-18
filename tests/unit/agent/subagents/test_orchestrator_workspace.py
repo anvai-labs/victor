@@ -65,3 +65,20 @@ async def test_invalid_member_gateway_cannot_inherit_parent(monkeypatch):
         await SubAgentOrchestrator(SimpleNamespace(model="glm-5.3"))._resolve_override_provider(
             "zai", None
         )
+
+
+async def test_member_gateway_honors_provider_profile_block(monkeypatch):
+    from types import SimpleNamespace
+
+    monkeypatch.delenv("SANDHI_GATEWAY_URL", raising=False)
+    configured = {"url": "http://127.0.0.1:18788", "virtual_key": "vk-profile"}
+    for entry in ({"gateway": configured}, SimpleNamespace(gateway=configured)):
+        parent = SimpleNamespace(
+            model="glm-5.3", settings=SimpleNamespace(providers={"zai": entry})
+        )
+        with patch(
+            "victor.providers.factory.ManagedProviderFactory.create", new_callable=AsyncMock
+        ) as create:
+            await SubAgentOrchestrator(parent)._resolve_override_provider("zai", None)
+            assert create.call_args.kwargs["gateway"] == configured
+            assert create.call_args.kwargs["api_key"] == "vk-profile"

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""ZAI-only live review, pipeline pause/resume, selection, and usage reconciliation.
+"""Gateway review, pipeline pause/resume, selection, and usage reconciliation.
 
-This complements, and does not claim to replace, the R9700 or edge-model matrix.
-The approval signal is deliberately injected before the reviewer's first LLM call.
+The optional mixed mode uses R9700 InferFlux members and a ZAI reviewer.
+The approval signal precedes the reviewer (ZAI-only) or reviser (mixed).
 All completed member work uses the real configured Sandhi gateway.
 """
 
@@ -53,6 +53,7 @@ async def validate(args):
                         "session_id": request.headers.get("x-sandhi-session"),
                         "run_id": request.headers.get("x-sandhi-run-id"),
                         "model": json.loads(body).get("model"),
+                        "reasoning_effort_present": "reasoning_effort" in json.loads(body),
                     }
                 )
             headers = {
@@ -78,6 +79,15 @@ async def validate(args):
         await web.TCPSite(runner, "127.0.0.1", args.proxy_port).start()
         os.environ["SANDHI_GATEWAY_URL"] = f"http://127.0.0.1:{args.proxy_port}"
         os.environ["SANDHI_GATEWAY_VIRTUAL_KEY_ZAI"] = settings["virtual_key"]
+        local = None
+        if args.mixed:
+            local = json.loads((args.gateway_state / "inferflux.json").read_text())
+            os.environ["SANDHI_GATEWAY_VIRTUAL_KEY_INFERFLUX"] = local["virtual_key"]
+            evidence.update(
+                provider="inferflux+zai",
+                model="qwen3-coder-30b+glm-5.3",
+                scope="R9700 local members plus ZAI reviewer through one Sandhi gateway",
+            )
         os.chdir(root)
         agent = await Agent.create(
             provider="zai",
@@ -93,14 +103,16 @@ async def validate(args):
             return TeamMemberSpec(
                 role="executor",
                 name=name,
-                provider="zai",
-                model="glm-5.3",
+                provider="inferflux" if args.mixed and name != "reviewer" else "zai",
+                model="qwen3-coder-30b" if args.mixed and name != "reviewer" else "glm-5.3",
+                reasoning_effort="high" if args.mixed else None,
                 goal=f"Assigned member: {name}. Complete these steps in order: "
                 f"1. Write {root}/{name}.py with function {name}(x) returning x * 2. "
                 f"2. Write {root}/test_{name}.py importing that function and defining "
                 f"def test_{name}(): assert {name}(4) == 8. "
                 f"3. Run {python} -m pytest {root}/test_{name}.py -q. "
                 "Both files must exist and one test must pass. Use write twice then shell. "
+                "Run shell with readonly=False. Never repeat a successful write; move to the next step. "
                 "Return file references and test result.",
                 allowed_tools=["read", "write", "shell"],
                 tool_budget=12,
@@ -108,13 +120,28 @@ async def validate(args):
             )
 
         results = []
+        configured_members = []
         try:
+            reviewer = spec("reviewer")
+            if args.mixed:
+                reviewer.goal = (
+                    f"Review {root}/writer.py and its tests. Think carefully about zero, negative, "
+                    "and fractional inputs and the invariant f(x+y)=f(x)+f(y). "
+                    f"Write {root}/reviewer.py with reviewer(x) calling writer(x). "
+                    f"Write {root}/test_reviewer.py with one def test_reviewer() asserting "
+                    "all edge cases and the invariant. "
+                    f"Write {root}/review.json as exact JSON with verdict ('approved' or 'needs_work') "
+                    "and findings (list of strings). "
+                    f"Run {python} -m pytest {root}/test_reviewer.py -q. "
+                    "Do not modify writer.py. Run shell with readonly=False. Deliver all three files and passing tests."
+                )
+
             team = await AgentTeam.create_review_team(
                 orchestrator,
                 "Gateway review",
                 "Deliver assigned files",
                 writer=spec("writer"),
-                reviewer=spec("reviewer"),
+                reviewer=reviewer,
                 reviser=spec("reviser"),
                 shared_context={
                     "thread_id": root.name,
@@ -125,7 +152,8 @@ async def validate(args):
             )
             checkpointer = MemoryCheckpointer()
             team._coordinator.with_checkpointer(checkpointer)
-            gate_id = team._config.members[1].id
+            configured_members.extend(team._config.members)
+            gate_id = team._config.members[2 if args.mixed else 1].id
             calls = []
             original = SubAgent._execute_with_retry
 
@@ -152,6 +180,8 @@ async def validate(args):
                 resumed = await team.run()
             assert resumed.success, resumed.final_output
             assert calls.count(team._config.members[0].id) == 1, calls
+            if args.mixed:
+                assert calls.count(team._config.members[1].id) == 1, calls
             assert calls.count(gate_id) == 2, calls
             assert len(resumed.member_results) == 3
             evidence["pipeline"] = {
@@ -170,6 +200,7 @@ async def validate(args):
                     [spec(label + "a"), spec(label + "b")],
                     formation=TeamFormation.SEQUENTIAL,
                 )
+                configured_members.extend(dynamic._config.members)
                 coord = dynamic._coordinator
                 for member in coord._adapt_team_members(dynamic._config.members):
                     coord.add_member(member)
@@ -206,7 +237,21 @@ async def validate(args):
             assert len(set(ids)) == len(ids), ids
             assert {r["session_id"] for r in observed} == set(ids)
             assert all(r["session_id"] == r["run_id"] for r in observed)
-            assert all(r["model"] == "glm-5.3" for r in observed)
+            expected = {
+                f"{root.name}-{m.id}": {"provider": m.provider, "model": m.model}
+                for m in configured_members
+            }
+            for request in observed:
+                assert request["model"] == expected[request["session_id"]]["model"]
+                if expected[request["session_id"]]["provider"] == "inferflux":
+                    assert not request["reasoning_effort_present"], request
+            if args.mixed:
+                review = json.loads((root / "review.json").read_text())
+                assert set(review) == {"verdict", "findings"}
+                assert review["verdict"] == "approved", review
+                assert isinstance(review["findings"], list)
+                evidence["review"] = review
+            evidence["member_routes"] = expected
             reconciled = []
             for member in results:
                 session = member.metadata["session_id"]
@@ -270,5 +315,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--gateway-state", type=Path, required=True)
+    parser.add_argument(
+        "--mixed", action="store_true", help="Use InferFlux members plus ZAI reviewer"
+    )
     parser.add_argument("--proxy-port", type=int, default=18082)
     asyncio.run(validate(parser.parse_args()))

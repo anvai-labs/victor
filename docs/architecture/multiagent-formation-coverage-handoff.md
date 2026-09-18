@@ -46,13 +46,15 @@ The original matrix omitted these surfaces; follow-up validation is recorded per
 - **Heterogeneous members.** Per-member `provider` / `model` / `temperature` /
   `reasoning_effort` (`TeamMemberSpec`), with `create_review_team` (PIPELINE preset,
   same-vendor warning) and `create_reflection_team` (rounds=3) presets. Unit-tested
-  (heterogeneous-member and review-preset suites). WS-E adds a ZAI-only gateway
-  live harness; cross-vendor local/cloud validation remains pending LAN recovery.
+  (heterogeneous-member and review-preset suites). ✅ WS-E ([PR #1115](https://github.com/anvai-labs/victor/pull/1115)) verified six
+  R9700/Qwen members and a ZAI/GLM reviewer through Sandhi, including per-member
+  model routing and local reasoning-effort stripping.
 - **Member-granular durability** (FEP-0028 / ADR-023 / TD-25, shipped #733–#752):
   per-member checkpoint/resume at formation-natural granularity across all six,
   durable `MemberApprovalPause` for the four non-iterative formations, and
-  `MemberEventSink` per-member streaming lanes. WS-E validates an injected approval
-  pause/resume on ZAI; the requested local-inference rerun remains pending.
+  `MemberEventSink` per-member streaming lanes. ✅ WS-E ([PR #1115](https://github.com/anvai-labs/victor/pull/1115)) verified an injected
+  mid-pipeline approval pause and resume on the mixed local/cloud team; completed
+  writer and reviewer executions were restored without replay.
 
 ### 1.3 Additional formations — WS-A integration
 
@@ -287,14 +289,15 @@ G1–G13 come from the co-design sessions and code audit; G14–G16 from the §2
   Coordinator dispatch forwards configured member identities; observed live
   `x-inferflux-session-id` headers match all three configured member IDs and the
   per-member result metadata. Evidence is linked in the InferFlux formation recipe.
-- **G7 — cross-vendor live validation pending.** The ZAI-only Sandhi gateway and
-  review preset are exercised by the WS-E harness. Local InferFlux workers plus
-  a cloud reviewer, including InferFlux reasoning-effort stripping, await LAN
-  recovery; the user explicitly restricted current runs to ZAI on 2026-09-18.
-- **G8 — local-inference durability validation pending.** WS-E covers an injected
-  mid-PIPELINE `MemberApprovalPause`, checkpoint, and resume over ZAI. The completed
-  writer must not rerun. InferFlux replay remains pending; FEP-0028 non-goals remain.
-- **G9 — ✅ observable dynamic selection (WS-E).** Exceptions and invalid formation
+- **G7 — ✅ cross-vendor live validation (WS-E, [PR #1115](https://github.com/anvai-labs/victor/pull/1115)).**
+  R9700 Qwen3-Coder-30B handled six members (24 calls); GLM-5.3 reviewed the local
+  writer's artifact (9 calls, 8,083 reasoning tokens). The local payloads omit
+  reasoning_effort. All traffic traversed Sandhi with seven distinct member sessions.
+- **G8 — ✅ local/cloud durability validation (WS-E, [PR #1115](https://github.com/anvai-labs/victor/pull/1115)).**
+  An injected MemberApprovalPause before the reviser preserved public pause fields;
+  resume restored the writer/reviewer and executed only the reviser. The live test
+  uses MemoryCheckpointer in-process; FEP-0028's iterative non-goals remain.
+- **G9 — ✅ observable dynamic selection (WS-E, [PR #1115](https://github.com/anvai-labs/victor/pull/1115)).** Exceptions and invalid formation
   identifiers emit warning logs plus `team_formation_warning` through the member
   sink, client stream, and v1 wire. The ZAI harness asserts PARALLEL selection and
   warned default dispatch. Async selectors retain explicit TypeError rejection.
@@ -303,11 +306,12 @@ G1–G13 come from the co-design sessions and code audit; G14–G16 from the §2
   names and duplicate dispatch were removed. Regression tests cover real member
   execution/failure, concurrent adaptive calls, lossless task splitting, and invalid
   trees. Original six defaults remain unchanged.
-- **G11 — ✅ ZAI member accounting validation; R9700 pending (WS-E).** Opt-in `capture_member_usage`
-  exposes neutral counters in member metadata; retry totals preserve all attempts.
-  Seven members passed exact input/output/total reconciliation against each Sandhi
-  run tree; fourteen files and seven independent pytest tests passed in 167.93s.
-  The R9700-specific reconciliation remains pending LAN recovery.
+- **G11 — ✅ member accounting reconciliation (WS-E, [PR #1115](https://github.com/anvai-labs/victor/pull/1115)).**
+  Opt-in capture_member_usage exposes neutral counters in metadata; retries and
+  recovery responses retain every attempt. Seven mixed-provider members reconciled
+  exact input/output/total counts with Sandhi, including ZAI cache/reasoning counts.
+  Fourteen Python files plus review.json and seven independent pytest tests passed
+  in 308.15s. [Mixed-run evidence](evidence/ws-e-mixed-gateway.json) records IDs/routes.
 - **G12 — ✅ formation-aware tool supply documented (WS-C, [PR #1110](https://github.com/anvai-labs/victor/pull/1110)).** Member `allowed_tools`
   narrows the registry before provider supply. The live capacity run supplied four
   filesystem/shell tools per member; global pruning defaults remain unchanged.
@@ -363,16 +367,16 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   selection, transcript restoration, and in-flight peer transfers need a dedicated
   durable-state design. This is explicit; no partial replay is claimed.
 
-- **G22 — ✅ public pipeline pause metadata loss (WS-E).** The spawn adapter dropped
+- **G22 — ✅ public pipeline pause metadata loss (WS-E, [PR #1115](https://github.com/anvai-labs/victor/pull/1115)).** The spawn adapter dropped
   `awaiting_approval` and `approval_request`, and TeamResult dropped aggregate pause
   fields. Both boundaries now preserve the structured signal. Absent pause state,
   TeamResult serialization remains unchanged.
-- **G23 — ✅ usage writes mutated snapshots (WS-E).** SessionStateAccessor returned
+- **G23 — ✅ usage writes mutated snapshots (WS-E, [PR #1115](https://github.com/anvai-labs/victor/pull/1115)).** SessionStateAccessor returned
   a copy while runtime writers and metrics expected a live accumulator. Internal
   access now preserves one dictionary's identity, including assignment; the public
   SessionStateManager snapshot remains defensive. Real-runtime regression tests
-  cover inclusive input, output, cache, reasoning, and reset visibility.
-- **G24 — ✅ explicit member overrides bypassed gateways (WS-E).** Overrides now use
+  cover inclusive input, output, cache, reasoning, and accumulator assignment visibility.
+- **G24 — ✅ explicit member overrides bypassed gateways (WS-E, [PR #1115](https://github.com/anvai-labs/victor/pull/1115)).** Overrides now use
   the existing canonical gateway resolver for configured provider blocks/environment,
   pass the gateway to the managed factory, and use its virtual key. Invalid explicit
   gateway setup fails closed. Legacy direct-provider warned inheritance remains.
@@ -380,6 +384,41 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   live-tested in [Sandhi PR #265](https://github.com/anvai-labs/sandhi/pull/265);
   23 raw-forwarding tests passed and all CI gates are green. Repository policy
   requires an approving review before merge; the patched local binary is in use.
+
+- **G26 — ✅ lazy grammar availability in codegraph CI ([PR #1117](https://github.com/anvai-labs/victor/pull/1117)).**
+  tree-sitter-language-pack 1.20 downloads grammars lazily. CI now preloads every
+  required grammar with bounded retries, failing explicitly instead of silently
+  skipping language tests. Both Python matrix jobs pass all 106 codegraph tests.
+- **G27 — ✅ recovery responses omitted from member usage (WS-E, [PR #1115](https://github.com/anvai-labs/victor/pull/1115)).**
+  ResponseCompleter now returns structured provider responses; the existing runtime
+  accumulator counts each once, including empty retry responses and error recovery.
+  A rejected first mixed run exposed the discrepancy; real-completer regression
+  tests cover both recovery paths. The successful rerun reconciled every member.
+- **G28 — task completion can outlive missing deliverables.** In the first mixed
+  run, a local member repeated a successful write, exhausted its loop, and returned
+  a successful recovery summary without the requested test file. The independent
+  artifact gate rejected it. A clearer task passed the rerun; classifiers were not
+  changed. Follow-up must use the paired guard experiment process before tuning.
+- **G29 — task-report cost tracker differs from member usage.** Runtime log summaries
+  still report zero task tokens while opt-in member counters and Sandhi reconcile.
+  The separate SessionCostTracker needs explicit integration; no monetary accuracy
+  is claimed by WS-E's neutral-token validation.
+- **G30 — session reset can replace the metrics accumulator.** Internal assignment
+  now preserves dictionary identity, but SessionStateManager.reset replaces its
+  execution state. Reset/rebind lifecycle coverage remains a separate follow-up;
+  fresh member sessions in the live sweep do not exercise that boundary.
+
+- **G31 — cache observability needs a paired workload replay.** The mixed Victor run
+  reported zero InferFlux cache tokens, but controlled direct/gateway probes showed
+  426 cached tokens for repeated chat and 514 with tools. Sandhi stored both correctly.
+  JSON/logprob paths bypass reuse in the serving InferFlux build; this is not proven
+  to explain the original member workload. Owner handoffs were written on aiserver1
+  at /home/vsingh/code/sandhi/docs/upstream/inferflux-cache-codesign-2026-09-18.md and
+  /home/vsingh/code/inferflux/docs/planning/SANDHI_CACHE_CODESIGN_HANDOFF_2026-09-18.md.
+  Follow-ups cover actual-reuse accounting, path diagnostics, and distinguishing
+  absent cache fields from explicit zero. No caching heuristic was changed in Victor.
+
+WS-E implementation/evidence: [PR #1115](https://github.com/anvai-labs/victor/pull/1115).
 
 WS-E consumer decisions:
 
@@ -389,9 +428,10 @@ WS-E consumer decisions:
 | Member `metadata.usage` | SubAgent with `capture_member_usage` | TeamResult and validation harness; Sandhi run tree comparison | Opt-in; absent flag retains old payload |
 | TeamResult pause fields | Durable coordinator aggregate | API callers inspect status, paused member, approval request, thread ID | Serialized only when status is present |
 
-Current live constraint (2026-09-18): router down; user requested **ZAI-only through
-Sandhi**. Do not mark G7/G8's R9700 steps or WS-F/G13 complete from cloud-model data.
-The [loopback gateway walkthrough](sandhi-zai-loopback.md) covers the active setup.
+Live setup (2026-09-18): LAN access returned. Sandhi at 127.0.0.1:18788 routes
+InferFlux through an SSH tunnel on 18080 and ZAI through its coding endpoint. The
+[loopback gateway walkthrough](sandhi-zai-loopback.md) covers both providers,
+dashboard authentication, usage traces, and reproducible validation commands.
 
 ## 4. Suggested follow-up session plan
 
