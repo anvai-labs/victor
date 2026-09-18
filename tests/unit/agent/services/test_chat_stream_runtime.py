@@ -1,3 +1,4 @@
+import asyncio
 import importlib
 import warnings
 from types import SimpleNamespace
@@ -189,6 +190,72 @@ async def test_service_streaming_runtime_stream_chat_uses_executor(monkeypatch):
 
     assert chunks == [chunk]
     assert executor.calls == [("hello", {"mode": "test"})]
+
+
+@pytest.mark.asyncio
+async def test_service_streaming_runtime_serializes_overlapping_turn_state():
+    orch = _make_orchestrator_stub()
+    finalized_usage = []
+    orch._metrics_coordinator = SimpleNamespace(
+        finalize_stream_metrics=lambda usage, **_kwargs: finalized_usage.append(dict(usage))
+    )
+    first_runtime = ServiceStreamingRuntime(orch)
+    second_runtime = ServiceStreamingRuntime(orch)
+    first_started = asyncio.Event()
+    second_started = asyncio.Event()
+    release_first = asyncio.Event()
+    execution_order = []
+
+    usage_by_message = {
+        "first": {"prompt_tokens": 2, "completion_tokens": 3, "total_tokens": 5},
+        "second": {"prompt_tokens": 7, "completion_tokens": 11, "total_tokens": 18},
+    }
+
+    class OverlappingExecutor:
+        async def run_unified(self, user_message: str, **kwargs):
+            del kwargs
+            usage = usage_by_message[user_message]
+            ctx = SimpleNamespace(cumulative_usage=usage, runtime_override_snapshot=None)
+            orch._current_stream_context = ctx
+            execution_order.append(f"{user_message}:start")
+            if user_message == "first":
+                first_started.set()
+                await release_first.wait()
+            else:
+                second_started.set()
+            yield StreamChunk(content=user_message, is_final=True)
+            execution_order.append(f"{user_message}:end")
+
+    first_runtime._streaming_executor = OverlappingExecutor()
+    second_runtime._streaming_executor = OverlappingExecutor()
+
+    async def consume(runtime: ServiceStreamingRuntime, message: str):
+        return [chunk async for chunk in runtime.stream_chat(message)]
+
+    first_task = asyncio.create_task(consume(first_runtime, "first"))
+    await first_started.wait()
+    first_context = orch._current_stream_context
+    second_task = asyncio.create_task(consume(second_runtime, "second"))
+
+    # Give the second task multiple scheduling opportunities. Its executor must remain
+    # blocked until the first turn has finalized and cleared its shared context.
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+    assert not second_started.is_set()
+    assert orch._current_stream_context is first_context
+
+    release_first.set()
+    first_chunks, second_chunks = await asyncio.gather(first_task, second_task)
+
+    assert first_chunks == [StreamChunk(content="first", is_final=True)]
+    assert second_chunks == [StreamChunk(content="second", is_final=True)]
+    assert execution_order == ["first:start", "first:end", "second:start", "second:end"]
+    assert finalized_usage == [usage_by_message["first"], usage_by_message["second"]]
+    assert orch._cumulative_token_usage["prompt_tokens"] == 9
+    assert orch._cumulative_token_usage["completion_tokens"] == 14
+    assert orch._cumulative_token_usage["billable_completion_tokens"] == 14
+    assert orch._cumulative_token_usage["total_tokens"] == 23
+    assert orch._current_stream_context is None
 
 
 @pytest.mark.asyncio
