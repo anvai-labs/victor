@@ -583,7 +583,7 @@ class SessionStateManager:
         """
         self._tool_budget = state.get("tool_budget", self._tool_budget)
         if "execution_state" in state:
-            self._execution_state = ExecutionState.from_dict(state["execution_state"])
+            self._replace_execution_state(ExecutionState.from_dict(state["execution_state"]))
         if "session_flags" in state:
             self._session_flags = SessionFlags.from_dict(state["session_flags"])
 
@@ -595,21 +595,28 @@ class SessionStateManager:
     # Reset
     # =========================================================================
 
+    def _replace_execution_state(self, replacement: ExecutionState) -> None:
+        """Keep runtime and metrics references attached to the session accumulator."""
+        usage = self._execution_state.token_usage
+        # Snapshot first: restored values may alias caller-owned checkpoint data
+        # or the live accumulator itself. Neither alias may be cleared/mutated.
+        restored_usage = dict(replacement.token_usage)
+        usage.clear()
+        usage.update(restored_usage)
+        replacement.token_usage = usage
+        self._execution_state = replacement
+
     def reset(self, preserve_token_usage: bool = False) -> None:
         """Reset session state for a new session.
 
         Args:
             preserve_token_usage: If True, keep accumulated token usage
         """
-        saved_tokens = None
-        if preserve_token_usage:
-            saved_tokens = self._execution_state.token_usage.copy()
-
-        self._execution_state = ExecutionState()
+        replacement = ExecutionState()
+        if preserve_token_usage and self._execution_state.token_usage:
+            replacement.token_usage = self._execution_state.token_usage
+        self._replace_execution_state(replacement)
         self._session_flags = SessionFlags()
-
-        if saved_tokens:
-            self._execution_state.token_usage = saved_tokens
 
         logger.debug("Session state reset")
 
