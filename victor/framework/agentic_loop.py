@@ -828,6 +828,8 @@ class AgenticLoop:
         from victor.framework.agentic_loop_executor import use_stategraph_executor
 
         if use_stategraph_executor():
+            if getattr(self, "_verifier", None) is not None:
+                raise NotImplementedError("StateGraph execution does not support verification")
             return await self._run_with_stategraph(
                 query=query,
                 context=context,
@@ -858,7 +860,10 @@ class AgenticLoop:
         _sem_cache = None
         from victor.core.feature_flags import FeatureFlag, is_feature_enabled
 
-        if is_feature_enabled(FeatureFlag.USE_SEMANTIC_RESPONSE_CACHE):
+        # Cached prose does not establish that this workspace's artifacts verify.
+        if getattr(self, "_verifier", None) is None and is_feature_enabled(
+            FeatureFlag.USE_SEMANTIC_RESPONSE_CACHE
+        ):
             try:
                 from victor.agent.semantic_response_cache import get_semantic_cache
 
@@ -1344,6 +1349,7 @@ class AgenticLoop:
                 # DECIDE
                 logger.info(f"[Iteration {i}/{effective_max}] DECIDE: {evaluation.decision}")
                 iteration.stage = LoopStage.DECIDE
+                iteration.evaluation = evaluation
                 iterations.append(iteration)
 
                 # Check termination conditions
@@ -1352,6 +1358,7 @@ class AgenticLoop:
                 # be considered done yet.
                 if evaluation.decision == EvaluationDecision.COMPLETE:
                     evaluation = self._apply_backslide_guard(evaluation)
+                    iteration.evaluation = evaluation
                     # FEP-0018: framework verification hook — verify before accepting.
                     if await self._maybe_verify_and_retry(i, evaluation, state, streaming=False):
                         continue  # re-enter the loop (skip break)
@@ -1645,19 +1652,26 @@ class AgenticLoop:
     ) -> bool:
         """FEP-0018 verify gate, shared by ``run()`` and ``run_streaming()``.
 
-        After the agent claims COMPLETE (post backslide-guard), run the verifier if
-        one is set and retries remain. On failure, inject the feedback, bump the retry
-        counter, and return ``True`` so the caller re-enters the loop; otherwise return
-        ``False`` and let the caller accept COMPLETE. Extracted so the gate lives in one
-        place instead of two byte-drifting copies (FEP-0021 / FP-3 residue).
+        Verify every COMPLETE claim when a verifier is configured, including the
+        final allowed retry. Failed checks downgrade the shared evaluation to RETRY
+        or FAIL so iteration exhaustion and reward emission cannot retain COMPLETE.
+        Return True only when another verification retry is granted. The same gate
+        serves buffered and streaming execution (FEP-0021 / FP-3 residue).
         """
         if not (
             evaluation.decision == EvaluationDecision.COMPLETE
             and getattr(self, "_verifier", None) is not None
-            and getattr(self, "_verify_retries", 0) < getattr(self, "_max_verify_retries", 0)
         ):
             return False
         vr = await self._run_verification(state)
+        state["verification"] = {
+            "passed": vr.passed,
+            "total": vr.total,
+            "verified": vr.is_verified,
+            "retries_used": self._verify_retries,
+            "max_retries": self._max_verify_retries,
+        }
+        evaluation.metadata["verification"] = dict(state["verification"])
         logger.info(
             "Turn %d verify%s: %d/%d (%s) retries=%d/%d",
             turn,
@@ -1668,10 +1682,17 @@ class AgenticLoop:
             self._verify_retries + 1,
             self._max_verify_retries,
         )
-        if not vr.is_verified:
+        if vr.is_verified:
+            return False
+        evaluation.score = 0.0
+        evaluation.reason = vr.feedback or "Verification did not pass all checks"
+        if self._verify_retries < self._max_verify_retries:
+            evaluation.decision = EvaluationDecision.RETRY
             self._inject_verify_feedback(vr)
             self._verify_retries += 1
             return True
+        evaluation.decision = EvaluationDecision.FAIL
+        evaluation.reason += "; verification retry budget exhausted"
         return False
 
     def _resolve_workspace(self, state: Dict[str, Any]) -> Optional[Path]:
@@ -1912,6 +1933,10 @@ class AgenticLoop:
         Yields:
             LoopIteration for each iteration
         """
+        if getattr(self, "_verifier", None) is not None:
+            raise NotImplementedError(
+                "Iteration streaming does not support verification; use run or run_streaming"
+            )
         from victor.framework.agentic_loop_executor import use_stategraph_executor
 
         if use_stategraph_executor():
