@@ -44,3 +44,46 @@ def test_runtime_usage_reaches_metrics_and_public_snapshot():
     assert metrics.get_token_usage().total_tokens == 1
     accessor.cumulative_token_usage = accessor.cumulative_token_usage
     assert metrics.get_token_usage().total_tokens == 1
+
+
+def test_reset_and_restore_keep_runtime_and_metrics_on_one_accumulator():
+    state = SessionStateManager()
+    accessor = SessionStateAccessor(state)
+    live_usage = accessor.cumulative_token_usage
+    metrics = AgentMetricsService(MagicMock(), MagicMock(), live_usage)
+    executor = TurnExecutor(
+        chat_context=SimpleNamespace(_cumulative_token_usage=live_usage),
+        tool_context=MagicMock(),
+        provider_context=MagicMock(),
+        execution_provider=MagicMock(),
+    )
+    response = CompletionResponse(
+        content="ok",
+        role="assistant",
+        usage={"prompt_tokens": 19, "completion_tokens": 7, "total_tokens": 26},
+    )
+    executor._accumulate_token_usage(response)
+    checkpoint = state.get_checkpoint_state()
+
+    state.reset(preserve_token_usage=True)
+    assert accessor.cumulative_token_usage is live_usage
+    executor._accumulate_token_usage(response)
+    assert state.get_token_usage()["total_tokens"] == metrics.get_token_usage().total_tokens == 52
+
+    state.reset()
+    assert accessor.cumulative_token_usage is live_usage
+    assert state.get_token_usage()["total_tokens"] == metrics.get_token_usage().total_tokens == 0
+    executor._accumulate_token_usage(response)
+    assert state.get_token_usage()["total_tokens"] == metrics.get_token_usage().total_tokens == 26
+
+    state.apply_checkpoint_state(checkpoint)
+    assert accessor.cumulative_token_usage is live_usage
+    executor._accumulate_token_usage(response)
+    assert state.get_token_usage()["total_tokens"] == metrics.get_token_usage().total_tokens == 52
+    # Neither runtime writes nor a caller changing its checkpoint can alter the other owner.
+    assert checkpoint["execution_state"]["token_usage"]["total_tokens"] == 26
+    checkpoint["execution_state"]["token_usage"]["total_tokens"] = 999
+    assert metrics.get_token_usage().total_tokens == 52
+    snapshot = state.get_token_usage()
+    snapshot["total_tokens"] = -1
+    assert metrics.get_token_usage().total_tokens == 52
