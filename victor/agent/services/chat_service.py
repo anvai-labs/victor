@@ -29,6 +29,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
+from contextlib import aclosing
 from typing import TYPE_CHECKING, Any, AsyncIterator, Callable, Dict, List, Optional
 
 from victor.agent.services.chat_evidence import ChatEvidenceMixin
@@ -134,6 +135,7 @@ class ChatService(ChatEvidenceMixin):
         self._turn_setup_handler: Optional[Callable[..., Any]] = None
         self._turn_teardown_handler: Optional[Callable[..., Any]] = None
         self._context_accepts_keyword_messages: Optional[bool] = None
+        self._turn_lock = asyncio.Lock()
 
         # Initialize metrics tracking
         self._metrics: Dict[str, Any] = {
@@ -163,6 +165,7 @@ class ChatService(ChatEvidenceMixin):
         task_report_finish_handler: Optional[Callable[..., Any]] = None,
         turn_setup_handler: Optional[Callable[..., Any]] = None,
         turn_teardown_handler: Optional[Callable[..., Any]] = None,
+        stream_turn_lock: Optional[asyncio.Lock] = None,
     ) -> None:
         """Bind live runtime collaborators after bootstrap."""
         if turn_executor is not None:
@@ -181,8 +184,17 @@ class ChatService(ChatEvidenceMixin):
             self._turn_setup_handler = turn_setup_handler
         if turn_teardown_handler is not None:
             self._turn_teardown_handler = turn_teardown_handler
+        if stream_turn_lock is not None:
+            self._turn_lock = stream_turn_lock
 
     async def chat(
+        self, user_message: str, *, stream: bool = False, **kwargs
+    ) -> "CompletionResponse":
+        """Process one exclusive buffered or aggregated streaming turn."""
+        async with self._turn_lock:
+            return await self._chat_exclusive(user_message, stream=stream, **kwargs)
+
+    async def _chat_exclusive(
         self, user_message: str, *, stream: bool = False, **kwargs
     ) -> "CompletionResponse":
         """Process a chat message through the bound canonical runtime.
@@ -209,7 +221,7 @@ class ChatService(ChatEvidenceMixin):
 
         if stream:
             chunks = []
-            async for chunk in self.stream_chat(
+            async for chunk in self._stream_chat_exclusive(
                 user_message,
                 use_planning=use_planning,
                 _preserve_turn_state=True,
@@ -308,6 +320,15 @@ class ChatService(ChatEvidenceMixin):
         )
 
     async def stream_chat(self, user_message: str, **kwargs) -> AsyncIterator["StreamChunk"]:
+        """Stream one exclusive turn through the bound canonical runtime."""
+        async with self._turn_lock:
+            async with aclosing(self._stream_chat_exclusive(user_message, **kwargs)) as stream:
+                async for chunk in stream:
+                    yield chunk
+
+    async def _stream_chat_exclusive(
+        self, user_message: str, **kwargs
+    ) -> AsyncIterator["StreamChunk"]:
         """Stream a chat response through the bound canonical runtime.
 
         Args:
@@ -373,9 +394,10 @@ class ChatService(ChatEvidenceMixin):
                         "stream_chat_handler is required for stream_chat()."
                     )
 
-                async for chunk in handler(user_message, **kwargs):
-                    response = chunk
-                    yield chunk
+                async with aclosing(handler(user_message, **kwargs)) as runtime_stream:
+                    async for chunk in runtime_stream:
+                        response = chunk
+                        yield chunk
                 finished = True
             except Exception as exc:
                 failure = exc

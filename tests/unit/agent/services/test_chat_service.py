@@ -20,7 +20,9 @@ from unittest import mock
 
 import pytest
 
+from victor.agent.session_cost_tracker import SessionCostTracker
 from victor.agent.services.chat_service import ChatService, ChatServiceConfig
+from victor.agent.services.metrics_service import AgentMetricsService
 from victor.providers.base import CompletionResponse, StreamChunk
 
 # =============================================================================
@@ -831,6 +833,118 @@ class TestChatServiceTaskReporting(BaseChatServiceTest):
         assert started == [("stream me", {"stream": True, "metadata": {"use_planning": None}})]
         assert finished[0][0] is True
         assert finished[0][1]["stream"] is True
+
+    @pytest.mark.asyncio
+    async def test_overlapping_streams_keep_task_reports_and_usage_attributed(self):
+        service = self._create_test_service()
+        cumulative = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+        metrics = AgentMetricsService(mock.MagicMock(), SessionCostTracker(), cumulative)
+        first_started = asyncio.Event()
+        second_started = asyncio.Event()
+        release_first = asyncio.Event()
+        usage_by_message = {
+            "first": {"prompt_tokens": 2, "completion_tokens": 3, "total_tokens": 5},
+            "second": {"prompt_tokens": 7, "completion_tokens": 11, "total_tokens": 18},
+        }
+
+        async def _stream_handler(user_message, **_kwargs):
+            if user_message == "first":
+                first_started.set()
+                await release_first.wait()
+            else:
+                second_started.set()
+            for key, value in usage_by_message[user_message].items():
+                cumulative[key] += value
+            yield StreamChunk(content=user_message, is_final=True)
+
+        service.bind_runtime_components(
+            stream_chat_handler=_stream_handler,
+            task_report_start_handler=lambda user_message, **kwargs: metrics.start_task_report(
+                user_message, metadata=kwargs.get("metadata")
+            ),
+            task_report_finish_handler=lambda success, **kwargs: metrics.finish_task_report(
+                success, metadata=kwargs.get("metadata")
+            ),
+        )
+
+        async def consume(message):
+            return [chunk async for chunk in service.stream_chat(message)]
+
+        first_task = asyncio.create_task(consume("first"))
+        await first_started.wait()
+        second_task = asyncio.create_task(consume("second"))
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        assert not second_started.is_set()
+
+        release_first.set()
+        first_chunks, second_chunks = await asyncio.gather(first_task, second_task)
+
+        assert [chunk.content for chunk in first_chunks] == ["first"]
+        assert [chunk.content for chunk in second_chunks] == ["second"]
+        reports = metrics.get_task_report_history()
+        assert [(report["description"], report["api_total_tokens"]) for report in reports] == [
+            ("first", 5),
+            ("second", 18),
+        ]
+        assert cumulative == {
+            "prompt_tokens": 9,
+            "completion_tokens": 14,
+            "total_tokens": 23,
+        }
+
+    @pytest.mark.asyncio
+    async def test_explicit_close_finalizes_runtime_before_report_and_next_turn(self):
+        service = self._create_test_service()
+        events = []
+
+        async def _stream_handler(user_message, **_kwargs):
+            events.append((user_message, "runtime-start"))
+            try:
+                yield StreamChunk(content=user_message, is_final=True)
+            finally:
+                events.append((user_message, "runtime-finalize"))
+
+        async def _turn_setup(user_message, **_kwargs):
+            events.append((user_message, "setup"))
+
+        async def _turn_teardown(user_message, **_kwargs):
+            events.append((user_message, "teardown"))
+
+        service.bind_runtime_components(
+            stream_chat_handler=_stream_handler,
+            task_report_start_handler=lambda user_message, **_kwargs: events.append(
+                (user_message, "report-start")
+            ),
+            task_report_finish_handler=lambda _success, **kwargs: events.append(
+                (kwargs["user_message"], "report-finish")
+            ),
+            turn_setup_handler=_turn_setup,
+            turn_teardown_handler=_turn_teardown,
+        )
+
+        first_stream = service.stream_chat("first")
+        assert (await anext(first_stream)).content == "first"
+        events.append(("first", "caller-close"))
+        await first_stream.aclose()
+        second_chunks = [chunk async for chunk in service.stream_chat("second")]
+
+        assert [chunk.content for chunk in second_chunks] == ["second"]
+        assert events == [
+            ("first", "setup"),
+            ("first", "report-start"),
+            ("first", "runtime-start"),
+            ("first", "caller-close"),
+            ("first", "runtime-finalize"),
+            ("first", "report-finish"),
+            ("first", "teardown"),
+            ("second", "setup"),
+            ("second", "report-start"),
+            ("second", "runtime-start"),
+            ("second", "runtime-finalize"),
+            ("second", "report-finish"),
+            ("second", "teardown"),
+        ]
 
 
 class TestChatServiceTurnScope(BaseChatServiceTest):

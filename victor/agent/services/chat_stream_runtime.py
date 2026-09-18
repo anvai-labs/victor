@@ -8,8 +8,9 @@
 from __future__ import annotations
 
 import logging
+from contextlib import aclosing
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, AsyncIterator, Dict, Mapping, Optional
+from typing import TYPE_CHECKING, Any, AsyncGenerator, AsyncIterator, Dict, Mapping, Optional
 
 from victor.agent.services.chat_stream_helpers import ChatStreamHelperMixin
 
@@ -397,7 +398,27 @@ class ServiceStreamingRuntime(ChatStreamHelperMixin):
         return "; ".join(parts)
 
     async def stream_chat(self, user_message: str, **kwargs: Any) -> AsyncIterator["StreamChunk"]:
-        """Stream a response through the canonical service-owned executor."""
+        """Stream one exclusive turn through the service-owned executor."""
+        # The active context and metrics accumulator are session-scoped. Keep execution
+        # and finalization in one critical section so overlapping callers cannot replace
+        # or clear another turn's state.
+        async with self.services.stream_turn_lock:
+            async with aclosing(self.stream_chat_under_turn_lock(user_message, **kwargs)) as stream:
+                async for chunk in stream:
+                    yield chunk
+
+    async def stream_chat_under_turn_lock(
+        self, user_message: str, **kwargs: Any
+    ) -> AsyncIterator["StreamChunk"]:
+        """Stream for a ChatService caller that already owns the session turn lock."""
+        async with aclosing(self._stream_chat_exclusive(user_message, **kwargs)) as stream:
+            async for chunk in stream:
+                yield chunk
+
+    async def _stream_chat_exclusive(
+        self, user_message: str, **kwargs: Any
+    ) -> AsyncGenerator["StreamChunk", None]:
+        """Run a stream while its orchestrator turn lock is held."""
         _ = kwargs.pop("_preserve_iteration", None)
         fallback_iteration = kwargs.pop("_fallback_iteration", 0)
 
@@ -439,7 +460,7 @@ class ServiceStreamingRuntime(ChatStreamHelperMixin):
                     # accumulated into `state_dict["_cumulative_token_usage"]`, which is absent
                     # (None) on the service path, so the loop was a silent no-op and every task
                     # report read total_tokens=0 despite real usage on `ctx.cumulative_usage`.
-                    cumulative_usage = getattr(self._orchestrator, "_cumulative_token_usage", None)
+                    cumulative_usage = getattr(state_host, "_cumulative_token_usage", None)
                     if not isinstance(cumulative_usage, dict):
                         cumulative_usage = state_dict.get("_cumulative_token_usage")
                     if isinstance(cumulative_usage, dict):
