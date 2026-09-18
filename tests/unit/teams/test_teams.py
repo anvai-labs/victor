@@ -51,7 +51,7 @@ class TestTeamFormation:
     def test_formations_are_iterable(self):
         """All registered public formations can be iterated."""
         formations = list(TeamFormation)
-        assert len(formations) == 9
+        assert len(formations) == 12
         assert TeamFormation.REFLECTION in formations
 
 

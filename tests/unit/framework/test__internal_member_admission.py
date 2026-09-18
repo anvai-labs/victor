@@ -27,3 +27,30 @@ async def test_admission_event_survives_stream_and_wire_and_is_ignored_by_legacy
     # Consumer decision: old UI must not mislabel capacity waiting as human approval.
     assert map_event(event).kind == RenderKind.IGNORE
     assert map_wire_event(wire).kind == RenderKind.IGNORE
+
+
+async def test_conversation_events_survive_bridge_and_wire_without_changing_ui():
+    class Orchestrator:
+        async def stream_chat(self, prompt):
+            await current_member_sink.get().emit(
+                MemberEvent("member_spoke", "a", metadata={"transcript_sequence": 3})
+            )
+            await current_member_sink.get().emit(
+                MemberEvent(
+                    "member_handoff", "a", metadata={"target_member_id": "b", "sequence": 3}
+                )
+            )
+            yield SimpleNamespace(content="done", metadata={}, tool_calls=[])
+
+    events = [event async for event in stream_with_events(Orchestrator(), "task")]
+    selected = [
+        event
+        for event in events
+        if event.metadata.get("custom_type") in {"member_spoke", "member_handoff"}
+    ]
+    wires = [to_wire_event(event) for event in selected]
+    assert wires[0]["transcript_sequence"] == 3
+    assert wires[1]["target_member_id"] == "b" and wires[1]["sequence"] == 3
+    for event, wire in zip(selected, wires):
+        assert map_event(event).kind == RenderKind.IGNORE
+        assert map_wire_event(wire).kind == RenderKind.IGNORE
