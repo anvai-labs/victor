@@ -414,10 +414,13 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   member usage. Regression coverage includes task boundaries, failed/empty tasks,
   empty recovery attempts, and real streaming finalization with mixed reasoning
   conventions; 115 related tests passed. Remaining tracker fields are G34.
-- **G30 — session reset can replace the metrics accumulator.** Internal assignment
-  now preserves dictionary identity, but SessionStateManager.reset replaces its
-  execution state. Reset/rebind lifecycle coverage remains a separate follow-up;
-  fresh member sessions in the live sweep do not exercise that boundary.
+- **G30 — ✅ shared usage survives reset and checkpoint restore ([PR #1120](https://github.com/anvai-labs/victor/pull/1120)).**
+  SessionStateManager retains the live accumulator when replacing execution state,
+  so runtime writers and metrics readers remain attached after either reset mode
+  and checkpoint restore. Restored values are copied to avoid aliasing caller-owned
+  checkpoint data. A regression reproduces the original stale-reference failure
+  and verifies subsequent response accounting through all three transitions;
+  124 session, metrics, runtime, and size-guard tests passed.
 
 - **G31 — cache observability needs a paired workload replay.** The mixed Victor run
   reported zero InferFlux cache tokens, but controlled direct/gateway probes showed
