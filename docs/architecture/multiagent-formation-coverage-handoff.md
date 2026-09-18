@@ -411,7 +411,7 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   still report zero task tokens while opt-in member counters and Sandhi reconcile.
   The separate SessionCostTracker needs explicit integration; no monetary accuracy
   is claimed by WS-E's neutral-token validation.
-- **G30 — ✅ shared usage survives reset and checkpoint restore (PR pending).**
+- **G30 — ✅ shared usage survives reset and checkpoint restore ([PR #1120](https://github.com/anvai-labs/victor/pull/1120)).**
   SessionStateManager retains the live accumulator when replacing execution state,
   so runtime writers and metrics readers remain attached after either reset mode
   and checkpoint restore. Restored values are copied to avoid aliasing caller-owned
