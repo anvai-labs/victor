@@ -440,6 +440,12 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   Follow-up: retain both model traces, isolate tool/prose and artifact-validity
   decisions under FEP-0025, and separately measure CPU admission/deadline behavior.
   Keep strict structured verdicts and independent pytest as acceptance gates.
+  A subsequent [mixed gateway replay](evidence/g29-mixed-gateway.json) on G29's
+  accounting fix reproduced missing `test_writer.py` and `test_fallbackb.py`.
+  Five collected tests passed, but the full run correctly failed the required
+  artifact gate. Its seven task reports matched member counters and gateway totals
+  across 29 calls with seven distinct member sessions. This accounting regression
+  run is not a paired prompt experiment and does not establish model improvement.
 - **G33 — ✅ deterministic spin-guard regression coverage ([PR #1119](https://github.com/anvai-labs/victor/pull/1119)).** The
   failing test mixed classifier/plugin initialization with its loop deadline and
   could pass the iteration assertion after an unrelated early failure. Tests now
@@ -456,6 +462,23 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   through the metrics owner, preserve per-call reasoning conventions, and reconcile
   mixed buffered/streaming task boundaries without adding duplicated token totals.
   Zero tracker values for buffered tasks are not evidence of zero cost or requests.
+- **G35 — ✅ verification retry exhaustion cannot accept COMPLETE ([PR #1122](https://github.com/anvai-labs/victor/pull/1122)).**
+  The shared buffered/streaming verification gate previously skipped zero-budget
+  checks and the last repair attempt, and could leave failed verification marked
+  COMPLETE when the outer iteration limit fired. It now checks every completion
+  claim, records structured results, and changes unsuccessful evaluations to RETRY
+  or FAIL with zero reward score. Configured verification bypasses cached prose;
+  unsupported StateGraph and iteration-stream paths fail explicitly. Default runs
+  without a verifier retain their behavior. Validation: 81 focused gate/loop tests
+  plus 127 loop/integration/session-ledger/size-guard tests passed. This establishes
+  prerequisite correctness for G32 experiments, not evidence that either model now
+  passes the formation battery.
+- **G36 — built-in verifier process outcomes need structured acceptance.**
+  LocalTestVerifier parses test-count prose and can ignore a nonzero process exit
+  if parsed passed/total counts match. LintVerifier derives success from colon-bearing
+  output lines rather than the exit status. Follow-up must use explicit process
+  success plus runner-owned structured reports, cover empty/failed/timeout runs,
+  and retain diagnostics without promoting model-written prose into evidence.
 
 
 WS-E implementation/evidence: [PR #1115](https://github.com/anvai-labs/victor/pull/1115).

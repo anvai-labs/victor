@@ -4,7 +4,7 @@ title: "Framework verification hook — verify the agent's work after COMPLETE +
 type: Standards Track
 status: Draft
 created: 2026-07-15
-modified: 2026-07-15
+modified: 2026-09-18
 authors:
   - name: Vijaykumar Singh
     email: vijay@anvaiops.com
@@ -34,24 +34,27 @@ FEP-0018 promotes the capability to the agentic loop's DECIDE phase, making it a
 A `@runtime_checkable` Protocol with `async def verify(*, workspace, state) -> VerificationResult`. `VerificationResult` carries `passed/total/raw_output/feedback` + an `is_verified` property. Zero victor deps (stdlib only).
 
 ### Verify gate in the DECIDE phase (`victor/framework/agentic_loop.py`)
-After DECIDE=COMPLETE + backslide guard, before break/return:
-```python
-if (evaluation.decision == COMPLETE
-        and getattr(self, "_verifier", None) is not None
-        and getattr(self, "_verify_retries", 0) < getattr(self, "_max_verify_retries", 0)):
-    vr = await self._run_verification(state)
-    if not vr.is_verified:
-        self._inject_verify_feedback(vr)
-        self._verify_retries += 1
-        continue  # re-enter the loop
-```
-Added to BOTH `run()` and `run_streaming()`. Uses `getattr` for bare-instance robustness.
+After DECIDE=COMPLETE + backslide guard, the shared `_maybe_verify_and_retry`
+gate verifies every completion claim when a verifier is supplied. This includes
+the final retry; `max_verify_retries=0` means one check without a repair retry.
+A failed or empty verification, or verifier exception, sets the evaluation to
+RETRY while retries remain and FAIL when exhausted. Failure also sets the reward
+score to zero. Hitting the outer iteration limit while verification is pending
+cannot retain a COMPLETE evaluation.
+
+Both `run()` and `run_streaming()` use this gate. Structured counts and verification
+status are retained in `state["verification"]` and evaluation metadata. Retry budgets
+reset on each run. When a verifier is supplied, buffered execution bypasses semantic
+response caching because cached prose is not evidence about current artifacts.
+StateGraph execution and the older `stream()` iteration API reject a configured
+verifier explicitly until those paths implement the verification contract.
 
 ### Loop constructor: `verifier` + `max_verify_retries` params
 ```python
 AgenticLoop(..., verifier: Optional[Verifier] = None, max_verify_retries: int = 0)
 ```
-Default None/0 = no behavior change (fully backward-compatible).
+Default None/0 = no behavior change. Supplying a verifier with zero retries still
+checks once and reports failed verification honestly.
 
 ### Helpers: `_run_verification` + `_inject_verify_feedback`
 - `_run_verification(state)`: calls `self._verifier.verify(workspace=..., state=state)`, returns `VerificationResult`.
