@@ -7,7 +7,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from contextlib import aclosing
 from dataclasses import dataclass
@@ -400,17 +399,10 @@ class ServiceStreamingRuntime(ChatStreamHelperMixin):
 
     async def stream_chat(self, user_message: str, **kwargs: Any) -> AsyncIterator["StreamChunk"]:
         """Stream one exclusive turn through the service-owned executor."""
-        bindings = self._get_runtime_bindings()
-        state_host = bindings.state_host
-        turn_lock = bindings.state_dict.get("_stream_turn_lock")
-        if turn_lock is None:
-            # The active context and metrics accumulator live on the orchestrator. Keep
-            # execution and finalization in one critical section so overlapping callers
-            # cannot replace or clear another turn's state.
-            turn_lock = asyncio.Lock()
-            state_host._stream_turn_lock = turn_lock
-
-        async with turn_lock:
+        # The active context and metrics accumulator are session-scoped. Keep execution
+        # and finalization in one critical section so overlapping callers cannot replace
+        # or clear another turn's state.
+        async with self.services.stream_turn_lock:
             async with aclosing(self._stream_chat_exclusive(user_message, **kwargs)) as stream:
                 async for chunk in stream:
                     yield chunk
@@ -460,7 +452,7 @@ class ServiceStreamingRuntime(ChatStreamHelperMixin):
                     # accumulated into `state_dict["_cumulative_token_usage"]`, which is absent
                     # (None) on the service path, so the loop was a silent no-op and every task
                     # report read total_tokens=0 despite real usage on `ctx.cumulative_usage`.
-                    cumulative_usage = getattr(self._orchestrator, "_cumulative_token_usage", None)
+                    cumulative_usage = getattr(state_host, "_cumulative_token_usage", None)
                     if not isinstance(cumulative_usage, dict):
                         cumulative_usage = state_dict.get("_cumulative_token_usage")
                     if isinstance(cumulative_usage, dict):

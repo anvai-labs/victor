@@ -69,7 +69,10 @@ async def test_factory_view_updates_existing_requirement_owner(
 async def test_view_tracks_restored_and_reset_state_without_sharing_owners(monkeypatch):
     first, second = owner(), owner()
     view = bind_chat_runtime_services(first)
+    same_owner_view = bind_chat_runtime_services(first)
     other = bind_chat_runtime_services(second)
+    assert same_owner_view.stream_turn_lock is view.stream_turn_lock
+    assert other.stream_turn_lock is not view.stream_turn_lock
     manager = first._session_accessor.session_state
     other.session.required_files = ["unrelated.py"]
     other.session.read_files.add("unrelated.py")
@@ -131,6 +134,7 @@ def test_view_is_enumerated_and_does_not_retain_or_forward_facade():
     view = bind_chat_runtime_services(orchestrator)
     assert [field.name for field in fields(view)] == [
         "session",
+        "stream_turn_lock",
         "delivery",
         "recovery",
         "tool_planner",
@@ -140,6 +144,7 @@ def test_view_is_enumerated_and_does_not_retain_or_forward_facade():
     for name in ("orchestrator", "_orchestrator", "runtime_owner", "state_host", "get", "settings"):
         assert not hasattr(view, name)
         assert not hasattr(view.session, name)
+    assert view.stream_turn_lock is orchestrator._session_accessor.stream_turn_lock
     assert view.session._accessor is orchestrator._session_accessor
     with pytest.raises(FrozenInstanceError):
         view.session = object()
