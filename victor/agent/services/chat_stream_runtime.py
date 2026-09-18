@@ -7,9 +7,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+from contextlib import aclosing
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, AsyncIterator, Dict, Mapping, Optional
+from typing import TYPE_CHECKING, Any, AsyncGenerator, AsyncIterator, Dict, Mapping, Optional
 
 from victor.agent.services.chat_stream_helpers import ChatStreamHelperMixin
 
@@ -397,7 +399,26 @@ class ServiceStreamingRuntime(ChatStreamHelperMixin):
         return "; ".join(parts)
 
     async def stream_chat(self, user_message: str, **kwargs: Any) -> AsyncIterator["StreamChunk"]:
-        """Stream a response through the canonical service-owned executor."""
+        """Stream one exclusive turn through the service-owned executor."""
+        bindings = self._get_runtime_bindings()
+        state_host = bindings.state_host
+        turn_lock = bindings.state_dict.get("_stream_turn_lock")
+        if turn_lock is None:
+            # The active context and metrics accumulator live on the orchestrator. Keep
+            # execution and finalization in one critical section so overlapping callers
+            # cannot replace or clear another turn's state.
+            turn_lock = asyncio.Lock()
+            state_host._stream_turn_lock = turn_lock
+
+        async with turn_lock:
+            async with aclosing(self._stream_chat_exclusive(user_message, **kwargs)) as stream:
+                async for chunk in stream:
+                    yield chunk
+
+    async def _stream_chat_exclusive(
+        self, user_message: str, **kwargs: Any
+    ) -> AsyncGenerator["StreamChunk", None]:
+        """Run a stream while its orchestrator turn lock is held."""
         _ = kwargs.pop("_preserve_iteration", None)
         fallback_iteration = kwargs.pop("_fallback_iteration", 0)
 
