@@ -1,0 +1,460 @@
+{
+  "model": "lfm2.5-8b-a1b-edge",
+  "provider": "inferflux",
+  "cases": [
+    {
+      "formation": "sequential",
+      "model": "lfm2.5-8b-a1b-edge",
+      "passed": false,
+      "result": {
+        "success": true,
+        "final_output": "\n\n{\n  \"status\": \"ready\"\n}\n\n\n{\n  \"commands\": [\n    {\n      \"command\": \"echo 'def second(x): return x * 2' > /private/tmp/ws-f-edge/battery-66d3ec2616/sequential/second.py\"\n    },\n    {\n      \"command\": \"cat > /private/tmp/ws-f-edge/battery-66d3ec2616/sequential/test_second.py << 'EOF'\\nfrom second import second\\n\\ndef test_second():\\n    assert second(4) == 8\\nEOF\"\n    },\n    {\n      \"command\": \"/private/tmp/victor-ws-f/.venv-codesign/bin/python -m pytest /private/tmp/ws-f-edge/battery-66d3ec2616/sequential/test_second.py -q\",\n      \"readonly\": false\n    }\n  ]\n}",
+        "member_results": {
+          "executor_14772df4": {
+            "member_id": "executor_14772df4",
+            "success": true,
+            "output": "\n\n{\n  \"status\": \"ready\"\n}",
+            "error": null,
+            "metadata": {
+              "member_id": "executor_14772df4",
+              "agent_id": "agent_executor_ecd0524e15f5",
+              "display_name": "first",
+              "team_id": "UnifiedTeam",
+              "plan_id": null,
+              "plan_step_id": null,
+              "parent_session_id": "battery-66d3ec2616-sequential",
+              "child_session_id": null,
+              "session_id": "battery-66d3ec2616-sequential-executor_14772df4",
+              "task": "Complete your assigned deliverable and test."
+            },
+            "tool_calls_used": 2,
+            "duration_seconds": 105.10869193077087,
+            "discoveries": []
+          },
+          "executor_2674c9c2": {
+            "member_id": "executor_2674c9c2",
+            "success": true,
+            "output": "\n{\n  \"commands\": [\n    {\n      \"command\": \"echo 'def second(x): return x * 2' > /private/tmp/ws-f-edge/battery-66d3ec2616/sequential/second.py\"\n    },\n    {\n      \"command\": \"cat > /private/tmp/ws-f-edge/battery-66d3ec2616/sequential/test_second.py << 'EOF'\\nfrom second import second\\n\\ndef test_second():\\n    assert second(4) == 8\\nEOF\"\n    },\n    {\n      \"command\": \"/private/tmp/victor-ws-f/.venv-codesign/bin/python -m pytest /private/tmp/ws-f-edge/battery-66d3ec2616/sequential/test_second.py -q\",\n      \"readonly\": false\n    }\n  ]\n}",
+            "error": null,
+            "metadata": {
+              "member_id": "executor_2674c9c2",
+              "agent_id": "agent_executor_23707aa5ed36",
+              "display_name": "second",
+              "team_id": "UnifiedTeam",
+              "plan_id": null,
+              "plan_step_id": null,
+              "parent_session_id": "battery-66d3ec2616-sequential",
+              "child_session_id": null,
+              "session_id": "battery-66d3ec2616-sequential-executor_2674c9c2",
+              "task": "Complete your assigned deliverable and test."
+            },
+            "tool_calls_used": 0,
+            "duration_seconds": 119.59411716461182,
+            "discoveries": []
+          }
+        },
+        "formation": "sequential",
+        "total_tool_calls": 2,
+        "total_duration": 0.0,
+        "consensus_achieved": null,
+        "consensus_rounds": null,
+        "error": null
+      },
+      "missing_artifacts": [
+        "second.py",
+        "test_second.py"
+      ],
+      "pytest": {
+        "exit_code": 2,
+        "output": "\n==================================== ERRORS ====================================\n________________________ ERROR collecting test_first.py ________________________\n/Users/vijaysingh/code/.venv/lib/python3.12/site-packages/_pytest/python.py:508: in importtestmodule\n    mod = import_path(\n/Users/vijaysingh/code/.venv/lib/python3.12/site-packages/_pytest/pathlib.py:596: in import_path\n    importlib.import_module(module_name)\n/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n<frozen importlib._bootstrap>:1387: in _gcd_import\n    ???\n<frozen importlib._bootstrap>:1360: in _find_and_load\n    ???\n<frozen importlib._bootstrap>:1331: in _find_and_load_unlocked\n    ???\n<frozen importlib._bootstrap>:935: in _load_unlocked\n    ???\n/Users/vijaysingh/code/.venv/lib/python3.12/site-packages/_pytest/assertion/rewrite.py:179: in exec_module\n    source_stat, co = _rewrite_test(fn, self.config)\n                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n/Users/vijaysingh/code/.venv/lib/python3.12/site-packages/_pytest/assertion/rewrite.py:348: in _rewrite_test\n    tree = ast.parse(source, filename=strfn)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/ast.py:52: in parse\n    return compile(source, filename, mode, flags,\nE     File \"/private/tmp/ws-f-edge/battery-66d3ec2616/sequential/test_first.py\", line 1\nE       from first import first\\ndef test_first(): assert first(4) == 8\nE                               ^\nE   SyntaxError: unexpected character after line continuation character\n=========================== short test summary info ============================\nERROR test_first.py\n!!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!\n1 error in 0.21s\n"
+      },
+      "events": [
+        {
+          "kind": "member_start",
+          "member_id": "executor_14772df4",
+          "formation": "sequential",
+          "index": 0,
+          "content": "",
+          "success": true,
+          "metadata": {}
+        },
+        {
+          "kind": "member_completed",
+          "member_id": "executor_14772df4",
+          "formation": "sequential",
+          "index": 0,
+          "content": "",
+          "success": true,
+          "metadata": {}
+        },
+        {
+          "kind": "member_start",
+          "member_id": "executor_2674c9c2",
+          "formation": "sequential",
+          "index": 1,
+          "content": "",
+          "success": true,
+          "metadata": {}
+        },
+        {
+          "kind": "member_completed",
+          "member_id": "executor_2674c9c2",
+          "formation": "sequential",
+          "index": 1,
+          "content": "",
+          "success": true,
+          "metadata": {}
+        }
+      ],
+      "requests": [
+        {
+          "session_id": "battery-66d3ec2616-sequential-executor_14772df4",
+          "model": "lfm2.5-8b-a1b-edge"
+        },
+        {
+          "session_id": "battery-66d3ec2616-sequential-executor_14772df4",
+          "model": "lfm2.5-8b-a1b-edge"
+        },
+        {
+          "session_id": "battery-66d3ec2616-sequential-executor_2674c9c2",
+          "model": "lfm2.5-8b-a1b-edge"
+        },
+        {
+          "session_id": "battery-66d3ec2616-sequential-executor_2674c9c2",
+          "model": "lfm2.5-8b-a1b-edge"
+        }
+      ],
+      "elapsed_seconds": 232.33,
+      "post_run_artifact_check": {
+        "missing": [
+          "second.py",
+          "test_second.py"
+        ],
+        "pytest_exit_code": 2,
+        "pytest_output": "\n==================================== ERRORS ====================================\n________________________ ERROR collecting test_first.py ________________________\n/Users/vijaysingh/code/.venv/lib/python3.12/site-packages/_pytest/python.py:508: in importtestmodule\n    mod = import_path(\n/Users/vijaysingh/code/.venv/lib/python3.12/site-packages/_pytest/pathlib.py:596: in import_path\n    importlib.import_module(module_name)\n/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n<frozen importlib._bootstrap>:1387: in _gcd_import\n    ???\n<frozen importlib._bootstrap>:1360: in _find_and_load\n    ???\n<frozen importlib._bootstrap>:1331: in _find_and_load_unlocked\n    ???\n<frozen importlib._bootstrap>:935: in _load_unlocked\n    ???\n/Users/vijaysingh/code/.venv/lib/python3.12/site-packages/_pytest/assertion/rewrite.py:179: in exec_module\n    source_stat, co = _rewrite_test(fn, self.config)\n                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n/Users/vijaysingh/code/.venv/lib/python3.12/site-packages/_pytest/assertion/rewrite.py:348: in _rewrite_test\n    tree = ast.parse(source, filename=strfn)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/ast.py:52: in parse\n    return compile(source, filename, mode, flags,\nE     File \"/private/tmp/ws-f-edge/battery-66d3ec2616/sequential/test_first.py\", line 1\nE       from first import first\\ndef test_first(): assert first(4) == 8\nE                               ^\nE   SyntaxError: unexpected character after line continuation character\n=========================== short test summary info ============================\nERROR test_first.py\n!!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!\n1 error in 0.20s\n"
+      },
+      "request_model_matches": true
+    },
+    {
+      "formation": "pipeline",
+      "model": "lfm2.5-8b-a1b-edge",
+      "passed": false,
+      "result": {
+        "success": true,
+        "final_output": "\n{\n  \"tool_call\": [\n    {\n      \"path\": \"/private/tmp/ws-f-edge/battery-66d3ec2616/pipeline/test_second.py\",\n      \"content\": \"from second import second\\n\\ndef test_second():\\n    assert second(4) == 8\"\n    },\n    {\n      \"path\": \"/private/tmp/ws-f-edge/battery-66d3ec2616/pipeline/second.py\",\n      \"content\": \"def second(x): return x * 2\"\n    }\n  ],\n  \"status\": \"successfully_written\",\n  \"syntax_fixed\": true\n}",
+        "member_results": {
+          "executor_dd73e665": {
+            "member_id": "executor_dd73e665",
+            "success": true,
+            "output": "[shell(cmd=\"cd /private/tmp/victor-ws-f/.venv-codesign && python -m pytest pipeline/test_first.py -q\", stdout_limit=20, stderr_limit=20, cwd='/private/tmp/victor-ws-f/.venv-codesign', timeout=60, action='execute')]",
+            "error": null,
+            "metadata": {
+              "member_id": "executor_dd73e665",
+              "agent_id": "agent_executor_a908709bb8d2",
+              "display_name": "first",
+              "team_id": "UnifiedTeam",
+              "plan_id": null,
+              "plan_step_id": null,
+              "parent_session_id": "battery-66d3ec2616-pipeline",
+              "child_session_id": null,
+              "session_id": "battery-66d3ec2616-pipeline-executor_dd73e665",
+              "task": "Complete your assigned deliverable and test."
+            },
+            "tool_calls_used": 2,
+            "duration_seconds": 42.92379021644592,
+            "discoveries": []
+          },
+          "executor_7ca5049e": {
+            "member_id": "executor_7ca5049e",
+            "success": true,
+            "output": "\n{\n  \"tool_call\": [\n    {\n      \"path\": \"/private/tmp/ws-f-edge/battery-66d3ec2616/pipeline/test_second.py\",\n      \"content\": \"from second import second\\n\\ndef test_second():\\n    assert second(4) == 8\"\n    },\n    {\n      \"path\": \"/private/tmp/ws-f-edge/battery-66d3ec2616/pipeline/second.py\",\n      \"content\": \"def second(x): return x * 2\"\n    }\n  ],\n  \"status\": \"successfully_written\",\n  \"syntax_fixed\": true\n}",
+            "error": null,
+            "metadata": {
+              "member_id": "executor_7ca5049e",
+              "agent_id": "agent_executor_b4626464f16e",
+              "display_name": "second",
+              "team_id": "UnifiedTeam",
+              "plan_id": null,
+              "plan_step_id": null,
+              "parent_session_id": "battery-66d3ec2616-pipeline",
+              "child_session_id": null,
+              "session_id": "battery-66d3ec2616-pipeline-executor_7ca5049e",
+              "task": "Complete your assigned deliverable and test."
+            },
+            "tool_calls_used": 3,
+            "duration_seconds": 118.4722490310669,
+            "discoveries": []
+          }
+        },
+        "formation": "pipeline",
+        "total_tool_calls": 5,
+        "total_duration": 0.0,
+        "consensus_achieved": null,
+        "consensus_rounds": null,
+        "error": null
+      },
+      "missing_artifacts": [],
+      "pytest": {
+        "exit_code": 2,
+        "output": "\n==================================== ERRORS ====================================\n________________________ ERROR collecting test_first.py ________________________\n/Users/vijaysingh/code/.venv/lib/python3.12/site-packages/_pytest/python.py:508: in importtestmodule\n    mod = import_path(\n/Users/vijaysingh/code/.venv/lib/python3.12/site-packages/_pytest/pathlib.py:596: in import_path\n    importlib.import_module(module_name)\n/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n<frozen importlib._bootstrap>:1387: in _gcd_import\n    ???\n<frozen importlib._bootstrap>:1360: in _find_and_load\n    ???\n<frozen importlib._bootstrap>:1331: in _find_and_load_unlocked\n    ???\n<frozen importlib._bootstrap>:935: in _load_unlocked\n    ???\n/Users/vijaysingh/code/.venv/lib/python3.12/site-packages/_pytest/assertion/rewrite.py:179: in exec_module\n    source_stat, co = _rewrite_test(fn, self.config)\n                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n/Users/vijaysingh/code/.venv/lib/python3.12/site-packages/_pytest/assertion/rewrite.py:348: in _rewrite_test\n    tree = ast.parse(source, filename=strfn)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/ast.py:52: in parse\n    return compile(source, filename, mode, flags,\nE     File \"/private/tmp/ws-f-edge/battery-66d3ec2616/pipeline/test_first.py\", line 1\nE       from first import first\\ndef test_first(): assert first(4) == 8\nE                               ^\nE   SyntaxError: unexpected character after line continuation character\n_______________________ ERROR collecting test_second.py ________________________\n/Users/vijaysingh/code/.venv/lib/python3.12/site-packages/_pytest/python.py:508: in importtestmodule\n    mod = import_path(\n/Users/vijaysingh/code/.venv/lib/python3.12/site-packages/_pytest/pathlib.py:596: in import_path\n    importlib.import_module(module_name)\n/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n<frozen importlib._bootstrap>:1387: in _gcd_import\n    ???\n<frozen importlib._bootstrap>:1360: in _find_and_load\n    ???\n<frozen importlib._bootstrap>:1331: in _find_and_load_unlocked\n    ???\n<frozen importlib._bootstrap>:935: in _load_unlocked\n    ???\n/Users/vijaysingh/code/.venv/lib/python3.12/site-packages/_pytest/assertion/rewrite.py:179: in exec_module\n    source_stat, co = _rewrite_test(fn, self.config)\n                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n/Users/vijaysingh/code/.venv/lib/python3.12/site-packages/_pytest/assertion/rewrite.py:348: in _rewrite_test\n    tree = ast.parse(source, filename=strfn)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/ast.py:52: in parse\n    return compile(source, filename, mode, flags,\nE     File \"/private/tmp/ws-f-edge/battery-66d3ec2616/pipeline/test_second.py\", line 1\nE       from second import second\\ndef test_second(): assert second(4) == 8\nE                                 ^\nE   SyntaxError: unexpected character after line continuation character\n=========================== short test summary info ============================\nERROR test_first.py\nERROR test_second.py\n!!!!!!!!!!!!!!!!!!! Interrupted: 2 errors during collection !!!!!!!!!!!!!!!!!!!!\n2 errors in 0.24s\n"
+      },
+      "events": [
+        {
+          "kind": "member_start",
+          "member_id": "executor_dd73e665",
+          "formation": "pipeline",
+          "index": 0,
+          "content": "",
+          "success": true,
+          "metadata": {}
+        },
+        {
+          "kind": "member_completed",
+          "member_id": "executor_dd73e665",
+          "formation": "pipeline",
+          "index": 0,
+          "content": "",
+          "success": true,
+          "metadata": {}
+        },
+        {
+          "kind": "member_start",
+          "member_id": "executor_7ca5049e",
+          "formation": "pipeline",
+          "index": 1,
+          "content": "",
+          "success": true,
+          "metadata": {}
+        },
+        {
+          "kind": "member_completed",
+          "member_id": "executor_7ca5049e",
+          "formation": "pipeline",
+          "index": 1,
+          "content": "",
+          "success": true,
+          "metadata": {}
+        }
+      ],
+      "requests": [
+        {
+          "session_id": "battery-66d3ec2616-pipeline-executor_dd73e665",
+          "model": "lfm2.5-8b-a1b-edge"
+        },
+        {
+          "session_id": "battery-66d3ec2616-pipeline-executor_dd73e665",
+          "model": "lfm2.5-8b-a1b-edge"
+        },
+        {
+          "session_id": "battery-66d3ec2616-pipeline-executor_7ca5049e",
+          "model": "lfm2.5-8b-a1b-edge"
+        },
+        {
+          "session_id": "battery-66d3ec2616-pipeline-executor_7ca5049e",
+          "model": "lfm2.5-8b-a1b-edge"
+        },
+        {
+          "session_id": "battery-66d3ec2616-pipeline-executor_7ca5049e",
+          "model": "lfm2.5-8b-a1b-edge"
+        },
+        {
+          "session_id": "battery-66d3ec2616-pipeline-executor_7ca5049e",
+          "model": "lfm2.5-8b-a1b-edge"
+        }
+      ],
+      "elapsed_seconds": 162.89,
+      "post_run_artifact_check": {
+        "missing": [],
+        "pytest_exit_code": 2,
+        "pytest_output": "\n==================================== ERRORS ====================================\n________________________ ERROR collecting test_first.py ________________________\n/Users/vijaysingh/code/.venv/lib/python3.12/site-packages/_pytest/python.py:508: in importtestmodule\n    mod = import_path(\n/Users/vijaysingh/code/.venv/lib/python3.12/site-packages/_pytest/pathlib.py:596: in import_path\n    importlib.import_module(module_name)\n/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n<frozen importlib._bootstrap>:1387: in _gcd_import\n    ???\n<frozen importlib._bootstrap>:1360: in _find_and_load\n    ???\n<frozen importlib._bootstrap>:1331: in _find_and_load_unlocked\n    ???\n<frozen importlib._bootstrap>:935: in _load_unlocked\n    ???\n/Users/vijaysingh/code/.venv/lib/python3.12/site-packages/_pytest/assertion/rewrite.py:179: in exec_module\n    source_stat, co = _rewrite_test(fn, self.config)\n                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n/Users/vijaysingh/code/.venv/lib/python3.12/site-packages/_pytest/assertion/rewrite.py:348: in _rewrite_test\n    tree = ast.parse(source, filename=strfn)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/ast.py:52: in parse\n    return compile(source, filename, mode, flags,\nE     File \"/private/tmp/ws-f-edge/battery-66d3ec2616/pipeline/test_first.py\", line 1\nE       from first import first\\ndef test_first(): assert first(4) == 8\nE                               ^\nE   SyntaxError: unexpected character after line continuation character\n_______________________ ERROR collecting test_second.py ________________________\n/Users/vijaysingh/code/.venv/lib/python3.12/site-packages/_pytest/python.py:508: in importtestmodule\n    mod = import_path(\n/Users/vijaysingh/code/.venv/lib/python3.12/site-packages/_pytest/pathlib.py:596: in import_path\n    importlib.import_module(module_name)\n/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n<frozen importlib._bootstrap>:1387: in _gcd_import\n    ???\n<frozen importlib._bootstrap>:1360: in _find_and_load\n    ???\n<frozen importlib._bootstrap>:1331: in _find_and_load_unlocked\n    ???\n<frozen importlib._bootstrap>:935: in _load_unlocked\n    ???\n/Users/vijaysingh/code/.venv/lib/python3.12/site-packages/_pytest/assertion/rewrite.py:179: in exec_module\n    source_stat, co = _rewrite_test(fn, self.config)\n                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n/Users/vijaysingh/code/.venv/lib/python3.12/site-packages/_pytest/assertion/rewrite.py:348: in _rewrite_test\n    tree = ast.parse(source, filename=strfn)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/ast.py:52: in parse\n    return compile(source, filename, mode, flags,\nE     File \"/private/tmp/ws-f-edge/battery-66d3ec2616/pipeline/test_second.py\", line 1\nE       from second import second\\ndef test_second(): assert second(4) == 8\nE                                 ^\nE   SyntaxError: unexpected character after line continuation character\n=========================== short test summary info ============================\nERROR test_first.py\nERROR test_second.py\n!!!!!!!!!!!!!!!!!!! Interrupted: 2 errors during collection !!!!!!!!!!!!!!!!!!!!\n2 errors in 0.26s\n"
+      },
+      "request_model_matches": true
+    },
+    {
+      "formation": "parallel",
+      "model": "lfm2.5-8b-a1b-edge",
+      "passed": false,
+      "error": "TimeoutError: ",
+      "events": [
+        {
+          "kind": "member_start",
+          "member_id": "executor_b1f2a1a8",
+          "formation": "parallel",
+          "index": 0,
+          "content": "",
+          "success": true,
+          "metadata": {}
+        },
+        {
+          "kind": "member_start",
+          "member_id": "executor_606ff7d7",
+          "formation": "parallel",
+          "index": 1,
+          "content": "",
+          "success": true,
+          "metadata": {}
+        }
+      ],
+      "requests": [
+        {
+          "session_id": "battery-66d3ec2616-parallel-executor_b1f2a1a8",
+          "model": "lfm2.5-8b-a1b-edge"
+        },
+        {
+          "session_id": "battery-66d3ec2616-parallel-executor_606ff7d7",
+          "model": "lfm2.5-8b-a1b-edge"
+        },
+        {
+          "session_id": "battery-66d3ec2616-parallel-executor_b1f2a1a8",
+          "model": "lfm2.5-8b-a1b-edge"
+        },
+        {
+          "session_id": "battery-66d3ec2616-parallel-executor_606ff7d7",
+          "model": "lfm2.5-8b-a1b-edge"
+        },
+        {
+          "session_id": "battery-66d3ec2616-parallel-executor_b1f2a1a8",
+          "model": "lfm2.5-8b-a1b-edge"
+        }
+      ],
+      "elapsed_seconds": 240.6,
+      "post_run_artifact_check": {
+        "missing": [
+          "second.py",
+          "test_second.py"
+        ],
+        "pytest_exit_code": 0,
+        "pytest_output": ".                                                                        [100%]\n1 passed in 0.09s\n"
+      },
+      "request_model_matches": true
+    },
+    {
+      "formation": "hierarchical",
+      "model": "lfm2.5-8b-a1b-edge",
+      "passed": false,
+      "error": "TimeoutError: ",
+      "events": [],
+      "requests": [
+        {
+          "session_id": "battery-66d3ec2616-hierarchical-executor_cb6970f3",
+          "model": "lfm2.5-8b-a1b-edge"
+        },
+        {
+          "session_id": "battery-66d3ec2616-hierarchical-executor_cb6970f3",
+          "model": "lfm2.5-8b-a1b-edge"
+        }
+      ],
+      "elapsed_seconds": 240.55,
+      "post_run_artifact_check": {
+        "missing": [
+          "first.py",
+          "test_first.py",
+          "second.py",
+          "test_second.py"
+        ],
+        "pytest_exit_code": 5,
+        "pytest_output": "\nno tests ran in 0.10s\n"
+      },
+      "request_model_matches": true
+    },
+    {
+      "formation": "consensus",
+      "model": "lfm2.5-8b-a1b-edge",
+      "passed": false,
+      "error": "TimeoutError: ",
+      "events": [
+        {
+          "kind": "member_start",
+          "member_id": "executor_05eae298",
+          "formation": "consensus",
+          "index": 0,
+          "content": "",
+          "success": true,
+          "metadata": {}
+        },
+        {
+          "kind": "member_start",
+          "member_id": "executor_00acebfb",
+          "formation": "consensus",
+          "index": 0,
+          "content": "",
+          "success": true,
+          "metadata": {}
+        }
+      ],
+      "requests": [
+        {
+          "session_id": "battery-66d3ec2616-consensus-executor_05eae298",
+          "model": "lfm2.5-8b-a1b-edge"
+        },
+        {
+          "session_id": "battery-66d3ec2616-consensus-executor_00acebfb",
+          "model": "lfm2.5-8b-a1b-edge"
+        },
+        {
+          "session_id": "battery-66d3ec2616-consensus-executor_00acebfb",
+          "model": "lfm2.5-8b-a1b-edge"
+        },
+        {
+          "session_id": "battery-66d3ec2616-consensus-executor_05eae298",
+          "model": "lfm2.5-8b-a1b-edge"
+        }
+      ],
+      "elapsed_seconds": 240.76,
+      "post_run_artifact_check": {
+        "missing": [
+          "first.py",
+          "test_first.py",
+          "second.py",
+          "test_second.py"
+        ],
+        "pytest_exit_code": 5,
+        "pytest_output": "\nno tests ran in 0.10s\n"
+      },
+      "request_model_matches": true
+    },
+    {
+      "formation": "reflection",
+      "model": "lfm2.5-8b-a1b-edge",
+      "passed": false,
+      "error": "TimeoutError: ",
+      "events": [
+        {
+          "kind": "member_start",
+          "member_id": "executor_b55001ac",
+          "formation": "reflection",
+          "index": 0,
+          "content": "",
+          "success": true,
+          "metadata": {}
+        }
+      ],
+      "requests": [
+        {
+          "session_id": "battery-66d3ec2616-reflection-executor_b55001ac",
+          "model": "lfm2.5-8b-a1b-edge"
+        },
+        {
+          "session_id": "battery-66d3ec2616-reflection-executor_b55001ac",
+          "model": "lfm2.5-8b-a1b-edge"
+        }
+      ],
+      "elapsed_seconds": 240.55,
+      "post_run_artifact_check": {
+        "missing": [
+          "first.py",
+          "test_first.py",
+          "review.json"
+        ],
+        "pytest_exit_code": 5,
+        "pytest_output": "\nno tests ran in 0.09s\n"
+      },
+      "request_model_matches": true
+    }
+  ],
+  "worktree_commit": "ccde28e9e8489d65c621976068d6e5a6c5dcb6df",
+  "working_tree_dirty": true,
+  "classifier_changes": false,
+  "executed_harness_sha256": "6a6710e63ab892f20306eb867c1fa45e48eb9b7888d3edc478b5be65af123d4e",
+  "backend": "llama_cpp_cpu"
+}
