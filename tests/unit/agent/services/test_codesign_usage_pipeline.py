@@ -58,9 +58,11 @@ async def test_terminal_usage_reaches_session_cost_and_canonical_record(
         "victor.config.metrics_capabilities.get_metrics_capabilities", lambda *_args: capabilities
     )
     tracker = SessionCostTracker(_capabilities=capabilities)
+    cumulative = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
     service = AgentMetricsService(
-        metrics_collector=collector, session_cost_tracker=tracker, cumulative_token_usage={}
+        metrics_collector=collector, session_cost_tracker=tracker, cumulative_token_usage=cumulative
     )
+    service.start_task_report("streamed task")
     ctx = StreamingChatContext(user_message="x", total_iterations=1)
     ctx.stream_metrics = collector.init_stream_metrics()
     orch = SimpleNamespace(
@@ -72,7 +74,7 @@ async def test_terminal_usage_reaches_session_cost_and_canonical_record(
         sanitizer=SimpleNamespace(is_garbage_content=lambda _c: False, sanitize=lambda c: c),
         _metrics_collector=collector,
         _metrics_coordinator=service,
-        _cumulative_token_usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+        _cumulative_token_usage=cumulative,
     )
     helper = Helper(orch)
     for completion, reasoning, included in calls:
@@ -142,6 +144,12 @@ async def test_terminal_usage_reaches_session_cost_and_canonical_record(
     assert tracker.total_cost == pytest.approx(expected_cost)
     assert tracker.total_tokens == expected_prompt + expected_output
     assert orch._cumulative_token_usage["total_tokens"] == expected_prompt + expected_output
+    report = service.finish_task_report(True)
+    assert report["api_prompt_tokens"] == expected_prompt
+    assert report["api_completion_tokens"] == raw_completion
+    assert report["api_total_tokens"] == expected_prompt + expected_output
+    assert report["total_cost_usd"] == pytest.approx(expected_cost)
+    assert report["request_count"] == 1
     record = [
         call.args[1]
         for call in logger.log_event.call_args_list

@@ -407,10 +407,13 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   a successful recovery summary without the requested test file. The independent
   artifact gate rejected it. A clearer task passed the rerun; classifiers were not
   changed. Follow-up must use the paired guard experiment process before tuning.
-- **G29 — task-report cost tracker differs from member usage.** Runtime log summaries
-  still report zero task tokens while opt-in member counters and Sandhi reconcile.
-  The separate SessionCostTracker needs explicit integration; no monetary accuracy
-  is claimed by WS-E's neutral-token validation.
+- **G29 — ✅ task-report API tokens use the shared session accumulator (PR pending).**
+  Buffered members and recovery calls updated the live accumulator while task
+  reports preferred the streaming-only cost tracker, producing zero API tokens.
+  Reports now derive prompt/completion/total deltas from the same counters used by
+  member usage. Regression coverage includes task boundaries, failed/empty tasks,
+  empty recovery attempts, and real streaming finalization with mixed reasoning
+  conventions; 115 related tests passed. Remaining tracker fields are G34.
 - **G30 — session reset can replace the metrics accumulator.** Internal assignment
   now preserves dictionary identity, but SessionStateManager.reset replaces its
   execution state. Reset/rebind lifecycle coverage remains a separate follow-up;
@@ -442,6 +445,14 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   exactly 1 or 4 iterations; perception must run once per iteration. The original
   20s assertion and 30s timeout remain. Five focused tests passed in 2.66s, and
   135 completion/intent/perception tests passed. Production classifiers are unchanged.
+- **G34 — buffered task-report cache/cost/request fields lack tracker integration.**
+  G29 fixes API token deltas, but task-report cache read/write, monetary cost, and
+  request count still use SessionCostTracker, which only streaming finalization
+  updates. Buffered member usage/cache evidence remains separately available.
+  Follow-up must record each buffered provider response (including recovery) once
+  through the metrics owner, preserve per-call reasoning conventions, and reconcile
+  mixed buffered/streaming task boundaries without adding duplicated token totals.
+  Zero tracker values for buffered tasks are not evidence of zero cost or requests.
 
 
 WS-E implementation/evidence: [PR #1115](https://github.com/anvai-labs/victor/pull/1115).
