@@ -43,7 +43,7 @@ cyclic edges, checkpointing, and human-in-the-loop interrupts, with a streaming 
 
 Teams are **formations over a StateGraph** (not a separate graph): `SEQUENTIAL`, `PARALLEL`,
 `HIERARCHICAL`, `PIPELINE`, `CONSENSUS`, `REFLECTION`, `ADAPTIVE`, `DYNAMIC_ROUTER`,
-and `MULTI_LEVEL_HIERARCHY`. Use `UnifiedTeamCoordinator` directly as a StateGraph node.
+`MULTI_LEVEL_HIERARCHY`, `GROUP_CHAT`, `DEBATE`, and `HANDOFF`. Use `UnifiedTeamCoordinator` directly as a StateGraph node.
 `AgentTeam.create_adaptive_team`, `create_router_team`, and
 `create_multi_level_hierarchy_team` expose bounded topology retries, single-member
 routing, and recursive task splitting/synthesis. These three opt-in formations retain
@@ -137,6 +137,17 @@ same framework through `VictorClient`.
 | Docker image | Release candidate | Advertised, but a fresh image build/run smoke is required before the release tag. |
 | VS Code extension and native Rust extensions | Preview | Their CI checks are currently advisory; do not represent them as release-blocking guarantees. |
 | Observability dashboard/API | Experimental | Product support decision remains tracked by TD-5. |
+
+**Ensemble aggregation** — independently sample one task, then choose a strict
+majority, a one-shot judge verdict, or a synthesizer pass. Opt in with
+`create_ensemble_team` or `create_consensus_team(..., mode="vote")`; all output
+contracts are JSON and malformed proposals or unresolved ties fail explicitly.
+
+**Conversation-native teams** — `create_group_chat_team`, `create_debate_team`, and
+`create_handoff_team` share a bounded transcript, structured speaker/peer decisions,
+and explicit termination. Each is registered and tested through the coordinator;
+initial transcript modes reject durable partial resume. See FEP-0035 for consumer
+and compatibility decisions.
 
 **Parallel workspace isolation** — `parallel_worktree_isolation` gives each member
 its own git worktree and binds file/shell paths to that directory. Worktrees remain

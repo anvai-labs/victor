@@ -40,6 +40,7 @@ async def validate(args):
     output_dir.mkdir(parents=True)
     python = WORKTREE / ".venv-codesign/bin/python"
     observed = []
+    member_names = {}
     if args.isolate:
         for command in (
             ["init"],
@@ -59,6 +60,13 @@ async def validate(args):
                     for name in ("double", "square", "increment")
                     if f"Assigned member: {name}." in prompt
                 ]
+                wire_session = request.headers.get("x-inferflux-session-id") or ""
+                if args.ensemble_vote:
+                    assigned = [
+                        name
+                        for identifier, name in member_names.items()
+                        if wire_session.endswith("-" + identifier)
+                    ]
                 observed.append(
                     {
                         "member_name": assigned[0] if len(assigned) == 1 else None,
@@ -144,28 +152,44 @@ async def validate(args):
                         max_iterations=12,
                     )
                 )
-            team = await AgentTeam.from_agent(
-                agent,
-                "Capacity live validation",
-                "Each member delivers its assigned module and passing test.",
-                members,
-                formation=TeamFormation.PARALLEL,
-                shared_context={
-                    "capacity_aware_parallelism": not args.isolate,
-                    **(
-                        {
-                            "parallel_worktree_isolation": True,
-                            "repo_root": str(output_dir),
-                            "worktree_parent": str(output_dir / "members"),
-                            "branch_prefix": "feat/live-isolation",
-                            "parent_session_id": output_dir.name,
-                        }
-                        if args.isolate
-                        else {}
-                    ),
-                },
-                timeout_seconds=420,
-            )
+            shared = {
+                "capacity_aware_parallelism": not args.isolate,
+                **(
+                    {
+                        "parallel_worktree_isolation": True,
+                        "repo_root": str(output_dir),
+                        "worktree_parent": str(output_dir / "members"),
+                        "branch_prefix": "feat/live-isolation",
+                        "parent_session_id": output_dir.name,
+                    }
+                    if args.isolate
+                    else {}
+                ),
+            }
+            if args.ensemble_vote:
+                goal = members[0].goal.replace(
+                    "Return file references and the test result.",
+                    'Return only JSON {"vote_key":"double","answer":"member.py"} after tests pass.',
+                )
+                team = await AgentTeam.create_ensemble_team(
+                    orchestrator,
+                    "Ensemble live validation",
+                    goal,
+                    members,
+                    shared_context=shared,
+                    timeout_seconds=420,
+                )
+            else:
+                team = await AgentTeam.from_agent(
+                    agent,
+                    "Capacity live validation",
+                    "Each member delivers its assigned module and passing test.",
+                    members,
+                    formation=TeamFormation.PARALLEL,
+                    shared_context=shared,
+                    timeout_seconds=420,
+                )
+            member_names.update({member.id: member.name for member in team._config.members})
             sink = MemberEventSink()
             token = current_member_sink.set(sink)
             try:
@@ -187,6 +211,11 @@ async def validate(args):
             assert all(len(ids) == 1 for ids in member_sessions.values()), member_sessions
             assert len({ids[0] for ids in member_sessions.values()}) == 3, member_sessions
             assert result.success, result.final_output
+            if args.ensemble_vote:
+                assert result.final_output == "member.py", result.final_output
+                assert all(
+                    member.metadata["ensemble_success"] for member in result.member_results.values()
+                )
             artifact_roots = (
                 [
                     Path(member.metadata["worktree_assignment"]["worktree_path"])
@@ -244,6 +273,7 @@ async def validate(args):
                 "member_sessions": member_sessions,
                 "pytest": pytest_results,
                 "isolated": args.isolate,
+                "ensemble_vote": args.ensemble_vote,
                 "throttled_member_ids": [
                     event.member_id for event in events if event.kind == MEMBER_THROTTLED
                 ],
@@ -265,7 +295,10 @@ def main():
     parser.add_argument("--proxy-port", type=int, default=18081)
     parser.add_argument("--capacity", type=int, default=2)
     parser.add_argument("--isolate", action="store_true")
+    parser.add_argument("--ensemble-vote", action="store_true")
     args = parser.parse_args()
+    if args.ensemble_vote:
+        args.isolate = True
     asyncio.run(validate(args))
 
 

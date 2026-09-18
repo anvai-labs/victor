@@ -593,6 +593,117 @@ class AgentTeam:
         )
 
     @classmethod
+    async def _create_conversation_team(
+        cls,
+        orchestrator: "AgentOrchestrator",
+        name: str,
+        goal: str,
+        members: List[TeamMemberSpec],
+        formation: TeamFormation,
+        *,
+        max_turns: int = 6,
+        router: Optional[TeamMemberSpec] = None,
+        judge: Optional[TeamMemberSpec] = None,
+        start_member: Optional[str] = None,
+        **kwargs: Any,
+    ) -> "AgentTeam":
+        from dataclasses import replace
+
+        if len(members) < 2 or type(max_turns) is not int or max_turns < 1:
+            raise ValueError("Conversation requires at least two members and positive max_turns")
+        specs = list(members)
+        if router is not None:
+            specs.append(replace(router, formation_role="router"))
+        if judge is not None:
+            specs.append(replace(judge, formation_role="judge"))
+        if len({member.name for member in specs}) != len(specs):
+            raise ValueError("Conversation member names must be unique")
+        if start_member is not None and start_member not in {member.name for member in members}:
+            raise ValueError("start_member must name a configured speaking member")
+        shared = dict(kwargs.pop("shared_context", None) or {})
+        shared["conversation_max_turns"] = max_turns
+        team = await cls.create(
+            orchestrator, name, goal, specs, formation=formation, shared_context=shared, **kwargs
+        )
+        ids = {member.name: member.id for member in team._config.members}
+        for key, spec in (("conversation_router_id", router), ("conversation_judge_id", judge)):
+            if spec is not None:
+                team._config.shared_context[key] = ids[spec.name]
+        if start_member is not None:
+            team._config.shared_context["handoff_start_id"] = ids[start_member]
+        return team
+
+    @classmethod
+    async def create_group_chat_team(
+        cls,
+        orchestrator: "AgentOrchestrator",
+        name: str,
+        goal: str,
+        members: List[TeamMemberSpec],
+        *,
+        router: Optional[TeamMemberSpec] = None,
+        selector_func: Optional[Any] = None,
+        candidate_func: Optional[Any] = None,
+        **kwargs: Any,
+    ) -> "AgentTeam":
+        """Shared transcript with round-robin, callback, or structured router selection."""
+        if router is not None and selector_func is not None:
+            raise ValueError("Choose either a router or selector_func")
+        shared = dict(kwargs.pop("shared_context", None) or {})
+        if selector_func is not None:
+            shared["selector_func"] = selector_func
+        if candidate_func is not None:
+            shared["candidate_func"] = candidate_func
+        return await cls._create_conversation_team(
+            orchestrator,
+            name,
+            goal,
+            members,
+            TeamFormation.GROUP_CHAT,
+            router=router,
+            shared_context=shared,
+            **kwargs,
+        )
+
+    @classmethod
+    async def create_debate_team(
+        cls,
+        orchestrator: "AgentOrchestrator",
+        name: str,
+        goal: str,
+        members: List[TeamMemberSpec],
+        *,
+        judge: TeamMemberSpec,
+        **kwargs: Any,
+    ) -> "AgentTeam":
+        """Bounded contributions followed by exactly one structured judge verdict."""
+        return await cls._create_conversation_team(
+            orchestrator, name, goal, members, TeamFormation.DEBATE, judge=judge, **kwargs
+        )
+
+    @classmethod
+    async def create_handoff_team(
+        cls,
+        orchestrator: "AgentOrchestrator",
+        name: str,
+        goal: str,
+        members: List[TeamMemberSpec],
+        *,
+        start_member: Optional[str] = None,
+        **kwargs: Any,
+    ) -> "AgentTeam":
+        """Peer-directed structured handoff with bounded turns and carried transcript."""
+        return await cls._create_conversation_team(
+            orchestrator,
+            name,
+            goal,
+            members,
+            TeamFormation.HANDOFF,
+            start_member=start_member,
+            **kwargs,
+        )
+
+    @classmethod
     async def create_adaptive_team(
         cls,
         orchestrator: "AgentOrchestrator",
@@ -706,6 +817,49 @@ class AgentTeam:
         )
 
     @classmethod
+    async def create_ensemble_team(
+        cls,
+        orchestrator: "AgentOrchestrator",
+        name: str,
+        goal: str,
+        candidates: List[TeamMemberSpec],
+        *,
+        mode: str = "vote",
+        aggregator: Optional[TeamMemberSpec] = None,
+        **kwargs: Any,
+    ) -> "AgentTeam":
+        """Sample one task independently, then vote or run a judge/synthesizer once.
+
+        Candidates must return JSON {"vote_key": str, "answer": str}. The judge
+        returns {"selected_member_id": str}; the synthesizer returns {"answer": str}.
+        Partial durable resume is not supported by this opt-in aggregation mode.
+        """
+        from dataclasses import replace
+        from victor.coordination.formations.ensemble import MODES
+
+        if mode not in MODES or len(candidates) < 2:
+            raise ValueError("Ensemble requires a supported mode and at least two candidates")
+        if (mode == "vote") != (aggregator is None):
+            raise ValueError("Only judge/synthesizer modes require an aggregator")
+        shared_context = dict(kwargs.pop("shared_context", None) or {})
+        shared_context["ensemble_mode"] = mode
+        specs = [replace(candidate, goal=goal, formation_role="member") for candidate in candidates]
+        if aggregator is not None:
+            specs.append(replace(aggregator, formation_role=mode))
+        team = await cls.create(
+            orchestrator,
+            name,
+            goal,
+            specs,
+            formation=TeamFormation.PARALLEL,
+            shared_context=shared_context,
+            **kwargs,
+        )
+        if aggregator is not None:
+            team._config.shared_context["ensemble_aggregator_id"] = team._config.members[-1].id
+        return team
+
+    @classmethod
     async def create_consensus_team(
         cls,
         orchestrator: "AgentOrchestrator",
@@ -714,6 +868,7 @@ class AgentTeam:
         members: List[TeamMemberSpec],
         *,
         rounds: int = 3,
+        mode: str = "agreement",
         agreement_threshold: float = 0.7,
         supervisor: Optional[TeamMemberSpec] = None,
         **kwargs: Any,
@@ -723,6 +878,16 @@ class AgentTeam:
         An optional supervisor's successful final proposal deterministically breaks
         a tie; this is reported as a tie-break decision, never as consensus.
         """
+        if mode == "vote":
+            if supervisor is not None:
+                raise ValueError("Vote mode does not use a supervisor tie-break")
+            team = await cls.create_ensemble_team(
+                orchestrator, name, goal, members, mode="vote", **kwargs
+            )
+            team._config.formation = TeamFormation.CONSENSUS
+            return team
+        if mode != "agreement":
+            raise ValueError("Consensus mode must be agreement or vote")
         from victor.coordination.formations.consensus import ConsensusFormation
 
         ConsensusFormation(max_rounds=rounds, agreement_threshold=agreement_threshold)
