@@ -108,7 +108,7 @@ substrate — which is the deepest structural finding of this review.
 | Swarm / peer handoff (OpenAI Agents SDK handoffs, AutoGen Swarm) | control MOVES agent-to-agent via handoff-as-tool-call; receiving agent continues with carried context | ✅ HANDOFF; structured peer destination with carried transcript (WS-G) |
 | Evaluator-optimizer (generator-critic loop) | generate → critique → refine until satisfied | ✅ REFLECTION (verdict fragility: G2) |
 | Adaptive / dynamic topology switching (MDPI "adaptivity" dimension; Magentic-One replanning) | monitor progress → switch topology or replan mid-run | Integrated (`AdaptiveFormation`, §1.3; [PR #1107](https://github.com/anvai-labs/victor/pull/1107)); Magentic-style ledger replanning not designed |
-| Ensemble aggregation (self-consistency, "More Agents Is All You Need" voting, Mixture-of-Agents layered aggregation) | N proposals of the SAME task → vote / layered aggregation | ❌ absent — CONSENSUS checks agreement across members, it does not N-sample one task and vote (G16) |
+| Ensemble aggregation (self-consistency, "More Agents Is All You Need" voting, Mixture-of-Agents layered aggregation) | N proposals of the SAME task → vote / layered aggregation | ✅ opt-in ensemble vote/judge/synthesizer; R9700 voting validated (WS-H) |
 | Structured debate (Du et al. multiagent debate) | adversarial rounds with a judge; improves factuality | ✅ DEBATE; bounded contributions followed by one judge (WS-G) |
 | Blackboard shared memory (Hearsay-II lineage) | specialists watch/mutate a shared workspace opportunistically | ❌ absent — Victor's `shared_state` dict is coordinator-curated, not opportunistic |
 | Contract-net / auction task bidding (Smith 1980) | manager announces tasks; agents bid on capability/load | ❌ absent |
@@ -316,10 +316,11 @@ G1–G13 come from the co-design sessions and code audit; G14–G16 from the §2
   peer destinations and carries the shared transcript; invalid/self destinations
   fail explicitly, and cycles are bounded by max_turns. Typed `PeerHandoff`
   records cross the member sink and v1 wire bridge.
-- **G16 — no ensemble aggregation.** CONSENSUS checks member-vs-member agreement on
-  one pass; there is no N-sample-one-task vote (self-consistency), layered
-  propose→aggregate (Mixture-of-Agents), or judged debate. Substrate-light: can ride
-  PARALLEL execution + a new aggregation mode on `TeamResult`.
+- **G16 — ✅ ensemble aggregation (WS-H, [PR #1114](https://github.com/anvai-labs/victor/pull/1114)).** One shared policy implements independent
+  proposals followed by strict-majority vote, one-shot judge, or a synthesizer pass.
+  Public `create_ensemble_team` and CONSENSUS `mode="vote"` presets use validated
+  JSON contracts. R9700 voting passed with three deliverables/test pairs and
+  distinct member wire sessions. Judge/synthesizer modes have dispatch tests.
 
 WS-I status: ✅ canonical `FormationRole` identifiers and supervisor-key normalization
 implemented ([PR #1109](https://github.com/anvai-labs/victor/pull/1109)). Review and reflection presets bind reviewer/critic roles

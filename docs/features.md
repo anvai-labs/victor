@@ -138,6 +138,11 @@ same framework through `VictorClient`.
 | VS Code extension and native Rust extensions | Preview | Their CI checks are currently advisory; do not represent them as release-blocking guarantees. |
 | Observability dashboard/API | Experimental | Product support decision remains tracked by TD-5. |
 
+**Ensemble aggregation** — independently sample one task, then choose a strict
+majority, a one-shot judge verdict, or a synthesizer pass. Opt in with
+`create_ensemble_team` or `create_consensus_team(..., mode="vote")`; all output
+contracts are JSON and malformed proposals or unresolved ties fail explicitly.
+
 **Conversation-native teams** — `create_group_chat_team`, `create_debate_team`, and
 `create_handoff_team` share a bounded transcript, structured speaker/peer decisions,
 and explicit termination. Each is registered and tested through the coordinator;

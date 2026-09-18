@@ -52,6 +52,10 @@ class ParallelFormation(BaseFormationStrategy):
         race conditions. After execution, agent contexts are merged back
         into the parent context using last-writer-wins semantics.
         """
+        if context.get("ensemble_mode") is not None:
+            from victor.coordination.formations.ensemble import execute_ensemble
+
+            return await execute_ensemble(self, agents, context, task)
         retries = context.get("parallel_member_retries", 0)
         if not isinstance(retries, int) or isinstance(retries, bool) or not 0 <= retries <= 3:
             raise ValueError("parallel_member_retries must be an integer from 0 to 3")

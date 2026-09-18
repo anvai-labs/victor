@@ -365,6 +365,27 @@ Radeon AI PRO R9700 (gfx1201, ROCm 7.2, WSL2). KV pool: 65536 ctx / 2
 sequences. Per-member session ids bound via
 `SubAgentConfig.resolve_member_session_id()`.
 
+### Ensemble aggregation (WS-H)
+
+`AgentTeam.create_ensemble_team(orchestrator, name, goal, candidates, mode="vote")`
+creates an opt-in PARALLEL-shaped run. Every candidate independently receives the
+same original task plus the JSON response contract. Return exactly
+`{"vote_key": "canonical-answer", "answer": "answer or artifact reference"}`.
+Voting requires a strict majority; ties and invalid proposals fail explicitly.
+All candidate deliverables and costs remain in member results.
+
+Use `mode="judge", aggregator=judge_spec` for one verdict selecting a configured
+candidate via `{"selected_member_id": "..."}`. Use `mode="synthesizer"` for a
+single MoA-style combination pass returning `{"answer": "..."}`. These roles are
+canonical formation roles; caller specs are copied rather than mutated. Candidate
+answers exceeding 8192 characters are rejected with guidance to return references.
+`create_consensus_team(..., mode="vote")` exposes the same aggregation policy through
+CONSENSUS; the default `mode="agreement"` keeps the existing iterative behavior.
+
+Durability: ensemble aggregation rejects checkpoint/resume before member execution.
+The original PARALLEL/CONSENSUS durability contracts are unchanged without this mode.
+No extra formation enum or registry is introduced for this aggregation policy.
+
 ### Opt-in PARALLEL worktree isolation (WS-D)
 
 Use `shared_context={"parallel_worktree_isolation": True, "repo_root": "/repo",
@@ -397,6 +418,16 @@ passed**, three distinct observed InferFlux session headers, and one
 The evidence records a dirty working tree because validation preceded the commit.
 Three rejected attempts are retained as observations in G19/G20; completion was
 accepted only after independent artifact and pytest checks.
+
+WS-H R9700 live evidence (2026-09-17): three independent candidates sampled the
+same doubling task in isolated worktrees and returned validated JSON proposals.
+Strict majority selected `member.py`; all six deliverables existed, each worktree's
+pytest run passed, and the three observed session headers matched configured
+member IDs and result metadata. Elapsed: 35.13 seconds.
+Run with `scripts/validation/multiagent_live.py --ensemble-vote --output-dir /tmp/evidence`
+using the worktree `.venv-codesign/bin/python` and `INFERFLUX_API_KEY`.
+See [recorded evidence](evidence/ws-h-ensemble.json). Judge and synthesizer modes
+are unit-validated; this live run validates voting.
 
 ### Conversation-native formations (WS-G / FEP-0035)
 
