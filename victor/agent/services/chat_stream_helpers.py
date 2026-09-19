@@ -23,9 +23,7 @@ from victor.agent.topology_telemetry import (
     build_topology_telemetry_event,
     emit_topology_telemetry_event,
 )
-from victor.agent.runtime.context import AgentRuntimeContext
 from victor.agent.services.chat_runtime_services import ChatRuntimeServices
-from victor.agent.services.context_service import compact_context_if_recommended
 from victor.agent.unified_task_tracker import TrackerTaskType
 from victor.core.loop_thresholds import DEFAULT_BLOCKED_CONSECUTIVE_THRESHOLD
 from victor.core.errors import (
@@ -283,8 +281,7 @@ class ChatStreamHelperMixin:
         if self._has_runtime_capability("tool_sequence_tracker") and tool_sequence_tracker:
             tool_sequence_tracker.clear_history()
 
-        if orch._context_manager and hasattr(orch._context_manager, "start_background_compaction"):
-            await orch._context_manager.start_background_compaction(interval_seconds=15.0)
+        await self.services.context_lifecycle.start_background_compaction()
 
         max_total_iterations = self.services.task_state.max_total_iterations()
 
@@ -942,48 +939,30 @@ class ChatStreamHelperMixin:
             )
             return
 
-        lifecycle_handled = await self._run_lifecycle_pre_iteration_compaction(
-            stream_ctx,
-            user_message,
-        )
-        context_service_handled = False
-        if not lifecycle_handled:
-            context_service_handled = await self._run_context_service_pre_iteration_compaction(
-                stream_ctx,
+        compaction = await self.services.context_lifecycle.compact_before_iteration(user_message)
+        if compaction is not None:
+            logger.info(
+                "Compacted context: %s messages removed, %s tokens freed",
+                compaction.messages_removed,
+                compaction.tokens_freed,
             )
-
-        if not lifecycle_handled and not context_service_handled and orch._context_compactor:
-            compaction_action = orch._context_compactor.check_and_compact(
-                current_query=user_message,
-                force=False,
-                tool_call_count=orch.tool_calls_used,
-                task_complexity=TaskComplexity.COMPLEX.value,
+            if hasattr(stream_ctx, "record_compaction_event"):
+                stream_ctx.record_compaction_event(
+                    summary=compaction.summary,
+                    messages_removed=compaction.messages_removed,
+                    strategy=compaction.strategy,
+                    reason="pre_iteration",
+                    policy_reason=compaction.policy_reason,
+                )
+            else:
+                stream_ctx.compaction_occurred = True
+                stream_ctx.last_compaction_turn = stream_ctx.total_iterations
+                stream_ctx.compaction_message_removed_count = compaction.messages_removed
+                stream_ctx.compaction_summary = compaction.summary
+            logger.info(
+                "Post-compaction continuation enabled at turn %s",
+                stream_ctx.total_iterations,
             )
-            if compaction_action.action_taken:
-                logger.info(
-                    f"Compacted context: {compaction_action.messages_removed} messages removed, "
-                    f"{compaction_action.tokens_freed} tokens freed"
-                )
-                compaction_summary = ""
-                if hasattr(orch, "conversation_controller") and orch.conversation_controller:
-                    summaries = orch.conversation_controller.get_compaction_summaries()
-                    if summaries:
-                        compaction_summary = summaries[-1]
-                if hasattr(stream_ctx, "record_compaction_event"):
-                    stream_ctx.record_compaction_event(
-                        summary=compaction_summary,
-                        messages_removed=compaction_action.messages_removed,
-                        strategy=getattr(orch.settings, "context_compaction_strategy", "tiered"),
-                        reason="pre_iteration",
-                    )
-                else:
-                    stream_ctx.compaction_occurred = True
-                    stream_ctx.last_compaction_turn = stream_ctx.total_iterations
-                    stream_ctx.compaction_message_removed_count = compaction_action.messages_removed
-                    stream_ctx.compaction_summary = compaction_summary
-                logger.info(
-                    f"Post-compaction continuation enabled at turn {stream_ctx.total_iterations}"
-                )
 
         time_limit = getattr(orch.settings, "stream_idle_timeout_seconds", 300)
         if stream_ctx.is_over_time_limit(time_limit):
@@ -1008,134 +987,6 @@ class ChatStreamHelperMixin:
                 ),
             )
             stream_ctx.pending_grounding_feedback = ""
-
-    async def _run_context_service_pre_iteration_compaction(
-        self,
-        stream_ctx: "StreamingChatContext",
-    ) -> bool:
-        """Run context-service compaction before legacy compactor fallback."""
-        orch = self._orchestrator
-        context_service = getattr(orch, "_context_service", None)
-        if context_service is None:
-            return False
-
-        strategy = str(
-            getattr(getattr(orch, "settings", None), "context_compaction_strategy", "tiered")
-            or "tiered"
-        )
-        result = await compact_context_if_recommended(
-            context_service,
-            strategy=strategy,
-            min_messages=6,
-        )
-        if not result.handled:
-            return False
-        if result.messages_removed <= 0:
-            return True
-
-        logger.info(
-            "ContextService compacted root context: %s messages removed",
-            result.messages_removed,
-        )
-        if hasattr(stream_ctx, "record_compaction_event"):
-            stream_ctx.record_compaction_event(
-                summary=f"Compacted {result.messages_removed} messages via ContextService",
-                messages_removed=result.messages_removed,
-                strategy=strategy,
-                reason="pre_iteration",
-                policy_reason="context_service",
-            )
-        else:
-            stream_ctx.compaction_occurred = True
-            stream_ctx.last_compaction_turn = stream_ctx.total_iterations
-            stream_ctx.compaction_message_removed_count = result.messages_removed
-            stream_ctx.compaction_summary = (
-                f"Compacted {result.messages_removed} messages via ContextService"
-            )
-        return True
-
-    async def _run_lifecycle_pre_iteration_compaction(
-        self,
-        stream_ctx: "StreamingChatContext",
-        user_message: str,
-    ) -> bool:
-        """Run service-owned root context compaction before legacy compactor fallback."""
-        orch = self._orchestrator
-        lifecycle = getattr(orch, "_context_lifecycle_service", None)
-        if lifecycle is None:
-            return False
-        after_agent_turn = getattr(lifecycle, "after_agent_turn", None)
-        if not callable(after_agent_turn):
-            return False
-
-        runtime_context = self._root_runtime_context(orch)
-        result = await after_agent_turn(
-            runtime_context,
-            messages=self._root_runtime_messages(orch),
-            min_messages=6,
-        )
-        if not isinstance(result, dict) or not result.get("compacted"):
-            return True
-
-        removed = int(result.get("messages_removed", 0) or 0)
-        summary = str(
-            result.get("summary")
-            or f"Compacted {removed} messages for {runtime_context.display_name}"
-        )
-        strategy = str(
-            result.get("strategy")
-            or getattr(orch.settings, "context_compaction_strategy", "tiered")
-        )
-        logger.info(
-            "Lifecycle compacted root context: %s messages removed, %s tokens freed",
-            removed,
-            int(result.get("tokens_freed", 0) or 0),
-        )
-        if hasattr(stream_ctx, "record_compaction_event"):
-            stream_ctx.record_compaction_event(
-                summary=summary,
-                messages_removed=removed,
-                strategy=strategy,
-                reason="pre_iteration",
-                policy_reason="context_lifecycle",
-            )
-        else:
-            stream_ctx.compaction_occurred = True
-            stream_ctx.last_compaction_turn = stream_ctx.total_iterations
-            stream_ctx.compaction_message_removed_count = removed
-            stream_ctx.compaction_summary = summary
-        return True
-
-    @staticmethod
-    def _root_runtime_context(orch: Any) -> AgentRuntimeContext:
-        existing = getattr(orch, "_agent_runtime_context", None) or getattr(
-            orch,
-            "agent_runtime_context",
-            None,
-        )
-        if isinstance(existing, AgentRuntimeContext):
-            return existing
-        session_id = (
-            getattr(orch, "active_session_id", None)
-            or getattr(orch, "session_id", None)
-            or getattr(orch, "_memory_session_id", None)
-            or "session_root"
-        )
-        return AgentRuntimeContext(
-            agent_id=str(getattr(orch, "agent_id", None) or "root_agent"),
-            display_name=str(getattr(orch, "display_name", None) or "Root Agent"),
-            role=str(getattr(orch, "role", None) or "manager"),
-            session_id=str(session_id),
-        )
-
-    def _root_runtime_messages(self, orch: Any) -> List[Any]:
-        get_messages = getattr(orch, "get_messages", None)
-        if callable(get_messages):
-            try:
-                return list(get_messages() or [])
-            except Exception as exc:
-                logger.debug("Failed to collect root messages for lifecycle: %s", exc)
-        return self.services.conversation.messages()
 
     async def _stream_provider_response(
         self,

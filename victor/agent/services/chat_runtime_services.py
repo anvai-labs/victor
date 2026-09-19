@@ -4,9 +4,9 @@
 """Enumerated service capabilities consumed by the chat runtime.
 
 FEP-0031 phase 1 is incremental: task requirements, response delivery,
-planning/guidance, stream execution controls, lifecycle, metrics, and task
-classification state have migrated. The view keeps an explicit capability shape
-while resolving mutable session-owned state at its canonical owners.
+planning/guidance, stream execution controls, lifecycle, metrics, task
+classification, and context lifecycle have migrated. The view keeps an explicit
+capability shape while resolving mutable session-owned state at its canonical owners.
 """
 
 from __future__ import annotations
@@ -427,6 +427,47 @@ class ChatTaskState:
 
 
 @dataclass(frozen=True, slots=True)
+class ChatCompactionEvent:
+    """Normalized compaction result consumed by the streaming turn."""
+
+    messages_removed: int
+    tokens_freed: int = 0
+    summary: str = ""
+    strategy: str = "tiered"
+    policy_reason: str = ""
+
+
+class ContextLifecycleRuntime(Protocol):
+    """Context startup and pre-iteration compaction operations."""
+
+    async def start_background_compaction(self) -> None: ...
+
+    async def compact_before_iteration(
+        self,
+        user_message: str,
+    ) -> ChatCompactionEvent | None: ...
+
+
+@dataclass(frozen=True, slots=True)
+class ChatContextLifecycle:
+    """Expose context lifecycle policy without facade-owned collaborators."""
+
+    runtime: ContextLifecycleRuntime | None = None
+
+    async def start_background_compaction(self) -> None:
+        if self.runtime is not None:
+            await self.runtime.start_background_compaction()
+
+    async def compact_before_iteration(
+        self,
+        user_message: str,
+    ) -> ChatCompactionEvent | None:
+        if self.runtime is None:
+            return None
+        return await self.runtime.compact_before_iteration(user_message)
+
+
+@dataclass(frozen=True, slots=True)
 class ChatRuntimeServices:
     """Explicit capabilities already migrated from the chat runtime facade."""
 
@@ -435,6 +476,7 @@ class ChatRuntimeServices:
     stream_turn_lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False, compare=False)
     metrics: ChatStreamMetrics = field(default_factory=ChatStreamMetrics)
     task_state: ChatTaskState = field(default_factory=ChatTaskState)
+    context_lifecycle: ChatContextLifecycle = field(default_factory=ChatContextLifecycle)
     delivery: ChatDelivery = field(default_factory=ChatDelivery)
     planning: ChatPlanning = field(default_factory=ChatPlanning)
     governance: ChatGovernance = field(default_factory=ChatGovernance)
