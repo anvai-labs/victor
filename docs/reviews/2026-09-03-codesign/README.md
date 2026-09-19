@@ -164,7 +164,7 @@ Shipping note: victor-contracts 0.9.1 (sdk-v0.9.1) published 2026-09-07 with
 | 23 | ✅ Single workflow engine: ADR-030 BFS deletion and compiled adapter; FEP-0007 obsolete entry-point cleanup | U6-F1, U2-F1 | Done |
 | 24 | Interrupt/resume semantics: `interrupted` field, resume-at vs completed-at (FEP) | U6-F4 | M |
 | 26b | Manifest-aware `parse_repo` (U5-02) + Tier-A/B storage protocol split (U5-07 remainder) | U5-01/02 | L |
-| 27 | ChatService inversion: own the turn lifecycle (A10/A11 guards landed as prerequisites) | U1-4/7 | L |
+| 27 | ChatService inversion: turn-frame ownership complete; remaining collaborator migration in progress | U1-4/7 | L |
 | 28 | Contrib bases → `victor_contracts.verticals`; de-template the 4 small verticals (~12k LOC) | U9-F5 | M–L |
 | 29 | RL/prompt-evolution out of `victor/framework` (no FEP-0025 Phase 6 exists — new FEP; 60-site fan-out) | U2-F4 | L |
 | 30 | Coordinator split: WorktreeMergeService + DelegateContractBuilder | U6-F7 | L |

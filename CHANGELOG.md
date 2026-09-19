@@ -7,8 +7,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
-- Route chat planning, task guidance, and tool selection through an explicit
-  runtime capability, with paired setup and teardown lifecycle bindings.
+- Route chat planning, task guidance, and tool selection through explicit
+  runtime capabilities, and move setup, reporting, and teardown into the
+  service-owned chat turn frame.
 - Headless and benchmark turns now use the shared per-turn tool-selection
   runtime (FEP-0034 Stage C), including capability/Q&A gates, intent projection,
   and KV policy. Curated schemas remain stable, pruning remains opt-in, and
@@ -25,6 +26,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Finalize buffered task reports on cancellation before turn teardown releases
+  the shared chat lock.
 - Close nested streaming generators before releasing per-turn locks, metrics,
   and task reports so early client disconnects and cancellations cannot leak
   one turn's state into the next.

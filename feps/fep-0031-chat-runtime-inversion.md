@@ -213,8 +213,8 @@ The executor private-attribute cap shrinks from 94 to 87 and private-probe cap
 from 17 to 16; the helper private-attribute cap shrinks from 99 to 97. A zero-cap
 AST guard forbids chunk-generator and sanitizer access throughout the four-file
 cluster, including the public `chunk_generator` alias and literal dynamic probes.
-Phase 1 and review item 27 remain incomplete; the eight binding kwargs and
-orchestrator structural caps are unchanged.
+At this Phase 1 slice, review item 27 remained incomplete and the eight binding
+kwargs were unchanged; the later Phase 2 slice below lowers that cap to six.
 
 ### Phase 1 progress: planning and guidance (partial)
 
@@ -233,15 +233,20 @@ dependencies fail before provider execution instead of falling back to a facade
 lookup. Phase 1 and review item 27 remain incomplete; turn framing and the
 remaining runtime capabilities still need migration.
 
-### Phase 2 progress: paired turn lifecycle (partial)
+### Phase 2 progress: service-owned turn frame (complete)
 
-`ChatTurnLifecycle` now binds setup and teardown as one capability. This keeps
-the callbacks paired and restores the `bind_runtime_components` ceiling of eight
-after the shared stream lock added for cancellation-safe generator cleanup had
-temporarily raised the surface to nine. The shared lock remains intact. Setup and
-teardown still delegate to the orchestrator compatibility methods, so ChatService
-does not yet own the full turn frame and the phase-2 target of six binding kwargs
-remains open.
+`ChatTurnRuntime` now owns stream skill activation, temporary constraints, task
+report start/finish metadata, teardown, and turn-boundary credit assignment as
+one capability held by `ChatService`. Its enumerated live-state adapter uses a
+weak owner reference, so the turn component itself does not retain the facade.
+The four former orchestrator handlers, two helper methods, and the unused
+context-limit passthrough are deleted.
+
+`bind_runtime_components` shrinks from eight keyword arguments to the phase-2
+target of six while preserving the shared cancellation-safe stream lock. The
+orchestrator line cap falls from 4,209 to 4,070, its definition cap from 226 to
+219, and its `getattr(self, ...)` cap from 136 to 120. Phase 1 remains open for
+the chat cluster capabilities that still reach through the facade.
 
 ## Benefits
 
@@ -267,9 +272,8 @@ remains open.
 
 ## Unresolved Questions
 
-- Does `ChatTurnRuntime` live as part of ChatService or as a sibling service component
-  constructed by it? (Lean: sibling component, ChatService constructs and owns it — avoids
-  growing `chat_service.py` past its own readability.)
+- **Resolved:** `ChatTurnRuntime` is a sibling component held by `ChatService` and built at the
+  chat composition boundary. This keeps turn behavior out of the already-large service module.
 - The orchestrator chat shims have ~13 remaining production call sites; phase 3 includes the
   caller migration, but the exact split (migrate callers to `Agent`/`ChatService` vs keep thin
   facade forwarders permanently) is settled during phase 3 review.

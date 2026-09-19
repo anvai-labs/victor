@@ -88,6 +88,12 @@ def test_source_without_mirror_test_fails_closed():
         select(["victor/this_module_has_no_test_zzz.py"])
 
 
+def test_retired_source_maps_to_its_replacement_suite():
+    assert select(["victor/agent/services/chat_turn_lifecycle.py"]) == [
+        "tests/unit/agent/services/test_chat_turn_runtime.py"
+    ]
+
+
 def test_results_are_deduped_and_sorted():
     out = select(
         [
