@@ -17,14 +17,16 @@ CLUSTER_CAPS = {
         "dynamic_probes": 0,
         "delivery_accesses": 0,
         "planning_accesses": 0,
+        "execution_control_accesses": 1,
         "raw_state": 11,
     },
     "chat_stream_executor.py": {
-        "private_attributes": 83,
-        "private_probes": 16,
+        "private_attributes": 76,
+        "private_probes": 5,
         "dynamic_probes": 4,
         "delivery_accesses": 0,
         "planning_accesses": 0,
+        "execution_control_accesses": 0,
         "raw_state": 0,
     },
     "chat_stream_helpers.py": {
@@ -33,6 +35,7 @@ CLUSTER_CAPS = {
         "dynamic_probes": 0,
         "delivery_accesses": 0,
         "planning_accesses": 0,
+        "execution_control_accesses": 3,
         "raw_state": 8,
     },
     "streaming_act_adapter.py": {
@@ -41,6 +44,7 @@ CLUSTER_CAPS = {
         "dynamic_probes": 0,
         "delivery_accesses": 0,
         "planning_accesses": 0,
+        "execution_control_accesses": 0,
         "raw_state": 0,
     },
 }
@@ -95,6 +99,7 @@ def inventory(source):
     counts = {"private_attributes": 0, "private_probes": 0, "dynamic_probes": 0, "raw_state": 0}
     counts["delivery_accesses"] = 0
     counts["planning_accesses"] = 0
+    counts["execution_control_accesses"] = 0
     delivery_names = {"_chunk_generator", "chunk_generator", "sanitizer"}
     planning_names = {
         "_tool_planner",
@@ -103,11 +108,22 @@ def inventory(source):
         "_apply_task_guidance",
         "_classify_task_keywords",
     }
+    execution_control_names = {
+        "_task_completion_detector",
+        "_message_policy_gate",
+        "_current_intent",
+        "_tool_pipeline",
+        "_record_runtime_intelligence_outcome",
+        "_conversation_controller",
+        "_parse_and_validate_tool_calls",
+    }
     for node in ast.walk(tree):
         if isinstance(node, ast.Attribute) and node.attr in delivery_names:
             counts["delivery_accesses"] += 1
         if isinstance(node, ast.Attribute) and node.attr in planning_names:
             counts["planning_accesses"] += 1
+        if isinstance(node, ast.Attribute) and node.attr in execution_control_names:
+            counts["execution_control_accesses"] += 1
         if isinstance(node, ast.Attribute) and node.attr.startswith("_"):
             counts["private_attributes"] += 1
             counts["raw_state"] += node.attr == "__dict__"
@@ -115,6 +131,7 @@ def inventory(source):
             key = literal(node.slice)
             counts["delivery_accesses"] += key in delivery_names
             counts["planning_accesses"] += key in planning_names
+            counts["execution_control_accesses"] += key in execution_control_names
             if key and key.startswith("_"):
                 counts["raw_state"] += 1
         if not isinstance(node, ast.Call):
@@ -128,6 +145,7 @@ def inventory(source):
             key = literal(node.args[1])
             counts["delivery_accesses"] += key in delivery_names
             counts["planning_accesses"] += key in planning_names
+            counts["execution_control_accesses"] += key in execution_control_names
             if key is None:
                 counts["dynamic_probes"] += 1
             elif key.startswith("_"):
@@ -137,6 +155,7 @@ def inventory(source):
             key = literal(node.args[0])
             counts["delivery_accesses"] += key in delivery_names
             counts["planning_accesses"] += key in planning_names
+            counts["execution_control_accesses"] += key in execution_control_names
             if key and key.startswith("_"):
                 counts["raw_state"] += 1
     return counts
@@ -161,6 +180,9 @@ def test_chat_cluster_boundary_counts_only_shrink(filename):
         ("renamed.sanitizer.sanitize(text)", "delivery_accesses"),
         ("renamed._tool_planner.plan_tools([])", "planning_accesses"),
         ("renamed._select_tools_for_turn('x', [])", "planning_accesses"),
+        ("renamed._task_completion_detector.reset()", "execution_control_accesses"),
+        ("getattr(renamed, '_message_policy_gate')", "execution_control_accesses"),
+        ("renamed.__dict__.get('_tool_pipeline')", "execution_control_accesses"),
         ("read = getattr\nread(renamed, 'sani' + 'tizer')", "delivery_accesses"),
         ("vars(renamed).get('sanitizer')", "delivery_accesses"),
         ("alias = original\nalias._new_facade_private()", "private_attributes"),

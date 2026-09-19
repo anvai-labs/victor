@@ -16,7 +16,11 @@ from victor.agent.session_state_manager import SessionStateManager
 
 
 class _Owner:
-    pass
+    def on_tool_start(self, *args, **kwargs):
+        pass
+
+    def on_tool_complete(self, *args, **kwargs):
+        pass
 
 
 def _owner() -> _Owner:
@@ -27,6 +31,12 @@ def _owner() -> _Owner:
     owner._recovery_service = None
     owner._recovery_coordinator = None
     owner._tool_planner = None
+    owner._message_policy_gate = None
+    owner._task_completion_detector = None
+    owner._conversation_controller = None
+    owner._tool_service = None
+    owner.tool_adapter = None
+    owner._tool_pipeline = None
     return owner
 
 
@@ -48,6 +58,69 @@ def test_binding_rejects_owner_that_cannot_honor_non_retention_contract() -> Non
 
     with pytest.raises(TypeError, match="must support weak references"):
         bind_chat_runtime_services(owner)
+
+
+def test_binding_enumerates_stream_execution_collaborators_without_owner_retention() -> None:
+    owner = _owner()
+    gate = object()
+    detector = object()
+    conversation = object()
+    parser = SimpleNamespace(
+        parse_and_validate_tool_calls=MagicMock(return_value=([{"x": 1}], "ok"))
+    )
+    adapter = object()
+    pipeline = SimpleNamespace(
+        reset=MagicMock(),
+        on_tool_start=owner.on_tool_start,
+        on_tool_complete=owner.on_tool_complete,
+    )
+    owner._message_policy_gate = gate
+    owner._task_completion_detector = detector
+    owner._conversation_controller = conversation
+    owner._tool_service = parser
+    owner.tool_adapter = adapter
+    owner._tool_pipeline = pipeline
+    owner._record_runtime_intelligence_outcome = MagicMock()
+
+    view = bind_chat_runtime_services(owner)
+
+    assert view.governance.gate is gate
+    assert view.completion.detector is detector
+    assert view.completion.summary_store is conversation
+    assert view.tool_calls.parse_and_validate([{"x": 1}], "raw") == ([{"x": 1}], "ok")
+    parser.parse_and_validate_tool_calls.assert_called_once_with([{"x": 1}], "raw", adapter)
+    view.tool_calls.reset()
+    pipeline.reset.assert_called_once_with()
+    view.feedback.record_outcome(
+        success=False,
+        quality_score=0.3,
+        user_satisfied=False,
+        completed=False,
+    )
+    owner._record_runtime_intelligence_outcome.assert_called_once_with(
+        success=False,
+        quality_score=0.3,
+        user_satisfied=False,
+        completed=False,
+    )
+
+    owner_ref = weakref.ref(owner)
+    # Only the capability view remains. The pipeline itself intentionally has
+    # callbacks bound to the owner, mirroring the production ToolPipeline.
+    del pipeline
+    del owner
+    gc.collect()
+
+    assert owner_ref() is None
+    with pytest.raises(RuntimeError, match="no longer available"):
+        view.tool_calls.reset()
+    with pytest.raises(RuntimeError, match="no longer available"):
+        view.feedback.record_outcome(
+            success=False,
+            quality_score=0.3,
+            user_satisfied=False,
+            completed=False,
+        )
 
 
 def test_turn_runtime_uses_enumerated_live_state_without_retaining_owner() -> None:

@@ -8,8 +8,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 
 - Route chat planning, task guidance, and tool selection through explicit
-  runtime capabilities, and move setup, reporting, and teardown into the
-  service-owned chat turn frame.
+  runtime capabilities; route streaming governance, completion, tool-call
+  processing, and outcome feedback through the enumerated runtime view; and
+  move setup, reporting, and teardown into the service-owned chat turn frame.
+- Preserve configured request/response governance during runtime bootstrap and
+  reject invalid configured-gate results instead of treating them as disabled.
 - Headless and benchmark turns now use the shared per-turn tool-selection
   runtime (FEP-0034 Stage C), including capability/Q&A gates, intent projection,
   and KV policy. Curated schemas remain stable, pruning remains opt-in, and

@@ -10,7 +10,11 @@ from victor.agent.services.chat_delivery import ChatDelivery
 from victor.agent.services.chat_planning import ChatPlanning
 
 from victor.agent.services.chat_runtime_services import (
+    ChatCompletion,
+    ChatFeedback,
+    ChatGovernance,
     ChatRuntimeServices,
+    ChatToolCalls,
     SessionTaskRequirementState,
 )
 from victor.agent.services.chat_turn_runtime import ChatTurnRuntime, TaskReportMetrics
@@ -117,6 +121,50 @@ class _ChatTurnStateView(_WeakOwner):
             service.assign_turn_credit_at_boundary()
 
 
+class _ChatOutcomeView(_WeakOwner):
+    """Forward the remaining compatibility feedback hook without retention."""
+
+    __slots__ = ()
+
+    def record_outcome(
+        self,
+        *,
+        success: bool,
+        quality_score: float,
+        user_satisfied: bool,
+        completed: bool,
+    ) -> None:
+        self._owner()._record_runtime_intelligence_outcome(
+            success=success,
+            quality_score=quality_score,
+            user_satisfied=user_satisfied,
+            completed=completed,
+        )
+
+
+class _ChatToolCallView(_WeakOwner):
+    """Resolve tool collaborators at call time without retaining the facade."""
+
+    __slots__ = ()
+
+    def reset(self) -> None:
+        pipeline = getattr(self._owner(), "_tool_pipeline", None)
+        if pipeline is not None:
+            pipeline.reset()
+
+    def parse_and_validate(
+        self,
+        tool_calls: list[dict[str, Any]] | None,
+        full_content: str,
+    ) -> tuple[list[dict[str, Any]] | None, str]:
+        owner = self._owner()
+        parser = getattr(owner, "_tool_service", None)
+        adapter = getattr(owner, "tool_adapter", None)
+        if parser is None or adapter is None:
+            raise TypeError("Chat tool-call processing requires a parser and adapter")
+        return parser.parse_and_validate_tool_calls(tool_calls, full_content, adapter)
+
+
 def _runtime_owner(runtime_owner: Any) -> Any:
     return (
         runtime_owner._orchestrator
@@ -155,6 +203,13 @@ def bind_chat_runtime_services(runtime_owner: Any) -> ChatRuntimeServices:
             planner=getattr(owner, "_tool_planner", None),
             selection=ToolSelectionRuntime(runtime_host),
         ),
+        governance=ChatGovernance(gate=getattr(owner, "_message_policy_gate", None)),
+        completion=ChatCompletion(
+            detector=getattr(owner, "_task_completion_detector", None),
+            summary_store=getattr(owner, "_conversation_controller", None),
+        ),
+        tool_calls=ChatToolCalls(runtime=_ChatToolCallView(owner)),
+        feedback=ChatFeedback(recorder=_ChatOutcomeView(owner)),
         recovery=getattr(owner, "_recovery_service", None)
         or getattr(owner, "_recovery_coordinator", None),
     )

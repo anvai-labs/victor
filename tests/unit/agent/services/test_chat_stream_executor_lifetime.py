@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from victor.agent.services.chat_service import ChatService, ChatServiceConfig
+from victor.agent.services.chat_runtime_services import ChatGovernance
 from victor.agent.services.chat_stream_runtime import ServiceStreamingRuntime
 from victor.agent.services.metrics_service import AgentMetricsService
 from victor.agent.services.streaming_act_adapter import StreamingActAdapter, StreamActSession
@@ -256,7 +257,12 @@ async def test_unified_executor_close_awaits_loop_cleanup(monkeypatch):
                 await release.wait()
 
     owner = SimpleNamespace(_message_policy_gate=None, settings=None, turn_executor=None)
-    executor = StreamingChatExecutor(SimpleNamespace(_orchestrator=owner))
+    executor = StreamingChatExecutor(
+        SimpleNamespace(
+            _orchestrator=owner,
+            services=SimpleNamespace(governance=ChatGovernance()),
+        )
+    )
     monkeypatch.setattr(executor, "_get_conversation_history", lambda *args: [])
     monkeypatch.setattr(
         StreamingActAdapter,

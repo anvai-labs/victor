@@ -315,26 +315,17 @@ class StreamingChatExecutor:
         self._prev_visible_content = normalized_key
         return display_content
 
-    @staticmethod
-    def _get_task_completion_summary(detector: Any) -> str:
-        """Return the detector's last completion summary without active markers."""
-        state = getattr(detector, "_state", None)
-        summary = getattr(state, "last_summary", "") if state is not None else ""
-        return strip_active_completion_markers(summary).strip()
-
     def _resolve_terminal_visible_output(
         self,
-        orch: Any,
         stream_ctx: Any,
         *,
         full_content: str,
         user_message: str,
     ) -> tuple[str, Optional[str]]:
         """Pick the best visible terminal response from provider and summary fallbacks."""
-        detector = getattr(orch, "_task_completion_detector", None)
         candidates = (
             ("provider_response", full_content),
-            ("completion_summary", self._get_task_completion_summary(detector)),
+            ("completion_summary", self.services.completion.terminal_summary()),
             ("compaction_summary", getattr(stream_ctx, "compaction_summary", "")),
         )
 
@@ -353,7 +344,7 @@ class StreamingChatExecutor:
 
         return "", None
 
-    async def _govern_final_response(self, orch: Any, text: str) -> tuple[str, bool]:
+    async def _govern_final_response(self, text: str) -> tuple[str, bool]:
         """RESPONSE-phase gate for the streaming path's final assistant output.
 
         Returns ``(text_to_use, blocked)``. When no message policy gate is
@@ -362,10 +353,11 @@ class StreamingChatExecutor:
         persisted history copy and the final delivered chunk (the documented
         limitation of message governance on the streaming path).
         """
-        gate = getattr(orch, "_message_policy_gate", None)
-        if gate is None or not text:
+        if not text:
             return text, False
-        result = await gate.gate_response(text)
+        result = await self.services.governance.check_response(text)
+        if result is None:
+            return text, False
         if not result.allowed:
             return result.reason or "The response was withheld by policy.", True
         return result.content, False
@@ -380,7 +372,6 @@ class StreamingChatExecutor:
     ) -> StreamChunk:
         """Guarantee a visible terminal assistant chunk or an explicit final marker."""
         terminal_content, content_source = self._resolve_terminal_visible_output(
-            orch,
             stream_ctx,
             full_content=full_content,
             user_message=user_message,
@@ -388,7 +379,7 @@ class StreamingChatExecutor:
 
         if terminal_content:
             # RESPONSE-phase governance on the terminal (final) assistant output.
-            terminal_content, _blocked = await self._govern_final_response(orch, terminal_content)
+            terminal_content, _blocked = await self._govern_final_response(terminal_content)
 
             from victor.agent.conversation.types import (
                 MESSAGE_SOURCE_METADATA_KEY,
@@ -509,12 +500,12 @@ class StreamingChatExecutor:
     def _tool_name_value(tool_name: Any) -> str:
         return str(tool_name or "").split(".")[-1].strip().lower()
 
-    def _is_write_action_turn(self, orch: Any, stream_ctx: Any) -> bool:
+    def _is_write_action_turn(self, stream_ctx: Any) -> bool:
         """Return True for turns where continued read-only exploration is risky."""
         if not bool(getattr(stream_ctx, "is_action_task", False)):
             return False
 
-        intent = getattr(orch, "_current_intent", None)
+        intent = self.services.planning.current_intent()
         intent_value = str(getattr(intent, "value", intent) or "").lower()
         if intent_value in {"write_allowed", "edit", "write"}:
             return True
@@ -541,7 +532,7 @@ class StreamingChatExecutor:
         tool_calls_used: int,
     ) -> bool:
         """Nudge write-intent turns out of repeated read-only exploration."""
-        if not self._is_write_action_turn(orch, stream_ctx):
+        if not self._is_write_action_turn(stream_ctx):
             return False
         if self._has_mutation_tool_executed(stream_ctx):
             return False
@@ -690,37 +681,8 @@ class StreamingChatExecutor:
         if hasattr(orch, "tool_calls_used"):
             orch.tool_calls_used = 0
 
-        tool_pipeline = getattr(orch, "_tool_pipeline", None)
-        reset_pipeline = getattr(tool_pipeline, "reset", None)
-        if callable(reset_pipeline):
-            reset_pipeline()
-
-        detector = getattr(orch, "_task_completion_detector", None)
-        reset_detector = getattr(detector, "reset", None)
-        if callable(reset_detector):
-            reset_detector()
-
-    @staticmethod
-    def _clear_deferred_active_completion_signal(detector: Any) -> None:
-        """Clear a completion marker that arrived alongside additional tool calls."""
-        clear_active_signal = getattr(detector, "clear_active_signal", None)
-        if callable(clear_active_signal):
-            clear_active_signal()
-            return
-
-        state = getattr(detector, "_state", None)
-        if state is None:
-            return
-
-        if hasattr(state, "active_signal_detected"):
-            state.active_signal_detected = False
-
-        signals = getattr(state, "completion_signals", None)
-        if isinstance(signals, set):
-            signals_to_keep = {
-                signal for signal in signals if not str(signal).startswith("active:")
-            }
-            state.completion_signals = signals_to_keep
+        self.services.tool_calls.reset()
+        self.services.completion.reset()
 
     @staticmethod
     def _serialize_conversation_message(message: Any) -> dict[str, Any] | None:
@@ -1220,7 +1182,7 @@ class StreamingChatExecutor:
                 # content turns continue the loop and must not be blocked.
                 _is_final_emit = forced_task_completion and not tool_calls
                 if _is_final_emit:
-                    sanitized, _ = await self._govern_final_response(orch, sanitized)
+                    sanitized, _ = await self._govern_final_response(sanitized)
                 orch.add_message(
                     "assistant",
                     sanitized,
@@ -1252,7 +1214,7 @@ class StreamingChatExecutor:
 
                     _is_final_emit = forced_task_completion and not tool_calls
                     if _is_final_emit:
-                        plain_text, _ = await self._govern_final_response(orch, plain_text)
+                        plain_text, _ = await self._govern_final_response(plain_text)
                     orch.add_message(
                         "assistant",
                         plain_text,
@@ -1327,7 +1289,7 @@ class StreamingChatExecutor:
             else:
                 recovery_ctx = create_recovery_context(stream_ctx)
                 fallback_msg = recovery.get_recovery_fallback_message(recovery_ctx)
-                orch._record_runtime_intelligence_outcome(
+                self.services.feedback.record_outcome(
                     success=False,
                     quality_score=0.3,
                     user_satisfied=False,
@@ -1339,7 +1301,6 @@ class StreamingChatExecutor:
 
     def _detect_high_confidence_completion(
         self,
-        orch: Any,
         stream_ctx: Any,
         *,
         full_content: str,
@@ -1347,24 +1308,17 @@ class StreamingChatExecutor:
     ) -> bool:
         """Return True when this turn's answer is a HIGH-confidence completion with no pending tools.
 
-        Runs ``orch._task_completion_detector`` over the assistant content; on a HIGH-confidence
+        Runs the completion capability over the assistant content; on a HIGH-confidence
         active signal with no outstanding tool calls it persists a VICTOR_SUMMARY for any next-turn
         context and returns True. This is the streaming loop's prompt-completion signal (formerly in
         ``_detect_task_completion_and_mentions``) — the unified loop surfaces it onto the TurnResult
         so EVALUATE stops immediately instead of restating to the iteration cap (FEP-0007 tune-up).
         """
-        detector = getattr(orch, "_task_completion_detector", None)
-        if not detector or not full_content:
-            return False
-
-        from victor.agent.task_completion import CompletionConfidence
-
-        detector.analyze_response(full_content)
-        if detector.get_completion_confidence() != CompletionConfidence.HIGH:
-            return False
-        if tool_calls:
-            # Defer: a HIGH marker alongside pending tool calls isn't a real completion.
-            self._clear_deferred_active_completion_signal(detector)
+        completed = self.services.completion.detect_high_confidence(
+            full_content,
+            has_pending_tools=bool(tool_calls),
+        )
+        if not completed:
             return False
 
         logger.info(
@@ -1373,15 +1327,7 @@ class StreamingChatExecutor:
         )
         stream_ctx.force_completion = True
         stream_ctx.skip_continuation = True
-        last_summary = getattr(getattr(detector, "_state", None), "last_summary", "")
-        sanitized_summary = strip_active_completion_markers(last_summary).strip()
-        if sanitized_summary and hasattr(orch, "_conversation_controller"):
-            try:
-                orch._conversation_controller.persist_compaction_summary(sanitized_summary, [])
-                orch._conversation_controller.inject_compaction_context()
-                logger.info("VICTOR_SUMMARY persisted for next-turn context injection")
-            except Exception as exc:
-                logger.debug("Failed to persist VICTOR_SUMMARY: %s", exc)
+        self.services.completion.persist_terminal_summary()
         return True
 
     @staticmethod
@@ -1462,7 +1408,10 @@ class StreamingChatExecutor:
         tools, full_content, tool_calls, garbage_detected = await self._stream_provider_turn(
             orch, runtime_owner, stream_ctx, goals
         )
-        tool_calls, full_content = orch._parse_and_validate_tool_calls(tool_calls, full_content)
+        tool_calls, full_content = self.services.tool_calls.parse_and_validate(
+            tool_calls,
+            full_content,
+        )
         result.tools = tools
         result.garbage_detected = garbage_detected
 
@@ -1514,7 +1463,9 @@ class StreamingChatExecutor:
         # tools stops the unified loop immediately (signalled via the TurnResult to EVALUATE),
         # rather than relying solely on the under-scoring EnhancedCompletionEvaluator.
         result.forced_completion = self._detect_high_confidence_completion(
-            orch, stream_ctx, full_content=full_content, tool_calls=tool_calls
+            stream_ctx,
+            full_content=full_content,
+            tool_calls=tool_calls,
         )
 
         result.full_content = full_content
@@ -1557,9 +1508,8 @@ class StreamingChatExecutor:
         # Governance REQUEST phase (per-run): a block short-circuits the WHOLE run with a single
         # refusal chunk; a redaction substitutes the message used downstream. Unlike run(), this
         # lives in the run wrapper (not the per-turn ACT), since run_streaming owns the turn loop.
-        gate = getattr(orch, "_message_policy_gate", None)
-        if gate is not None:
-            req = await gate.gate_request(user_message)
+        req = await self.services.governance.check_request(user_message)
+        if req is not None:
             if not req.allowed:
                 yield self.services.delivery.content_chunk(
                     req.reason or "Your message was blocked by policy.",

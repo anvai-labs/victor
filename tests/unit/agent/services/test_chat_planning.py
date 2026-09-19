@@ -13,6 +13,7 @@ async def test_planning_capability_delegates_without_exposing_runtime_host():
         apply_intent_guard=MagicMock(),
         apply_task_guidance=MagicMock(),
         classify_task_keywords=MagicMock(return_value={"task_type": "analysis"}),
+        current_intent=MagicMock(return_value="write_allowed"),
     )
     planner = SimpleNamespace(
         infer_goals_from_message=MagicMock(return_value=["inspect"]),
@@ -29,6 +30,7 @@ async def test_planning_capability_delegates_without_exposing_runtime_host():
 
     planning.apply_intent_guard("inspect app.py")
     assert planning.classify_task_keywords("inspect app.py") == {"task_type": "analysis"}
+    assert planning.current_intent() == "write_allowed"
     planning.apply_task_guidance(
         user_message="inspect app.py",
         unified_task_type="analyze",
@@ -57,6 +59,8 @@ async def test_missing_planning_dependencies_fail_before_turn_execution():
 
     with pytest.raises(TypeError, match="task-guidance"):
         planning.apply_intent_guard("inspect app.py")
+    with pytest.raises(TypeError, match="task-guidance"):
+        planning.current_intent()
     with pytest.raises(TypeError, match="tool planner"):
         planning.infer_goals("inspect app.py")
     with pytest.raises(TypeError, match="tool-selection"):

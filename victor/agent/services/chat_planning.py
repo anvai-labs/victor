@@ -16,6 +16,8 @@ class TaskGuidance(Protocol):
 
     def classify_task_keywords(self, user_message: str) -> dict[str, Any]: ...
 
+    def current_intent(self) -> Any: ...
+
     def apply_task_guidance(
         self,
         *,
@@ -70,6 +72,9 @@ class ChatPlanning:
 
     def classify_task_keywords(self, user_message: str) -> dict[str, Any]:
         return self._require_guidance().classify_task_keywords(user_message)
+
+    def current_intent(self) -> Any:
+        return self._require_guidance().current_intent()
 
     def apply_task_guidance(
         self,

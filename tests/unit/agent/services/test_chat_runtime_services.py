@@ -2,14 +2,20 @@
 
 from dataclasses import fields, FrozenInstanceError
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from victor.agent.factory.chat_runtime_bindings import bind_chat_runtime_services
 from victor.agent.factory.runtime_builders import RuntimeBuildersMixin
 from victor.agent.orchestrator import AgentOrchestrator
-from victor.agent.services.chat_runtime_services import ChatRuntimeServices
+from victor.agent.services.chat_runtime_services import (
+    ChatCompletion,
+    ChatFeedback,
+    ChatGovernance,
+    ChatRuntimeServices,
+    ChatToolCalls,
+)
 from victor.agent.services.chat_stream_executor import StreamingChatExecutor
 from victor.agent.services.orchestrator_protocol_adapter import OrchestratorProtocolAdapter
 from victor.agent.services.streaming_act_adapter import StreamingActAdapter
@@ -143,6 +149,10 @@ def test_view_is_enumerated_and_does_not_retain_or_forward_facade():
         "stream_turn_lock",
         "delivery",
         "planning",
+        "governance",
+        "completion",
+        "tool_calls",
+        "feedback",
         "recovery",
     ]
     assert not hasattr(view, "__dict__")
@@ -161,3 +171,91 @@ def test_view_is_enumerated_and_does_not_retain_or_forward_facade():
 def test_missing_session_owner_requires_explicit_binding():
     with pytest.raises(TypeError, match="SessionStateAccessor"):
         bind_chat_runtime_services(SimpleNamespace())
+
+
+class _CompletionDetector:
+    def __init__(self, confidence, summary=""):
+        self.confidence = confidence
+        self.state = SimpleNamespace(last_summary=summary)
+        self.clear_active_signal = MagicMock()
+        self.reset = MagicMock()
+
+    def analyze_response(self, content):
+        self.content = content
+
+    def get_completion_confidence(self):
+        return self.confidence
+
+    def get_state(self):
+        return self.state
+
+
+def test_completion_capability_persists_sanitized_high_confidence_summary():
+    from victor.agent.task_completion import CompletionConfidence
+
+    detector = _CompletionDetector(
+        CompletionConfidence.HIGH,
+        "VICTOR_SUMMARY:: changed app.py",
+    )
+    store = SimpleNamespace(
+        persist_compaction_summary=MagicMock(),
+        inject_compaction_context=MagicMock(return_value=True),
+    )
+    completion = ChatCompletion(detector=detector, summary_store=store)
+
+    assert completion.detect_high_confidence("done", has_pending_tools=False) is True
+    completion.persist_terminal_summary()
+    assert completion.terminal_summary() == "changed app.py"
+    store.persist_compaction_summary.assert_called_once_with("changed app.py", [])
+    store.inject_compaction_context.assert_called_once_with()
+
+
+def test_completion_capability_defers_pending_tools_without_persisting():
+    from victor.agent.task_completion import CompletionConfidence
+
+    detector = _CompletionDetector(CompletionConfidence.HIGH, "VICTOR_SUMMARY:: premature")
+    store = SimpleNamespace(
+        persist_compaction_summary=MagicMock(),
+        inject_compaction_context=MagicMock(),
+    )
+    completion = ChatCompletion(detector=detector, summary_store=store)
+
+    assert completion.detect_high_confidence("done", has_pending_tools=True) is False
+    detector.clear_active_signal.assert_called_once_with()
+    store.persist_compaction_summary.assert_not_called()
+
+
+@pytest.mark.parametrize("invalid_result", [None, object()], ids=["none", "malformed"])
+@pytest.mark.parametrize("method_name", ["check_request", "check_response"])
+async def test_governance_rejects_invalid_result_from_configured_gate(method_name, invalid_result):
+    gate = SimpleNamespace(
+        gate_request=AsyncMock(return_value=invalid_result),
+        gate_response=AsyncMock(return_value=invalid_result),
+    )
+
+    with pytest.raises(TypeError, match=f"invalid {method_name.removeprefix('check_')} result"):
+        await getattr(ChatGovernance(gate=gate), method_name)("sensitive content")
+
+
+def test_tool_call_capability_fails_closed_without_runtime():
+    with pytest.raises(TypeError, match="requires a runtime"):
+        ChatToolCalls().parse_and_validate(None, "tool content")
+
+
+def test_feedback_capability_delegates_only_declared_outcome_fields():
+    recorder = SimpleNamespace(record_outcome=MagicMock())
+    feedback = ChatFeedback(recorder=recorder)
+
+    feedback.record_outcome(
+        success=False,
+        quality_score=0.3,
+        user_satisfied=False,
+        completed=False,
+    )
+
+    recorder.record_outcome.assert_called_once_with(
+        success=False,
+        quality_score=0.3,
+        user_satisfied=False,
+        completed=False,
+    )
