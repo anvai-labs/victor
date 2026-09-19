@@ -4,9 +4,9 @@
 """Enumerated service capabilities consumed by the chat runtime.
 
 FEP-0031 phase 1 is incremental: task requirements, response delivery,
-planning/guidance, stream execution controls, lifecycle, and metrics have
-migrated. The view keeps an explicit capability shape while resolving mutable
-session-owned state at its canonical owners.
+planning/guidance, stream execution controls, lifecycle, metrics, and task
+classification state have migrated. The view keeps an explicit capability shape
+while resolving mutable session-owned state at its canonical owners.
 """
 
 from __future__ import annotations
@@ -19,6 +19,7 @@ from typing import Any, Protocol
 from victor.agent.session_state_accessor import SessionStateAccessor
 from victor.agent.services.chat_delivery import ChatDelivery
 from victor.agent.services.chat_planning import ChatPlanning
+from victor.agent.unified_task_tracker import TrackerTaskType
 from victor.framework.policies.gate import GateResult
 
 logger = logging.getLogger(__name__)
@@ -346,6 +347,85 @@ class ChatStreamMetrics:
         )
 
 
+class TaskStateRuntime(Protocol):
+    """Per-turn task classification and budget state used by streaming chat."""
+
+    def reset_turn(self) -> None: ...
+
+    def max_total_iterations(self) -> int: ...
+
+    def detect_task_type(self, user_message: str) -> TrackerTaskType: ...
+
+    def set_task_type(self, task_type: TrackerTaskType) -> None: ...
+
+    def publish_task_type(self, task_type: TrackerTaskType) -> None: ...
+
+    def set_continuation_context(self, context: dict[str, Any] | None) -> None: ...
+
+    def continuation_context(self) -> dict[str, Any] | None: ...
+
+    def apply_prompt_requirements(
+        self,
+        *,
+        tool_budget: int | None,
+        iteration_budget: int | None,
+    ) -> tuple[bool, bool]: ...
+
+    def max_exploration_iterations(self) -> int: ...
+
+    def set_tool_budget(self, budget: int) -> None: ...
+
+
+@dataclass(frozen=True, slots=True)
+class ChatTaskState:
+    """Expose task classification and budget updates without facade state access."""
+
+    runtime: TaskStateRuntime | None = None
+
+    def _require_runtime(self) -> TaskStateRuntime:
+        if self.runtime is None:
+            raise TypeError("Chat task state requires a runtime")
+        return self.runtime
+
+    def reset_turn(self) -> None:
+        self._require_runtime().reset_turn()
+
+    def max_total_iterations(self) -> int:
+        return self._require_runtime().max_total_iterations()
+
+    def detect_task_type(self, user_message: str) -> TrackerTaskType:
+        return self._require_runtime().detect_task_type(user_message)
+
+    def set_task_type(self, task_type: TrackerTaskType) -> None:
+        self._require_runtime().set_task_type(task_type)
+
+    def publish_task_type(self, task_type: TrackerTaskType) -> None:
+        self._require_runtime().publish_task_type(task_type)
+
+    def set_continuation_context(self, context: dict[str, Any] | None) -> None:
+        self._require_runtime().set_continuation_context(context)
+
+    def continuation_context(self) -> dict[str, Any] | None:
+        return self._require_runtime().continuation_context()
+
+    def apply_prompt_requirements(
+        self,
+        *,
+        tool_budget: int | None,
+        iteration_budget: int | None,
+    ) -> tuple[bool, bool]:
+        return self._require_runtime().apply_prompt_requirements(
+            tool_budget=tool_budget,
+            iteration_budget=iteration_budget,
+        )
+
+    def max_exploration_iterations(self) -> int:
+        return self._require_runtime().max_exploration_iterations()
+
+    def set_tool_budget(self, budget: int) -> None:
+        self._require_runtime().set_tool_budget(budget)
+
+
 @dataclass(frozen=True, slots=True)
 class ChatRuntimeServices:
     """Explicit capabilities already migrated from the chat runtime facade."""
@@ -354,6 +434,7 @@ class ChatRuntimeServices:
     stream_lifecycle: ChatStreamLifecycle
     stream_turn_lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False, compare=False)
     metrics: ChatStreamMetrics = field(default_factory=ChatStreamMetrics)
+    task_state: ChatTaskState = field(default_factory=ChatTaskState)
     delivery: ChatDelivery = field(default_factory=ChatDelivery)
     planning: ChatPlanning = field(default_factory=ChatPlanning)
     governance: ChatGovernance = field(default_factory=ChatGovernance)

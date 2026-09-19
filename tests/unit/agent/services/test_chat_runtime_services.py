@@ -17,6 +17,7 @@ from victor.agent.services.chat_runtime_services import (
     ChatRuntimeServices,
     ChatStreamLifecycle,
     ChatStreamMetrics,
+    ChatTaskState,
     ChatToolCalls,
 )
 from victor.agent.services.chat_stream_executor import StreamingChatExecutor
@@ -152,6 +153,7 @@ def test_view_is_enumerated_and_does_not_retain_or_forward_facade():
         "stream_lifecycle",
         "stream_turn_lock",
         "metrics",
+        "task_state",
         "delivery",
         "planning",
         "governance",
@@ -264,6 +266,17 @@ def test_stream_metrics_capability_requires_explicit_runtime():
         metrics.record_first_token()
     with pytest.raises(TypeError, match="require a runtime"):
         metrics.finalize({})
+
+
+def test_task_state_capability_requires_explicit_runtime():
+    task_state = ChatTaskState()
+
+    with pytest.raises(TypeError, match="requires a runtime"):
+        task_state.reset_turn()
+    with pytest.raises(TypeError, match="requires a runtime"):
+        task_state.detect_task_type("inspect")
+    with pytest.raises(TypeError, match="requires a runtime"):
+        task_state.apply_prompt_requirements(tool_budget=10, iteration_budget=5)
 
 
 def test_feedback_capability_delegates_only_declared_outcome_fields():
