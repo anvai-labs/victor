@@ -47,6 +47,28 @@ def test_task_guidance_runtime_apply_intent_guard_syncs_runtime_state():
     assert runtime_host._current_user_message == "read this file"
 
 
+def test_task_guidance_runtime_classifies_with_pipeline_before_analyzer():
+    pipeline = MagicMock()
+    pipeline.classify_task_keywords.return_value = {"task_type": "analysis"}
+    analyzer = MagicMock()
+    runtime = TaskGuidanceRuntime(
+        SimpleNamespace(_prompt_pipeline=pipeline, _task_analyzer=analyzer)
+    )
+
+    assert runtime.classify_task_keywords("inspect app.py") == {"task_type": "analysis"}
+    pipeline.classify_task_keywords.assert_called_once_with("inspect app.py")
+    analyzer.classify_task_keywords.assert_not_called()
+
+
+def test_task_guidance_runtime_classification_fallback_is_explicit():
+    runtime = TaskGuidanceRuntime(SimpleNamespace(_prompt_pipeline=None, _task_analyzer=None))
+
+    assert runtime.classify_task_keywords("hello") == {
+        "task_type": "default",
+        "confidence": 0.0,
+    }
+
+
 def test_task_guidance_runtime_apply_intent_guard_preserves_explicit_sqlite_request_message():
     task_coordinator = MagicMock()
     task_coordinator.current_intent = "display_only"

@@ -755,6 +755,7 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
 
         if self._chat_service and hasattr(self._chat_service, "bind_runtime_components"):
             from victor.agent.runtime.provider_runtime import LazyRuntimeProxy
+            from victor.agent.services.chat_turn_lifecycle import ChatTurnLifecycle
 
             chat_stream_adapter = self._get_chat_stream_adapter()
             self._chat_service.bind_runtime_components(
@@ -767,8 +768,10 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
                 context_limit_handler=self._get_context_limit_runtime().handle_limits,
                 task_report_start_handler=self._start_task_report,
                 task_report_finish_handler=self._finish_task_report,
-                turn_setup_handler=self._prepare_chat_service_turn_runtime,
-                turn_teardown_handler=self._teardown_chat_service_turn_runtime,
+                turn_lifecycle=ChatTurnLifecycle(
+                    setup=self._prepare_chat_service_turn_runtime,
+                    teardown=self._teardown_chat_service_turn_runtime,
+                ),
                 stream_turn_lock=chat_stream_adapter.services.stream_turn_lock,
             )
         if self._provider_service is not None and hasattr(
@@ -2976,7 +2979,7 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
     def _classify_task_keywords(self, user_message: str) -> Dict[str, Any]:
         """Classify task type based on keywords in the user message.
 
-        Delegates to UnifiedPromptPipeline or TaskAnalyzer directly.
+        Delegates to the service-owned task-guidance runtime.
 
         Args:
             user_message: The user's input message
@@ -2984,24 +2987,7 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
         Returns:
             Dictionary with classification results
         """
-        pipeline = getattr(self, "_prompt_pipeline", None)
-        if pipeline is not None:
-            return pipeline.classify_task_keywords(user_message)
-
-        task_analyzer = getattr(self, "_task_analyzer", None)
-        if task_analyzer is not None:
-            try:
-                method = getattr(
-                    task_analyzer,
-                    "classify_task_keywords",
-                    getattr(task_analyzer, "classify_keywords", None),
-                )
-                if method is not None:
-                    return method(user_message)
-            except Exception as exc:
-                logger.debug("Task keyword classification fallback failed: %s", exc)
-
-        return {"task_type": "default", "confidence": 0.0}
+        return self._get_task_guidance_runtime().classify_task_keywords(user_message)
 
     def _classify_task_with_context(
         self, user_message: str, history: Optional[List[Dict[str, Any]]] = None

@@ -7,6 +7,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Route chat planning, task guidance, and tool selection through an explicit
+  runtime capability, with paired setup and teardown lifecycle bindings.
 - Headless and benchmark turns now use the shared per-turn tool-selection
   runtime (FEP-0034 Stage C), including capability/Q&A gates, intent projection,
   and KV policy. Curated schemas remain stable, pruning remains opt-in, and

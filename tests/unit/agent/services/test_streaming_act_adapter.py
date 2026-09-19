@@ -125,7 +125,7 @@ def _prepare_executor(events, stream_ctx, *, recovery_service=None, recovery_coo
         _reset_streaming_turn_state=lambda o: events.append(("reset",)),
         _extract_task_requirements=fake_extract,
         _apply_run_guidance=lambda o, ctx, msg, mei: events.append(("guidance", mei)),
-        _initialize_task_intent=lambda o, ctx, msg: "GOALS",
+        _initialize_task_intent=lambda ctx, msg: "GOALS",
     )
     return executor, orch
 

@@ -13,6 +13,8 @@ from victor.agent.services.chat_runtime_services import ChatRuntimeServices
 from victor.agent.services.chat_stream_executor import StreamingChatExecutor
 from victor.agent.services.orchestrator_protocol_adapter import OrchestratorProtocolAdapter
 from victor.agent.services.streaming_act_adapter import StreamingActAdapter
+from victor.agent.services.task_guidance_runtime import TaskGuidanceRuntime
+from victor.agent.services.tool_selection_runtime import ToolSelectionRuntime
 from victor.agent.session_state_accessor import SessionStateAccessor
 from victor.agent.session_state_manager import SessionStateManager
 
@@ -21,6 +23,7 @@ def owner():
     # Exercise the real facade's existing session properties without provider setup.
     result = object.__new__(AgentOrchestrator)
     result._session_accessor = SessionStateAccessor(SessionStateManager())
+    result._tool_planner = SimpleNamespace()
     return result
 
 
@@ -41,6 +44,9 @@ async def test_factory_view_updates_existing_requirement_owner(
     runtime = RuntimeBuildersMixin().create_streaming_chat_adapter(supplied)
     executor = StreamingChatExecutor(runtime)
     assert executor.services is runtime.services
+    assert isinstance(executor.services.planning.guidance, TaskGuidanceRuntime)
+    assert isinstance(executor.services.planning.selection, ToolSelectionRuntime)
+    assert executor.services.planning.planner is orchestrator._tool_planner
     session = executor.services.session
     assert session.required_files is accessor.required_files
     assert session.read_files is original_read_set
@@ -136,8 +142,8 @@ def test_view_is_enumerated_and_does_not_retain_or_forward_facade():
         "session",
         "stream_turn_lock",
         "delivery",
+        "planning",
         "recovery",
-        "tool_planner",
     ]
     assert not hasattr(view, "__dict__")
     assert not hasattr(view.session, "__dict__")

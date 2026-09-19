@@ -16,20 +16,23 @@ CLUSTER_CAPS = {
         "private_probes": 5,
         "dynamic_probes": 0,
         "delivery_accesses": 0,
+        "planning_accesses": 0,
         "raw_state": 11,
     },
     "chat_stream_executor.py": {
-        "private_attributes": 87,
+        "private_attributes": 83,
         "private_probes": 16,
         "dynamic_probes": 4,
         "delivery_accesses": 0,
+        "planning_accesses": 0,
         "raw_state": 0,
     },
     "chat_stream_helpers.py": {
-        "private_attributes": 97,
+        "private_attributes": 95,
         "private_probes": 26,
         "dynamic_probes": 0,
         "delivery_accesses": 0,
+        "planning_accesses": 0,
         "raw_state": 8,
     },
     "streaming_act_adapter.py": {
@@ -37,6 +40,7 @@ CLUSTER_CAPS = {
         "private_probes": 1,
         "dynamic_probes": 0,
         "delivery_accesses": 0,
+        "planning_accesses": 0,
         "raw_state": 0,
     },
 }
@@ -90,16 +94,27 @@ def inventory(source):
 
     counts = {"private_attributes": 0, "private_probes": 0, "dynamic_probes": 0, "raw_state": 0}
     counts["delivery_accesses"] = 0
+    counts["planning_accesses"] = 0
     delivery_names = {"_chunk_generator", "chunk_generator", "sanitizer"}
+    planning_names = {
+        "_tool_planner",
+        "_select_tools_for_turn",
+        "_apply_intent_guard",
+        "_apply_task_guidance",
+        "_classify_task_keywords",
+    }
     for node in ast.walk(tree):
         if isinstance(node, ast.Attribute) and node.attr in delivery_names:
             counts["delivery_accesses"] += 1
+        if isinstance(node, ast.Attribute) and node.attr in planning_names:
+            counts["planning_accesses"] += 1
         if isinstance(node, ast.Attribute) and node.attr.startswith("_"):
             counts["private_attributes"] += 1
             counts["raw_state"] += node.attr == "__dict__"
         if isinstance(node, ast.Subscript):
             key = literal(node.slice)
             counts["delivery_accesses"] += key in delivery_names
+            counts["planning_accesses"] += key in planning_names
             if key and key.startswith("_"):
                 counts["raw_state"] += 1
         if not isinstance(node, ast.Call):
@@ -112,6 +127,7 @@ def inventory(source):
         elif function in builtins and len(node.args) >= 2:
             key = literal(node.args[1])
             counts["delivery_accesses"] += key in delivery_names
+            counts["planning_accesses"] += key in planning_names
             if key is None:
                 counts["dynamic_probes"] += 1
             elif key.startswith("_"):
@@ -120,6 +136,7 @@ def inventory(source):
         elif isinstance(node.func, ast.Attribute) and node.func.attr == "get" and node.args:
             key = literal(node.args[0])
             counts["delivery_accesses"] += key in delivery_names
+            counts["planning_accesses"] += key in planning_names
             if key and key.startswith("_"):
                 counts["raw_state"] += 1
     return counts
@@ -142,6 +159,8 @@ def test_chat_cluster_boundary_counts_only_shrink(filename):
         ("renamed._chunk_generator.emit()", "delivery_accesses"),
         ("renamed.chunk_generator.emit()", "delivery_accesses"),
         ("renamed.sanitizer.sanitize(text)", "delivery_accesses"),
+        ("renamed._tool_planner.plan_tools([])", "planning_accesses"),
+        ("renamed._select_tools_for_turn('x', [])", "planning_accesses"),
         ("read = getattr\nread(renamed, 'sani' + 'tizer')", "delivery_accesses"),
         ("vars(renamed).get('sanitizer')", "delivery_accesses"),
         ("alias = original\nalias._new_facade_private()", "private_attributes"),

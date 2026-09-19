@@ -780,7 +780,6 @@ class StreamingChatExecutor:
 
     async def _get_tools_cached(
         self,
-        orch: Any,
         context_msg: str,
         goals: Any,
         planned_tools: Any = None,
@@ -789,7 +788,7 @@ class StreamingChatExecutor:
         if self._last_tool_context == context_msg and self._last_tools is not None:
             return self._last_tools
 
-        tools = await orch._select_tools_for_turn(
+        tools = await self.services.planning.select_tools(
             context_msg,
             goals,
             planned_tools=planned_tools,
@@ -948,16 +947,19 @@ class StreamingChatExecutor:
                 },
             )
 
-    @staticmethod
     def _apply_run_guidance(
-        orch: Any, stream_ctx: Any, user_message: str, max_exploration_iterations: int
+        self,
+        orch: Any,
+        stream_ctx: Any,
+        user_message: str,
+        max_exploration_iterations: int,
     ) -> None:
         """Apply intent guard + task-type guidance + action-task guidance for one run.
 
         A cohesive piece of run()'s preamble (FEP-0007 Phase 2 decomposition). Mutates orch
         (guards + guidance messages); yields nothing.
         """
-        orch._apply_intent_guard(user_message)
+        self.services.planning.apply_intent_guard(user_message)
 
         if stream_ctx.is_analysis_task and stream_ctx.unified_task_type.value in (
             "edit",
@@ -977,13 +979,13 @@ class StreamingChatExecutor:
             stream_ctx.is_action_task,
         )
 
-        orch._apply_task_guidance(
-            user_message,
-            stream_ctx.unified_task_type,
-            stream_ctx.is_analysis_task,
-            stream_ctx.is_action_task,
-            stream_ctx.needs_execution,
-            max_exploration_iterations,
+        self.services.planning.apply_task_guidance(
+            user_message=user_message,
+            unified_task_type=stream_ctx.unified_task_type,
+            is_analysis_task=stream_ctx.is_analysis_task,
+            is_action_task=stream_ctx.is_action_task,
+            needs_execution=stream_ctx.needs_execution,
+            max_exploration_iterations=max_exploration_iterations,
         )
 
         if stream_ctx.is_action_task:
@@ -1020,15 +1022,14 @@ class StreamingChatExecutor:
                     metadata=_guidance_meta,
                 )
 
-    @staticmethod
-    def _initialize_task_intent(orch: Any, stream_ctx: Any, user_message: str) -> Any:
+    def _initialize_task_intent(self, stream_ctx: Any, user_message: str) -> Any:
         """Seed task intent on the stream context and return the inferred goals.
 
         Final cohesive piece of run()'s preamble (FEP-0007 Phase 2 decomposition). Mutates
         stream_ctx (task intent, plan steps, task-start event); yields nothing. Returns the
         inferred ``goals`` so the loop can use them for tool planning.
         """
-        goals = orch._tool_planner.infer_goals_from_message(user_message)
+        goals = self.services.planning.infer_goals(user_message)
         if hasattr(stream_ctx, "set_task_intent"):
             stream_ctx.set_task_intent(user_message)
         if hasattr(stream_ctx, "extend_plan_steps"):
@@ -1063,7 +1064,7 @@ class StreamingChatExecutor:
             available_inputs = ["query"]
             if orch.observed_files:
                 available_inputs.append("file_contents")
-            planned_tools = self.services.tool_planner.plan_tools(goals, available_inputs)
+            planned_tools = self.services.planning.plan_tools(goals, available_inputs)
         stream_ctx.planned_tools = planned_tools
 
         # Stage 1 — demand hydration (FEP-0034). Must precede BOTH the Q&A
@@ -1079,7 +1080,6 @@ class StreamingChatExecutor:
             tools = orch.get_session_tools()
         else:
             tools = await self._get_tools_cached(
-                orch,
                 stream_ctx.context_msg,
                 goals,
                 planned_tools=planned_tools,

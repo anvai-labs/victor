@@ -684,10 +684,10 @@ class TestChatServiceBootstrapLaziness:
         assert callable(kwargs["context_limit_handler"])
         assert kwargs["context_limit_handler"].__self__ is obj._context_limit_runtime
         assert kwargs["context_limit_handler"].__self__._runtime is obj
-        assert callable(kwargs["turn_setup_handler"])
-        assert kwargs["turn_setup_handler"].__self__ is obj
-        assert callable(kwargs["turn_teardown_handler"])
-        assert kwargs["turn_teardown_handler"].__self__ is obj
+        assert callable(kwargs["turn_lifecycle"].setup)
+        assert kwargs["turn_lifecycle"].setup.__self__ is obj
+        assert callable(kwargs["turn_lifecycle"].teardown)
+        assert kwargs["turn_lifecycle"].teardown.__self__ is obj
         obj._factory.create_streaming_chat_adapter.assert_called_once_with(obj._protocol_adapter)
         assert obj._deprecated_chat_coordinator.initialized is False
         assert trap_chat.touched is False

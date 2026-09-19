@@ -44,7 +44,9 @@ HOTSPOT_LINE_CAPS = {
     # configured KV strategy execution and session-cache updates into ToolStrategyRuntime.
     # Ratcheted 2026-08-03 (ADR-019 increment 11): 4266 -> 4225 after deleting
     # uncalled private KV session-lock and Gemini-provider compatibility helpers.
-    "victor/agent/orchestrator.py": 4223,
+    # Ratcheted 2026-09-19 (FEP-0031 planning slice): 4223 -> 4209 after
+    # moving keyword classification into the task-guidance service.
+    "victor/agent/orchestrator.py": 4209,
     # ADR-030: only the canonical graph executor and result types remain.
     "victor/workflows/unified_executor.py": 484,
     "victor/agent/services/planning_runtime.py": 3518,

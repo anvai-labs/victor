@@ -3,8 +3,9 @@
 
 """Enumerated service capabilities consumed by the chat runtime.
 
-FEP-0031 phase 1 is incremental: task requirements and response delivery have migrated.
-The view freezes its bindings while preserving the session owner's live state.
+FEP-0031 phase 1 is incremental: task requirements, response delivery, and
+planning/guidance have migrated. The view freezes its bindings while preserving
+the session owner's live state.
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ from typing import Protocol
 
 from victor.agent.session_state_accessor import SessionStateAccessor
 from victor.agent.services.chat_delivery import ChatDelivery
+from victor.agent.services.chat_planning import ChatPlanning
 
 
 class TaskRequirementState(Protocol):
@@ -86,6 +88,6 @@ class ChatRuntimeServices:
     session: TaskRequirementState
     stream_turn_lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False, compare=False)
     delivery: ChatDelivery = field(default_factory=ChatDelivery)
+    planning: ChatPlanning = field(default_factory=ChatPlanning)
     # Recovery is a turn capability, not a property of the orchestrator facade.
     recovery: object | None = None
-    tool_planner: object | None = None
