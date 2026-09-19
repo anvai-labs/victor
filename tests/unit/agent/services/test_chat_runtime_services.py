@@ -11,6 +11,7 @@ from victor.agent.factory.runtime_builders import RuntimeBuildersMixin
 from victor.agent.orchestrator import AgentOrchestrator
 from victor.agent.services.chat_runtime_services import (
     ChatCompletion,
+    ChatConversation,
     ChatFeedback,
     ChatGovernance,
     ChatRuntimeServices,
@@ -151,6 +152,7 @@ def test_view_is_enumerated_and_does_not_retain_or_forward_facade():
         "planning",
         "governance",
         "completion",
+        "conversation",
         "tool_calls",
         "feedback",
         "recovery",
@@ -190,39 +192,45 @@ class _CompletionDetector:
         return self.state
 
 
-def test_completion_capability_persists_sanitized_high_confidence_summary():
+def test_completion_and_conversation_capabilities_persist_sanitized_summary():
     from victor.agent.task_completion import CompletionConfidence
 
     detector = _CompletionDetector(
         CompletionConfidence.HIGH,
         "VICTOR_SUMMARY:: changed app.py",
     )
-    store = SimpleNamespace(
-        persist_compaction_summary=MagicMock(),
-        inject_compaction_context=MagicMock(return_value=True),
-    )
-    completion = ChatCompletion(detector=detector, summary_store=store)
+    runtime = SimpleNamespace(persist_terminal_summary=MagicMock())
+    completion = ChatCompletion(detector=detector)
+    conversation = ChatConversation(runtime=runtime)
 
     assert completion.detect_high_confidence("done", has_pending_tools=False) is True
-    completion.persist_terminal_summary()
     assert completion.terminal_summary() == "changed app.py"
-    store.persist_compaction_summary.assert_called_once_with("changed app.py", [])
-    store.inject_compaction_context.assert_called_once_with()
+    conversation.persist_terminal_summary(completion.terminal_summary())
+    runtime.persist_terminal_summary.assert_called_once_with("changed app.py")
 
 
 def test_completion_capability_defers_pending_tools_without_persisting():
     from victor.agent.task_completion import CompletionConfidence
 
     detector = _CompletionDetector(CompletionConfidence.HIGH, "VICTOR_SUMMARY:: premature")
-    store = SimpleNamespace(
-        persist_compaction_summary=MagicMock(),
-        inject_compaction_context=MagicMock(),
-    )
-    completion = ChatCompletion(detector=detector, summary_store=store)
+    completion = ChatCompletion(detector=detector)
 
     assert completion.detect_high_confidence("done", has_pending_tools=True) is False
     detector.clear_active_signal.assert_called_once_with()
-    store.persist_compaction_summary.assert_not_called()
+
+
+def test_conversation_capability_delegates_history_and_usage():
+    runtime = SimpleNamespace(
+        messages=MagicMock(return_value=["first", "second"]),
+        record_actual_usage=MagicMock(),
+    )
+    conversation = ChatConversation(runtime=runtime)
+
+    assert conversation.messages() == ["first", "second"]
+    conversation.record_actual_usage(17)
+
+    runtime.messages.assert_called_once_with()
+    runtime.record_actual_usage.assert_called_once_with(17)
 
 
 @pytest.mark.parametrize("invalid_result", [None, object()], ids=["none", "malformed"])

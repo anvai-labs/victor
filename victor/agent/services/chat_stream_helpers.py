@@ -569,7 +569,6 @@ class ChatStreamHelperMixin:
         ctx.goals = self.services.planning.infer_goals(user_message)
         ctx.tool_budget = orch.tool_budget
         ctx.tool_calls_used = orch.tool_calls_used
-        ctx.task_completion_detector = orch._task_completion_detector
         if isinstance(continuation_task_context, dict):
             ctx.degraded_resume_state = bool(
                 continuation_task_context.get("degraded_resume_state", False)
@@ -938,7 +937,7 @@ class ChatStreamHelperMixin:
         if orch._check_cancellation():
             logger.info("Stream cancelled by user request")
             orch._is_streaming = False
-            orch._record_runtime_intelligence_outcome(
+            self.services.feedback.record_outcome(
                 success=False,
                 quality_score=stream_ctx.last_quality_score,
                 user_satisfied=False,
@@ -1136,20 +1135,14 @@ class ChatStreamHelperMixin:
             session_id=str(session_id),
         )
 
-    @staticmethod
-    def _root_runtime_messages(orch: Any) -> List[Any]:
+    def _root_runtime_messages(self, orch: Any) -> List[Any]:
         get_messages = getattr(orch, "get_messages", None)
         if callable(get_messages):
             try:
                 return list(get_messages() or [])
             except Exception as exc:
                 logger.debug("Failed to collect root messages for lifecycle: %s", exc)
-        controller = getattr(orch, "conversation_controller", None) or getattr(
-            orch,
-            "_conversation_controller",
-            None,
-        )
-        return list(getattr(controller, "messages", None) or [])
+        return self.services.conversation.messages()
 
     async def _stream_provider_response(
         self,

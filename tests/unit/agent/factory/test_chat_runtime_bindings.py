@@ -64,7 +64,12 @@ def test_binding_enumerates_stream_execution_collaborators_without_owner_retenti
     owner = _owner()
     gate = object()
     detector = object()
-    conversation = object()
+    conversation = SimpleNamespace(
+        messages=[SimpleNamespace(content="abc"), SimpleNamespace(content="de")],
+        record_actual_usage=MagicMock(),
+        persist_compaction_summary=MagicMock(),
+        inject_compaction_context=MagicMock(return_value=True),
+    )
     parser = SimpleNamespace(
         parse_and_validate_tool_calls=MagicMock(return_value=([{"x": 1}], "ok"))
     )
@@ -86,7 +91,12 @@ def test_binding_enumerates_stream_execution_collaborators_without_owner_retenti
 
     assert view.governance.gate is gate
     assert view.completion.detector is detector
-    assert view.completion.summary_store is conversation
+    assert view.conversation.messages() == conversation.messages
+    view.conversation.record_actual_usage(7)
+    conversation.record_actual_usage.assert_called_once_with(7, 5)
+    view.conversation.persist_terminal_summary("done")
+    conversation.persist_compaction_summary.assert_called_once_with("done", [])
+    conversation.inject_compaction_context.assert_called_once_with()
     assert view.tool_calls.parse_and_validate([{"x": 1}], "raw") == ([{"x": 1}], "ok")
     parser.parse_and_validate_tool_calls.assert_called_once_with([{"x": 1}], "raw", adapter)
     view.tool_calls.reset()
@@ -114,6 +124,7 @@ def test_binding_enumerates_stream_execution_collaborators_without_owner_retenti
     assert owner_ref() is None
     with pytest.raises(RuntimeError, match="no longer available"):
         view.tool_calls.reset()
+    assert view.conversation.messages() == []
     with pytest.raises(RuntimeError, match="no longer available"):
         view.feedback.record_outcome(
             success=False,

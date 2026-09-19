@@ -28,7 +28,11 @@ from victor.agent.services.chat_stream_executor import (
     StreamingActResult,
     StreamingChatExecutor,
 )
-from victor.agent.services.chat_runtime_services import ChatCompletion, ChatToolCalls
+from victor.agent.services.chat_runtime_services import (
+    ChatCompletion,
+    ChatConversation,
+    ChatToolCalls,
+)
 from victor.agent.streaming.tool_execution import ToolExecutionResult
 from victor.providers.base import StreamChunk
 
@@ -46,6 +50,7 @@ def _executor(*, detector=None) -> StreamingChatExecutor:
     services = SimpleNamespace(
         tool_calls=ChatToolCalls(runtime=_PassThroughToolRuntime()),
         completion=ChatCompletion(detector=detector),
+        conversation=ChatConversation(),
     )
     return StreamingChatExecutor(SimpleNamespace(services=services))
 

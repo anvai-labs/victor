@@ -131,20 +131,11 @@ class CompletionDetector(Protocol):
     def reset(self) -> None: ...
 
 
-class CompletionSummaryStore(Protocol):
-    """Conversation operations needed to carry a completion summary forward."""
-
-    def persist_compaction_summary(self, summary: str, message_ids: list[str]) -> None: ...
-
-    def inject_compaction_context(self) -> bool: ...
-
-
 @dataclass(frozen=True, slots=True)
 class ChatCompletion:
-    """Detect terminal responses and persist their continuation summary."""
+    """Detect terminal responses and expose their sanitized summary."""
 
     detector: CompletionDetector | None = None
-    summary_store: CompletionSummaryStore | None = None
 
     def reset(self) -> None:
         if self.detector is not None:
@@ -173,16 +164,48 @@ class ChatCompletion:
 
         return True
 
-    def persist_terminal_summary(self) -> None:
-        """Persist the detector summary after the caller marks the turn complete."""
-        summary = self.terminal_summary()
-        if summary and self.summary_store is not None:
-            try:
-                self.summary_store.persist_compaction_summary(summary, [])
-                self.summary_store.inject_compaction_context()
-                logger.info("VICTOR_SUMMARY persisted for next-turn context injection")
-            except Exception as exc:
-                logger.debug("Failed to persist VICTOR_SUMMARY: %s", exc)
+
+class ConversationRuntime(Protocol):
+    """Conversation history and accounting operations used by streaming chat."""
+
+    def messages(self) -> list[Any]: ...
+
+    def record_actual_usage(self, prompt_tokens: int) -> None: ...
+
+    def persist_terminal_summary(self, summary: str) -> None: ...
+
+
+@dataclass(frozen=True, slots=True)
+class ChatConversation:
+    """Best-effort conversation history, accounting, and summary capability."""
+
+    runtime: ConversationRuntime | None = None
+
+    def messages(self) -> list[Any]:
+        if self.runtime is None:
+            return []
+        try:
+            return self.runtime.messages()
+        except Exception as exc:
+            logger.debug("Failed to read chat conversation messages: %s", exc)
+            return []
+
+    def record_actual_usage(self, prompt_tokens: int) -> None:
+        if self.runtime is None or prompt_tokens <= 0:
+            return
+        try:
+            self.runtime.record_actual_usage(prompt_tokens)
+        except Exception as exc:
+            logger.debug("Failed to record actual chat usage: %s", exc)
+
+    def persist_terminal_summary(self, summary: str) -> None:
+        if self.runtime is None or not summary:
+            return
+        try:
+            self.runtime.persist_terminal_summary(summary)
+            logger.info("VICTOR_SUMMARY persisted for next-turn context injection")
+        except Exception as exc:
+            logger.debug("Failed to persist VICTOR_SUMMARY: %s", exc)
 
 
 class ToolCallRuntime(Protocol):
@@ -263,6 +286,7 @@ class ChatRuntimeServices:
     planning: ChatPlanning = field(default_factory=ChatPlanning)
     governance: ChatGovernance = field(default_factory=ChatGovernance)
     completion: ChatCompletion = field(default_factory=ChatCompletion)
+    conversation: ChatConversation = field(default_factory=ChatConversation)
     tool_calls: ChatToolCalls = field(default_factory=ChatToolCalls)
     feedback: ChatFeedback = field(default_factory=ChatFeedback)
     # Recovery is a turn capability, not a property of the orchestrator facade.
