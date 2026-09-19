@@ -338,6 +338,12 @@ class StreamLifecycleRuntime(Protocol):
 
     def begin(self) -> None: ...
 
+    def bind_context(self, context: Any) -> None: ...
+
+    def current_context(self) -> Any | None: ...
+
+    def clear_context(self, context: Any) -> None: ...
+
     def is_cancelled(self) -> bool: ...
 
     def finish(self) -> None: ...
@@ -351,6 +357,15 @@ class ChatStreamLifecycle:
 
     def begin(self) -> None:
         self.runtime.begin()
+
+    def bind_context(self, context: Any) -> None:
+        self.runtime.bind_context(context)
+
+    def current_context(self) -> Any | None:
+        return self.runtime.current_context()
+
+    def clear_context(self, context: Any) -> None:
+        self.runtime.clear_context(context)
 
     def is_cancelled(self) -> bool:
         return self.runtime.is_cancelled()

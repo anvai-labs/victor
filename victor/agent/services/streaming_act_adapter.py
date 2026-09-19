@@ -89,7 +89,7 @@ class StreamingActAdapter:
 
         executor._reset_streaming_turn_state(orch)
         stream_ctx = await runtime_owner._create_stream_context(user_message, **kwargs)
-        orch._current_stream_context = stream_ctx
+        services.stream_lifecycle.bind_context(stream_ctx)
 
         await executor._extract_task_requirements(executor.services.session, user_message)
         executor._apply_run_guidance(

@@ -47,16 +47,18 @@ def _usage(p: int, c: int) -> dict:
 async def test_stream_chat_finalizes_metrics_with_cumulative_usage(monkeypatch):
     orch = SimpleNamespace()
     metrics = MagicMock()
+    ctx = SimpleNamespace(cumulative_usage=_usage(120, 40))
+    lifecycle = MagicMock()
+    lifecycle.current_context.return_value = ctx
     rt = ServiceStreamingRuntime(
         orch,
         services=ChatRuntimeServices(
             SessionTaskRequirementState(SessionStateAccessor(SessionStateManager())),
-            ChatStreamLifecycle(MagicMock()),
+            ChatStreamLifecycle(lifecycle),
             metrics=ChatStreamMetrics(metrics),
         ),
     )
 
-    ctx = SimpleNamespace(cumulative_usage=_usage(120, 40))
     state_dict = {
         "_current_stream_context": ctx,
         "_cumulative_token_usage": _usage(0, 0),
@@ -85,21 +87,24 @@ async def test_stream_chat_finalizes_metrics_with_cumulative_usage(monkeypatch):
     called_usage = metrics.finalize.call_args[0][0]
     assert called_usage["prompt_tokens"] == 120
     assert called_usage["completion_tokens"] == 40
+    lifecycle.clear_context.assert_called_once_with(ctx)
 
 
 async def test_finalize_failure_does_not_break_the_stream(monkeypatch):
     orch = SimpleNamespace()
     metrics = MagicMock()
     metrics.finalize.side_effect = RuntimeError("boom")
+    ctx = SimpleNamespace(cumulative_usage=_usage(10, 5))
+    lifecycle = MagicMock()
+    lifecycle.current_context.return_value = ctx
     rt = ServiceStreamingRuntime(
         orch,
         services=ChatRuntimeServices(
             SessionTaskRequirementState(SessionStateAccessor(SessionStateManager())),
-            ChatStreamLifecycle(MagicMock()),
+            ChatStreamLifecycle(lifecycle),
             metrics=ChatStreamMetrics(metrics),
         ),
     )
-    ctx = SimpleNamespace(cumulative_usage=_usage(10, 5))
     state_dict = {
         "_current_stream_context": ctx,
         "_cumulative_token_usage": _usage(0, 0),
@@ -124,3 +129,4 @@ async def test_finalize_failure_does_not_break_the_stream(monkeypatch):
     async for _ in rt.stream_chat("hi"):
         pass
     metrics.finalize.assert_called_once()
+    lifecycle.clear_context.assert_called_once_with(ctx)

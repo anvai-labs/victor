@@ -60,7 +60,7 @@ one capability so callers do not accumulate facade fields.
 | Completion | High-confidence completion and clean summary | Optional when disabled |
 | Conversation | History, actual usage and terminal summary persistence | Best effort; weak owner |
 | Tool calls | Reset, parse and validate | Missing runtime fails closed |
-| Stream lifecycle | Start, cancellation checkpoints and terminal cleanup | Required; weak live owner |
+| Stream lifecycle | Start, active-context binding, cancellation checkpoints and cleanup | Required; weak live owner |
 | Stream metrics | Initialization, first-token timing, cost and terminal diagnostics | Required; weak live owner |
 | Task state | Reset, classification, continuation and prompt-derived budgets | Required; weak live owner |
 | Context lifecycle | Background startup and ordered pre-iteration compaction | Newest configured policy wins; weak live owner |

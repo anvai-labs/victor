@@ -121,6 +121,9 @@ def _prepare_executor(events, stream_ctx, *, recovery_service=None, recovery_coo
             session="REQUIREMENTS",
             recovery=recovery_service or recovery_coordinator,
             create_recovery_context="CRC",
+            stream_lifecycle=SimpleNamespace(
+                bind_context=lambda context: setattr(orch, "_current_stream_context", context)
+            ),
         ),
         _reset_streaming_turn_state=lambda o: events.append(("reset",)),
         _extract_task_requirements=fake_extract,
