@@ -228,6 +228,8 @@ class TestAgentRuntimeBootstrapper:
 
     def test_prepare_components_creates_checkpoint_and_wires_dependencies(self):
         orch = self._make_mock_orchestrator()
+        configured_gate = sentinel.configured_message_policy_gate
+        orch._message_policy_gate = configured_gate
         # MagicMock doesn't auto-create dunder-named methods
         orch.__init_capability_registry__ = MagicMock()
         settings = MagicMock()
@@ -253,3 +255,4 @@ class TestAgentRuntimeBootstrapper:
         assert orch._coordination_advisor_runtime is None
         assert orch._turn_executor is None
         assert orch._protocol_adapter is None
+        assert orch._message_policy_gate is configured_gate

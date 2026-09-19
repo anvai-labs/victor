@@ -28,18 +28,30 @@ from victor.agent.services.chat_stream_executor import (
     StreamingActResult,
     StreamingChatExecutor,
 )
+from victor.agent.services.chat_runtime_services import ChatCompletion, ChatToolCalls
 from victor.agent.streaming.tool_execution import ToolExecutionResult
 from victor.providers.base import StreamChunk
 
 
-def _executor() -> StreamingChatExecutor:
-    """A bare executor instance; sub-step helpers are stubbed per-test."""
-    return StreamingChatExecutor.__new__(StreamingChatExecutor)
+class _PassThroughToolRuntime:
+    def reset(self):
+        pass
+
+    def parse_and_validate(self, tool_calls, full_content):
+        return tool_calls, full_content
+
+
+def _executor(*, detector=None) -> StreamingChatExecutor:
+    """Build an executor with explicit ACT capabilities; sub-steps are stubbed per test."""
+    services = SimpleNamespace(
+        tool_calls=ChatToolCalls(runtime=_PassThroughToolRuntime()),
+        completion=ChatCompletion(detector=detector),
+    )
+    return StreamingChatExecutor(SimpleNamespace(services=services))
 
 
 def _orch() -> SimpleNamespace:
-    # ACT only parses tool calls via the orchestrator; pass them through unchanged.
-    return SimpleNamespace(_parse_and_validate_tool_calls=lambda tc, fc: (tc, fc))
+    return SimpleNamespace()
 
 
 async def _drain(executor, orch, stream_ctx, result):
@@ -236,19 +248,25 @@ class _FakeCompletionDetector:
     def get_completion_confidence(self):
         return self._confidence
 
+    def get_state(self):
+        return self._state
+
+    def clear_active_signal(self):
+        self.cleared = True
+
+    def reset(self):
+        self._state = SimpleNamespace(last_summary="")
+
 
 def test_detect_high_confidence_completion_high_no_tools_forces_stop():
     from victor.agent.task_completion import CompletionConfidence
 
-    ex = _executor()
-    orch = SimpleNamespace(
-        _task_completion_detector=_FakeCompletionDetector(CompletionConfidence.HIGH)
-    )
+    ex = _executor(detector=_FakeCompletionDetector(CompletionConfidence.HIGH))
     stream_ctx = SimpleNamespace(force_completion=False, skip_continuation=False)
 
     assert (
         ex._detect_high_confidence_completion(
-            orch, stream_ctx, full_content="The answer is 42.", tool_calls=None
+            stream_ctx, full_content="The answer is 42.", tool_calls=None
         )
         is True
     )
@@ -259,16 +277,12 @@ def test_detect_high_confidence_completion_high_no_tools_forces_stop():
 def test_detect_high_confidence_completion_defers_when_tools_pending():
     from victor.agent.task_completion import CompletionConfidence
 
-    ex = _executor()
-    ex._clear_deferred_active_completion_signal = lambda detector: None  # isolate from internals
-    orch = SimpleNamespace(
-        _task_completion_detector=_FakeCompletionDetector(CompletionConfidence.HIGH)
-    )
+    detector = _FakeCompletionDetector(CompletionConfidence.HIGH)
+    ex = _executor(detector=detector)
     stream_ctx = SimpleNamespace(force_completion=False, skip_continuation=False)
 
     assert (
         ex._detect_high_confidence_completion(
-            orch,
             stream_ctx,
             full_content="x",
             tool_calls=[{"name": "read", "arguments": {}}],
@@ -276,25 +290,19 @@ def test_detect_high_confidence_completion_defers_when_tools_pending():
         is False
     )
     assert stream_ctx.force_completion is False
+    assert detector.cleared is True
 
 
 def test_detect_high_confidence_completion_non_high_and_no_detector_return_false():
     from victor.agent.task_completion import CompletionConfidence
 
-    ex = _executor()
-    medium = SimpleNamespace(
-        _task_completion_detector=_FakeCompletionDetector(CompletionConfidence.MEDIUM)
-    )
+    ex = _executor(detector=_FakeCompletionDetector(CompletionConfidence.MEDIUM))
     assert (
-        ex._detect_high_confidence_completion(
-            medium, SimpleNamespace(), full_content="x", tool_calls=None
-        )
+        ex._detect_high_confidence_completion(SimpleNamespace(), full_content="x", tool_calls=None)
         is False
     )
-    none = SimpleNamespace(_task_completion_detector=None)
+    ex = _executor()
     assert (
-        ex._detect_high_confidence_completion(
-            none, SimpleNamespace(), full_content="x", tool_calls=None
-        )
+        ex._detect_high_confidence_completion(SimpleNamespace(), full_content="x", tool_calls=None)
         is False
     )

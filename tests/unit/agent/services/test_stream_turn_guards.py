@@ -19,6 +19,7 @@ from types import SimpleNamespace
 from victor.agent.services import chat_stream_executor
 from victor.agent.services.chat_delivery import ChatDelivery
 from victor.agent.services.chat_planning import ChatPlanning
+from victor.agent.services.chat_runtime_services import ChatFeedback
 from victor.agent.services.chat_stream_executor import StreamingChatExecutor
 from victor.agent.turn_policy import (
     NudgePolicy,
@@ -341,7 +342,7 @@ def _emit_executor():
     executor = _provider_turn_executor()
     executor._prepare_visible_content = lambda fc, *, user_message: fc
 
-    async def _govern(orch, text):
+    async def _govern(text):
         return text, False
 
     executor._govern_final_response = _govern
@@ -362,7 +363,10 @@ async def _collect_emit(
 ):
     executor._runtime_owner = SimpleNamespace(
         services=SimpleNamespace(
-            delivery=ChatDelivery(chunks=orch._chunk_generator, sanitizer=orch.sanitizer)
+            delivery=ChatDelivery(chunks=orch._chunk_generator, sanitizer=orch.sanitizer),
+            feedback=ChatFeedback(
+                recorder=SimpleNamespace(record_outcome=orch._record_runtime_intelligence_outcome)
+            ),
         )
     )
     decision = chat_stream_executor._EmitDecision()

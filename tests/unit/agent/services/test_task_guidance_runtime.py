@@ -45,6 +45,7 @@ def test_task_guidance_runtime_apply_intent_guard_syncs_runtime_state():
     )
     assert runtime_host._current_intent == "read_only"
     assert runtime_host._current_user_message == "read this file"
+    assert runtime.current_intent() == "read_only"
 
 
 def test_task_guidance_runtime_classifies_with_pipeline_before_analyzer():

@@ -54,6 +54,10 @@ class TaskGuidanceRuntime:
 
         return {"task_type": "default", "confidence": 0.0}
 
+    def current_intent(self) -> Any:
+        """Return the coordinator-owned intent selected for the active turn."""
+        return self._runtime.task_coordinator.current_intent
+
     def apply_intent_guard(self, user_message: str) -> None:
         """Detect intent and sync the result back to runtime state."""
         runtime = self._runtime

@@ -248,6 +248,25 @@ orchestrator line cap falls from 4,209 to 4,070, its definition cap from 226 to
 219, and its `getattr(self, ...)` cap from 136 to 120. Phase 1 remains open for
 the chat cluster capabilities that still reach through the facade.
 
+### Phase 1 progress: stream execution controls (executor complete)
+
+`chat_stream_executor.py` now receives message governance, task completion,
+tool-call parsing/reset, and outcome feedback through four typed entries on
+`ChatRuntimeServices`; current intent comes from the existing `ChatPlanning`
+capability. Completion detection also owns summary sanitization and persistence,
+so the executor no longer probes detector state or the conversation controller.
+The feedback and tool-call compatibility adapters resolve their owner weakly
+and therefore do not extend the facade lifetime, including through tool-pipeline
+callbacks. Configured governance also fails closed on invalid gate results and
+survives runtime bootstrap without being reset.
+
+The boundary guard gives all seven migrated collaborator names a zero cap in the
+executor. Its private-attribute cap shrinks from 83 to 76 and private-probe cap
+from 16 to 5. Missing tool parsing dependencies fail closed, while optional
+governance, completion, and feedback remain explicit no-ops when disabled. Phase
+1 remains open for the corresponding accesses in `chat_stream_runtime.py` and
+`chat_stream_helpers.py`.
+
 ## Benefits
 
 - The facade is finally *facade-only* in fact, not just docstring — the orchestrator stops
