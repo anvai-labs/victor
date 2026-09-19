@@ -41,7 +41,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   per-execution context so concurrent and hierarchical runs cannot overwrite
   one another's assignments.
 
-## [0.10.0] - 2026-09-17
+## [0.10.0] - Unreleased candidate
+
+Version metadata is prepared on `develop`; no `v0.10.0` release tag has been published.
 
 ### Added
 
@@ -92,6 +94,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   timeout, cancellation and failed initialization.
 - Report `edit(commit=False)` as unapplied instead of returning a misleading
   success result.
+
+## [0.9.5] - 2026-09-18
+
+### Fixed
+
+- Preserve Sandhi's boolean reasoning-inclusion convention through response and
+  stream models; fold separate reasoning into billable output once per call before
+  aggregation and session pricing.
+- Retain raw completion counts alongside billable completion counts, preserve
+  reported totals, and include separate reasoning when deriving missing totals.
+- Preserve independent origin/boundary timing provenance through transport and
+  canonical metrics; reject invalid timing values and stale provenance.
+
+### Changed
+
+- Pin `sandhi-gateway==0.7.0` in package metadata and deployment snapshots and
+  recognize chat contract minor 8.
+- Keep this release focused on the consumer-accounting correction. The broader
+  0.10.0 develop features remain outside the v0.9.5 artifacts.
 
 ## [0.9.4] - 2026-09-16
 

@@ -85,7 +85,7 @@ and the frozen chat transport before its session freeze.
 
 ## Implementation Plan
 
-Stages A–C are integrated in source; review and release promotion remain pending.
+Stages A–C are integrated in `develop`; release promotion and proposal-status closeout remain.
 
 - **Stage A (this FEP's companion PR) — DONE** — a single shared
   `hydrate_demand_tools(host, text)` helper (in `tool_selection_runtime.py`)

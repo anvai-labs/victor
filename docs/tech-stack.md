@@ -122,4 +122,4 @@ Follow [Development Setup](development/setup.md) and the
 - [CI gates](development/PR_WORKFLOW.md#ci-gate-map)
 
 Proposed runtime inversion, graph resume and RL relocation diagrams live in their FEPs,
-linked from [planned runtime changes](architecture.md#planned-runtime-and-learning-changes).
+linked from [runtime change status](architecture.md#runtime-change-status).

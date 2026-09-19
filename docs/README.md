@@ -40,9 +40,20 @@ point there instead of maintaining a second copy.
 
 ## Authoring conventions
 
-Use Markdown and Mermaid for diagrams. Clearly label proposed architecture as a target until
-its implementation lands. Keep file names, links, dependency requirements and execution claims
-consistent with code, and update the owning guide when behavior changes.
+Write for scanning first, then deeper reading:
+
+| Order | Content |
+| --- | --- |
+| 1 | One summary or status admonition |
+| 2 | One diagram, table or short checklist |
+| 3 | Focused implementation details |
+| 4 | Evidence and canonical links |
+
+- Prefer Mermaid, tables and short bullets over repeated prose.
+- Give each diagram one canonical home; link to it elsewhere.
+- Label architecture **Current**, **Target** or **Historical**.
+- Keep file names, links, versions and execution claims consistent with source.
+- Update the owning guide in the same change as behavior.
 
 `site/` is generated output: do not hand-edit or commit it. Use the canonical
 [documentation build instructions](development/setup.md#documentation-build) for previewing changes.
