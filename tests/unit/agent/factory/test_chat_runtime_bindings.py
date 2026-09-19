@@ -83,6 +83,8 @@ def test_binding_coordinates_stream_lifecycle_without_retaining_owner() -> None:
     owner._cancel_event = None
     owner._is_streaming = False
     owner._current_stream_context = None
+    owner._provider_service = MagicMock()
+    owner._provider_service.get_rate_limit_wait_time.return_value = 80.0
     view = bind_chat_runtime_services(owner)
 
     assert view.stream_lifecycle is not None
@@ -97,12 +99,29 @@ def test_binding_coordinates_stream_lifecycle_without_retaining_owner() -> None:
     context = object()
     view.stream_lifecycle.bind_context(context)
     assert view.stream_lifecycle.current_context() is context
+    error = RuntimeError("rate limited")
+    assert view.stream_lifecycle.rate_limit_wait_time(error, 0) == 80.0
+    assert view.stream_lifecycle.rate_limit_wait_time(error, 2) == 300.0
+    owner._provider_service.get_rate_limit_wait_time.assert_has_calls(
+        [((error,), {}), ((error,), {})]
+    )
 
     view.stream_lifecycle.finish()
     assert owner._is_streaming is False
     assert owner._cancel_event is None
     view.stream_lifecycle.clear_context(context)
     assert owner._current_stream_context is None
+
+
+def test_binding_stream_retry_requires_provider_service() -> None:
+    owner = _owner()
+    owner._provider_service = None
+
+    with pytest.raises(TypeError, match="provider service"):
+        bind_chat_runtime_services(owner).stream_lifecycle.rate_limit_wait_time(
+            RuntimeError("rate limited"),
+            0,
+        )
 
 
 def test_binding_stream_context_prefers_capability_and_clears_only_bound_context() -> None:
