@@ -732,10 +732,7 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
         self._recovery_service = self._container.get_optional(RecoveryServiceProtocol)
 
         if self._tool_service is None:
-            from victor.agent.services.tool_service import (
-                ToolService,
-                ToolServiceConfig,
-            )
+            from victor.agent.services.tool_service import ToolService, ToolServiceConfig
 
             self._tool_service = ToolService(
                 config=ToolServiceConfig(default_tool_budget=getattr(self, "tool_budget", 100)),
