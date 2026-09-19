@@ -13,14 +13,15 @@ from victor.agent.services.chat_runtime_services import (
     ChatRuntimeServices,
     SessionTaskRequirementState,
 )
+from victor.agent.services.chat_turn_runtime import ChatTurnRuntime, TaskReportMetrics
 from victor.agent.services.orchestrator_protocol_adapter import OrchestratorProtocolAdapter
 from victor.agent.services.task_guidance_runtime import TaskGuidanceRuntime
 from victor.agent.services.tool_selection_runtime import ToolSelectionRuntime
 from victor.agent.session_state_accessor import SessionStateAccessor
 
 
-class _WeakRuntimeHost:
-    """Forward runtime state without extending the facade's lifetime.
+class _WeakOwner:
+    """Resolve a runtime owner without extending the facade's lifetime.
 
     Runtime owners must support weak references. A strong-reference fallback
     would make this capability view keep the facade alive after its session is
@@ -42,11 +43,91 @@ class _WeakRuntimeHost:
             raise RuntimeError("Chat runtime owner is no longer available")
         return owner
 
+
+class _WeakRuntimeHost(_WeakOwner):
+    """Forward compatibility runtime state through a weak owner."""
+
+    __slots__ = ()
+
     def __getattr__(self, name: str) -> Any:
         return getattr(self._owner(), name)
 
     def __setattr__(self, name: str, value: Any) -> None:
         setattr(self._owner(), name, value)
+
+
+class _ChatTurnStateView(_WeakOwner):
+    """Enumerate the live facade state required by ``ChatTurnRuntime``."""
+
+    __slots__ = ()
+
+    @property
+    def provider_name(self) -> str:
+        owner = self._owner()
+        provider = getattr(owner, "provider", None)
+        return str(getattr(provider, "name", getattr(owner, "provider_name", "unknown")))
+
+    @property
+    def model(self) -> str:
+        return str(getattr(self._owner(), "model", "unknown"))
+
+    @property
+    def stream_context(self) -> Any:
+        return getattr(self._owner(), "_current_stream_context", None)
+
+    @property
+    def unified_tracker(self) -> Any:
+        return getattr(self._owner(), "unified_tracker", None)
+
+    @property
+    def task_type_candidates(self) -> tuple[Any, Any]:
+        owner = self._owner()
+        return (
+            getattr(owner, "_current_task_type", None),
+            getattr(owner, "_task_type", None),
+        )
+
+    @property
+    def context_service(self) -> Any:
+        return getattr(self._owner(), "_context_service", None)
+
+    @property
+    def metrics(self) -> TaskReportMetrics:
+        metrics = getattr(self._owner(), "_metrics_coordinator", None)
+        if metrics is None:
+            raise TypeError("Chat turn runtime requires task-report metrics")
+        return metrics
+
+    def apply_skill_for_turn(self, user_message: str) -> None:
+        self._owner()._get_skill_runtime().apply_skill_for_turn(user_message)
+
+    def activate_constraints(self, constraints: Any, vertical: str | None) -> None:
+        owner = self._owner()
+        owner._constraint_activator.activate_constraints(
+            constraints=constraints,
+            vertical=vertical or getattr(owner, "vertical", "coding"),
+        )
+
+    def deactivate_constraints(self) -> None:
+        self._owner()._constraint_activator.deactivate_constraints()
+
+    def assign_turn_credit(self) -> None:
+        service = getattr(self._owner(), "_credit_tracking_service", None)
+        if service is not None:
+            service.assign_turn_credit_at_boundary()
+
+
+def _runtime_owner(runtime_owner: Any) -> Any:
+    return (
+        runtime_owner._orchestrator
+        if isinstance(runtime_owner, OrchestratorProtocolAdapter)
+        else runtime_owner
+    )
+
+
+def bind_chat_turn_runtime(runtime_owner: Any) -> ChatTurnRuntime:
+    """Build the complete turn frame over an enumerated weak state view."""
+    return ChatTurnRuntime(_ChatTurnStateView(_runtime_owner(runtime_owner)))
 
 
 def bind_chat_runtime_services(runtime_owner: Any) -> ChatRuntimeServices:
@@ -55,11 +136,7 @@ def bind_chat_runtime_services(runtime_owner: Any) -> ChatRuntimeServices:
     An explicit view is required for standalone runtimes without a session owner;
     manufacturing fallback state would disconnect requirement tracking.
     """
-    owner = (
-        runtime_owner._orchestrator
-        if isinstance(runtime_owner, OrchestratorProtocolAdapter)
-        else runtime_owner
-    )
+    owner = _runtime_owner(runtime_owner)
     accessor = getattr(owner, "_session_accessor", None)
     if not isinstance(accessor, SessionStateAccessor):
         raise TypeError(

@@ -12,8 +12,7 @@ class ChatEvidenceMixin:
 
     _context: Any
     _logger: logging.Logger
-    _task_report_start_handler: Optional[Callable[..., Any]]
-    _task_report_finish_handler: Optional[Callable[..., Any]]
+    _turn_runtime: Any
 
     def get_last_task_report(self) -> Optional[Dict[str, Any]]:
         """Return a copy of the most recently completed canonical task report."""
@@ -104,7 +103,7 @@ class ChatEvidenceMixin:
         """Notify the canonical runtime that a task report should begin."""
         self._last_task_report = None
         await self._run_optional_callback(
-            self._task_report_start_handler,
+            self._turn_runtime.start_task_report if self._turn_runtime is not None else None,
             user_message,
             stream=stream,
             metadata=metadata or {},
@@ -122,7 +121,7 @@ class ChatEvidenceMixin:
     ) -> None:
         """Notify the canonical runtime that a task report finished."""
         report = await self._run_optional_callback(
-            self._task_report_finish_handler,
+            self._turn_runtime.finish_task_report if self._turn_runtime is not None else None,
             success,
             user_message=user_message,
             stream=stream,

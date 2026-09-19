@@ -33,7 +33,7 @@ from typing import TYPE_CHECKING, Any, AsyncIterator, Callable, Dict, List, Opti
 
 from victor.core.async_utils import aclosing_if_supported
 from victor.agent.services.chat_evidence import ChatEvidenceMixin
-from victor.agent.services.chat_turn_lifecycle import ChatTurnLifecycle
+from victor.agent.services.chat_turn_runtime import ChatTurnRuntime
 
 if TYPE_CHECKING:
     from victor.agent.services.protocols import (
@@ -131,9 +131,7 @@ class ChatService(ChatEvidenceMixin):
         self._planning_handler: Optional[Callable[[str], Any]] = None
         self._stream_chat_handler: Optional[Callable[..., AsyncIterator[Any]]] = None
         self._context_limit_handler: Optional[Callable[..., Any]] = None
-        self._task_report_start_handler: Optional[Callable[..., Any]] = None
-        self._task_report_finish_handler: Optional[Callable[..., Any]] = None
-        self._turn_lifecycle = ChatTurnLifecycle()
+        self._turn_runtime: Optional[ChatTurnRuntime] = None
         self._context_accepts_keyword_messages: Optional[bool] = None
         self._turn_lock = asyncio.Lock()
 
@@ -161,9 +159,7 @@ class ChatService(ChatEvidenceMixin):
         planning_handler: Optional[Callable[[str], Any]] = None,
         stream_chat_handler: Optional[Callable[..., AsyncIterator[Any]]] = None,
         context_limit_handler: Optional[Callable[..., Any]] = None,
-        task_report_start_handler: Optional[Callable[..., Any]] = None,
-        task_report_finish_handler: Optional[Callable[..., Any]] = None,
-        turn_lifecycle: Optional[ChatTurnLifecycle] = None,
+        turn_runtime: Optional[ChatTurnRuntime] = None,
         stream_turn_lock: Optional[asyncio.Lock] = None,
     ) -> None:
         """Bind live runtime collaborators after bootstrap."""
@@ -175,12 +171,8 @@ class ChatService(ChatEvidenceMixin):
             self._stream_chat_handler = stream_chat_handler
         if context_limit_handler is not None:
             self._context_limit_handler = context_limit_handler
-        if task_report_start_handler is not None:
-            self._task_report_start_handler = task_report_start_handler
-        if task_report_finish_handler is not None:
-            self._task_report_finish_handler = task_report_finish_handler
-        if turn_lifecycle is not None:
-            self._turn_lifecycle = turn_lifecycle
+        if turn_runtime is not None:
+            self._turn_runtime = turn_runtime
         if stream_turn_lock is not None:
             self._turn_lock = stream_turn_lock
 
@@ -260,6 +252,15 @@ class ChatService(ChatEvidenceMixin):
                         user_message,
                         runtime_context_overrides=runtime_context_overrides,
                     )
+            except asyncio.CancelledError as exc:
+                await self._finish_task_report(
+                    False,
+                    user_message=user_message,
+                    stream=False,
+                    error=exc,
+                    metadata={"use_planning": use_planning},
+                )
+                raise
             except Exception as exc:
                 await self._finish_task_report(
                     False,
@@ -609,7 +610,7 @@ class ChatService(ChatEvidenceMixin):
     ) -> None:
         """Run bound per-turn setup before task execution starts."""
         await self._run_optional_callback(
-            self._turn_lifecycle.setup,
+            self._turn_runtime.enter if self._turn_runtime is not None else None,
             user_message,
             stream=stream,
             constraints=constraints,
@@ -626,7 +627,7 @@ class ChatService(ChatEvidenceMixin):
     ) -> None:
         """Run bound per-turn cleanup after task execution finishes."""
         await self._run_optional_callback(
-            self._turn_lifecycle.teardown,
+            self._turn_runtime.exit if self._turn_runtime is not None else None,
             user_message,
             stream=stream,
             constraints=constraints,

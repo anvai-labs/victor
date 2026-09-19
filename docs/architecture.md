@@ -86,7 +86,7 @@ provider counts against the source tree and maintains the declared tool-module i
 |------|-------------|------------|
 | Clients use Framework only | UI guard rejects direct `AgentOrchestrator` imports; broader runtime dependencies remain migration work | `test_architectural_boundaries.py` |
 | Framework delegates to Runtime | `Agent.create()` goes through `AgentFactory` | Agent entry point |
-| Runtime delegates to Services | Services implement behavior; turn-frame inversion remains planned in FEP-0031 | `test_service_layer_validation.py`, facade and hotspot guards |
+| Runtime delegates to Services | `ChatService` owns its turn frame; remaining chat collaborators are migrating under FEP-0031 | `test_service_layer_validation.py`, facade and hotspot guards |
 | Services own infrastructure | Effectful behavior via `ExecutionContext.services` | Service accessor |
 | Vertical definitions use Contracts | Definition files import `victor_contracts`; runtime extension allowances are separately audited | `test_contracts_import_boundaries.py`, `check_extracted_vertical_boundaries.py` |
 
@@ -124,10 +124,10 @@ The table below identifies the owning modules.
 ## Service Layer
 
 The runtime is **service-first**, with six canonical services and supporting runtime modules.
-`AgentOrchestrator` delegates to these services, but still supplies chat setup/teardown and
-collaborators. [FEP-0031](https://github.com/anvai-labs/victor/blob/develop/feps/fep-0031-chat-runtime-inversion.md) proposes moving that turn
-frame into `ChatService` and replacing facade-private access with `ChatRuntimeServices`.
-That inversion is a target, not the current ownership model.
+`ChatService` owns setup, task reporting, teardown, and turn-boundary credit assignment through
+`ChatTurnRuntime`. A weak, enumerated state view supplies live turn metadata without letting the
+turn component add another facade-retention edge. [FEP-0031](https://github.com/anvai-labs/victor/blob/develop/feps/fep-0031-chat-runtime-inversion.md) continues the migration of the remaining streaming collaborators onto
+`ChatRuntimeServices`.
 
 ```mermaid
 ---
@@ -135,14 +135,18 @@ title: Current runtime service ownership
 ---
 %%{init: {"theme":"base","themeVariables":{"primaryColor":"#E8EFF7","primaryTextColor":"#17324D","primaryBorderColor":"#456987","lineColor":"#456987","fontFamily":"Arial"}}}%%
 flowchart TB
-  O["AgentOrchestrator<br/>facade and current turn-frame binding"]
-  C["ChatService"]
+  O["AgentOrchestrator<br/>facade and composition root"]
+  C["ChatService<br/>turn owner"]
+  F["ChatTurnRuntime<br/>setup · reports · teardown"]
+  V["ChatRuntimeServices<br/>enumerated capabilities"]
   T["ToolService"]
   S["SessionService"]
   X["ContextService"]
   P["ProviderService"]
   R["RecoveryService"]
-  O -->|"chat and streaming"| C
+  O -->|"public chat delegation"| C
+  C -->|"owns turn frame"| F
+  C -->|"uses declared collaborators"| V
   O -->|"tool registration and execution"| T
   O -->|"session lifecycle"| S
   O -->|"context assembly"| X

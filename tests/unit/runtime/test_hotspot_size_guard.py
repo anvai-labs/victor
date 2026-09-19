@@ -46,7 +46,9 @@ HOTSPOT_LINE_CAPS = {
     # uncalled private KV session-lock and Gemini-provider compatibility helpers.
     # Ratcheted 2026-09-19 (FEP-0031 planning slice): 4223 -> 4209 after
     # moving keyword classification into the task-guidance service.
-    "victor/agent/orchestrator.py": 4209,
+    # Ratcheted 2026-09-19 (FEP-0031 turn frame): 4209 -> 4070 after moving
+    # setup, task reporting, teardown, and their state probes into ChatTurnRuntime.
+    "victor/agent/orchestrator.py": 4070,
     # ADR-030: only the canonical graph executor and result types remain.
     "victor/workflows/unified_executor.py": 484,
     "victor/agent/services/planning_runtime.py": 3518,
@@ -82,8 +84,9 @@ HOTSPOT_LINE_CAPS = {
 # Caps may only be lowered, never raised: route growth into the owning
 # service instead. Item 27 (ChatService inversion) should drive these down.
 ORCHESTRATOR_STRUCTURAL_CAPS = {
-    "def_count": 226,
-    "getattr_self_probes": 136,
+    # FEP-0031 turn-frame ownership removed seven facade methods and their probes.
+    "def_count": 219,
+    "getattr_self_probes": 120,
     "hasattr_self_probes": 24,
 }
 
