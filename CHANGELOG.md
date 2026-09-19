@@ -23,6 +23,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Close nested streaming generators before releasing per-turn locks, metrics,
+  and task reports so early client disconnects and cancellations cannot leak
+  one turn's state into the next.
 - Preserve full-path CLI suggestions with Typer's vendored Click runtime and
   keep unrelated usage errors on their native exception path.
 - Resolve tool-pruning settings at each policy call and isolate team goals in

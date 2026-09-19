@@ -53,11 +53,32 @@ import functools
 import inspect
 import logging
 import threading
-from typing import Any, Awaitable, Callable, TypeVar
+from contextlib import asynccontextmanager
+from typing import Any, AsyncIterator, Awaitable, Callable, TypeVar
 
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
+
+
+@asynccontextmanager
+async def aclosing_if_supported(
+    iterator: AsyncIterator[T],
+) -> AsyncIterator[AsyncIterator[T]]:
+    """Close an async iterator on exit when it exposes an ``aclose`` hook.
+
+    ``AsyncIterator`` itself does not require ``aclose``. This preserves that
+    public contract while ensuring async generators finish their ``finally``
+    blocks before an outer streaming scope releases related state.
+    """
+    try:
+        yield iterator
+    finally:
+        close = getattr(iterator, "aclose", None)
+        if callable(close):
+            result = close()
+            if inspect.isawaitable(result):
+                await result
 
 
 def run_sync(coro: Awaitable[T]) -> T:

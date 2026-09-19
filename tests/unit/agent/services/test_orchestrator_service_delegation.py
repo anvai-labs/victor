@@ -675,7 +675,11 @@ class TestChatServiceBootstrapLaziness:
         assert kwargs["planning_handler"].__self__._runtime is obj
         assert (
             kwargs["stream_chat_handler"]
-            is obj._factory.create_streaming_chat_adapter.return_value.stream_chat
+            is obj._factory.create_streaming_chat_adapter.return_value.stream_chat_under_turn_lock
+        )
+        assert (
+            kwargs["stream_turn_lock"]
+            is obj._factory.create_streaming_chat_adapter.return_value.services.stream_turn_lock
         )
         assert callable(kwargs["context_limit_handler"])
         assert kwargs["context_limit_handler"].__self__ is obj._context_limit_runtime
@@ -1445,7 +1449,7 @@ class TestChatServiceBootstrapLaziness:
             yield stream_chunk
 
         runtime = MagicMock()
-        runtime.stream_chat = _runtime_stream_chat
+        runtime.stream_chat_under_turn_lock = _runtime_stream_chat
         obj._factory.create_streaming_chat_adapter.return_value = runtime
 
         with (

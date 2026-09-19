@@ -23,6 +23,8 @@ production the port is wired to the service-layer ``StreamingActAdapter`` via
 
 from types import SimpleNamespace
 
+import asyncio
+
 import pytest
 
 from victor.agent.turn_policy import SpinDetector
@@ -497,3 +499,57 @@ async def test_run_streaming_verify_gate_fires_and_reenters():
 
     assert [c.content for c in chunks] == ["hello", "fixed"]  # both turns ran
     assert call_count[0] == 2  # verify called twice (fail -> re-enter -> pass)
+
+
+async def test_run_streaming_close_awaits_act_port_cleanup():
+    started, release = asyncio.Event(), asyncio.Event()
+
+    class Port:
+        async def stream_turn_act(self, **kwargs):
+            try:
+                yield StreamChunk(content="partial")
+            finally:
+                started.set()
+                await release.wait()
+
+    loop = _loop(Port(), evaluations=[])
+    stream = loop.run_streaming("q")
+    await anext(stream)
+    closing = asyncio.create_task(stream.aclose())
+    try:
+        await asyncio.wait_for(started.wait(), 2)
+        assert not closing.done()
+    finally:
+        release.set()
+        await asyncio.wait_for(closing, 2)
+
+
+async def test_run_streaming_accepts_plain_async_iterator_without_aclose():
+    class PlainAsyncIterator:
+        def __init__(self):
+            self._chunk = StreamChunk(content="plain")
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            if self._chunk is None:
+                raise StopAsyncIteration
+            chunk, self._chunk = self._chunk, None
+            return chunk
+
+    class Port:
+        def stream_turn_act(self, **kwargs):
+            kwargs["outcome"].turn_result = SimpleNamespace(content="plain")
+            return PlainAsyncIterator()
+
+    loop = _loop(
+        Port(),
+        evaluations=[
+            EvaluationResult(decision=EvaluationDecision.COMPLETE, score=1.0, reason="done")
+        ],
+    )
+
+    chunks = [chunk async for chunk in loop.run_streaming("q")]
+
+    assert [chunk.content for chunk in chunks] == ["plain"]

@@ -64,9 +64,8 @@ from rich.console import Console
 
 # Coordinators (Phase 2 refactoring - being integrated)
 # NOTE: These are runtime imports, not type-checking only
-from victor.agent.services.metrics_service import (  # noqa: F401
-    AgentMetricsService,
-)  # imported for runtime use
+from victor.core.async_utils import aclosing_if_supported as _aclosing
+from victor.agent.services.metrics_service import AgentMetricsService  # noqa: F401
 
 if TYPE_CHECKING:
     # Type-only imports (created by factory, only used for type hints)
@@ -3698,8 +3697,9 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
             except Exception:
                 pass
 
-        async for chunk in self._chat_service.stream_chat(user_message, **kwargs):
-            yield chunk
+        async with _aclosing(self._chat_service.stream_chat(user_message, **kwargs)) as stream:
+            async for chunk in stream:
+                yield chunk
 
     async def execute_tool_with_retry(
         self, tool_name: str, tool_args: Dict[str, Any], context: Dict[str, Any]
