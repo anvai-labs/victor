@@ -631,6 +631,7 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
             cost_tracker=self._session_cost_tracker,
             conversation_controller=self._conversation_controller,
             streaming_coordinator=self._streaming_controller,
+            settings=self.settings,
             runtime_services=resolve_runtime_services(self),
         )
         self._chat_service = self._interaction_runtime.chat_service
@@ -741,6 +742,7 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
                 tool_selector=(self.tool_selector if hasattr(self, "tool_selector") else None),
                 tool_executor=getattr(self, "tool_executor", None),
                 tool_registrar=getattr(self, "tools", None),
+                settings=self.settings,
             )
 
         if self._tool_service and hasattr(self._tool_service, "bind_runtime_components"):

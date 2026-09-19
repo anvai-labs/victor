@@ -46,6 +46,7 @@ def create_interaction_runtime_components(
     cost_tracker: Any,
     conversation_controller: Any,
     streaming_coordinator: Any,
+    settings: Any = None,
     runtime_services: Optional[ResolvedRuntimeServices] = None,
 ) -> InteractionRuntimeComponents:
     """Create service-first interaction/runtime components for orchestrator wiring."""
@@ -63,6 +64,7 @@ def create_interaction_runtime_components(
             tool_selector=tool_selector,
             tool_executor=tool_executor,
             tool_registrar=tool_registry,
+            settings=settings,
         )
 
     if hasattr(resolved_tool_service, "bind_runtime_components"):

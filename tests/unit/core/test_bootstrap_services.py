@@ -15,6 +15,7 @@
 """Tests for canonical agent-service bootstrap."""
 
 from unittest.mock import MagicMock, patch
+from types import SimpleNamespace
 
 import pytest
 
@@ -25,6 +26,28 @@ from victor.core.feature_flags import FeatureFlag
 
 class TestBootstrapServices:
     """Tests for bootstrap_new_services function."""
+
+    def test_bootstrap_passes_registered_settings_to_tool_policy(self, monkeypatch):
+        from victor.agent.services.protocols import ToolServiceProtocol
+        from victor.agent.services.tool_supply_policy import pruning_disabled
+        from victor.config.settings import Settings
+
+        monkeypatch.delenv("VICTOR_TOOL_SELECTION", raising=False)
+        settings = SimpleNamespace(
+            tools=SimpleNamespace(tool_selection_enabled=True),
+        )
+        container = ServiceContainer()
+        container.register_instance(Settings, settings)
+
+        bootstrap_new_services(
+            container,
+            conversation_controller=MagicMock(),
+            streaming_coordinator=MagicMock(),
+        )
+
+        service = container.get(ToolServiceProtocol)
+        assert service._settings is settings
+        assert pruning_disabled(service) is False
 
     def test_bootstrap_registers_core_services_regardless_of_flags(self):
         """Bootstrap always registers the canonical core services."""

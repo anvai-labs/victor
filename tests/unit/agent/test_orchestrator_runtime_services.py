@@ -32,6 +32,7 @@ def test_initialize_interaction_runtime_uses_resolved_runtime_service_bundle():
         _session_cost_tracker=MagicMock(),
         _conversation_controller=MagicMock(),
         _streaming_controller=MagicMock(),
+        settings=sentinel.settings,
     )
 
     with patch(
@@ -46,6 +47,7 @@ def test_initialize_interaction_runtime_uses_resolved_runtime_service_bundle():
 
     mock_resolve.assert_called_once_with(orchestrator)
     assert mock_create.call_args.kwargs["runtime_services"] is sentinel.runtime_services
+    assert mock_create.call_args.kwargs["settings"] is sentinel.settings
     assert orchestrator._interaction_runtime is interaction_runtime
     assert orchestrator._chat_service is interaction_runtime.chat_service
     assert orchestrator._tool_service is interaction_runtime.tool_service

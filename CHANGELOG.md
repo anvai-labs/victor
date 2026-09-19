@@ -25,6 +25,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - Preserve full-path CLI suggestions with Typer's vendored Click runtime and
   keep unrelated usage errors on their native exception path.
+- Resolve tool-pruning settings at each policy call and isolate team goals in
+  per-execution context so concurrent and hierarchical runs cannot overwrite
+  one another's assignments.
 
 ## [0.10.0] - 2026-09-17
 
