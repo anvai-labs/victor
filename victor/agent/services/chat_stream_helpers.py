@@ -972,11 +972,7 @@ class ChatStreamHelperMixin:
 
     def _get_rate_limit_wait_time(self, exc: Exception, attempt: int) -> float:
         """Get wait time for rate limit retry."""
-        orch = self._orchestrator
-        base_wait = orch._provider_service.get_rate_limit_wait_time(exc)
-        backoff_multiplier = 2**attempt
-        wait_time = base_wait * backoff_multiplier
-        return min(wait_time, 300.0)
+        return self.services.stream_lifecycle.rate_limit_wait_time(exc, attempt)
 
     async def _stream_with_rate_limit_retry(
         self,

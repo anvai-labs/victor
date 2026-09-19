@@ -344,6 +344,8 @@ class StreamLifecycleRuntime(Protocol):
 
     def clear_context(self, context: Any) -> None: ...
 
+    def rate_limit_wait_time(self, error: Exception, attempt: int) -> float: ...
+
     def is_cancelled(self) -> bool: ...
 
     def finish(self) -> None: ...
@@ -366,6 +368,9 @@ class ChatStreamLifecycle:
 
     def clear_context(self, context: Any) -> None:
         self.runtime.clear_context(context)
+
+    def rate_limit_wait_time(self, error: Exception, attempt: int) -> float:
+        return self.runtime.rate_limit_wait_time(error, attempt)
 
     def is_cancelled(self) -> bool:
         return self.runtime.is_cancelled()

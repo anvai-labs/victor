@@ -299,6 +299,14 @@ class _ChatStreamLifecycleView(_WeakOwner):
         if state.get("_current_stream_context") is context:
             owner._current_stream_context = None
 
+    def rate_limit_wait_time(self, error: Exception, attempt: int) -> float:
+        provider_service = getattr(self._owner(), "_provider_service", None)
+        get_wait_time = getattr(provider_service, "get_rate_limit_wait_time", None)
+        if not callable(get_wait_time):
+            raise TypeError("Chat stream retry requires a provider service")
+        base_wait = float(get_wait_time(error))
+        return min(base_wait * (2**attempt), 300.0)
+
     def is_cancelled(self) -> bool:
         event = getattr(self._owner(), "_cancel_event", None)
         return bool(event is not None and event.is_set())
