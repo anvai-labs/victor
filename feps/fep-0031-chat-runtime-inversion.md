@@ -20,8 +20,9 @@ discussion: https://github.com/anvai-labs/victor/discussions/0031
 !!! info "Implementation status — 2026-09-19"
 
     **In progress.** Requirements/delivery, planning, the service-owned turn frame and
-    stream execution controls are integrated. Broader runtime state, factories and facade
-    shims remain. Public `Agent.run()` / `Agent.stream()` contracts are unchanged.
+    stream execution controls and stream lifecycle state are integrated. Broader runtime state,
+    factories and facade shims remain. Public `Agent.run()` / `Agent.stream()` contracts are
+    unchanged.
 
 The proposal baseline had the orchestrator owning the glue across three layers: eight
 `bind_runtime_components` handlers, about **53 `orch._*` sites** in the chat stream cluster,
@@ -266,6 +267,23 @@ probe cap from 26 to 20. Missing tool parsing dependencies fail closed, while
 optional governance, completion, conversation, and feedback operations remain
 explicit no-ops when disabled. Phase 1 remains open for the broader runtime
 state accesses outside this execution-control group.
+
+### Phase 1 progress: stream lifecycle state (complete)
+
+Stream start, cancellation checks, and terminal cleanup now flow through the typed
+`ChatStreamLifecycle` capability. Its weak live-state adapter preserves the public facade's
+`request_cancellation()` and `is_streaming()` behavior without exposing `_cancel_event`,
+`_is_streaming`, or `_check_cancellation` to the chat cluster. The service runtime closes the
+lifecycle on normal completion, exceptions, generator close, and cancellation; this also fixes
+the prior normal-completion path that left `is_streaming()` true. The canonical unified-stream
+wrapper checks cancellation before advancing the loop and after every yielded chunk, so a request
+cannot start the next provider or tool batch after the request is observed. An in-flight tool
+batch keeps its completed-work accounting while its output is suppressed; the terminal
+cancellation chunk marks the task report failed.
+
+The boundary guard gives those three facade names a zero cap and lowers the helper
+private-attribute cap from 92 to 88. Phase 1 remains open for metrics, context, task tracking,
+and other runtime state.
 
 ## Benefits
 

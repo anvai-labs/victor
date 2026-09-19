@@ -8,6 +8,7 @@ import pytest
 
 from victor.agent.services.chat_service import ChatService, ChatServiceConfig
 from victor.agent.services.chat_runtime_services import ChatGovernance
+from victor.agent.services.chat_runtime_services import ChatFeedback, ChatStreamLifecycle
 from victor.agent.services.chat_stream_runtime import ServiceStreamingRuntime
 from victor.agent.services.metrics_service import AgentMetricsService
 from victor.agent.services.streaming_act_adapter import StreamingActAdapter, StreamActSession
@@ -215,6 +216,48 @@ async def test_cancelled_waiter_does_not_prepare_or_release_active_turn():
 
 
 @pytest.mark.asyncio
+async def test_runtime_finishes_stream_lifecycle_after_normal_completion():
+    class Executor:
+        def __init__(self, owner, events):
+            self.owner = owner
+
+        async def run_unified(self, message, **_):
+            self.owner._cancel_event = asyncio.Event()
+            self.owner._is_streaming = True
+            set_usage(self.owner, message)
+            yield StreamChunk(content=message, is_final=True)
+
+    service, runtime, _, _ = make_services(Executor)
+
+    await consume(service, "complete")
+
+    assert runtime._orchestrator._is_streaming is False
+    assert runtime._orchestrator._cancel_event is None
+
+
+@pytest.mark.asyncio
+async def test_runtime_finishes_stream_lifecycle_after_executor_failure():
+    class Executor:
+        def __init__(self, owner, events):
+            self.owner = owner
+
+        async def run_unified(self, message, **_):
+            self.owner._cancel_event = asyncio.Event()
+            self.owner._is_streaming = True
+            if False:
+                yield StreamChunk(content=message)
+            raise RuntimeError("provider failed")
+
+    service, runtime, _, _ = make_services(Executor)
+
+    with pytest.raises(RuntimeError, match="provider failed"):
+        await consume(service, "fail")
+
+    assert runtime._orchestrator._is_streaming is False
+    assert runtime._orchestrator._cancel_event is None
+
+
+@pytest.mark.asyncio
 async def test_act_adapter_close_awaits_executor_act_cleanup():
     started, release = asyncio.Event(), asyncio.Event()
 
@@ -257,10 +300,17 @@ async def test_unified_executor_close_awaits_loop_cleanup(monkeypatch):
                 await release.wait()
 
     owner = SimpleNamespace(_message_policy_gate=None, settings=None, turn_executor=None)
+    lifecycle_runtime = SimpleNamespace(
+        is_cancelled=lambda: False,
+        finish=lambda: None,
+    )
     executor = StreamingChatExecutor(
         SimpleNamespace(
             _orchestrator=owner,
-            services=SimpleNamespace(governance=ChatGovernance()),
+            services=SimpleNamespace(
+                governance=ChatGovernance(),
+                stream_lifecycle=ChatStreamLifecycle(lifecycle_runtime),
+            ),
         )
     )
     monkeypatch.setattr(executor, "_get_conversation_history", lambda *args: [])
@@ -289,3 +339,93 @@ async def test_unified_executor_close_awaits_loop_cleanup(monkeypatch):
     finally:
         release.set()
         await asyncio.wait_for(closing, 2)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cancel_on_exhaustion", [False, True])
+async def test_unified_executor_stops_before_next_dispatch_after_cancellation(
+    monkeypatch, cancel_on_exhaustion
+):
+    from victor.agent.services.chat_stream_executor import StreamingChatExecutor
+
+    events = []
+    cancelled = False
+    feedback = MagicMock()
+
+    class Lifecycle:
+        def begin(self):
+            pass
+
+        def is_cancelled(self):
+            return cancelled
+
+        def finish(self):
+            events.append("finish")
+
+    class Loop:
+        async def run_streaming(self, *args, **kwargs):
+            nonlocal cancelled
+            try:
+                yield StreamChunk(content="first")
+                if cancel_on_exhaustion:
+                    cancelled = True
+                    events.append("cancel-on-exhaustion")
+                    return
+                events.append("next-dispatch")
+                yield StreamChunk(content="must-not-escape")
+            finally:
+                events.append("loop-cleanup")
+
+    owner = SimpleNamespace(_message_policy_gate=None, settings=None, turn_executor=None)
+    executor = StreamingChatExecutor(
+        SimpleNamespace(
+            _orchestrator=owner,
+            services=SimpleNamespace(
+                governance=ChatGovernance(),
+                stream_lifecycle=ChatStreamLifecycle(Lifecycle()),
+                feedback=ChatFeedback(recorder=SimpleNamespace(record_outcome=feedback)),
+            ),
+        )
+    )
+    monkeypatch.setattr(executor, "_get_conversation_history", lambda *args: [])
+    monkeypatch.setattr(
+        StreamingActAdapter,
+        "prepare",
+        AsyncMock(
+            return_value=SimpleNamespace(
+                session=SimpleNamespace(stream_ctx=SimpleNamespace(last_quality_score=0.4))
+            )
+        ),
+    )
+    monkeypatch.setattr("victor.framework.agentic_loop.AgenticLoop", lambda **kwargs: Loop())
+    monkeypatch.setattr(
+        "victor.agent.services.judge_calibration_gate.resolve_completion_strategy",
+        lambda *args: "enhanced",
+    )
+    monkeypatch.setattr("victor.framework.effect_gate.resolve_effect_gate_enabled", lambda _: False)
+    monkeypatch.setattr(
+        "victor.framework.per_turn_auditor.resolve_per_turn_auditor_enabled", lambda _: False
+    )
+
+    stream = executor.run_unified("q")
+    first = await anext(stream)
+    if not cancel_on_exhaustion:
+        cancelled = True
+    terminal = await anext(stream)
+    with pytest.raises(StopAsyncIteration):
+        await anext(stream)
+
+    assert first.content == "first"
+    assert terminal.is_final is True
+    assert terminal.metadata == {"agentic_loop_success": False, "cancelled": True}
+    assert "next-dispatch" not in events
+    expected = ["loop-cleanup", "finish"]
+    if cancel_on_exhaustion:
+        expected.insert(0, "cancel-on-exhaustion")
+    assert events == expected
+    feedback.assert_called_once_with(
+        success=False,
+        quality_score=0.4,
+        user_satisfied=False,
+        completed=False,
+    )

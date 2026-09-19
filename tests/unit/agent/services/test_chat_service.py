@@ -859,6 +859,31 @@ class TestChatServiceTaskReporting(BaseChatServiceTest):
         assert finished[0][1]["stream"] is True
 
     @pytest.mark.asyncio
+    async def test_stream_chat_marks_cancellation_signal_as_task_failure(self):
+        service = self._create_test_service()
+        finished = []
+
+        async def _stream_handler(user_message, **kwargs):
+            yield StreamChunk(
+                content="[Cancelled by user]",
+                is_final=True,
+                metadata={"agentic_loop_success": False, "cancelled": True},
+            )
+
+        service.bind_runtime_components(
+            stream_chat_handler=_stream_handler,
+            turn_runtime=_BoundTurnRuntime(
+                finish=lambda success, **kwargs: finished.append((success, kwargs))
+            ),
+        )
+
+        chunks = [chunk async for chunk in service.stream_chat("cancel me")]
+
+        assert chunks[-1].metadata["cancelled"] is True
+        assert finished[0][0] is False
+        assert finished[0][1]["response"] is chunks[-1]
+
+    @pytest.mark.asyncio
     async def test_overlapping_streams_keep_task_reports_and_usage_attributed(self):
         service = self._create_test_service()
         cumulative = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}

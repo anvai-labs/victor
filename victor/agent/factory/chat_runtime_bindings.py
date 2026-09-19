@@ -3,6 +3,7 @@
 
 """Composition boundary for legacy chat-runtime construction signatures."""
 
+import asyncio
 from typing import Any
 import weakref
 
@@ -15,6 +16,7 @@ from victor.agent.services.chat_runtime_services import (
     ChatFeedback,
     ChatGovernance,
     ChatRuntimeServices,
+    ChatStreamLifecycle,
     ChatToolCalls,
     SessionTaskRequirementState,
 )
@@ -143,6 +145,26 @@ class _ChatOutcomeView(_WeakOwner):
         )
 
 
+class _ChatStreamLifecycleView(_WeakOwner):
+    """Coordinate live stream state without exposing facade fields to consumers."""
+
+    __slots__ = ()
+
+    def begin(self) -> None:
+        owner = self._owner()
+        owner._cancel_event = asyncio.Event()
+        owner._is_streaming = True
+
+    def is_cancelled(self) -> bool:
+        event = getattr(self._owner(), "_cancel_event", None)
+        return bool(event is not None and event.is_set())
+
+    def finish(self) -> None:
+        owner = self._owner()
+        owner._is_streaming = False
+        owner._cancel_event = None
+
+
 class _ChatToolCallView(_WeakOwner):
     """Resolve tool collaborators at call time without retaining the facade."""
 
@@ -220,6 +242,7 @@ def bind_chat_runtime_services(runtime_owner: Any) -> ChatRuntimeServices:
     return ChatRuntimeServices(
         session=SessionTaskRequirementState(accessor),
         stream_turn_lock=accessor.stream_turn_lock,
+        stream_lifecycle=ChatStreamLifecycle(_ChatStreamLifecycleView(owner)),
         delivery=ChatDelivery(
             chunks=getattr(owner, "_chunk_generator", None),
             sanitizer=getattr(owner, "sanitizer", None),

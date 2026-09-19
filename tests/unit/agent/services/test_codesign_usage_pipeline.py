@@ -8,6 +8,7 @@ import pytest
 from victor.agent.metrics_collector import MetricsCollector, MetricsCollectorConfig
 from victor.agent.services.chat_delivery import ChatDelivery
 from victor.agent.services.chat_runtime_services import (
+    ChatStreamLifecycle,
     ChatRuntimeServices,
     SessionTaskRequirementState,
 )
@@ -111,7 +112,8 @@ async def test_terminal_usage_reaches_session_cost_and_canonical_record(
     runtime = ServiceStreamingRuntime(
         orch,
         services=ChatRuntimeServices(
-            SessionTaskRequirementState(SessionStateAccessor(SessionStateManager()))
+            SessionTaskRequirementState(SessionStateAccessor(SessionStateManager())),
+            ChatStreamLifecycle(MagicMock()),
         ),
     )
     bindings = SimpleNamespace(

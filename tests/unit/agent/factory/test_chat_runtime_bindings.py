@@ -11,6 +11,7 @@ from victor.agent.factory.chat_runtime_bindings import (
     bind_chat_runtime_services,
     bind_chat_turn_runtime,
 )
+from victor.agent.orchestrator import AgentOrchestrator
 from victor.agent.session_state_accessor import SessionStateAccessor
 from victor.agent.session_state_manager import SessionStateManager
 
@@ -51,6 +52,26 @@ def test_binding_reuses_each_session_owners_stable_turn_lock() -> None:
     assert first_view.stream_turn_lock is first._session_accessor.stream_turn_lock
     assert rebound_first_view.stream_turn_lock is first_view.stream_turn_lock
     assert second_view.stream_turn_lock is not first_view.stream_turn_lock
+
+
+def test_binding_coordinates_stream_lifecycle_without_retaining_owner() -> None:
+    owner = _owner()
+    owner._cancel_event = None
+    owner._is_streaming = False
+    view = bind_chat_runtime_services(owner)
+
+    assert view.stream_lifecycle is not None
+    view.stream_lifecycle.begin()
+    assert owner._is_streaming is True
+    assert owner._cancel_event is not None
+    assert view.stream_lifecycle.is_cancelled() is False
+
+    AgentOrchestrator.request_cancellation(owner)
+    assert view.stream_lifecycle.is_cancelled() is True
+
+    view.stream_lifecycle.finish()
+    assert owner._is_streaming is False
+    assert owner._cancel_event is None
 
 
 def test_binding_rejects_owner_that_cannot_honor_non_retention_contract() -> None:

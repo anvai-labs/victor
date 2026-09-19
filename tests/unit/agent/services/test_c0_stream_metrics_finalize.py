@@ -26,6 +26,7 @@ from unittest.mock import MagicMock
 from victor.agent.services.chat_stream_runtime import ServiceStreamingRuntime
 from victor.agent.services.chat_runtime_services import (
     ChatRuntimeServices,
+    ChatStreamLifecycle,
     SessionTaskRequirementState,
 )
 from victor.agent.session_state_accessor import SessionStateAccessor
@@ -47,7 +48,8 @@ async def test_stream_chat_finalizes_metrics_with_cumulative_usage(monkeypatch):
     rt = ServiceStreamingRuntime(
         orch,
         services=ChatRuntimeServices(
-            SessionTaskRequirementState(SessionStateAccessor(SessionStateManager()))
+            SessionTaskRequirementState(SessionStateAccessor(SessionStateManager())),
+            ChatStreamLifecycle(MagicMock()),
         ),
     )
 
@@ -87,7 +89,8 @@ async def test_finalize_failure_does_not_break_the_stream(monkeypatch):
     rt = ServiceStreamingRuntime(
         orch,
         services=ChatRuntimeServices(
-            SessionTaskRequirementState(SessionStateAccessor(SessionStateManager()))
+            SessionTaskRequirementState(SessionStateAccessor(SessionStateManager())),
+            ChatStreamLifecycle(MagicMock()),
         ),
     )
     ctx = SimpleNamespace(cumulative_usage=_usage(10, 5))

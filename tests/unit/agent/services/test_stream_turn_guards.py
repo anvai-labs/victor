@@ -16,10 +16,12 @@
 
 from types import SimpleNamespace
 
+import pytest
+
 from victor.agent.services import chat_stream_executor
 from victor.agent.services.chat_delivery import ChatDelivery
 from victor.agent.services.chat_planning import ChatPlanning
-from victor.agent.services.chat_runtime_services import ChatFeedback
+from victor.agent.services.chat_runtime_services import ChatFeedback, ChatStreamLifecycle
 from victor.agent.services.chat_stream_executor import StreamingChatExecutor
 from victor.agent.turn_policy import (
     NudgePolicy,
@@ -115,10 +117,91 @@ def test_initialize_task_intent_returns_goals_and_seeds_ctx():
     assert seen["event"] is True
 
 
-def _provider_turn_executor():
+def _provider_turn_executor(lifecycle=None):
     # Build an executor instance without running __init__ (we only exercise the
     # extracted ACT provider sub-step, which depends on no constructor state).
-    return StreamingChatExecutor.__new__(StreamingChatExecutor)
+    executor = StreamingChatExecutor.__new__(StreamingChatExecutor)
+    lifecycle = lifecycle or SimpleNamespace(
+        begin=lambda: None, is_cancelled=lambda: False, finish=lambda: None
+    )
+    executor._runtime_owner = SimpleNamespace(
+        services=SimpleNamespace(stream_lifecycle=ChatStreamLifecycle(lifecycle))
+    )
+    return executor
+
+
+@pytest.mark.parametrize("streaming", [False, True], ids=["buffered", "streamed"])
+@pytest.mark.parametrize("cancel_after_yield", [False, True], ids=["during-await", "after-yield"])
+async def test_cancelled_completed_tool_preserves_accounting_once(streaming, cancel_after_yield):
+    cancelled = False
+    recorded = []
+
+    class _Lifecycle:
+        def is_cancelled(self):
+            return cancelled
+
+    class _Handler:
+        def update_observed_files(self, files):
+            pass
+
+        async def execute_tools(self, **kwargs):
+            nonlocal cancelled
+            if not cancel_after_yield:
+                cancelled = True
+            return _FakeToolExecResult(tool_calls_executed=1, chunks=["hidden-result"])
+
+        async def execute_tools_streaming(self, **kwargs):
+            nonlocal cancelled
+            kwargs["result"].tool_calls_executed = 1
+            if not cancel_after_yield:
+                cancelled = True
+            yield "hidden-result"
+
+    handler = _Handler()
+    if not streaming:
+        delattr(_Handler, "execute_tools_streaming")
+    runtime_owner = SimpleNamespace(_tool_execution_handler=handler)
+    orch = SimpleNamespace(
+        observed_files=set(),
+        tool_calls_used=0,
+        tool_budget=5,
+    )
+    stream_ctx = SimpleNamespace(
+        tool_calls_used=0,
+        record_iteration_tool_count=recorded.append,
+    )
+    executor = _provider_turn_executor(_Lifecycle())
+    executor._maybe_inject_write_action_guard = lambda *args, **kwargs: pytest.fail(
+        "cancelled execution must not inject a continuation guard"
+    )
+    holder = chat_stream_executor._ToolTurnOutcome()
+    execution = executor._execute_tools_turn(
+        orch,
+        runtime_owner,
+        stream_ctx,
+        user_message="write",
+        tool_calls=[{"name": "write_file"}],
+        full_content="",
+        result_holder=holder,
+    )
+
+    if cancel_after_yield:
+        assert await anext(execution) == "hidden-result"
+        cancelled = True
+        await execution.aclose()
+    else:
+        with pytest.raises(chat_stream_executor._StreamingCancelled):
+            async for _ in execution:
+                pytest.fail("cancelled result chunks must not escape")
+
+    if not cancel_after_yield:
+        with pytest.raises(StopAsyncIteration):
+            await anext(execution)
+
+    assert orch.tool_calls_used == 1
+    assert stream_ctx.tool_calls_used == 1
+    assert recorded == [1]
+    assert holder.result.tool_calls_executed == 1
 
 
 async def test_stream_provider_turn_plans_tools_and_streams(monkeypatch):
