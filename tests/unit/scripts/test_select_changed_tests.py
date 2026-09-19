@@ -63,6 +63,21 @@ def test_selector_changes_select_its_own_regressions():
     )
 
 
+def test_cli_group_maps_to_its_descriptive_regression_suite():
+    assert select(["victor/ui/cli_group.py"]) == ["tests/unit/ui/test_cli_command_resolution.py"]
+
+
+def test_stale_explicit_mapping_fails_closed(monkeypatch):
+    monkeypatch.setitem(
+        _mod.RELATED_TESTS,
+        "victor/ui/cli_group.py",
+        ("tests/unit/ui/test_does_not_exist.py",),
+    )
+
+    with pytest.raises(_mod.SelectionError, match="no mirrored unit test"):
+        select(["victor/ui/cli_group.py"])
+
+
 def test_non_python_and_unmapped_yield_nothing():
     # Docs/CI/config changes map to no unit tests -> empty (caller treats as pass).
     assert select(["README.md", ".github/workflows/ci-fast.yml", "Makefile"]) == []
