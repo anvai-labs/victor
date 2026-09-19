@@ -159,6 +159,84 @@ class TestExecuteTeamCompatibility:
     """Tests for legacy execute_team entry point."""
 
     @pytest.mark.asyncio
+    async def test_concurrent_adapted_members_keep_their_own_goals(self, monkeypatch):
+        seen = []
+        both_started = asyncio.Event()
+
+        async def spawn(_self, **kwargs):
+            seen.append(kwargs["task"])
+            if len(seen) == 2:
+                both_started.set()
+            await asyncio.wait_for(both_started.wait(), timeout=5)
+            return SimpleNamespace(success=True, summary="done")
+
+        monkeypatch.setattr("victor.agent.subagents.orchestrator.SubAgentOrchestrator.spawn", spawn)
+        coordinator = UnifiedTeamCoordinator(orchestrator=MagicMock(), lightweight_mode=True)
+        configs = [
+            TeamConfig(
+                name=label,
+                goal=f"Team {label}",
+                members=[
+                    TeamMember(id=label, role="executor", name=label, goal=f"Assignment {label}")
+                ],
+                formation=TeamFormation.PARALLEL,
+            )
+            for label in ("A", "B")
+        ]
+        results = await asyncio.gather(*(coordinator.execute_team_config(c) for c in configs))
+        assert all(result.success for result in results)
+        assert sorted(seen) == [
+            "Assignment A\n\n(Team objective, for context: Team A)",
+            "Assignment B\n\n(Team objective, for context: Team B)",
+        ]
+        assert coordinator._current_execution_state() is None
+
+    @pytest.mark.asyncio
+    async def test_hierarchical_adapter_keeps_delegation_even_when_equal_to_team_goal(
+        self, monkeypatch
+    ):
+        from victor.teams.unified_coordinator import _CoordinatorExecutionState
+
+        spawn = AsyncMock(return_value=SimpleNamespace(success=True, summary="done"))
+        monkeypatch.setattr("victor.agent.subagents.orchestrator.SubAgentOrchestrator.spawn", spawn)
+        coordinator = UnifiedTeamCoordinator(orchestrator=MagicMock(), lightweight_mode=True)
+        members = coordinator._adapt_team_members(
+            [TeamMember(id="worker", role="executor", name="Worker", goal="Static assignment")]
+        )
+        token = coordinator._execution_state.set(
+            _CoordinatorExecutionState(
+                members=members,
+                formation=TeamFormation.HIERARCHICAL,
+                supervisor=None,
+                shared_context={},
+                team_goal="Team objective",
+            )
+        )
+        try:
+            await members[0].execute_task("Team objective", {})
+        finally:
+            coordinator._execution_state.reset(token)
+        assert spawn.await_args.kwargs["task"] == "Team objective"
+        assert coordinator._current_execution_state() is None
+
+    @pytest.mark.asyncio
+    async def test_team_result_reports_effective_formation_hint(self):
+        coordinator = UnifiedTeamCoordinator(enable_observability=False)
+        member = MockTeamMember("worker")
+        config = TeamConfig(
+            name="hinted",
+            goal="Run work",
+            members=[TeamMember(id="worker", role="executor", name="Worker", goal="Run work")],
+            shared_context={"formation_hint": "parallel"},
+            formation=TeamFormation.SEQUENTIAL,
+        )
+
+        result = await coordinator.execute_team_config(config, members=[member])
+
+        assert result.success is True
+        assert result.formation == TeamFormation.PARALLEL
+
+    @pytest.mark.asyncio
     async def test_execute_team_invokes_callback_for_each_member(self):
         """Compatibility execute_team should forward per-member completion callbacks."""
         coordinator = UnifiedTeamCoordinator(lightweight_mode=True)
@@ -4255,10 +4333,24 @@ class TestExecuteTeamConfig:
         own formation/members — no cross-contamination."""
         coordinator = UnifiedTeamCoordinator(enable_observability=False)
 
-        members_a = [MockTeamMember("a1"), MockTeamMember("a2")]
-        members_b = [MockTeamMember("b1"), MockTeamMember("b2")]
-        config_a = self._make_config(members_a, formation=TeamFormation.PARALLEL)
-        config_b = self._make_config(members_b, formation=TeamFormation.SEQUENTIAL)
+        started = 0
+        both_started = asyncio.Event()
+
+        class OverlappingMember(MockTeamMember):
+            async def execute_task(self, task: str, context: Dict[str, Any]) -> str:
+                nonlocal started
+                started += 1
+                if started == 2:
+                    both_started.set()
+                await asyncio.wait_for(both_started.wait(), timeout=5)
+                return self._output
+
+        members_a = [OverlappingMember("a1")]
+        members_b = [OverlappingMember("b1")]
+        config_a = self._make_config(members_a, formation=TeamFormation.SEQUENTIAL)
+        config_b = self._make_config(members_b, formation=TeamFormation.PARALLEL)
+        config_a.shared_context["formation_hint"] = "parallel"
+        config_b.shared_context["formation_hint"] = "sequential"
 
         result_a, result_b = await asyncio.gather(
             coordinator.execute_team_config(config_a, members=members_a),
@@ -4267,8 +4359,8 @@ class TestExecuteTeamConfig:
 
         assert result_a.formation == TeamFormation.PARALLEL
         assert result_b.formation == TeamFormation.SEQUENTIAL
-        assert set(result_a.member_results.keys()) == {"a1", "a2"}
-        assert set(result_b.member_results.keys()) == {"b1", "b2"}
+        assert set(result_a.member_results.keys()) == {"a1"}
+        assert set(result_b.member_results.keys()) == {"b1"}
 
     @pytest.mark.asyncio
     async def test_raises_without_members_or_orchestrator(self):
