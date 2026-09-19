@@ -29,9 +29,9 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
-from contextlib import aclosing
 from typing import TYPE_CHECKING, Any, AsyncIterator, Callable, Dict, List, Optional
 
+from victor.core.async_utils import aclosing_if_supported
 from victor.agent.services.chat_evidence import ChatEvidenceMixin
 
 if TYPE_CHECKING:
@@ -322,7 +322,9 @@ class ChatService(ChatEvidenceMixin):
     async def stream_chat(self, user_message: str, **kwargs) -> AsyncIterator["StreamChunk"]:
         """Stream one exclusive turn through the bound canonical runtime."""
         async with self._turn_lock:
-            async with aclosing(self._stream_chat_exclusive(user_message, **kwargs)) as stream:
+            async with aclosing_if_supported(
+                self._stream_chat_exclusive(user_message, **kwargs)
+            ) as stream:
                 async for chunk in stream:
                     yield chunk
 
@@ -394,7 +396,7 @@ class ChatService(ChatEvidenceMixin):
                         "stream_chat_handler is required for stream_chat()."
                     )
 
-                async with aclosing(handler(user_message, **kwargs)) as runtime_stream:
+                async with aclosing_if_supported(handler(user_message, **kwargs)) as runtime_stream:
                     async for chunk in runtime_stream:
                         response = chunk
                         yield chunk

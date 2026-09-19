@@ -35,6 +35,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, AsyncIterator
 
+from victor.core.async_utils import aclosing_if_supported
 from victor.providers.base import StreamChunk
 
 
@@ -133,16 +134,19 @@ class StreamingActAdapter:
         session.stream_ctx.total_iterations = turn_index
 
         act_result = StreamingActResult()
-        async for chunk in self._executor.execute_turn_streaming(
-            session.orch,
-            session.runtime_owner,
-            session.stream_ctx,
-            user_message=query,
-            goals=session.goals,
-            recovery=session.recovery,
-            create_recovery_context=session.create_recovery_context,
-            result=act_result,
-        ):
-            yield chunk
+        async with aclosing_if_supported(
+            self._executor.execute_turn_streaming(
+                session.orch,
+                session.runtime_owner,
+                session.stream_ctx,
+                user_message=query,
+                goals=session.goals,
+                recovery=session.recovery,
+                create_recovery_context=session.create_recovery_context,
+                result=act_result,
+            )
+        ) as stream:
+            async for chunk in stream:
+                yield chunk
 
         outcome.turn_result = act_result.turn_result

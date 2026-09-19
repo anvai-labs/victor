@@ -18,11 +18,56 @@ import asyncio
 
 import pytest
 
-from victor.core.async_utils import run_blocking, run_sync, run_sync_in_thread
+from victor.core.async_utils import (
+    aclosing_if_supported,
+    run_blocking,
+    run_sync,
+    run_sync_in_thread,
+)
 
 
 async def _sample_value() -> str:
     return "ok"
+
+
+class _PlainAsyncIterator:
+    """Protocol-conforming iterator without the optional async-generator close hook."""
+
+    def __init__(self) -> None:
+        self._remaining = iter(["value"])
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self) -> str:
+        try:
+            return next(self._remaining)
+        except StopIteration as exc:
+            raise StopAsyncIteration from exc
+
+
+@pytest.mark.asyncio
+async def test_aclosing_if_supported_accepts_plain_async_iterator():
+    iterator = _PlainAsyncIterator()
+
+    async with aclosing_if_supported(iterator) as stream:
+        assert [item async for item in stream] == ["value"]
+
+
+@pytest.mark.asyncio
+async def test_aclosing_if_supported_awaits_close_hook():
+    class ClosableAsyncIterator(_PlainAsyncIterator):
+        closed = False
+
+        async def aclose(self) -> None:
+            self.closed = True
+
+    iterator = ClosableAsyncIterator()
+
+    async with aclosing_if_supported(iterator):
+        pass
+
+    assert iterator.closed is True
 
 
 def test_run_sync_executes_coroutine_from_sync_context():

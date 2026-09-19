@@ -8,10 +8,10 @@
 from __future__ import annotations
 
 import logging
-from contextlib import aclosing
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, AsyncGenerator, AsyncIterator, Dict, Mapping, Optional
 
+from victor.core.async_utils import aclosing_if_supported
 from victor.agent.services.chat_stream_helpers import ChatStreamHelperMixin
 
 if TYPE_CHECKING:
@@ -403,7 +403,9 @@ class ServiceStreamingRuntime(ChatStreamHelperMixin):
         # and finalization in one critical section so overlapping callers cannot replace
         # or clear another turn's state.
         async with self.services.stream_turn_lock:
-            async with aclosing(self.stream_chat_under_turn_lock(user_message, **kwargs)) as stream:
+            async with aclosing_if_supported(
+                self.stream_chat_under_turn_lock(user_message, **kwargs)
+            ) as stream:
                 async for chunk in stream:
                     yield chunk
 
@@ -411,7 +413,9 @@ class ServiceStreamingRuntime(ChatStreamHelperMixin):
         self, user_message: str, **kwargs: Any
     ) -> AsyncIterator["StreamChunk"]:
         """Stream for a ChatService caller that already owns the session turn lock."""
-        async with aclosing(self._stream_chat_exclusive(user_message, **kwargs)) as stream:
+        async with aclosing_if_supported(
+            self._stream_chat_exclusive(user_message, **kwargs)
+        ) as stream:
             async for chunk in stream:
                 yield chunk
 
@@ -438,8 +442,11 @@ class ServiceStreamingRuntime(ChatStreamHelperMixin):
             # FEP-0007 cutover: drive the unified loop (AgenticLoop.run_streaming via run_unified)
             # so the streaming UI path runs the same PERCEIVE/PLAN/ACT/EVALUATE/DECIDE loop as the
             # buffered path. The legacy run() is now dead and removed in the follow-up step.
-            async for chunk in executor.run_unified(user_message, **kwargs):
-                yield chunk
+            async with aclosing_if_supported(
+                executor.run_unified(user_message, **kwargs)
+            ) as stream:
+                async for chunk in stream:
+                    yield chunk
         except Exception:
             stream_failed = True
             raise

@@ -15,6 +15,7 @@ from __future__ import annotations
 import hashlib
 import logging
 
+from victor.core.async_utils import aclosing_if_supported
 from victor.agent.services.tool_selection_runtime import (
     hydrate_demand_tools,
 )
@@ -1135,16 +1136,19 @@ class StreamingChatExecutor:
             )
 
             tool_exec_result = ToolExecutionResult()
-            async for chunk in runtime_owner._tool_execution_handler.execute_tools_streaming(
-                stream_ctx=stream_ctx,
-                tool_calls=tool_calls,
-                user_message=user_message,
-                full_content=full_content,
-                tool_calls_used=orch.tool_calls_used,
-                tool_budget=orch.tool_budget,
-                result=tool_exec_result,
-            ):
-                yield chunk
+            async with aclosing_if_supported(
+                runtime_owner._tool_execution_handler.execute_tools_streaming(
+                    stream_ctx=stream_ctx,
+                    tool_calls=tool_calls,
+                    user_message=user_message,
+                    full_content=full_content,
+                    tool_calls_used=orch.tool_calls_used,
+                    tool_budget=orch.tool_budget,
+                    result=tool_exec_result,
+                )
+            ) as stream:
+                async for chunk in stream:
+                    yield chunk
         else:
             tool_exec_result = await runtime_owner._tool_execution_handler.execute_tools(
                 stream_ctx=stream_ctx,
@@ -1464,20 +1468,23 @@ class StreamingChatExecutor:
 
         # ACT — emit the assistant response (handles tool-call-only / empty-response recovery).
         _emit = _EmitDecision()
-        async for chunk in self._emit_assistant_turn(
-            orch,
-            runtime_owner,
-            stream_ctx,
-            recovery=recovery,
-            create_recovery_context=create_recovery_context,
-            full_content=full_content,
-            tool_calls=tool_calls,
-            forced_task_completion=forced_task_completion,
-            user_message=user_message,
-            tools=tools,
-            decision=_emit,
-        ):
-            yield chunk
+        async with aclosing_if_supported(
+            self._emit_assistant_turn(
+                orch,
+                runtime_owner,
+                stream_ctx,
+                recovery=recovery,
+                create_recovery_context=create_recovery_context,
+                full_content=full_content,
+                tool_calls=tool_calls,
+                forced_task_completion=forced_task_completion,
+                user_message=user_message,
+                tools=tools,
+                decision=_emit,
+            )
+        ) as stream:
+            async for chunk in stream:
+                yield chunk
         result.assistant_content_yielded = _emit.assistant_content_yielded
         result.emit_should_return = _emit.should_return
         result.emit_should_continue = _emit.should_continue
@@ -1488,16 +1495,19 @@ class StreamingChatExecutor:
         tool_exec_result = None
         if tool_calls and not (_emit.should_return or _emit.should_continue):
             _tool_outcome = _ToolTurnOutcome()
-            async for chunk in self._execute_tools_turn(
-                orch,
-                runtime_owner,
-                stream_ctx,
-                user_message=user_message,
-                tool_calls=tool_calls,
-                full_content=full_content,
-                result_holder=_tool_outcome,
-            ):
-                yield chunk
+            async with aclosing_if_supported(
+                self._execute_tools_turn(
+                    orch,
+                    runtime_owner,
+                    stream_ctx,
+                    user_message=user_message,
+                    tool_calls=tool_calls,
+                    full_content=full_content,
+                    result_holder=_tool_outcome,
+                )
+            ) as stream:
+                async for chunk in stream:
+                    yield chunk
             tool_exec_result = _tool_outcome.result
 
         # Restore the streaming loop's prompt completion: a HIGH-confidence answer with no pending
@@ -1613,10 +1623,11 @@ class StreamingChatExecutor:
         )
 
         conversation_history = self._get_conversation_history(runtime_owner, orch, user_message)
-        async for chunk in loop.run_streaming(
-            user_message, conversation_history=conversation_history
-        ):
-            yield chunk
+        async with aclosing_if_supported(
+            loop.run_streaming(user_message, conversation_history=conversation_history)
+        ) as stream:
+            async for chunk in stream:
+                yield chunk
 
 
 def create_streaming_chat_executor(

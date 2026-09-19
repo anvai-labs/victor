@@ -76,6 +76,7 @@ from typing import (
     TYPE_CHECKING,
 )
 
+from victor.core.async_utils import aclosing_if_supported
 from victor.agent.turn_policy import (
     FulfillmentCriteriaBuilder,
     NudgePolicy,
@@ -1873,15 +1874,18 @@ class AgenticLoop:
 
             # ACT (streaming) — yields chunks; produces a TurnResult via the outcome holder.
             act_outcome = StreamingTurnOutcome()
-            async for chunk in self.streaming_act_port.stream_turn_act(
-                query=query,
-                state=state,
-                perception=perception,
-                plan=plan,
-                turn_index=i,
-                outcome=act_outcome,
-            ):
-                yield chunk
+            async with aclosing_if_supported(
+                self.streaming_act_port.stream_turn_act(
+                    query=query,
+                    state=state,
+                    perception=perception,
+                    plan=plan,
+                    turn_index=i,
+                    outcome=act_outcome,
+                )
+            ) as stream:
+                async for chunk in stream:
+                    yield chunk
             action_result = act_outcome.turn_result
             state["action_result"] = action_result
 
