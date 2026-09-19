@@ -481,7 +481,7 @@ class ChatStreamHelperMixin:
             complexity_tool_budget,
         ) = await self._prepare_stream(user_message, **kwargs)
 
-        task_keywords = orch._classify_task_keywords(user_message)
+        task_keywords = self.services.planning.classify_task_keywords(user_message)
         continuation_task_context = getattr(orch, "_pending_continuation_task_context", None)
         if isinstance(continuation_task_context, dict) and continuation_task_context.get(
             "carry_forward_task_shape"
@@ -566,7 +566,7 @@ class ChatStreamHelperMixin:
         from victor.agent.services.turn_execution_runtime import TurnExecutor
 
         ctx.is_qa_task = TurnExecutor._is_question_only(user_message)
-        ctx.goals = orch._tool_planner.infer_goals_from_message(user_message)
+        ctx.goals = self.services.planning.infer_goals(user_message)
         ctx.tool_budget = orch.tool_budget
         ctx.tool_calls_used = orch.tool_calls_used
         ctx.task_completion_detector = orch._task_completion_detector

@@ -22,6 +22,7 @@ import pytest
 
 from victor.agent.session_cost_tracker import SessionCostTracker
 from victor.agent.services.chat_service import ChatService, ChatServiceConfig
+from victor.agent.services.chat_turn_lifecycle import ChatTurnLifecycle
 from victor.agent.services.metrics_service import AgentMetricsService
 from victor.providers.base import CompletionResponse, StreamChunk
 
@@ -919,8 +920,7 @@ class TestChatServiceTaskReporting(BaseChatServiceTest):
             task_report_finish_handler=lambda _success, **kwargs: events.append(
                 (kwargs["user_message"], "report-finish")
             ),
-            turn_setup_handler=_turn_setup,
-            turn_teardown_handler=_turn_teardown,
+            turn_lifecycle=ChatTurnLifecycle(setup=_turn_setup, teardown=_turn_teardown),
         )
 
         first_stream = service.stream_chat("first")
@@ -970,8 +970,7 @@ class TestChatServiceTurnScope(BaseChatServiceTest):
 
         service.bind_runtime_components(
             turn_executor=_TurnExecutor(),
-            turn_setup_handler=_turn_setup,
-            turn_teardown_handler=_turn_teardown,
+            turn_lifecycle=ChatTurnLifecycle(setup=_turn_setup, teardown=_turn_teardown),
         )
 
         constraints = object()
@@ -1009,8 +1008,7 @@ class TestChatServiceTurnScope(BaseChatServiceTest):
 
         service.bind_runtime_components(
             stream_chat_handler=_stream_handler,
-            turn_setup_handler=_turn_setup,
-            turn_teardown_handler=_turn_teardown,
+            turn_lifecycle=ChatTurnLifecycle(setup=_turn_setup, teardown=_turn_teardown),
         )
 
         constraints = object()
@@ -1057,8 +1055,7 @@ class TestChatServiceTurnScope(BaseChatServiceTest):
 
         service.bind_runtime_components(
             turn_executor=_TurnExecutor(),
-            turn_setup_handler=_turn_setup,
-            turn_teardown_handler=_turn_teardown,
+            turn_lifecycle=ChatTurnLifecycle(setup=_turn_setup, teardown=_turn_teardown),
         )
 
         constraints = object()

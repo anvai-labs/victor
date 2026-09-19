@@ -8,6 +8,7 @@ import pytest
 
 from victor.agent.services.chat_service import ChatService, ChatServiceConfig
 from victor.agent.services.chat_stream_runtime import ServiceStreamingRuntime
+from victor.agent.services.chat_turn_lifecycle import ChatTurnLifecycle
 from victor.agent.services.metrics_service import AgentMetricsService
 from victor.agent.services.streaming_act_adapter import StreamingActAdapter, StreamActSession
 from victor.agent.session_state_accessor import SessionStateAccessor
@@ -48,8 +49,10 @@ def make_services(executor_type):
         stream_chat_handler=runtime.stream_chat_under_turn_lock,
         task_report_start_handler=lambda message, **_: metrics.start_task_report(message),
         task_report_finish_handler=finish,
-        turn_setup_handler=lambda message, **_: events.append(("setup", message)),
-        turn_teardown_handler=lambda message, **_: events.append(("teardown", message)),
+        turn_lifecycle=ChatTurnLifecycle(
+            setup=lambda message, **_: events.append(("setup", message)),
+            teardown=lambda message, **_: events.append(("teardown", message)),
+        ),
     )
     return service, runtime, metrics, events
 

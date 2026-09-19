@@ -211,6 +211,8 @@ class TestStreamingCompletion:
             "total_tokens": 0,
         }
         orch._conversation_controller = MagicMock()
+        orch._prompt_pipeline = SimpleNamespace(classify_task_keywords=orch._classify_task_keywords)
+        orch._task_analyzer = None
         orch.messages = []
         orch.settings = SimpleNamespace(recovery_blocked_consecutive_threshold=5)
         orch._classify_task_keywords.return_value = {}

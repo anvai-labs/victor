@@ -4,7 +4,7 @@ title: "Chat Runtime Inversion — ChatService owns the turn lifecycle"
 type: Standards Track
 status: Draft
 created: 2026-09-06
-modified: 2026-09-06
+modified: 2026-09-19
 authors:
   - name: Vijaykumar Singh
     email: vijay@anvaiops.com
@@ -215,6 +215,33 @@ AST guard forbids chunk-generator and sanitizer access throughout the four-file
 cluster, including the public `chunk_generator` alias and literal dynamic probes.
 Phase 1 and review item 27 remain incomplete; the eight binding kwargs and
 orchestrator structural caps are unchanged.
+
+### Phase 1 progress: planning and guidance (partial)
+
+The chat runtime now consumes goal inference, tool planning, concrete tool
+selection, intent guards, task guidance, and keyword classification through one
+typed `ChatPlanning` capability. It composes the existing service-owned
+`TaskGuidanceRuntime` and `ToolSelectionRuntime`; the chat cluster no longer calls
+the corresponding orchestrator privates or retains the raw tool planner. Keyword
+classification moved into `TaskGuidanceRuntime`, while the orchestrator method is
+now a compatibility delegation.
+
+The boundary guard gives the migrated private names a zero cap. The executor
+private-attribute cap shrinks from 87 to 83, the helper cap shrinks from 97 to 95,
+and the orchestrator line cap shrinks from 4,223 to 4,209. Missing planning
+dependencies fail before provider execution instead of falling back to a facade
+lookup. Phase 1 and review item 27 remain incomplete; turn framing and the
+remaining runtime capabilities still need migration.
+
+### Phase 2 progress: paired turn lifecycle (partial)
+
+`ChatTurnLifecycle` now binds setup and teardown as one capability. This keeps
+the callbacks paired and restores the `bind_runtime_components` ceiling of eight
+after the shared stream lock added for cancellation-safe generator cleanup had
+temporarily raised the surface to nine. The shared lock remains intact. Setup and
+teardown still delegate to the orchestrator compatibility methods, so ChatService
+does not yet own the full turn frame and the phase-2 target of six binding kwargs
+remains open.
 
 ## Benefits
 

@@ -40,6 +40,10 @@ def _make_orchestrator_stub():
         "total_tokens": 0,
     }
     orch._conversation_controller = MagicMock()
+    # The chat runtime now consumes classification through the explicit
+    # task-guidance capability; keep this fixture's configurable classifier.
+    orch._prompt_pipeline = SimpleNamespace(classify_task_keywords=orch._classify_task_keywords)
+    orch._task_analyzer = None
     orch.messages = []
     return orch
 

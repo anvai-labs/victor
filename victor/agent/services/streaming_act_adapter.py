@@ -95,7 +95,7 @@ class StreamingActAdapter:
         executor._apply_run_guidance(
             orch, stream_ctx, user_message, stream_ctx.max_exploration_iterations
         )
-        goals = executor._initialize_task_intent(orch, stream_ctx, user_message)
+        goals = executor._initialize_task_intent(stream_ctx, user_message)
 
         return cls(
             executor,
