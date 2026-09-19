@@ -19,10 +19,10 @@ discussion: https://github.com/anvai-labs/victor/discussions/0031
 
 !!! info "Implementation status — 2026-09-19"
 
-    **In progress.** Requirements/delivery, planning, the service-owned turn frame and
-    stream execution controls and stream lifecycle state are integrated. Broader runtime state,
-    factories and facade shims remain. Public `Agent.run()` / `Agent.stream()` contracts are
-    unchanged.
+    **In progress.** Requirements/delivery, planning, the service-owned turn frame,
+    stream execution controls, lifecycle state and stream metrics are integrated. Context,
+    task/runtime state, factories and facade shims remain. Public `Agent.run()` /
+    `Agent.stream()` contracts are unchanged.
 
 The proposal baseline had the orchestrator owning the glue across three layers: eight
 `bind_runtime_components` handlers, about **53 `orch._*` sites** in the chat stream cluster,
@@ -282,8 +282,21 @@ batch keeps its completed-work accounting while its output is suppressed; the te
 cancellation chunk marks the task report failed.
 
 The boundary guard gives those three facade names a zero cap and lowers the helper
-private-attribute cap from 92 to 88. Phase 1 remains open for metrics, context, task tracking,
-and other runtime state.
+private-attribute cap from 92 to 88. Phase 1 remains open for context, task tracking, and other
+runtime state.
+
+### Phase 1 progress: stream metrics (complete)
+
+`ChatStreamMetrics` now owns stream-metric initialization, first-token timing and terminal
+finalization. Its weak adapter resolves the existing collector and coordinator at each call,
+so the cluster keeps the established cost tracker and Sandhi diagnostics path without retaining
+the facade. Missing initialization wiring fails before provider execution; terminal finalization
+remains best effort so observability cannot replace the stream outcome.
+
+The boundary guard gives `_metrics_collector`, `_metrics_coordinator` and
+`_finalize_stream_metrics` a zero cap. The runtime private-attribute cap falls from 48 to 45 and
+its private-probe cap from 5 to 4; the helper private-attribute cap falls from 88 to 86. Phase 1
+remains open for context, task tracking and other runtime state.
 
 ## Benefits
 

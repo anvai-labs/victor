@@ -61,6 +61,7 @@ one capability so callers do not accumulate facade fields.
 | Conversation | History, actual usage and terminal summary persistence | Best effort; weak owner |
 | Tool calls | Reset, parse and validate | Missing runtime fails closed |
 | Stream lifecycle | Start, cancellation checkpoints and terminal cleanup | Required; weak live owner |
+| Stream metrics | Initialization, first-token timing, cost and terminal diagnostics | Required; weak live owner |
 | Feedback | Outcome recording | Best effort; weak owner |
 | Recovery | Retry and fallback coordination | Existing recovery contract |
 
@@ -74,7 +75,7 @@ one capability so callers do not accumulate facade fields.
       in-flight tools, then close the loop before emitting the terminal cancellation signal.
     - Resolve mutable session and controller state from its current owner.
     - Keep configured governance gates through bootstrap; malformed results are errors.
-    - Preserve one accounting path from provider usage to conversation/session totals.
+    - Preserve one metrics path from provider usage to conversation, cost and session totals.
 
 | Guard | What it prevents |
 | --- | --- |
@@ -97,6 +98,7 @@ flowchart LR
     P["Planning and guidance"]
     E["Stream execution controls"]
     L["Stream lifecycle"]
+    X["Stream metrics"]
   end
   subgraph NEXT["Remaining"]
     S["Broader runtime state"]
@@ -107,6 +109,7 @@ flowchart LR
   P --> S
   E --> S
   L --> S
+  X --> S
   S --> F --> M
 ```
 

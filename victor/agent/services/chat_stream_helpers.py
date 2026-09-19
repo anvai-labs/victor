@@ -257,7 +257,7 @@ class ChatStreamHelperMixin:
 
         self.services.stream_lifecycle.begin()
 
-        stream_metrics = orch._metrics_collector.init_stream_metrics()
+        stream_metrics = self.services.metrics.begin()
         start_time = stream_metrics.start_time
         estimated_content_tokens: float = 0
 
@@ -1527,7 +1527,7 @@ class ChatStreamHelperMixin:
                 full_content += chunk.content
                 stream_ctx.stream_metrics.total_chunks += 1
                 if chunk.content:
-                    orch._metrics_collector.record_first_token()
+                    self.services.metrics.record_first_token()
                     # Rough chars/4 ESTIMATE for the live "~N tokens (est.)" readout and
                     # confidence monitoring only — NOT billing. The authoritative counts are
                     # the provider's usage accumulated into stream_ctx.cumulative_usage above

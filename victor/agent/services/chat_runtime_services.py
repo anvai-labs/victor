@@ -4,9 +4,9 @@
 """Enumerated service capabilities consumed by the chat runtime.
 
 FEP-0031 phase 1 is incremental: task requirements, response delivery,
-planning/guidance, and stream execution controls have migrated. The view keeps
-an explicit capability shape while resolving mutable session-owned state at its
-canonical owners.
+planning/guidance, stream execution controls, lifecycle, and metrics have
+migrated. The view keeps an explicit capability shape while resolving mutable
+session-owned state at its canonical owners.
 """
 
 from __future__ import annotations
@@ -302,6 +302,50 @@ class ChatStreamLifecycle:
         self.runtime.finish()
 
 
+class StreamMetricsRuntime(Protocol):
+    """Metrics operations needed by the streaming path."""
+
+    def begin(self) -> Any: ...
+
+    def record_first_token(self) -> None: ...
+
+    def finalize(
+        self,
+        usage_data: dict[str, int],
+        *,
+        provider_diagnostics: dict[str, Any] | None = None,
+    ) -> Any: ...
+
+
+@dataclass(frozen=True, slots=True)
+class ChatStreamMetrics:
+    """Own stream metric initialization, first-token timing, and finalization."""
+
+    runtime: StreamMetricsRuntime | None = None
+
+    def _require_runtime(self) -> StreamMetricsRuntime:
+        if self.runtime is None:
+            raise TypeError("Chat streaming metrics require a runtime")
+        return self.runtime
+
+    def begin(self) -> Any:
+        return self._require_runtime().begin()
+
+    def record_first_token(self) -> None:
+        self._require_runtime().record_first_token()
+
+    def finalize(
+        self,
+        usage_data: dict[str, int],
+        *,
+        provider_diagnostics: dict[str, Any] | None = None,
+    ) -> Any:
+        return self._require_runtime().finalize(
+            usage_data,
+            provider_diagnostics=provider_diagnostics,
+        )
+
+
 @dataclass(frozen=True, slots=True)
 class ChatRuntimeServices:
     """Explicit capabilities already migrated from the chat runtime facade."""
@@ -309,6 +353,7 @@ class ChatRuntimeServices:
     session: TaskRequirementState
     stream_lifecycle: ChatStreamLifecycle
     stream_turn_lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False, compare=False)
+    metrics: ChatStreamMetrics = field(default_factory=ChatStreamMetrics)
     delivery: ChatDelivery = field(default_factory=ChatDelivery)
     planning: ChatPlanning = field(default_factory=ChatPlanning)
     governance: ChatGovernance = field(default_factory=ChatGovernance)
