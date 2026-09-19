@@ -19,6 +19,7 @@ CLUSTER_CAPS = {
         "planning_accesses": 0,
         "execution_control_accesses": 0,
         "metrics_accesses": 0,
+        "task_state_accesses": 0,
         "raw_state": 10,
     },
     "chat_stream_executor.py": {
@@ -29,16 +30,18 @@ CLUSTER_CAPS = {
         "planning_accesses": 0,
         "execution_control_accesses": 0,
         "metrics_accesses": 0,
+        "task_state_accesses": 0,
         "raw_state": 0,
     },
     "chat_stream_helpers.py": {
-        "private_attributes": 86,
-        "private_probes": 20,
+        "private_attributes": 79,
+        "private_probes": 19,
         "dynamic_probes": 0,
         "delivery_accesses": 0,
         "planning_accesses": 0,
         "execution_control_accesses": 0,
         "metrics_accesses": 0,
+        "task_state_accesses": 0,
         "raw_state": 8,
     },
     "streaming_act_adapter.py": {
@@ -49,6 +52,7 @@ CLUSTER_CAPS = {
         "planning_accesses": 0,
         "execution_control_accesses": 0,
         "metrics_accesses": 0,
+        "task_state_accesses": 0,
         "raw_state": 0,
     },
 }
@@ -105,6 +109,7 @@ def inventory(source):
     counts["planning_accesses"] = 0
     counts["execution_control_accesses"] = 0
     counts["metrics_accesses"] = 0
+    counts["task_state_accesses"] = 0
     delivery_names = {"_chunk_generator", "chunk_generator", "sanitizer"}
     planning_names = {
         "_tool_planner",
@@ -130,6 +135,14 @@ def inventory(source):
         "_metrics_coordinator",
         "_finalize_stream_metrics",
     }
+    task_state_names = {
+        "unified_tracker",
+        "_session_state",
+        "_pending_continuation_task_context",
+        "_current_task_type",
+        "_progress",
+        "_task_config",
+    }
     for node in ast.walk(tree):
         if isinstance(node, ast.Attribute) and node.attr in delivery_names:
             counts["delivery_accesses"] += 1
@@ -139,6 +152,8 @@ def inventory(source):
             counts["execution_control_accesses"] += 1
         if isinstance(node, ast.Attribute) and node.attr in metrics_names:
             counts["metrics_accesses"] += 1
+        if isinstance(node, ast.Attribute) and node.attr in task_state_names:
+            counts["task_state_accesses"] += 1
         if isinstance(node, ast.Attribute) and node.attr.startswith("_"):
             counts["private_attributes"] += 1
             counts["raw_state"] += node.attr == "__dict__"
@@ -148,6 +163,7 @@ def inventory(source):
             counts["planning_accesses"] += key in planning_names
             counts["execution_control_accesses"] += key in execution_control_names
             counts["metrics_accesses"] += key in metrics_names
+            counts["task_state_accesses"] += key in task_state_names
             if key and key.startswith("_"):
                 counts["raw_state"] += 1
         if not isinstance(node, ast.Call):
@@ -163,6 +179,7 @@ def inventory(source):
             counts["planning_accesses"] += key in planning_names
             counts["execution_control_accesses"] += key in execution_control_names
             counts["metrics_accesses"] += key in metrics_names
+            counts["task_state_accesses"] += key in task_state_names
             if key is None:
                 counts["dynamic_probes"] += 1
             elif key.startswith("_"):
@@ -174,6 +191,7 @@ def inventory(source):
             counts["planning_accesses"] += key in planning_names
             counts["execution_control_accesses"] += key in execution_control_names
             counts["metrics_accesses"] += key in metrics_names
+            counts["task_state_accesses"] += key in task_state_names
             if key and key.startswith("_"):
                 counts["raw_state"] += 1
     return counts
@@ -205,6 +223,13 @@ def test_chat_cluster_boundary_counts_only_shrink(filename):
         ("renamed._metrics_collector.record_first_token()", "metrics_accesses"),
         ("renamed._metrics_coordinator.finalize_stream_metrics({})", "metrics_accesses"),
         ("renamed._finalize_stream_metrics({})", "metrics_accesses"),
+        ("renamed._session_state.reset_for_new_turn()", "task_state_accesses"),
+        ("renamed.unified_tracker.reset()", "task_state_accesses"),
+        ("renamed.unified_tracker.progress.tool_budget", "task_state_accesses"),
+        ("renamed._pending_continuation_task_context = {}", "task_state_accesses"),
+        ("getattr(renamed, '_current_task_type')", "task_state_accesses"),
+        ("getattr(renamed, 'unified_tracker').set_task_type(kind)", "task_state_accesses"),
+        ("renamed.__dict__.get('unified_tracker').reset()", "task_state_accesses"),
         ("getattr(renamed, '_message_policy_gate')", "execution_control_accesses"),
         ("renamed.__dict__.get('_tool_pipeline')", "execution_control_accesses"),
         ("read = getattr\nread(renamed, 'sani' + 'tizer')", "delivery_accesses"),
