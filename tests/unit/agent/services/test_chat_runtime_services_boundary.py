@@ -12,7 +12,7 @@ import pytest
 
 CLUSTER_CAPS = {
     "chat_stream_runtime.py": {
-        "private_attributes": 45,
+        "private_attributes": 44,
         "private_probes": 4,
         "dynamic_probes": 0,
         "delivery_accesses": 0,
@@ -21,7 +21,8 @@ CLUSTER_CAPS = {
         "metrics_accesses": 0,
         "task_state_accesses": 0,
         "context_lifecycle_accesses": 0,
-        "raw_state": 10,
+        "intelligence_accesses": 0,
+        "raw_state": 7,
     },
     "chat_stream_executor.py": {
         "private_attributes": 76,
@@ -33,10 +34,11 @@ CLUSTER_CAPS = {
         "metrics_accesses": 0,
         "task_state_accesses": 0,
         "context_lifecycle_accesses": 0,
+        "intelligence_accesses": 0,
         "raw_state": 0,
     },
     "chat_stream_helpers.py": {
-        "private_attributes": 68,
+        "private_attributes": 66,
         "private_probes": 15,
         "dynamic_probes": 0,
         "delivery_accesses": 0,
@@ -45,7 +47,8 @@ CLUSTER_CAPS = {
         "metrics_accesses": 0,
         "task_state_accesses": 0,
         "context_lifecycle_accesses": 0,
-        "raw_state": 8,
+        "intelligence_accesses": 0,
+        "raw_state": 7,
     },
     "streaming_act_adapter.py": {
         "private_attributes": 13,
@@ -57,6 +60,7 @@ CLUSTER_CAPS = {
         "metrics_accesses": 0,
         "task_state_accesses": 0,
         "context_lifecycle_accesses": 0,
+        "intelligence_accesses": 0,
         "raw_state": 0,
     },
 }
@@ -115,6 +119,7 @@ def inventory(source):
     counts["metrics_accesses"] = 0
     counts["task_state_accesses"] = 0
     counts["context_lifecycle_accesses"] = 0
+    counts["intelligence_accesses"] = 0
     delivery_names = {"_chunk_generator", "chunk_generator", "sanitizer"}
     planning_names = {
         "_tool_planner",
@@ -156,6 +161,12 @@ def inventory(source):
         "_agent_runtime_context",
         "_memory_session_id",
     }
+    intelligence_names = {
+        "_runtime_intelligence",
+        "_prepare_runtime_intelligence_request",
+        "_optimization_injector",
+        "_record_runtime_intelligence_outcome",
+    }
     for node in ast.walk(tree):
         if isinstance(node, ast.Attribute) and node.attr in delivery_names:
             counts["delivery_accesses"] += 1
@@ -169,6 +180,8 @@ def inventory(source):
             counts["task_state_accesses"] += 1
         if isinstance(node, ast.Attribute) and node.attr in context_lifecycle_names:
             counts["context_lifecycle_accesses"] += 1
+        if isinstance(node, ast.Attribute) and node.attr in intelligence_names:
+            counts["intelligence_accesses"] += 1
         if isinstance(node, ast.Attribute) and node.attr.startswith("_"):
             counts["private_attributes"] += 1
             counts["raw_state"] += node.attr == "__dict__"
@@ -180,6 +193,7 @@ def inventory(source):
             counts["metrics_accesses"] += key in metrics_names
             counts["task_state_accesses"] += key in task_state_names
             counts["context_lifecycle_accesses"] += key in context_lifecycle_names
+            counts["intelligence_accesses"] += key in intelligence_names
             if key and key.startswith("_"):
                 counts["raw_state"] += 1
         if not isinstance(node, ast.Call):
@@ -197,6 +211,7 @@ def inventory(source):
             counts["metrics_accesses"] += key in metrics_names
             counts["task_state_accesses"] += key in task_state_names
             counts["context_lifecycle_accesses"] += key in context_lifecycle_names
+            counts["intelligence_accesses"] += key in intelligence_names
             if key is None:
                 counts["dynamic_probes"] += 1
             elif key.startswith("_"):
@@ -210,6 +225,7 @@ def inventory(source):
             counts["metrics_accesses"] += key in metrics_names
             counts["task_state_accesses"] += key in task_state_names
             counts["context_lifecycle_accesses"] += key in context_lifecycle_names
+            counts["intelligence_accesses"] += key in intelligence_names
             if key and key.startswith("_"):
                 counts["raw_state"] += 1
     return counts
@@ -251,6 +267,12 @@ def test_chat_cluster_boundary_counts_only_shrink(filename):
         ("renamed._context_manager.start_background_compaction()", "context_lifecycle_accesses"),
         ("getattr(renamed, '_context_lifecycle_service')", "context_lifecycle_accesses"),
         ("renamed.__dict__.get('_context_compactor')", "context_lifecycle_accesses"),
+        ("renamed._runtime_intelligence.record_topology_outcome({})", "intelligence_accesses"),
+        ("getattr(renamed, '_optimization_injector')", "intelligence_accesses"),
+        (
+            "renamed.__dict__.get('_prepare_runtime_intelligence_request')",
+            "intelligence_accesses",
+        ),
         ("getattr(renamed, '_message_policy_gate')", "execution_control_accesses"),
         ("renamed.__dict__.get('_tool_pipeline')", "execution_control_accesses"),
         ("read = getattr\nread(renamed, 'sani' + 'tizer')", "delivery_accesses"),

@@ -4,6 +4,7 @@
 """Composition boundary for legacy chat-runtime construction signatures."""
 
 import asyncio
+from collections.abc import Mapping
 import logging
 from typing import Any
 import weakref
@@ -16,9 +17,10 @@ from victor.agent.services.chat_runtime_services import (
     ChatCompletion,
     ChatContextLifecycle,
     ChatConversation,
-    ChatFeedback,
     ChatGovernance,
+    ChatRoutingIntelligence,
     ChatRuntimeServices,
+    ChatRuntimeIntelligence,
     ChatStreamLifecycle,
     ChatStreamMetrics,
     ChatTaskState,
@@ -133,10 +135,112 @@ class _ChatTurnStateView(_WeakOwner):
             service.assign_turn_credit_at_boundary()
 
 
-class _ChatOutcomeView(_WeakOwner):
-    """Forward the remaining compatibility feedback hook without retention."""
+class _ChatRuntimeIntelligenceView(_WeakOwner):
+    """Resolve learning and routing services without retaining the facade."""
 
     __slots__ = ()
+
+    @staticmethod
+    def _state(owner: Any) -> dict[str, Any]:
+        state = getattr(owner, "__dict__", None)
+        return state if isinstance(state, dict) else {}
+
+    @classmethod
+    def _capability_value(cls, owner: Any, name: str) -> Any:
+        getter = getattr(owner, "get_capability_value", None)
+        if callable(getter):
+            try:
+                value = getter(name)
+                if value is not None:
+                    return value
+            except Exception:
+                logger.debug("Capability read failed for %s", name, exc_info=True)
+        state = cls._state(owner)
+        if name in state:
+            return state[name]
+        return state.get(f"_{name}")
+
+    def executor_runtime(self) -> Any:
+        owner = self._owner()
+        state = self._state(owner)
+        runtime = state.get("_runtime_intelligence")
+        if runtime is not None:
+            return runtime
+
+        from victor.agent.services.runtime_intelligence import RuntimeIntelligenceService
+
+        runtime = RuntimeIntelligenceService.from_orchestrator(
+            owner,
+            perception_integration=self._capability_value(owner, "perception_integration"),
+            optimization_injector=self._capability_value(owner, "optimization_injector"),
+        )
+        owner._runtime_intelligence = runtime
+        return runtime
+
+    async def prepare_request(
+        self,
+        *,
+        task: str,
+        task_type: str,
+    ) -> dict[str, Any] | None:
+        owner = self._owner()
+        integration = getattr(owner, "runtime_intelligence_integration", None)
+        if integration is None:
+            return None
+        return await integration.prepare_runtime_intelligence_request(
+            task=task,
+            task_type=task_type,
+            conversation_state=getattr(owner, "conversation_state", None),
+            unified_tracker=getattr(owner, "unified_tracker", None),
+        )
+
+    def routing_context(
+        self,
+        *,
+        query: str,
+        scope_context: dict[str, Any],
+    ) -> ChatRoutingIntelligence:
+        runtime = self._state(self._owner()).get("_runtime_intelligence")
+        if runtime is None:
+            return ChatRoutingIntelligence()
+
+        structured = getattr(runtime, "get_structured_routing_policy", None)
+        if callable(structured):
+            try:
+                policy = structured(query=query, scope_context=scope_context)
+            except Exception as exc:
+                logger.debug("Streaming structured routing policy unavailable: %s", exc)
+                return ChatRoutingIntelligence()
+            if policy is None:
+                return ChatRoutingIntelligence()
+            serialized = policy.to_dict() if callable(getattr(policy, "to_dict", None)) else None
+            context = policy.selector_context()
+            return ChatRoutingIntelligence(
+                context=dict(context) if isinstance(context, Mapping) else {},
+                structured_policy=serialized if isinstance(serialized, dict) else None,
+            )
+
+        legacy = getattr(runtime, "get_topology_routing_context", None)
+        if not callable(legacy):
+            return ChatRoutingIntelligence()
+        try:
+            context = legacy(query=query, scope_context=scope_context)
+        except Exception as exc:
+            logger.debug("Streaming topology feedback hints unavailable: %s", exc)
+            return ChatRoutingIntelligence()
+        return ChatRoutingIntelligence(
+            context=dict(context) if isinstance(context, Mapping) else {}
+        )
+
+    def record_topology_outcome(self, payload: dict[str, Any]) -> None:
+        runtime = self._state(self._owner()).get("_runtime_intelligence")
+        record = getattr(runtime, "record_topology_outcome", None)
+        if not callable(record):
+            return
+        try:
+            record(payload)
+        except Exception as exc:
+            logger.debug("Failed to record streaming topology runtime outcome: %s", exc)
 
     def record_outcome(
         self,
@@ -495,7 +599,7 @@ def bind_chat_runtime_services(runtime_owner: Any) -> ChatRuntimeServices:
         completion=ChatCompletion(detector=getattr(owner, "_task_completion_detector", None)),
         conversation=ChatConversation(runtime=_ChatConversationView(owner)),
         tool_calls=ChatToolCalls(runtime=_ChatToolCallView(owner)),
-        feedback=ChatFeedback(recorder=_ChatOutcomeView(owner)),
+        intelligence=ChatRuntimeIntelligence(_ChatRuntimeIntelligenceView(owner)),
         recovery=getattr(owner, "_recovery_service", None)
         or getattr(owner, "_recovery_coordinator", None),
     )

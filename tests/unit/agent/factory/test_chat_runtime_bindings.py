@@ -55,6 +55,11 @@ def _owner() -> _Owner:
     owner._context_lifecycle_service = None
     owner._context_service = None
     owner._context_compactor = None
+    owner._runtime_intelligence = None
+    owner._perception_integration = None
+    owner._optimization_injector = None
+    owner.runtime_intelligence_integration = None
+    owner.conversation_state = {}
     owner.settings = SimpleNamespace(context_compaction_strategy="tiered")
     owner.tool_calls_used = 0
     return owner
@@ -289,6 +294,163 @@ async def test_binding_uses_legacy_compactor_only_as_final_fallback() -> None:
     )
 
 
+def test_binding_reuses_or_creates_one_executor_runtime(monkeypatch) -> None:
+    from victor.agent.services.runtime_intelligence import RuntimeIntelligenceService
+
+    owner = _owner()
+    owner._perception_integration = object()
+    owner._optimization_injector = object()
+    runtime = object()
+    factory = MagicMock(return_value=runtime)
+    monkeypatch.setattr(RuntimeIntelligenceService, "from_orchestrator", factory)
+    view = bind_chat_runtime_services(owner)
+
+    assert view.intelligence.executor_runtime() is runtime
+    assert view.intelligence.executor_runtime() is runtime
+    assert owner._runtime_intelligence is runtime
+    factory.assert_called_once_with(
+        owner,
+        perception_integration=owner._perception_integration,
+        optimization_injector=owner._optimization_injector,
+    )
+
+
+def test_binding_executor_runtime_prefers_declared_capabilities(monkeypatch) -> None:
+    from victor.agent.services.runtime_intelligence import RuntimeIntelligenceService
+
+    owner = _owner()
+    perception = object()
+    optimization = object()
+    owner.get_capability_value = lambda name: {
+        "perception_integration": perception,
+        "optimization_injector": optimization,
+    }.get(name)
+    runtime = object()
+    factory = MagicMock(return_value=runtime)
+    monkeypatch.setattr(RuntimeIntelligenceService, "from_orchestrator", factory)
+
+    assert bind_chat_runtime_services(owner).intelligence.executor_runtime() is runtime
+
+    factory.assert_called_once_with(
+        owner,
+        perception_integration=perception,
+        optimization_injector=optimization,
+    )
+
+
+def test_binding_executor_runtime_falls_back_when_capability_read_fails(monkeypatch) -> None:
+    from victor.agent.services.runtime_intelligence import RuntimeIntelligenceService
+
+    owner = _owner()
+    owner._perception_integration = object()
+    owner._optimization_injector = object()
+    owner.get_capability_value = MagicMock(side_effect=RuntimeError("capability unavailable"))
+    runtime = object()
+    factory = MagicMock(return_value=runtime)
+    monkeypatch.setattr(RuntimeIntelligenceService, "from_orchestrator", factory)
+
+    assert bind_chat_runtime_services(owner).intelligence.executor_runtime() is runtime
+
+    factory.assert_called_once_with(
+        owner,
+        perception_integration=owner._perception_integration,
+        optimization_injector=owner._optimization_injector,
+    )
+
+
+@pytest.mark.asyncio
+async def test_binding_prepares_runtime_intelligence_with_live_turn_state() -> None:
+    owner = _owner()
+    owner.conversation_state = {"turn": 3}
+    integration = SimpleNamespace(
+        prepare_runtime_intelligence_request=AsyncMock(return_value={"hint": "parallel"})
+    )
+    owner.runtime_intelligence_integration = integration
+    view = bind_chat_runtime_services(owner)
+
+    assert await view.intelligence.prepare_request(task="inspect", task_type="analysis") == {
+        "hint": "parallel"
+    }
+    integration.prepare_runtime_intelligence_request.assert_awaited_once_with(
+        task="inspect",
+        task_type="analysis",
+        conversation_state=owner.conversation_state,
+        unified_tracker=owner.unified_tracker,
+    )
+
+
+def test_binding_prefers_structured_runtime_routing_policy() -> None:
+    owner = _owner()
+    policy = SimpleNamespace(
+        to_dict=MagicMock(return_value={"policy": "learned"}),
+        selector_context=MagicMock(return_value={"formation": "parallel"}),
+    )
+    legacy = MagicMock(return_value={"formation": "sequential"})
+    owner._runtime_intelligence = SimpleNamespace(
+        get_structured_routing_policy=MagicMock(return_value=policy),
+        get_topology_routing_context=legacy,
+    )
+    view = bind_chat_runtime_services(owner)
+
+    result = view.intelligence.routing_context(
+        query="inspect",
+        scope_context={"task_type": "analysis"},
+    )
+
+    assert result.context == {"formation": "parallel"}
+    assert result.structured_policy == {"policy": "learned"}
+    legacy.assert_not_called()
+
+
+def test_binding_uses_legacy_runtime_routing_when_structured_api_is_absent() -> None:
+    owner = _owner()
+    legacy = MagicMock(return_value={"formation": "sequential"})
+    owner._runtime_intelligence = SimpleNamespace(get_topology_routing_context=legacy)
+    view = bind_chat_runtime_services(owner)
+
+    result = view.intelligence.routing_context(
+        query="inspect",
+        scope_context={"task_type": "analysis"},
+    )
+
+    assert result.context == {"formation": "sequential"}
+    assert result.structured_policy is None
+    legacy.assert_called_once_with(
+        query="inspect",
+        scope_context={"task_type": "analysis"},
+    )
+
+
+def test_binding_structured_routing_failure_does_not_run_legacy_policy() -> None:
+    owner = _owner()
+    legacy = MagicMock(return_value={"formation": "sequential"})
+    owner._runtime_intelligence = SimpleNamespace(
+        get_structured_routing_policy=MagicMock(side_effect=RuntimeError("policy unavailable")),
+        get_topology_routing_context=legacy,
+    )
+    view = bind_chat_runtime_services(owner)
+
+    result = view.intelligence.routing_context(
+        query="inspect",
+        scope_context={"task_type": "analysis"},
+    )
+
+    assert result.context == {}
+    assert result.structured_policy is None
+    legacy.assert_not_called()
+
+
+def test_binding_runtime_intelligence_records_topology_best_effort() -> None:
+    owner = _owner()
+    record = MagicMock(side_effect=RuntimeError("telemetry unavailable"))
+    owner._runtime_intelligence = SimpleNamespace(record_topology_outcome=record)
+    view = bind_chat_runtime_services(owner)
+
+    view.intelligence.record_topology_outcome({"success": False})
+
+    record.assert_called_once_with({"success": False})
+
+
 def test_binding_rejects_owner_that_cannot_honor_non_retention_contract() -> None:
     owner = SimpleNamespace(_session_accessor=SessionStateAccessor(SessionStateManager()))
 
@@ -337,7 +499,7 @@ def test_binding_enumerates_stream_execution_collaborators_without_owner_retenti
     parser.parse_and_validate_tool_calls.assert_called_once_with([{"x": 1}], "raw", adapter)
     view.tool_calls.reset()
     pipeline.reset.assert_called_once_with()
-    view.feedback.record_outcome(
+    view.intelligence.record_outcome(
         success=False,
         quality_score=0.3,
         user_satisfied=False,
@@ -362,7 +524,7 @@ def test_binding_enumerates_stream_execution_collaborators_without_owner_retenti
         view.tool_calls.reset()
     assert view.conversation.messages() == []
     with pytest.raises(RuntimeError, match="no longer available"):
-        view.feedback.record_outcome(
+        view.intelligence.record_outcome(
             success=False,
             quality_score=0.3,
             user_satisfied=False,

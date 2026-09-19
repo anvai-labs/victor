@@ -8,7 +8,7 @@ from victor.agent.services.chat_runtime_services import (
     ChatCompactionEvent,
     ChatContextLifecycle,
     ChatConversation,
-    ChatFeedback,
+    ChatRuntimeIntelligence,
     ChatStreamLifecycle,
 )
 from victor.agent.streaming.context import StreamingChatContext
@@ -25,8 +25,8 @@ class _Helper(ChatStreamHelperMixin):
         self.lifecycle = lifecycle
         self.services = SimpleNamespace(
             conversation=ChatConversation(),
-            feedback=ChatFeedback(
-                recorder=SimpleNamespace(
+            intelligence=ChatRuntimeIntelligence(
+                runtime=SimpleNamespace(
                     record_outcome=orchestrator._record_runtime_intelligence_outcome
                 )
             ),
@@ -110,7 +110,9 @@ async def test_pre_iteration_cancellation_records_outcome_through_feedback_capab
         ),
     )
     helper = _Helper(orch)
-    helper.services.feedback = ChatFeedback(recorder=SimpleNamespace(record_outcome=recorder))
+    helper.services.intelligence = ChatRuntimeIntelligence(
+        runtime=SimpleNamespace(record_outcome=recorder)
+    )
     stream_ctx = StreamingChatContext(user_message="cancel", last_quality_score=0.42)
 
     chunks = [chunk async for chunk in helper._run_iteration_pre_checks(stream_ctx, "cancel")]

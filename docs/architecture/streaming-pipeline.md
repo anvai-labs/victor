@@ -64,7 +64,7 @@ one capability so callers do not accumulate facade fields.
 | Stream metrics | Initialization, first-token timing, cost and terminal diagnostics | Required; weak live owner |
 | Task state | Reset, classification, continuation and prompt-derived budgets | Required; weak live owner |
 | Context lifecycle | Background startup and ordered pre-iteration compaction | Newest configured policy wins; weak live owner |
-| Feedback | Outcome recording | Best effort; weak owner |
+| Runtime intelligence | Request guidance, learned routing and outcome feedback | Optional; weak live owner |
 | Recovery | Retry and fallback coordination | Existing recovery contract |
 
 ## Lifecycle invariants
@@ -105,9 +105,10 @@ flowchart LR
     X["Stream metrics"]
     K["Task classification state"]
     C["Context lifecycle"]
+    I["Runtime intelligence"]
   end
   subgraph NEXT["Remaining"]
-    S["Provider and runtime-intelligence state"]
+    S["Provider and broader runtime state"]
     F["Handler factories"]
     M["Facade shims and mixins"]
   end
@@ -118,6 +119,7 @@ flowchart LR
   X --> S
   K --> S
   C --> S
+  I --> S
   S --> F --> M
 ```
 

@@ -12,9 +12,9 @@ from victor.agent.orchestrator import AgentOrchestrator
 from victor.agent.services.chat_runtime_services import (
     ChatCompletion,
     ChatConversation,
-    ChatFeedback,
     ChatGovernance,
     ChatRuntimeServices,
+    ChatRuntimeIntelligence,
     ChatStreamLifecycle,
     ChatStreamMetrics,
     ChatTaskState,
@@ -161,7 +161,7 @@ def test_view_is_enumerated_and_does_not_retain_or_forward_facade():
         "completion",
         "conversation",
         "tool_calls",
-        "feedback",
+        "intelligence",
         "recovery",
     ]
     assert not hasattr(view, "__dict__")
@@ -280,11 +280,11 @@ def test_task_state_capability_requires_explicit_runtime():
         task_state.apply_prompt_requirements(tool_budget=10, iteration_budget=5)
 
 
-def test_feedback_capability_delegates_only_declared_outcome_fields():
+def test_runtime_intelligence_capability_delegates_only_declared_outcome_fields():
     recorder = SimpleNamespace(record_outcome=MagicMock())
-    feedback = ChatFeedback(recorder=recorder)
+    intelligence = ChatRuntimeIntelligence(runtime=recorder)
 
-    feedback.record_outcome(
+    intelligence.record_outcome(
         success=False,
         quality_score=0.3,
         user_satisfied=False,
