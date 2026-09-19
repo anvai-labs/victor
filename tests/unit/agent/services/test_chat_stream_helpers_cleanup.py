@@ -29,6 +29,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from victor.agent.services.chat_delivery import ChatDelivery
+from victor.agent.services.chat_runtime_services import ChatStreamMetrics
 from victor.agent.services.chat_stream_helpers import ChatStreamHelperMixin
 from victor.agent.streaming.context import StreamingChatContext
 from victor.core.errors import ProviderTimeoutError
@@ -42,7 +43,8 @@ class _Helper(ChatStreamHelperMixin):
             delivery=ChatDelivery(
                 chunks=getattr(orchestrator, "_chunk_generator", None),
                 sanitizer=getattr(orchestrator, "sanitizer", None),
-            )
+            ),
+            metrics=ChatStreamMetrics(orchestrator._metrics_collector),
         )
 
 

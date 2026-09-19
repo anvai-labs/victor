@@ -27,6 +27,7 @@ from victor.agent.services.chat_stream_runtime import ServiceStreamingRuntime
 from victor.agent.services.chat_runtime_services import (
     ChatRuntimeServices,
     ChatStreamLifecycle,
+    ChatStreamMetrics,
     SessionTaskRequirementState,
 )
 from victor.agent.session_state_accessor import SessionStateAccessor
@@ -44,12 +45,14 @@ def _usage(p: int, c: int) -> dict:
 
 
 async def test_stream_chat_finalizes_metrics_with_cumulative_usage(monkeypatch):
-    orch = SimpleNamespace(_finalize_stream_metrics=MagicMock())
+    orch = SimpleNamespace()
+    metrics = MagicMock()
     rt = ServiceStreamingRuntime(
         orch,
         services=ChatRuntimeServices(
             SessionTaskRequirementState(SessionStateAccessor(SessionStateManager())),
             ChatStreamLifecycle(MagicMock()),
+            metrics=ChatStreamMetrics(metrics),
         ),
     )
 
@@ -78,19 +81,22 @@ async def test_stream_chat_finalizes_metrics_with_cumulative_usage(monkeypatch):
         pass
 
     # The wire is closed: metrics are finalized exactly once with the turn's usage.
-    orch._finalize_stream_metrics.assert_called_once()
-    called_usage = orch._finalize_stream_metrics.call_args[0][0]
+    metrics.finalize.assert_called_once()
+    called_usage = metrics.finalize.call_args[0][0]
     assert called_usage["prompt_tokens"] == 120
     assert called_usage["completion_tokens"] == 40
 
 
 async def test_finalize_failure_does_not_break_the_stream(monkeypatch):
-    orch = SimpleNamespace(_finalize_stream_metrics=MagicMock(side_effect=RuntimeError("boom")))
+    orch = SimpleNamespace()
+    metrics = MagicMock()
+    metrics.finalize.side_effect = RuntimeError("boom")
     rt = ServiceStreamingRuntime(
         orch,
         services=ChatRuntimeServices(
             SessionTaskRequirementState(SessionStateAccessor(SessionStateManager())),
             ChatStreamLifecycle(MagicMock()),
+            metrics=ChatStreamMetrics(metrics),
         ),
     )
     ctx = SimpleNamespace(cumulative_usage=_usage(10, 5))
@@ -117,4 +123,4 @@ async def test_finalize_failure_does_not_break_the_stream(monkeypatch):
     # Finalize raising must not propagate out of the stream (it's best-effort).
     async for _ in rt.stream_chat("hi"):
         pass
-    orch._finalize_stream_metrics.assert_called_once()
+    metrics.finalize.assert_called_once()

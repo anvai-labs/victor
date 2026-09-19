@@ -38,6 +38,8 @@ def _owner() -> _Owner:
     owner._tool_service = None
     owner.tool_adapter = None
     owner._tool_pipeline = None
+    owner._metrics_collector = MagicMock()
+    owner._metrics_coordinator = MagicMock()
     return owner
 
 
@@ -72,6 +74,32 @@ def test_binding_coordinates_stream_lifecycle_without_retaining_owner() -> None:
     view.stream_lifecycle.finish()
     assert owner._is_streaming is False
     assert owner._cancel_event is None
+
+
+def test_binding_routes_stream_metrics_through_enumerated_components() -> None:
+    owner = _owner()
+    stream_metrics = object()
+    finalized = object()
+    owner._metrics_collector.init_stream_metrics.return_value = stream_metrics
+    owner._metrics_coordinator.finalize_stream_metrics.return_value = finalized
+    view = bind_chat_runtime_services(owner)
+
+    assert view.metrics.begin() is stream_metrics
+    view.metrics.record_first_token()
+    assert (
+        view.metrics.finalize(
+            {"prompt_tokens": 7},
+            provider_diagnostics={"attempts": 2},
+        )
+        is finalized
+    )
+
+    owner._metrics_collector.init_stream_metrics.assert_called_once_with()
+    owner._metrics_collector.record_first_token.assert_called_once_with()
+    owner._metrics_coordinator.finalize_stream_metrics.assert_called_once_with(
+        {"prompt_tokens": 7},
+        provider_diagnostics={"attempts": 2},
+    )
 
 
 def test_binding_rejects_owner_that_cannot_honor_non_retention_contract() -> None:

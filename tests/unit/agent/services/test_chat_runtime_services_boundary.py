@@ -12,12 +12,13 @@ import pytest
 
 CLUSTER_CAPS = {
     "chat_stream_runtime.py": {
-        "private_attributes": 48,
-        "private_probes": 5,
+        "private_attributes": 45,
+        "private_probes": 4,
         "dynamic_probes": 0,
         "delivery_accesses": 0,
         "planning_accesses": 0,
         "execution_control_accesses": 0,
+        "metrics_accesses": 0,
         "raw_state": 10,
     },
     "chat_stream_executor.py": {
@@ -27,15 +28,17 @@ CLUSTER_CAPS = {
         "delivery_accesses": 0,
         "planning_accesses": 0,
         "execution_control_accesses": 0,
+        "metrics_accesses": 0,
         "raw_state": 0,
     },
     "chat_stream_helpers.py": {
-        "private_attributes": 88,
+        "private_attributes": 86,
         "private_probes": 20,
         "dynamic_probes": 0,
         "delivery_accesses": 0,
         "planning_accesses": 0,
         "execution_control_accesses": 0,
+        "metrics_accesses": 0,
         "raw_state": 8,
     },
     "streaming_act_adapter.py": {
@@ -45,6 +48,7 @@ CLUSTER_CAPS = {
         "delivery_accesses": 0,
         "planning_accesses": 0,
         "execution_control_accesses": 0,
+        "metrics_accesses": 0,
         "raw_state": 0,
     },
 }
@@ -100,6 +104,7 @@ def inventory(source):
     counts["delivery_accesses"] = 0
     counts["planning_accesses"] = 0
     counts["execution_control_accesses"] = 0
+    counts["metrics_accesses"] = 0
     delivery_names = {"_chunk_generator", "chunk_generator", "sanitizer"}
     planning_names = {
         "_tool_planner",
@@ -120,6 +125,11 @@ def inventory(source):
         "_conversation_controller",
         "_parse_and_validate_tool_calls",
     }
+    metrics_names = {
+        "_metrics_collector",
+        "_metrics_coordinator",
+        "_finalize_stream_metrics",
+    }
     for node in ast.walk(tree):
         if isinstance(node, ast.Attribute) and node.attr in delivery_names:
             counts["delivery_accesses"] += 1
@@ -127,6 +137,8 @@ def inventory(source):
             counts["planning_accesses"] += 1
         if isinstance(node, ast.Attribute) and node.attr in execution_control_names:
             counts["execution_control_accesses"] += 1
+        if isinstance(node, ast.Attribute) and node.attr in metrics_names:
+            counts["metrics_accesses"] += 1
         if isinstance(node, ast.Attribute) and node.attr.startswith("_"):
             counts["private_attributes"] += 1
             counts["raw_state"] += node.attr == "__dict__"
@@ -135,6 +147,7 @@ def inventory(source):
             counts["delivery_accesses"] += key in delivery_names
             counts["planning_accesses"] += key in planning_names
             counts["execution_control_accesses"] += key in execution_control_names
+            counts["metrics_accesses"] += key in metrics_names
             if key and key.startswith("_"):
                 counts["raw_state"] += 1
         if not isinstance(node, ast.Call):
@@ -149,6 +162,7 @@ def inventory(source):
             counts["delivery_accesses"] += key in delivery_names
             counts["planning_accesses"] += key in planning_names
             counts["execution_control_accesses"] += key in execution_control_names
+            counts["metrics_accesses"] += key in metrics_names
             if key is None:
                 counts["dynamic_probes"] += 1
             elif key.startswith("_"):
@@ -159,6 +173,7 @@ def inventory(source):
             counts["delivery_accesses"] += key in delivery_names
             counts["planning_accesses"] += key in planning_names
             counts["execution_control_accesses"] += key in execution_control_names
+            counts["metrics_accesses"] += key in metrics_names
             if key and key.startswith("_"):
                 counts["raw_state"] += 1
     return counts
@@ -187,6 +202,9 @@ def test_chat_cluster_boundary_counts_only_shrink(filename):
         ("renamed._cancel_event.set()", "execution_control_accesses"),
         ("renamed._is_streaming = False", "execution_control_accesses"),
         ("renamed._check_cancellation()", "execution_control_accesses"),
+        ("renamed._metrics_collector.record_first_token()", "metrics_accesses"),
+        ("renamed._metrics_coordinator.finalize_stream_metrics({})", "metrics_accesses"),
+        ("renamed._finalize_stream_metrics({})", "metrics_accesses"),
         ("getattr(renamed, '_message_policy_gate')", "execution_control_accesses"),
         ("renamed.__dict__.get('_tool_pipeline')", "execution_control_accesses"),
         ("read = getattr\nread(renamed, 'sani' + 'tizer')", "delivery_accesses"),

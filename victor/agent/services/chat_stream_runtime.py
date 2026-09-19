@@ -481,17 +481,13 @@ class ServiceStreamingRuntime(ChatStreamHelperMixin):
                     # once here (this finally runs once per turn; the continuation runtime owns
                     # its own finalize on the legacy path), reusing the existing pipeline.
                     try:
-                        # Route through the metrics service directly so the turn's
-                        # aggregated Sandhi diagnostics ride along (the orchestrator
-                        # wrapper predates that parameter); fall back to the wrapper.
+                        # Keep Sandhi diagnostics on the same typed capability as
+                        # initialization and first-token timing.
                         diagnostics = getattr(ctx, "provider_diagnostics", None) or None
-                        metrics_owner = getattr(self._orchestrator, "_metrics_coordinator", None)
-                        if metrics_owner is not None:
-                            metrics_owner.finalize_stream_metrics(
-                                ctx.cumulative_usage, provider_diagnostics=diagnostics
-                            )
-                        else:
-                            self._orchestrator._finalize_stream_metrics(ctx.cumulative_usage)
+                        self.services.metrics.finalize(
+                            ctx.cumulative_usage,
+                            provider_diagnostics=diagnostics,
+                        )
                     except Exception:
                         logger.debug("C0 stream-metrics finalize failed", exc_info=True)
 

@@ -17,6 +17,7 @@ from victor.agent.services.chat_runtime_services import (
     ChatGovernance,
     ChatRuntimeServices,
     ChatStreamLifecycle,
+    ChatStreamMetrics,
     ChatToolCalls,
     SessionTaskRequirementState,
 )
@@ -165,6 +166,38 @@ class _ChatStreamLifecycleView(_WeakOwner):
         owner._cancel_event = None
 
 
+class _ChatStreamMetricsView(_WeakOwner):
+    """Resolve the two metrics components behind one streaming capability."""
+
+    __slots__ = ()
+
+    def _collector(self) -> Any:
+        collector = getattr(self._owner(), "_metrics_collector", None)
+        if collector is None:
+            raise TypeError("Chat streaming metrics require a collector")
+        return collector
+
+    def begin(self) -> Any:
+        return self._collector().init_stream_metrics()
+
+    def record_first_token(self) -> None:
+        self._collector().record_first_token()
+
+    def finalize(
+        self,
+        usage_data: dict[str, int],
+        *,
+        provider_diagnostics: dict[str, Any] | None = None,
+    ) -> Any:
+        coordinator = getattr(self._owner(), "_metrics_coordinator", None)
+        if coordinator is None:
+            raise TypeError("Chat streaming metrics require a coordinator")
+        return coordinator.finalize_stream_metrics(
+            usage_data,
+            provider_diagnostics=provider_diagnostics,
+        )
+
+
 class _ChatToolCallView(_WeakOwner):
     """Resolve tool collaborators at call time without retaining the facade."""
 
@@ -243,6 +276,7 @@ def bind_chat_runtime_services(runtime_owner: Any) -> ChatRuntimeServices:
         session=SessionTaskRequirementState(accessor),
         stream_turn_lock=accessor.stream_turn_lock,
         stream_lifecycle=ChatStreamLifecycle(_ChatStreamLifecycleView(owner)),
+        metrics=ChatStreamMetrics(_ChatStreamMetricsView(owner)),
         delivery=ChatDelivery(
             chunks=getattr(owner, "_chunk_generator", None),
             sanitizer=getattr(owner, "sanitizer", None),

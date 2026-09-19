@@ -8,8 +8,9 @@ import pytest
 from victor.agent.metrics_collector import MetricsCollector, MetricsCollectorConfig
 from victor.agent.services.chat_delivery import ChatDelivery
 from victor.agent.services.chat_runtime_services import (
-    ChatStreamLifecycle,
     ChatRuntimeServices,
+    ChatStreamLifecycle,
+    ChatStreamMetrics,
     SessionTaskRequirementState,
 )
 from victor.agent.services.chat_stream_helpers import ChatStreamHelperMixin
@@ -24,10 +25,36 @@ from victor.providers.base import StreamChunk
 from victor.providers.usage_parsing import usage_dict_from_neutral
 
 
+class _MetricsRuntime:
+    def __init__(self, collector, coordinator):
+        self.collector = collector
+        self.coordinator = coordinator
+
+    def begin(self):
+        return self.collector.init_stream_metrics()
+
+    def record_first_token(self):
+        self.collector.record_first_token()
+
+    def finalize(self, usage_data, *, provider_diagnostics=None):
+        return self.coordinator.finalize_stream_metrics(
+            usage_data,
+            provider_diagnostics=provider_diagnostics,
+        )
+
+
 class Helper(ChatStreamHelperMixin):
     def __init__(self, orchestrator):
         self._orchestrator = orchestrator
-        self.services = SimpleNamespace(delivery=ChatDelivery(sanitizer=orchestrator.sanitizer))
+        self.services = SimpleNamespace(
+            delivery=ChatDelivery(sanitizer=orchestrator.sanitizer),
+            metrics=ChatStreamMetrics(
+                _MetricsRuntime(
+                    orchestrator._metrics_collector,
+                    orchestrator._metrics_coordinator,
+                )
+            ),
+        )
 
 
 @pytest.mark.parametrize(
@@ -114,6 +141,7 @@ async def test_terminal_usage_reaches_session_cost_and_canonical_record(
         services=ChatRuntimeServices(
             SessionTaskRequirementState(SessionStateAccessor(SessionStateManager())),
             ChatStreamLifecycle(MagicMock()),
+            metrics=helper.services.metrics,
         ),
     )
     bindings = SimpleNamespace(
