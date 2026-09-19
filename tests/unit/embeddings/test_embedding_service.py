@@ -409,8 +409,12 @@ class TestEmbeddingFallback:
             return original_import(name, *args, **kwargs)
 
         with patch.object(builtins, "__import__", side_effect=mock_import):
-            with pytest.raises(ImportError, match="sentence-transformers not installed"):
+            with pytest.raises(
+                ImportError, match="sentence-transformers could not be imported"
+            ) as exc:
                 service._ensure_model_loaded()
+        assert "No module named 'sentence_transformers'" in str(exc.value)
+        assert "pip install" in str(exc.value)
 
 
 class TestCosineSimilarity:

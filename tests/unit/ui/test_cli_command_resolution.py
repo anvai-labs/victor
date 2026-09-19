@@ -18,9 +18,12 @@ Guards against regressions of the UX where unknown / mistyped commands emitted
 a bare "No such command" and where no ``help`` subcommand existed.
 """
 
+import pytest
+import typer
 from typer.testing import CliRunner
 
 from victor.ui.cli import app
+from victor.ui.cli_group import SuggestingGroup, _TyperUsageError
 
 runner = CliRunner()
 
@@ -105,3 +108,42 @@ def test_truly_unknown_command_still_errors():
 
     assert result.exit_code != 0
     assert "No such command" in _all_output(result)
+
+
+def test_suggestion_preserves_native_error_and_original_consumed_token(monkeypatch):
+    """Do not replace Typer's native error with an incompatible Click error."""
+    group = SuggestingGroup(name="victor")
+    group.add_command(typer.core.TyperCommand(name="help"))
+    ctx = typer.Context(group, info_name="victor")
+    error = _TyperUsageError("No such command 'hwlp'.", ctx=ctx)
+
+    def consume_then_fail(self, context, args):
+        args.clear()
+        raise error
+
+    monkeypatch.setattr(typer.core.TyperGroup, "resolve_command", consume_then_fail)
+
+    with pytest.raises(_TyperUsageError) as caught:
+        group.resolve_command(ctx, ["hwlp"])
+
+    assert caught.value is error
+    assert caught.value.ctx is ctx
+    assert "victor help" in caught.value.message
+
+
+def test_other_usage_errors_are_not_rewritten_as_command_suggestions(monkeypatch):
+    group = SuggestingGroup(name="victor")
+    group.add_command(typer.core.TyperCommand(name="help"))
+    ctx = typer.Context(group, info_name="victor")
+    error = _TyperUsageError("Missing argument 'VALUE'.", ctx=ctx)
+
+    def fail(self, context, args):
+        raise error
+
+    monkeypatch.setattr(typer.core.TyperGroup, "resolve_command", fail)
+
+    with pytest.raises(_TyperUsageError) as caught:
+        group.resolve_command(ctx, ["hwlp"])
+
+    assert caught.value is error
+    assert caught.value.message == "Missing argument 'VALUE'."

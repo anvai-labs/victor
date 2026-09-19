@@ -21,6 +21,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   and recovery, literal retrieval, and semantic dispatch/fallback without model
   downloads or a live vector database.
 
+### Fixed
+
+- Preserve full-path CLI suggestions with Typer's vendored Click runtime and
+  keep unrelated usage errors on their native exception path.
+
 ## [0.10.0] - 2026-09-17
 
 ### Added
