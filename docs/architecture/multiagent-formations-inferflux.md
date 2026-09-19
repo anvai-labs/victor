@@ -457,7 +457,7 @@ and `termination_func` returns a boolean. Callback exceptions fail with warnings
 Member results accumulate repeated-turn costs while `shared_context` exposes
 `conversation_transcript` and `conversation_termination`.
 
-Consumer decisions are in [FEP-0035](../../feps/fep-0035-conversation-native-team-formations.md).
+Consumer decisions are in [FEP-0035](https://github.com/anvai-labs/victor/blob/develop/feps/fep-0035-conversation-native-team-formations.md).
 `member_spoke` carries a transcript sequence; `member_handoff` carries source,
 target, and sequence. The stream/wire bridge preserves these fields. Existing UI
 lanes intentionally ignore these additive events and retain lifecycle rendering.

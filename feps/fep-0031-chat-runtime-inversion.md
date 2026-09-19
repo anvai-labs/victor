@@ -17,19 +17,18 @@ discussion: https://github.com/anvai-labs/victor/discussions/0031
 
 ## Summary
 
-Victor's chat turn lifecycle is split across three layers with the **orchestrator owning the
-glue**: `ChatService` frames the turn and immediately calls back into eight orchestrator-supplied
-handlers (`bind_runtime_components`); `TurnExecutor` (service layer) already builds and drives the
-`AgenticLoop`; and `AgentOrchestrator` — the documented *facade* — still supplies every runtime,
-owns turn setup/teardown, task-report framing, tool selection, and context-limit handling, and is
-reached around **53 sites calling `orch._*` privates** (55 occurrences) in the chat streaming
-cluster (4,349 lines across `chat_stream_runtime.py` / `chat_stream_executor.py` /
-`chat_stream_helpers.py` / `streaming_act_adapter.py`), touching **29 distinct facade
-internals**, with `TurnExecutor` reaching back via `_resolve_orchestrator()` at 10 call sites. This FEP inverts that:
-ChatService owns the turn lifecycle end-to-end, receives frozen per-turn state instead of
-setup/teardown handler pairs, and the chat runtime cluster depends on a narrow, explicitly
-enumerated `ChatRuntimeServices` view instead of the orchestrator's privates. Public contracts
-(`Agent.run`/`Agent.stream`, `orchestrator.chat()`'s facade methods) are unchanged.
+!!! info "Implementation status — 2026-09-19"
+
+    **In progress.** Requirements/delivery, planning, the service-owned turn frame and
+    stream execution controls are integrated. Broader runtime state, factories and facade
+    shims remain. Public `Agent.run()` / `Agent.stream()` contracts are unchanged.
+
+The proposal baseline had the orchestrator owning the glue across three layers: eight
+`bind_runtime_components` handlers, about **53 `orch._*` sites** in the chat stream cluster,
+29 distinct facade internals and 10 `TurnExecutor._resolve_orchestrator()` call sites.
+This FEP replaces that reach-through with `ChatService` lifecycle ownership and an explicit
+`ChatRuntimeServices` capability view. The progress sections below separate landed slices
+from the remaining target.
 
 ## Motivation
 

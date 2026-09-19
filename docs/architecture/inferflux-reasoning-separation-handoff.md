@@ -1,8 +1,7 @@
 # InferFlux reasoning-separation consumer contract
 
-**Updated:** 2026-09-17 · **Status:** Implemented in the v0.9.5 release candidate;
-promotion, final CI and publication remain pending. Context replay policy remains a separate
-product decision.
+**Updated:** 2026-09-19 · **Status:** Victor consumer correction published in v0.9.5.
+Context replay policy remains a separate product decision.
 
 ## Context
 
@@ -34,25 +33,24 @@ of the framework and runtime layers.
 
 ## Current Victor behavior
 
-The v0.9.5 candidate is rebased onto Victor develop `2311fa1f2f5454e56e144ea553751cd402117989`;
-its scope includes that develop branch, not only the original focused consumer patch.
-`pyproject.toml` pins `sandhi-gateway==0.7.0`, and the transport recognizes chat contract minor 8.
-Sandhi 0.7.0 is published and independently verified; its published Linux wheel was installed
-in the isolated review environment and passed all 18 three-repository CPU/stub probes.
-The three deployment locks match the core pin. Clean candidate installation remains a gate.
+The focused v0.9.5 release was promoted to protected main at `e7bbb9427`. It carries the
+consumer accounting correction, aligned Sandhi pins, tests and release records; it excludes
+the broader 0.10.0 develop feature set. `pyproject.toml` and the three deployment locks pin
+`sandhi-gateway==0.7.0`; the transport recognizes chat contract minor 8. The published Sandhi
+wheel passed all 18 three-repository CPU/stub probes in an isolated review environment.
 
-The candidate preserves boolean `reasoning_included` through response models, folds separate
+The release preserves boolean `reasoning_included` through response models, folds separate
 reasoning into billable output per call before accumulation, and carries that numeric result
 through stream finalization and session pricing. Raw completion counts remain separately
 observable. Missing totals include separate reasoning; explicit provider totals are retained.
 Duration and TTFT retain independent origin/boundary labels in stream metrics and the canonical
 usage record.
 
-Release review also corrected two interactions with the expanded develop scope: caller-curated
+Subsequent develop work corrected two interactions outside the focused release: caller-curated
 tool sets take precedence over pruning and demand hydration, with finalized supply traces; member
 session context is scoped to stream setup, advances and cleanup, restored before outward yields.
-Timeout cleanup explicitly closes the member stream. These are candidate changes awaiting final
-review and CI, not claims about published v0.9.5 artifacts.
+Timeout cleanup explicitly closes the member stream. These changes belong to the 0.10.0
+development line and are not part of the published v0.9.5 artifacts.
 
 `tests/unit/providers/test_sandhi_event_conformance.py` pins Sandhi's `reasoning_delta` event to
 `chunk.metadata["reasoning_content"]`. Its InferFlux-shaped typed-event fixture verifies that
@@ -96,18 +94,18 @@ or trimming policy; InferFlux and Sandhi remain authoritative for the producer a
 
 ## Verification
 
-- The broader provider/accounting suite passed 1,585 tests (13 optional skips). Independent
+- The release-review provider/accounting suite passed 1,585 tests (13 optional skips). Independent
   tool/session review passed 125 tests plus cancellation, interleaved-member, cross-task cleanup
-  and early-close probes. These are local results, not a substitute for final exact-commit CI.
-- Current candidate regressions cover the production terminal-chunk consumer, turn accumulator,
+  and early-close probes. The tag release workflow is the publication authority.
+- Release regressions cover the production terminal-chunk consumer, turn accumulator,
   real metrics collector and session tracker in
   `tests/unit/agent/services/test_codesign_usage_pipeline.py`. They exercise folded, separate,
   mixed-call and legacy reasoning, totals, costs and latency provenance.
 - The 2026-09-17 session-context fix passed 74 related subagent tests locally, including real
   ContextVar checks at every yield, early termination on a final chunk, cleanup in another task,
   lazy setup, the wrapper's timeout path and synchronous stream-factory failure cleanup.
-  Curated-tool regressions exercise pruning both on
-  and off, missing tools and trace emission. Exact final-commit CI remains a separate gate.
+  Curated-tool regressions exercise pruning both on and off, missing tools and trace emission;
+  these broader develop checks are not v0.9.5 release contents.
 - The original consumer-boundary change passed 96 focused contract/transport tests. That dated
   result predates the current accounting and session-context changes.
 - Manual e2e (once, not CI-gated): **done 2026-09-16** against the production R9700 deployment
@@ -119,7 +117,7 @@ or trimming policy; InferFlux and Sandhi remain authoritative for the producer a
   UD-Q4_K_XL) completed a full agentic write→write→bash task with structured `tool_calls` on
   both streaming and non-streaming paths after the InferFlux-side fixes below landed.
 
-The historical loaded-model observation above is not validation of the final release candidate.
+The historical loaded-model observation above is not validation of every published artifact.
 The local accounting and context regressions are model-free. The separate pinned CPU/stub
 three-repository probe validates protocol integration, not tokenizer accuracy, model quality,
 GPU throughput, or production recovery. Re-run the appropriate checks against exact release

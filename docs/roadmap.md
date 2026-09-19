@@ -14,24 +14,22 @@ evaluation loop and gating every change on it over adding new capabilities.
 
 ---
 
-## Now — September 2026: v0.10.0 release candidate and remaining Stage C work
+## Now — September 2026: published v0.9.5 and the 0.10.0 development line
 
-As of 2026-09-17, the candidate includes the reviewed Sandhi 0.7 consumer-accounting
-work and follow-up tool-curation/session-context fixes from #1096. Version metadata
-is prepared; final exact-commit CI, promotion and publication are pending. The
-[consumer handoff](architecture/inferflux-reasoning-separation-handoff.md) records
-behavior, tests and the boundary between model-free checks and loaded-model evidence.
+!!! info "Release boundary"
 
-Victor AI 0.9.4 shipped on 2026-09-16 with the security and deployment-hardening
-batch; Victor Contracts 0.9.2 followed independently on 2026-09-17. The current
-0.10.0 candidate adds the InferFlux default-provider change, FEP-0034 tool-supply
-consolidation, TUI responsiveness work, MCP lifecycle improvements, Node 24 and
-refreshed deployment locks. The 0.x minor-version bump reflects the default-provider
-change and the accumulated feature surface.
+    **Published:** Victor AI 0.9.5 on 2026-09-18 (`v0.9.5`, main `e7bbb9427`).
+    **Develop:** version 0.10.0 with additional features and fixes; not yet published.
 
-The broader FEP-0031 runtime inversion and the remaining Stage C items below are
-still tracked independently; their draft designs are not implied to be complete by
-this release.
+The focused 0.9.5 release carries the Sandhi 0.7 consumer-accounting correction and
+its exact release tests. The [consumer handoff](architecture/inferflux-reasoning-separation-handoff.md)
+records the contract and evidence.
+
+Develop adds the InferFlux default, the FEP-0034 tool-supply pipeline, TUI and MCP
+improvements, a Node 24 minimum for the extension toolchain, refreshed deployment locks,
+expanded team formations, and the
+current FEP-0031 runtime-inversion slices. The 0.x minor bump fits the default change
+and accumulated feature surface.
 
 The [co-design review backlog](reviews/2026-09-03-codesign/README.md) is the detailed item/PR
 ledger. Its unit reviews remain a dated record; the execution status below does not rewrite
@@ -39,12 +37,13 @@ those original findings.
 
 | Work | Current status | Design / tracker |
 | --- | --- | --- |
-| Three-way origin/consumer contract | v0.10.0 candidate: per-call reasoning billing, totals and timing provenance preserved through actual streaming accumulation and session pricing. Publication and clean-install checks remain pending. | [Consumer handoff](architecture/inferflux-reasoning-separation-handoff.md), ADR-022 |
-| Tool-supply consolidation | Shared hydration, stable schema builders and agentic supply traces implemented; release candidate enforces curated-tool precedence. Full transport-entry unification remains pending. | [FEP-0034](https://github.com/anvai-labs/victor/blob/develop/feps/fep-0034-tool-supply-pipeline-consolidation.md) |
-| Member session isolation | The candidate scopes streaming member context to orchestration work and cleanup, restoring callers before yields; real ContextVar regressions cover early termination and timeout. Final review/CI pending. | [Consumer handoff](architecture/inferflux-reasoning-separation-handoff.md) |
+| Three-way origin/consumer contract | Published in 0.9.5: reasoning billing, totals and timing provenance reach streaming accumulation and session pricing. | [Consumer handoff](architecture/inferflux-reasoning-separation-handoff.md), ADR-022 |
+| Tool-supply consolidation | Stages A–C are integrated: shared hydration, stable definitions, one turn-selection path and supply traces. FEP status remains Draft until its release/status closeout. | [FEP-0034](https://github.com/anvai-labs/victor/blob/develop/feps/fep-0034-tool-supply-pipeline-consolidation.md) |
+| Multi-agent formations | Adaptive routing, hierarchy, bounded conversation, handoff, debate and ensemble paths are integrated with isolation, capacity and usage guards. Durable conversation replay remains out of scope. | [Formation guide](architecture/multiagent-formations-inferflux.md), [FEP-0035](https://github.com/anvai-labs/victor/blob/develop/feps/fep-0035-conversation-native-team-formations.md) |
+| Member session isolation | Integrated and regression-tested across yields, early termination and timeout cleanup. | [Formation coverage](architecture/multiagent-formation-coverage-handoff.md) |
 | ADR-030 workflow engine consolidation | Completed in #1041–#1043: parity gate, adapter/caller migration, canonical streaming and BFS deletion. | [ADR-030](architecture/adr/030-single-graph-execution-engine.md), item 23 |
 | Unified chat-loop cleanup | FEP-0007 is Implemented; #1043 removed zero-caller aliases and corrected delegation comments. Optional buffered-only bands remain a separate parity follow-up. | [FEP-0007](https://github.com/anvai-labs/victor/blob/develop/feps/fep-0007-unified-agentic-loop.md), item 23 |
-| Chat runtime inversion | Partial phase 1: `ChatRuntimeServices.session` and `.delivery` bind existing owners (#1049, #1051). Remaining capabilities and ChatService-owned turn framing are pending. | [FEP-0031](https://github.com/anvai-labs/victor/blob/develop/feps/fep-0031-chat-runtime-inversion.md), item 27 |
+| Chat runtime inversion | In progress: requirements/delivery, planning, the service-owned turn frame and stream execution controls are integrated (#1049, #1051, #1129–#1132). Broader state, factories and facade shims remain. | [FEP-0031](https://github.com/anvai-labs/victor/blob/develop/feps/fep-0031-chat-runtime-inversion.md), item 27 |
 | REPL and completions client routing | Pending after runtime consolidation. | Review item 32 |
 | Graph interrupt/resume semantics | Design merged; general paused signal and resume-at semantics remain pending. | [FEP-0032](https://github.com/anvai-labs/victor/blob/develop/feps/fep-0032-interrupt-resume-semantics.md), item 24 |
 | Team coordinator split | Pending service extraction. | Review item 30 |
@@ -52,7 +51,7 @@ those original findings.
 | Vertical template bases | Pending family-by-family extraction into contracts. | [ADR-031](architecture/adr/031-vertical-template-bases-promotion.md), item 28 |
 | Documentation refresh | D1 consolidation, D2 diagrams, and D3 Pages/checker shipped with 0.9.2. GitHub Pages is live and updates through main promotion. | TD-18, [documentation audit](development/docs-audit-2026-09.md) |
 
-FEP-0031/0032/0033 currently retain **Draft** frontmatter. A merged design document does not
+FEP-0031/0032/0033/0034/0035 currently retain **Draft** frontmatter. A merged design document does not
 mean its full proposed implementation has shipped. This page describes the
 **0.10.0 release-candidate** source snapshot; the
 [release history](https://github.com/anvai-labs/victor/releases) records
@@ -106,6 +105,13 @@ addressed by a single stable oid.
 
 
 ## Release history
+
+### v0.9.5 focused consumer correction (September 2026)
+
+v0.9.5 shipped on 2026-09-18 from protected main `e7bbb9427`. It preserves
+Sandhi reasoning inclusion, raw and billable usage, reported totals, and timing
+provenance through Victor's streaming/session accounting path. The focused cut
+excluded the broader 0.10.0 develop feature set.
 
 ### v0.9.4 security closeout (September 2026)
 
@@ -182,7 +188,7 @@ extension, checksums, SBOM, GitHub Release, and Docker image. Source:
 
 | TD-20 | Framework stdout log volume | A stuck real-agent calibration wrote **~350 GB** to one redirected log and filled the disk (2026-07-06; held open by the live PID so `rm` freed nothing until killed). Root cause on investigation was *not* a single fat log line — every content log is already bounded (`reasoning[:500]`, `content[:300]`) or a short breadcrumb. It was a **wedged loop** (PID stuck 7.5 h) emitting the steady stream of per-turn INFO breadcrumbs across the flood-logger set into an unbounded file. Volume + accumulation are handled: `configure_logging` (calibration runner, quiet-by-default, #428) raises flood loggers to ERROR, and `os._exit` (#431) stops a wedged loop accumulating. **Residual gap #428 did not cover:** it raises to ERROR (not OFF), and several ERROR/WARNING error-path logs interpolated *untruncated* content (full ollama HTTP error bodies, full tool exception text/tracebacks) — so an error-spinning loop still floods in quiet mode. Fixed by capping those via `truncate_for_log` (`victor/core/utils/log_helpers.py`, 500-char ceiling) at the ollama provider + tool-retry/tool-service error paths. The per-turn breadcrumbs stay at INFO by design (cheap, useful interactively, already gated by #428 for batch runs); DB-migration logs are already guarded (`if migrated > 0`, `if version <`), firing once per DB open — cosmetic, not flood-scale. | Medium | Resolved | `victor/core/utils/log_helpers.py`, `victor/providers/ollama_provider.py`, `victor/agent/services/` |
 
-| TD-21 | Usage attribution + typed provider boundary | `sandhi` owns typed provider transport, usage/cache metering, virtual keys, budgets and proxy ingress. The persistent typed runtime migration is integrated. **v0.10.0 candidate pin: `sandhi-gateway==0.7.0`, contract minor 8.** Per-call reasoning accounting, totals and timing provenance now reach the stream accumulator and session pricer; see the [consumer handoff](architecture/inferflux-reasoning-separation-handoff.md) for evidence and pending release gates. Distinct protocol providers retain their explicitly classified native paths. Historical July release plans do not describe current package availability. Canonical ledger: Sandhi `docs/td/TD-0002-typed-provider-runtime.md`; decisions: FEP-0020 and ADR-018. | High | Release candidate; publication pending | `victor/providers/`, `sandhi/crates/sandhi-{core,providers,proxy}/` |
+| TD-21 | Usage attribution + typed provider boundary | `sandhi` owns typed provider transport, usage/cache metering, virtual keys, budgets and proxy ingress. Victor pins `sandhi-gateway==0.7.0`, contract minor 8. Per-call reasoning accounting, totals and timing provenance reach the stream accumulator and session pricer; see the [consumer handoff](architecture/inferflux-reasoning-separation-handoff.md). Distinct protocol providers retain explicitly classified native paths. Canonical ledger: Sandhi `docs/td/TD-0002-typed-provider-runtime.md`; decisions: FEP-0020 and ADR-018. | High | Consumer correction published in v0.9.5; broader typed-runtime work continues | `victor/providers/`, `sandhi/crates/sandhi-{core,providers,proxy}/` |
 
 | TD-22 | Interactive Terminal TUI | Build a first-class interactive **Textual** TUI (conversation pane, tool/diff pane, agent-state sidebar, keyboard nav) as a peer surface to the REPL and Chainlit web UI, driven by the existing `RenderAction` event stream — no new event vocabulary. Today only `victor/ui/tui/wire_timeline.py` (171 lines) exists and it merely *replays* a recorded JSONL stream; there is no live TUI, so terminal users must open a browser for the rich experience. Select via terminal-capability detection with the plain REPL as fallback. Decision: [ADR-020](architecture/adr/020-interactive-terminal-tui.md). **v1 shipped 2026-07-30** (`victor tui` / `victor chat --tui`, opt-in): `VictorTUIApp` with sidebar/conversation/status panes, live `feed_action` streaming, theming, capability-gated selection. **Diff pane shipped 2026-07-30** (`diff_pane.py`: unified colored diff auto-revealed on `edit`/`patch`/`replace_in_file`, F3 toggle / F4 cycle, reuses the `ToolPreviewRenderer` diff strategy). **Themes shipped 2026-07-30** (`themes.py`: dark/light/high-contrast registered Textual themes, `styles.tcss` variable-ized, `victor tui --theme`, F6 runtime cycle). TUI surface complete; the last ADR-020 item (per-member team streaming lanes) shipped via ADR-023/TD-25 (Done). | High | Done | `victor/ui/tui/` |
 

@@ -140,10 +140,10 @@ nav:
   - Tech Stack: tech-stack.md
   - Roadmap: roadmap.md
   - Architecture Deep-Dives:
-      - architecture/orchestrator_decomposition.md
+      - Orchestrator History: architecture/orchestrator_decomposition.md
       - SDK Boundary: architecture/CONTRACTS_BOUNDARY.md
       - State-Passed Coordinators: architecture/state-passed-architecture.md
-      - Streaming Pipeline: architecture/streaming-pipeline.md
+      - Streaming Runtime: architecture/streaming-pipeline.md
       - Smart Routing: architecture/smart_routing.md
       - Edge Provider Strategy: architecture/edge-provider-tool-strategy.md
       - InferFlux Reasoning Contract: architecture/inferflux-reasoning-separation-handoff.md
@@ -193,7 +193,7 @@ nav:
       - development/index.md
       - Setup: development/setup.md
       - Dependencies and Containers: development/dependencies.md
-      - Security 0.9.4 Candidate: development/security-remediation-0.9.4.md
+      - Security 0.9.4 Release: development/security-remediation-0.9.4.md
       - Code Style: development/code-style.md
       - Exception Handling: development/exception-handling.md
       - Testing: development/testing.md

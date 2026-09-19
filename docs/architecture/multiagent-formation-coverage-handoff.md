@@ -11,7 +11,7 @@ co-design learnings that motivate each item.
 
 ### 1.1 Canonical formations — implemented and live-tested (6/6)
 
-`TeamFormation` ([`victor/teams/types.py`](../../victor/teams/types.py)) defines twelve values, all registered in `UnifiedTeamCoordinator._formations`.
+`TeamFormation` ([`victor/teams/types.py`](https://github.com/anvai-labs/victor/blob/develop/victor/teams/types.py)) defines twelve values, all registered in `UnifiedTeamCoordinator._formations`.
 The original six below were verified live on
 2026-09-17 (single 3-member PARALLEL re-verified again on rebased develop, 48.2s green):
 
@@ -563,11 +563,11 @@ into the first WS-G/WS-H PR).
 ## 5. Pointers and sources
 
 - Live-matrix recipe and per-formation examples: [multiagent-formations-inferflux.md](multiagent-formations-inferflux.md)
-- Durability contract: [FEP-0028](../../feps/fep-0028-team-node-durability-contract.md), ADR-023, TD-25 (roadmap)
-- Formation strategies: [`victor/coordination/formations/`](../../victor/coordination/formations/); coordinator dispatch: `victor/teams/unified_coordinator.py` (`_formations`, `_execute_formation`)
+- Durability contract: [FEP-0028](https://github.com/anvai-labs/victor/blob/develop/feps/fep-0028-team-node-durability-contract.md), ADR-023, TD-25 (roadmap)
+- Formation strategies: [`victor/coordination/formations/`](https://github.com/anvai-labs/victor/tree/develop/victor/coordination/formations); coordinator dispatch: `victor/teams/unified_coordinator.py` (`_formations`, `_execute_formation`)
 - Session-id derivation: `SubAgentConfig.resolve_member_session_id` (`victor/agent/subagents/base.py`)
 - Heterogeneous members: `victor/framework/teams.py` (`TeamMemberSpec`, presets)
-- External-harness members: [FEP-0006](../../feps/fep-0006-external-harness-executors.md)
+- External-harness members: [FEP-0006](https://github.com/anvai-labs/victor/blob/develop/feps/fep-0006-external-harness-executors.md)
 
 ### Sources (fetched 2026-09-17)
 
