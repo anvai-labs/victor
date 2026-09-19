@@ -60,6 +60,7 @@ flowchart TB
 | [Orchestrator Decomposition](architecture/orchestrator_decomposition.md) | Facade pattern, 6 services, 23 coordinators, 10 boundary modules |
 | [SDK Boundary](architecture/CONTRACTS_BOUNDARY.md) | Plugin/vertical/extension contracts and import rules |
 | [State-Passed Architecture](architecture/state-passed-architecture.md) | Coordinator patterns, ContextSnapshot, CoordinatorResult |
+| [Native Acceleration Strategy](architecture/native-acceleration-strategy.md) | Measured Python/Rust/FFI decision rules and platform plan |
 | [Streaming Pipeline](architecture/streaming-pipeline.md) | Streaming execution pipeline design |
 | [Smart Routing](architecture/smart_routing.md) | Provider routing and selection |
 | [Edge Provider Strategy](architecture/edge-provider-tool-strategy.md) | Edge model decisions |

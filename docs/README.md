@@ -15,6 +15,7 @@ contributor guidance from dated experiments, design proposals and review evidenc
 | Deployment dependencies and container targets | [Dependency maintenance](development/dependencies.md) |
 | Security release evidence and retained findings | [0.9.4 release record](development/security-remediation-0.9.4.md) |
 | Native extension build | [Native build recipe](development/setup.md#native-extension-build) |
+| Native performance decisions | [Native acceleration strategy](architecture/native-acceleration-strategy.md) |
 | Documentation build and preview | [Documentation build](development/setup.md#documentation-build) |
 | Branches, verification and pull requests | [PR Workflow](development/PR_WORKFLOW.md) |
 | Self-hosted runner preparation | [Runner environments](development/self-hosted-runners.md) |
