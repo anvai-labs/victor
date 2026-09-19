@@ -14,6 +14,7 @@ from victor.agent.factory.chat_runtime_bindings import (
 from victor.agent.orchestrator import AgentOrchestrator
 from victor.agent.session_state_accessor import SessionStateAccessor
 from victor.agent.session_state_manager import SessionStateManager
+from victor.agent.unified_task_tracker import TrackerTaskType
 
 
 class _Owner:
@@ -40,6 +41,16 @@ def _owner() -> _Owner:
     owner._tool_pipeline = None
     owner._metrics_collector = MagicMock()
     owner._metrics_coordinator = MagicMock()
+    owner._session_state = MagicMock()
+    owner.reminder_manager = MagicMock()
+    owner.unified_tracker = MagicMock()
+    owner.unified_tracker.config = {"max_total_iterations": 50}
+    owner.unified_tracker.progress = SimpleNamespace(
+        has_prompt_requirements=False,
+        tool_budget=10,
+    )
+    owner.unified_tracker._task_config = SimpleNamespace(max_exploration_iterations=8)
+    owner.unified_tracker.max_exploration_iterations = 8
     return owner
 
 
@@ -100,6 +111,39 @@ def test_binding_routes_stream_metrics_through_enumerated_components() -> None:
         {"prompt_tokens": 7},
         provider_diagnostics={"attempts": 2},
     )
+
+
+def test_binding_routes_task_state_without_exposing_tracker_internals() -> None:
+    owner = _owner()
+    owner.unified_tracker.detect_task_type.return_value = TrackerTaskType.EDIT
+    view = bind_chat_runtime_services(owner)
+
+    view.task_state.reset_turn()
+    assert view.task_state.max_total_iterations() == 50
+    assert view.task_state.detect_task_type("change app.py") == TrackerTaskType.EDIT
+    view.task_state.set_continuation_context({"resume": True})
+    assert view.task_state.continuation_context() == {"resume": True}
+    view.task_state.publish_task_type(TrackerTaskType.EDIT)
+    assert view.task_state.apply_prompt_requirements(
+        tool_budget=25,
+        iteration_budget=12,
+    ) == (True, True)
+    assert view.task_state.max_exploration_iterations() == 8
+    view.task_state.set_tool_budget(30)
+    view.task_state.set_continuation_context(None)
+
+    owner._session_state.reset_for_new_turn.assert_called_once_with()
+    owner.unified_tracker.reset.assert_called_once_with()
+    owner.reminder_manager.reset.assert_called_once_with()
+    owner.unified_tracker.set_task_type.assert_called_once_with(TrackerTaskType.EDIT)
+    assert owner._current_task_type == "edit"
+    assert owner._pending_continuation_task_context is None
+    assert owner.unified_tracker.progress.has_prompt_requirements is True
+    assert owner.unified_tracker.set_tool_budget.call_args_list == [
+        ((25,), {}),
+        ((30,), {}),
+    ]
+    owner.unified_tracker.set_max_iterations.assert_called_once_with(12)
 
 
 def test_binding_rejects_owner_that_cannot_honor_non_retention_contract() -> None:

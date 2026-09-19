@@ -18,6 +18,7 @@ from victor.agent.services.chat_runtime_services import (
     ChatRuntimeServices,
     ChatStreamLifecycle,
     ChatStreamMetrics,
+    ChatTaskState,
     ChatToolCalls,
     SessionTaskRequirementState,
 )
@@ -198,6 +199,75 @@ class _ChatStreamMetricsView(_WeakOwner):
         )
 
 
+class _ChatTaskStateView(_WeakOwner):
+    """Coordinate the live task tracker without exposing facade-owned state."""
+
+    __slots__ = ()
+
+    def _tracker(self) -> Any:
+        tracker = getattr(self._owner(), "unified_tracker", None)
+        if tracker is None:
+            raise TypeError("Chat task state requires a unified tracker")
+        return tracker
+
+    def reset_turn(self) -> None:
+        owner = self._owner()
+        session_state = getattr(owner, "_session_state", None)
+        reminder_manager = getattr(owner, "reminder_manager", None)
+        if session_state is None or reminder_manager is None:
+            raise TypeError("Chat task state requires session and reminder state")
+        session_state.reset_for_new_turn()
+        self._tracker().reset()
+        reminder_manager.reset()
+
+    def max_total_iterations(self) -> int:
+        return int(self._tracker().config.get("max_total_iterations", 50))
+
+    def detect_task_type(self, user_message: str) -> Any:
+        return self._tracker().detect_task_type(user_message)
+
+    def set_task_type(self, task_type: Any) -> None:
+        self._tracker().set_task_type(task_type)
+
+    def publish_task_type(self, task_type: Any) -> None:
+        self._tracker().set_task_type(task_type)
+        self._owner()._current_task_type = task_type.value
+
+    def set_continuation_context(self, context: dict[str, Any] | None) -> None:
+        self._owner()._pending_continuation_task_context = context
+
+    def continuation_context(self) -> dict[str, Any] | None:
+        context = getattr(self._owner(), "_pending_continuation_task_context", None)
+        return context if isinstance(context, dict) else None
+
+    def apply_prompt_requirements(
+        self,
+        *,
+        tool_budget: int | None,
+        iteration_budget: int | None,
+    ) -> tuple[bool, bool]:
+        tracker = self._tracker()
+        tracker.progress.has_prompt_requirements = True
+        tool_budget_updated = bool(tool_budget and tool_budget > tracker.progress.tool_budget)
+        if tool_budget_updated:
+            tracker.set_tool_budget(tool_budget)
+
+        task_config = getattr(tracker, "_task_config", None)
+        configured_iterations = int(getattr(task_config, "max_exploration_iterations", 0) or 0)
+        iteration_budget_updated = bool(
+            iteration_budget and iteration_budget > configured_iterations
+        )
+        if iteration_budget_updated:
+            tracker.set_max_iterations(iteration_budget)
+        return tool_budget_updated, iteration_budget_updated
+
+    def max_exploration_iterations(self) -> int:
+        return int(self._tracker().max_exploration_iterations)
+
+    def set_tool_budget(self, budget: int) -> None:
+        self._tracker().set_tool_budget(budget)
+
+
 class _ChatToolCallView(_WeakOwner):
     """Resolve tool collaborators at call time without retaining the facade."""
 
@@ -277,6 +347,7 @@ def bind_chat_runtime_services(runtime_owner: Any) -> ChatRuntimeServices:
         stream_turn_lock=accessor.stream_turn_lock,
         stream_lifecycle=ChatStreamLifecycle(_ChatStreamLifecycleView(owner)),
         metrics=ChatStreamMetrics(_ChatStreamMetricsView(owner)),
+        task_state=ChatTaskState(_ChatTaskStateView(owner)),
         delivery=ChatDelivery(
             chunks=getattr(owner, "_chunk_generator", None),
             sanitizer=getattr(owner, "sanitizer", None),

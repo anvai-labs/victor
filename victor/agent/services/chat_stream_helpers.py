@@ -273,9 +273,7 @@ class ChatStreamHelperMixin:
 
         orch.conversation.ensure_system_prompt()
         orch._system_added = True
-        orch._session_state.reset_for_new_turn()
-        orch.unified_tracker.reset()
-        orch.reminder_manager.reset()
+        self.services.task_state.reset_turn()
 
         usage_analytics = self._get_runtime_capability_value("usage_analytics")
         if self._has_runtime_capability("usage_analytics") and usage_analytics:
@@ -288,7 +286,7 @@ class ChatStreamHelperMixin:
         if orch._context_manager and hasattr(orch._context_manager, "start_background_compaction"):
             await orch._context_manager.start_background_compaction(interval_seconds=15.0)
 
-        max_total_iterations = orch.unified_tracker.config.get("max_total_iterations", 50)
+        max_total_iterations = self.services.task_state.max_total_iterations()
 
         fallback_iteration = kwargs.get("_fallback_iteration", 0)
         if fallback_iteration > 0:
@@ -316,17 +314,17 @@ class ChatStreamHelperMixin:
         if self._has_runtime_capability("usage_analytics") and usage_analytics:
             usage_analytics.record_turn()
 
-        unified_task_type = orch.unified_tracker.detect_task_type(user_message)
+        unified_task_type = self.services.task_state.detect_task_type(user_message)
         continuation_task_context = self._resolve_continuation_task_context(
             user_message, unified_task_type
         )
-        orch._pending_continuation_task_context = continuation_task_context
+        self.services.task_state.set_continuation_context(continuation_task_context)
         if continuation_task_context is not None and continuation_task_context.get(
             "carry_forward_task_shape"
         ):
             prior_task_type = continuation_task_context["unified_task_type"]
             if prior_task_type != unified_task_type:
-                orch.unified_tracker.set_task_type(prior_task_type)
+                self.services.task_state.set_task_type(prior_task_type)
                 unified_task_type = prior_task_type
             logger.info(
                 "Continuation request detected; carrying forward prior task type: %s",
@@ -341,7 +339,7 @@ class ChatStreamHelperMixin:
             unified_task_type == TrackerTaskType.GENERAL
             and self._should_promote_general_task_to_edit(user_message)
         ):
-            orch.unified_tracker.set_task_type(TrackerTaskType.EDIT)
+            self.services.task_state.set_task_type(TrackerTaskType.EDIT)
             unified_task_type = TrackerTaskType.EDIT
             logger.info(
                 "Promoted general task type to edit for explicit write-authorized follow-up request"
@@ -361,29 +359,24 @@ class ChatStreamHelperMixin:
         # — the population dimension existed in the schema and carried no
         # information. The tracker was likewise only updated on the continuation
         # branch, leaving the tool-selection guard reading GENERAL for real edits.
-        orch.unified_tracker.set_task_type(unified_task_type)
-        orch._current_task_type = unified_task_type.value
+        self.services.task_state.publish_task_type(unified_task_type)
 
         prompt_requirements = extract_prompt_requirements(user_message)
         if prompt_requirements.has_explicit_requirements():
-            orch.unified_tracker._progress.has_prompt_requirements = True
+            tool_budget_updated, iteration_budget_updated = (
+                self.services.task_state.apply_prompt_requirements(
+                    tool_budget=prompt_requirements.tool_budget,
+                    iteration_budget=prompt_requirements.iteration_budget,
+                )
+            )
 
-            if (
-                prompt_requirements.tool_budget
-                and prompt_requirements.tool_budget > orch.unified_tracker._progress.tool_budget
-            ):
-                orch.unified_tracker.set_tool_budget(prompt_requirements.tool_budget)
+            if tool_budget_updated:
                 logger.info(
                     f"Dynamic budget from prompt: {prompt_requirements.tool_budget} "
                     f"(files={prompt_requirements.file_count}, fixes={prompt_requirements.fix_count})"
                 )
 
-            if (
-                prompt_requirements.iteration_budget
-                and prompt_requirements.iteration_budget
-                > orch.unified_tracker._task_config.max_exploration_iterations
-            ):
-                orch.unified_tracker.set_max_iterations(prompt_requirements.iteration_budget)
+            if iteration_budget_updated:
                 logger.info(
                     f"Dynamic iterations from prompt: {prompt_requirements.iteration_budget}"
                 )
@@ -398,7 +391,7 @@ class ChatStreamHelperMixin:
                 )
             )
 
-        max_exploration_iterations = orch.unified_tracker.max_exploration_iterations
+        max_exploration_iterations = self.services.task_state.max_exploration_iterations()
 
         task_classification, complexity_tool_budget = self._prepare_task(
             user_message, unified_task_type
@@ -419,7 +412,7 @@ class ChatStreamHelperMixin:
                 prior_complexity = getattr(prior_task_classification, "complexity", None)
                 if prior_budget is not None:
                     complexity_tool_budget = int(prior_budget)
-                    orch.unified_tracker.set_tool_budget(complexity_tool_budget)
+                    self.services.task_state.set_tool_budget(complexity_tool_budget)
                 logger.info(
                     "Continuation request detected; carrying forward prior task complexity: %s",
                     getattr(prior_complexity, "value", prior_complexity),
@@ -481,7 +474,7 @@ class ChatStreamHelperMixin:
         ) = await self._prepare_stream(user_message, **kwargs)
 
         task_keywords = self.services.planning.classify_task_keywords(user_message)
-        continuation_task_context = getattr(orch, "_pending_continuation_task_context", None)
+        continuation_task_context = self.services.task_state.continuation_context()
         if isinstance(continuation_task_context, dict) and continuation_task_context.get(
             "carry_forward_task_shape"
         ):
@@ -596,7 +589,7 @@ class ChatStreamHelperMixin:
             if last_compaction_policy_reason:
                 ctx.last_compaction_policy_reason = str(last_compaction_policy_reason)
         await self._initialize_stream_topology_context(ctx, user_message)
-        orch._pending_continuation_task_context = None
+        self.services.task_state.set_continuation_context(None)
 
         return ctx
 

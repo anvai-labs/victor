@@ -20,8 +20,8 @@ discussion: https://github.com/anvai-labs/victor/discussions/0031
 !!! info "Implementation status — 2026-09-19"
 
     **In progress.** Requirements/delivery, planning, the service-owned turn frame,
-    stream execution controls, lifecycle state and stream metrics are integrated. Context,
-    task/runtime state, factories and facade shims remain. Public `Agent.run()` /
+    stream execution controls, lifecycle, metrics and task-classification state are integrated.
+    Context/provider runtime state, factories and facade shims remain. Public `Agent.run()` /
     `Agent.stream()` contracts are unchanged.
 
 The proposal baseline had the orchestrator owning the glue across three layers: eight
@@ -297,6 +297,19 @@ The boundary guard gives `_metrics_collector`, `_metrics_coordinator` and
 `_finalize_stream_metrics` a zero cap. The runtime private-attribute cap falls from 48 to 45 and
 its private-probe cap from 5 to 4; the helper private-attribute cap falls from 88 to 86. Phase 1
 remains open for context, task tracking and other runtime state.
+
+### Phase 1 progress: task classification state (complete)
+
+`ChatTaskState` now owns turn reset, task-type detection/publication, continuation context,
+prompt-derived budget changes and exploration limits. Its weak live adapter keeps the existing
+session, reminder and `UnifiedTaskTracker` owners authoritative while the stream cluster sees only
+typed operations. Continuation state remains protected by the service's per-session stream lock;
+missing tracker or reset collaborators fail before provider execution.
+
+The boundary guard gives `_session_state`, `_pending_continuation_task_context`,
+`_current_task_type`, `_progress` and `_task_config` a zero cap. The helper private-attribute cap
+falls from 86 to 79 and its private-probe cap from 20 to 19. Phase 1 remains open for context,
+provider/runtime-intelligence state and the remaining facade reach-throughs.
 
 ## Benefits
 

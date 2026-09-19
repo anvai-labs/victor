@@ -62,6 +62,7 @@ one capability so callers do not accumulate facade fields.
 | Tool calls | Reset, parse and validate | Missing runtime fails closed |
 | Stream lifecycle | Start, cancellation checkpoints and terminal cleanup | Required; weak live owner |
 | Stream metrics | Initialization, first-token timing, cost and terminal diagnostics | Required; weak live owner |
+| Task state | Reset, classification, continuation and prompt-derived budgets | Required; weak live owner |
 | Feedback | Outcome recording | Best effort; weak owner |
 | Recovery | Retry and fallback coordination | Existing recovery contract |
 
@@ -99,6 +100,7 @@ flowchart LR
     E["Stream execution controls"]
     L["Stream lifecycle"]
     X["Stream metrics"]
+    K["Task classification state"]
   end
   subgraph NEXT["Remaining"]
     S["Broader runtime state"]
@@ -110,6 +112,7 @@ flowchart LR
   E --> S
   L --> S
   X --> S
+  K --> S
   S --> F --> M
 ```
 
