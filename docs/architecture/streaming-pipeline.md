@@ -63,6 +63,7 @@ one capability so callers do not accumulate facade fields.
 | Stream lifecycle | Start, cancellation checkpoints and terminal cleanup | Required; weak live owner |
 | Stream metrics | Initialization, first-token timing, cost and terminal diagnostics | Required; weak live owner |
 | Task state | Reset, classification, continuation and prompt-derived budgets | Required; weak live owner |
+| Context lifecycle | Background startup and ordered pre-iteration compaction | Newest configured policy wins; weak live owner |
 | Feedback | Outcome recording | Best effort; weak owner |
 | Recovery | Retry and fallback coordination | Existing recovery contract |
 
@@ -77,6 +78,8 @@ one capability so callers do not accumulate facade fields.
     - Resolve mutable session and controller state from its current owner.
     - Keep configured governance gates through bootstrap; malformed results are errors.
     - Preserve one metrics path from provider usage to conversation, cost and session totals.
+    - Apply one context policy per iteration: lifecycle service → context service → legacy
+      compactor. A handled no-op stops the fallback chain.
 
 | Guard | What it prevents |
 | --- | --- |
@@ -101,9 +104,10 @@ flowchart LR
     L["Stream lifecycle"]
     X["Stream metrics"]
     K["Task classification state"]
+    C["Context lifecycle"]
   end
   subgraph NEXT["Remaining"]
-    S["Broader runtime state"]
+    S["Provider and runtime-intelligence state"]
     F["Handler factories"]
     M["Facade shims and mixins"]
   end
@@ -113,6 +117,7 @@ flowchart LR
   L --> S
   X --> S
   K --> S
+  C --> S
   S --> F --> M
 ```
 

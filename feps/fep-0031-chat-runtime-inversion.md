@@ -311,6 +311,19 @@ The boundary guard gives `_session_state`, `_pending_continuation_task_context`,
 falls from 86 to 79 and its private-probe cap from 20 to 19. Phase 1 remains open for context,
 provider/runtime-intelligence state and the remaining facade reach-throughs.
 
+### Phase 1 progress: context lifecycle (complete)
+
+`ChatContextLifecycle` now owns background-compaction startup and the ordered pre-iteration
+policy: lifecycle service, context service, then the legacy compactor. Its weak adapter resolves
+live context owners and returns one normalized `ChatCompactionEvent`; the stream helper only
+records that event. A configured newer service owns the decision even when it chooses not to
+compact, so older fallbacks cannot apply a second policy.
+
+The boundary guard gives `_context_manager`, `_context_lifecycle_service`, `_context_service`,
+`_context_compactor`, `_agent_runtime_context` and `_memory_session_id` a zero cap. The helper
+private-attribute cap falls from 79 to 68 and its private-probe cap from 19 to 15. Phase 1 remains
+open for provider/runtime-intelligence state and the remaining facade reach-throughs.
+
 ## Benefits
 
 - The facade is finally *facade-only* in fact, not just docstring — the orchestrator stops

@@ -154,6 +154,7 @@ def test_view_is_enumerated_and_does_not_retain_or_forward_facade():
         "stream_turn_lock",
         "metrics",
         "task_state",
+        "context_lifecycle",
         "delivery",
         "planning",
         "governance",

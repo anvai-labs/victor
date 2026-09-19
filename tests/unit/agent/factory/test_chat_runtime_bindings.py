@@ -3,7 +3,7 @@
 import gc
 from types import SimpleNamespace
 import weakref
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -51,6 +51,12 @@ def _owner() -> _Owner:
     )
     owner.unified_tracker._task_config = SimpleNamespace(max_exploration_iterations=8)
     owner.unified_tracker.max_exploration_iterations = 8
+    owner._context_manager = None
+    owner._context_lifecycle_service = None
+    owner._context_service = None
+    owner._context_compactor = None
+    owner.settings = SimpleNamespace(context_compaction_strategy="tiered")
+    owner.tool_calls_used = 0
     return owner
 
 
@@ -144,6 +150,143 @@ def test_binding_routes_task_state_without_exposing_tracker_internals() -> None:
         ((30,), {}),
     ]
     owner.unified_tracker.set_max_iterations.assert_called_once_with(12)
+
+
+@pytest.mark.asyncio
+async def test_binding_starts_background_compaction_through_context_capability() -> None:
+    owner = _owner()
+    owner._context_manager = SimpleNamespace(start_background_compaction=AsyncMock())
+    view = bind_chat_runtime_services(owner)
+
+    await view.context_lifecycle.start_background_compaction()
+
+    owner._context_manager.start_background_compaction.assert_awaited_once_with(
+        interval_seconds=15.0
+    )
+
+
+@pytest.mark.asyncio
+async def test_binding_context_lifecycle_has_priority_and_blocks_fallbacks() -> None:
+    owner = _owner()
+    owner.get_messages = MagicMock(return_value=[{"role": "user", "content": "hello"}])
+    owner.active_session_id = "session-1"
+    owner.agent_id = "root"
+    owner.display_name = "Root"
+    owner._context_lifecycle_service = SimpleNamespace(
+        after_agent_turn=AsyncMock(
+            return_value={
+                "compacted": True,
+                "messages_removed": 2,
+                "tokens_freed": 80,
+                "strategy": "semantic",
+                "summary": "kept the plan",
+            }
+        )
+    )
+    owner._context_service = MagicMock()
+    owner._context_compactor = MagicMock()
+    view = bind_chat_runtime_services(owner)
+
+    event = await view.context_lifecycle.compact_before_iteration("continue")
+
+    assert event is not None
+    assert event.messages_removed == 2
+    assert event.tokens_freed == 80
+    assert event.strategy == "semantic"
+    assert event.summary == "kept the plan"
+    assert event.policy_reason == "context_lifecycle"
+    call = owner._context_lifecycle_service.after_agent_turn.await_args
+    assert call.args[0].agent_id == "root"
+    assert call.args[0].session_id == "session-1"
+    assert call.kwargs["messages"] == [{"role": "user", "content": "hello"}]
+    owner._context_service.get_compaction_recommendation.assert_not_called()
+    owner._context_compactor.check_and_compact.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_binding_context_lifecycle_noop_still_blocks_older_fallbacks() -> None:
+    owner = _owner()
+    owner._context_lifecycle_service = SimpleNamespace(
+        after_agent_turn=AsyncMock(return_value={"compacted": False})
+    )
+    owner._context_service = MagicMock()
+    owner._context_compactor = MagicMock()
+    view = bind_chat_runtime_services(owner)
+
+    assert await view.context_lifecycle.compact_before_iteration("continue") is None
+
+    owner._context_service.get_compaction_recommendation.assert_not_called()
+    owner._context_compactor.check_and_compact.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_binding_context_lifecycle_treats_unavailable_history_as_empty() -> None:
+    class BrokenConversation:
+        @property
+        def messages(self):
+            raise RuntimeError("history unavailable")
+
+    owner = _owner()
+    owner.get_messages = MagicMock(side_effect=RuntimeError("root history unavailable"))
+    owner._conversation_controller = BrokenConversation()
+    owner._context_lifecycle_service = SimpleNamespace(
+        after_agent_turn=AsyncMock(return_value={"compacted": False})
+    )
+    view = bind_chat_runtime_services(owner)
+
+    assert await view.context_lifecycle.compact_before_iteration("continue") is None
+
+    owner._context_lifecycle_service.after_agent_turn.assert_awaited_once()
+    assert owner._context_lifecycle_service.after_agent_turn.await_args.kwargs["messages"] == []
+
+
+@pytest.mark.asyncio
+async def test_binding_context_service_precedes_legacy_compactor() -> None:
+    owner = _owner()
+    owner.settings.context_compaction_strategy = "semantic"
+    owner._context_service = SimpleNamespace(
+        get_compaction_recommendation=MagicMock(return_value={"should_compact": True}),
+        compact_context=AsyncMock(return_value=3),
+    )
+    owner._context_compactor = MagicMock()
+    view = bind_chat_runtime_services(owner)
+
+    event = await view.context_lifecycle.compact_before_iteration("continue")
+
+    assert event is not None
+    assert event.messages_removed == 3
+    assert event.strategy == "semantic"
+    assert event.policy_reason == "context_service"
+    owner._context_compactor.check_and_compact.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_binding_uses_legacy_compactor_only_as_final_fallback() -> None:
+    owner = _owner()
+    owner._context_compactor = MagicMock()
+    owner._context_compactor.check_and_compact.return_value = SimpleNamespace(
+        action_taken=True,
+        messages_removed=4,
+        tokens_freed=120,
+    )
+    owner.conversation_controller = SimpleNamespace(
+        get_compaction_summaries=MagicMock(return_value=["legacy summary"])
+    )
+    view = bind_chat_runtime_services(owner)
+
+    event = await view.context_lifecycle.compact_before_iteration("continue")
+
+    assert event is not None
+    assert event.messages_removed == 4
+    assert event.tokens_freed == 120
+    assert event.summary == "legacy summary"
+    assert event.policy_reason == ""
+    owner._context_compactor.check_and_compact.assert_called_once_with(
+        current_query="continue",
+        force=False,
+        tool_call_count=0,
+        task_complexity="complex",
+    )
 
 
 def test_binding_rejects_owner_that_cannot_honor_non_retention_contract() -> None:
