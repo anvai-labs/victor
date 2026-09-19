@@ -64,6 +64,7 @@ DEPRECATION_NOTICE_FILES = (
 RELATED_TESTS = {
     "victor/integrations/mcp/client.py": MCP_LIFECYCLE_TESTS,
     "victor/integrations/mcp/stdio_transport.py": MCP_LIFECYCLE_TESTS,
+    "victor/ui/cli_group.py": ("tests/unit/ui/test_cli_command_resolution.py",),
     "scripts/ci/select_changed_tests.py": ("tests/unit/scripts/test_select_changed_tests.py",),
     **dict.fromkeys(DEPRECATION_NOTICE_FILES, DEPRECATION_NOTICE_TESTS),
 }
@@ -80,7 +81,10 @@ def select(changed: list[str]) -> list[str]:
         p = raw.strip()
         if not p.endswith(".py"):
             continue
-        targets.update(target for target in RELATED_TESTS.get(p, ()) if (ROOT / target).exists())
+        existing_related = tuple(
+            target for target in RELATED_TESTS.get(p, ()) if (ROOT / target).exists()
+        )
+        targets.update(existing_related)
         path = Path(p)
         name = path.name
         # Changed test file -> run it directly.
@@ -92,8 +96,6 @@ def select(changed: list[str]) -> list[str]:
         if p.startswith("victor/"):
             rel = path.relative_to("victor")
             test_dir = ROOT / "tests" / "unit" / rel.parent
-            related = RELATED_TESTS.get(p, ())
-            targets.update(target for target in related if (ROOT / target).exists())
             candidates: list[Path] = []
             if test_dir.is_dir():
                 candidates = list(test_dir.glob(f"test_{rel.stem}.py")) + list(
@@ -113,7 +115,7 @@ def select(changed: list[str]) -> list[str]:
             # Fail-closed only when NOTHING covers the source: an explicit
             # RELATED_TESTS entry (e.g. the MCP lifecycle contracts for
             # transport-only changes) is coverage, even without a mirror file.
-            if not candidates and not related:
+            if not candidates and not existing_related:
                 unmapped_sources.append(p)
     if unmapped_sources:
         joined = "\n  - ".join(unmapped_sources)
