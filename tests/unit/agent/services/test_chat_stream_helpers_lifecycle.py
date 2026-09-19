@@ -4,12 +4,21 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from victor.agent.services.chat_stream_helpers import ChatStreamHelperMixin
+from victor.agent.services.chat_runtime_services import ChatConversation, ChatFeedback
 from victor.agent.streaming.context import StreamingChatContext
 
 
 class _Helper(ChatStreamHelperMixin):
     def __init__(self, orchestrator):
         self._orchestrator = orchestrator
+        self.services = SimpleNamespace(
+            conversation=ChatConversation(),
+            feedback=ChatFeedback(
+                recorder=SimpleNamespace(
+                    record_outcome=orchestrator._record_runtime_intelligence_outcome
+                )
+            ),
+        )
 
 
 @pytest.mark.asyncio
@@ -97,3 +106,29 @@ async def test_pre_iteration_uses_context_service_before_legacy_compactor():
     assert stream_ctx.compaction_occurred is True
     assert stream_ctx.last_compaction_policy_reason == "context_service"
     assert stream_ctx.total_iterations == 2
+
+
+@pytest.mark.asyncio
+async def test_pre_iteration_cancellation_records_outcome_through_feedback_capability():
+    recorder = MagicMock()
+    orch = SimpleNamespace(
+        _check_cancellation=MagicMock(return_value=True),
+        _is_streaming=True,
+        _record_runtime_intelligence_outcome=MagicMock(
+            side_effect=AssertionError("private facade hook must not be called directly")
+        ),
+    )
+    helper = _Helper(orch)
+    helper.services.feedback = ChatFeedback(recorder=SimpleNamespace(record_outcome=recorder))
+    stream_ctx = StreamingChatContext(user_message="cancel", last_quality_score=0.42)
+
+    chunks = [chunk async for chunk in helper._run_iteration_pre_checks(stream_ctx, "cancel")]
+
+    assert [chunk.content for chunk in chunks] == ["\n\n[Cancelled by user]\n"]
+    assert orch._is_streaming is False
+    recorder.assert_called_once_with(
+        success=False,
+        quality_score=0.42,
+        user_satisfied=False,
+        completed=False,
+    )

@@ -11,6 +11,7 @@ from victor.agent.services.chat_planning import ChatPlanning
 
 from victor.agent.services.chat_runtime_services import (
     ChatCompletion,
+    ChatConversation,
     ChatFeedback,
     ChatGovernance,
     ChatRuntimeServices,
@@ -165,6 +166,31 @@ class _ChatToolCallView(_WeakOwner):
         return parser.parse_and_validate_tool_calls(tool_calls, full_content, adapter)
 
 
+class _ChatConversationView(_WeakOwner):
+    """Resolve conversation operations without retaining the facade."""
+
+    __slots__ = ()
+
+    def _controller(self) -> Any:
+        controller = getattr(self._owner(), "_conversation_controller", None)
+        if controller is None:
+            raise TypeError("Chat conversation processing requires a controller")
+        return controller
+
+    def messages(self) -> list[Any]:
+        return list(getattr(self._controller(), "messages", None) or [])
+
+    def record_actual_usage(self, prompt_tokens: int) -> None:
+        controller = self._controller()
+        total_chars = sum(len(message.content) for message in controller.messages)
+        controller.record_actual_usage(prompt_tokens, total_chars)
+
+    def persist_terminal_summary(self, summary: str) -> None:
+        controller = self._controller()
+        controller.persist_compaction_summary(summary, [])
+        controller.inject_compaction_context()
+
+
 def _runtime_owner(runtime_owner: Any) -> Any:
     return (
         runtime_owner._orchestrator
@@ -204,10 +230,8 @@ def bind_chat_runtime_services(runtime_owner: Any) -> ChatRuntimeServices:
             selection=ToolSelectionRuntime(runtime_host),
         ),
         governance=ChatGovernance(gate=getattr(owner, "_message_policy_gate", None)),
-        completion=ChatCompletion(
-            detector=getattr(owner, "_task_completion_detector", None),
-            summary_store=getattr(owner, "_conversation_controller", None),
-        ),
+        completion=ChatCompletion(detector=getattr(owner, "_task_completion_detector", None)),
+        conversation=ChatConversation(runtime=_ChatConversationView(owner)),
         tool_calls=ChatToolCalls(runtime=_ChatToolCallView(owner)),
         feedback=ChatFeedback(recorder=_ChatOutcomeView(owner)),
         recovery=getattr(owner, "_recovery_service", None)

@@ -450,6 +450,7 @@ async def test_service_streaming_runtime_create_stream_context_uses_blocked_thre
     ctx = await runtime._create_stream_context("hello")
 
     assert ctx.max_blocked_before_force == 7
+    assert not hasattr(ctx, "task_completion_detector")
 
 
 @pytest.mark.asyncio
@@ -703,6 +704,7 @@ async def test_service_streaming_runtime_stream_chat_restores_runtime_overrides(
     assert orch.task_coordinator.tool_budget == 9
     assert orch._tool_service.budget == 9
     assert orch._tool_service.history == [4, 9]
+    orch._conversation_controller.record_actual_usage.assert_called_once_with(3, 3)
     assert "_runtime_tool_context_overrides" not in orch.__dict__
     orch._runtime_intelligence.record_topology_outcome.assert_called_once()
     feedback_payload = orch._runtime_intelligence.record_topology_outcome.call_args.args[0]

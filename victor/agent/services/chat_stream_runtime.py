@@ -495,13 +495,7 @@ class ServiceStreamingRuntime(ChatStreamHelperMixin):
                         logger.debug("C0 stream-metrics finalize failed", exc_info=True)
 
                     prompt_tokens = ctx.cumulative_usage.get("prompt_tokens", 0)
-                    if prompt_tokens > 0:
-                        try:
-                            ctrl = state_dict.get("_conversation_controller")
-                            total_chars = sum(len(m.content) for m in ctrl.messages)
-                            ctrl.record_actual_usage(prompt_tokens, total_chars)
-                        except Exception:
-                            pass
+                    self.services.conversation.record_actual_usage(prompt_tokens)
 
                 topology_feedback_payload = self._build_stream_topology_feedback_payload(
                     ctx,

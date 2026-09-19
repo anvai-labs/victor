@@ -1327,7 +1327,9 @@ class StreamingChatExecutor:
         )
         stream_ctx.force_completion = True
         stream_ctx.skip_continuation = True
-        self.services.completion.persist_terminal_summary()
+        self.services.conversation.persist_terminal_summary(
+            self.services.completion.terminal_summary()
+        )
         return True
 
     @staticmethod

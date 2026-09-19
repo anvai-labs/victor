@@ -129,11 +129,12 @@ The runtime is **service-first**, with six canonical services and supporting run
 turn component add another facade-retention edge. [FEP-0031](https://github.com/anvai-labs/victor/blob/develop/feps/fep-0031-chat-runtime-inversion.md) continues the migration of the remaining streaming collaborators onto
 `ChatRuntimeServices`. The current view groups related behavior behind typed capabilities:
 session requirements, response delivery, planning, message governance, completion detection,
-tool-call processing, outcome feedback, and recovery. `chat_stream_executor.py` consumes those
-capabilities directly and no longer reaches through the facade for its former private
-collaborators. Tool-call and feedback adapters use weak owner references so their callback graphs
-cannot retain the facade. Configured governance gates survive bootstrap and malformed results fail
-closed. The runtime and helper modules still have migration work before the FEP is complete.
+conversation history/accounting, tool-call processing, outcome feedback, and recovery. The chat
+stream cluster consumes these capabilities directly and has zero remaining accesses to the seven
+migrated execution-control internals. Conversation, tool-call, and feedback adapters use weak
+owner references so their callback graphs cannot retain the facade. Configured governance gates
+survive bootstrap and malformed results fail closed. Broader runtime-state migration remains
+before the FEP is complete.
 
 ```mermaid
 ---
@@ -144,7 +145,7 @@ flowchart TB
   O["AgentOrchestrator<br/>facade and composition root"]
   C["ChatService<br/>turn owner"]
   F["ChatTurnRuntime<br/>setup · reports · teardown"]
-  V["ChatRuntimeServices<br/>session · delivery · planning<br/>governance · completion · tools · feedback · recovery"]
+  V["ChatRuntimeServices<br/>session · delivery · planning · governance<br/>completion · conversation · tools · feedback · recovery"]
   T["ToolService"]
   S["SessionService"]
   X["ContextService"]

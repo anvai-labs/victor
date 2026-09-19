@@ -9,8 +9,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - Route chat planning, task guidance, and tool selection through explicit
   runtime capabilities; route streaming governance, completion, tool-call
-  processing, and outcome feedback through the enumerated runtime view; and
-  move setup, reporting, and teardown into the service-owned chat turn frame.
+  processing, conversation history/accounting, and outcome feedback through
+  the enumerated runtime view; and move setup, reporting, and teardown into the
+  service-owned chat turn frame.
 - Preserve configured request/response governance during runtime bootstrap and
   reject invalid configured-gate results instead of treating them as disabled.
 - Headless and benchmark turns now use the shared per-turn tool-selection
