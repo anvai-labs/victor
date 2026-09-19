@@ -88,3 +88,14 @@ Full doc: `docs/development/PR_WORKFLOW.md`.
 - Changes to `victor/framework/` public APIs, protocols, or core architectural patterns require a **FEP** (Framework Enhancement Proposal, see `feps/` and CONTRIBUTING.md). New tools, providers, verticals, and bug fixes do not.
 - Type hints required on public APIs (mypy-enforced); Google-style docstrings; async/await for I/O; `respx` for HTTP mocking in tests.
 - Versioning: `VERSION` file is the source of truth; `make sync-version` / `make check-version` keep victor-ai and victor-contracts in sync. victor-contracts releases independently (`sdk-v*` tags).
+
+### Performance and native-code choices
+
+- Choose architecture from measured end-to-end latency, throughput, CPU, memory, and reliability on representative workloads. Profile first; do not infer a hot path from file size or rewrite Python merely because compiled code may be faster.
+- Simplify the algorithm, data flow, allocation rate, cache behavior, concurrency, and dependency surface before changing languages. Keep orchestration and I/O in typed async Python.
+- For stable CPU-bound batch work that still misses a measured target, extend the existing Rust workspace through PyO3. Batch inputs, minimize FFI crossings and copies, release the interpreter for measured multi-millisecond Rust-only work, and use portable release targets with runtime feature detection.
+- Do not add Cython, Numba, a direct CPython C/C++ extension, or another native toolchain unless a benchmarked case cannot be served cleanly by Python, a vectorized dependency already in that deployment shape, or the existing Rust/PyO3 path. Record the exception and its build, wheel, debugging, and maintenance cost in the design review.
+- Every native path must preserve a typed Python reference implementation or an explicit installation requirement, differential parity tests, production-size benchmarks, bounded failure semantics, and observability of native versus fallback dispatch. Never replay a side effect after an FFI failure.
+- Treat packaging as part of correctness: validate supported Python versions, operating systems, architectures, baseline CPU features, wheel installation, and fallback behavior before merge. A local `target-cpu=native` result is not release evidence.
+- A performance refactor is complete only when it improves the measured user-level target without weakening correctness, cancellation, security, portability, or maintainability. Remove experiments that fail that gate.
+- Use [Native Acceleration Strategy](docs/architecture/native-acceleration-strategy.md) for the decision matrix and current audit priorities.

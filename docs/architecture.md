@@ -669,6 +669,9 @@ flowchart LR
 
 **Build**: follow the [canonical native extension recipe](development/setup.md#native-extension-build).
 
+**Design decisions**: follow the [native acceleration strategy](architecture/native-acceleration-strategy.md)
+before moving Python work across an FFI boundary or introducing another compiled toolchain.
+
 **Fallback pattern**: native processing paths provide Python fallbacks when Rust extensions
 are absent. Exact token counting uses native `BpeTokenizer` with the Python reference behavior;
 the required `native-parity` job in `CI Success` checks native/fallback agreement.
