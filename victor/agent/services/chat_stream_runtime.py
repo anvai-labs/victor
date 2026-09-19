@@ -149,27 +149,12 @@ class ServiceStreamingRuntime(ChatStreamHelperMixin):
             from victor.agent.services.chat_stream_executor import (
                 create_streaming_chat_executor,
             )
-            from victor.agent.services.runtime_intelligence import (
-                RuntimeIntelligenceService,
-            )
 
             bindings = self._get_runtime_bindings()
-            orch = bindings.runtime_owner
-            state_host = bindings.state_host
-            state_dict = bindings.state_dict
             perception = bindings.get_capability_value("perception_integration")
             fulfillment = bindings.get_capability_value("fulfillment_detector")
-            runtime_intelligence = state_dict.get("_runtime_intelligence")
-            if runtime_intelligence is None:
-                runtime_intelligence = RuntimeIntelligenceService.from_orchestrator(
-                    orch,
-                    perception_integration=perception,
-                    optimization_injector=state_dict.get("_optimization_injector"),
-                )
-                state_host._runtime_intelligence = runtime_intelligence
             self._streaming_executor = create_streaming_chat_executor(
                 self,
-                runtime_intelligence=runtime_intelligence,
                 perception=perception,
                 fulfillment=fulfillment,
             )
@@ -500,17 +485,7 @@ class ServiceStreamingRuntime(ChatStreamHelperMixin):
                 )
                 if topology_feedback_payload is not None:
                     ctx.topology_events = list(topology_feedback_payload["topology_events"])
-                    runtime_intelligence = state_dict.get("_runtime_intelligence")
-                    if runtime_intelligence is not None and hasattr(
-                        runtime_intelligence, "record_topology_outcome"
-                    ):
-                        try:
-                            runtime_intelligence.record_topology_outcome(topology_feedback_payload)
-                        except Exception as exc:
-                            logger.debug(
-                                "Failed to record streaming topology runtime outcome: %s",
-                                exc,
-                            )
+                    self.services.intelligence.record_topology_outcome(topology_feedback_payload)
 
                 degradation_feedback_payload = self._build_stream_degradation_feedback_payload(
                     ctx,

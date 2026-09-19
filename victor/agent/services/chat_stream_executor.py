@@ -54,7 +54,7 @@ def _raise_if_stream_cancelled(services: ChatRuntimeServices) -> None:
 def _cancelled_stream_chunk(services: ChatRuntimeServices, stream_ctx: Any) -> StreamChunk:
     """Close live cancellation state and return its terminal failure signal."""
     services.stream_lifecycle.finish()
-    services.feedback.record_outcome(
+    services.intelligence.record_outcome(
         success=False,
         quality_score=float(getattr(stream_ctx, "last_quality_score", 0.0) or 0.0),
         user_satisfied=False,
@@ -268,13 +268,12 @@ class StreamingChatExecutor:
     def __init__(
         self,
         runtime_owner: StreamingExecutionRuntimeProtocol,
-        runtime_intelligence: Optional[Any] = None,
         perception: Optional[Any] = None,
         fulfillment: Optional[Any] = None,
         confidence_monitor: Optional[Any] = None,
     ) -> None:
         self._runtime_owner = runtime_owner
-        self._runtime_intelligence = runtime_intelligence
+        runtime_intelligence = self._get_runtime_intelligence()
         resolved_policy = getattr(runtime_intelligence, "evaluation_policy", None)
         if not isinstance(resolved_policy, RuntimeEvaluationPolicy):
             resolved_policy = RuntimeEvaluationPolicy()
@@ -291,6 +290,13 @@ class StreamingChatExecutor:
     def services(self) -> ChatRuntimeServices:
         """Return the runtime's explicitly bound service capabilities."""
         return self._runtime_owner.services
+
+    def _get_runtime_intelligence(self) -> Any:
+        """Resolve the optional learned runtime through its typed capability."""
+        intelligence = getattr(self.services, "intelligence", None)
+        if intelligence is None:
+            return None
+        return intelligence.executor_runtime()
 
     @staticmethod
     def _normalize_visible_content_key(content: str) -> str:
@@ -1348,7 +1354,7 @@ class StreamingChatExecutor:
             else:
                 recovery_ctx = create_recovery_context(stream_ctx)
                 fallback_msg = recovery.get_recovery_fallback_message(recovery_ctx)
-                self.services.feedback.record_outcome(
+                self.services.intelligence.record_outcome(
                     success=False,
                     quality_score=0.3,
                     user_satisfied=False,
@@ -1627,7 +1633,7 @@ class StreamingChatExecutor:
         loop = AgenticLoop(
             orchestrator=None,
             turn_executor=_te,
-            runtime_intelligence=self._runtime_intelligence,
+            runtime_intelligence=self._get_runtime_intelligence(),
             max_iterations=getattr(stream_ctx, "max_total_iterations", 10),
             enable_fulfillment_check=True,
             enable_adaptive_iterations=True,
@@ -1672,14 +1678,12 @@ class StreamingChatExecutor:
 
 def create_streaming_chat_executor(
     runtime_owner: StreamingExecutionRuntimeProtocol,
-    runtime_intelligence: Optional[Any] = None,
     perception: Optional[Any] = None,
     fulfillment: Optional[Any] = None,
 ) -> StreamingChatExecutor:
     """Factory helper for creating the canonical service-owned executor."""
     return StreamingChatExecutor(
         runtime_owner,
-        runtime_intelligence=runtime_intelligence,
         perception=perception,
         fulfillment=fulfillment,
     )

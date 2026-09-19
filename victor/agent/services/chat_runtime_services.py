@@ -5,8 +5,9 @@
 
 FEP-0031 phase 1 is incremental: task requirements, response delivery,
 planning/guidance, stream execution controls, lifecycle, metrics, task
-classification, and context lifecycle have migrated. The view keeps an explicit
-capability shape while resolving mutable session-owned state at its canonical owners.
+classification, context lifecycle, and runtime intelligence have migrated. The
+view keeps an explicit capability shape while resolving mutable state at its
+canonical owners.
 """
 
 from __future__ import annotations
@@ -241,8 +242,34 @@ class ChatToolCalls:
         return self.runtime.parse_and_validate(tool_calls, full_content)
 
 
-class OutcomeRecorder(Protocol):
-    """Runtime feedback sink without exposing its composition owner."""
+@dataclass(frozen=True, slots=True)
+class ChatRoutingIntelligence:
+    """Learned routing additions and their optional serialized policy."""
+
+    context: dict[str, Any] = field(default_factory=dict)
+    structured_policy: dict[str, Any] | None = None
+
+
+class RuntimeIntelligenceRuntime(Protocol):
+    """Learning and routing operations consumed by streaming chat."""
+
+    def executor_runtime(self) -> Any: ...
+
+    async def prepare_request(
+        self,
+        *,
+        task: str,
+        task_type: str,
+    ) -> dict[str, Any] | None: ...
+
+    def routing_context(
+        self,
+        *,
+        query: str,
+        scope_context: dict[str, Any],
+    ) -> ChatRoutingIntelligence: ...
+
+    def record_topology_outcome(self, payload: dict[str, Any]) -> None: ...
 
     def record_outcome(
         self,
@@ -255,10 +282,39 @@ class OutcomeRecorder(Protocol):
 
 
 @dataclass(frozen=True, slots=True)
-class ChatFeedback:
-    """Best-effort outcome feedback for chat execution."""
+class ChatRuntimeIntelligence:
+    """Optional request guidance, routing policy, and outcome feedback."""
 
-    recorder: OutcomeRecorder | None = None
+    runtime: RuntimeIntelligenceRuntime | None = None
+
+    def executor_runtime(self) -> Any:
+        if self.runtime is None:
+            return None
+        return self.runtime.executor_runtime()
+
+    async def prepare_request(
+        self,
+        *,
+        task: str,
+        task_type: str,
+    ) -> dict[str, Any] | None:
+        if self.runtime is None:
+            return None
+        return await self.runtime.prepare_request(task=task, task_type=task_type)
+
+    def routing_context(
+        self,
+        *,
+        query: str,
+        scope_context: dict[str, Any],
+    ) -> ChatRoutingIntelligence:
+        if self.runtime is None:
+            return ChatRoutingIntelligence()
+        return self.runtime.routing_context(query=query, scope_context=scope_context)
+
+    def record_topology_outcome(self, payload: dict[str, Any]) -> None:
+        if self.runtime is not None:
+            self.runtime.record_topology_outcome(payload)
 
     def record_outcome(
         self,
@@ -268,8 +324,8 @@ class ChatFeedback:
         user_satisfied: bool = True,
         completed: bool = True,
     ) -> None:
-        if self.recorder is not None:
-            self.recorder.record_outcome(
+        if self.runtime is not None:
+            self.runtime.record_outcome(
                 success=success,
                 quality_score=quality_score,
                 user_satisfied=user_satisfied,
@@ -483,6 +539,6 @@ class ChatRuntimeServices:
     completion: ChatCompletion = field(default_factory=ChatCompletion)
     conversation: ChatConversation = field(default_factory=ChatConversation)
     tool_calls: ChatToolCalls = field(default_factory=ChatToolCalls)
-    feedback: ChatFeedback = field(default_factory=ChatFeedback)
+    intelligence: ChatRuntimeIntelligence = field(default_factory=ChatRuntimeIntelligence)
     # Recovery is a turn capability, not a property of the orchestrator facade.
     recovery: object | None = None

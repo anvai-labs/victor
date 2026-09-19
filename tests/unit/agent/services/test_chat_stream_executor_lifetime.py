@@ -8,7 +8,10 @@ import pytest
 
 from victor.agent.services.chat_service import ChatService, ChatServiceConfig
 from victor.agent.services.chat_runtime_services import ChatGovernance
-from victor.agent.services.chat_runtime_services import ChatFeedback, ChatStreamLifecycle
+from victor.agent.services.chat_runtime_services import (
+    ChatRuntimeIntelligence,
+    ChatStreamLifecycle,
+)
 from victor.agent.services.chat_stream_runtime import ServiceStreamingRuntime
 from victor.agent.services.metrics_service import AgentMetricsService
 from victor.agent.services.streaming_act_adapter import StreamingActAdapter, StreamActSession
@@ -383,7 +386,12 @@ async def test_unified_executor_stops_before_next_dispatch_after_cancellation(
             services=SimpleNamespace(
                 governance=ChatGovernance(),
                 stream_lifecycle=ChatStreamLifecycle(Lifecycle()),
-                feedback=ChatFeedback(recorder=SimpleNamespace(record_outcome=feedback)),
+                intelligence=ChatRuntimeIntelligence(
+                    runtime=SimpleNamespace(
+                        executor_runtime=lambda: None,
+                        record_outcome=feedback,
+                    )
+                ),
             ),
         )
     )

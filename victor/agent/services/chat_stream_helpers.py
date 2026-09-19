@@ -382,7 +382,7 @@ class ChatStreamHelperMixin:
         intelligent_task = None
         if not direct_response.is_direct_response:
             intelligent_task = asyncio.create_task(
-                orch._prepare_runtime_intelligence_request(
+                self.services.intelligence.prepare_request(
                     task=user_message,
                     task_type=unified_task_type.value,
                 )
@@ -636,43 +636,16 @@ class ChatStreamHelperMixin:
                     provider_candidates.append(fallback)
             if provider_candidates:
                 routing_context["provider_candidates"] = list(dict.fromkeys(provider_candidates))
-        runtime_intelligence = self._get_runtime_state_dict(orch).get("_runtime_intelligence")
-        structured_routing_policy = None
-        if runtime_intelligence is not None and hasattr(
-            runtime_intelligence, "get_structured_routing_policy"
-        ):
-            learned_scope_context = dict(routing_context)
-            learned_scope_context.setdefault("task_type", task_type)
-            try:
-                structured_routing_policy = runtime_intelligence.get_structured_routing_policy(
-                    query=user_message,
-                    scope_context=learned_scope_context,
-                )
-            except Exception as exc:
-                logger.debug("Streaming structured routing policy unavailable: %s", exc)
-            else:
-                if structured_routing_policy is not None:
-                    if hasattr(structured_routing_policy, "to_dict"):
-                        serialized_policy = structured_routing_policy.to_dict()
-                        if isinstance(serialized_policy, dict):
-                            stream_ctx.structured_routing_policy = serialized_policy
-                    learned_topology_context = structured_routing_policy.selector_context()
-                    if isinstance(learned_topology_context, dict) and learned_topology_context:
-                        routing_context.update(learned_topology_context)
-        elif runtime_intelligence is not None and hasattr(
-            runtime_intelligence, "get_topology_routing_context"
-        ):
-            learned_scope_context = dict(routing_context)
-            learned_scope_context.setdefault("task_type", task_type)
-            try:
-                learned_topology_context = runtime_intelligence.get_topology_routing_context(
-                    query=user_message, scope_context=learned_scope_context
-                )
-            except Exception as exc:
-                logger.debug("Streaming topology feedback hints unavailable: %s", exc)
-            else:
-                if learned_topology_context:
-                    routing_context.update(learned_topology_context)
+        learned_scope_context = dict(routing_context)
+        learned_scope_context.setdefault("task_type", task_type)
+        learned_routing = self.services.intelligence.routing_context(
+            query=user_message,
+            scope_context=learned_scope_context,
+        )
+        if learned_routing.structured_policy is not None:
+            stream_ctx.structured_routing_policy = learned_routing.structured_policy
+        if learned_routing.context:
+            routing_context.update(learned_routing.context)
 
         paradigm_router = getattr(self, "_paradigm_router", None)
         if paradigm_router is None:
@@ -927,7 +900,7 @@ class ChatStreamHelperMixin:
         if lifecycle.is_cancelled():
             logger.info("Stream cancelled by user request")
             lifecycle.finish()
-            self.services.feedback.record_outcome(
+            self.services.intelligence.record_outcome(
                 success=False,
                 quality_score=stream_ctx.last_quality_score,
                 user_satisfied=False,

@@ -86,7 +86,7 @@ def test_service_streaming_runtime_caches_executor(monkeypatch):
     assert owner is runtime
     assert kwargs["perception"] is None
     assert kwargs["fulfillment"] is None
-    assert kwargs["runtime_intelligence"] is orch._runtime_intelligence
+    assert "runtime_intelligence" not in kwargs
 
 
 def test_service_streaming_runtime_exposes_only_executor_interface(monkeypatch):

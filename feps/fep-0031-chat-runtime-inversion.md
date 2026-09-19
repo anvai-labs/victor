@@ -324,6 +324,20 @@ The boundary guard gives `_context_manager`, `_context_lifecycle_service`, `_con
 private-attribute cap falls from 79 to 68 and its private-probe cap from 19 to 15. Phase 1 remains
 open for provider/runtime-intelligence state and the remaining facade reach-throughs.
 
+### Phase 1 progress: runtime intelligence (complete)
+
+`ChatRuntimeIntelligence` consolidates the former feedback-only capability with request guidance,
+learned topology routing, executor runtime construction and topology outcomes. The weak adapter
+resolves live integration state; the chat cluster no longer creates or reads the facade-owned
+runtime service. Structured policy remains preferred over the legacy routing-context method, and
+telemetry stays best effort.
+
+The boundary guard gives `_runtime_intelligence`, `_prepare_runtime_intelligence_request`,
+`_optimization_injector` and `_record_runtime_intelligence_outcome` a zero cap. The runtime
+private-attribute cap falls from 45 to 44 and raw-state cap from 10 to 7; the helper caps fall from
+68 to 66 and from 8 raw-state reads to 7. Phase 1 remains open for provider and broader runtime
+state.
+
 ## Benefits
 
 - The facade is finally *facade-only* in fact, not just docstring — the orchestrator stops
