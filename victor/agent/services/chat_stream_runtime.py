@@ -437,12 +437,7 @@ class ServiceStreamingRuntime(ChatStreamHelperMixin):
             raise
         finally:
             self.services.stream_lifecycle.finish()
-            ctx = None
-            current_stream_context = bindings.get_capability_value("current_stream_context")
-            if current_stream_context is not None:
-                ctx = current_stream_context
-            else:
-                ctx = bindings.state_dict.get("_current_stream_context")
+            ctx = self.services.stream_lifecycle.current_context()
 
             if ctx is not None:
                 state_dict = bindings.state_dict
@@ -541,5 +536,5 @@ class ServiceStreamingRuntime(ChatStreamHelperMixin):
                 self._restore_stream_runtime_overrides(runtime_snapshot)
                 ctx.runtime_override_snapshot = None
 
-            if "_current_stream_context" in bindings.state_dict:
-                state_host._current_stream_context = None
+            if ctx is not None:
+                self.services.stream_lifecycle.clear_context(ctx)

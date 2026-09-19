@@ -268,6 +268,37 @@ class _ChatStreamLifecycleView(_WeakOwner):
         owner._cancel_event = asyncio.Event()
         owner._is_streaming = True
 
+    def bind_context(self, context: Any) -> None:
+        self._owner()._current_stream_context = context
+
+    def current_context(self) -> Any | None:
+        owner = self._owner()
+        getter = getattr(owner, "get_capability_value", None)
+        if callable(getter):
+            try:
+                context = getter("current_stream_context")
+                if context is not None:
+                    return context
+            except Exception:
+                logger.debug("Active stream-context read failed", exc_info=True)
+        state = getattr(owner, "__dict__", None)
+        if not isinstance(state, dict):
+            return None
+        public_context = state.get("current_stream_context")
+        return (
+            public_context if public_context is not None else state.get("_current_stream_context")
+        )
+
+    def clear_context(self, context: Any) -> None:
+        owner = self._owner()
+        state = getattr(owner, "__dict__", None)
+        if not isinstance(state, dict):
+            return
+        if state.get("current_stream_context") is context:
+            owner.current_stream_context = None
+        if state.get("_current_stream_context") is context:
+            owner._current_stream_context = None
+
     def is_cancelled(self) -> bool:
         event = getattr(self._owner(), "_cancel_event", None)
         return bool(event is not None and event.is_set())

@@ -281,9 +281,14 @@ cannot start the next provider or tool batch after the request is observed. An i
 batch keeps its completed-work accounting while its output is suppressed; the terminal
 cancellation chunk marks the task report failed.
 
-The boundary guard gives those three facade names a zero cap and lowers the helper
-private-attribute cap from 92 to 88. Phase 1 remains open for context, task tracking, and other
-runtime state.
+The same capability now binds, reads and identity-clears the active stream context. The ACT
+adapter and service finalizer no longer read or write `_current_stream_context` directly, while
+the registered compatibility capability remains authoritative for other runtime services.
+
+The boundary guard gives those four facade names a zero cap and lowers the helper
+private-attribute cap from 92 to 88. The runtime cap later falls from 44 to 43 and its raw-state
+cap from 7 to 6; the ACT adapter cap falls from 13 to 12. Phase 1 remains open for context, task
+tracking, provider, and other runtime state.
 
 ### Phase 1 progress: stream metrics (complete)
 
