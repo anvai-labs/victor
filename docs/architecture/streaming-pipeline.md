@@ -60,7 +60,8 @@ one capability so callers do not accumulate facade fields.
 | Completion | High-confidence completion and clean summary | Optional when disabled |
 | Conversation | History, actual usage and terminal summary persistence | Best effort; weak owner |
 | Tool calls | Reset, parse and validate | Missing runtime fails closed |
-| Feedback | Outcome recording and cancellation | Best effort; weak owner |
+| Stream lifecycle | Start, cancellation checkpoints and terminal cleanup | Required; weak live owner |
+| Feedback | Outcome recording | Best effort; weak owner |
 | Recovery | Retry and fallback coordination | Existing recovery contract |
 
 ## Lifecycle invariants
@@ -69,6 +70,8 @@ one capability so callers do not accumulate facade fields.
 
     - Close nested async generators before releasing the shared turn lock.
     - Finish task reports on success, error and cancellation.
+    - Check cancellation around provider and tool boundaries; preserve accounting for completed
+      in-flight tools, then close the loop before emitting the terminal cancellation signal.
     - Resolve mutable session and controller state from its current owner.
     - Keep configured governance gates through bootstrap; malformed results are errors.
     - Preserve one accounting path from provider usage to conversation/session totals.
@@ -93,6 +96,7 @@ flowchart LR
     T["Turn frame"]
     P["Planning and guidance"]
     E["Stream execution controls"]
+    L["Stream lifecycle"]
   end
   subgraph NEXT["Remaining"]
     S["Broader runtime state"]
@@ -102,6 +106,7 @@ flowchart LR
   T --> S
   P --> S
   E --> S
+  L --> S
   S --> F --> M
 ```
 

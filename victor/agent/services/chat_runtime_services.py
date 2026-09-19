@@ -276,11 +276,38 @@ class ChatFeedback:
             )
 
 
+class StreamLifecycleRuntime(Protocol):
+    """Mutable stream state exposed at the chat composition boundary."""
+
+    def begin(self) -> None: ...
+
+    def is_cancelled(self) -> bool: ...
+
+    def finish(self) -> None: ...
+
+
+@dataclass(frozen=True, slots=True)
+class ChatStreamLifecycle:
+    """Own the start, cancellation, and terminal state of one stream."""
+
+    runtime: StreamLifecycleRuntime
+
+    def begin(self) -> None:
+        self.runtime.begin()
+
+    def is_cancelled(self) -> bool:
+        return self.runtime.is_cancelled()
+
+    def finish(self) -> None:
+        self.runtime.finish()
+
+
 @dataclass(frozen=True, slots=True)
 class ChatRuntimeServices:
     """Explicit capabilities already migrated from the chat runtime facade."""
 
     session: TaskRequirementState
+    stream_lifecycle: ChatStreamLifecycle
     stream_turn_lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False, compare=False)
     delivery: ChatDelivery = field(default_factory=ChatDelivery)
     planning: ChatPlanning = field(default_factory=ChatPlanning)

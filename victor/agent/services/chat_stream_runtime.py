@@ -451,6 +451,7 @@ class ServiceStreamingRuntime(ChatStreamHelperMixin):
             stream_failed = True
             raise
         finally:
+            self.services.stream_lifecycle.finish()
             ctx = None
             current_stream_context = bindings.get_capability_value("current_stream_context")
             if current_stream_context is not None:

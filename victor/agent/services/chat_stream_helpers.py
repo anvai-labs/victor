@@ -255,8 +255,7 @@ class ChatStreamHelperMixin:
             raise OverrideRestorationError("Recreate the session after failed override restoration")
         orch = self._orchestrator
 
-        orch._cancel_event = asyncio.Event()
-        orch._is_streaming = True
+        self.services.stream_lifecycle.begin()
 
         stream_metrics = orch._metrics_collector.init_stream_metrics()
         start_time = stream_metrics.start_time
@@ -934,9 +933,10 @@ class ChatStreamHelperMixin:
         """Run pre-iteration checks: cancellation, compaction, time limit."""
         orch = self._orchestrator
 
-        if orch._check_cancellation():
+        lifecycle = self.services.stream_lifecycle
+        if lifecycle.is_cancelled():
             logger.info("Stream cancelled by user request")
-            orch._is_streaming = False
+            lifecycle.finish()
             self.services.feedback.record_outcome(
                 success=False,
                 quality_score=stream_ctx.last_quality_score,

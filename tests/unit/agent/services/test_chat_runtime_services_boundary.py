@@ -30,7 +30,7 @@ CLUSTER_CAPS = {
         "raw_state": 0,
     },
     "chat_stream_helpers.py": {
-        "private_attributes": 92,
+        "private_attributes": 88,
         "private_probes": 20,
         "dynamic_probes": 0,
         "delivery_accesses": 0,
@@ -109,6 +109,9 @@ def inventory(source):
         "_classify_task_keywords",
     }
     execution_control_names = {
+        "_cancel_event",
+        "_is_streaming",
+        "_check_cancellation",
         "_task_completion_detector",
         "_message_policy_gate",
         "_current_intent",
@@ -181,6 +184,9 @@ def test_chat_cluster_boundary_counts_only_shrink(filename):
         ("renamed._tool_planner.plan_tools([])", "planning_accesses"),
         ("renamed._select_tools_for_turn('x', [])", "planning_accesses"),
         ("renamed._task_completion_detector.reset()", "execution_control_accesses"),
+        ("renamed._cancel_event.set()", "execution_control_accesses"),
+        ("renamed._is_streaming = False", "execution_control_accesses"),
+        ("renamed._check_cancellation()", "execution_control_accesses"),
         ("getattr(renamed, '_message_policy_gate')", "execution_control_accesses"),
         ("renamed.__dict__.get('_tool_pipeline')", "execution_control_accesses"),
         ("read = getattr\nread(renamed, 'sani' + 'tizer')", "delivery_accesses"),

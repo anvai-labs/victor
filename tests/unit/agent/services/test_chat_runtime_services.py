@@ -15,6 +15,7 @@ from victor.agent.services.chat_runtime_services import (
     ChatFeedback,
     ChatGovernance,
     ChatRuntimeServices,
+    ChatStreamLifecycle,
     ChatToolCalls,
 )
 from victor.agent.services.chat_stream_executor import StreamingChatExecutor
@@ -147,6 +148,7 @@ def test_view_is_enumerated_and_does_not_retain_or_forward_facade():
     view = bind_chat_runtime_services(orchestrator)
     assert [field.name for field in fields(view)] == [
         "session",
+        "stream_lifecycle",
         "stream_turn_lock",
         "delivery",
         "planning",
@@ -163,6 +165,7 @@ def test_view_is_enumerated_and_does_not_retain_or_forward_facade():
         assert not hasattr(view, name)
         assert not hasattr(view.session, name)
     assert view.stream_turn_lock is orchestrator._session_accessor.stream_turn_lock
+    assert isinstance(view.stream_lifecycle, ChatStreamLifecycle)
     assert view.session._accessor is orchestrator._session_accessor
     with pytest.raises(FrozenInstanceError):
         view.session = object()

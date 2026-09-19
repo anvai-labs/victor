@@ -42,6 +42,31 @@ from victor.providers.base import CompletionResponse, StreamChunk
 logger = logging.getLogger(__name__)
 
 
+class _StreamingCancelled(Exception):
+    """Internal cooperative signal used to unwind the live loop before side effects."""
+
+
+def _raise_if_stream_cancelled(services: ChatRuntimeServices) -> None:
+    if services.stream_lifecycle.is_cancelled():
+        raise _StreamingCancelled
+
+
+def _cancelled_stream_chunk(services: ChatRuntimeServices, stream_ctx: Any) -> StreamChunk:
+    """Close live cancellation state and return its terminal failure signal."""
+    services.stream_lifecycle.finish()
+    services.feedback.record_outcome(
+        success=False,
+        quality_score=float(getattr(stream_ctx, "last_quality_score", 0.0) or 0.0),
+        user_satisfied=False,
+        completed=False,
+    )
+    return StreamChunk(
+        content="\n\n[Cancelled by user]\n",
+        is_final=True,
+        metadata={"agentic_loop_success": False, "cancelled": True},
+    )
+
+
 def _tool_call_signatures(tool_calls: Optional[List[dict]]) -> set:
     """Stable per-turn tool-call signatures for spin detection.
 
@@ -1083,6 +1108,7 @@ class StreamingChatExecutor:
         produced ``ToolExecutionResult`` is written to ``result_holder.result`` for run() to read
         (``should_return`` loop control + downstream fulfillment/plateau/novelty evaluation).
         """
+        _raise_if_stream_cancelled(self.services)
         if not runtime_owner._tool_execution_handler:
             from victor.agent.streaming import create_tool_execution_handler
 
@@ -1092,50 +1118,83 @@ class StreamingChatExecutor:
             set(orch.observed_files) if orch.observed_files else set()
         )
 
-        if hasattr(runtime_owner._tool_execution_handler, "execute_tools_streaming"):
-            from victor.agent.streaming.tool_execution import (
-                ToolExecutionResult,
-            )
+        tool_exec_result = None
+        accounted = False
 
-            tool_exec_result = ToolExecutionResult()
-            async with aclosing_if_supported(
-                runtime_owner._tool_execution_handler.execute_tools_streaming(
+        def account_completed_tools() -> None:
+            nonlocal accounted
+            if accounted or tool_exec_result is None:
+                return
+            orch.tool_calls_used += tool_exec_result.tool_calls_executed
+            stream_ctx.tool_calls_used = orch.tool_calls_used
+            record_count = getattr(stream_ctx, "record_iteration_tool_count", None)
+            if callable(record_count):
+                record_count(tool_exec_result.tool_calls_executed)
+            result_holder.result = tool_exec_result
+            accounted = True
+
+        try:
+            if hasattr(runtime_owner._tool_execution_handler, "execute_tools_streaming"):
+                from victor.agent.streaming.tool_execution import (
+                    ToolExecutionResult,
+                )
+
+                tool_exec_result = ToolExecutionResult()
+                async with aclosing_if_supported(
+                    runtime_owner._tool_execution_handler.execute_tools_streaming(
+                        stream_ctx=stream_ctx,
+                        tool_calls=tool_calls,
+                        user_message=user_message,
+                        full_content=full_content,
+                        tool_calls_used=orch.tool_calls_used,
+                        tool_budget=orch.tool_budget,
+                        result=tool_exec_result,
+                    )
+                ) as stream:
+                    iterator = aiter(stream)
+                    while True:
+                        _raise_if_stream_cancelled(self.services)
+                        try:
+                            chunk = await anext(iterator)
+                        except StopAsyncIteration:
+                            break
+                        if self.services.stream_lifecycle.is_cancelled():
+                            break
+                        yield chunk
+            else:
+                _raise_if_stream_cancelled(self.services)
+                tool_exec_result = await runtime_owner._tool_execution_handler.execute_tools(
                     stream_ctx=stream_ctx,
                     tool_calls=tool_calls,
                     user_message=user_message,
                     full_content=full_content,
                     tool_calls_used=orch.tool_calls_used,
                     tool_budget=orch.tool_budget,
-                    result=tool_exec_result,
                 )
-            ) as stream:
-                async for chunk in stream:
-                    yield chunk
-        else:
-            tool_exec_result = await runtime_owner._tool_execution_handler.execute_tools(
-                stream_ctx=stream_ctx,
-                tool_calls=tool_calls,
+                if not self.services.stream_lifecycle.is_cancelled():
+                    for chunk in tool_exec_result.chunks:
+                        yield chunk
+
+            cancelled = self.services.stream_lifecycle.is_cancelled()
+            if cancelled and tool_exec_result.tool_calls_executed <= 0:
+                raise _StreamingCancelled
+            account_completed_tools()
+            if cancelled:
+                raise _StreamingCancelled
+
+            self._maybe_inject_write_action_guard(
+                orch,
+                stream_ctx,
                 user_message=user_message,
-                full_content=full_content,
                 tool_calls_used=orch.tool_calls_used,
-                tool_budget=orch.tool_budget,
             )
-            for chunk in tool_exec_result.chunks:
-                yield chunk
-
-        orch.tool_calls_used += tool_exec_result.tool_calls_executed
-        stream_ctx.tool_calls_used = orch.tool_calls_used
-        _record = getattr(stream_ctx, "record_iteration_tool_count", None)
-        if callable(_record):
-            _record(tool_exec_result.tool_calls_executed)
-        self._maybe_inject_write_action_guard(
-            orch,
-            stream_ctx,
-            user_message=user_message,
-            tool_calls_used=orch.tool_calls_used,
-        )
-
-        result_holder.result = tool_exec_result
+        finally:
+            if (
+                tool_exec_result is not None
+                and tool_exec_result.tool_calls_executed > 0
+                and not accounted
+            ):
+                account_completed_tools()
 
     async def _emit_assistant_turn(
         self,
@@ -1407,9 +1466,11 @@ class StreamingChatExecutor:
             pass
 
         # ACT — provider response (token streaming happens inside _stream_provider_turn).
+        _raise_if_stream_cancelled(self.services)
         tools, full_content, tool_calls, garbage_detected = await self._stream_provider_turn(
             orch, runtime_owner, stream_ctx, goals
         )
+        _raise_if_stream_cancelled(self.services)
         tool_calls, full_content = self.services.tool_calls.parse_and_validate(
             tool_calls,
             full_content,
@@ -1434,8 +1495,16 @@ class StreamingChatExecutor:
                 decision=_emit,
             )
         ) as stream:
-            async for chunk in stream:
+            iterator = aiter(stream)
+            while True:
+                _raise_if_stream_cancelled(self.services)
+                try:
+                    chunk = await anext(iterator)
+                except StopAsyncIteration:
+                    break
+                _raise_if_stream_cancelled(self.services)
                 yield chunk
+        _raise_if_stream_cancelled(self.services)
         result.assistant_content_yielded = _emit.assistant_content_yielded
         result.emit_should_return = _emit.should_return
         result.emit_should_continue = _emit.should_continue
@@ -1445,6 +1514,7 @@ class StreamingChatExecutor:
         # ACT — execute tools (only when this turn produced tool calls and emit did not exit).
         tool_exec_result = None
         if tool_calls and not (_emit.should_return or _emit.should_continue):
+            _raise_if_stream_cancelled(self.services)
             _tool_outcome = _ToolTurnOutcome()
             async with aclosing_if_supported(
                 self._execute_tools_turn(
@@ -1578,8 +1648,26 @@ class StreamingChatExecutor:
         async with aclosing_if_supported(
             loop.run_streaming(user_message, conversation_history=conversation_history)
         ) as stream:
-            async for chunk in stream:
+            iterator = aiter(stream)
+            cancelled = False
+            while True:
+                if self.services.stream_lifecycle.is_cancelled():
+                    cancelled = True
+                    break
+                try:
+                    chunk = await anext(iterator)
+                except _StreamingCancelled:
+                    cancelled = True
+                    break
+                except StopAsyncIteration:
+                    cancelled = self.services.stream_lifecycle.is_cancelled()
+                    break
+                if self.services.stream_lifecycle.is_cancelled():
+                    cancelled = True
+                    break
                 yield chunk
+        if cancelled:
+            yield _cancelled_stream_chunk(self.services, stream_ctx)
 
 
 def create_streaming_chat_executor(

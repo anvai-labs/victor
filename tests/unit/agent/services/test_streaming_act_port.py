@@ -25,12 +25,14 @@ from types import SimpleNamespace
 import pytest
 
 from victor.agent.services.chat_stream_executor import (
+    _StreamingCancelled,
     StreamingActResult,
     StreamingChatExecutor,
 )
 from victor.agent.services.chat_runtime_services import (
     ChatCompletion,
     ChatConversation,
+    ChatStreamLifecycle,
     ChatToolCalls,
 )
 from victor.agent.streaming.tool_execution import ToolExecutionResult
@@ -45,12 +47,27 @@ class _PassThroughToolRuntime:
         return tool_calls, full_content
 
 
-def _executor(*, detector=None) -> StreamingChatExecutor:
+class _StreamLifecycle:
+    def __init__(self):
+        self.cancelled = False
+
+    def begin(self):
+        self.cancelled = False
+
+    def is_cancelled(self):
+        return self.cancelled
+
+    def finish(self):
+        pass
+
+
+def _executor(*, detector=None, lifecycle=None) -> StreamingChatExecutor:
     """Build an executor with explicit ACT capabilities; sub-steps are stubbed per test."""
     services = SimpleNamespace(
         tool_calls=ChatToolCalls(runtime=_PassThroughToolRuntime()),
         completion=ChatCompletion(detector=detector),
         conversation=ChatConversation(),
+        stream_lifecycle=ChatStreamLifecycle(lifecycle or _StreamLifecycle()),
     )
     return StreamingChatExecutor(SimpleNamespace(services=services))
 
@@ -192,6 +209,26 @@ async def test_execute_turn_streaming_surfaces_garbage_flag():
     await _drain(ex, _orch(), SimpleNamespace(is_qa_task=False), result)
 
     assert result.garbage_detected is True
+
+
+async def test_cancellation_after_provider_prevents_emit_and_tool_dispatch():
+    lifecycle = _StreamLifecycle()
+    ex = _executor(lifecycle=lifecycle)
+
+    async def fake_provider(orch, runtime_owner, stream_ctx, goals):
+        lifecycle.cancelled = True
+        return (None, "", [{"name": "write_file", "arguments": {}}], False)
+
+    async def must_not_run(*_args, **_kwargs):
+        raise AssertionError("post-provider work must not run after cancellation")
+        yield  # pragma: no cover
+
+    ex._stream_provider_turn = fake_provider
+    ex._emit_assistant_turn = must_not_run
+    ex._execute_tools_turn = must_not_run
+
+    with pytest.raises(_StreamingCancelled):
+        await _drain(ex, _orch(), SimpleNamespace(is_qa_task=False), StreamingActResult())
 
 
 @pytest.mark.parametrize("is_qa", [True, False])
