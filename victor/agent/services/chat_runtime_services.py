@@ -170,6 +170,8 @@ class ChatCompletion:
 class ConversationRuntime(Protocol):
     """Conversation history and accounting operations used by streaming chat."""
 
+    def ensure_system_prompt(self) -> None: ...
+
     def messages(self) -> list[Any]: ...
 
     def record_actual_usage(self, prompt_tokens: int) -> None: ...
@@ -179,9 +181,14 @@ class ConversationRuntime(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class ChatConversation:
-    """Best-effort conversation history, accounting, and summary capability."""
+    """Conversation startup, history, accounting, and summary capability."""
 
     runtime: ConversationRuntime | None = None
+
+    def ensure_system_prompt(self) -> None:
+        if self.runtime is None:
+            raise TypeError("Chat conversation processing requires a runtime")
+        self.runtime.ensure_system_prompt()
 
     def messages(self) -> list[Any]:
         if self.runtime is None:

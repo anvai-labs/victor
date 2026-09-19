@@ -578,6 +578,15 @@ class _ChatConversationView(_WeakOwner):
             raise TypeError("Chat conversation processing requires a controller")
         return controller
 
+    def ensure_system_prompt(self) -> None:
+        owner = self._owner()
+        conversation = getattr(owner, "conversation", None)
+        ensure = getattr(conversation, "ensure_system_prompt", None)
+        if not callable(ensure):
+            raise TypeError("Chat conversation processing requires message history")
+        ensure()
+        owner._system_added = True
+
     def messages(self) -> list[Any]:
         return list(getattr(self._controller(), "messages", None) or [])
 
