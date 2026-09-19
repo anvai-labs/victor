@@ -18,11 +18,17 @@ Guards against regressions of the UX where unknown / mistyped commands emitted
 a bare "No such command" and where no ``help`` subcommand existed.
 """
 
+import builtins
+from pathlib import Path
+import runpy
+
+import click
 import pytest
 import typer
 from typer.testing import CliRunner
 
 from victor.ui.cli import app
+from victor.ui import cli_group as cli_group_module
 from victor.ui.cli_group import SuggestingGroup, _TyperUsageError
 
 runner = CliRunner()
@@ -108,6 +114,21 @@ def test_truly_unknown_command_still_errors():
 
     assert result.exit_code != 0
     assert "No such command" in _all_output(result)
+
+
+def test_external_click_usage_error_fallback_when_typer_vendor_is_absent(monkeypatch):
+    """Typer releases before Click vendoring still use Click's UsageError."""
+    original_import = builtins.__import__
+
+    def import_without_vendored_click(name, *args, **kwargs):
+        if name == "typer._click.exceptions":
+            raise ImportError("Typer does not vendor Click")
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", import_without_vendored_click)
+    namespace = runpy.run_path(str(Path(cli_group_module.__file__)))
+
+    assert namespace["_TyperUsageError"] is click.exceptions.UsageError
 
 
 def test_suggestion_preserves_native_error_and_original_consumed_token(monkeypatch):
