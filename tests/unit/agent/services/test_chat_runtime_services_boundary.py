@@ -42,7 +42,7 @@ CLUSTER_CAPS = {
         "raw_state": 0,
     },
     "chat_stream_helpers.py": {
-        "private_attributes": 63,
+        "private_attributes": 60,
         "private_probes": 15,
         "dynamic_probes": 0,
         "delivery_accesses": 0,
@@ -147,6 +147,10 @@ def inventory(source):
         "_apply_intent_guard",
         "_apply_task_guidance",
         "_classify_task_keywords",
+        "task_coordinator",
+        "_reminder_manager",
+        "reminder_manager",
+        "conversation_controller",
     }
     execution_control_names = {
         "_cancel_event",
@@ -297,6 +301,10 @@ def test_chat_cluster_boundary_counts_only_shrink(filename):
         ("renamed.sanitizer.sanitize(text)", "delivery_accesses"),
         ("renamed._tool_planner.plan_tools([])", "planning_accesses"),
         ("renamed._select_tools_for_turn('x', [])", "planning_accesses"),
+        ("renamed.task_coordinator.prepare_task('x')", "planning_accesses"),
+        ("renamed.task_coordinator._reminder_manager", "planning_accesses"),
+        ("getattr(renamed, 'reminder_manager')", "planning_accesses"),
+        ("renamed.__dict__.get('conversation_controller')", "planning_accesses"),
         ("renamed._task_completion_detector.reset()", "execution_control_accesses"),
         ("renamed._cancel_event.set()", "execution_control_accesses"),
         ("renamed._is_streaming = False", "execution_control_accesses"),

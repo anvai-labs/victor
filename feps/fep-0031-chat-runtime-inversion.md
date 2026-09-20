@@ -216,11 +216,11 @@ cluster, including the public `chunk_generator` alias and literal dynamic probes
 At this Phase 1 slice, review item 27 remained incomplete and the eight binding
 kwargs were unchanged; the later Phase 2 slice below lowers that cap to six.
 
-### Phase 1 progress: planning and guidance (partial)
+### Phase 1 progress: planning and guidance (complete)
 
-The chat runtime now consumes goal inference, tool planning, concrete tool
-selection, intent guards, task guidance, and keyword classification through one
-typed `ChatPlanning` capability. It composes the existing service-owned
+The chat runtime now consumes task preparation, goal inference, tool planning,
+concrete tool selection, intent guards, task guidance, and keyword classification
+through one typed `ChatPlanning` capability. It composes the existing service-owned
 `TaskGuidanceRuntime` and `ToolSelectionRuntime`; the chat cluster no longer calls
 the corresponding orchestrator privates or retains the raw tool planner. Keyword
 classification moved into `TaskGuidanceRuntime`, while the orchestrator method is
@@ -230,8 +230,11 @@ The boundary guard gives the migrated private names a zero cap. The executor
 private-attribute cap shrinks from 87 to 83, the helper cap shrinks from 97 to 95,
 and the orchestrator line cap shrinks from 4,223 to 4,209. Missing planning
 dependencies fail before provider execution instead of falling back to a facade
-lookup. Phase 1 and review item 27 remain incomplete; turn framing and the
-remaining runtime capabilities still need migration.
+lookup. Task preparation also reuses this capability, so reminder wiring and
+conversation-controller access have one owner. The helper private-attribute cap
+falls from 63 to 60, and the four underlying collaborator names stay at zero
+across the stream cluster. Review item 27 remains incomplete while the remaining
+runtime capabilities still need migration.
 
 ### Phase 2 progress: service-owned turn frame (complete)
 

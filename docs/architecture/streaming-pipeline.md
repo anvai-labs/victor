@@ -55,7 +55,7 @@ one capability so callers do not accumulate facade fields.
 | --- | --- | --- |
 | Session requirements | Required files, outputs and read state | Live session owner |
 | Delivery | Request and response delivery | Existing delivery contract |
-| Planning | Goals, intent, guidance and tool selection | Required wiring fails early |
+| Planning | Task preparation, goals, intent, guidance and tool selection | Required wiring fails early |
 | Governance | Request/response policy | Invalid configured result fails closed |
 | Completion | High-confidence completion and clean summary | Optional when disabled |
 | Conversation | System-prompt insertion, history, actual usage and terminal summary persistence | Startup fails closed; later accounting is best effort; weak owner |
