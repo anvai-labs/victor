@@ -509,45 +509,21 @@ class ChatTaskState:
         self._require_runtime().set_tool_budget(budget)
 
 
-@dataclass(frozen=True, slots=True)
-class ChatCompactionEvent:
-    """Normalized compaction result consumed by the streaming turn."""
-
-    messages_removed: int
-    tokens_freed: int = 0
-    summary: str = ""
-    strategy: str = "tiered"
-    policy_reason: str = ""
-
-
 class ContextLifecycleRuntime(Protocol):
-    """Context startup and pre-iteration compaction operations."""
+    """Context startup operations used by streaming chat."""
 
     async def start_background_compaction(self) -> None: ...
-
-    async def compact_before_iteration(
-        self,
-        user_message: str,
-    ) -> ChatCompactionEvent | None: ...
 
 
 @dataclass(frozen=True, slots=True)
 class ChatContextLifecycle:
-    """Expose context lifecycle policy without facade-owned collaborators."""
+    """Start context lifecycle work without exposing facade-owned collaborators."""
 
     runtime: ContextLifecycleRuntime | None = None
 
     async def start_background_compaction(self) -> None:
         if self.runtime is not None:
             await self.runtime.start_background_compaction()
-
-    async def compact_before_iteration(
-        self,
-        user_message: str,
-    ) -> ChatCompactionEvent | None:
-        if self.runtime is None:
-            return None
-        return await self.runtime.compact_before_iteration(user_message)
 
 
 @dataclass(frozen=True, slots=True)

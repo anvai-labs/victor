@@ -194,47 +194,6 @@ class ChatStreamHelperMixin:
         resolved["carry_forward_resume_context"] = carry_forward_resume_context
         return resolved
 
-    async def _handle_context_and_iteration_limits(
-        self,
-        user_message: str,
-        max_total_iterations: int,
-        max_context: int,
-        total_iterations: int,
-        last_quality_score: float,
-    ) -> tuple[bool, Optional[StreamChunk]]:
-        """Compatibility delegate for context and iteration limit handling."""
-        orch = self._orchestrator
-
-        state_dict = self._get_runtime_state_dict(orch)
-        chat_service = state_dict.get("_chat_service")
-        if chat_service is None:
-            chat_service = getattr(orch, "_chat_service", None)
-        service_handler = getattr(chat_service, "handle_context_and_iteration_limits", None)
-        if callable(service_handler):
-            return await service_handler(
-                user_message,
-                max_total_iterations,
-                max_context,
-                total_iterations,
-                last_quality_score,
-            )
-
-        state_host = self._get_runtime_state_host(orch)
-        runtime_getter = getattr(state_host, "_get_context_limit_runtime", None)
-        if callable(runtime_getter):
-            runtime = runtime_getter()
-            runtime_handler = getattr(runtime, "handle_limits", None)
-            if callable(runtime_handler):
-                return await runtime_handler(
-                    user_message,
-                    max_total_iterations,
-                    max_context,
-                    total_iterations,
-                    last_quality_score,
-                )
-
-        return False, None
-
     async def _prepare_stream(self, user_message: str, **kwargs: Any) -> tuple[
         Any,
         float,
@@ -873,79 +832,6 @@ class ChatStreamHelperMixin:
             return int(value)
         except (TypeError, ValueError):
             return None
-
-    async def _run_iteration_pre_checks(
-        self,
-        stream_ctx: "StreamingChatContext",
-        user_message: str,
-    ) -> AsyncIterator[StreamChunk]:
-        """Run pre-iteration checks: cancellation, compaction, time limit."""
-        orch = self._orchestrator
-
-        lifecycle = self.services.stream_lifecycle
-        if lifecycle.is_cancelled():
-            logger.info("Stream cancelled by user request")
-            lifecycle.finish()
-            self.services.intelligence.record_outcome(
-                success=False,
-                quality_score=stream_ctx.last_quality_score,
-                user_satisfied=False,
-                completed=False,
-            )
-            yield StreamChunk(
-                content="\n\n[Cancelled by user]\n",
-                is_final=True,
-            )
-            return
-
-        compaction = await self.services.context_lifecycle.compact_before_iteration(user_message)
-        if compaction is not None:
-            logger.info(
-                "Compacted context: %s messages removed, %s tokens freed",
-                compaction.messages_removed,
-                compaction.tokens_freed,
-            )
-            if hasattr(stream_ctx, "record_compaction_event"):
-                stream_ctx.record_compaction_event(
-                    summary=compaction.summary,
-                    messages_removed=compaction.messages_removed,
-                    strategy=compaction.strategy,
-                    reason="pre_iteration",
-                    policy_reason=compaction.policy_reason,
-                )
-            else:
-                stream_ctx.compaction_occurred = True
-                stream_ctx.last_compaction_turn = stream_ctx.total_iterations
-                stream_ctx.compaction_message_removed_count = compaction.messages_removed
-                stream_ctx.compaction_summary = compaction.summary
-            logger.info(
-                "Post-compaction continuation enabled at turn %s",
-                stream_ctx.total_iterations,
-            )
-
-        time_limit = getattr(orch.settings, "stream_idle_timeout_seconds", 300)
-        if stream_ctx.is_over_time_limit(time_limit):
-            logger.warning(f"Stream time limit exceeded: {stream_ctx.elapsed_time():.1f}s")
-            yield StreamChunk(
-                content=f"\n\n[Session exceeded {time_limit}s idle timeout - providing summary]\n",
-                is_final=False,
-            )
-            stream_ctx.force_completion = True
-
-        stream_ctx.increment_iteration()
-
-        if stream_ctx.pending_grounding_feedback:
-            logger.info("Injecting pending grounding feedback as system message")
-            from victor.agent.conversation.types import MessageSource
-
-            orch.add_message(
-                "user",
-                f"[GROUNDING-FEEDBACK: {stream_ctx.pending_grounding_feedback}]",
-                metadata=build_internal_history_metadata(
-                    "grounding_feedback", source=MessageSource.AGENT_GROUNDING
-                ),
-            )
-            stream_ctx.pending_grounding_feedback = ""
 
     async def _stream_provider_response(
         self,

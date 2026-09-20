@@ -13,7 +13,6 @@ from victor.agent.services.chat_delivery import ChatDelivery
 from victor.agent.services.chat_planning import ChatPlanning
 
 from victor.agent.services.chat_runtime_services import (
-    ChatCompactionEvent,
     ChatCompletion,
     ChatContextLifecycle,
     ChatConversation,
@@ -27,8 +26,6 @@ from victor.agent.services.chat_runtime_services import (
     ChatToolCalls,
     SessionTaskRequirementState,
 )
-from victor.agent.runtime.context import AgentRuntimeContext
-from victor.agent.services.context_service import compact_context_if_recommended
 from victor.agent.services.chat_turn_runtime import ChatTurnRuntime, TaskReportMetrics
 from victor.agent.services.orchestrator_protocol_adapter import OrchestratorProtocolAdapter
 from victor.agent.services.task_guidance_runtime import TaskGuidanceRuntime
@@ -419,7 +416,7 @@ class _ChatTaskStateView(_WeakOwner):
 
 
 class _ChatContextLifecycleView(_WeakOwner):
-    """Apply the root context policy through the existing ordered fallbacks."""
+    """Start root context lifecycle work without retaining the facade."""
 
     __slots__ = ()
 
@@ -428,120 +425,6 @@ class _ChatContextLifecycleView(_WeakOwner):
         start = getattr(manager, "start_background_compaction", None)
         if callable(start):
             await start(interval_seconds=15.0)
-
-    async def compact_before_iteration(
-        self,
-        user_message: str,
-    ) -> ChatCompactionEvent | None:
-        owner = self._owner()
-        strategy = str(
-            getattr(getattr(owner, "settings", None), "context_compaction_strategy", "tiered")
-            or "tiered"
-        )
-
-        lifecycle = getattr(owner, "_context_lifecycle_service", None)
-        after_agent_turn = getattr(lifecycle, "after_agent_turn", None)
-        if callable(after_agent_turn):
-            runtime_context = self._runtime_context(owner)
-            result = await after_agent_turn(
-                runtime_context,
-                messages=self._messages(owner),
-                min_messages=6,
-            )
-            if not isinstance(result, dict) or not result.get("compacted"):
-                return None
-            removed = int(result.get("messages_removed", 0) or 0)
-            return ChatCompactionEvent(
-                messages_removed=removed,
-                tokens_freed=int(result.get("tokens_freed", 0) or 0),
-                summary=str(
-                    result.get("summary")
-                    or f"Compacted {removed} messages for {runtime_context.display_name}"
-                ),
-                strategy=str(result.get("strategy") or strategy),
-                policy_reason="context_lifecycle",
-            )
-
-        context_service = getattr(owner, "_context_service", None)
-        if context_service is not None:
-            result = await compact_context_if_recommended(
-                context_service,
-                strategy=strategy,
-                min_messages=6,
-            )
-            if result.handled:
-                if result.messages_removed <= 0:
-                    return None
-                return ChatCompactionEvent(
-                    messages_removed=result.messages_removed,
-                    summary=f"Compacted {result.messages_removed} messages via ContextService",
-                    strategy=strategy,
-                    policy_reason="context_service",
-                )
-
-        compactor = getattr(owner, "_context_compactor", None)
-        if compactor is None:
-            return None
-        action = compactor.check_and_compact(
-            current_query=user_message,
-            force=False,
-            tool_call_count=getattr(owner, "tool_calls_used", 0),
-            task_complexity="complex",
-        )
-        if not action.action_taken:
-            return None
-        summaries = self._compaction_summaries(owner)
-        return ChatCompactionEvent(
-            messages_removed=int(action.messages_removed or 0),
-            tokens_freed=int(action.tokens_freed or 0),
-            summary=str(summaries[-1]) if summaries else "",
-            strategy=strategy,
-        )
-
-    @staticmethod
-    def _runtime_context(owner: Any) -> AgentRuntimeContext:
-        existing = getattr(owner, "_agent_runtime_context", None) or getattr(
-            owner,
-            "agent_runtime_context",
-            None,
-        )
-        if isinstance(existing, AgentRuntimeContext):
-            return existing
-        session_id = (
-            getattr(owner, "active_session_id", None)
-            or getattr(owner, "session_id", None)
-            or getattr(owner, "_memory_session_id", None)
-            or "session_root"
-        )
-        return AgentRuntimeContext(
-            agent_id=str(getattr(owner, "agent_id", None) or "root_agent"),
-            display_name=str(getattr(owner, "display_name", None) or "Root Agent"),
-            role=str(getattr(owner, "role", None) or "manager"),
-            session_id=str(session_id),
-        )
-
-    @staticmethod
-    def _messages(owner: Any) -> list[Any]:
-        get_messages = getattr(owner, "get_messages", None)
-        if callable(get_messages):
-            try:
-                return list(get_messages() or [])
-            except Exception as exc:
-                logger.debug("Failed to collect root messages for lifecycle: %s", exc)
-        try:
-            controller = getattr(owner, "_conversation_controller", None)
-            return list(getattr(controller, "messages", None) or [])
-        except Exception as exc:
-            logger.debug("Failed to read fallback conversation messages: %s", exc)
-            return []
-
-    @staticmethod
-    def _compaction_summaries(owner: Any) -> list[Any]:
-        controller = getattr(owner, "conversation_controller", None)
-        get_summaries = getattr(controller, "get_compaction_summaries", None)
-        if not callable(get_summaries):
-            return []
-        return list(get_summaries() or [])
 
 
 class _ChatToolCallView(_WeakOwner):
