@@ -42,7 +42,7 @@ CLUSTER_CAPS = {
         "raw_state": 0,
     },
     "chat_stream_helpers.py": {
-        "private_attributes": 64,
+        "private_attributes": 63,
         "private_probes": 15,
         "dynamic_probes": 0,
         "delivery_accesses": 0,
@@ -158,6 +158,8 @@ def inventory(source):
         "_tool_pipeline",
         "_record_runtime_intelligence_outcome",
         "_conversation_controller",
+        "_system_added",
+        "system_prompt_added",
         "_parse_and_validate_tool_calls",
     }
     metrics_names = {
@@ -235,6 +237,13 @@ def inventory(source):
             counts["raw_state"] += 1
         elif function in capability_calls and node.args:
             key = literal(node.args[0])
+            counts["delivery_accesses"] += key in delivery_names
+            counts["planning_accesses"] += key in planning_names
+            counts["execution_control_accesses"] += key in execution_control_names
+            counts["metrics_accesses"] += key in metrics_names
+            counts["task_state_accesses"] += key in task_state_names
+            counts["context_lifecycle_accesses"] += key in context_lifecycle_names
+            counts["intelligence_accesses"] += key in intelligence_names
             counts["stream_context_accesses"] += key in stream_context_names
             counts["provider_state_accesses"] += key in provider_state_names
         elif function in builtins and len(node.args) >= 2:
@@ -291,6 +300,7 @@ def test_chat_cluster_boundary_counts_only_shrink(filename):
         ("renamed._task_completion_detector.reset()", "execution_control_accesses"),
         ("renamed._cancel_event.set()", "execution_control_accesses"),
         ("renamed._is_streaming = False", "execution_control_accesses"),
+        ("renamed._system_added = True", "execution_control_accesses"),
         ("renamed._check_cancellation()", "execution_control_accesses"),
         ("renamed._metrics_collector.record_first_token()", "metrics_accesses"),
         ("renamed._metrics_coordinator.finalize_stream_metrics({})", "metrics_accesses"),
@@ -336,7 +346,17 @@ def test_chat_cluster_boundary_counts_only_shrink(filename):
         ("getattr(renamed, '_provider_service')", "provider_state_accesses"),
         ("renamed.__dict__.get('_provider_service')", "provider_state_accesses"),
         ("getattr(renamed, '_message_policy_gate')", "execution_control_accesses"),
+        ("getattr(renamed, '_system_added')", "execution_control_accesses"),
         ("renamed.__dict__.get('_tool_pipeline')", "execution_control_accesses"),
+        ("renamed.__dict__.get('_system_added')", "execution_control_accesses"),
+        (
+            "renamed.get_capability_value('system_prompt_added')",
+            "execution_control_accesses",
+        ),
+        (
+            "read = renamed._get_runtime_capability_value\n" "read('_system_' + 'added')",
+            "execution_control_accesses",
+        ),
         ("read = getattr\nread(renamed, 'sani' + 'tizer')", "delivery_accesses"),
         ("vars(renamed).get('sanitizer')", "delivery_accesses"),
         ("alias = original\nalias._new_facade_private()", "private_attributes"),

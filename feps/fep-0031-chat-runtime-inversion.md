@@ -251,14 +251,14 @@ the chat cluster capabilities that still reach through the facade.
 ### Phase 1 progress: stream execution controls (cluster complete)
 
 The chat stream cluster now receives message governance, task completion,
-conversation history/accounting, tool-call parsing/reset, and outcome feedback
+conversation startup/history/accounting, tool-call parsing/reset, and outcome feedback
 through typed entries on `ChatRuntimeServices`; current intent comes from the
 existing `ChatPlanning` capability. Completion detection owns summary
-sanitization, while the cohesive conversation capability owns history, actual
-usage accounting, and summary persistence. Its adapter resolves the current
-controller weakly, as do the feedback and tool-call adapters, so callback graphs
-do not extend the facade lifetime. Configured governance fails closed on invalid
-gate results and survives runtime bootstrap without being reset.
+sanitization, while the cohesive conversation capability owns system-prompt
+insertion, history, actual usage accounting, and summary persistence. Its adapter
+resolves the current controller weakly, as do the feedback and tool-call adapters,
+so callback graphs do not extend the facade lifetime. Configured governance fails
+closed on invalid gate results and survives runtime bootstrap without being reset.
 
 The boundary guard gives all seven migrated collaborator names a zero cap across
 the four-file cluster. The executor private-attribute cap shrinks from 83 to 76
@@ -267,6 +267,11 @@ probe cap from 26 to 20. Missing tool parsing dependencies fail closed, while
 optional governance, completion, conversation, and feedback operations remain
 explicit no-ops when disabled. Phase 1 remains open for the broader runtime
 state accesses outside this execution-control group.
+
+System-prompt insertion now fails closed through that conversation capability and
+mirrors the legacy `_system_added` facade flag only inside the composition adapter.
+The cluster guard holds direct, probed, and raw-state access to that flag at zero;
+the helper private-attribute cap falls from 64 to 63.
 
 ### Phase 1 progress: stream lifecycle state (complete)
 

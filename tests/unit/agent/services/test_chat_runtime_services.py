@@ -241,6 +241,19 @@ def test_conversation_capability_delegates_history_and_usage():
     runtime.record_actual_usage.assert_called_once_with(17)
 
 
+def test_conversation_capability_requires_runtime_for_system_prompt():
+    with pytest.raises(TypeError, match="requires a runtime"):
+        ChatConversation().ensure_system_prompt()
+
+
+def test_conversation_capability_delegates_system_prompt():
+    runtime = SimpleNamespace(ensure_system_prompt=MagicMock())
+
+    ChatConversation(runtime=runtime).ensure_system_prompt()
+
+    runtime.ensure_system_prompt.assert_called_once_with()
+
+
 @pytest.mark.parametrize("invalid_result", [None, object()], ids=["none", "malformed"])
 @pytest.mark.parametrize("method_name", ["check_request", "check_response"])
 async def test_governance_rejects_invalid_result_from_configured_gate(method_name, invalid_result):
