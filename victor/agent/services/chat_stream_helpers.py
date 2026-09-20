@@ -269,8 +269,7 @@ class ChatStreamHelperMixin:
             "cache_read_input_tokens": 0,
         }
 
-        orch.conversation.ensure_system_prompt()
-        orch._system_added = True
+        self.services.conversation.ensure_system_prompt()
         self.services.task_state.reset_turn()
 
         usage_analytics = self._get_runtime_capability_value("usage_analytics")

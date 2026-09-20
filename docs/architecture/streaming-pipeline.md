@@ -58,7 +58,7 @@ one capability so callers do not accumulate facade fields.
 | Planning | Goals, intent, guidance and tool selection | Required wiring fails early |
 | Governance | Request/response policy | Invalid configured result fails closed |
 | Completion | High-confidence completion and clean summary | Optional when disabled |
-| Conversation | History, actual usage and terminal summary persistence | Best effort; weak owner |
+| Conversation | System-prompt insertion, history, actual usage and terminal summary persistence | Startup fails closed; later accounting is best effort; weak owner |
 | Tool calls | Reset, parse and validate | Missing runtime fails closed |
 | Stream lifecycle | Start, context binding, cancellation, retry timing and cleanup | Required; weak live owner |
 | Stream metrics | Initialization, first-token timing, cost and terminal diagnostics | Required; weak live owner |

@@ -36,6 +36,7 @@ def _owner() -> _Owner:
     owner._message_policy_gate = None
     owner._task_completion_detector = None
     owner._conversation_controller = None
+    owner.conversation = None
     owner._tool_service = None
     owner.tool_adapter = None
     owner._tool_pipeline = None
@@ -533,6 +534,7 @@ def test_binding_enumerates_stream_execution_collaborators_without_owner_retenti
         persist_compaction_summary=MagicMock(),
         inject_compaction_context=MagicMock(return_value=True),
     )
+    message_history = SimpleNamespace(ensure_system_prompt=MagicMock())
     parser = SimpleNamespace(
         parse_and_validate_tool_calls=MagicMock(return_value=([{"x": 1}], "ok"))
     )
@@ -545,6 +547,7 @@ def test_binding_enumerates_stream_execution_collaborators_without_owner_retenti
     owner._message_policy_gate = gate
     owner._task_completion_detector = detector
     owner._conversation_controller = conversation
+    owner.conversation = message_history
     owner._tool_service = parser
     owner.tool_adapter = adapter
     owner._tool_pipeline = pipeline
@@ -554,6 +557,9 @@ def test_binding_enumerates_stream_execution_collaborators_without_owner_retenti
 
     assert view.governance.gate is gate
     assert view.completion.detector is detector
+    view.conversation.ensure_system_prompt()
+    message_history.ensure_system_prompt.assert_called_once_with()
+    assert owner._system_added is True
     assert view.conversation.messages() == conversation.messages
     view.conversation.record_actual_usage(7)
     conversation.record_actual_usage.assert_called_once_with(7, 5)
@@ -595,6 +601,25 @@ def test_binding_enumerates_stream_execution_collaborators_without_owner_retenti
             user_satisfied=False,
             completed=False,
         )
+
+
+def test_binding_conversation_startup_requires_message_history() -> None:
+    owner = _owner()
+
+    with pytest.raises(TypeError, match="requires message history"):
+        bind_chat_runtime_services(owner).conversation.ensure_system_prompt()
+
+
+def test_binding_conversation_startup_marks_success_only_after_insertion() -> None:
+    owner = _owner()
+    owner.conversation = SimpleNamespace(
+        ensure_system_prompt=MagicMock(side_effect=RuntimeError("invalid prompt"))
+    )
+
+    with pytest.raises(RuntimeError, match="invalid prompt"):
+        bind_chat_runtime_services(owner).conversation.ensure_system_prompt()
+
+    assert "_system_added" not in vars(owner)
 
 
 def test_turn_runtime_uses_enumerated_live_state_without_retaining_owner() -> None:
