@@ -484,7 +484,7 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   output lines rather than the exit status. Follow-up must use explicit process
   success plus runner-owned structured reports, cover empty/failed/timeout runs,
   and retain diagnostics without promoting model-written prose into evidence.
-- **G37 — mixed validation aborts before preserving member accounting evidence.**
+- **G37 — ✅ failure evidence retention ([PR #1143](https://github.com/anvai-labs/victor/pull/1143)).**
   In the [C5 mixed attempt](evidence/c5-mixed-gateway-2026-09-19.json), the
   unchanged `multiagent_gateway_live.py` asserted the review verdict before its
   canonical member-usage reconciliation, independent pytest, and final
@@ -506,7 +506,7 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   returned by the runtime are not recovered. HTTP errors/timeouts followed by
   successful provider retries still require the external gateway observer; this
   change does not certify those paths.
-- **G38 — mixed reviewer task does not define the invariant's input domain.**
+- **G38 — ✅ explicit numeric task contract v2 ([PR #1143](https://github.com/anvai-labs/victor/pull/1143)).**
   The same run's ZAI reviewer returned structured `needs_work` for `writer(x) = x * 2`:
   overflowing floats and sequence inputs violate the requested addition invariant.
   Both counterexamples were independently reproduced from the delivered function.

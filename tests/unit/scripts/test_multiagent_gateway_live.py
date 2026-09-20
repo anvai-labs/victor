@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import importlib.util
 import asyncio
 import os
 import subprocess
@@ -12,8 +13,13 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from scripts.validation import multiagent_gateway_live as live
 from victor.teams.types import MemberResult
+
+_SCRIPT = Path(__file__).resolve().parents[3] / "scripts/validation/multiagent_gateway_live.py"
+_SPEC = importlib.util.spec_from_file_location("multiagent_gateway_live", _SCRIPT)
+assert _SPEC is not None and _SPEC.loader is not None
+live = importlib.util.module_from_spec(_SPEC)
+_SPEC.loader.exec_module(live)
 
 
 @pytest.fixture
