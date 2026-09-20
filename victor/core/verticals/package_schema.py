@@ -69,7 +69,7 @@ class VerticalCompatibility(BaseModel):
     requires_tool_calling: bool = True
     preferred_providers: List[str] = Field(default_factory=list)
     platforms: List[str] = Field(default_factory=lambda: ["linux", "macos", "windows"])
-    python_version: str = ">=3.10"
+    python_version: str = ">=3.12"
 
 
 class VerticalSecurity(BaseModel):
@@ -345,7 +345,7 @@ verticals = []
 # Optional: Provider requirements
 requires_tool_calling = true
 preferred_providers = ["anthropic", "openai"]
-python_version = ">=3.10"
+python_version = ">=3.12"
 
 [vertical.security]
 # Optional: Security metadata

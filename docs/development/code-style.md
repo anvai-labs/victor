@@ -36,14 +36,14 @@ From `pyproject.toml`:
 ```toml
 [tool.black]
 line-length = 100
-target-version = ['py310']
+target-version = ['py312']
 include = '\.pyi?$'
 ```
 
 ### Key Rules
 
 - **Line length**: 100 characters (not the default 88)
-- **Target version**: Python 3.11+
+- **Target version**: Python 3.12+
 - **String quotes**: Double quotes preferred
 - **Trailing commas**: Added in multi-line structures
 
@@ -91,7 +91,7 @@ From `pyproject.toml`:
 ```toml
 [tool.ruff]
 line-length = 100
-target-version = "py310"
+target-version = "py312"
 extend-exclude = [
     "archive",
     "examples",
@@ -170,7 +170,7 @@ From `pyproject.toml`:
 
 ```toml
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.12"
 strict = false                    # Gradual typing adoption
 warn_return_any = false
 warn_unused_configs = true

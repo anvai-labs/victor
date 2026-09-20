@@ -29,7 +29,7 @@ def test_expected_version_matches_version_file():
 
 
 def test_expected_python_minimum_matches_package_metadata():
-    assert mod.expected_python_minimum() == "3.11"
+    assert mod.expected_python_minimum() == "3.12"
 
 
 def test_expected_provider_count_is_positive():

@@ -25,7 +25,7 @@ license = {text = "Apache-2.0"}
 authors = [
     {name = "Vijaykumar Singh", email = "vijay@anvaiops.com"}
 ]
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 keywords = [
     "ai",
     "llm",
@@ -44,7 +44,6 @@ classifiers = [
     "Intended Audience :: Developers",
     "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
@@ -56,7 +55,7 @@ dependencies = [
     "pydantic>=2.0",
     "pydantic-settings>=2.0",
     "python-dotenv>=1.0",
-    "typing-extensions>=4.9",  # For typing.Self on Python 3.10
+    "typing-extensions>=4.9",  # Shared typing helpers used by runtime and contracts
     "orjson>=3.9.0",  # Fast JSON serialization (Rust-backed, 5-10x faster than stdlib)
     # Typed provider runtime and wire transport; Sandhi is a core boundary, not an extra.
     "sandhi-gateway==0.7.0",
@@ -216,7 +215,6 @@ dev = [
 
     # Integration test dependencies
     "strawberry-graphql[fastapi]>=0.243",  # For GraphQL API integration tests
-    "tomli>=2.0; python_version < '3.11'",
     # All tree-sitter grammar wheels, inlined (repo hygiene forbids
     # victor-ai[lang-all] self-references in dev/ci — nested extras do not
     # resolve reliably in CI). Keep in sync with [lang-all]. Two consumers:
@@ -282,7 +280,6 @@ ci = [
 
     # Additional CI-specific tools
     "pytest-split>=0.8",
-    "tomli>=2.0; python_version < '3.11'",
     # All tree-sitter grammar wheels for CCG + language-handler tests,
     # inlined (see [dev] note; keep in sync with [lang-all]).
     "tree-sitter-python>=0.23",
@@ -751,7 +748,7 @@ filterwarnings = [
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py312"
 extend-exclude = [
     "archive",
     "examples",
@@ -802,7 +799,7 @@ ignore = [
 ]
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.12"
 # Type checking configuration - M3: Global strict mode enabled (2026-03-10)
 strict = true
 warn_return_any = true
@@ -898,7 +895,7 @@ ignore_errors = true
 
 [tool.black]
 line-length = 100
-target-version = ['py311']
+target-version = ['py312']
 include = '\.pyi?$'
 
 [tool.coverage.run]

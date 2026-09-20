@@ -8,7 +8,7 @@ Before installing Victor, ensure your system meets these requirements:
 
 | Requirement | Minimum | Recommended |
 |-------------|---------|-------------|
-| **Python** | 3.11+ | 3.11+ |
+| **Python** | 3.12+ | 3.12+ |
 | **RAM** | 4 GB | 8 GB+ |
 | **Disk Space** | 500 MB | 1 GB (for local models: 8-32 GB) |
 | **OS** | Linux, macOS, Windows (WSL2) | Linux or macOS |
@@ -23,7 +23,7 @@ Choose the installation method that best fits your use case:
 
 | Method | Command | Best For |
 |--------|---------|----------|
-| **pipx** (Recommended) | `pipx install victor-ai` | CLI users, isolated environment |
+| **pipx** (Recommended) | `pipx install --python python3.12 victor-ai` | CLI users, isolated environment |
 | **pip** | `pip install victor-ai` | Virtual environments, Python projects |
 | **Docker** | `docker pull vjsingh1984/victor-ai` | Containers, isolated deployments |
 | **Development** | `pip install -e ./victor-contracts -e ".[dev]"` | Contributors, local development |
@@ -38,7 +38,7 @@ pip install pipx
 pipx ensurepath
 
 # Install Victor
-pipx install victor-ai
+pipx install --python python3.12 victor-ai
 
 # Verify installation
 victor --version
@@ -236,15 +236,15 @@ victor keys --set google --keyring
 ### macOS
 
 ```bash
-# Install Python 3.11+ if needed
-brew install python@3.11
+# Install Python 3.12+ if needed
+brew install python@3.12
 
 # Install pipx
 brew install pipx
 pipx ensurepath
 
 # Install Victor
-pipx install victor-ai
+pipx install --python python3.12 victor-ai
 
 # Optional: Install Ollama for local models
 brew install ollama
@@ -253,16 +253,16 @@ brew install ollama
 ### Linux (Ubuntu/Debian)
 
 ```bash
-# Install Python 3.11+ if needed
+# Install Python 3.12+ if needed
 sudo apt update
-sudo apt install python3.11 python3.11-venv python3-pip
+sudo apt install python3.12 python3.12-venv python3-pip
 
 # Install pipx
-python3.11 -m pip install --user pipx
-python3.11 -m pipx ensurepath
+python3.12 -m pip install --user pipx
+python3.12 -m pipx ensurepath
 
 # Restart terminal, then install Victor
-pipx install victor-ai
+pipx install --python python3.12 victor-ai
 
 # Optional: Install Ollama for local models
 curl -fsSL https://ollama.com/install.sh | sh
@@ -280,12 +280,12 @@ wsl --install
 sudo apt update && sudo apt upgrade
 
 # Install Python and pipx
-sudo apt install python3.11 python3.11-venv python3-pip
-python3.11 -m pip install --user pipx
-python3.11 -m pipx ensurepath
+sudo apt install python3.12 python3.12-venv python3-pip
+python3.12 -m pip install --user pipx
+python3.12 -m pipx ensurepath
 
 # Restart terminal, then install Victor
-pipx install victor-ai
+pipx install --python python3.12 victor-ai
 ```
 
 ---
@@ -312,7 +312,7 @@ pipx install victor-ai
    source ~/.bashrc
    ```
 
-### "Package requires Python >= 3.11"
+### "Package requires Python >= 3.12"
 
 **Cause**: Your Python version is too old.
 
@@ -321,12 +321,12 @@ pipx install victor-ai
 # Check current version
 python --version
 
-# Install Python 3.11
-# macOS: brew install python@3.11
-# Ubuntu: sudo apt install python3.11
+# Install Python 3.12
+# macOS: brew install python@3.12
+# Ubuntu: sudo apt install python3.12
 
 # Use specific version
-python3.11 -m pip install victor-ai
+python3.12 -m pip install victor-ai
 ```
 
 ### "Could not build wheels"
@@ -353,7 +353,7 @@ pip install victor-ai
 **Solution**: Use pipx or a virtual environment (never use sudo with pip):
 ```bash
 # Recommended
-pipx install victor-ai
+pipx install --python python3.12 victor-ai
 
 # Alternative
 python -m venv .venv

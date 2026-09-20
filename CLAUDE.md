@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What Victor Is
 
-A contract-first agentic AI framework (Python 3.11+): typed framework API, service-first agent runtime, StateGraph workflows, multi-agent teams, 25 LLM provider adapters, and 34 tool modules. Domain behavior lives in plugin packages, not the core.
+A contract-first agentic AI framework (Python 3.12+): typed framework API, service-first agent runtime, StateGraph workflows, multi-agent teams, 25 LLM provider adapters, and 34 tool modules. Domain behavior lives in plugin packages, not the core.
 
 ## Common Commands
 

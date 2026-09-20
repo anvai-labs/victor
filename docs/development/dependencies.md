@@ -59,7 +59,7 @@ unset PIP_FIND_LINKS
 
 These files record resolved versions, not cross-platform lock guarantees. The
 CPU embeddings snapshot targets Linux Python 3.12. Resolve separately on Python
-3.11, macOS, or a GPU environment, then run the same feature tests and audit that
+3.13, macOS, or a GPU environment, then run the same feature tests and audit that
 installed environment. Do not substitute an independent torchvision or torchaudio
 version into a Torch installation; neither is required by Victor's text embedding
 path. Install GPU Torch from the appropriate upstream index before resolving the

@@ -1303,3 +1303,103 @@ def test_shared_security_action_cannot_be_silently_bypassed(tmp_path):
     doc["jobs"]["dependency-audit"]["continue-on-error"] = True
     path.write_text(yaml.safe_dump(doc))
     assert not repo_hygiene_check._workflow_has_blocking_local_audit(path, "python-audit")
+
+
+def test_python_baseline_rejects_package_and_ci_drift(tmp_path: Path) -> None:
+    write_file(tmp_path, ".python-version", "3.12\n")
+    write_file(tmp_path, "pyproject.toml", '[project]\nrequires-python = ">=3.12"\n')
+    write_file(
+        tmp_path,
+        "victor-contracts/pyproject.toml",
+        '[project]\nrequires-python = ">=3.10"\nclassifiers = ["Programming Language :: Python :: 3.11"]\n',
+    )
+    write_file(
+        tmp_path,
+        ".github/workflows/contracts.yml",
+        'jobs:\n  test:\n    strategy:\n      matrix:\n        python-version: ["3.10", "3.12"]\n',
+    )
+    write_file(
+        tmp_path,
+        ".github/actions/setup/action.yaml",
+        'inputs:\n  python-version:\n    default: "3.11"\n',
+    )
+    write_file(
+        tmp_path,
+        ".github/workflows/release.yaml",
+        "jobs:\n  build:\n    steps:\n      - run: maturin build -i python3.11 python3.12\n",
+    )
+    write_file(
+        tmp_path,
+        "verticals/demo/victor-vertical.toml",
+        '[compatibility]\npython_version = ">=3.10"\n',
+    )
+    write_file(
+        tmp_path,
+        ".github/workflows/patch.yml",
+        'jobs:\n  test:\n    steps:\n      - with:\n          python-version: "3.11.9"\n',
+    )
+    write_file(
+        tmp_path,
+        ".github/workflows/numeric.yml",
+        "jobs:\n  test:\n    steps:\n      - with:\n          python-version: 3.11\n",
+    )
+    findings = repo_hygiene_check.check_python_baseline(tmp_path)
+    assert len(findings) == 8
+    assert {str(finding.path) for finding in findings} == {
+        "victor-contracts/pyproject.toml",
+        ".github/workflows/contracts.yml",
+        ".github/actions/setup/action.yaml",
+        ".github/workflows/release.yaml",
+        "verticals/demo/victor-vertical.toml",
+        ".github/workflows/patch.yml",
+        ".github/workflows/numeric.yml",
+    }
+
+
+def test_python_baseline_accepts_supported_matrix_and_historical_comments(tmp_path: Path) -> None:
+    write_file(tmp_path, ".python-version", "3.12\n")
+    write_file(tmp_path, "pyproject.toml", '[project]\nrequires-python = ">=3.12"\n')
+    write_file(
+        tmp_path,
+        ".github/workflows/test.yml",
+        '# Previously Python 3.10\njobs:\n  test:\n    strategy:\n      matrix:\n        python-version: ["3.12", "3.13"]\n',
+    )
+    assert repo_hygiene_check.check_python_baseline(tmp_path) == []
+
+
+def test_installer_selects_supported_python_and_uses_its_pip(tmp_path: Path) -> None:
+    import os
+    import subprocess
+
+    root = Path(__file__).resolve().parents[3]
+    installer = (root / "scripts/install/install.sh").read_text()
+    # Source only function definitions: no package managers, downloads or system changes.
+    functions = installer[
+        installer.index("check_python() {") : installer.index("# Main installation")
+    ]
+    old = write_file(tmp_path, "python3", "#!/bin/bash\nexit 1\n")
+    supported = write_file(
+        tmp_path,
+        "python3.12",
+        '#!/bin/bash\nif [[ "$1" == "-c" ]]; then exit 0; fi\nprintf "%s\\n" "$*"\n',
+    )
+    old.chmod(0o755)
+    supported.chmod(0o755)
+    result = subprocess.run(
+        ["/bin/bash", "-c", functions + "\nINSTALL_DEV=false; check_python && install_pip"],
+        env={**os.environ, "PATH": str(tmp_path)},
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert "-m pip install --user victor-ai" in result.stdout
+    supported.unlink()
+    result = subprocess.run(
+        ["/bin/bash", "-c", functions + "\ncheck_python && install_pip"],
+        env={**os.environ, "PATH": str(tmp_path)},
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 1
+    assert "3.12+ required" in result.stdout
+    assert "installed successfully" not in result.stdout

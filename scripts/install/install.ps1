@@ -65,11 +65,11 @@ function Test-Python {
         if ($pythonVersion -match "Python (\d+)\.(\d+)") {
             $major = [int]$Matches[1]
             $minor = [int]$Matches[2]
-            if ($major -ge 3 -and $minor -ge 10) {
+            if ($major -gt 3 -or ($major -eq 3 -and $minor -ge 12)) {
                 Write-Success "✓ Python $pythonVersion found"
                 return $true
             } else {
-                Write-Warning "⚠ Python $pythonVersion found, but 3.10+ required"
+                Write-Warning "⚠ Python $pythonVersion found, but 3.12+ required"
                 return $false
             }
         }
@@ -88,7 +88,7 @@ function Install-Python {
     if (Get-Command winget -ErrorAction SilentlyContinue) {
         winget install -e --id Python.Python.3.12
     } else {
-        Write-Error "Please install Python 3.10+ manually from https://www.python.org/downloads/"
+        Write-Error "Please install Python 3.12+ manually from https://www.python.org/downloads/"
         exit 1
     }
 
@@ -101,9 +101,9 @@ function Install-Pip {
     Write-Info "➤ Installing Victor via pip..."
 
     if ($Dev) {
-        pip install "victor[dev]"
+        python -m pip install "victor-ai[dev]"
     } else {
-        pip install victor
+        python -m pip install victor-ai
     }
 
     Write-Success "✓ Victor installed successfully!"
@@ -116,11 +116,11 @@ function Install-Pipx {
     # Check if pipx is installed
     if (-not (Get-Command pipx -ErrorAction SilentlyContinue)) {
         Write-Warning "Installing pipx first..."
-        pip install pipx
+        python -m pip install pipx
         python -m pipx ensurepath
     }
 
-    pipx install victor
+    pipx install --python (Get-Command python).Source victor-ai
 
     Write-Success "✓ Victor installed successfully!"
 }
@@ -162,11 +162,13 @@ function Main {
     } elseif ($Pipx) {
         if (-not (Test-Python)) {
             Install-Python
+            if (-not (Test-Python)) { throw "Activate Python 3.12+ and rerun the installer." }
         }
         Install-Pipx
     } else {
         if (-not (Test-Python)) {
             Install-Python
+            if (-not (Test-Python)) { throw "Activate Python 3.12+ and rerun the installer." }
         }
         Install-Pip
     }

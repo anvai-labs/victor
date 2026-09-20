@@ -88,7 +88,7 @@ which victor
 **Symptom**:
 ```bash
 # During installation
-ERROR: Package 'victor-ai' requires a different Python: 3.10.x not in '>=3.11'
+ERROR: Package 'victor-ai' requires a different Python: 3.11.x not in '>=3.12'
 ```
 
 **Solutions**:
@@ -96,20 +96,20 @@ ERROR: Package 'victor-ai' requires a different Python: 3.10.x not in '>=3.11'
 **1. Check Python version**:
 ```bash
 python --version
-# Must be 3.11 or higher
+# Must be 3.12 or higher
 ```
 
-**2. Install Python 3.11+**:
+**2. Install Python 3.12+**:
 
 **macOS**:
 ```bash
-brew install python@3.11
+brew install python@3.12
 ```
 
 **Ubuntu/Debian**:
 ```bash
 sudo apt update
-sudo apt install python3.11
+sudo apt install python3.12
 ```
 
 **Windows**:
@@ -117,11 +117,11 @@ sudo apt install python3.11
 
 **3. Use correct Python**:
 ```bash
-# Use python3.11 explicitly
-python3.11 -m pip install victor-ai
+# Use python3.12 explicitly
+python3.12 -m pip install victor-ai
 
 # Or create virtual environment
-python3.11 -m venv ~/.victor-venv
+python3.12 -m venv ~/.victor-venv
 source ~/.victor-venv/bin/activate  # Windows: ~/.victor-venv\Scripts\activate
 pip install victor-ai
 ```
@@ -1142,7 +1142,7 @@ logging:
 
 ## Environment
 - OS: [macOS, Linux, Windows]
-- Python version: [3.10, 3.11, etc.]
+- Python version: [3.12, 3.13, etc.]
 - Victor version: [from `victor --version`]
 - Provider: [anthropic, openai, ollama, etc.]
 

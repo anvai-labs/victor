@@ -7,7 +7,7 @@
 
     **Published baseline:** Victor AI 0.9.5. **Development line:** 0.10.0 candidate.
 
-**Version**: {{ victor_version }} | **License**: Apache-2.0 | **Python**: 3.11+
+**Version**: {{ victor_version }} | **License**: Apache-2.0 | **Python**: 3.12+
 
 ---
 

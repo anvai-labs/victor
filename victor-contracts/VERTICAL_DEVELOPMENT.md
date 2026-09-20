@@ -96,7 +96,7 @@ name = "victor-my-vertical"
 version = "1.0.0"
 description = "My custom Victor vertical"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 license = { text = "Apache-2.0" }
 authors = [
     { name = "Your Name", email = "your.email@example.com" },

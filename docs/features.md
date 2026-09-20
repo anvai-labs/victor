@@ -129,7 +129,7 @@ same framework through `VictorClient`.
 
 | Surface | Support level | Release evidence / boundary |
 | --- | --- | --- |
-| Python SDK and CLI | Core | Package tests run on Python 3.11/3.12; built-wheel import and CLI help smoke are blocking. |
+| Python SDK and CLI | Core | Package tests run on Python 3.12/3.13; built-wheel import and CLI help smoke are blocking. |
 | HTTP API and MCP | Core | Import/factory smoke is required for release; full deployment validation remains an integration concern. |
 | First-party domain verticals | Core extension | Source is monorepo-owned; compatibility and discovery coverage are blocking. |
 | Textual TUI | Supported optional surface | Selected with `victor tui` or `victor chat --tui`; terminal capability fallback remains available. |

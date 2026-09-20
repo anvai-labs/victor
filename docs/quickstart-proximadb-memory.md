@@ -27,7 +27,7 @@ status below, rather than treating this REST script as its setup path.
 ## Prerequisites
 
 - Docker
-- Python 3.11+
+- Python 3.12+
 - ~10 minutes (most of it is the one-time embedding-model download, ~130 MB)
 
 ## 1. Start ProximaDB

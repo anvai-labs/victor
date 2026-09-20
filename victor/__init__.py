@@ -56,7 +56,7 @@ import importlib
 import sys
 from typing import Any
 
-_MIN_SUPPORTED_PYTHON = (3, 10)
+_MIN_SUPPORTED_PYTHON = (3, 12)
 
 
 def _ensure_supported_python() -> None:
@@ -69,7 +69,7 @@ def _ensure_supported_python() -> None:
     running = ".".join(str(part) for part in current)
     raise RuntimeError(
         f"Victor requires Python {required}+; current interpreter is Python {running}. "
-        "Use Python 3.10 or newer and activate the correct virtual environment."
+        f"Use Python {required} or newer and activate the correct virtual environment."
     )
 
 

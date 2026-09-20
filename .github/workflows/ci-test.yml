@@ -301,7 +301,7 @@ jobs:
         with:
           files: ./coverage.xml
           flags: unittests
-          name: codecov-py311-complete
+          name: codecov-py312-complete
           fail_ci_if_error: false
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}

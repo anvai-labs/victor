@@ -6,7 +6,7 @@ setup(
     name="victor-rag",
     version="0.5.6",
     packages=find_packages(),
-    python_requires=">=3.10",
+    python_requires=">=3.12",
     install_requires=[
         "victor-ai>=0.5.6",
         "sentence-transformers>=2.2.0",

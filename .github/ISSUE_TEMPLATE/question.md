@@ -25,7 +25,7 @@ What are you trying to accomplish?
 ## Environment (if relevant)
 
 - **OS**: [e.g., macOS, Ubuntu, Windows]
-- **Python Version**: [e.g., 3.10.5]
+- **Python Version**: [e.g., 3.12.5]
 - **Victor Version**: [e.g., 0.1.0]
 - **Provider**: [e.g., Ollama, Anthropic]
 
