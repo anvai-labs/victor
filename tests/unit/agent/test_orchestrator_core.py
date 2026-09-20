@@ -3374,12 +3374,11 @@ class TestGoalHints:
 
 
 class TestHandleCancellation:
-    """Tests for cancellation handling (now inline in ChatCoordinator._run_iteration_pre_checks).
+    """Tests for the facade cancellation signal consumed by stream execution.
 
     The _handle_cancellation method was removed from the orchestrator as part of
-    the coordinator decomposition. Cancellation is now handled inline in
-    ChatCoordinator._run_iteration_pre_checks. Basic cancellation is tested
-    in TestCancellation above.
+    the coordinator decomposition. `StreamingChatExecutor` now checks
+    `ChatStreamLifecycle` around provider and tool boundaries.
     """
 
     def test_cancellation_check_returns_false_when_not_cancelled(self, orchestrator):
@@ -5006,11 +5005,11 @@ class TestStreamingHandlerIntegration:
 
 
 class TestCheckTimeLimitWithHandler:
-    """Tests for time limit checking (now inline in ChatCoordinator._run_iteration_pre_checks).
+    """Tests the streaming context's elapsed-time utility.
 
     The _check_time_limit_with_handler method was removed from the orchestrator.
-    Time limit checking is now inline in ChatCoordinator._run_iteration_pre_checks.
-    These tests verify the underlying StreamingChatContext time limit mechanism.
+    The unified agentic loop does not poll this compatibility utility; provider
+    wait and stall limits are enforced at the streaming provider boundary.
     """
 
     def test_context_under_time_limit(self, orchestrator):

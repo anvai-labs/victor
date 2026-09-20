@@ -330,16 +330,22 @@ provider/runtime-intelligence state and the remaining facade reach-throughs.
 
 ### Phase 1 progress: context lifecycle (complete)
 
-`ChatContextLifecycle` now owns background-compaction startup and the ordered pre-iteration
-policy: lifecycle service, context service, then the legacy compactor. Its weak adapter resolves
-live context owners and returns one normalized `ChatCompactionEvent`; the stream helper only
-records that event. A configured newer service owns the decision even when it chooses not to
-compact, so older fallbacks cannot apply a second policy.
+`ChatContextLifecycle` owns background-compaction startup through a weak adapter. The initial
+phase also introduced an ordered pre-iteration compaction path, but the unified-stream audit found
+its only consumer was a private compatibility helper with no production caller after FEP-0007.
+That helper, its event type and its adapter-only fallback chain are deleted.
 
 The boundary guard gives `_context_manager`, `_context_lifecycle_service`, `_context_service`,
 `_context_compactor`, `_agent_runtime_context` and `_memory_session_id` a zero cap. The helper
 private-attribute cap falls from 79 to 68 and its private-probe cap from 19 to 15. Phase 1 remains
 open for provider/runtime-intelligence state and the remaining facade reach-throughs.
+
+The same audit removed the zero-caller context-limit compatibility delegate. Active iteration
+bounds remain in `AgenticLoop.run_streaming`; `StreamingActAdapter` synchronizes the stream turn,
+and `StreamingChatExecutor` owns cancellation checks. The public `ChatService` limit bridge stays
+available to compatibility callers. The guard prevents the stream cluster from rediscovering
+that bridge or its private factory. The helper caps fall from 60 to 56 private attributes, 15 to
+13 probes and 7 to 6 raw-state reads.
 
 ### Phase 1 progress: runtime intelligence (complete)
 

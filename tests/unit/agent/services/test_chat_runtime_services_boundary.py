@@ -42,8 +42,8 @@ CLUSTER_CAPS = {
         "raw_state": 0,
     },
     "chat_stream_helpers.py": {
-        "private_attributes": 60,
-        "private_probes": 15,
+        "private_attributes": 56,
+        "private_probes": 13,
         "dynamic_probes": 0,
         "delivery_accesses": 0,
         "planning_accesses": 0,
@@ -54,7 +54,7 @@ CLUSTER_CAPS = {
         "intelligence_accesses": 0,
         "stream_context_accesses": 0,
         "provider_state_accesses": 0,
-        "raw_state": 7,
+        "raw_state": 6,
     },
     "streaming_act_adapter.py": {
         "private_attributes": 12,
@@ -186,6 +186,10 @@ def inventory(source):
         "_context_compactor",
         "_agent_runtime_context",
         "_memory_session_id",
+        "_chat_service",
+        "_get_context_limit_runtime",
+        "_context_limit_runtime",
+        "handle_context_and_iteration_limits",
     }
     intelligence_names = {
         "_runtime_intelligence",
@@ -292,6 +296,19 @@ def test_chat_cluster_boundary_counts_only_shrink(filename):
         )
 
 
+def test_removed_stream_compatibility_delegates_stay_deleted():
+    tree = ast.parse((ROOT / "victor/agent/services/chat_stream_helpers.py").read_text())
+    removed = {
+        "_handle_context_and_iteration_limits",
+        "_run_iteration_pre_checks",
+    }
+
+    assert not any(
+        isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in removed
+        for node in ast.walk(tree)
+    )
+
+
 @pytest.mark.parametrize(
     "source, category",
     [
@@ -321,6 +338,21 @@ def test_chat_cluster_boundary_counts_only_shrink(filename):
         ("getattr(renamed, 'unified_tracker').set_task_type(kind)", "task_state_accesses"),
         ("renamed.__dict__.get('unified_tracker').reset()", "task_state_accesses"),
         ("renamed._context_manager.start_background_compaction()", "context_lifecycle_accesses"),
+        (
+            "renamed._chat_service.handle_context_and_iteration_limits()",
+            "context_lifecycle_accesses",
+        ),
+        ("getattr(renamed, '_get_context_limit_runtime')", "context_lifecycle_accesses"),
+        ("renamed.__dict__.get('_context_limit_runtime')", "context_lifecycle_accesses"),
+        (
+            "renamed.get_capability_value('handle_context_and_iteration_limits')",
+            "context_lifecycle_accesses",
+        ),
+        (
+            "read = renamed._get_runtime_capability_value\n"
+            "read('_get_context_' + 'limit_runtime')",
+            "context_lifecycle_accesses",
+        ),
         ("getattr(renamed, '_context_lifecycle_service')", "context_lifecycle_accesses"),
         ("renamed.__dict__.get('_context_compactor')", "context_lifecycle_accesses"),
         ("renamed._runtime_intelligence.record_topology_outcome({})", "intelligence_accesses"),

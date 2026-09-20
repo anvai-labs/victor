@@ -159,14 +159,6 @@ class StreamingExecutionRuntimeProtocol(Protocol):
         """Create a streaming context for the current turn."""
         ...
 
-    def _run_iteration_pre_checks(
-        self,
-        *args: Any,
-        **kwargs: Any,
-    ) -> AsyncIterator[StreamChunk]:
-        """Run pre-checks for the next streaming iteration."""
-        ...
-
     async def _stream_provider_response(
         self,
         *args: Any,

@@ -63,9 +63,16 @@ one capability so callers do not accumulate facade fields.
 | Stream lifecycle | Start, context binding, cancellation, retry timing and cleanup | Required; weak live owner |
 | Stream metrics | Initialization, first-token timing, cost and terminal diagnostics | Required; weak live owner |
 | Task state | Reset, classification, continuation and prompt-derived budgets | Required; weak live owner |
-| Context lifecycle | Background startup and ordered pre-iteration compaction | Newest configured policy wins; weak live owner |
+| Context lifecycle | Background compaction startup | Optional; weak live owner |
 | Runtime intelligence | Request guidance, learned routing and outcome feedback | Optional; weak live owner |
 | Recovery | Retry and fallback coordination | Existing recovery contract |
+
+!!! note "Limit ownership"
+
+    `AgenticLoop.run_streaming` enforces the active iteration bound; `StreamingActAdapter` syncs
+    the turn counter and `StreamingChatExecutor` checks cancellation around provider/tool work.
+    The bound `ChatService` context-limit handler remains a compatibility API and is not
+    rediscovered from the stream cluster.
 
 ## Lifecycle invariants
 
@@ -78,8 +85,7 @@ one capability so callers do not accumulate facade fields.
     - Resolve mutable session and controller state from its current owner.
     - Keep configured governance gates through bootstrap; malformed results are errors.
     - Preserve one metrics path from provider usage to conversation, cost and session totals.
-    - Apply one context policy per iteration: lifecycle service → context service → legacy
-      compactor. A handled no-op stops the fallback chain.
+    - Start configured background compaction once during stream preparation.
 
 | Guard | What it prevents |
 | --- | --- |
