@@ -481,3 +481,50 @@ New defects discovered by the live sweep are G22–G25 in the handoff. The initi
 run was rejected because Victor reported zero usage; a second rejected run exposed
 member overrides bypassing the gateway. The accepted evidence uses the corrected
 shared accumulator and gateway resolver. Classifiers were not changed.
+
+### All-formation Sandhi matrix
+
+`scripts/validation/formation_gateway_matrix.py` is an opt-in artifact experiment
+covering all twelve canonical formations plus ensemble vote, judge and synthesizer.
+The older six-case battery remains unchanged. Run the ZAI reference and then the
+same scenarios against InferFlux; preserve failed attempts as new evidence rather
+than repeating calls to obtain a pass:
+
+```bash
+.venv-codesign/bin/python scripts/validation/formation_gateway_matrix.py \
+  --provider zai --model glm-5.3 \
+  --gateway-state /path/to/private/sandhi-state --output-dir /tmp/zai-matrix
+.venv-codesign/bin/python scripts/validation/formation_gateway_matrix.py \
+  --provider inferflux --model qwen3-coder-30b \
+  --gateway-state /path/to/private/sandhi-state --output-dir /tmp/inferflux-matrix
+```
+
+The existing private state supplies `client.json` (ZAI) or `inferflux.json`, each
+with gateway `url` and `virtual_key`, plus `admin-token` and `usage.db`. Credentials
+remain local. The observer listens on loopback port 18084 and forwards through the
+configured gateway; it records only correlation and usage metadata and body hashes.
+Reports and member outputs live in a new private experiment directory. Run with
+isolated Victor configuration when personal settings could affect the experiment.
+
+Each case requires its declared files, independent bounded pytest, successful
+member outcomes, distinct member session IDs, matching model/provider routing,
+canonical member usage, and wire/SQLite/C4/dashboard conservation. Reflection's
+critic persists a structured review; debate and ensemble aggregation persist a
+validated decision. Router acceptance expects only the selected member. Ensemble
+candidates and their aggregator use isolated worktrees. Structured task assignments
+are carried in the team objective to address the matrix's exposure to G39; this
+does not fix the general adapter behavior. Multi-level hierarchy uses an explicit
+three-level chain to keep each task assignment intact, exercising nested execution
+and synthesis without the default splitter cutting a JSON assignment in half.
+The G40 reflection result-retention defect currently prevents its strict member
+session/usage acceptance; resolve that runtime defect before new reflection calls.
+
+Record the actual Victor, Sandhi source/binary and InferFlux serving identities,
+origin readiness and gateway configuration with each run. The accepted Mac route
+is loopback 18081 to aiserver1:8081, upstream `http://127.0.0.1:18081/v1`; preserve
+the old route for rollback. The confirmed buffered gateway deadline is 120 seconds.
+The 240-second case budget does not extend it: every timed-out physical attempt
+fails acceptance. Do not clear shared cache or redeploy shared services for this
+experiment. Buffered reporting does not establish executed cache reuse, tokenizer
+equivalence, session leases, streaming, origin cancellation, durable partial resume,
+or R9700/full-GPU acceptance. No new live pass is claimed merely by adding this runner.
