@@ -516,8 +516,20 @@ are carried in the team objective to address the matrix's exposure to G39; this
 does not fix the general adapter behavior. Multi-level hierarchy uses an explicit
 three-level chain to keep each task assignment intact, exercising nested execution
 and synthesis without the default splitter cutting a JSON assignment in half.
-The G40 reflection result-retention defect currently prevents its strict member
-session/usage acceptance; resolve that runtime defect before new reflection calls.
+Reflection uses `capture_member_usage=True` to retain the actual generator/critic
+results and per-member accounting (G40), rather than the legacy synthetic aggregate.
+This is a prerequisite for its strict live session/usage acceptance.
+
+With capture enabled, `TeamResult.member_results` contains the configured member
+IDs. Each member retains its stable `session_id`, summed `usage`, tool-call and
+duration totals, and ordered `reflection_attempts`; `reflection_summary` carries
+iteration/verdict metadata. Consumers use those counters for gateway reconciliation
+and the attempts for failure diagnosis. The team's final output remains the generated
+solution. Missing/inconsistent attribution and invalid verdicts fail explicitly.
+Without capture, the existing `reflection_formation` aggregate and legacy defaults
+are unchanged. Iteration-boundary checkpoint/resume preserves captured results;
+changing capture mode during resume is rejected. This does not add mid-iteration
+pause or tool/token-level replay.
 
 Record the actual Victor, Sandhi source/binary and InferFlux serving identities,
 origin readiness and gateway configuration with each run. The accepted Mac route

@@ -52,6 +52,7 @@ import re
 from typing import Any, Dict, List, Optional
 
 from victor.coordination.formations.base import BaseFormationStrategy, TeamContext
+from victor.coordination.formations.reflection_results import ReflectionResults
 from victor.teams.types import AgentMessage, FormationRole, MemberResult, MessageType
 
 logger = logging.getLogger(__name__)
@@ -190,19 +191,20 @@ class ReflectionFormation(BaseFormationStrategy):
         saved: Dict[str, Any] = dict(
             ((resume or {}).get("shared_state") or {}).get("__reflection__") or {}
         )
+        captured = ReflectionResults(agents, context, saved)
 
         if saved and saved.get("verdict_format", "legacy") != verdict_format:
             raise ValueError("Cannot change reflection verdict format during resume")
         if saved.get("done"):
             # Terminal resume: the loop already finished — rebuild the final aggregate result.
-            return [
+            return captured.finish(
                 self._final_result(
                     saved.get("result"),
                     saved.get("feedback"),
                     int(saved["iter_done"]),
                     verdict_format,
                 )
-            ]
+            )
 
         iter_start = int(saved.get("iter_done", 0))
         if iter_start > 0:
@@ -231,6 +233,7 @@ class ReflectionFormation(BaseFormationStrategy):
                 "feedback": feedback,
                 "done": done,
                 "verdict_format": verdict_format,
+                **captured.checkpoint(),
             }
             marker = MemberResult(
                 member_id="reflection_formation",
@@ -249,9 +252,7 @@ class ReflectionFormation(BaseFormationStrategy):
             if member_event_hook is not None:
                 await member_event_hook("member_start", generator.id, iteration)
             try:
-                generator_response = await generator.execute(
-                    task.content, context=context.shared_state
-                )
+                generator_response = await captured.execute(generator, task.content)
                 result = generator_response
             except Exception as e:
                 logger.error(f"Generator failed in iteration {iteration + 1}: {e}")
@@ -259,14 +260,14 @@ class ReflectionFormation(BaseFormationStrategy):
                     await member_event_hook(
                         "member_error", generator.id, iteration, success=False, content=str(e)
                     )
-                return [
+                return captured.finish(
                     MemberResult(
                         member_id=generator.id,
                         success=False,
                         output=str(result) if result else "",
                         error=f"Generator failed: {str(e)}",
                     )
-                ]
+                )
             if member_event_hook is not None:
                 await member_event_hook("member_completed", generator.id, iteration, success=True)
 
@@ -275,9 +276,7 @@ class ReflectionFormation(BaseFormationStrategy):
             if member_event_hook is not None:
                 await member_event_hook("member_start", critic.id, iteration)
             try:
-                critique_response = await critic.execute(
-                    critique_prompt, context=context.shared_state
-                )
+                critique_response = await captured.execute(critic, critique_prompt)
                 feedback = critique_response
                 if member_event_hook is not None:
                     await member_event_hook("member_completed", critic.id, iteration, success=True)
@@ -294,7 +293,7 @@ class ReflectionFormation(BaseFormationStrategy):
                 satisfied = self._is_satisfied(feedback, verdict_format)
             except ValueError as exc:
                 logger.warning("Invalid reflection verdict; stopping refinement: %s", exc)
-                return [
+                return captured.finish(
                     MemberResult(
                         member_id=critic.id,
                         success=False,
@@ -302,7 +301,7 @@ class ReflectionFormation(BaseFormationStrategy):
                         error=str(exc),
                         metadata={"iterations": iteration + 1, "verdict_contract_error": True},
                     )
-                ]
+                )
             if satisfied:
                 logger.info(f"Critic satisfied after {iteration + 1} iterations")
                 break
@@ -320,7 +319,7 @@ class ReflectionFormation(BaseFormationStrategy):
         await _checkpoint(iteration + 1, None, done=True)
 
         # Return final result with metadata
-        return [self._final_result(result, feedback, iteration + 1, verdict_format)]
+        return captured.finish(self._final_result(result, feedback, iteration + 1, verdict_format))
 
     def _final_result(
         self, result: Any, feedback: Optional[str], iterations: int, verdict_format: str = "legacy"

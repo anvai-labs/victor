@@ -1054,6 +1054,18 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
                 )
                 final_output = metadata["conversation_output"]
 
+            if (
+                active_formation == TeamFormation.REFLECTION
+                and effective_context.get("capture_member_usage", False)
+                and member_results_list
+                and "reflection_success" in member_results_list[0].metadata
+            ):
+                metadata = member_results_list[0].metadata
+                success = bool(metadata["reflection_success"]) and all(
+                    r.success for r in member_results_list
+                )
+                final_output = metadata["reflection_output"]
+
             # Extract consensus metadata if present (from ConsensusFormation)
             result_dict = {
                 "success": success,

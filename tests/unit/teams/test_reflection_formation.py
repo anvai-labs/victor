@@ -73,19 +73,15 @@ def test_consumes_context_agents_flag():
 
 
 async def test_shim_normalizes_mapping_output():
-    agent = _MemberContextAgent(_FakeMember("m", ret={"output": "X"}))
+    member = _FakeMember("m", ret={"output": "X"})
+    agent = _MemberContextAgent(member)
     assert await agent.execute("prompt") == "X"
+    assert member.calls == 1
 
 
 async def test_shim_normalizes_string_and_none():
     assert await _MemberContextAgent(_FakeMember("m", ret="hi")).execute("p") == "hi"
     assert await _MemberContextAgent(_FakeMember("m", ret=None)).execute("p") == ""
-
-
-async def test_shim_calls_execute_task():
-    member = _FakeMember("m", ret="done")
-    await _MemberContextAgent(member).execute("p", {"k": "v"})
-    assert member.calls == 1
 
 
 def test_member_formation_role_reads_through_adapter():
