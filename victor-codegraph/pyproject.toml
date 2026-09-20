@@ -43,16 +43,16 @@ dependencies = []
 [project.optional-dependencies]
 treesitter = [
     "tree-sitter>=0.26.0",
-    "tree-sitter-language-pack>=1.16.2",
+    "tree-sitter-language-pack>=1.19.0",
 ]
 contracts = [
     "victor-contracts>=0.9.1,<1.0",
 ]
 dev = [
     "pytest>=9.1.1",
-    "ruff>=0.16.6",
+    "ruff>=0.16.7",
     "tree-sitter>=0.26.0",
-    "tree-sitter-language-pack>=1.16.2",
+    "tree-sitter-language-pack>=1.19.0",
 ]
 
 [project.urls]

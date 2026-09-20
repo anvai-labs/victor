@@ -8,10 +8,10 @@
 
 # datasets 5.x currently requires fsspec[http] <= 2026.6.0.
 # Constraints cannot include extras, so constrain fsspec itself.
-fsspec>=2023.1.0,<=2026.6.0
+fsspec<=2026.7.0,>=2026.7.0
 
 # Semgrep 1.x requires peewee ~= 3.14.
-peewee>=3.14,<4
+peewee>=4.5.1,<5
 
 # Keep the shared environment on Victor's supported NumPy range. Numba 0.67
 # accepts NumPy <2.6, so this remains compatible with its current release.
@@ -23,20 +23,20 @@ requests>=2.32,<2.35
 # OpenTelemetry packages must move as a family: API/SDK/exporters use 1.x,
 # instrumentation packages use matching 0.x beta versions. Semgrep 1.x pins
 # this family to API/SDK 1.37 and instrumentation 0.58b0.
-opentelemetry-api==1.37.0
-opentelemetry-exporter-otlp==1.37.0
-opentelemetry-exporter-otlp-proto-common==1.37.0
-opentelemetry-exporter-otlp-proto-grpc==1.37.0
-opentelemetry-exporter-otlp-proto-http==1.37.0
-opentelemetry-proto==1.37.0
-opentelemetry-sdk==1.37.0
-opentelemetry-instrumentation==0.58b0
-opentelemetry-instrumentation-asgi==0.58b0
-opentelemetry-instrumentation-fastapi==0.58b0
-opentelemetry-instrumentation-requests==0.58b0
-opentelemetry-instrumentation-threading==0.58b0
-opentelemetry-semantic-conventions==0.58b0
-opentelemetry-util-http==0.58b0
+opentelemetry-api==1.44.0
+opentelemetry-exporter-otlp==1.44.0
+opentelemetry-exporter-otlp-proto-common==1.44.0
+opentelemetry-exporter-otlp-proto-grpc==1.44.0
+opentelemetry-exporter-otlp-proto-http==1.44.0
+opentelemetry-proto==1.44.0
+opentelemetry-sdk==1.44.0
+opentelemetry-instrumentation==0.65b0
+opentelemetry-instrumentation-asgi==0.65b0
+opentelemetry-instrumentation-fastapi==0.65b0
+opentelemetry-instrumentation-requests==0.65b0
+opentelemetry-instrumentation-threading==0.65b0
+opentelemetry-semantic-conventions==0.65b0
+opentelemetry-util-http==0.65b0
 
 # OpenTelemetry instrumentation 0.58b0 requires wrapt >=1,<2.
-wrapt>=1.0,<2
+wrapt>=2.4.1,<3

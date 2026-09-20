@@ -203,7 +203,7 @@ dev = [
     "pandas>=2.0",  # For data analysis handler tests
 
     # Linting/Formatting
-    "ruff==0.16.6",
+    "ruff==0.16.7",
     "mypy>=1.10",
     "black==26.5.1",
 
@@ -273,7 +273,7 @@ ci = [
     "scikit-learn>=1.4",  # FEP-0012 edge-classifier trainer round-trip tests
 
     # Linting/Formatting/Typing
-    "ruff==0.16.6",
+    "ruff==0.16.7",
     "mypy>=1.10",
     "black==26.5.1",
     "radon>=6.0",

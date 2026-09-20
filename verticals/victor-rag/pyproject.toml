@@ -41,7 +41,7 @@ dependencies = [
     "torch>=2.13.0",  # Patched floor for the embeddings backend
     "lancedb>=0.6.0",
     "pyarrow>=14.0",
-    "fsspec>=2023.1.0,<=2026.6.0",  # Keep datasets/huggingface stack compatible
+    "fsspec>=2023.1.0,<=2026.7.0",  # Keep datasets/huggingface stack compatible
 ]
 
 [project.optional-dependencies]
