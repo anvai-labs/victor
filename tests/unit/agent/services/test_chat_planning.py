@@ -10,6 +10,7 @@ from victor.agent.services.chat_planning import ChatPlanning
 
 async def test_planning_capability_delegates_without_exposing_runtime_host():
     guidance = SimpleNamespace(
+        prepare_task=MagicMock(return_value=("classification", 7)),
         apply_intent_guard=MagicMock(),
         apply_task_guidance=MagicMock(),
         classify_task_keywords=MagicMock(return_value={"task_type": "analysis"}),
@@ -29,6 +30,7 @@ async def test_planning_capability_delegates_without_exposing_runtime_host():
     )
 
     planning.apply_intent_guard("inspect app.py")
+    assert planning.prepare_task("inspect app.py", "analyze") == ("classification", 7)
     assert planning.classify_task_keywords("inspect app.py") == {"task_type": "analysis"}
     assert planning.current_intent() == "write_allowed"
     planning.apply_task_guidance(
@@ -46,6 +48,7 @@ async def test_planning_capability_delegates_without_exposing_runtime_host():
         "read-definition"
     ]
     guidance.apply_intent_guard.assert_called_once_with("inspect app.py")
+    guidance.prepare_task.assert_called_once_with("inspect app.py", "analyze")
     guidance.apply_task_guidance.assert_called_once()
     selection.select_tools_for_turn.assert_awaited_once_with(
         "inspect app.py", ["inspect"], planned_tools=["read"]
@@ -59,6 +62,8 @@ async def test_missing_planning_dependencies_fail_before_turn_execution():
 
     with pytest.raises(TypeError, match="task-guidance"):
         planning.apply_intent_guard("inspect app.py")
+    with pytest.raises(TypeError, match="task-guidance"):
+        planning.prepare_task("inspect app.py", "analyze")
     with pytest.raises(TypeError, match="task-guidance"):
         planning.current_intent()
     with pytest.raises(TypeError, match="tool planner"):

@@ -389,7 +389,7 @@ class ChatStreamHelperMixin:
 
         max_exploration_iterations = self.services.task_state.max_exploration_iterations()
 
-        task_classification, complexity_tool_budget = self._prepare_task(
+        task_classification, complexity_tool_budget = self.services.planning.prepare_task(
             user_message, unified_task_type
         )
         if continuation_task_context is not None:
@@ -873,19 +873,6 @@ class ChatStreamHelperMixin:
             return int(value)
         except (TypeError, ValueError):
             return None
-
-    def _prepare_task(
-        self, user_message: str, unified_task_type: TrackerTaskType
-    ) -> tuple[Any, int]:
-        """Prepare task-specific guidance and budget adjustments."""
-        orch = self._orchestrator
-
-        if orch.task_coordinator._reminder_manager is None:
-            orch.task_coordinator.set_reminder_manager(orch.reminder_manager)
-
-        return orch.task_coordinator.prepare_task(
-            user_message, unified_task_type, orch.conversation_controller
-        )
 
     async def _run_iteration_pre_checks(
         self,

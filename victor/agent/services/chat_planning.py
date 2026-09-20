@@ -12,6 +12,8 @@ from typing import Any, Protocol
 class TaskGuidance(Protocol):
     """Turn guidance without exposing the orchestrator facade."""
 
+    def prepare_task(self, user_message: str, unified_task_type: Any) -> tuple[Any, int]: ...
+
     def apply_intent_guard(self, user_message: str) -> None: ...
 
     def classify_task_keywords(self, user_message: str) -> dict[str, Any]: ...
@@ -69,6 +71,9 @@ class ChatPlanning:
 
     def apply_intent_guard(self, user_message: str) -> None:
         self._require_guidance().apply_intent_guard(user_message)
+
+    def prepare_task(self, user_message: str, unified_task_type: Any) -> tuple[Any, int]:
+        return self._require_guidance().prepare_task(user_message, unified_task_type)
 
     def classify_task_keywords(self, user_message: str) -> dict[str, Any]:
         return self._require_guidance().classify_task_keywords(user_message)
