@@ -92,6 +92,27 @@ remains inline (see G17).
   blackboard and contract-net remain absent. Conversation-native formations now
   use the FEP-0035 transcript substrate; ensemble status is tracked separately (G16).
 
+### 1.5 Completion audit (2026-09-20)
+
+Implementation delivery and live acceptance have different denominators:
+
+| Measure | Complete | Remaining |
+|---|---|---|
+| WS-A through WS-I increments landed | 9/9 (100%); PRs in §4 | 0 original increments |
+| Historical live passes: 12 formations plus 3 ensemble modes | 7/15 (47%): original six plus ensemble vote | 8 cases without a recorded live pass |
+| New matched Sandhi artifact/accounting matrix | 0/30 (0%): 15 ZAI and 15 Qwen cases planned | 30 new model/case runs; offline runner coverage is not live evidence |
+| Current six-Qwen/one-ZAI C5 acceptance | Failed; earlier WS-E success is separate evidence | Full corrected run and reviewed verdict on InferFlux #184 |
+
+The eight missing historical passes are adaptive, dynamic router, multi-level
+hierarchy, group chat, debate, handoff, ensemble judge and ensemble synthesizer.
+Historical cases used different tasks and gates; the stricter WS-F battery passed
+only Qwen 1/6 and LFM 0/6. No weighted overall completion percentage is asserted.
+The remaining correctness work includes G32 completion, G34 buffered reporting,
+G36 structured verification, G39 task binding and G40 reflection result retention.
+G31's cross-repository cache/lifecycle investigation remains open; G17/G21 durability
+limitations remain explicitly deferred. A model-size diagnosis is not established
+by these failures.
+
 ## 2. Industry pattern catalog (researched 2026-09-17)
 
 Sources fetched for this section: LangChain "Choosing the right multi-agent
@@ -523,6 +544,28 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   review; `needs_work`, malformed findings, missing files or failed pytest still
   fail acceptance. This is new evidence when run, not a reinterpretation of v1.
 
+- **G39 — rewritten formation tasks can omit declared member assignments.**
+  The coordinator's SubAgent adapter suppresses the static member goal whenever
+  the dispatched task differs from the team goal, treating that difference as
+  dynamic delegation. Conversation and other structured formation tasks also
+  differ, so a member can receive its response contract without its declared
+  artifact assignment. An offline GROUP_CHAT reproduction returned success while
+  the captured SubAgent task omitted the unique member assignment. This is an
+  offline task-binding finding, not evidence of model quality or a live pass.
+  The opt-in gateway matrix explicitly carries assignments keyed by the preset's
+  canonical member IDs inside its structured team objective. Existing coordinator
+  defaults are unchanged; a general task-binding correction remains open.
+- **G40 — reflection loses per-member results and accounting attribution.**
+  An offline public-preset/coordinator reproduction supplied generator and critic
+  responses with distinct sessions and usage, but the successful TeamResult
+  contained only the synthetic `reflection_formation` aggregate. The context-agent
+  adapter reduces each response to text; the strategy returns that aggregate
+  without either member's metadata. Strict matrix session/usage acceptance cannot
+  pass this shape, even when both members deliver valid artifacts. Preserve the
+  assertions; fix result retention in a separate compatible runtime increment
+  before spending calls on new live reflection acceptance. This finding does not
+  invalidate the differently scoped historical reflection experiment.
+
 Validation-test audit: neither live harness had direct tests before this follow-up.
 The new mixed-harness suite covers rejected/malformed/missing reviews, inclusive
 cache accounting, missing artifacts, bad member usage, pytest timeout, startup and
@@ -532,6 +575,18 @@ those runtime contracts. One redundant constant-string test was removed after th
 integration test covered domain injection: before/after coverage retained the same
 176 executed script lines and 30 executed branches. No prior runtime tests were
 removed.
+
+The opt-in `formation_gateway_matrix.py` adds artifact scenarios for all twelve
+canonical formations and the three ensemble modes, using the existing presets
+and coordinator dispatch. Its accounting observer requires physical request,
+SQLite, C4 request/session/run, dashboard, and member-usage agreement. Timeouts
+remain failures even when a provider subsequently retries successfully. The
+[recipe](multiagent-formations-inferflux.md#all-formation-sandhi-matrix) separates
+ZAI reference and matched InferFlux runs. Adding the runner does not mark any live
+coverage row passed. Its offline tests own scenario configuration, evidence
+retention, decision artifacts and accounting fault injection; existing strategy
+tests continue to own formation semantics. Removing one duplicate invalid-name
+case preserved exactly 78 executed scenario-module lines and 25 branches.
 
 
 WS-E implementation/evidence: [PR #1115](https://github.com/anvai-labs/victor/pull/1115).
