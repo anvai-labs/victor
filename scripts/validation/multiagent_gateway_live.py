@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Gateway review, pipeline pause/resume, selection, and usage reconciliation.
 
-The optional mixed mode uses R9700 InferFlux members and a ZAI reviewer.
+The optional mixed mode uses configured InferFlux members and a ZAI reviewer.
 The approval signal precedes the reviewer (ZAI-only) or reviser (mixed).
 All completed member work uses the real configured Sandhi gateway.
 """
@@ -17,6 +17,7 @@ from pathlib import Path
 import subprocess
 import sys
 import time
+from typing import Any, cast
 from unittest.mock import patch
 import uuid
 
@@ -31,102 +32,231 @@ from victor.framework.graph_checkpoint import MemoryCheckpointer
 from victor.framework.hitl import ApprovalRequest
 from victor.framework.member_event_sink import MemberEventSink, current_member_sink
 from victor.framework.teams import AgentTeam, TeamFormation, TeamMemberSpec
-from victor.teams.unified_coordinator import StateGraphNodeConfig
+from victor.teams.types import MemberResult, TeamMember
+from victor.teams.unified_coordinator import StateGraphNodeConfig, UnifiedTeamCoordinator
+
+MEMBER_NAMES = ("writer", "reviewer", "reviser", "selecteda", "selectedb", "fallbacka", "fallbackb")
+TASK_CONTRACT_VERSION = 2
+NUMERIC_DOMAIN = (
+    "Inputs are Python ints or floats that are integer multiples of 0.25 in [-1024, 1024]. "
+    "For the additive invariant, x, y, and x+y must all be in that domain. "
+    "Booleans, strings, sequences, non-finite values, and overflow are outside the contract."
+)
 
 
-async def validate(args):
+def failure(evidence: dict[str, Any], check: str, **details: Any) -> None:
+    """Record a failed check without preventing independent checks from running."""
+    evidence["failures"].append({"check": check, **details})
+
+
+async def collect_acceptance(
+    *,
+    root: Path,
+    python: Path,
+    mixed: bool,
+    results: list[MemberResult],
+    client: ClientSession,
+    gateway_url: str,
+    admin: str,
+    evidence: dict[str, Any],
+) -> None:
+    """Collect independent acceptance results even after an execution failure.
+
+    Exceptions are recorded by type: upstream errors can include private request headers.
+    Raw run artifacts stay in the private output directory, not in committed evidence.
+    """
+    if mixed:
+        try:
+            review = json.loads((root / "review.json").read_text())
+            evidence["review"] = review
+            valid = (
+                isinstance(review, dict)
+                and set(review) == {"verdict", "findings"}
+                and review["verdict"] == "approved"
+                and isinstance(review["findings"], list)
+                and all(isinstance(item, str) for item in review["findings"])
+            )
+            if not valid:
+                failure(evidence, "review", reason="Review must be a valid approved verdict")
+        except (OSError, ValueError) as exc:
+            failure(evidence, "review", error_type=type(exc).__name__)
+
+    reconciled = evidence["usage_reconciliation"] = []
+    for member in results:
+        entry: dict[str, Any] = {"member_id": member.member_id, "passed": False}
+        reconciled.append(entry)
+        try:
+            session = member.metadata["session_id"]
+            entry.update(session_id=session, victor=member.metadata["usage"])
+            async with client.get(
+                gateway_url + "/admin/usage/run/" + session,
+                headers={"Authorization": f"Bearer {admin}"},
+            ) as response:
+                entry["http_status"] = response.status
+                if response.status != 200:
+                    raise ValueError("Run lookup failed")
+                total = (await response.json())["run"]["total"]
+            entry["sandhi"] = total
+            usage = entry["victor"]
+            gateway_input = (
+                total["tokens_in"] + total["cache_read_tokens"] + total["cache_creation_tokens"]
+            )
+            entry["passed"] = (
+                usage["input_tokens"] == gateway_input
+                and usage["output_tokens"] == total["tokens_out"]
+                and usage["total_tokens"] == gateway_input + total["tokens_out"]
+            )
+        except Exception as exc:
+            entry["error_type"] = type(exc).__name__
+        if not entry["passed"]:
+            failure(evidence, "usage", member_id=member.member_id)
+
+    required = {filename for name in MEMBER_NAMES for filename in (f"{name}.py", f"test_{name}.py")}
+    files = sorted(p.name for p in root.glob("*.py") if p.is_file())
+    missing = sorted(required - set(files))
+    evidence.update(deliverables=files, missing_deliverables=missing)
+    if missing or len(list(root.glob("test_*.py"))) != len(MEMBER_NAMES):
+        failure(evidence, "deliverables", missing=missing)
+    try:
+        tests = await asyncio.to_thread(
+            subprocess.run,
+            [str(python), "-m", "pytest", "-q", str(root)],
+            cwd=root,
+            text=True,
+            capture_output=True,
+            timeout=60,
+        )
+        evidence["pytest"] = {
+            "returncode": tests.returncode,
+            "stdout": tests.stdout,
+            "stderr": tests.stderr,
+            "timeout": False,
+        }
+        if tests.returncode != 0:
+            failure(evidence, "pytest", returncode=tests.returncode)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        evidence["pytest"] = {
+            "returncode": None,
+            "error_type": type(exc).__name__,
+            "timeout": isinstance(exc, subprocess.TimeoutExpired),
+        }
+        failure(evidence, "pytest", error_type=type(exc).__name__)
+
+
+async def validate(args: argparse.Namespace) -> int:
     root = Path(args.output_dir).resolve() / f"gateway-{uuid.uuid4().hex[:10]}"
-    root.mkdir(parents=True)
+    root.mkdir(parents=True, mode=0o700)
     settings = json.loads((args.gateway_state / "client.json").read_text())
     admin = (args.gateway_state / "admin-token").read_text().strip()
     python = WORKTREE / ".venv-codesign/bin/python"
-    observed = []
-    evidence = {"provider": "zai", "model": "glm-5.3", "scope": "ZAI-only; no InferFlux claim"}
+    observed: list[dict[str, Any]] = []
+    evidence: dict[str, Any] = {
+        "provider": "zai",
+        "model": "glm-5.3",
+        "scope": "ZAI-only; no InferFlux claim",
+        "task_contract_version": TASK_CONTRACT_VERSION,
+        "numeric_domain": NUMERIC_DOMAIN,
+        "failures": [],
+        "passed": False,
+    }
+    results: list[MemberResult] = []
+    configured_members: list[TeamMember] = []
+    previous_cwd = Path.cwd()
+    gateway_env = (
+        "SANDHI_GATEWAY_URL",
+        "SANDHI_GATEWAY_VIRTUAL_KEY_ZAI",
+        "SANDHI_GATEWAY_VIRTUAL_KEY_INFERFLUX",
+    )
+    previous_env = {key: os.environ.get(key) for key in gateway_env}
+    runner: web.AppRunner | None = None
     started = time.monotonic()
     async with ClientSession() as client:
 
-        async def forward(request):
-            body = await request.read()
-            if request.path.endswith("/chat/completions"):
-                observed.append(
-                    {
-                        "session_id": request.headers.get("x-sandhi-session"),
-                        "run_id": request.headers.get("x-sandhi-run-id"),
-                        "model": json.loads(body).get("model"),
-                        "reasoning_effort_present": "reasoning_effort" in json.loads(body),
-                    }
-                )
-            headers = {
-                k: v
-                for k, v in request.headers.items()
-                if k.lower() not in {"host", "content-length", "transfer-encoding"}
-            }
-            headers["Accept-Encoding"] = "identity"
-            async with client.request(
-                request.method, settings["url"] + request.path_qs, data=body, headers=headers
-            ) as upstream:
-                response = web.Response(
-                    status=upstream.status,
-                    body=await upstream.read(),
-                    content_type="application/json",
-                )
-                return response
-
-        app = web.Application()
-        app.router.add_route("*", "/{tail:.*}", forward)
-        runner = web.AppRunner(app)
-        await runner.setup()
-        await web.TCPSite(runner, "127.0.0.1", args.proxy_port).start()
-        os.environ["SANDHI_GATEWAY_URL"] = f"http://127.0.0.1:{args.proxy_port}"
-        os.environ["SANDHI_GATEWAY_VIRTUAL_KEY_ZAI"] = settings["virtual_key"]
-        local = None
-        if args.mixed:
-            local = json.loads((args.gateway_state / "inferflux.json").read_text())
-            os.environ["SANDHI_GATEWAY_VIRTUAL_KEY_INFERFLUX"] = local["virtual_key"]
-            evidence.update(
-                provider="inferflux+zai",
-                model="qwen3-coder-30b+glm-5.3",
-                scope="R9700 local members plus ZAI reviewer through one Sandhi gateway",
-            )
-        os.chdir(root)
-        agent = await Agent.create(
-            provider="zai",
-            model="glm-5.3",
-            workspace=str(root),
-            enable_observability=False,
-            session_id=root.name,
-        )
-        orchestrator = agent.get_orchestrator()
-        assert orchestrator.provider.extra_config["gateway"]["url"].endswith(str(args.proxy_port))
-
-        def spec(name):
-            return TeamMemberSpec(
-                role="executor",
-                name=name,
-                provider="inferflux" if args.mixed and name != "reviewer" else "zai",
-                model="qwen3-coder-30b" if args.mixed and name != "reviewer" else "glm-5.3",
-                reasoning_effort="high" if args.mixed else None,
-                goal=f"Assigned member: {name}. Complete these steps in order: "
-                f"1. Write {root}/{name}.py with function {name}(x) returning x * 2. "
-                f"2. Write {root}/test_{name}.py importing that function and defining "
-                f"def test_{name}(): assert {name}(4) == 8. "
-                f"3. Run {python} -m pytest {root}/test_{name}.py -q. "
-                "Both files must exist and one test must pass. Use write twice then shell. "
-                "Run shell with readonly=False. Never repeat a successful write; move to the next step. "
-                "Return file references and test result.",
-                allowed_tools=["read", "write", "shell"],
-                tool_budget=12,
-                max_iterations=12,
-            )
-
-        results = []
-        configured_members = []
         try:
+
+            async def forward(request: web.Request) -> web.Response:
+                body = await request.read()
+                if request.path.endswith("/chat/completions"):
+                    observed.append(
+                        {
+                            "session_id": request.headers.get("x-sandhi-session"),
+                            "run_id": request.headers.get("x-sandhi-run-id"),
+                            "model": json.loads(body).get("model"),
+                            "reasoning_effort_present": "reasoning_effort" in json.loads(body),
+                        }
+                    )
+                headers = {
+                    k: v
+                    for k, v in request.headers.items()
+                    if k.lower() not in {"host", "content-length", "transfer-encoding"}
+                }
+                headers["Accept-Encoding"] = "identity"
+                async with client.request(
+                    request.method, settings["url"] + request.path_qs, data=body, headers=headers
+                ) as upstream:
+                    response = web.Response(
+                        status=upstream.status,
+                        body=await upstream.read(),
+                        content_type="application/json",
+                    )
+                    return response
+
+            app = web.Application()
+            app.router.add_route("*", "/{tail:.*}", forward)
+            runner = web.AppRunner(app)
+            await runner.setup()
+            await web.TCPSite(runner, "127.0.0.1", args.proxy_port).start()
+            os.environ["SANDHI_GATEWAY_URL"] = f"http://127.0.0.1:{args.proxy_port}"
+            os.environ["SANDHI_GATEWAY_VIRTUAL_KEY_ZAI"] = settings["virtual_key"]
+            local = None
+            if args.mixed:
+                local = json.loads((args.gateway_state / "inferflux.json").read_text())
+                os.environ["SANDHI_GATEWAY_VIRTUAL_KEY_INFERFLUX"] = local["virtual_key"]
+                evidence.update(
+                    provider="inferflux+zai",
+                    model="qwen3-coder-30b+glm-5.3",
+                    scope="Configured InferFlux members plus ZAI reviewer through one Sandhi gateway",
+                )
+            os.chdir(root)
+            agent = await Agent.create(
+                provider="zai",
+                model="glm-5.3",
+                workspace=str(root),
+                enable_observability=False,
+                session_id=root.name,
+            )
+            orchestrator = agent.get_orchestrator()
+            assert orchestrator.provider.extra_config["gateway"]["url"].endswith(
+                str(args.proxy_port)
+            )
+
+            def spec(name: str) -> TeamMemberSpec:
+                return TeamMemberSpec(
+                    role="executor",
+                    name=name,
+                    provider="inferflux" if args.mixed and name != "reviewer" else "zai",
+                    model="qwen3-coder-30b" if args.mixed and name != "reviewer" else "glm-5.3",
+                    reasoning_effort="high" if args.mixed else None,
+                    goal=f"Assigned member: {name}. Complete these steps in order: "
+                    f"1. Write {root}/{name}.py with function {name}(x) returning x * 2. "
+                    f"Numeric task contract v{TASK_CONTRACT_VERSION}: {NUMERIC_DOMAIN} "
+                    f"2. Write {root}/test_{name}.py importing that function and defining "
+                    f"def test_{name}(): assert {name}(4) == 8. "
+                    f"3. Run {python} -m pytest {root}/test_{name}.py -q. "
+                    "Both files must exist and one test must pass. Use write twice then shell. "
+                    "Run shell with readonly=False. Never repeat a successful write; move to the next step. "
+                    "Return file references and test result.",
+                    allowed_tools=["read", "write", "shell"],
+                    tool_budget=12,
+                    max_iterations=12,
+                )
+
             reviewer = spec("reviewer")
             if args.mixed:
                 reviewer.goal = (
                     f"Review {root}/writer.py and its tests. Think carefully about zero, negative, "
                     "and fractional inputs and the invariant f(x+y)=f(x)+f(y). "
+                    f"Numeric task contract v{TASK_CONTRACT_VERSION}: {NUMERIC_DOMAIN} "
                     f"Write {root}/reviewer.py with reviewer(x) calling writer(x). "
                     f"Write {root}/test_reviewer.py with one def test_reviewer() asserting "
                     "all edge cases and the invariant. "
@@ -150,14 +280,14 @@ async def validate(args):
                 },
                 timeout_seconds=600,
             )
-            checkpointer = MemoryCheckpointer()
-            team._coordinator.with_checkpointer(checkpointer)
+            checkpointer = MemoryCheckpointer()  # type: ignore[no-untyped-call]
+            cast(UnifiedTeamCoordinator, team._coordinator).with_checkpointer(checkpointer)
             configured_members.extend(team._config.members)
             gate_id = team._config.members[2 if args.mixed else 1].id
             calls = []
             original = SubAgent._execute_with_retry
 
-            async def gate(member):
+            async def gate(member: SubAgent) -> Any:
                 calls.append(member.config.member_id)
                 if member.config.member_id == gate_id and calls.count(gate_id) == 1:
                     raise MemberApprovalPause(
@@ -171,6 +301,8 @@ async def validate(args):
 
             with patch.object(SubAgent, "_execute_with_retry", gate):
                 paused = await team.run()
+                evidence["pipeline"] = {"pause": paused.to_dict(), "calls": calls}
+                results.extend(paused.member_results.values())
                 assert paused.status == "awaiting_approval", paused.to_dict()
                 assert paused.paused_member_id == gate_id
                 team._config.shared_context["approval_decision"] = {
@@ -178,12 +310,7 @@ async def validate(args):
                     "approved": True,
                 }
                 resumed = await team.run()
-            assert resumed.success, resumed.final_output
-            assert calls.count(team._config.members[0].id) == 1, calls
-            if args.mixed:
-                assert calls.count(team._config.members[1].id) == 1, calls
-            assert calls.count(gate_id) == 2, calls
-            assert len(resumed.member_results) == 3
+            results.clear()
             evidence["pipeline"] = {
                 "pause": paused.to_dict(),
                 "calls": calls,
@@ -191,6 +318,13 @@ async def validate(args):
                 "injected_approval_signal": True,
             }
             results.extend(resumed.member_results.values())
+
+            assert resumed.success, resumed.final_output
+            assert calls.count(team._config.members[0].id) == 1, calls
+            if args.mixed:
+                assert calls.count(team._config.members[1].id) == 1, calls
+            assert calls.count(gate_id) == 2, calls
+            assert len(resumed.member_results) == 3
 
             for label, fail in (("selected", False), ("fallback", True)):
                 dynamic = await AgentTeam.create(
@@ -201,11 +335,11 @@ async def validate(args):
                     formation=TeamFormation.SEQUENTIAL,
                 )
                 configured_members.extend(dynamic._config.members)
-                coord = dynamic._coordinator
+                coord = cast(UnifiedTeamCoordinator, dynamic._coordinator)
                 for member in coord._adapt_team_members(dynamic._config.members):
                     coord.add_member(member)
 
-                def select(state):
+                def select(state: dict[str, Any]) -> TeamFormation:
                     if fail:
                         raise ValueError("Injected strategy failure")
                     return TeamFormation.PARALLEL
@@ -223,18 +357,26 @@ async def validate(args):
                     )
                 finally:
                     current_member_sink.reset(token)
-                await sink.close()
+                    await sink.close()
                 events = [asdict(e) async for e in sink.drain()]
                 out = state["team_output"]
+                results.extend(out["member_results"].values())
+                evidence[label] = {
+                    "success": out["success"],
+                    "formation": out["formation"],
+                    "member_results": {
+                        key: value.to_dict() for key, value in out["member_results"].items()
+                    },
+                    "events": events,
+                }
                 assert out["success"], out
                 assert out["formation"] == ("sequential" if fail else "parallel")
                 warnings = [e for e in events if e["kind"] == "team_formation_warning"]
                 assert bool(warnings) == fail
-                evidence[label] = {"formation": out["formation"], "warning_events": warnings}
-                results.extend(out["member_results"].values())
+                evidence[label].update(formation=out["formation"], warning_events=warnings)
 
             ids = [member.metadata["session_id"] for member in results]
-            assert len(set(ids)) == len(ids), ids
+            assert len(set(ids)) == len(ids) == len(MEMBER_NAMES), ids
             assert {r["session_id"] for r in observed} == set(ids)
             assert all(r["session_id"] == r["run_id"] for r in observed)
             expected = {
@@ -245,70 +387,65 @@ async def validate(args):
                 assert request["model"] == expected[request["session_id"]]["model"]
                 if expected[request["session_id"]]["provider"] == "inferflux":
                     assert not request["reasoning_effort_present"], request
-            if args.mixed:
-                review = json.loads((root / "review.json").read_text())
-                assert set(review) == {"verdict", "findings"}
-                assert review["verdict"] == "approved", review
-                assert isinstance(review["findings"], list)
-                evidence["review"] = review
             evidence["member_routes"] = expected
-            reconciled = []
-            for member in results:
-                session = member.metadata["session_id"]
-                async with client.get(
-                    settings["url"] + "/admin/usage/run/" + session,
-                    headers={"Authorization": f"Bearer {admin}"},
-                ) as response:
-                    assert response.status == 200
-                    tree = (await response.json())["run"]
-                usage = member.metadata["usage"]
-                total = tree["total"]
-                gateway_input = (
-                    total["tokens_in"] + total["cache_read_tokens"] + total["cache_creation_tokens"]
+        except asyncio.CancelledError:
+            failure(evidence, "execution", error_type="CancelledError")
+            raise
+        except Exception as exc:
+            failure(evidence, "execution", error_type=type(exc).__name__)
+        finally:
+            try:
+                await collect_acceptance(
+                    root=root,
+                    python=python,
+                    mixed=args.mixed,
+                    results=results,
+                    client=client,
+                    gateway_url=settings["url"],
+                    admin=admin,
+                    evidence=evidence,
                 )
-                assert usage["input_tokens"] == gateway_input, (usage, total)
-                assert usage["output_tokens"] == total["tokens_out"], (usage, total)
-                assert usage["total_tokens"] == gateway_input + total["tokens_out"], (usage, total)
-                reconciled.append(
-                    {
-                        "member_id": member.member_id,
-                        "session_id": session,
-                        "victor": usage,
-                        "sandhi": total,
-                    }
+            except Exception as exc:
+                failure(evidence, "acceptance_collection", error_type=type(exc).__name__)
+            finally:
+                evidence.update(
+                    passed=not evidence["failures"],
+                    requests=observed,
+                    elapsed_seconds=round(time.monotonic() - started, 2),
+                    worktree_commit=subprocess.check_output(
+                        ["git", "-C", str(WORKTREE), "rev-parse", "HEAD"],
+                        text=True,
+                    ).strip(),
+                    working_tree_dirty=bool(
+                        subprocess.check_output(
+                            ["git", "-C", str(WORKTREE), "status", "--porcelain"],
+                            text=True,
+                        ).strip()
+                    ),
                 )
-            tests = subprocess.run(
-                [str(python), "-m", "pytest", "-q", str(root)],
-                cwd=root,
-                text=True,
-                capture_output=True,
-            )
-            assert tests.returncode == 0, tests.stdout + tests.stderr
-            assert len(list(root.glob("test_*.py"))) == 7
-            evidence.update(
-                usage_reconciliation=reconciled,
-                pytest=tests.stdout,
-                deliverables=sorted(p.name for p in root.glob("*.py")),
-                requests=observed,
-                elapsed_seconds=round(time.monotonic() - started, 2),
-                worktree_commit=subprocess.check_output(
-                    ["git", "-C", str(WORKTREE), "rev-parse", "HEAD"], text=True
-                ).strip(),
-                working_tree_dirty=True,
-            )
-            (root / "evidence.json").write_text(json.dumps(evidence, indent=2) + "\n")
+                try:
+                    (root / "evidence.json").write_text(json.dumps(evidence, indent=2) + "\n")
+                    (root / "requests.json").write_text(json.dumps(observed, indent=2) + "\n")
+                finally:
+                    os.chdir(previous_cwd)
+                    for key, value in previous_env.items():
+                        if value is None:
+                            os.environ.pop(key, None)
+                        else:
+                            os.environ[key] = value
+                    if runner is not None:
+                        await runner.cleanup()
             print(
                 json.dumps(
                     {
                         "evidence": str(root / "evidence.json"),
-                        "members": len(ids),
+                        "members": len(results),
+                        "passed": evidence["passed"],
                         "elapsed_seconds": evidence["elapsed_seconds"],
                     }
                 )
             )
-        finally:
-            (root / "requests.json").write_text(json.dumps(observed, indent=2) + "\n")
-            await runner.cleanup()
+    return 0 if evidence["passed"] else 1
 
 
 if __name__ == "__main__":
@@ -319,4 +456,4 @@ if __name__ == "__main__":
         "--mixed", action="store_true", help="Use InferFlux members plus ZAI reviewer"
     )
     parser.add_argument("--proxy-port", type=int, default=18082)
-    asyncio.run(validate(parser.parse_args()))
+    raise SystemExit(asyncio.run(validate(parser.parse_args())))

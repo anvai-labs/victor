@@ -494,6 +494,13 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   for the unexecuted canonical member-usage check. Follow-up must retain structured
   partial team/member results and all applicable checks before returning a failed
   verdict, including exception/timeout paths, without relaxing any assertion.
+  **Implementation:** the harness now collects review, per-member usage, artifact
+  presence and bounded independent pytest results before saving a structured failed
+  verdict. Execution failures and cancellation retain partial pipeline results;
+  one rejected review or failed usage lookup cannot suppress other checks. Private
+  reports include the task-contract version and restore the caller's working
+  directory and gateway environment after execution. This fixes evidence retention,
+  not G32 member completion or C5 acceptance.
 - **G38 — mixed reviewer task does not define the invariant's input domain.**
   The same run's ZAI reviewer returned structured `needs_work` for `writer(x) = x * 2`:
   overflowing floats and sequence inputs violate the requested addition invariant.
@@ -502,6 +509,21 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   run remain intact. Follow-up must define and review the task's numeric domain
   and expected review outcome before any new experiment. Do not relabel this
   verdict or repeat calls merely to obtain an approved verdict.
+  **New experiment contract v2:** writer, reviewer and all other members receive
+  the same explicit domain: Python ints/floats that are integer multiples of 0.25
+  in [-1024, 1024]; x, y and x+y must remain in that domain for the invariant.
+  Booleans, strings/sequences, non-finite values and overflow are out of scope.
+  These bounded binary fractions preserve exact arithmetic for the required
+  operations. A correct implementation should receive a structured `approved`
+  review; `needs_work`, malformed findings, missing files or failed pytest still
+  fail acceptance. This is new evidence when run, not a reinterpretation of v1.
+
+Validation-test audit: neither live harness had direct tests before this follow-up.
+The new mixed-harness suite covers rejected/malformed/missing reviews, inclusive
+cache accounting, missing artifacts, bad member usage, pytest timeout, startup and
+team failures, partial pause results, cancellation and process-state restoration.
+Existing coordinator dispatch/approval tests remain the single coverage owner for
+those runtime contracts; no existing test was removed without evidence of redundancy.
 
 
 WS-E implementation/evidence: [PR #1115](https://github.com/anvai-labs/victor/pull/1115).
