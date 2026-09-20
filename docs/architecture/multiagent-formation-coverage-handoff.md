@@ -446,6 +446,11 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   artifact gate. Its seven task reports matched member counters and gateway totals
   across 29 calls with seven distinct member sessions. This accounting regression
   run is not a paired prompt experiment and does not establish model improvement.
+  The [2026-09-19 C5 mixed attempt](evidence/c5-mixed-gateway-2026-09-19.json)
+  again failed artifact completeness: `fallbacka.py` and `test_fallbacka.py` were
+  absent. Six delivered tests passed; seven distinct member sessions made 27
+  successful calls. Wire/SQLite/C4/dashboard conservation passed, but this does
+  not close G32 or the full mixed-team gate. See G37/G38 for additional limits.
 - **G33 — ✅ deterministic spin-guard regression coverage ([PR #1119](https://github.com/anvai-labs/victor/pull/1119)).** The
   failing test mixed classifier/plugin initialization with its loop deadline and
   could pass the iteration assertion after an unrelated early failure. Tests now
@@ -479,6 +484,24 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   output lines rather than the exit status. Follow-up must use explicit process
   success plus runner-owned structured reports, cover empty/failed/timeout runs,
   and retain diagnostics without promoting model-written prose into evidence.
+- **G37 — mixed validation aborts before preserving member accounting evidence.**
+  In the [C5 mixed attempt](evidence/c5-mixed-gateway-2026-09-19.json), the
+  unchanged `multiagent_gateway_live.py` asserted the review verdict before its
+  canonical member-usage reconciliation, independent pytest, and final
+  `evidence.json` write. Its `finally` block retained only request metadata.
+  An external observer preserved 27 wire/SQLite/C4 joins and dashboard deltas,
+  and an independent pytest invocation checked delivered files; neither substitutes
+  for the unexecuted canonical member-usage check. Follow-up must retain structured
+  partial team/member results and all applicable checks before returning a failed
+  verdict, including exception/timeout paths, without relaxing any assertion.
+- **G38 — mixed reviewer task does not define the invariant's input domain.**
+  The same run's ZAI reviewer returned structured `needs_work` for `writer(x) = x * 2`:
+  overflowing floats and sequence inputs violate the requested addition invariant.
+  Both counterexamples were independently reproduced from the delivered function.
+  The harness nevertheless requires `approved`; the reviewer verdict and failed
+  run remain intact. Follow-up must define and review the task's numeric domain
+  and expected review outcome before any new experiment. Do not relabel this
+  verdict or repeat calls merely to obtain an approved verdict.
 
 
 WS-E implementation/evidence: [PR #1115](https://github.com/anvai-labs/victor/pull/1115).
@@ -495,6 +518,22 @@ Live setup (2026-09-18): LAN access returned. Sandhi at 127.0.0.1:18788 routes
 InferFlux through an SSH tunnel on 18080 and ZAI through its coding endpoint. The
 [loopback gateway walkthrough](sandhi-zai-loopback.md) covers both providers,
 dashboard authentication, usage traces, and reproducible validation commands.
+
+Live follow-up (2026-09-19): the Mac gateway now runs repaired Sandhi `eb38ff4`
+through `18081 -> aiserver1:8081`, serving accepted InferFlux `c5d4eb89f` with
+partial CUDA offload. The old `18080 -> 8080` route and rollback state remain.
+The unchanged Victor harness at `e25fdf751` ran six Qwen members and one ZAI member:
+27 HTTP-200 calls, no observed timeouts, 82,837 inclusive input tokens, 18,276
+output tokens, and explicit cache reporting for 27/27 requests. ZAI reported
+41,664 cache-read tokens; Qwen reported zero. These are reporting observations,
+not proof of backend executed reuse. The 120-second buffered deadline remained.
+The [recorded verdict](evidence/c5-mixed-gateway-2026-09-19.json) is **FAIL** for
+missing artifacts and the review verdict; canonical Victor member-usage
+reconciliation was not reached. C5 / [InferFlux #184](https://github.com/anvai-labs/inferflux/issues/184)
+remains open pending review and follow-up. This buffered run does not certify
+R9700/full Qwen GPU execution, enabled-session leases, origin cancellation,
+completed-cache diagnostics or full lifecycle behavior. The earlier five-call
+stream pass and original failed evidence were preserved and not repeated.
 
 ## 4. Suggested follow-up session plan
 

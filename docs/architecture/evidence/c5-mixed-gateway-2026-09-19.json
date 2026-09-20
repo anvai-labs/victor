@@ -1,0 +1,110 @@
+{
+  "schema_version": 1,
+  "verdict": "FAIL",
+  "run_id": "gateway-4fe838aba2",
+  "victor_commit": "e25fdf7513a00845c12509808239c15b3962689d",
+  "harness_sha256": "fbe7b835d8546ae4c7330e9bcf948db2c6c3733dde9fd5eb1f79f9e38e236f4c",
+  "harness_source_unchanged": true,
+  "fresh_victor_state": true,
+  "external_observer": "Private temporary metadata-only capture; no request/response bodies exported",
+  "source_tree_clean_at_launch": true,
+  "sandhi": {
+    "source_commit": "eb38ff4b4c90121ac3f2e2e033ac5d5b2d057e2d",
+    "binary_sha256": "5933e8c702d482d075d9b88a579a8bb0d6feaa50b8e8e2ed69ccd5ad23c23826",
+    "pid": 47910,
+    "gateway_url": "http://127.0.0.1:18788",
+    "upstream": "http://127.0.0.1:18081/v1",
+    "rollback_upstream": "http://127.0.0.1:18080/v1"
+  },
+  "inferflux": {
+    "source_commit": "c5d4eb89f71dcfb3064b974d63b88c4ce88f42a1",
+    "binary_sha256": "312f49e63dae7609dd804e3b74aa4a4b2dd06b72aebf8aa6a322ed619e974de6",
+    "pid": 2254917,
+    "endpoint": "aiserver1 loopback8081",
+    "model": "qwen3-coder-30b",
+    "backend": "llama_cpp_cuda",
+    "scope": "Accepted partial CUDA offload; not full Qwen GPU or R9700 acceptance",
+    "gate_url": "https://github.com/anvai-labs/inferflux/actions/runs/35431794400"
+  },
+  "timeouts": {
+    "gateway_buffered_seconds": 120,
+    "gateway_transparent_retries": 0,
+    "gateway_stream_setup_seconds": 30,
+    "gateway_stream_idle_seconds": 90,
+    "gateway_reservation_ttl_seconds": 900,
+    "victor_client_seconds": 120,
+    "victor_inferflux_client_retries": 2,
+    "victor_zai_client_retries": 3,
+    "subagent_attempts": 3,
+    "subagent_backoff_initial_seconds": 1,
+    "subagent_backoff_cap_seconds": 60,
+    "harness_forwarder_seconds": 300,
+    "observer_seconds": 900,
+    "observer_whole_run_bound_seconds": 2400,
+    "observed_timeouts": 0,
+    "no_limits_changed": true
+  },
+  "wire_sqlite_c4_dashboard": {
+    "calls": 27,
+    "distinct_sessions": 7,
+    "http_200": 27,
+    "timeouts": 0,
+    "max_seconds": 62.38,
+    "explicit_reporting_coverage": 27,
+    "c4_pages": 41,
+    "by_provider": {
+      "inferflux": {
+        "calls": 17,
+        "tokens_in": 32281,
+        "tokens_out": 2469,
+        "cache_read_tokens": 0,
+        "cache_creation_tokens": 0
+      },
+      "zai": {
+        "calls": 10,
+        "tokens_in": 8892,
+        "tokens_out": 15807,
+        "cache_read_tokens": 41664,
+        "cache_creation_tokens": 0
+      }
+    }
+  },
+  "inclusive_input_tokens": 82837,
+  "output_tokens": 18276,
+  "review_verdict": "needs_work",
+  "review_counterexamples_independently_verified": true,
+  "missing_deliverables": [
+    "fallbacka.py",
+    "test_fallbacka.py"
+  ],
+  "pytest": {
+    "exit_code": 0,
+    "passed": 6,
+    "expected_member_test_files": 7
+  },
+  "original_harness_exit_code": 1,
+  "original_harness_failed_assertion": "review[\"verdict\"] == \"approved\"",
+  "victor_member_usage_reconciliation": "NOT REACHED: unchanged harness asserts the review verdict before member-usage reconciliation and evidence.json persistence; gateway wire/ledger evidence was retained externally",
+  "startup_failure_preserved": {
+    "run_id": "gateway-422aab45c2",
+    "model_calls": 0,
+    "cause": "Fresh-state ZAI constructor credential validation; corrected by privately reusing the existing gateway virtual key",
+    "replayed_inference": false
+  },
+  "limitations": [
+    "No inference retry or timeout is erased from this verdict.",
+    "Existing harness buffers responses; no streaming, origin cancellation or TTFT acceptance claimed.",
+    "Cache-field reporting is not proof of backend executed reuse; completed-cache diagnostics not captured here.",
+    "Accepted runtime is partial CUDA offload, not R9700 or full GPU Qwen acceptance.",
+    "Enabled-session lease behavior and exact sampled completion-token units remain outside this run.",
+    "C4 completeness/basis/outcome/physical attempts remain unavailable.",
+    "The full mixed-team acceptance verdict fails; keep C5 and InferFlux #184 open.",
+    "The earlier passing five-call stream replay and original failed evidence were not modified or repeated."
+  ],
+  "started_at": "2026-09-19T18:06:28.802632+00:00",
+  "finished_at": "2026-09-19T18:19:30.791192+00:00",
+  "preflight": {
+    "victor_tests_passed": 94,
+    "sandhi_terminal_accounting_tests_passed": 4
+  }
+}
