@@ -31,6 +31,7 @@ from victor.agent.services.orchestrator_protocol_adapter import OrchestratorProt
 from victor.agent.services.task_guidance_runtime import TaskGuidanceRuntime
 from victor.agent.services.tool_selection_runtime import ToolSelectionRuntime
 from victor.agent.session_state_accessor import SessionStateAccessor
+from victor.providers.usage_accounting import accumulate_usage
 
 logger = logging.getLogger(__name__)
 
@@ -331,6 +332,16 @@ class _ChatStreamMetricsView(_WeakOwner):
     def record_first_token(self) -> None:
         self._collector().record_first_token()
 
+    def accumulate_usage(self, usage_data: dict[str, int]) -> None:
+        owner = self._owner()
+        cumulative = getattr(owner, "_cumulative_token_usage", None)
+        if not isinstance(cumulative, dict):
+            state = getattr(owner, "__dict__", {})
+            cumulative = state.get("_cumulative_token_usage") if isinstance(state, dict) else None
+        if isinstance(cumulative, dict):
+            # Preserve the dictionary shared with task-report metrics across resets/restores.
+            accumulate_usage(cumulative, usage_data)
+
     def finalize(
         self,
         usage_data: dict[str, int],
@@ -386,6 +397,9 @@ class _ChatTaskStateView(_WeakOwner):
     def continuation_context(self) -> dict[str, Any] | None:
         context = getattr(self._owner(), "_pending_continuation_task_context", None)
         return context if isinstance(context, dict) else None
+
+    def record_stream_context(self, context: dict[str, Any]) -> None:
+        self._owner()._last_stream_task_context = context
 
     def apply_prompt_requirements(
         self,

@@ -4,7 +4,7 @@ title: "Chat Runtime Inversion — ChatService owns the turn lifecycle"
 type: Standards Track
 status: Draft
 created: 2026-09-06
-modified: 2026-09-19
+modified: 2026-09-20
 authors:
   - name: Vijaykumar Singh
     email: vijay@anvaiops.com
@@ -17,11 +17,12 @@ discussion: https://github.com/anvai-labs/victor/discussions/0031
 
 ## Summary
 
-!!! info "Implementation status — 2026-09-19"
+!!! info "Implementation status — 2026-09-20"
 
     **In progress.** Requirements/delivery, planning, the service-owned turn frame,
-    stream execution controls, lifecycle, metrics and task-classification state are integrated.
-    Context/provider runtime state, factories and facade shims remain. Public `Agent.run()` /
+    stream execution controls, context lifecycle, runtime intelligence, metrics and task state
+    are integrated. Session-usage accumulation and bounded resume-context publication now use
+    those same capabilities. Provider and broader runtime state, factories and facade shims remain. Public `Agent.run()` /
     `Agent.stream()` contracts are unchanged.
 
 The proposal baseline had the orchestrator owning the glue across three layers: eight
@@ -314,6 +315,13 @@ The boundary guard gives `_metrics_collector`, `_metrics_coordinator` and
 `_finalize_stream_metrics` a zero cap. The runtime private-attribute cap falls from 48 to 45 and
 its private-probe cap from 5 to 4; the helper private-attribute cap falls from 88 to 86. Phase 1
 remains open for context, task tracking and other runtime state.
+
+Session-usage accumulation also flows through `ChatStreamMetrics`, which updates the current
+canonical totals dictionary in place before metric/report finalization. `ChatTaskState` publishes
+the bounded stream context used by resume consumers. Neither operation reads facade state from
+the stream runtime, and reset/restore continues to resolve the live owner through weak adapters.
+The runtime caps fall to 41 private attributes, 3 private probes and 5 raw-state accesses;
+`_cumulative_token_usage` and `_last_stream_task_context` join the zero-access guards.
 
 ### Phase 1 progress: task classification state (complete)
 

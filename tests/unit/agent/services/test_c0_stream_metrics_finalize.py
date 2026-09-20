@@ -28,6 +28,7 @@ from victor.agent.services.chat_runtime_services import (
     ChatRuntimeServices,
     ChatStreamLifecycle,
     ChatStreamMetrics,
+    ChatTaskState,
     SessionTaskRequirementState,
 )
 from victor.agent.session_state_accessor import SessionStateAccessor
@@ -56,21 +57,9 @@ async def test_stream_chat_finalizes_metrics_with_cumulative_usage(monkeypatch):
             SessionTaskRequirementState(SessionStateAccessor(SessionStateManager())),
             ChatStreamLifecycle(lifecycle),
             metrics=ChatStreamMetrics(metrics),
+            task_state=ChatTaskState(MagicMock()),
         ),
     )
-
-    state_dict = {
-        "_current_stream_context": ctx,
-        "_cumulative_token_usage": _usage(0, 0),
-    }
-    bindings = SimpleNamespace(
-        state_host=orch,
-        state_dict=state_dict,
-        get_capability_value=lambda name, default=None: (
-            ctx if name == "current_stream_context" else default
-        ),
-    )
-    monkeypatch.setattr(rt, "_get_runtime_bindings", lambda *a, **k: bindings)
 
     class _Executor:
         async def run_unified(self, user_message, **kwargs):
@@ -83,6 +72,7 @@ async def test_stream_chat_finalizes_metrics_with_cumulative_usage(monkeypatch):
         pass
 
     # The wire is closed: metrics are finalized exactly once with the turn's usage.
+    metrics.accumulate_usage.assert_called_once_with(ctx.cumulative_usage)
     metrics.finalize.assert_called_once()
     called_usage = metrics.finalize.call_args[0][0]
     assert called_usage["prompt_tokens"] == 120
@@ -103,20 +93,9 @@ async def test_finalize_failure_does_not_break_the_stream(monkeypatch):
             SessionTaskRequirementState(SessionStateAccessor(SessionStateManager())),
             ChatStreamLifecycle(lifecycle),
             metrics=ChatStreamMetrics(metrics),
+            task_state=ChatTaskState(MagicMock()),
         ),
     )
-    state_dict = {
-        "_current_stream_context": ctx,
-        "_cumulative_token_usage": _usage(0, 0),
-    }
-    bindings = SimpleNamespace(
-        state_host=orch,
-        state_dict=state_dict,
-        get_capability_value=lambda name, default=None: (
-            ctx if name == "current_stream_context" else default
-        ),
-    )
-    monkeypatch.setattr(rt, "_get_runtime_bindings", lambda *a, **k: bindings)
 
     class _Executor:
         async def run_unified(self, user_message, **kwargs):
@@ -128,5 +107,6 @@ async def test_finalize_failure_does_not_break_the_stream(monkeypatch):
     # Finalize raising must not propagate out of the stream (it's best-effort).
     async for _ in rt.stream_chat("hi"):
         pass
+    metrics.accumulate_usage.assert_called_once_with(ctx.cumulative_usage)
     metrics.finalize.assert_called_once()
     lifecycle.clear_context.assert_called_once_with(ctx)

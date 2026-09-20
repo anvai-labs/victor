@@ -393,6 +393,8 @@ class StreamMetricsRuntime(Protocol):
 
     def record_first_token(self) -> None: ...
 
+    def accumulate_usage(self, usage_data: dict[str, int]) -> None: ...
+
     def finalize(
         self,
         usage_data: dict[str, int],
@@ -417,6 +419,10 @@ class ChatStreamMetrics:
 
     def record_first_token(self) -> None:
         self._require_runtime().record_first_token()
+
+    def accumulate_usage(self, usage_data: dict[str, int]) -> None:
+        """Fold turn usage into the live session totals before report finalization."""
+        self._require_runtime().accumulate_usage(usage_data)
 
     def finalize(
         self,
@@ -446,6 +452,8 @@ class TaskStateRuntime(Protocol):
     def set_continuation_context(self, context: dict[str, Any] | None) -> None: ...
 
     def continuation_context(self) -> dict[str, Any] | None: ...
+
+    def record_stream_context(self, context: dict[str, Any]) -> None: ...
 
     def apply_prompt_requirements(
         self,
@@ -490,6 +498,10 @@ class ChatTaskState:
 
     def continuation_context(self) -> dict[str, Any] | None:
         return self._require_runtime().continuation_context()
+
+    def record_stream_context(self, context: dict[str, Any]) -> None:
+        """Publish the completed stream's bounded context for resume consumers."""
+        self._require_runtime().record_stream_context(context)
 
     def apply_prompt_requirements(
         self,

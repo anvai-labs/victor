@@ -280,6 +280,8 @@ def test_stream_metrics_capability_requires_explicit_runtime():
         metrics.record_first_token()
     with pytest.raises(TypeError, match="require a runtime"):
         metrics.finalize({})
+    with pytest.raises(TypeError, match="require a runtime"):
+        metrics.accumulate_usage({})
 
 
 def test_task_state_capability_requires_explicit_runtime():
@@ -287,6 +289,8 @@ def test_task_state_capability_requires_explicit_runtime():
 
     with pytest.raises(TypeError, match="requires a runtime"):
         task_state.reset_turn()
+    with pytest.raises(TypeError, match="requires a runtime"):
+        task_state.record_stream_context({})
     with pytest.raises(TypeError, match="requires a runtime"):
         task_state.detect_task_type("inspect")
     with pytest.raises(TypeError, match="requires a runtime"):
