@@ -36,7 +36,7 @@ ordered as `protocol → state → tools → edge`.
 ### Prerequisites
 
 - Rust 1.70+ (install via [rustup](https://rustup.rs/))
-- Python 3.10+
+- Python 3.12+
 - maturin (`pip install maturin`)
 
 ### Development Build

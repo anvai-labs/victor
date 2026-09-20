@@ -25,16 +25,16 @@ This guide helps you diagnose and fix common issues with Victor. For interactive
 
 **Diagnosis**:
 ```bash
-python --version  # Should be 3.11+
+python --version  # Should be 3.12+
 which python
 pip show victor-ai
 ```
 
 **Solutions**:
-1. Verify Python version (requires 3.11+):
+1. Verify Python version (requires 3.12+):
    ```bash
    python3 --version
-   # If < 3.10, install newer Python from python.org or use pyenv/conda
+   # If < 3.12, install newer Python from python.org or use pyenv/conda
    ```
 
 2. Reinstall Victor:
@@ -45,11 +45,11 @@ pip show victor-ai
 
 3. Use pip with explicit Python:
    ```bash
-   python3.11 -m pip install victor-ai
+   python3.12 -m pip install victor-ai
    ```
 
 **Prevention**:
-- Always use Python 3.11 or higher
+- Always use Python 3.12 or higher
 - Use virtual environments: `python -m venv .venv`
 
 ### Dependency Installation Errors
@@ -69,7 +69,7 @@ victor doctor --verbose
 **Solutions**:
 1. Install system dependencies (macOS):
    ```bash
-   brew install python@3.11 rust cmake
+   brew install python@3.12 rust cmake
    ```
 
 2. Install system dependencies (Ubuntu/Debian):

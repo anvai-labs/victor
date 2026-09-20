@@ -139,14 +139,14 @@ jobs:
       matrix:
         include:
           # Linux x64 — maturin runs in the manylinux container, which has python3.10–3.14;
-          # name 3.11–3.13 explicitly to match the project's tested native-wheel range.
+          # name 3.12–3.13 explicitly to match the project's tested native-wheel range.
           - os: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
-            maturin_args: "--release --out dist -i python3.11 python3.12 python3.13"
+            maturin_args: "--release --out dist -i python3.12 python3.13"
           # Linux ARM64 (Graviton, Ampere, Raspberry Pi 5)
           - os: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
-            maturin_args: "--release --out dist -i python3.11 python3.12 python3.13"
+            maturin_args: "--release --out dist -i python3.12 python3.13"
           # macOS ARM64 (M1/M2/M3/M4) — runs natively; build for the active setup-python
           # (3.12), which avoids the runner's Homebrew python@3.14.
           - os: macos-latest
@@ -194,7 +194,7 @@ jobs:
         with:
           working-directory: rust
           target: ${{ matrix.target }}
-          # Per-OS args (see matrix): Linux pins 3.11–3.13 in the manylinux container;
+          # Per-OS args (see matrix): Linux pins 3.12–3.13 in the manylinux container;
           # macOS/Windows build for the active setup-python to match that tested range.
           args: ${{ matrix.maturin_args }}
           manylinux: auto

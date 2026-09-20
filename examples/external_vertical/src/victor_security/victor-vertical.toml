@@ -24,4 +24,4 @@ python = ["victor-contracts>=0.7.0"]
 verticals = []
 
 [vertical.compatibility]
-python_version = ">=3.10"
+python_version = ">=3.12"

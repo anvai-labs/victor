@@ -97,7 +97,7 @@ class DoctorChecks:
         major, minor = sys.version_info[:2]
         version_str = f"{major}.{minor}"
 
-        if (major, minor) >= (3, 10):
+        if (major, minor) >= (3, 12):
             self.add_check(
                 name="Python Version",
                 severity=Severity.SUCCESS,
@@ -107,8 +107,8 @@ class DoctorChecks:
             self.add_check(
                 name="Python Version",
                 severity=Severity.ERROR,
-                message=f"Python {version_str} is not supported (requires 3.10+)",
-                suggestion="Install Python 3.10 or higher from python.org or use pyenv/conda",
+                message=f"Python {version_str} is not supported (requires 3.12+)",
+                suggestion="Install Python 3.12 or higher from python.org or use pyenv/conda",
             )
 
     def check_pip_package(self, package_name: str) -> bool:

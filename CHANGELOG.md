@@ -7,6 +7,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Require Python 3.12+ across core, contracts, codegraph, native extensions and
+  verticals. CI tests 3.12/3.13; Python 3.10/3.11 installations must upgrade
+  before installing the next release. Previously published releases are unchanged.
+
 - Route chat planning, task guidance, and tool selection through explicit
   runtime capabilities; route streaming governance, completion, tool-call
   processing, conversation history/accounting, and outcome feedback through

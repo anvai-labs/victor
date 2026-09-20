@@ -87,22 +87,17 @@ echo ""
 
 # Check for Python
 check_python() {
-    if command -v python3 &> /dev/null; then
-        PYTHON_VERSION=$(python3 --version 2>&1 | cut -d' ' -f2)
-        PYTHON_MAJOR=$(echo "$PYTHON_VERSION" | cut -d'.' -f1)
-        PYTHON_MINOR=$(echo "$PYTHON_VERSION" | cut -d'.' -f2)
-
-        if [[ "$PYTHON_MAJOR" -ge 3 ]] && [[ "$PYTHON_MINOR" -ge 10 ]]; then
-            echo -e "${GREEN}✓ Python $PYTHON_VERSION found${NC}"
+    local candidate
+    for candidate in python3 python3.13 python3.12; do
+        if command -v "$candidate" &> /dev/null &&
+            "$candidate" -c 'import sys; raise SystemExit(sys.version_info < (3, 12))' 2>/dev/null; then
+            VICTOR_PYTHON=$(command -v "$candidate")
+            echo -e "${GREEN}✓ $("$VICTOR_PYTHON" --version) found${NC}"
             return 0
-        else
-            echo -e "${YELLOW}⚠ Python $PYTHON_VERSION found, but 3.10+ required${NC}"
-            return 1
         fi
-    else
-        echo -e "${RED}✗ Python 3 not found${NC}"
-        return 1
-    fi
+    done
+    echo -e "${RED}✗ Python 3.12+ required; install it and activate its environment.${NC}"
+    return 1
 }
 
 # Install Python if needed
@@ -113,7 +108,7 @@ install_python() {
         if command -v brew &> /dev/null; then
             brew install python@3.12
         else
-            echo -e "${RED}Homebrew not found. Please install Python 3.10+ manually.${NC}"
+            echo -e "${RED}Homebrew not found. Please install Python 3.12+ manually.${NC}"
             echo "Visit: https://www.python.org/downloads/"
             exit 1
         fi
@@ -126,7 +121,7 @@ install_python() {
         elif command -v pacman &> /dev/null; then
             sudo pacman -S python
         else
-            echo -e "${RED}Unable to install Python. Please install Python 3.10+ manually.${NC}"
+            echo -e "${RED}Unable to install Python. Please install Python 3.12+ manually.${NC}"
             exit 1
         fi
     fi
@@ -137,9 +132,9 @@ install_pip() {
     echo -e "${BLUE}➤ Installing Victor via pip...${NC}"
 
     if [[ "$INSTALL_DEV" == true ]]; then
-        pip3 install --user "victor[dev]"
+        "$VICTOR_PYTHON" -m pip install --user "victor-ai[dev]"
     else
-        pip3 install --user victor
+        "$VICTOR_PYTHON" -m pip install --user victor-ai
     fi
 
     echo -e "${GREEN}✓ Victor installed successfully!${NC}"
@@ -152,11 +147,11 @@ install_pipx() {
     # Check if pipx is installed
     if ! command -v pipx &> /dev/null; then
         echo -e "${YELLOW}Installing pipx first...${NC}"
-        pip3 install --user pipx
-        python3 -m pipx ensurepath
+        "$VICTOR_PYTHON" -m pip install --user pipx
+        "$VICTOR_PYTHON" -m pipx ensurepath
     fi
 
-    pipx install victor
+    pipx install --python "$VICTOR_PYTHON" victor-ai
 
     echo -e "${GREEN}✓ Victor installed successfully!${NC}"
 }
@@ -214,12 +209,14 @@ main() {
         pip)
             if ! check_python; then
                 install_python
+                check_python || exit 1
             fi
             install_pip
             ;;
         pipx)
             if ! check_python; then
                 install_python
+                check_python || exit 1
             fi
             install_pipx
             ;;

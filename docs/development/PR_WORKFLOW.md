@@ -163,7 +163,7 @@ flowchart TB
     N -->|"aggregate every required need"| S
   end
   subgraph PROMO["Separate promotion battery · PR targeting main"]
-    M["ci-test.yml matrix<br/>Python 3.11 / 3.12 / 3.13<br/>12 shards each · 36 jobs"]
+    M["ci-test.yml matrix<br/>Python 3.12 / 3.13<br/>12 shards each · 24 jobs"]
     C["CLI Smoke Test"]
     T["Test Summary"]
     I["ci-integration.yml<br/>path-filtered integration suites"]

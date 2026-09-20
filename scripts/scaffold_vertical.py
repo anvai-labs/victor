@@ -76,7 +76,7 @@ def scaffold(name: str, output_dir: Path) -> Path:
         name = "{pkg_name}"
         version = "0.1.0"
         description = "Victor vertical for {vertical_name}"
-        requires-python = ">=3.10"
+        requires-python = ">=3.12"
         dependencies = [
             "victor-contracts>=0.7.0",
         ]

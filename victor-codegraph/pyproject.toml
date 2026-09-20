@@ -7,7 +7,7 @@ name = "victor-codegraph"
 version = "0.9.0"
 description = "Repository-to-Code-Semantic-Graph compiler with stable identity, bounded chunks, incremental deltas, and ProximaRecord projection."
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 license = { text = "Apache-2.0" }
 authors = [
     { name = "Vijaykumar Singh", email = "vijay@anvaiops.com" },
@@ -27,9 +27,8 @@ classifiers = [
     "Intended Audience :: Developers",
     "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Software Development :: Libraries",
 ]
 
@@ -65,7 +64,7 @@ include = ["victor_codegraph*"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py310"
+target-version = "py312"
 
 # Pin the rule set explicitly: the CI workflow installs the latest ruff, whose
 # evolving defaults must not be able to red a path-filtered pipeline overnight.

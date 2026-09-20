@@ -29,6 +29,7 @@ def test_scaffold_vertical_emits_plugin_only_entry_point(tmp_path: Path) -> None
     assistant = (pkg_dir / "victor_security" / "assistant.py").read_text(encoding="utf-8")
     generated_test = (pkg_dir / "tests" / "test_security.py").read_text(encoding="utf-8")
 
+    assert 'requires-python = ">=3.12"' in pyproject
     assert '[project.entry-points."victor.plugins"]' in pyproject
     assert 'security = "victor_security:plugin"' in pyproject
     assert '[project.entry-points."victor.verticals"]' not in pyproject

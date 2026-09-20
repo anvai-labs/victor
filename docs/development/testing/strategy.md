@@ -257,7 +257,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        python-version: ['3.10', '3.11', '3.12']
+        python-version: ['3.12', '3.13']
     
     steps:
       - uses: actions/checkout@v4
@@ -321,7 +321,7 @@ Add to README.md:
 ## Test Requirements
 
 ### Python Version
-- Python 3.11+ required
+- Python 3.12+ required
 - Use `pyenv` or `conda` for version management
 
 ### Dependencies
@@ -362,7 +362,7 @@ pytest -n auto
 
 ## Next Steps
 
-1. Set up a Python 3.11+ environment
+1. Set up a Python 3.12+ environment
 2. Install Victor in editable mode
 3. Create test directory structure
 4. Implement Phase 1 tests (core functionality)

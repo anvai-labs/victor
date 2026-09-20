@@ -24,7 +24,7 @@ readme = "README.md"
 authors = [{ name = "Victor Community", email = "community@victor.dev" }]
 license = { text = "Apache-2.0" }
 keywords = ["victor", "ai", "security", "vulnerability", "audit"]
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 
 # Dependencies - external authoring imports victor_contracts from the victor-contracts package
 dependencies = [
@@ -55,7 +55,7 @@ include-package-data = true
 
 [tool.black]
 line-length = 88
-target-version = ['py310']
+target-version = ['py312']
 
 [tool.isort]
 profile = "black"
@@ -63,11 +63,11 @@ line_length = 88
 
 [tool.ruff]
 line-length = 88
-target-version = "py310"
+target-version = "py312"
 select = ["E", "F", "I", "UP", "B", "SIM"]
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.12"
 strict = true
 warn_return_any = true
 warn_unused_configs = true

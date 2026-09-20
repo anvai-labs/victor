@@ -56,7 +56,7 @@ verticals = []
 requires_tool_calling = true
 preferred_providers = ["anthropic", "openai", "google"]
 min_context_window = 100000
-python_version = ">=3.10"
+python_version = ">=3.12"
 
 [vertical.security]
 signed = false

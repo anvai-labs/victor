@@ -92,18 +92,16 @@ class TestDoctorChecks:
         assert len(doctor.checks) == 1
         assert doctor.checks[0].name == "Test"
 
-    def test_check_python_version_success(self):
-        """Python version check passes for 3.10+."""
+    @pytest.mark.parametrize("minor, supported", [(10, False), (11, False), (12, True), (13, True)])
+    def test_check_python_version(self, monkeypatch, minor, supported):
+        """Diagnostics reject retired versions and accept the tested range."""
+        monkeypatch.setattr(sys, "version_info", (3, minor, 0))
         doctor = DoctorChecks()
         doctor.check_python_version()
-
-        if sys.version_info >= (3, 10):
-            # Should have a success check
-            has_success = any(
-                check.name == "Python Version" and check.severity == Severity.SUCCESS
-                for check in doctor.checks
-            )
-            assert has_success
+        check = doctor.checks[0]
+        assert check.severity == (Severity.SUCCESS if supported else Severity.ERROR)
+        if not supported:
+            assert "requires 3.12+" in check.message
 
     def test_check_dependencies(self):
         """Check dependencies finds required packages."""

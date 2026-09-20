@@ -1359,9 +1359,86 @@ def check_public_shim_deprecation_contracts(root: Path) -> list[HygieneFinding]:
     return findings
 
 
+def check_python_baseline(root: Path) -> list[HygieneFinding]:
+    """Keep package support and CI interpreters aligned with .python-version."""
+    baseline_path = root / ".python-version"
+    if not baseline_path.exists():
+        return []  # Partial repositories used by focused hygiene checks.
+    baseline = baseline_path.read_text(encoding="utf-8").strip()
+    minimum = tuple(int(part) for part in baseline.split("."))
+    findings: list[HygieneFinding] = []
+    metadata_paths = _iter_unique_files(
+        root,
+        (
+            "pyproject.toml",
+            "victor-*/**/pyproject.toml",
+            "rust/pyproject.toml",
+            "verticals/**/pyproject.toml",
+            "examples/**/pyproject.toml",
+            "victor/**/victor-vertical.toml",
+            "verticals/**/victor-vertical.toml",
+            "examples/**/victor-vertical.toml",
+        ),
+    )
+    for path in metadata_paths:
+        data = tomllib.loads(path.read_text(encoding="utf-8"))
+        project = data.get("project", {})
+        if project and project.get("requires-python") != f">={baseline}":
+            findings.append(
+                HygieneFinding(_relative(path, root), f"requires-python must be >={baseline}")
+            )
+        for classifier in project.get("classifiers", []):
+            match = re.fullmatch(r"Programming Language :: Python :: (3\.\d+)", classifier)
+            if match and tuple(map(int, match[1].split("."))) < minimum:
+                findings.append(
+                    HygieneFinding(_relative(path, root), f"retired classifier: {classifier}")
+                )
+        for match in re.finditer(
+            r"python_version\s*=\s*[\"\']>=(3\.\d+)", path.read_text(encoding="utf-8")
+        ):
+            if match[1] != baseline:
+                findings.append(
+                    HygieneFinding(_relative(path, root), f"vertical minimum must be {baseline}")
+                )
+
+    def old_interpreters(value: object) -> Iterator[str]:
+        if isinstance(value, dict):
+            for child in value.values():
+                yield from old_interpreters(child)
+        elif isinstance(value, list):
+            for child in value:
+                yield from old_interpreters(child)
+        elif isinstance(value, (str, float)):
+            value = str(value)
+            # Exact YAML version values plus explicit shell/native-wheel interpreters.
+            versions = re.findall(r"\bpython(3\.\d+)\b", value)
+            if re.fullmatch(r"3\.\d+(?:\.\d+)?", value):
+                versions = [".".join(value.split(".")[:2])]
+            for version in versions:
+                if version and tuple(map(int, version.split("."))) < minimum:
+                    yield version
+
+    for path in _iter_unique_files(
+        root,
+        (
+            ".github/workflows/*.yml",
+            ".github/workflows/*.yaml",
+            ".github/actions/**/action.yml",
+            ".github/actions/**/action.yaml",
+            ".pre-commit-config.yaml",
+        ),
+    ):
+        for version in old_interpreters(yaml.safe_load(path.read_text(encoding="utf-8"))):
+            findings.append(
+                HygieneFinding(_relative(path, root), f"Python {version} is below {baseline}")
+            )
+    return findings
+
+
 def run_checks(root: Path) -> list[HygieneFinding]:
     """Run all foundational repo hygiene checks."""
     findings: list[HygieneFinding] = []
+    findings.extend(check_python_baseline(root))
     findings.extend(check_workflow_yaml(root))
     findings.extend(check_action_pins(root))
     findings.extend(check_nightly_workflow_contract(root))

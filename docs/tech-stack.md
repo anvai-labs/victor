@@ -12,7 +12,7 @@ not a claim that these are the newest upstream releases. Optional extras remain 
 
 | Concern | Technology / declared dependency | Implementation |
 | --- | --- | --- |
-| Runtime | Python 3.11+, asyncio | `victor/` |
+| Runtime | Python 3.12+, asyncio | `victor/` |
 | Contracts | `victor-contracts>=0.9.2,<1.0`; separately released SDK | `victor-contracts/` |
 | Models and settings | Pydantic and pydantic-settings >=2.0 | `victor/config/` |
 | Typed provider transport | `sandhi-gateway==0.7.0` | `victor/providers/` |

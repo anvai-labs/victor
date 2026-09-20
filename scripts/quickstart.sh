@@ -11,7 +11,12 @@ echo ""
 
 # Check if Python is installed
 if ! command -v python3 &> /dev/null; then
-    echo "❌ Python 3 is not installed. Please install Python 3.10+ first."
+    echo "❌ Python 3 is not installed. Please install Python 3.12+ first."
+    exit 1
+fi
+
+if ! python3 -c 'import sys; raise SystemExit(sys.version_info < (3, 12))'; then
+    echo "❌ Python 3.12+ is required; activate a supported environment first."
     exit 1
 fi
 
@@ -24,7 +29,7 @@ if command -v victor &> /dev/null; then
     ALREADY_INSTALLED=true
 else
     echo "📦 Installing Victor..."
-    pip install -e .
+    python3 -m pip install -e .
     echo "✅ Victor installed successfully!"
     ALREADY_INSTALLED=false
 fi

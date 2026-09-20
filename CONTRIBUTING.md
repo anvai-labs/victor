@@ -151,7 +151,7 @@ Report commands and outcomes in the PR, including environmental limits.
 
 ## Code Style
 
-Follow [Code Style](docs/development/code-style.md): Python 3.11+, typed public APIs,
+Follow [Code Style](docs/development/code-style.md): Python 3.12+, typed public APIs,
 Black formatting, Ruff linting and the repository's mypy checks. Use clear names,
 focused functions and Google-style docstrings where documentation is useful.
 Public signatures and code examples should agree with the implementation.

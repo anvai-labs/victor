@@ -2,7 +2,7 @@
 
 **Status:** Adopted engineering guidance; implementation investigations remain incremental
 
-**Last verified:** 2026-09-18
+**Last verified:** 2026-09-20
 
 Victor should keep Python as the orchestration, integration, and I/O language and use the existing
 Rust/PyO3 workspace as its default compiled acceleration path. Adding Cython, Numba, or a direct
@@ -19,10 +19,10 @@ tool is an exception that requires measurements showing the existing choices can
   the tokenizer and context fitter; equivalent differential coverage is not yet universal.
 - Rust release builds use optimization level 3, fat LTO, one codegen unit, and panic unwinding so a
   Rust panic does not abort the Python process.
-- Release automation builds Linux x86-64 and ARM64 wheels for Python 3.11–3.13, plus the configured
+- Release automation builds Linux x86-64 and ARM64 wheels for Python 3.12–3.13, plus the configured
   macOS and Windows targets. The matrix is not uniform: both macOS architectures and Windows x64
-  currently build only for the active Python 3.12, Windows ARM64 is absent, and the package declares
-  Python 3.10 support without a corresponding Linux wheel in the current matrix.
+  currently build only for the active Python 3.12 and Windows ARM64 is absent. All packages
+  require Python 3.12+; a supported interpreter does not imply a wheel for every platform.
 - The FFI is already batch-oriented in several places, but the current source scan finds
   `Python::detach` concentrated in similarity operations. Several embedding APIs still accept
   nested `Vec<Vec<f32>>`, which copies Python-owned data at the boundary. These are higher-value
@@ -89,8 +89,8 @@ platform support, and deployment dependencies conflict with predictable CLI and 
    tokenizer batches, embedding transforms, graph algorithms, and trace scanning.
 3. Prototype contiguous-buffer inputs and persistent native indexes for embedding/similarity paths;
    compare them with current nested-vector conversion and the existing NumPy fallback.
-4. Make the wheel support table explicit and tested. Resolve the Python 3.10 declaration versus
-   wheel matrix, then evaluate an `abi3` proof build before expanding per-version artifacts.
+4. Make the wheel support table explicit and tested. Track the declared Python minimum alongside
+   the wheel matrix, then evaluate an `abi3` proof build before expanding per-version artifacts.
 5. Add advisory performance reports first. Ratchet only stable production-size benchmarks with
    noise controls; never make microbenchmarks the sole merge gate.
 6. Revisit Cython only if this work identifies a qualifying hotspot for which Rust/PyO3 and an
