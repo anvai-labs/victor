@@ -64,8 +64,9 @@ The original matrix omitted these surfaces; follow-up validation is recorded per
 
 **Decision: INTEGRATE.** The orphan trio now has enum values, shared-registry
 registration, `AgentTeam` presets, feature/formation docs, coordinator-dispatch tests,
-and explicit `supports_durable_pause() == False` statements. Live validation remains
-outstanding; none of these rows claims a live pass.
+and explicit `supports_durable_pause() == False` statements. The new ZAI/Sandhi
+matrix passed adaptive and dynamic router; multi-level hierarchy failed missing
+member artifacts. Matched Qwen validation remains outstanding (see §1.5).
 
 | Strategy | Public formation / preset | State |
 |---|---|---|
@@ -99,19 +100,34 @@ Implementation delivery and live acceptance have different denominators:
 | Measure | Complete | Remaining |
 |---|---|---|
 | WS-A through WS-I increments landed | 9/9 (100%); PRs in §4 | 0 original increments |
-| Historical live passes: 12 formations plus 3 ensemble modes | 7/15 (47%): original six plus ensemble vote | 8 cases without a recorded live pass |
-| New matched Sandhi artifact/accounting matrix | 0/30 (0%): 15 ZAI and 15 Qwen cases planned | 30 new model/case runs; offline runner coverage is not live evidence |
+| Historical live passes before the new matrix | 7/15 (47%): original six plus ensemble vote | Historical tasks/gates differ; not matched acceptance |
+| New ZAI/Sandhi case passes | 10/15 (67%) | 2 deliverable failures; 3 ensemble cases blocked by resource exhaustion |
+| New matched Qwen/InferFlux case passes | 0/15 (0%); not run | 15 cases |
+| Combined matched matrix case passes | 10/30 (33%) | 20 cases without a pass (67%); overall ZAI run remains FAIL |
 | Current six-Qwen/one-ZAI C5 acceptance | Failed; earlier WS-E success is separate evidence | Full corrected run and reviewed verdict on InferFlux #184 |
 
-The eight missing historical passes are adaptive, dynamic router, multi-level
-hierarchy, group chat, debate, handoff, ensemble judge and ensemble synthesizer.
-Historical cases used different tasks and gates; the stricter WS-F battery passed
-only Qwen 1/6 and LFM 0/6. No weighted overall completion percentage is asserted.
+The [new actual-member ZAI experiment](evidence/zai-formation-matrix-2026-09-20.json)
+passed sequential, parallel, hierarchical, pipeline, consensus, group chat, debate,
+handoff, adaptive and dynamic router. Reflection lacked `review.json`; multi-level
+hierarchy lacked `second.py`, `test_second.py`, `third.py` and `test_third.py`.
+All three ensemble cases failed during file-descriptor exhaustion (G41), so they
+do not measure model quality. The original overall verdict remains **FAIL**.
+Separate read-only reconciliation matched all 83 calls across 25 sessions against
+wire, SQLite, C4 and dashboard, with no further model calls or unrelated ledger
+rows. It does not replace the failed verdict or establish lifecycle acceptance.
+
+The union of historical and new passing cases is 12/15 (80%), but spans different
+models, tasks and gates: it is coverage evidence, not a matched comparison.
+Historical WS-F strict acceptance remains Qwen 1/6 and LFM 0/6. No weighted overall
+completion percentage is asserted, and case percentages do not estimate effort.
 The remaining correctness work includes G32 completion, G34 buffered reporting,
-G36 structured verification, G39 task binding and G40 reflection result retention.
+G36 structured verification, G39 task binding and G41 resource exhaustion.
+G40 reflection result retention landed in [PR #1152](https://github.com/anvai-labs/victor/pull/1152)
+after all required CI, including Vertical Py3.12, passed. Both reflection members'
+sessions and usage reconciled in the new run; its missing artifact still fails.
 G31's cross-repository cache/lifecycle investigation remains open; G17/G21 durability
 limitations remain explicitly deferred. A model-size diagnosis is not established
-by these failures.
+by these failures: ZAI also returned successful members with missing deliverables.
 
 ## 2. Industry pattern catalog (researched 2026-09-17)
 
@@ -555,7 +571,7 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   The opt-in gateway matrix explicitly carries assignments keyed by the preset's
   canonical member IDs inside its structured team objective. Existing coordinator
   defaults are unchanged; a general task-binding correction remains open.
-- **G40 — reflection loses per-member results and accounting attribution.**
+- **G40 — ✅ reflection per-member results and accounting retained ([PR #1152](https://github.com/anvai-labs/victor/pull/1152)).**
   An offline public-preset/coordinator reproduction supplied generator and critic
   responses with distinct sessions and usage, but the successful TeamResult
   contained only the synthetic `reflection_formation` aggregate. The context-agent
@@ -574,6 +590,18 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   unchanged. Coordinator final output remains the generated solution rather than
   concatenating critique text. This corrects result retention; live acceptance
   still requires the matrix's artifact, pytest and independent accounting gates.
+
+- **G41 — multi-case runtime exhausts file descriptors.** The new actual-member
+  ZAI matrix reached 12 formations and 83 successful calls, then encountered
+  `OSError: [Errno 24] Too many open files` during ensemble setup/execution.
+  All three ensemble cases failed; SQLite/provenance access and final accounting
+  also failed. The original failed evidence is preserved. A separate read-only
+  reconciliation verified the original ledger boundary and all 83 calls without
+  new inference, but does not close this lifecycle defect. Diagnose resource
+  ownership with bounded offline measurements, add a failing lifecycle regression,
+  and fix the measured owner without closing borrowed providers/shared services.
+  Do not attribute these ensemble failures to model quality or hide them by
+  increasing descriptor limits. Root cause is not yet established.
 
 Validation-test audit: neither live harness had direct tests before this follow-up.
 The new mixed-harness suite covers rejected/malformed/missing reviews, inclusive
