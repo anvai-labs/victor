@@ -484,7 +484,7 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   output lines rather than the exit status. Follow-up must use explicit process
   success plus runner-owned structured reports, cover empty/failed/timeout runs,
   and retain diagnostics without promoting model-written prose into evidence.
-- **G37 — mixed validation aborts before preserving member accounting evidence.**
+- **G37 — ✅ failure evidence retention ([PR #1143](https://github.com/anvai-labs/victor/pull/1143)).**
   In the [C5 mixed attempt](evidence/c5-mixed-gateway-2026-09-19.json), the
   unchanged `multiagent_gateway_live.py` asserted the review verdict before its
   canonical member-usage reconciliation, independent pytest, and final
@@ -494,7 +494,19 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   for the unexecuted canonical member-usage check. Follow-up must retain structured
   partial team/member results and all applicable checks before returning a failed
   verdict, including exception/timeout paths, without relaxing any assertion.
-- **G38 — mixed reviewer task does not define the invariant's input domain.**
+  **Implementation:** the harness now collects review, per-member usage, artifact
+  presence and bounded independent pytest results before saving a structured failed
+  verdict. Execution failures and cancellation retain returned partial pipeline results;
+  one rejected review or failed usage lookup cannot suppress other checks. Private
+  reports include the task-contract version and restore the caller's working
+  directory and gateway environment after execution. This fixes evidence retention,
+  not G32 member completion or C5 acceptance. Cancellation during final checks,
+  unavailable Git provenance, and unsupported/cyclic member metadata also produce
+  failed reports without preventing process-state cleanup. In-flight outcomes not
+  returned by the runtime are not recovered. HTTP errors/timeouts followed by
+  successful provider retries still require the external gateway observer; this
+  change does not certify those paths.
+- **G38 — ✅ explicit numeric task contract v2 ([PR #1143](https://github.com/anvai-labs/victor/pull/1143)).**
   The same run's ZAI reviewer returned structured `needs_work` for `writer(x) = x * 2`:
   overflowing floats and sequence inputs violate the requested addition invariant.
   Both counterexamples were independently reproduced from the delivered function.
@@ -502,6 +514,24 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   run remain intact. Follow-up must define and review the task's numeric domain
   and expected review outcome before any new experiment. Do not relabel this
   verdict or repeat calls merely to obtain an approved verdict.
+  **New experiment contract v2:** writer, reviewer and all other members receive
+  the same explicit domain: Python ints/floats that are integer multiples of 0.25
+  in [-1024, 1024]; x, y and x+y must remain in that domain for the invariant.
+  Booleans, strings/sequences, non-finite values and overflow are out of scope.
+  These bounded binary fractions preserve exact arithmetic for the required
+  operations. A correct implementation should receive a structured `approved`
+  review; `needs_work`, malformed findings, missing files or failed pytest still
+  fail acceptance. This is new evidence when run, not a reinterpretation of v1.
+
+Validation-test audit: neither live harness had direct tests before this follow-up.
+The new mixed-harness suite covers rejected/malformed/missing reviews, inclusive
+cache accounting, missing artifacts, bad member usage, pytest timeout, startup and
+team failures, partial pause results, cancellation and process-state restoration.
+Existing coordinator dispatch/approval tests remain the single coverage owner for
+those runtime contracts. One redundant constant-string test was removed after the
+integration test covered domain injection: before/after coverage retained the same
+176 executed script lines and 30 executed branches. No prior runtime tests were
+removed.
 
 
 WS-E implementation/evidence: [PR #1115](https://github.com/anvai-labs/victor/pull/1115).
