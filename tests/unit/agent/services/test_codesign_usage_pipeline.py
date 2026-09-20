@@ -136,11 +136,13 @@ async def test_terminal_usage_reaches_session_cost_and_canonical_record(
     assert ctx.cumulative_usage["billable_completion_tokens"] == expected_output
     assert ctx.cumulative_usage["total_tokens"] == expected_prompt + expected_output
 
+    lifecycle = MagicMock()
+    lifecycle.current_context.return_value = ctx
     runtime = ServiceStreamingRuntime(
         orch,
         services=ChatRuntimeServices(
             SessionTaskRequirementState(SessionStateAccessor(SessionStateManager())),
-            ChatStreamLifecycle(MagicMock()),
+            ChatStreamLifecycle(lifecycle),
             metrics=helper.services.metrics,
         ),
     )
@@ -161,6 +163,7 @@ async def test_terminal_usage_reaches_session_cost_and_canonical_record(
     monkeypatch.setattr(runtime, "get_executor", lambda: Executor())
     async for _ in runtime.stream_chat("x"):
         pass
+    lifecycle.clear_context.assert_called_once_with(ctx)
 
     expected_cost = (expected_prompt + expected_output * 10) / 1_000_000
     metrics = collector.get_last_stream_metrics()

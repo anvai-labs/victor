@@ -12,7 +12,7 @@ import pytest
 
 CLUSTER_CAPS = {
     "chat_stream_runtime.py": {
-        "private_attributes": 44,
+        "private_attributes": 43,
         "private_probes": 4,
         "dynamic_probes": 0,
         "delivery_accesses": 0,
@@ -22,7 +22,9 @@ CLUSTER_CAPS = {
         "task_state_accesses": 0,
         "context_lifecycle_accesses": 0,
         "intelligence_accesses": 0,
-        "raw_state": 7,
+        "stream_context_accesses": 0,
+        "provider_state_accesses": 0,
+        "raw_state": 6,
     },
     "chat_stream_executor.py": {
         "private_attributes": 76,
@@ -35,10 +37,12 @@ CLUSTER_CAPS = {
         "task_state_accesses": 0,
         "context_lifecycle_accesses": 0,
         "intelligence_accesses": 0,
+        "stream_context_accesses": 0,
+        "provider_state_accesses": 0,
         "raw_state": 0,
     },
     "chat_stream_helpers.py": {
-        "private_attributes": 66,
+        "private_attributes": 64,
         "private_probes": 15,
         "dynamic_probes": 0,
         "delivery_accesses": 0,
@@ -48,10 +52,12 @@ CLUSTER_CAPS = {
         "task_state_accesses": 0,
         "context_lifecycle_accesses": 0,
         "intelligence_accesses": 0,
+        "stream_context_accesses": 0,
+        "provider_state_accesses": 0,
         "raw_state": 7,
     },
     "streaming_act_adapter.py": {
-        "private_attributes": 13,
+        "private_attributes": 12,
         "private_probes": 0,
         "dynamic_probes": 0,
         "delivery_accesses": 0,
@@ -61,6 +67,8 @@ CLUSTER_CAPS = {
         "task_state_accesses": 0,
         "context_lifecycle_accesses": 0,
         "intelligence_accesses": 0,
+        "stream_context_accesses": 0,
+        "provider_state_accesses": 0,
         "raw_state": 0,
     },
 }
@@ -76,6 +84,14 @@ ROOT = Path(__file__).resolve().parents[4]
 def inventory(source):
     tree = ast.parse(source)
     builtins = {"getattr", "setattr", "hasattr", "delattr", "vars"}
+    capability_calls = {
+        "get_capability_value",
+        "has_capability",
+        "_get_runtime_capability_value",
+        "_has_runtime_capability",
+        "_resolve_runtime_capability_presence",
+        "_resolve_runtime_capability_value",
+    }
     names = {name: name for name in builtins}
     constants = {}
     for node in ast.walk(tree):
@@ -109,7 +125,9 @@ def inventory(source):
                         constants[key] = literal(node.value)
                     if ast.unparse(node.value) in names:
                         names[key] = names[ast.unparse(node.value)]
-                    elif isinstance(node.value, ast.Attribute) and node.value.attr in builtins:
+                    elif isinstance(node.value, ast.Attribute) and node.value.attr in (
+                        builtins | capability_calls
+                    ):
                         names[key] = node.value.attr
 
     counts = {"private_attributes": 0, "private_probes": 0, "dynamic_probes": 0, "raw_state": 0}
@@ -120,6 +138,8 @@ def inventory(source):
     counts["task_state_accesses"] = 0
     counts["context_lifecycle_accesses"] = 0
     counts["intelligence_accesses"] = 0
+    counts["stream_context_accesses"] = 0
+    counts["provider_state_accesses"] = 0
     delivery_names = {"_chunk_generator", "chunk_generator", "sanitizer"}
     planning_names = {
         "_tool_planner",
@@ -167,6 +187,8 @@ def inventory(source):
         "_optimization_injector",
         "_record_runtime_intelligence_outcome",
     }
+    stream_context_names = {"_current_stream_context", "current_stream_context"}
+    provider_state_names = {"_provider_service"}
     for node in ast.walk(tree):
         if isinstance(node, ast.Attribute) and node.attr in delivery_names:
             counts["delivery_accesses"] += 1
@@ -182,6 +204,10 @@ def inventory(source):
             counts["context_lifecycle_accesses"] += 1
         if isinstance(node, ast.Attribute) and node.attr in intelligence_names:
             counts["intelligence_accesses"] += 1
+        if isinstance(node, ast.Attribute) and node.attr in stream_context_names:
+            counts["stream_context_accesses"] += 1
+        if isinstance(node, ast.Attribute) and node.attr in provider_state_names:
+            counts["provider_state_accesses"] += 1
         if isinstance(node, ast.Attribute) and node.attr.startswith("_"):
             counts["private_attributes"] += 1
             counts["raw_state"] += node.attr == "__dict__"
@@ -194,6 +220,8 @@ def inventory(source):
             counts["task_state_accesses"] += key in task_state_names
             counts["context_lifecycle_accesses"] += key in context_lifecycle_names
             counts["intelligence_accesses"] += key in intelligence_names
+            counts["stream_context_accesses"] += key in stream_context_names
+            counts["provider_state_accesses"] += key in provider_state_names
             if key and key.startswith("_"):
                 counts["raw_state"] += 1
         if not isinstance(node, ast.Call):
@@ -201,8 +229,14 @@ def inventory(source):
         function = names.get(ast.unparse(node.func))
         if isinstance(node.func, ast.Attribute) and node.func.attr in builtins:
             function = node.func.attr
+        if isinstance(node.func, ast.Attribute) and node.func.attr in capability_calls:
+            function = node.func.attr
         if function == "vars":
             counts["raw_state"] += 1
+        elif function in capability_calls and node.args:
+            key = literal(node.args[0])
+            counts["stream_context_accesses"] += key in stream_context_names
+            counts["provider_state_accesses"] += key in provider_state_names
         elif function in builtins and len(node.args) >= 2:
             key = literal(node.args[1])
             counts["delivery_accesses"] += key in delivery_names
@@ -212,6 +246,8 @@ def inventory(source):
             counts["task_state_accesses"] += key in task_state_names
             counts["context_lifecycle_accesses"] += key in context_lifecycle_names
             counts["intelligence_accesses"] += key in intelligence_names
+            counts["stream_context_accesses"] += key in stream_context_names
+            counts["provider_state_accesses"] += key in provider_state_names
             if key is None:
                 counts["dynamic_probes"] += 1
             elif key.startswith("_"):
@@ -226,6 +262,8 @@ def inventory(source):
             counts["task_state_accesses"] += key in task_state_names
             counts["context_lifecycle_accesses"] += key in context_lifecycle_names
             counts["intelligence_accesses"] += key in intelligence_names
+            counts["stream_context_accesses"] += key in stream_context_names
+            counts["provider_state_accesses"] += key in provider_state_names
             if key and key.startswith("_"):
                 counts["raw_state"] += 1
     return counts
@@ -273,6 +311,30 @@ def test_chat_cluster_boundary_counts_only_shrink(filename):
             "renamed.__dict__.get('_prepare_runtime_intelligence_request')",
             "intelligence_accesses",
         ),
+        ("renamed._current_stream_context = context", "stream_context_accesses"),
+        ("getattr(renamed, 'current_stream_context')", "stream_context_accesses"),
+        (
+            "renamed.__dict__.get('_current_stream_context')",
+            "stream_context_accesses",
+        ),
+        (
+            "renamed.get_capability_value('current_stream_context')",
+            "stream_context_accesses",
+        ),
+        (
+            "read = renamed.get_capability_value\n" "read('current_' + 'stream_context')",
+            "stream_context_accesses",
+        ),
+        (
+            "read = renamed._resolve_runtime_capability_value\n" "read('current_stream_context')",
+            "stream_context_accesses",
+        ),
+        (
+            "renamed._provider_service.get_rate_limit_wait_time(error)",
+            "provider_state_accesses",
+        ),
+        ("getattr(renamed, '_provider_service')", "provider_state_accesses"),
+        ("renamed.__dict__.get('_provider_service')", "provider_state_accesses"),
         ("getattr(renamed, '_message_policy_gate')", "execution_control_accesses"),
         ("renamed.__dict__.get('_tool_pipeline')", "execution_control_accesses"),
         ("read = getattr\nread(renamed, 'sani' + 'tizer')", "delivery_accesses"),

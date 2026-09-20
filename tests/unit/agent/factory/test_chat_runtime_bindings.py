@@ -82,6 +82,9 @@ def test_binding_coordinates_stream_lifecycle_without_retaining_owner() -> None:
     owner = _owner()
     owner._cancel_event = None
     owner._is_streaming = False
+    owner._current_stream_context = None
+    owner._provider_service = MagicMock()
+    owner._provider_service.get_rate_limit_wait_time.return_value = 80.0
     view = bind_chat_runtime_services(owner)
 
     assert view.stream_lifecycle is not None
@@ -93,9 +96,71 @@ def test_binding_coordinates_stream_lifecycle_without_retaining_owner() -> None:
     AgentOrchestrator.request_cancellation(owner)
     assert view.stream_lifecycle.is_cancelled() is True
 
+    context = object()
+    view.stream_lifecycle.bind_context(context)
+    assert view.stream_lifecycle.current_context() is context
+    error = RuntimeError("rate limited")
+    assert view.stream_lifecycle.rate_limit_wait_time(error, 0) == 80.0
+    assert view.stream_lifecycle.rate_limit_wait_time(error, 2) == 300.0
+    owner._provider_service.get_rate_limit_wait_time.assert_has_calls(
+        [((error,), {}), ((error,), {})]
+    )
+
     view.stream_lifecycle.finish()
     assert owner._is_streaming is False
     assert owner._cancel_event is None
+    view.stream_lifecycle.clear_context(context)
+    assert owner._current_stream_context is None
+
+
+def test_binding_stream_retry_requires_provider_service() -> None:
+    owner = _owner()
+    owner._provider_service = None
+
+    with pytest.raises(TypeError, match="provider service"):
+        bind_chat_runtime_services(owner).stream_lifecycle.rate_limit_wait_time(
+            RuntimeError("rate limited"),
+            0,
+        )
+
+
+def test_binding_stream_context_prefers_capability_and_clears_only_bound_context() -> None:
+    owner = _owner()
+    field_context = object()
+    capability_context = object()
+    replacement_context = object()
+    owner._current_stream_context = field_context
+    owner.get_capability_value = MagicMock(return_value=capability_context)
+    lifecycle = bind_chat_runtime_services(owner).stream_lifecycle
+
+    assert lifecycle.current_context() is capability_context
+
+    owner._current_stream_context = replacement_context
+    lifecycle.clear_context(field_context)
+    assert owner._current_stream_context is replacement_context
+
+
+def test_binding_stream_context_uses_public_then_private_instance_state() -> None:
+    owner = _owner()
+    public_context = object()
+    private_context = object()
+    owner.current_stream_context = public_context
+    owner._current_stream_context = private_context
+    lifecycle = bind_chat_runtime_services(owner).stream_lifecycle
+
+    assert lifecycle.current_context() is public_context
+    lifecycle.clear_context(public_context)
+    assert owner.current_stream_context is None
+    assert lifecycle.current_context() is private_context
+
+
+def test_binding_stream_context_falls_back_after_capability_failure() -> None:
+    owner = _owner()
+    context = object()
+    owner._current_stream_context = context
+    owner.get_capability_value = MagicMock(side_effect=RuntimeError("registry unavailable"))
+
+    assert bind_chat_runtime_services(owner).stream_lifecycle.current_context() is context
 
 
 def test_binding_routes_stream_metrics_through_enumerated_components() -> None:
