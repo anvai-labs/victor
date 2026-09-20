@@ -546,3 +546,68 @@ def test_turn_runtime_uses_enumerated_live_state_without_retaining_owner() -> No
 def test_turn_runtime_rejects_nonweakrefable_owner() -> None:
     with pytest.raises(TypeError, match="must support weak references"):
         bind_chat_turn_runtime(SimpleNamespace())
+
+
+def test_stream_usage_resolves_live_totals_without_replacing_shared_dictionary():
+    owner = _owner()
+    original = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+    owner._cumulative_token_usage = original
+    other = _owner()
+    other._cumulative_token_usage = {}
+    view = bind_chat_runtime_services(owner)
+    usage = {
+        "prompt_tokens": 2,
+        "completion_tokens": 3,
+        "reasoning_tokens": 4,
+        "reasoning_included": False,
+    }
+
+    view.metrics.accumulate_usage(usage)
+    assert owner._cumulative_token_usage is original
+    assert original["total_tokens"] == 9
+    assert original["billable_completion_tokens"] == 7
+    assert other._cumulative_token_usage == {}
+
+    restored = {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30}
+    owner._cumulative_token_usage = restored
+    view.metrics.accumulate_usage(usage)
+    assert owner._cumulative_token_usage is restored
+    assert restored["total_tokens"] == 39
+    assert original["total_tokens"] == 9
+
+
+def test_stream_usage_preserves_raw_state_fallback_and_absent_accumulator():
+    class PropertyOwner(_Owner):
+        @property
+        def _cumulative_token_usage(self):
+            return None
+
+    owner = _owner()
+    owner.__class__ = PropertyOwner
+    view = bind_chat_runtime_services(owner)
+    view.metrics.accumulate_usage({"prompt_tokens": 2})
+    assert "_cumulative_token_usage" not in owner.__dict__
+    totals = {}
+    owner.__dict__["_cumulative_token_usage"] = totals
+    view.metrics.accumulate_usage({"prompt_tokens": 2})
+    assert totals["prompt_tokens"] == 2
+
+
+def test_stream_context_publication_uses_live_owner_and_does_not_retain_it():
+    owner = _owner()
+    view = bind_chat_runtime_services(owner)
+    first = {"resume_summary": "first turn"}
+    second = {"resume_summary": "second turn"}
+    view.task_state.record_stream_context(first)
+    assert owner._last_stream_task_context is first
+    view.task_state.record_stream_context(second)
+    assert owner._last_stream_task_context is second
+    assert first == {"resume_summary": "first turn"}
+    ref = weakref.ref(owner)
+    del owner
+    gc.collect()
+    assert ref() is None
+    with pytest.raises(RuntimeError, match="no longer available"):
+        view.task_state.record_stream_context({})
+    with pytest.raises(RuntimeError, match="no longer available"):
+        view.metrics.accumulate_usage({})

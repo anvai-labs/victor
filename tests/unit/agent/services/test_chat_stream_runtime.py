@@ -929,3 +929,61 @@ async def test_service_streaming_runtime_stream_chat_normalizes_recovery_events(
         "retry_with_hint",
         "empty response loop",
     ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("outcome", ["success", "error", "cancel", "close", "metrics_error"])
+async def test_finalization_uses_explicit_capabilities_without_facade(outcome):
+    from victor.agent.factory.chat_runtime_bindings import bind_chat_runtime_services
+
+    owner = _make_orchestrator_stub()
+    ctx = SimpleNamespace(
+        cumulative_usage={"prompt_tokens": 2, "completion_tokens": 3, "total_tokens": 5},
+        runtime_override_snapshot=None,
+        plan_steps=[str(i) for i in range(12)],
+    )
+    owner._current_stream_context = ctx
+
+    totals_at_finalize = []
+
+    def finalize(*_args, **_kwargs):
+        totals_at_finalize.append(owner._cumulative_token_usage["total_tokens"])
+        if outcome == "metrics_error":
+            raise RuntimeError("telemetry")
+
+    owner._metrics_coordinator.finalize_stream_metrics.side_effect = finalize
+    view = bind_chat_runtime_services(owner)
+    # An opaque host cannot supply raw dictionaries or accept facade-state writes.
+    runtime = ServiceStreamingRuntime(object(), services=view)
+
+    class Executor:
+        async def run_unified(self, *_args, **_kwargs):
+            yield StreamChunk(content="partial")
+            if outcome == "error":
+                raise ValueError("provider failed")
+            if outcome == "cancel":
+                raise asyncio.CancelledError()
+
+    runtime._streaming_executor = Executor()
+    stream = runtime.stream_chat("hello")
+    assert (await anext(stream)).content == "partial"
+    if outcome == "close":
+        await stream.aclose()
+    elif outcome in {"error", "cancel"}:
+        expected = ValueError if outcome == "error" else asyncio.CancelledError
+        with pytest.raises(expected):
+            await anext(stream)
+    else:
+        with pytest.raises(StopAsyncIteration):
+            await anext(stream)
+    await stream.aclose()  # Closing an exhausted stream must not account twice.
+
+    assert totals_at_finalize == [5]
+    assert owner._cumulative_token_usage["total_tokens"] == 5
+    assert owner._last_stream_task_context["plan_steps"] == [str(i) for i in range(8)]
+    assert owner._current_stream_context is None
+    assert not view.stream_turn_lock.locked()
+    owner._metrics_coordinator.finalize_stream_metrics.assert_called_once_with(
+        ctx.cumulative_usage,
+        provider_diagnostics=None,
+    )

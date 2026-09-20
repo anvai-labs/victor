@@ -12,8 +12,8 @@ import pytest
 
 CLUSTER_CAPS = {
     "chat_stream_runtime.py": {
-        "private_attributes": 43,
-        "private_probes": 4,
+        "private_attributes": 41,
+        "private_probes": 3,
         "dynamic_probes": 0,
         "delivery_accesses": 0,
         "planning_accesses": 0,
@@ -24,7 +24,7 @@ CLUSTER_CAPS = {
         "intelligence_accesses": 0,
         "stream_context_accesses": 0,
         "provider_state_accesses": 0,
-        "raw_state": 6,
+        "raw_state": 5,
     },
     "chat_stream_executor.py": {
         "private_attributes": 76,
@@ -170,6 +170,7 @@ def inventory(source):
         "_metrics_collector",
         "_metrics_coordinator",
         "_finalize_stream_metrics",
+        "_cumulative_token_usage",
     }
     task_state_names = {
         "unified_tracker",
@@ -178,6 +179,7 @@ def inventory(source):
         "_current_task_type",
         "_progress",
         "_task_config",
+        "_last_stream_task_context",
     }
     context_lifecycle_names = {
         "_context_manager",
@@ -312,6 +314,12 @@ def test_removed_stream_compatibility_delegates_stay_deleted():
 @pytest.mark.parametrize(
     "source, category",
     [
+        ("renamed._cumulative_token_usage", "metrics_accesses"),
+        ("getattr(renamed, '_cumulative_token_usage')", "metrics_accesses"),
+        ("renamed.__dict__.get('_cumulative_token_usage')", "metrics_accesses"),
+        ("renamed._last_stream_task_context = {}", "task_state_accesses"),
+        ("setattr(renamed, '_last_stream_task_context', {})", "task_state_accesses"),
+        ("renamed.__dict__['_last_stream_task_context']", "task_state_accesses"),
         ("renamed._required_files = []", "private_attributes"),
         ("renamed._chunk_generator.emit()", "delivery_accesses"),
         ("renamed.chunk_generator.emit()", "delivery_accesses"),

@@ -11,6 +11,7 @@ from victor.agent.services.chat_runtime_services import (
     ChatRuntimeServices,
     ChatStreamLifecycle,
     ChatStreamMetrics,
+    ChatTaskState,
     SessionTaskRequirementState,
 )
 from victor.agent.services.chat_stream_helpers import ChatStreamHelperMixin
@@ -23,18 +24,23 @@ from victor.agent.streaming.context import StreamingChatContext
 from victor.config.metrics_capabilities import ProviderMetricsCapabilities
 from victor.providers.base import StreamChunk
 from victor.providers.usage_parsing import usage_dict_from_neutral
+from victor.providers.usage_accounting import accumulate_usage
 
 
 class _MetricsRuntime:
-    def __init__(self, collector, coordinator):
+    def __init__(self, collector, coordinator, cumulative):
         self.collector = collector
         self.coordinator = coordinator
+        self.cumulative = cumulative
 
     def begin(self):
         return self.collector.init_stream_metrics()
 
     def record_first_token(self):
         self.collector.record_first_token()
+
+    def accumulate_usage(self, usage_data):
+        accumulate_usage(self.cumulative, usage_data)
 
     def finalize(self, usage_data, *, provider_diagnostics=None):
         return self.coordinator.finalize_stream_metrics(
@@ -52,6 +58,7 @@ class Helper(ChatStreamHelperMixin):
                 _MetricsRuntime(
                     orchestrator._metrics_collector,
                     orchestrator._metrics_coordinator,
+                    orchestrator._cumulative_token_usage,
                 )
             ),
         )
@@ -144,16 +151,9 @@ async def test_terminal_usage_reaches_session_cost_and_canonical_record(
             SessionTaskRequirementState(SessionStateAccessor(SessionStateManager())),
             ChatStreamLifecycle(lifecycle),
             metrics=helper.services.metrics,
+            task_state=ChatTaskState(MagicMock()),
         ),
     )
-    bindings = SimpleNamespace(
-        state_host=orch,
-        state_dict={},
-        get_capability_value=lambda name, default=None: (
-            ctx if name == "current_stream_context" else default
-        ),
-    )
-    monkeypatch.setattr(runtime, "_get_runtime_bindings", lambda *a, **k: bindings)
 
     class Executor:
         async def run_unified(self, _message, **_kwargs):

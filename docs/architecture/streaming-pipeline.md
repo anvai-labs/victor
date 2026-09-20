@@ -84,7 +84,8 @@ one capability so callers do not accumulate facade fields.
       in-flight tools, then close the loop before emitting the terminal cancellation signal.
     - Resolve mutable session and controller state from its current owner.
     - Keep configured governance gates through bootstrap; malformed results are errors.
-    - Preserve one metrics path from provider usage to conversation, cost and session totals.
+    - Update session totals through the metrics capability before finalizing cost and reports.
+    - Publish bounded resume context through task state, including on error and stream close.
     - Start configured background compaction once during stream preparation.
 
 | Guard | What it prevents |
@@ -108,8 +109,8 @@ flowchart LR
     P["Planning and guidance"]
     E["Stream execution controls"]
     L["Stream lifecycle"]
-    X["Stream metrics"]
-    K["Task classification state"]
+    X["Stream metrics and session totals"]
+    K["Task classification and resume context"]
     C["Context lifecycle"]
     I["Runtime intelligence"]
   end

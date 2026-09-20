@@ -22,7 +22,6 @@ if TYPE_CHECKING:
     from victor.agent.streaming.tool_execution import ToolExecutionHandler
 
 from victor.agent.services.chat_runtime_services import ChatRuntimeServices
-from victor.providers.usage_accounting import accumulate_usage
 
 logger = logging.getLogger(__name__)
 
@@ -418,8 +417,6 @@ class ServiceStreamingRuntime(ChatStreamHelperMixin):
             )
             kwargs["_fallback_iteration"] = fallback_iteration
 
-        bindings = self._get_runtime_bindings()
-        state_host = bindings.state_host
         executor = self.get_executor()
         stream_failed = False
 
@@ -440,19 +437,8 @@ class ServiceStreamingRuntime(ChatStreamHelperMixin):
             ctx = self.services.stream_lifecycle.current_context()
 
             if ctx is not None:
-                state_dict = bindings.state_dict
                 if hasattr(ctx, "cumulative_usage"):
-                    # Fold this turn's usage into the orchestrator's session-cumulative dict —
-                    # the SAME object the metrics service snapshots for task-report token deltas
-                    # (orchestrator passes it as `cumulative_token_usage=`). The prior code
-                    # accumulated into `state_dict["_cumulative_token_usage"]`, which is absent
-                    # (None) on the service path, so the loop was a silent no-op and every task
-                    # report read total_tokens=0 despite real usage on `ctx.cumulative_usage`.
-                    cumulative_usage = getattr(state_host, "_cumulative_token_usage", None)
-                    if not isinstance(cumulative_usage, dict):
-                        cumulative_usage = state_dict.get("_cumulative_token_usage")
-                    if isinstance(cumulative_usage, dict):
-                        accumulate_usage(cumulative_usage, ctx.cumulative_usage)
+                    self.services.metrics.accumulate_usage(ctx.cumulative_usage)
 
                     # Close the cost-measurement wire (C0): the service streaming runtime
                     # never finalized stream metrics, so per-turn tokens/cost stayed 0 and the
@@ -510,27 +496,29 @@ class ServiceStreamingRuntime(ChatStreamHelperMixin):
                 )
                 provider_status_events = list(getattr(ctx, "provider_status_events", []) or [])
 
-                state_host._last_stream_task_context = {
-                    "unified_task_type": getattr(ctx, "unified_task_type", None),
-                    "task_classification": getattr(ctx, "task_classification", None),
-                    "complexity_tool_budget": getattr(ctx, "complexity_tool_budget", None),
-                    "coarse_task_type": getattr(ctx, "coarse_task_type", None),
-                    "is_analysis_task": bool(getattr(ctx, "is_analysis_task", False)),
-                    "is_action_task": bool(getattr(ctx, "is_action_task", False)),
-                    "needs_execution": bool(getattr(ctx, "needs_execution", False)),
-                    "tool_calls_used": int(getattr(ctx, "tool_calls_used", 0) or 0),
-                    "task_intent": str(getattr(ctx, "task_intent", "") or ""),
-                    "plan_steps": list(getattr(ctx, "plan_steps", []) or [])[:8],
-                    "intent_log": list(getattr(ctx, "intent_log", []) or [])[-12:],
-                    "last_compaction_policy_reason": str(
-                        getattr(ctx, "last_compaction_policy_reason", "") or ""
-                    ),
-                    "resume_recent_resources": resume_recent_resources,
-                    "resume_recent_tools": resume_recent_tools,
-                    "provider_status_events": provider_status_events[-6:],
-                    "degraded_resume_state": degraded_resume_state,
-                    "resume_summary": resume_summary,
-                }
+                self.services.task_state.record_stream_context(
+                    {
+                        "unified_task_type": getattr(ctx, "unified_task_type", None),
+                        "task_classification": getattr(ctx, "task_classification", None),
+                        "complexity_tool_budget": getattr(ctx, "complexity_tool_budget", None),
+                        "coarse_task_type": getattr(ctx, "coarse_task_type", None),
+                        "is_analysis_task": bool(getattr(ctx, "is_analysis_task", False)),
+                        "is_action_task": bool(getattr(ctx, "is_action_task", False)),
+                        "needs_execution": bool(getattr(ctx, "needs_execution", False)),
+                        "tool_calls_used": int(getattr(ctx, "tool_calls_used", 0) or 0),
+                        "task_intent": str(getattr(ctx, "task_intent", "") or ""),
+                        "plan_steps": list(getattr(ctx, "plan_steps", []) or [])[:8],
+                        "intent_log": list(getattr(ctx, "intent_log", []) or [])[-12:],
+                        "last_compaction_policy_reason": str(
+                            getattr(ctx, "last_compaction_policy_reason", "") or ""
+                        ),
+                        "resume_recent_resources": resume_recent_resources,
+                        "resume_recent_tools": resume_recent_tools,
+                        "provider_status_events": provider_status_events[-6:],
+                        "degraded_resume_state": degraded_resume_state,
+                        "resume_summary": resume_summary,
+                    }
+                )
 
                 runtime_snapshot = getattr(ctx, "runtime_override_snapshot", None)
                 self._restore_stream_runtime_overrides(runtime_snapshot)
