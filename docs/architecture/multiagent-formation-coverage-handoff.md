@@ -565,6 +565,15 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   assertions; fix result retention in a separate compatible runtime increment
   before spending calls on new live reflection acceptance. This finding does not
   invalidate the differently scoped historical reflection experiment.
+  **Implementation:** with the existing `capture_member_usage=True` opt-in,
+  reflection executes canonical participants and retains each generator/critic
+  result, session, accumulated counters and attempt history. Partial and terminal
+  iteration checkpoints retain the same evidence without replaying completed
+  iterations. A failed member, malformed verdict, missing usage or changed session
+  fails explicitly. The default aggregate result and legacy checkpoint payload stay
+  unchanged. Coordinator final output remains the generated solution rather than
+  concatenating critique text. This corrects result retention; live acceptance
+  still requires the matrix's artifact, pytest and independent accounting gates.
 
 Validation-test audit: neither live harness had direct tests before this follow-up.
 The new mixed-harness suite covers rejected/malformed/missing reviews, inclusive
@@ -576,7 +585,7 @@ integration test covered domain injection: before/after coverage retained the sa
 176 executed script lines and 30 executed branches. No prior runtime tests were
 removed.
 
-The opt-in `formation_gateway_matrix.py` adds artifact scenarios for all twelve
+The opt-in `formation_gateway_matrix.py` ([PR #1149](https://github.com/anvai-labs/victor/pull/1149)) adds artifact scenarios for all twelve
 canonical formations and the three ensemble modes, using the existing presets
 and coordinator dispatch. Its accounting observer requires physical request,
 SQLite, C4 request/session/run, dashboard, and member-usage agreement. Timeouts
@@ -587,6 +596,14 @@ coverage row passed. Its offline tests own scenario configuration, evidence
 retention, decision artifacts and accounting fault injection; existing strategy
 tests continue to own formation semantics. Removing one duplicate invalid-name
 case preserved exactly 78 executed scenario-module lines and 25 branches.
+
+The reflection follow-up combines the redundant context-shim invocation-count
+test with its mapping-output test. Before/after coverage preserved exactly 123
+reflection-module lines / 36 branches and 733 coordinator lines / 187 branches.
+New tests cover opted-in public dispatch, multiple rounds, partial/terminal resume,
+failed attempts, malformed verdicts, invalid accounting, snapshot independence and
+unchanged behavior for unrelated formations. The earlier failure and duplicate-test
+coverage measurements remain separate from live model evidence.
 
 
 WS-E implementation/evidence: [PR #1115](https://github.com/anvai-labs/victor/pull/1115).
