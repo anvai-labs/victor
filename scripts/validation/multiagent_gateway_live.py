@@ -12,6 +12,7 @@ import argparse
 import asyncio
 from dataclasses import asdict
 import json
+import math
 import os
 from pathlib import Path
 import subprocess
@@ -141,6 +142,55 @@ async def collect_acceptance(
             "timeout": isinstance(exc, subprocess.TimeoutExpired),
         }
         failure(evidence, "pytest", error_type=type(exc).__name__)
+
+
+def save_report(root: Path, evidence: dict[str, Any]) -> None:
+    """Persist available evidence; unsupported metadata explicitly fails acceptance."""
+    try:
+        evidence.update(
+            worktree_commit=subprocess.check_output(
+                ["git", "-C", str(WORKTREE), "rev-parse", "HEAD"],
+                text=True,
+            ).strip(),
+            working_tree_dirty=bool(
+                subprocess.check_output(
+                    ["git", "-C", str(WORKTREE), "status", "--porcelain"],
+                    text=True,
+                ).strip()
+            ),
+        )
+    except Exception as exc:
+        failure(evidence, "provenance", error_type=type(exc).__name__)
+
+    ancestors: set[int] = set()
+
+    def normalize(value: Any, path: str) -> Any:
+        if value is None or type(value) in (str, bool, int):
+            return value
+        if type(value) is float and math.isfinite(value):
+            return value
+        if id(value) not in ancestors:
+            ancestors.add(id(value))
+            try:
+                if isinstance(value, dict) and all(isinstance(key, str) for key in value):
+                    return {key: normalize(item, f"{path}.{key}") for key, item in value.items()}
+                if isinstance(value, (list, tuple)):
+                    return [normalize(item, f"{path}[{index}]") for index, item in enumerate(value)]
+            finally:
+                ancestors.remove(id(value))
+        failure(evidence, "serialization", path=path, value_type=type(value).__name__)
+        return {"serialization_error": type(value).__name__}
+
+    report = normalize(
+        {key: value for key, value in evidence.items() if key not in {"failures", "passed"}},
+        "report",
+    )
+    evidence["passed"] = not evidence["failures"]
+    report.update(passed=evidence["passed"], failures=evidence["failures"])
+    for filename, payload in (("requests.json", report["requests"]), ("evidence.json", report)):
+        temporary = root / (filename + ".tmp")
+        temporary.write_text(json.dumps(payload, indent=2, allow_nan=False) + "\n")
+        temporary.replace(root / filename)
 
 
 async def validate(args: argparse.Namespace) -> int:
@@ -405,36 +455,33 @@ async def validate(args: argparse.Namespace) -> int:
                     admin=admin,
                     evidence=evidence,
                 )
+            except asyncio.CancelledError:
+                failure(evidence, "acceptance_collection", error_type="CancelledError")
+                raise
             except Exception as exc:
                 failure(evidence, "acceptance_collection", error_type=type(exc).__name__)
             finally:
-                evidence.update(
-                    passed=not evidence["failures"],
-                    requests=observed,
-                    elapsed_seconds=round(time.monotonic() - started, 2),
-                    worktree_commit=subprocess.check_output(
-                        ["git", "-C", str(WORKTREE), "rev-parse", "HEAD"],
-                        text=True,
-                    ).strip(),
-                    working_tree_dirty=bool(
-                        subprocess.check_output(
-                            ["git", "-C", str(WORKTREE), "status", "--porcelain"],
-                            text=True,
-                        ).strip()
-                    ),
-                )
+                # Restore process state even when provenance or serialization fails.
+                os.chdir(previous_cwd)
+                for key, value in previous_env.items():
+                    if value is None:
+                        os.environ.pop(key, None)
+                    else:
+                        os.environ[key] = value
                 try:
-                    (root / "evidence.json").write_text(json.dumps(evidence, indent=2) + "\n")
-                    (root / "requests.json").write_text(json.dumps(observed, indent=2) + "\n")
-                finally:
-                    os.chdir(previous_cwd)
-                    for key, value in previous_env.items():
-                        if value is None:
-                            os.environ.pop(key, None)
-                        else:
-                            os.environ[key] = value
                     if runner is not None:
                         await runner.cleanup()
+                except asyncio.CancelledError:
+                    failure(evidence, "observer_cleanup", error_type="CancelledError")
+                    raise
+                except Exception as exc:
+                    failure(evidence, "observer_cleanup", error_type=type(exc).__name__)
+                finally:
+                    evidence.update(
+                        requests=observed,
+                        elapsed_seconds=round(time.monotonic() - started, 2),
+                    )
+                    save_report(root, evidence)
             print(
                 json.dumps(
                     {

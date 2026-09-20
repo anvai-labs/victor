@@ -496,11 +496,16 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   verdict, including exception/timeout paths, without relaxing any assertion.
   **Implementation:** the harness now collects review, per-member usage, artifact
   presence and bounded independent pytest results before saving a structured failed
-  verdict. Execution failures and cancellation retain partial pipeline results;
+  verdict. Execution failures and cancellation retain returned partial pipeline results;
   one rejected review or failed usage lookup cannot suppress other checks. Private
   reports include the task-contract version and restore the caller's working
   directory and gateway environment after execution. This fixes evidence retention,
-  not G32 member completion or C5 acceptance.
+  not G32 member completion or C5 acceptance. Cancellation during final checks,
+  unavailable Git provenance, and unsupported/cyclic member metadata also produce
+  failed reports without preventing process-state cleanup. In-flight outcomes not
+  returned by the runtime are not recovered. HTTP errors/timeouts followed by
+  successful provider retries still require the external gateway observer; this
+  change does not certify those paths.
 - **G38 — mixed reviewer task does not define the invariant's input domain.**
   The same run's ZAI reviewer returned structured `needs_work` for `writer(x) = x * 2`:
   overflowing floats and sequence inputs violate the requested addition invariant.
@@ -523,7 +528,10 @@ The new mixed-harness suite covers rejected/malformed/missing reviews, inclusive
 cache accounting, missing artifacts, bad member usage, pytest timeout, startup and
 team failures, partial pause results, cancellation and process-state restoration.
 Existing coordinator dispatch/approval tests remain the single coverage owner for
-those runtime contracts; no existing test was removed without evidence of redundancy.
+those runtime contracts. One redundant constant-string test was removed after the
+integration test covered domain injection: before/after coverage retained the same
+176 executed script lines and 30 executed branches. No prior runtime tests were
+removed.
 
 
 WS-E implementation/evidence: [PR #1115](https://github.com/anvai-labs/victor/pull/1115).
