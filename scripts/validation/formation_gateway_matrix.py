@@ -28,6 +28,7 @@ from scripts.validation.formation_matrix_oracle import CONTRACT_VERSION, check_n
 from scripts.validation.gateway_matrix_accounting import BUFFERED_DEADLINE_SECONDS, GatewayObserver
 from victor.framework import Agent
 from victor.framework.member_event_sink import MemberEventSink, current_member_sink
+from victor.framework.verifiers import _run_buffered_command
 from victor.teams.types import TeamResult
 
 
@@ -100,28 +101,26 @@ async def check_case(
             filename = "test_member.py" if case.isolated else f"test_{name}.py"
             entry: dict[str, Any] = {"member": name, "returncode": None}
             report["pytest"].append(entry)
-            process = None
-            try:
-                process = await asyncio.create_subprocess_exec(
-                    str(python),
-                    "-m",
-                    "pytest",
-                    "-q",
-                    str(directory / filename),
-                    cwd=directory,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.STDOUT,
-                )
-                try:
-                    output, _ = await asyncio.wait_for(process.communicate(), timeout=60)
-                finally:
-                    if process.returncode is None:
-                        process.kill()
-                        await process.wait()
-                entry.update(returncode=process.returncode, output=output.decode(errors="replace"))
-            except (OSError, TimeoutError) as exc:
-                entry["error_type"] = type(exc).__name__
-            if entry["returncode"] != 0:
+            process_result = await _run_buffered_command(
+                [str(python), "-m", "pytest", "-q", str(directory / filename)],
+                directory,
+                timeout=60,
+            )
+            entry.update(
+                returncode=process_result.returncode,
+                runner_status=process_result.status,
+                timed_out=process_result.timed_out,
+                error_type=process_result.error_type,
+                cleanup_errors=list(process_result.cleanup_errors),
+                output=process_result.stdout,
+                stderr=process_result.stderr,
+                stdout_truncated=process_result.stdout_truncated,
+                stderr_truncated=process_result.stderr_truncated,
+                output_tail_bytes_per_stream=4000,
+                execution_timeout_seconds=60,
+                cleanup_timeout_seconds=1,
+            )
+            if process_result.status != 0 or process_result.returncode != 0:
                 report["failures"].append("pytest:" + name)
             function = "member" if case.isolated else name
             oracle = await check_numeric_oracle(directory / f"{function}.py", function, python)

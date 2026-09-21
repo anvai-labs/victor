@@ -136,6 +136,28 @@ async def test_timeout_retains_diagnostics_and_reaps_process(tmp_path):
             os.kill(int(marker.read_text()), 0)
 
 
+async def test_buffered_evidence_distinguishes_native_exit_from_timeout(tmp_path):
+    result = await verifiers._run_buffered_command(
+        [sys.executable, "-c", "import sys; print('x' * 4500); sys.exit(124)"], tmp_path
+    )
+    assert result.returncode == result.status == 124
+    assert result.timed_out is False
+    assert result.error_type is None
+    assert result.cleanup_errors == ()
+    assert result.stdout_truncated is True
+    assert len(result.stdout) == 4000
+    assert result.stderr_truncated is False
+
+
+async def test_buffered_spawn_failure_has_no_child_exit(tmp_path):
+    result = await verifiers._run_buffered_command([str(tmp_path / "missing-program")], tmp_path)
+    assert result.returncode is None
+    assert result.status == 1
+    assert result.error_type == "FileNotFoundError"
+    assert result.timed_out is False
+    assert result.cleanup_errors == ()
+
+
 async def test_completed_process_is_never_signalled(tmp_path, monkeypatch):
     from types import SimpleNamespace
     from unittest.mock import Mock

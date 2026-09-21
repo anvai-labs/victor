@@ -121,8 +121,9 @@ models, tasks and gates: it is coverage evidence, not a matched comparison.
 Historical WS-F strict acceptance remains Qwen 1/6 and LFM 0/6. No weighted overall
 completion percentage is asserted, and case percentages do not estimate effort.
 The remaining correctness work includes G32 completion, G34 buffered reporting,
-G36 structured verification, G39 task binding, G41 resource exhaustion and G43
-member-pytest cleanup. G42 independent numeric oracles landed in
+G39 task binding, G41 resource exhaustion and G43 member-pytest cleanup.
+G36 structured verification landed in [PR #1159](https://github.com/anvai-labs/victor/pull/1159)
+after all CI gates passed, including Vertical Py3.12. G42 independent numeric oracles landed in
 [PR #1157](https://github.com/anvai-labs/victor/pull/1157) with all CI green, including
 Vertical Py3.12. No contract-v2 cases have run; do not combine v1/v2 pass counts. The [research evaluation](multiagent-formation-research-evaluation.md)
 maps relevant papers to existing code, evidence and ordered follow-ups; it adds no
@@ -522,7 +523,7 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   plus 127 loop/integration/session-ledger/size-guard tests passed. This establishes
   prerequisite correctness for G32 experiments, not evidence that either model now
   passes the formation battery.
-- **G36 — built-in verifier process outcomes need structured acceptance.**
+- **G36 — ✅ structured built-in verifier acceptance ([PR #1159](https://github.com/anvai-labs/victor/pull/1159)).**
   LocalTestVerifier parses test-count prose and can ignore a nonzero process exit
   if parsed passed/total counts match. LintVerifier derives success from colon-bearing
   output lines rather than the exit status. Follow-up must use explicit process
@@ -678,6 +679,18 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   Repair this separate ownership/deadline path with TDD before the next live matrix:
   bound execution and cleanup, preserve cancellation and diagnostics, and avoid
   borrowed/shared process termination. Do not merely increase the timeout.
+  **Implementation:** the actual `check_case` regression reproduced a 5.151-second
+  return for a one-second deadline before repair. The member-pytest path now uses
+  the built-in verifier's buffered process helper: file-backed output, the unchanged
+  60-second execution deadline and a separate one-second cleanup grace. Evidence
+  distinguishes the actual child exit from runner timeout/cleanup status, retains
+  diagnostic tails (4,000 bytes per stream) with explicit truncation flags, and
+  records cleanup faults. A zero child exit cannot override failed cleanup.
+  Cancellation propagates; it is not converted into a normal failed subprocess.
+  The verifier tuple contract and unconfigured agent defaults remain unchanged.
+  Test ownership remains split between helper lifecycle tests and actual harness
+  integration; the audit found no redundant cases to remove. This offline repair
+  establishes neither detached-child containment nor new live formation acceptance.
 
 Validation-test audit: neither live harness had direct tests before this follow-up.
 The new mixed-harness suite covers rejected/malformed/missing reviews, inclusive
