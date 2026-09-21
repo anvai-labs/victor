@@ -34,6 +34,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Permit the exact Dependabot co-author trailer in the attribution gate while
+  retaining checks for altered identities, appended text and other bot trailers.
+
 - Finalize buffered task reports on cancellation before turn teardown releases
   the shared chat lock.
 - Close nested streaming generators before releasing per-turn locks, metrics,

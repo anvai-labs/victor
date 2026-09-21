@@ -18,6 +18,10 @@ This targets *attribution*, not mere mention: legitimate references such as the
 `CLAUDE.md`/`GEMINI.md`/`AGENTS.md` rule files or integrating the Anthropic/OpenAI
 APIs are allowed. Adjust FORBIDDEN_PATTERNS if you want a stricter bare-word rule.
 
+The exact Dependabot co-author trailer is permitted as dependency automation;
+other bot identities and appended attribution remain subject to the policy.
+This is a text policy, not authentication of the commit author.
+
 Modes:
   --message-file <path>   check a single commit message file (commit-msg hook)
   --range <base>..<head>  check every commit message in the range (CI)
@@ -56,6 +60,11 @@ _AGENTS = (
 ALLOWED_PATTERNS = [
     (re.compile(r"\bvictor(?:[-_.]code)?(?:[-_.]ai)?\b", re.I), "first-party agent (victor)"),
 ]
+_DEPENDABOT_TRAILER = re.compile(
+    r"^[ \t]*co-authored-by:[ \t]+dependabot\[bot\][ \t]+"
+    r"<49699333\+dependabot\[bot\]@users\.noreply\.github\.com>[ \t]*\r?$",
+    re.I | re.M | re.ASCII,
+)
 # Names that mark a machine author regardless of vendor: an `-ai`/`ai-` segment,
 # or a `-bot`/`[bot]` marker. Deliberately NOT keyed on `users.noreply.github.com`
 # — that is the normal privacy address for human co-authors.
@@ -123,6 +132,8 @@ def scan(text: str, source: str) -> list[str]:
     a violation — we credit our own tooling; the rules exist to keep third-party
     agent attribution out.
     """
+    # Exempt only the complete official trailer line, never a matched prefix.
+    text = _DEPENDABOT_TRAILER.sub("", text)
     violations: list[str] = []
     for rx, label in FORBIDDEN_PATTERNS:
         for m in rx.finditer(text):

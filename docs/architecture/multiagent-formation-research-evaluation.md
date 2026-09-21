@@ -71,7 +71,7 @@ not strengthen the evidence; no such tests were added.
 The new formation matrix asks members to write a doubling function and a test of
 one input. Its independent pytest process reruns that member-authored test. At the
 audited source, both the ordinary and ensemble scenarios in
-[`formation_matrix_cases.py`](../../scripts/validation/formation_matrix_cases.py)
+[`formation_matrix_cases.py`](https://github.com/anvai-labs/victor/blob/develop/scripts/validation/formation_matrix_cases.py)
 use the single check `f(4) == 8`.
 
 An isolated offline counterexample supplied `def first(x): return 8` and the
@@ -99,7 +99,7 @@ whose behavioral/branch coverage is demonstrably retained elsewhere.
    gap so rewritten tasks retain the correct member's deliverables without
    overriding native structured formation response contracts.
 2. Fix G42's independent oracle and G36's structured process acceptance. Use the
-   existing [FEP-0018 verification contract](../../feps/fep-0018-framework-verification-hook.md),
+   existing [FEP-0018 verification contract](https://github.com/anvai-labs/victor/blob/develop/feps/fep-0018-framework-verification-hook.md),
    with explicit process status, bounded cleanup and preserved failure diagnostics.
    G32 completion and G34 buffered accounting remain separate required work.
 3. Freeze and version the corrected task contract, then run all fifteen cases on
@@ -121,7 +121,7 @@ whose behavioral/branch coverage is demonstrably retained elsewhere.
    through recorded observations; do not mutate shared cache to manufacture a
    comparison. Model-specific differences require repeated matched evidence.
 
-The existing [FEP-0025 controlled-experiment design](../../feps/fep-0025-prompt-evolution-as-controlled-experiment.md)
+The existing [FEP-0025 controlled-experiment design](https://github.com/anvai-labs/victor/blob/develop/feps/fep-0025-prompt-evolution-as-controlled-experiment.md)
 is the reference for baseline arms and evidence-based promotion, not a claim that
 all its phases are implemented. Any new public routing API requires its own reviewed
 FEP scope. Keep one registry, one dispatch and canonical role/identifier derivation;
