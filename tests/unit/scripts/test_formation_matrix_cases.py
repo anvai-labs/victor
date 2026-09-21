@@ -8,10 +8,15 @@ from unittest.mock import MagicMock
 
 import pytest
 
+_ROOT = Path(__file__).resolve().parents[3]
+# Console pytest does not put the repository on sys.path. This file-loaded
+# scenario module imports sibling validation scripts, independently of order.
+sys.path.insert(0, str(_ROOT))
+
 from victor.coordination.formations.ensemble import MODES
 from victor.teams.types import TeamFormation
 
-_PATH = Path(__file__).resolve().parents[3] / "scripts/validation/formation_matrix_cases.py"
+_PATH = _ROOT / "scripts/validation/formation_matrix_cases.py"
 _SPEC = importlib.util.spec_from_file_location("formation_matrix_cases", _PATH)
 assert _SPEC is not None and _SPEC.loader is not None
 matrix = importlib.util.module_from_spec(_SPEC)
