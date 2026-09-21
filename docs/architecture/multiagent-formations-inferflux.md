@@ -506,6 +506,23 @@ configured gateway; it records only correlation and usage metadata and body hash
 Reports and member outputs live in a new private experiment directory. Run with
 isolated Victor configuration when personal settings could affect the experiment.
 
+Contract v2 additionally requires a frozen, runner-owned numeric oracle for each
+implementation artifact. Inputs cover every Python int in [-1024, 1024] and every
+quarter-step Python float in that interval: 10,242 checks, including both integer
+and float representations. Outputs must be Python ints/floats equal to twice the
+input; booleans, non-finite inputs and sequences are outside this task domain.
+Member-authored tests remain deliverables, but passing them alone cannot establish
+correctness. The oracle runs separately without gateway credentials or pytest
+plugins, requires a complete structured report and zero process exit, and verifies
+unchanged oracle/artifact hashes. Its 10-second execution deadline has a separate
+one-second cleanup deadline; timeout or incomplete cleanup fails explicitly.
+Cancellation remains cancellation even when cleanup records a fault. File output
+avoids inherited-pipe hangs. This is finite-domain verification, not containment
+of hostile code or detached child processes. Reports identify contract version 2;
+version-1 evidence keeps its original verdict and acceptance scope. The separate
+member-authored pytest runner still has the inherited-pipe cleanup gap G43; repair
+that path before the next live matrix. The new oracle does not close G43.
+
 Each case requires its declared files, independent bounded pytest, successful
 member outcomes, distinct member session IDs, matching model/provider routing,
 canonical member usage, and wire/SQLite/C4/dashboard conservation. Reflection's

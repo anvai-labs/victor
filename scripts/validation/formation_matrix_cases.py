@@ -11,6 +11,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from scripts.validation.formation_matrix_oracle import CONTRACT_VERSION, NUMERIC_DOMAIN
 from victor.coordination.formations.ensemble import MODES
 from victor.framework.teams import AgentTeam, TeamFormation, TeamMemberSpec
 
@@ -49,7 +50,7 @@ async def build_case(
             role="executor",
             name=member,
             goal=(
-                f"Assigned member: {member}. Complete in order: "
+                NUMERIC_DOMAIN + f"Assigned member: {member}. Complete in order: "
                 f"1. Write {root}/{member}.py with def {member}(x): return x * 2. "
                 f"2. Write {root}/test_{member}.py importing that function and defining "
                 f"def test_{member}(): assert {member}(4) == 8. "
@@ -80,7 +81,7 @@ async def build_case(
             branch_prefix="feat/matrix-member",
         )
         goal = (
-            "Independently work in your assigned isolated workspace. "
+            NUMERIC_DOMAIN + "Independently work in your assigned isolated workspace. "
             "Write member.py with def member(x): return x * 2. "
             "Write test_member.py importing member and defining def test_member(): assert member(4) == 8. "
             f"Run {python} -m pytest test_member.py -q using shell readonly=False. "
@@ -112,7 +113,7 @@ async def build_case(
         )
     elif name == "reflection":
         members[1].goal = (
-            f"Read {root}/first.py and {root}/test_first.py. "
+            NUMERIC_DOMAIN + f"Read {root}/first.py and {root}/test_first.py. "
             f"Run {python} -m pytest {root}/test_first.py -q using shell readonly=False. "
             f"Write {root}/review.json with exactly verdict and feedback keys: "
             "verdict=satisfied only if the function doubles input and its test passes, "
@@ -191,6 +192,7 @@ async def build_case(
     team._config.goal = json.dumps(
         {
             "objective": team._config.goal,
+            "task_contract": {"version": CONTRACT_VERSION, "numeric_domain": NUMERIC_DOMAIN},
             "instructions": "Perform only your assigned task, identified by member_id, name, or role. Preserve the response_contract supplied by your formation.",
             "assignments": {
                 member.id: {"name": member.name, "task": member.goal}

@@ -121,8 +121,8 @@ models, tasks and gates: it is coverage evidence, not a matched comparison.
 Historical WS-F strict acceptance remains Qwen 1/6 and LFM 0/6. No weighted overall
 completion percentage is asserted, and case percentages do not estimate effort.
 The remaining correctness work includes G32 completion, G34 buffered reporting,
-G36 structured verification, G39 task binding, G41 resource exhaustion and G42
-independent correctness oracles. The [research evaluation](multiagent-formation-research-evaluation.md)
+G36 structured verification, G39 task binding, G41 resource exhaustion, G42
+independent correctness oracles and G43 member-pytest cleanup. The [research evaluation](multiagent-formation-research-evaluation.md)
 maps relevant papers to existing code, evidence and ordered follow-ups; it adds no
 live passes. G41's scoped cache-owner correction landed in
 [PR #1155](https://github.com/anvai-labs/victor/pull/1155), with full CI including
@@ -625,7 +625,7 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   directories instead of the developer's persistent cache.
 
 - **G42 — matrix tests need independent semantic oracles.** The opt-in matrix's
-  ordinary and ensemble doubling tasks request a member-authored test of `f(4) == 8`;
+  contract-v1 ordinary and ensemble doubling tasks request a member-authored test of `f(4) == 8`;
   independent pytest reruns that same test. A new isolated offline counterexample,
   `def first(x): return 8`, passes the requested pytest while returning 8 rather
   than 10 for input 5. This probes the test predicate only, with zero inference;
@@ -637,6 +637,32 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   The [research audit](multiagent-formation-research-evaluation.md) records the
   counterexample and relevance of ExecCritic/SWE-Bench Pro Verified without claiming
   their training algorithms or benchmarks are reproduced in Victor.
+  **Implementation (contract v2):** the opt-in matrix now checks every implementation
+  against a frozen runner-owned oracle over 2,049 integer inputs and 8,193 quarter-step
+  float inputs in [-1024, 1024]. It requires complete structured counts, a zero
+  process exit and unchanged oracle/artifact hashes, independently of member-authored
+  pytest. Missing, malformed, oversized or partial reports, wrong numeric behavior,
+  changed files and cleanup failures cannot pass. The subprocess receives no gateway
+  credentials or pytest plugins. Execution and cleanup have separate deadlines;
+  cancellation remains primary, and file output prevents detached descendants from
+  retaining pipes and extending the wait. Detached child containment is not claimed.
+  The initial constant-return false pass and both adversarial cleanup findings were
+  reproduced before repair. Existing scenario/acceptance suites were extended;
+  their ownership audit found no redundant tests to remove. All prior artifact,
+  session, accounting and deadline checks remain required. No new live acceptance
+  is established, and G36's built-in framework verifiers remain separate work.
+
+- **G43 — member-pytest cleanup can exceed its execution deadline.** The matrix's
+  existing member-authored pytest subprocess still captures output through a pipe
+  and awaits an unbounded `process.wait()` after killing pytest on timeout. A separate
+  disposable offline reproduction of that block, with only its deadline reduced
+  from 60 seconds to one second, returned after 3.610 seconds when a detached child
+  inherited the outer pipe. Pytest exited -9; the child was self-limited and cleaned
+  up. A control using pytest's normal capture returned after 1.003 seconds. This
+  did not invoke the corrected numeric oracle and is not actual-member evidence.
+  Repair this separate ownership/deadline path with TDD before the next live matrix:
+  bound execution and cleanup, preserve cancellation and diagnostics, and avoid
+  borrowed/shared process termination. Do not merely increase the timeout.
 
 Validation-test audit: neither live harness had direct tests before this follow-up.
 The new mixed-harness suite covers rejected/malformed/missing reviews, inclusive
