@@ -93,7 +93,7 @@ remains inline (see G17).
   blackboard and contract-net remain absent. Conversation-native formations now
   use the FEP-0035 transcript substrate; ensemble status is tracked separately (G16).
 
-### 1.5 Completion audit (2026-09-20)
+### 1.5 Completion audit (2026-09-21)
 
 Implementation delivery and live acceptance have different denominators:
 
@@ -103,7 +103,8 @@ Implementation delivery and live acceptance have different denominators:
 | Historical live passes before the new matrix | 7/15 (47%): original six plus ensemble vote | Historical tasks/gates differ; not matched acceptance |
 | 2026-09-20 contract-v1 ZAI/Sandhi case passes | 10/15 (67%) | 2 deliverable failures; 3 ensemble cases blocked by resource exhaustion |
 | New matched Qwen/InferFlux case passes | 0/15 (0%); not run | 15 cases |
-| Combined matched matrix case passes | 10/30 (33%) | 20 cases without a pass (67%); overall ZAI run remains FAIL |
+| Historical contract-v1 matched matrix case passes | 10/30 (33%) | 20 cases without a pass (67%); overall ZAI run remains FAIL |
+| Corrected contract-v2 matrix, ZAI and Qwen through Sandhi | 0/30 (0% run; no new verdicts) | All 30 cases: 12 formations plus 3 ensemble modes per model |
 | Current six-Qwen/one-ZAI C5 acceptance | Failed; earlier WS-E success is separate evidence | Full corrected run and reviewed verdict on InferFlux #184 |
 
 The [new actual-member ZAI experiment](evidence/zai-formation-matrix-2026-09-20.json)
@@ -140,6 +141,11 @@ sessions and usage reconciled in the new run; its missing artifact still fails.
 G31's cross-repository cache/lifecycle investigation remains open; G17/G21 durability
 limitations remain explicitly deferred. A model-size diagnosis is not established
 by these failures: ZAI also returned successful members with missing deliverables.
+The 2026-09-21 read-only preflight restored the Mac loopback tunnel on 18081,
+confirmed Qwen ready through the configured Sandhi route, and matched the preserved
+gateway and origin binary hashes. The accepted origin is still partial CUDA,
+not a new R9700/ROCm deployment. Readiness checks establish no new model-call or
+formation acceptance. G45 separately tracks a test-collection MLX crash.
 
 ## 2. Industry pattern catalog (researched 2026-09-17)
 
@@ -716,6 +722,22 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   of another test's import side effects. The same five CI-selected suites are
   exercised with the implicit current-directory import removed. Production
   behavior and live evidence are unchanged; no duplicate test case was added.
+
+- **G45 — MLX unit-test collection launches a native GPU probe.** During the
+  2026-09-21 collection check, a Python child aborted in MLX 0.30.6's Metal device
+  initialization with an empty-array exception. `test_mlx_provider.py` evaluated a
+  runtime-availability subprocess in a module-level skip marker, even when pytest
+  was only collecting tests. Collection completed, but the child generated a macOS
+  crash report. This matches the upstream [empty-device report](https://github.com/ml-explore/mlx/issues/3148);
+  it is not InferFlux server or gateway execution evidence.
+  **Implementation:** remove the collection-time probe and use a fake MLX backend
+  in adapter unit tests, retaining their assertions and deterministic loader-error
+  coverage. A guarded import reproduction rejects both subprocess probing and
+  direct native imports without invoking Metal. Existing registry laziness tests
+  remain separate: registry loading and test-module collection are different
+  boundaries. No redundant tests were found. The four previously skipped hardware
+  integration cases remain explicitly skipped; this fixes test isolation, not the
+  installed MLX native runtime, and establishes no MLX or formation live acceptance.
 
 Validation-test audit: neither live harness had direct tests before this follow-up.
 The new mixed-harness suite covers rejected/malformed/missing reviews, inclusive

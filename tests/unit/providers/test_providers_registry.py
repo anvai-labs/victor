@@ -34,6 +34,36 @@ from victor.providers.registry import TIER_1_PROVIDERS, ProviderRegistry
 class TestProviderRegistry:
     """Tests for ProviderRegistry class."""
 
+    def test_mlx_test_collection_does_not_probe_native_runtime(self, monkeypatch):
+        import builtins
+        import importlib.util
+        from pathlib import Path
+        import runpy
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+
+        original_find_spec = importlib.util.find_spec
+        monkeypatch.setattr(
+            importlib.util,
+            "find_spec",
+            lambda name, *args: (object() if name == "mlx_lm" else original_find_spec(name, *args)),
+        )
+        probe = Mock(return_value=SimpleNamespace(returncode=-6))
+        monkeypatch.setattr(subprocess, "run", probe)
+        original_import = builtins.__import__
+        native_imports = []
+
+        def guarded_import(name, *args, **kwargs):
+            if name.split(".")[0] in {"mlx", "mlx_lm"}:
+                native_imports.append(name)
+                raise AssertionError("Collection must not initialize native MLX")
+            return original_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", guarded_import)
+        runpy.run_path(str(Path(__file__).with_name("test_mlx_provider.py")))
+        probe.assert_not_called()
+        assert native_imports == []
+
     def test_tier_1_providers_are_registered_primary_names(self):
         """ADR-029: every Tier-1 support-tier name is a real primary registry key."""
         registered = set(ProviderRegistry.list_providers())

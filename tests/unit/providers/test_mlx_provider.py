@@ -15,40 +15,32 @@
 """Unit tests for MLX LM provider."""
 
 import asyncio
-import importlib.util
-import subprocess
 import sys
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 
-from victor.providers.base import Message, ProviderConnectionError, ProviderError
+from victor.providers.base import Message, ProviderConnectionError
 from victor.providers.mlx_provider import MLXProvider, _model_supports_tools
 
 
-def _mlx_runtime_available() -> bool:
-    """Return True when mlx_lm imports successfully in this runtime."""
-    if importlib.util.find_spec("mlx_lm") is None:
-        return False
-    try:
-        probe = subprocess.run(
-            [
-                sys.executable,
-                "-c",
-                "import mlx_lm\nimport mlx.core as mx\nprint(mx.default_device())",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=8,
-            check=False,
-        )
-    except Exception:
-        return False
-    return probe.returncode == 0
+@pytest.fixture
+def fake_mlx(monkeypatch):
+    """Exercise the adapter without importing Metal or downloading a model."""
+    import victor.providers.mlx_provider as module
+
+    backend = SimpleNamespace(load=Mock(return_value=(Mock(), Mock())), stream_generate=Mock())
+    monkeypatch.setitem(sys.modules, "mlx_lm", backend)
+    monkeypatch.setattr(module, "_MLX_IMPORT_ATTEMPTED", False)
+    monkeypatch.setattr(module, "_MLX_AVAILABLE", False)
+    monkeypatch.setattr(module, "_MLX_IMPORT_ERROR", None)
+    monkeypatch.setattr(module, "_mlx_load", None)
+    monkeypatch.setattr(module, "_mlx_stream_generate", None)
+    return backend
 
 
-pytestmark = pytest.mark.skipif(not _mlx_runtime_available(), reason="mlx-lm runtime unavailable")
-
-
+@pytest.mark.usefixtures("fake_mlx")
 class TestMLXProvider:
     """Test suite for MLX LM provider."""
 
@@ -179,6 +171,7 @@ class TestMLXProviderIntegration:
         assert len(full_content) > 0
 
 
+@pytest.mark.usefixtures("fake_mlx")
 class TestMLXProviderErrorHandling:
     """Test error handling in MLX provider."""
 
@@ -195,14 +188,16 @@ class TestMLXProviderErrorHandling:
             MLXProvider(model="test-model")
 
     @pytest.mark.asyncio
-    async def test_invalid_model_path(self):
+    async def test_invalid_model_path(self, fake_mlx):
         """Test handling of invalid model path."""
+        fake_mlx.load.side_effect = FileNotFoundError("model fixture is missing")
         provider = MLXProvider(model="invalid/model/that/does/not/exist")
 
-        with pytest.raises((ProviderConnectionError, ProviderError)):
+        with pytest.raises(ProviderConnectionError, match="model fixture is missing"):
             await provider._make_request(
                 messages=[Message(role="user", content="Test")],
                 model="invalid/model",
                 temperature=0.7,
                 max_tokens=10,
             )
+        fake_mlx.load.assert_called_once()
