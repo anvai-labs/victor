@@ -38,6 +38,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import logging
+import json
 import time
 from contextvars import ContextVar
 from dataclasses import dataclass, field
@@ -3211,10 +3212,38 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
                 member_goal = (getattr(team_member, "goal", "") or "").strip()
                 team_task = (task or "").strip()
                 execution_state = self._current_execution_state()
+                binding_context = execution_state.shared_context if execution_state else context
+                binding = binding_context.get("member_task_binding")
+                if binding is not None and binding != "structured-v1":
+                    raise ValueError("member_task_binding must be 'structured-v1' or absent")
                 is_dynamic_delegation = self._active_formation() == TeamFormation.HIERARCHICAL or (
                     team_task != (execution_state.team_goal if execution_state else "")
                 )
-                if member_goal and member_goal != team_task and not is_dynamic_delegation:
+                if binding == "structured-v1":
+                    # Keep the formation's task opaque: it owns delegation and
+                    # the response contract. Bind identity/assignment once here,
+                    # never infer either from a rewritten task or role string.
+                    effective_task = json.dumps(
+                        {
+                            "version": 1,
+                            "member": {
+                                "id": team_member.id,
+                                "name": team_member.name,
+                                "role": getattr(team_member.role, "value", team_member.role),
+                                "assignment": team_member.goal,
+                            },
+                            "formation_task": task,
+                            "instruction_priority": ["formation_task", "member.assignment"],
+                            "instructions": (
+                                "Execute formation_task for this member. Its active delegation "
+                                "and response contract take priority over the declared assignment. "
+                                "Use member.assignment to identify your own deliverables when "
+                                "formation_task does not replace them. Return the formation's "
+                                "response, not this input envelope."
+                            ),
+                        }
+                    )
+                elif member_goal and member_goal != team_task and not is_dynamic_delegation:
                     effective_task = (
                         f"{member_goal}\n\n(Team objective, for context: {team_task})"
                         if team_task

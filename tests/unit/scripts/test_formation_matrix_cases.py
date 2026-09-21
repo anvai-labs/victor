@@ -8,10 +8,15 @@ from unittest.mock import MagicMock
 
 import pytest
 
+_ROOT = Path(__file__).resolve().parents[3]
+# Console pytest does not put the repository on sys.path. This file-loaded
+# scenario module imports sibling validation scripts, independently of order.
+sys.path.insert(0, str(_ROOT))
+
 from victor.coordination.formations.ensemble import MODES
 from victor.teams.types import TeamFormation
 
-_PATH = Path(__file__).resolve().parents[3] / "scripts/validation/formation_matrix_cases.py"
+_PATH = _ROOT / "scripts/validation/formation_matrix_cases.py"
 _SPEC = importlib.util.spec_from_file_location("formation_matrix_cases", _PATH)
 assert _SPEC is not None and _SPEC.loader is not None
 matrix = importlib.util.module_from_spec(_SPEC)
@@ -34,6 +39,7 @@ async def test_every_registered_formation_has_an_explicit_artifact_case(name, tm
     assert set(case.executed_names) == set(case.artifacts)
     assert all(case.artifacts.values())
     assert config.shared_context["capture_member_usage"] is True
+    assert config.shared_context["member_task_binding"] == "structured-v1"
     assert config.shared_context["parent_session_id"] == tmp_path.name
     assert config.timeout_seconds == 240
     task = json.loads(config.goal)
@@ -88,7 +94,10 @@ async def test_hierarchy_dispatch_preserves_every_complete_assignment(tmp_path, 
     result = await case.team.run()
     assert result.success
     for member in case.team._config.members:
-        assert json.dumps(member.goal)[1:-1] in observed[member.id]
+        task = json.loads(observed[member.id])
+        assert task["member"]["id"] == member.id
+        assert task["member"]["name"] == member.name
+        assert task["member"]["assignment"] == member.goal
     assert {item.metadata["hierarchy_level"] for item in result.member_results.values()} == {
         1,
         2,

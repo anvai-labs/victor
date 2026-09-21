@@ -4,7 +4,7 @@ title: "Shared transcripts and conversation-native team formations"
 type: Standards Track
 status: Draft
 created: 2026-09-17
-modified: 2026-09-17
+modified: 2026-09-21
 authors:
   - name: Vijaykumar Singh
     email: vijay@anvaiops.com
@@ -56,6 +56,31 @@ immutable transcript snapshot and eligible candidates. An optional router member
 can instead select by returning `{ "speaker_id": string }`. Router and selector
 are mutually exclusive. Invalid selection is an explicit failed run, never a
 fallback to the first member. The router is excluded from speaking candidates.
+
+### Opt-in member task binding
+
+Rewritten conversation tasks previously suppressed the member's declared goal in
+the coordinator's SubAgent adapter because they differed from the team objective.
+The same ambiguity affects other formations that dispatch rewritten tasks.
+`shared_context={"member_task_binding": "structured-v1"}` opts the existing adapter
+into one JSON input envelope containing `version: 1`, `member` (`id`, `name`, `role`,
+`assignment`), the unchanged opaque `formation_task`, and explicit
+`instruction_priority: ["formation_task", "member.assignment"]` with explanatory
+instructions. Identity and assignment come directly from the configured member;
+no role lookup or prose parsing derives them. The active formation task owns
+delegation and the response contract, so a supervisor's replacement assignment
+outranks the static declaration. The member returns the formation's response,
+not the input envelope.
+
+This changes only opted-in native SubAgent adapters; external `ITeamMember`
+implementations continue to own their own task interpretation. Unknown non-null
+binding values fail explicitly before a subagent is spawned. Absent/null values
+preserve the previous task bytes. Run-local configuration is read from the
+coordinator's execution context, preventing concurrent runs from sharing bindings.
+The adapter does not parse, rewrite or infer semantics from the dispatched task;
+the option grants no new durability or completion guarantee. The opt-in live
+formation matrix uses it for all cases, alongside its separate artifact, oracle,
+session and accounting gates.
 
 DEBATE runs bounded round-robin contributions from members/critics, then one
 configured judge. The judge returns `{ "selected_member_id": string,

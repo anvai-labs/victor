@@ -120,8 +120,12 @@ The union of historical and new passing cases is 12/15 (80%), but spans differen
 models, tasks and gates: it is coverage evidence, not a matched comparison.
 Historical WS-F strict acceptance remains Qwen 1/6 and LFM 0/6. No weighted overall
 completion percentage is asserted, and case percentages do not estimate effort.
-The remaining correctness work includes G32 completion, G34 buffered reporting,
-G39 task binding, G41 resource exhaustion and G43 member-pytest cleanup.
+The remaining correctness work includes G32 completion, G34 buffered reporting
+and G41 resource exhaustion. G39's native member task binding is implemented in
+[PR #1161](https://github.com/anvai-labs/victor/pull/1161); live acceptance remains
+separate. G43 member-pytest cleanup landed in
+[PR #1160](https://github.com/anvai-labs/victor/pull/1160) after all CI gates passed;
+the fix adds no live passes.
 G36 structured verification landed in [PR #1159](https://github.com/anvai-labs/victor/pull/1159)
 after all CI gates passed, including Vertical Py3.12. G42 independent numeric oracles landed in
 [PR #1157](https://github.com/anvai-labs/victor/pull/1157) with all CI green, including
@@ -581,7 +585,7 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   review; `needs_work`, malformed findings, missing files or failed pytest still
   fail acceptance. This is new evidence when run, not a reinterpretation of v1.
 
-- **G39 — rewritten formation tasks can omit declared member assignments.**
+- **G39 — ✅ structured native member task binding ([PR #1161](https://github.com/anvai-labs/victor/pull/1161)).**
   The coordinator's SubAgent adapter suppresses the static member goal whenever
   the dispatched task differs from the team goal, treating that difference as
   dynamic delegation. Conversation and other structured formation tasks also
@@ -591,7 +595,18 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   offline task-binding finding, not evidence of model quality or a live pass.
   The opt-in gateway matrix explicitly carries assignments keyed by the preset's
   canonical member IDs inside its structured team objective. Existing coordinator
-  defaults are unchanged; a general task-binding correction remains open.
+  defaults remain unchanged.
+  **Implementation:** `member_task_binding="structured-v1"` opts the native
+  SubAgent adapter into one structured input envelope binding the configured member
+  ID, name, role and assignment beside the unchanged formation task. The formation
+  task owns active delegation and its response contract; it outranks the static
+  assignment. No task-text comparison decides whether to include identity or
+  assignment in this mode. Unknown modes fail before spawning; absent/null values
+  preserve previous task bytes. The option uses run-local context and the existing
+  canonical member IDs, and all matrix cases opt in. The conversation dispatch
+  regression failed before repair; the hierarchy regression now checks each actual
+  member's bound identity/assignment instead of merely searching all assignments
+  in the shared goal. No new formation, provider call or live pass is established.
 - **G40 — ✅ reflection per-member results and accounting retained ([PR #1152](https://github.com/anvai-labs/victor/pull/1152)).**
   An offline public-preset/coordinator reproduction supplied generator and critic
   responses with distinct sessions and usage, but the successful TeamResult
@@ -668,7 +683,7 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   session, accounting and deadline checks remain required. No new live acceptance
   is established, and G36's built-in framework verifiers remain separate work.
 
-- **G43 — member-pytest cleanup can exceed its execution deadline.** The matrix's
+- **G43 — ✅ bounded member-pytest cleanup ([PR #1160](https://github.com/anvai-labs/victor/pull/1160)).** The matrix's
   existing member-authored pytest subprocess still captures output through a pipe
   and awaits an unbounded `process.wait()` after killing pytest on timeout. A separate
   disposable offline reproduction of that block, with only its deadline reduced
@@ -691,6 +706,16 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   Test ownership remains split between helper lifecycle tests and actual harness
   integration; the audit found no redundant cases to remove. This offline repair
   establishes neither detached-child containment nor new live formation acceptance.
+
+- **G44 — ✅ isolated matrix scenario test imports ([PR #1161](https://github.com/anvai-labs/victor/pull/1161)).**
+  The changed-file CI selection imported the scenario test before the gateway test;
+  console pytest did not inject the repository root, so the scenario's sibling
+  `scripts.validation` import failed. Local `python -m pytest` had masked that
+  dependency. A standalone safe-path collection reproduced the exact missing-module
+  error. The scenario test now loads repository scripts explicitly, independently
+  of another test's import side effects. The same five CI-selected suites are
+  exercised with the implicit current-directory import removed. Production
+  behavior and live evidence are unchanged; no duplicate test case was added.
 
 Validation-test audit: neither live harness had direct tests before this follow-up.
 The new mixed-harness suite covers rejected/malformed/missing reviews, inclusive
