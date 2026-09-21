@@ -121,7 +121,12 @@ models, tasks and gates: it is coverage evidence, not a matched comparison.
 Historical WS-F strict acceptance remains Qwen 1/6 and LFM 0/6. No weighted overall
 completion percentage is asserted, and case percentages do not estimate effort.
 The remaining correctness work includes G32 completion, G34 buffered reporting,
-G36 structured verification, G39 task binding and G41 resource exhaustion.
+G36 structured verification, G39 task binding, G41 resource exhaustion and G42
+independent correctness oracles. The [research evaluation](multiagent-formation-research-evaluation.md)
+maps relevant papers to existing code, evidence and ordered follow-ups; it adds no
+live passes. G41's scoped cache-owner correction landed in
+[PR #1155](https://github.com/anvai-labs/victor/pull/1155), with full CI including
+Vertical Py3.12 green; complete matrix resource acceptance remains outstanding.
 G40 reflection result retention landed in [PR #1152](https://github.com/anvai-labs/victor/pull/1152)
 after all required CI, including Vertical Py3.12, passed. Both reflection members'
 sessions and usage reconciled in the new run; its missing artifact still fails.
@@ -602,7 +607,7 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   and fix the measured owner without closing borrowed providers/shared services.
   Do not attribute these ensemble failures to model quality or hide them by
   increasing descriptor limits. Root cause is not yet established.
-  **Scoped lifecycle correction:** an offline, no-inference probe isolated one
+  **Scoped lifecycle correction — ✅ [PR #1155](https://github.com/anvai-labs/victor/pull/1155):** an offline, no-inference probe isolated one
   reproducible contributor: five parent/member pairs retained ten tool-cache
   SQLite connections after parent shutdown and garbage collection. Explicit
   owned-cache cleanup returns to the nine-descriptor baseline after every pair,
@@ -618,6 +623,20 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   test was removed: the stronger lazy-proxy test preserves the same 51 executed
   source lines and branch coverage. Cache-clear unit tests now use temporary
   directories instead of the developer's persistent cache.
+
+- **G42 — matrix tests need independent semantic oracles.** The opt-in matrix's
+  ordinary and ensemble doubling tasks request a member-authored test of `f(4) == 8`;
+  independent pytest reruns that same test. A new isolated offline counterexample,
+  `def first(x): return 8`, passes the requested pytest while returning 8 rather
+  than 10 for input 5. This probes the test predicate only, with zero inference;
+  it is not an actual-member replay or a full matrix acceptance result. Preserve
+  historical verdicts under their recorded gates. Define a bounded task domain
+  before the next experiment, freeze runner-owned independent oracles, and use
+  TDD to reject known wrong implementations, missing/modified reports, nonzero
+  process exits and timeouts. Member-authored tests remain required deliverables.
+  The [research audit](multiagent-formation-research-evaluation.md) records the
+  counterexample and relevance of ExecCritic/SWE-Bench Pro Verified without claiming
+  their training algorithms or benchmarks are reproduced in Victor.
 
 Validation-test audit: neither live harness had direct tests before this follow-up.
 The new mixed-harness suite covers rejected/malformed/missing reviews, inclusive
