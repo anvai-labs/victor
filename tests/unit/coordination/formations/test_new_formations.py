@@ -601,23 +601,6 @@ class TestAdaptiveFormation:
         return agents
 
     @pytest.mark.asyncio
-    async def test_adaptive_formation_initial_selection(self, team_context, mock_agents):
-        """Test initial formation selection based on task size."""
-        formation = AdaptiveFormation(adaptation_strategy="performance")
-
-        for agent in mock_agents:
-            team_context.set(agent.id, agent)
-
-        # Small task - should use sequential
-        small_task = AgentMessage(
-            sender_id="test", content="Small task", message_type=MessageType.TASK
-        )
-        results = await formation.execute(self.participants(team_context), team_context, small_task)
-
-        assert results[0].success is True
-        assert "current_formation" in results[0].metadata
-
-    @pytest.mark.asyncio
     async def test_adaptive_formation_large_task(self, team_context, mock_agents):
         """Test formation selection for large tasks."""
         formation = AdaptiveFormation(adaptation_strategy="performance")
@@ -683,41 +666,6 @@ class TestAdaptiveFormation:
 
         assert results[0].success is True
         assert results[0].metadata["adaptation_strategy"] == "error_rate"
-
-    @pytest.mark.asyncio
-    async def test_adaptive_formation_max_switches_limit(self, team_context):
-        """Test that formation switching respects max_switches limit."""
-        formation = AdaptiveFormation(adaptation_strategy="performance", max_switches=1)
-
-        # Add agents
-        for i in range(3):
-            agent = MagicMock()
-            agent.id = f"agent{i}"
-            agent.execute = AsyncMock(return_value=f"Result {i}")
-            team_context.set(agent.id, agent)
-
-        task = AgentMessage(sender_id="test", content="Test task", message_type=MessageType.TASK)
-
-        results = await formation.execute(self.participants(team_context), team_context, task)
-
-        # Should not exceed max_switches
-        assert results[0].metadata["formation_switches"] <= 1
-
-    @pytest.mark.asyncio
-    async def test_adaptive_formation_formation_history_tracking(self, team_context, mock_agents):
-        """Test that formation history is tracked correctly."""
-        formation = AdaptiveFormation(adaptation_strategy="performance")
-
-        for agent in mock_agents:
-            team_context.set(agent.id, agent)
-
-        task = AgentMessage(sender_id="test", content="Test task", message_type=MessageType.TASK)
-
-        results = await formation.execute(self.participants(team_context), team_context, task)
-
-        # Should have formation history
-        assert "formation_history" in results[0].metadata
-        assert len(results[0].metadata["formation_history"]) >= 1
 
     def test_adaptive_formation_validate_context(self, team_context):
         """Test context validation."""

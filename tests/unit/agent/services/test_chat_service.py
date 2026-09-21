@@ -165,15 +165,26 @@ class MockStreamingCoordinator:
 
 
 class FailingMemoryManager:
+    def __init__(self, close_failure=False):
+        self.close_calls = 0
+        self.close_failure = close_failure
+
     def add_message(self, **kwargs):
         raise RuntimeError("database is locked")
 
+    def close_thread_connection(self):
+        self.close_calls += 1
+        if self.close_failure:
+            raise RuntimeError("injected close failure")
+
 
 @pytest.mark.asyncio
-async def test_persist_message_background_failure_is_consumed():
+@pytest.mark.parametrize("close_failure", [False, True])
+async def test_persist_message_background_failure_is_consumed(close_failure, caplog):
     """Background persistence failures should not surface as event-loop errors."""
     loop = asyncio.get_running_loop()
     exceptions = []
+    memory = FailingMemoryManager(close_failure)
     previous_handler = loop.get_exception_handler()
     loop.set_exception_handler(lambda _loop, context: exceptions.append(context))
 
@@ -181,7 +192,7 @@ async def test_persist_message_background_failure_is_consumed():
         ChatService.persist_message(
             "assistant",
             "hello",
-            FailingMemoryManager(),
+            memory,
             "session-1",
             usage_logger=None,
         )
@@ -190,6 +201,82 @@ async def test_persist_message_background_failure_is_consumed():
         loop.set_exception_handler(previous_handler)
 
     assert exceptions == []
+    assert memory.close_calls == 1
+    assert ("connection cleanup failed" in caplog.text) is close_failure
+
+
+async def test_background_cleanup_preserves_propagating_cancellation(monkeypatch):
+    loop = asyncio.get_running_loop()
+    callbacks = []
+    cancelled = asyncio.CancelledError("primary cancellation")
+    memory = mock.Mock()
+    memory.add_message.side_effect = cancelled
+    memory.close_thread_connection.side_effect = OSError("cleanup failed")
+
+    def capture(_executor, callback):
+        callbacks.append(callback)
+        future = loop.create_future()
+        future.set_result(None)
+        return future
+
+    monkeypatch.setattr(loop, "run_in_executor", capture)
+    ChatService.persist_message("assistant", "message", memory, "session", usage_logger=None)
+    with pytest.raises(asyncio.CancelledError) as caught:
+        callbacks[0]()
+    assert caught.value is cancelled
+    assert any("OSError" in note for note in cancelled.__notes__)
+    memory.close_thread_connection.assert_called_once()
+
+
+@pytest.mark.parametrize("write_failure", [False, True])
+async def test_background_persistence_releases_worker_connection_only(
+    tmp_path, monkeypatch, write_failure
+):
+    """Real SQLite handles close after each worker job; the caller stays usable."""
+    import sqlite3
+    from concurrent.futures import ThreadPoolExecutor
+    from victor.agent.conversation.store import ConversationStore
+
+    store = ConversationStore(db_path=tmp_path / "conversation.db")
+    session = store.create_session(project_path=str(tmp_path))
+    caller = store._get_connection()
+    worker_connections = []
+    futures = []
+    add_message = store.add_message
+    loop = asyncio.get_running_loop()
+
+    def write(**kwargs):
+        worker_connections.append(store._get_connection())
+        if write_failure:
+            raise RuntimeError("injected write failure")
+        return add_message(**kwargs)
+
+    monkeypatch.setattr(store, "add_message", write)
+    with ThreadPoolExecutor(max_workers=1) as executor:
+
+        def submit(_executor, callback):
+            future = asyncio.wrap_future(executor.submit(callback))
+            futures.append(future)
+            return future
+
+        monkeypatch.setattr(loop, "run_in_executor", submit)
+        try:
+            for index in range(3):
+                ChatService.persist_message(
+                    "assistant", f"message-{index}", store, session.session_id, usage_logger=None
+                )
+                await asyncio.wait_for(futures[-1], timeout=5)
+            assert caller.execute("SELECT COUNT(*) FROM messages").fetchone()[0] == (
+                0 if write_failure else 3
+            )
+            for connection in worker_connections:
+                with pytest.raises(sqlite3.ProgrammingError, match="closed"):
+                    connection.execute("SELECT 1")
+        finally:
+            for connection in worker_connections:
+                connection.close()
+            store.close_thread_connection()
+            store.close_thread_connection()
 
 
 # =============================================================================

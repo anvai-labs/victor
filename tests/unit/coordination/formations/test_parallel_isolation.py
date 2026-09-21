@@ -134,13 +134,6 @@ class TestParallelContextIsolation:
     async def test_context_merge_after_execution(self):
         """Agent state changes should be merged back after completion."""
 
-        async def make_writer(agent_id):
-            async def writer_agent(task, context):
-                context.set(f"result_{agent_id}", f"value_{agent_id}")
-                return MemberResult(member_id=agent_id, success=True, output="ok")
-
-            return writer_agent
-
         agents = [_make_agent(f"agent-{i}") for i in range(3)]
         for i, agent in enumerate(agents):
             aid = f"agent-{i}"

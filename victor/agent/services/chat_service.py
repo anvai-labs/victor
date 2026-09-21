@@ -1439,10 +1439,31 @@ class ChatService(ChatEvidenceMixin):
                     loop = None
 
                 def _persist_background_message() -> None:
+                    primary_error: BaseException | None = None
                     try:
                         memory_manager.add_message(**add_kwargs)
                     except Exception as exc:
                         logger.debug("Failed to persist message in background: %s", exc)
+                    except BaseException as exc:
+                        primary_error = exc
+                        raise
+                    finally:
+                        # The worker owns this thread-local handle. Do not close
+                        # the caller's connection or shut down a shared store.
+                        close = getattr(memory_manager, "close_thread_connection", None)
+                        if callable(close):
+                            try:
+                                close()
+                            except Exception as exc:
+                                logger.warning(
+                                    "Background persistence connection cleanup failed: %s",
+                                    type(exc).__name__,
+                                )
+                                if primary_error is None:
+                                    raise
+                                primary_error.add_note(
+                                    f"Background persistence cleanup failed: {type(exc).__name__}"
+                                )
 
                 def _consume_background_result(future: asyncio.Future) -> None:
                     try:
