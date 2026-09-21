@@ -4,7 +4,7 @@ title: "Framework verification hook — verify the agent's work after COMPLETE +
 type: Standards Track
 status: Draft
 created: 2026-07-15
-modified: 2026-09-18
+modified: 2026-09-20
 authors:
   - name: Vijaykumar Singh
     email: vijay@anvaiops.com
@@ -55,6 +55,30 @@ AgenticLoop(..., verifier: Optional[Verifier] = None, max_verify_retries: int = 
 ```
 Default None/0 = no behavior change. Supplying a verifier with zero retries still
 checks once and reports failed verification honestly.
+
+### Built-in structured process acceptance (G36)
+
+`LocalTestVerifier` uses the existing runner detector but currently accepts only
+pytest commands (`python -m pytest` or a pytest executable). It appends a fresh
+runner-owned JUnit destination and validates the report tree, test cases and
+outcome totals. Missing, malformed, contradictory, empty and skipped-only reports
+do not verify work. Other ecosystems require a custom `Verifier` until explicit
+structured adapters are implemented; detection failures never substitute a runner.
+
+A nonempty valid report contributes its executed test-case checks plus one explicit
+process-exit check. For example, one passing test with exit zero is 2/2 checks;
+one passing test with exit one is 1/2. Feedback retains the separate test counts
+and exit status. Skips are excluded from executed-test counts; failure/error
+outcomes cannot be hidden by a conflicting skip. `LintVerifier` contributes one
+process-status check and treats diagnostic text only as diagnostics.
+
+Buffered verifier processes retain bounded diagnostic tails, use file output to
+avoid inherited-pipe hangs, and have a separate one-second cleanup deadline.
+Timeout and incomplete cleanup return failure statuses; cancellation remains an
+exception with cleanup notes. Observed exits are never signalled. This is bounded
+verification, not detached-child containment or proof that member-authored tests
+cover the task. The `Verifier`/`VerificationResult` public signatures are unchanged;
+normal runs without a configured verifier keep their behavior.
 
 ### Helpers: `_run_verification` + `_inject_verify_feedback`
 - `_run_verification(state)`: calls `self._verifier.verify(workspace=..., state=state)`, returns `VerificationResult`.
