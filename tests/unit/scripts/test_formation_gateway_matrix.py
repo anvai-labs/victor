@@ -17,7 +17,9 @@ matrix = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(matrix)
 
 
-@pytest.mark.parametrize("fault", [None, "missing", "duplicate_session", "no_result"])
+@pytest.mark.parametrize(
+    "fault", [None, "missing", "duplicate_session", "no_result", "constant_function"]
+)
 async def test_artifacts_usage_and_pytest_remain_independent(tmp_path, fault):
     case = await matrix.build_case(MagicMock(), "parallel", tmp_path, Path(sys.executable), 240)
     results = {}
@@ -61,6 +63,8 @@ async def test_artifacts_usage_and_pytest_remain_independent(tmp_path, fault):
             }
         )
     )
+    if fault == "constant_function":
+        (tmp_path / "first.py").write_text("def first(x): return 8\n")
     if fault == "missing":
         (tmp_path / "first.py").unlink()
     if fault == "no_result":
@@ -69,6 +73,9 @@ async def test_artifacts_usage_and_pytest_remain_independent(tmp_path, fault):
         case, result, tmp_path, Path(sys.executable), "reference", records, observer
     )
     assert report["passed"] == (fault is None)
+    if fault == "constant_function":
+        assert report["pytest"][0]["returncode"] == 0
+        assert "semantic_oracle:first" in report["failures"]
     assert len(report["pytest"]) == 2
     assert report["pytest"][-1]["returncode"] == 0
     if fault != "no_result":

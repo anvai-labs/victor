@@ -24,6 +24,7 @@ WORKTREE = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(WORKTREE))
 
 from scripts.validation.formation_matrix_cases import CASE_NAMES, MatrixCase, build_case
+from scripts.validation.formation_matrix_oracle import CONTRACT_VERSION, check_numeric_oracle
 from scripts.validation.gateway_matrix_accounting import BUFFERED_DEADLINE_SECONDS, GatewayObserver
 from victor.framework import Agent
 from victor.framework.member_event_sink import MemberEventSink, current_member_sink
@@ -43,6 +44,8 @@ async def check_case(
     report: dict[str, Any] = {
         "failures": [],
         "pytest": [],
+        "semantic_oracles": [],
+        "case_contract_version": CONTRACT_VERSION,
         "usage_reconciliation": [],
         "artifacts": {},
     }
@@ -120,6 +123,11 @@ async def check_case(
                 entry["error_type"] = type(exc).__name__
             if entry["returncode"] != 0:
                 report["failures"].append("pytest:" + name)
+            function = "member" if case.isolated else name
+            oracle = await check_numeric_oracle(directory / f"{function}.py", function, python)
+            report["semantic_oracles"].append({"member": name, **oracle})
+            if not oracle["passed"]:
+                report["failures"].append("semantic_oracle:" + name)
     for member in results.values():
         entry = {"member_id": member.member_id, "passed": False}
         report["usage_reconciliation"].append(entry)
@@ -213,7 +221,12 @@ async def run_case(
     directory.mkdir()
     started = time.monotonic()
     offset = len(observer.records)
-    record: dict[str, Any] = {"case": name, "passed": False, "failures": []}
+    record: dict[str, Any] = {
+        "case": name,
+        "passed": False,
+        "failures": [],
+        "case_contract_version": CONTRACT_VERSION,
+    }
     agent = None
     case = None
     result = None
@@ -342,7 +355,7 @@ async def main(args: argparse.Namespace) -> int:
         "model": args.model,
         "cases": [],
         "failures": [{"check": "matrix_incomplete"}],
-        "case_contract_version": 1,
+        "case_contract_version": CONTRACT_VERSION,
         "timeout_seconds": args.timeout,
         "buffered_gateway_deadline_seconds": BUFFERED_DEADLINE_SECONDS,
         "shared_cache_cleared": False,
@@ -410,6 +423,7 @@ async def main(args: argparse.Namespace) -> int:
                     ]
                 report["requests"] = observer.records
                 report["limitations"] = [
+                    "Independent numeric oracle checks a finite domain; it is not a hostile-code sandbox.",
                     "Buffered calls only; no streaming or origin-cancellation acceptance.",
                     "Reported cache counts do not establish backend executed reuse.",
                     "Runtime identities and hardware acceptance must accompany this report.",

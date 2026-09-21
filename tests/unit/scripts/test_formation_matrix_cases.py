@@ -37,6 +37,8 @@ async def test_every_registered_formation_has_an_explicit_artifact_case(name, tm
     assert config.shared_context["parent_session_id"] == tmp_path.name
     assert config.timeout_seconds == 240
     task = json.loads(config.goal)
+    assert task["task_contract"]["version"] == 2
+    assert "multiples of 0.25" in task["task_contract"]["numeric_domain"]
     assert set(task["assignments"]) == {member.id for member in config.members}
     for member in config.members:
         assert task["assignments"][member.id] == {"name": member.name, "task": member.goal}
