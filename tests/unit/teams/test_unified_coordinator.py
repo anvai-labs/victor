@@ -15,6 +15,7 @@
 """Tests for UnifiedTeamCoordinator."""
 
 import asyncio
+import json
 from types import SimpleNamespace
 from typing import Any, Dict, Optional, TypedDict
 from unittest.mock import AsyncMock, MagicMock
@@ -158,13 +159,55 @@ class TestProtocolCompliance:
 class TestExecuteTeamCompatibility:
     """Tests for legacy execute_team entry point."""
 
-    @pytest.mark.asyncio
-    async def test_concurrent_adapted_members_keep_their_own_goals(self, monkeypatch):
-        seen = []
+    @pytest.mark.parametrize("binding", [None, "structured-v1"])
+    async def test_conversation_dispatch_binds_assignment_without_rewriting_contract(
+        self, monkeypatch, binding
+    ):
+        spawn = AsyncMock(
+            return_value=SimpleNamespace(
+                success=True,
+                summary=json.dumps({"content": "ready", "done": True, "handoff_to": None}),
+            )
+        )
+        monkeypatch.setattr("victor.agent.subagents.orchestrator.SubAgentOrchestrator.spawn", spawn)
+        coordinator = UnifiedTeamCoordinator(orchestrator=MagicMock(), lightweight_mode=True)
+        shared = {} if binding is None else {"member_task_binding": binding}
+        config = TeamConfig(
+            name="binding",
+            goal="Team objective",
+            members=[
+                TeamMember(id="worker", role="executor", name="Worker", goal="Unique assignment")
+            ],
+            formation=TeamFormation.GROUP_CHAT,
+            shared_context=shared,
+        )
+        result = await coordinator.execute_team_config(config)
+        assert result.success
+        task = json.loads(spawn.await_args.kwargs["task"])
+        if binding is not None:
+            assert task["version"] == 1
+            assert task["member"] == {
+                "id": "worker",
+                "name": "Worker",
+                "role": "executor",
+                "assignment": "Unique assignment",
+            }
+            assert task["instruction_priority"] == ["formation_task", "member.assignment"]
+            task = json.loads(task["formation_task"])
+        else:
+            assert "member" not in task
+        assert task["task"] == "Team objective"
+        assert "response_contract" in task
+
+    @pytest.mark.parametrize(
+        "bindings", [(None, None), ("structured-v1", "structured-v1"), (None, "structured-v1")]
+    )
+    async def test_concurrent_adapted_members_keep_their_own_goals(self, monkeypatch, bindings):
+        seen = {}
         both_started = asyncio.Event()
 
         async def spawn(_self, **kwargs):
-            seen.append(kwargs["task"])
+            seen[kwargs["member_id"]] = kwargs["task"]
             if len(seen) == 2:
                 both_started.set()
             await asyncio.wait_for(both_started.wait(), timeout=5)
@@ -180,20 +223,29 @@ class TestExecuteTeamCompatibility:
                     TeamMember(id=label, role="executor", name=label, goal=f"Assignment {label}")
                 ],
                 formation=TeamFormation.PARALLEL,
+                shared_context={} if binding is None else {"member_task_binding": binding},
             )
-            for label in ("A", "B")
+            for label, binding in zip(("A", "B"), bindings)
         ]
         results = await asyncio.gather(*(coordinator.execute_team_config(c) for c in configs))
         assert all(result.success for result in results)
-        assert sorted(seen) == [
-            "Assignment A\n\n(Team objective, for context: Team A)",
-            "Assignment B\n\n(Team objective, for context: Team B)",
-        ]
+        for label, binding in zip(("A", "B"), bindings):
+            if binding is None:
+                assert (
+                    seen[label]
+                    == f"Assignment {label}\n\n(Team objective, for context: Team {label})"
+                )
+            else:
+                envelope = json.loads(seen[label])
+                assert envelope["member"]["id"] == label
+                assert envelope["member"]["assignment"] == f"Assignment {label}"
+                assert envelope["formation_task"] == f"Team {label}"
         assert coordinator._current_execution_state() is None
 
-    @pytest.mark.asyncio
+    @pytest.mark.parametrize("binding", [None, "structured-v1"])
+    @pytest.mark.parametrize("delegation", ["Team objective", "Supervisor replacement task"])
     async def test_hierarchical_adapter_keeps_delegation_even_when_equal_to_team_goal(
-        self, monkeypatch
+        self, monkeypatch, binding, delegation
     ):
         from victor.teams.unified_coordinator import _CoordinatorExecutionState
 
@@ -208,16 +260,35 @@ class TestExecuteTeamCompatibility:
                 members=members,
                 formation=TeamFormation.HIERARCHICAL,
                 supervisor=None,
-                shared_context={},
+                shared_context={} if binding is None else {"member_task_binding": binding},
                 team_goal="Team objective",
             )
         )
         try:
-            await members[0].execute_task("Team objective", {})
+            await members[0].execute_task(delegation, {})
         finally:
             coordinator._execution_state.reset(token)
-        assert spawn.await_args.kwargs["task"] == "Team objective"
+        dispatched = spawn.await_args.kwargs["task"]
+        if binding is None:
+            assert dispatched == delegation
+        else:
+            envelope = json.loads(dispatched)
+            assert envelope["formation_task"] == delegation
+            assert envelope["member"]["assignment"] == "Static assignment"
+            assert envelope["instruction_priority"] == ["formation_task", "member.assignment"]
         assert coordinator._current_execution_state() is None
+
+    @pytest.mark.parametrize("binding", [True, 1, "unknown", {}, []])
+    async def test_unknown_task_binding_never_spawns_a_subagent(self, monkeypatch, binding):
+        spawn = AsyncMock()
+        monkeypatch.setattr("victor.agent.subagents.orchestrator.SubAgentOrchestrator.spawn", spawn)
+        coordinator = UnifiedTeamCoordinator(orchestrator=MagicMock(), lightweight_mode=True)
+        member = coordinator._adapt_team_members(
+            [TeamMember(id="worker", role="executor", name="Worker", goal="Assignment")]
+        )[0]
+        with pytest.raises(ValueError, match="member_task_binding"):
+            await member.execute_task("Task", {"member_task_binding": binding})
+        spawn.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_team_result_reports_effective_formation_hint(self):

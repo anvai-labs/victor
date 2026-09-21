@@ -34,6 +34,7 @@ async def test_every_registered_formation_has_an_explicit_artifact_case(name, tm
     assert set(case.executed_names) == set(case.artifacts)
     assert all(case.artifacts.values())
     assert config.shared_context["capture_member_usage"] is True
+    assert config.shared_context["member_task_binding"] == "structured-v1"
     assert config.shared_context["parent_session_id"] == tmp_path.name
     assert config.timeout_seconds == 240
     task = json.loads(config.goal)
@@ -88,7 +89,10 @@ async def test_hierarchy_dispatch_preserves_every_complete_assignment(tmp_path, 
     result = await case.team.run()
     assert result.success
     for member in case.team._config.members:
-        assert json.dumps(member.goal)[1:-1] in observed[member.id]
+        task = json.loads(observed[member.id])
+        assert task["member"]["id"] == member.id
+        assert task["member"]["name"] == member.name
+        assert task["member"]["assignment"] == member.goal
     assert {item.metadata["hierarchy_level"] for item in result.member_results.values()} == {
         1,
         2,

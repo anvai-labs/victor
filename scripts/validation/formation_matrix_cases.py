@@ -41,6 +41,7 @@ async def build_case(
     shared: dict[str, Any] = {
         "parent_session_id": root.name,
         "capture_member_usage": True,
+        "member_task_binding": "structured-v1",
         "consensus_max_rounds": 3,
     }
     kwargs: dict[str, Any] = {"shared_context": shared, "timeout_seconds": timeout}
