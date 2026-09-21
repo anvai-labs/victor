@@ -55,7 +55,10 @@ to `main` remains a separate, maintainer-controlled release operation.
 
 Use conventional commit and PR titles such as `feat:`, `fix:`, `refactor:`,
 `docs:`, or `ci:`. `release:` is not an accepted PR title type. Commit and PR text
-must not contain agent attribution.
+must not contain agent attribution. The attribution checker permits the exact
+Dependabot service trailer (`dependabot[bot]` with
+`49699333+dependabot[bot]@users.noreply.github.com`); this text exception does not
+authenticate authorship or exempt other bot identities.
 
 ```bash
 git add path/to/changed-file

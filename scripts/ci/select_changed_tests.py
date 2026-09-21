@@ -62,6 +62,9 @@ DEPRECATION_NOTICE_FILES = (
     "victor/agent/sqlite_session_persistence.py",
 )
 RELATED_TESTS = {
+    "scripts/ci/check_no_agent_attribution.py": (
+        "tests/unit/scripts/test_check_no_agent_attribution.py",
+    ),
     # Keep rename/deletion coverage explicit: the changed-file list contains
     # paths but no status, so the retired origin maps to its replacement suite.
     "victor/agent/services/chat_turn_lifecycle.py": (
