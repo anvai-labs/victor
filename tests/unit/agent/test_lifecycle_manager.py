@@ -303,6 +303,8 @@ class TestLifecycleManager:
     ):
         """Test full shutdown."""
         # Setup dependencies
+        cache = MagicMock()
+        lifecycle_manager.set_tool_cache(cache)
         lifecycle_manager._provider = provider
         lifecycle_manager._code_manager = code_manager
         lifecycle_manager._semantic_selector = semantic_selector
@@ -315,6 +317,10 @@ class TestLifecycleManager:
         # Verify background tasks cancelled (if any)
         if background_tasks:
             background_tasks[0].cancel.assert_called_once()
+
+        cache.close.assert_called_once()
+        lifecycle_manager.close_tool_cache()
+        cache.close.assert_called_once()
 
         # Verify provider closed
         provider.close.assert_called_once()
@@ -550,3 +556,32 @@ class TestLifecycleManagerErrorHandling:
         provider.close.assert_called_once()
         code_manager.stop.assert_called_once()
         semantic_selector.close.assert_called_once()
+
+
+def test_cache_cleanup_failure_is_explicit_and_retriable():
+    manager = LifecycleManager(MagicMock())
+    cache = MagicMock()
+    cache.close.side_effect = OSError("close failed")
+    manager.set_tool_cache(cache)
+    with pytest.raises(OSError, match="close failed"):
+        manager.close_tool_cache()
+    assert manager._tool_cache is cache
+    cache.close.side_effect = None
+    manager.close_tool_cache()
+    assert manager._tool_cache is None
+
+
+@pytest.mark.parametrize("cleanup_fails", [False, True])
+async def test_parent_cancellation_still_releases_cache(cleanup_fails):
+    manager = LifecycleManager(MagicMock())
+    cache = MagicMock()
+    manager.set_tool_cache(cache)
+    manager.set_provider(AsyncMock(close=AsyncMock(side_effect=asyncio.CancelledError())))
+    if cleanup_fails:
+        cache.close.side_effect = OSError("disk close failed")
+    with pytest.raises(asyncio.CancelledError) as error:
+        await manager.shutdown()
+    cache.close.assert_called_once()
+    if cleanup_fails:
+        assert "cache cleanup failed" in " ".join(error.value.__notes__)
+        assert manager._tool_cache is cache

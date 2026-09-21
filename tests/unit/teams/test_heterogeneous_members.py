@@ -101,6 +101,8 @@ async def _spawn_capturing_config(
     captured = {}
 
     class _FakeSubAgent:
+        orchestrator = None  # This fixture never constructs a member runtime.
+
         def __init__(self, config, parent, **kwargs):
             captured["config"] = config
 
