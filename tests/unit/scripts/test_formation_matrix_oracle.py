@@ -59,7 +59,6 @@ async def test_candidate_exit_cannot_become_verified(tmp_path, exit_method):
         "runner_changed",
         "artifact_changed",
         "oversized",
-        "cleanup_error",
     ],
 )
 async def test_reports_require_complete_counts_clean_exit_and_source_identity(
@@ -108,11 +107,11 @@ async def test_reports_require_complete_counts_clean_exit_and_source_identity(
     monkeypatch.setattr(
         oracle.os,
         "killpg",
-        Mock(side_effect=OSError("cleanup") if fault == "cleanup_error" else None),
+        Mock(),
         raising=False,
     )
     result = await oracle.check_numeric_oracle(candidate, "double", Path(sys.executable))
-    assert result["passed"] is (fault is None or (fault == "cleanup_error" and os.name != "posix"))
+    assert result["passed"] is (fault is None)
     assert not runner.exists()
     assert process.wait.await_count == 2
 
@@ -236,3 +235,13 @@ async def test_incomplete_reaping_is_bounded_and_recorded(tmp_path, monkeypatch)
     assert not result["passed"]
     assert result["error_type"] == "TimeoutError"
     assert result["cleanup_errors"] == [{"operation": "reap_process", "error_type": "TimeoutError"}]
+
+
+async def test_completed_process_never_signals_a_recycled_group(monkeypatch):
+    process = SimpleNamespace(returncode=0, pid=765432, wait=AsyncMock(), kill=Mock())
+    kill_group = Mock()
+    monkeypatch.setattr(oracle.os, "killpg", kill_group, raising=False)
+    assert await oracle._cleanup_process(process) == []
+    kill_group.assert_not_called()
+    process.kill.assert_not_called()
+    process.wait.assert_awaited_once()

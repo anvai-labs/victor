@@ -63,7 +63,8 @@ def _evaluate(path: Path, name: str) -> dict[str, Any]:
 async def _cleanup_process(process: asyncio.subprocess.Process) -> list[dict[str, str]]:
     """Stop only the owned process/group; retain bounded cleanup failures."""
     errors = []
-    if os.name == "posix":
+    # Once exit is observed the PID may belong to an unrelated process/group.
+    if process.returncode is None and os.name == "posix":
         try:
             os.killpg(process.pid, signal.SIGKILL)
         except ProcessLookupError:
