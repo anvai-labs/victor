@@ -16,14 +16,6 @@ class TestAgentRuntimeBootstrapper:
         orch._background_tasks = set()
         return orch
 
-    def test_create_facades_sets_orchestration_facade(self):
-        orch = self._make_mock_orchestrator()
-        AgentRuntimeBootstrapper.create_facades(orch)
-
-        # Only OrchestrationFacade remains; the 7 per-domain facades were removed
-        # as dead parallel views (zero production readers).
-        assert hasattr(orch, "_orchestration_facade")
-
     def test_create_facades_lazifies_orchestration_facade(self):
         orch = self._make_mock_orchestrator()
 
@@ -198,6 +190,7 @@ class TestAgentRuntimeBootstrapper:
         AgentRuntimeBootstrapper.wire_lifecycle(orch)
 
         orch._lifecycle_manager.set_provider.assert_called_once()
+        orch._lifecycle_manager.set_tool_cache.assert_called_once_with(orch.tool_cache)
         orch._lifecycle_manager.set_code_manager.assert_called_once()
         orch._lifecycle_manager.set_semantic_selector.assert_called_once()
         orch._lifecycle_manager.set_usage_logger.assert_called_once()

@@ -433,6 +433,8 @@ class SubAgentOrchestrator:
         subagent = SubAgent(config, self.parent, context_lifecycle=self._context_lifecycle)
         self.active_subagents.add(subagent)
 
+        result: Optional[SubAgentResult] = None
+        primary_error: BaseException | None = None
         try:
             result = await asyncio.wait_for(
                 subagent.execute(),
@@ -442,7 +444,7 @@ class SubAgentOrchestrator:
             return result
         except asyncio.TimeoutError:
             logger.warning(f"{role.value} sub-agent timed out after {timeout_seconds}s")
-            timeout_result = SubAgentResult(
+            result = SubAgentResult(
                 success=False,
                 summary=f"Sub-agent timed out after {timeout_seconds} seconds",
                 details={"role": role.value, "task": task[:200]},
@@ -451,19 +453,24 @@ class SubAgentOrchestrator:
                 duration_seconds=float(timeout_seconds),
                 error=f"Timeout after {timeout_seconds}s",
             )
-            self._attach_identity_metadata(timeout_result, config)
-            return timeout_result
+            self._attach_identity_metadata(result, config)
+            return result
+        except BaseException as error:
+            primary_error = error
+            raise
         finally:
-            self.active_subagents.discard(subagent)
             # Deactivate constraints after spawn completes
-            if constraints:
-                from victor.agent.constraint_activation_service import (
-                    get_constraint_activator,
-                )
+            try:
+                self._release_subagent(subagent, result, primary_error)
+            finally:
+                if constraints:
+                    from victor.agent.constraint_activation_service import (
+                        get_constraint_activator,
+                    )
 
-                activator = get_constraint_activator()
-                activator.deactivate_constraints()
-                logger.debug(f"SubAgent constraints deactivated for role: {role.value}")
+                    activator = get_constraint_activator()
+                    activator.deactivate_constraints()
+                    logger.debug(f"SubAgent constraints deactivated for role: {role.value}")
 
     async def _resolve_override_provider(
         self, provider: str, model: Optional[str]
@@ -705,6 +712,7 @@ class SubAgentOrchestrator:
         start_time = time.time()
 
         stream = None
+        primary_error: BaseException | None = None
         try:
             stream = subagent.stream_execute()
             # Stream with manual timeout checking per chunk
@@ -750,12 +758,44 @@ class SubAgentOrchestrator:
                 },
             )
 
+        except BaseException as error:
+            primary_error = error
+            raise
         finally:
             try:
                 if stream is not None:
                     await stream.aclose()
+            except BaseException as close_error:
+                if primary_error is None or isinstance(primary_error, GeneratorExit):
+                    primary_error = close_error
+                    raise
+                primary_error.add_note(
+                    f"Member stream cleanup failed: {type(close_error).__name__}"
+                )
             finally:
-                self.active_subagents.discard(subagent)
+                self._release_subagent(subagent, primary_error=primary_error)
+
+    def _release_subagent(
+        self,
+        subagent: SubAgent,
+        result: Optional[SubAgentResult] = None,
+        primary_error: BaseException | None = None,
+    ) -> None:
+        """End the spawned member's cache lifetime without shutting down its parent."""
+        self.active_subagents.discard(subagent)
+        if subagent.orchestrator is not None:
+            try:
+                subagent.orchestrator._lifecycle_manager.close_tool_cache()
+            except Exception as cleanup_error:
+                message = f"Tool cache cleanup failed: {type(cleanup_error).__name__}"
+                if result is not None:
+                    result.success = False
+                    result.error = result.error or message
+                    result.details["cache_cleanup_error"] = type(cleanup_error).__name__
+                elif primary_error is not None and not isinstance(primary_error, GeneratorExit):
+                    primary_error.add_note(message)
+                else:
+                    raise
 
     def get_active_count(self) -> int:
         """Get number of currently active sub-agents.

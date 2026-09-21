@@ -115,6 +115,7 @@ class LifecycleManager:
         self._semantic_selector: Optional[Any] = None
         self._background_tasks: List[Any] = []
         self._usage_logger: Optional[Any] = None
+        self._tool_cache: Optional[Any] = None
 
         # Orchestrator-specific callbacks for shutdown
         self._flush_analytics_callback: Optional[callable] = None
@@ -213,6 +214,22 @@ class LifecycleManager:
         return results
 
     async def shutdown(self) -> None:
+        """Release owned cache handles even when asynchronous shutdown is cancelled."""
+        primary_error: BaseException | None = None
+        try:
+            await self._shutdown_services()
+        except BaseException as error:
+            primary_error = error
+            raise
+        finally:
+            try:
+                self.close_tool_cache()
+            except Exception as cleanup_error:
+                if primary_error is None:
+                    raise
+                primary_error.add_note(f"Tool cache cleanup failed: {type(cleanup_error).__name__}")
+
+    async def _shutdown_services(self) -> None:
         """Clean up resources and shutdown gracefully.
 
         Should be called when the orchestrator is no longer needed.
@@ -409,6 +426,16 @@ class LifecycleManager:
             provider: LLM provider instance
         """
         self._provider = provider
+
+    def set_tool_cache(self, tool_cache: Any) -> None:
+        """Register the cache constructed for this orchestrator's lifetime."""
+        self._tool_cache = tool_cache
+
+    def close_tool_cache(self) -> None:
+        """Release owned cache handles without closing borrowed runtime services."""
+        if self._tool_cache is not None:
+            self._tool_cache.close()
+            self._tool_cache = None
 
     def set_code_manager(self, code_manager: Any) -> None:
         """Set code execution manager for cleanup.

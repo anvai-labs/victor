@@ -30,6 +30,7 @@ class _StreamOrchestrator:
     tool_calls_used = 3
 
     def __init__(self, on_advance=lambda: None):
+        self._lifecycle_manager = MagicMock()
         self.sessions = []
         self.closed_session = None
         self.on_advance = on_advance
@@ -148,6 +149,7 @@ async def test_spawn_timeout_closes_member_stream_without_leaking_session(
     assert member.orchestrator.closed_session == "session_root-m1"
     assert get_session_id() == parent_session
     assert not parent.active_subagents
+    member.orchestrator._lifecycle_manager.close_tool_cache.assert_called_once()
 
 
 @pytest.mark.asyncio

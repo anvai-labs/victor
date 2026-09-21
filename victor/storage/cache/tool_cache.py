@@ -81,6 +81,10 @@ class ToolCache:
         self.cache.clear()
         self._path_index.clear()
 
+    def close(self) -> None:
+        """Release this cache's connections without deleting persisted entries."""
+        self.cache.close(strict=True)
+
     def clear_namespaces(self, namespaces: list[str]) -> None:
         """Clear specific tool namespaces."""
         for ns in namespaces:

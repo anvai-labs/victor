@@ -602,6 +602,22 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   and fix the measured owner without closing borrowed providers/shared services.
   Do not attribute these ensemble failures to model quality or hide them by
   increasing descriptor limits. Root cause is not yet established.
+  **Scoped lifecycle correction:** an offline, no-inference probe isolated one
+  reproducible contributor: five parent/member pairs retained ten tool-cache
+  SQLite connections after parent shutdown and garbage collection. Explicit
+  owned-cache cleanup returns to the nine-descriptor baseline after every pair,
+  with no retained cache connections. Parent shutdown and terminal buffered/
+  streaming spawn cleanup now close their own handles through LifecycleManager;
+  borrowed providers and shared services are not shut down for member cleanup.
+  Persisted cache entries survive closure. Close errors remain explicit and
+  retryable; cancellation and primary failures retain their identity and cleanup
+  diagnostics. This does not prove that cache handles explain the entire live
+  failure. G41 stays open pending renewed multi-case measurement and acceptance.
+  TDD covered success, failure, timeout, cancellation, early stream closure,
+  persistence, and cleanup-error paths. The duplicate bootstrapper presence-only
+  test was removed: the stronger lazy-proxy test preserves the same 51 executed
+  source lines and branch coverage. Cache-clear unit tests now use temporary
+  directories instead of the developer's persistent cache.
 
 Validation-test audit: neither live harness had direct tests before this follow-up.
 The new mixed-harness suite covers rejected/malformed/missing reviews, inclusive

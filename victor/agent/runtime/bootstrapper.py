@@ -94,6 +94,7 @@ class AgentRuntimeBootstrapper:
         """Wire LifecycleManager with component dependencies for shutdown."""
         lm = orchestrator._lifecycle_manager
         lm.set_provider(orchestrator.provider)
+        lm.set_tool_cache(orchestrator.tool_cache)
         lm.set_code_manager(
             orchestrator.code_manager if hasattr(orchestrator, "code_manager") else None
         )
