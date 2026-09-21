@@ -17,6 +17,113 @@ matrix = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(matrix)
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX detached descendant reproduction")
+async def test_member_pytest_deadline_survives_inherited_output(tmp_path, monkeypatch):
+    import asyncio
+    from dataclasses import replace
+    import os
+    import signal
+    import time
+
+    case = await matrix.build_case(MagicMock(), "parallel", tmp_path, Path(sys.executable), 240)
+    case = replace(
+        case, artifacts={"first": ("first.py", "test_first.py")}, pytest_names=("first",)
+    )
+    (tmp_path / "first.py").write_text("def first(x): return 2 * x\n")
+    marker = tmp_path / "child.pid"
+    (tmp_path / "test_first.py").write_text(
+        "import subprocess, sys, time\nfrom pathlib import Path\n"
+        "def test_candidate(capfd):\n"
+        "    with capfd.disabled():\n"
+        "        child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(5)'], "
+        "start_new_session=True)\n"
+        f"    Path({str(marker)!r}).write_text(str(child.pid))\n"
+        "    time.sleep(10)\n"
+    )
+    monkeypatch.setenv("PYTEST_DISABLE_PLUGIN_AUTOLOAD", "1")
+    original_wait_for = asyncio.wait_for
+
+    async def short_execution_deadline(awaitable, timeout):
+        return await original_wait_for(awaitable, 1 if timeout == 60 else timeout)
+
+    monkeypatch.setattr(asyncio, "wait_for", short_execution_deadline)
+    # Isolate the real member-pytest lifecycle from the separately tested oracle.
+    monkeypatch.setattr(matrix, "check_numeric_oracle", AsyncMock(return_value={"passed": True}))
+    started = time.monotonic()
+    try:
+        report = await matrix.check_case(
+            case, None, tmp_path, Path(sys.executable), "reference", [], MagicMock()
+        )
+        elapsed = time.monotonic() - started
+        assert marker.exists(), "The actual pytest test must launch its descendant"
+        assert "pytest:first" in report["failures"]
+        assert report["pytest"][0]["timed_out"] is True
+        assert report["pytest"][0]["runner_status"] == 124
+        assert report["pytest"][0]["returncode"] == -signal.SIGKILL
+        assert report["pytest"][0]["cleanup_errors"] == []
+        assert elapsed < 3, f"pytest cleanup exceeded its bounded grace: {elapsed:.3f}s"
+    finally:
+        if marker.exists():
+            try:
+                os.kill(int(marker.read_text()), signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+
+
+@pytest.mark.parametrize("outcome", ["cleanup_failure", "spawn_failure", "cancelled"])
+async def test_member_pytest_runner_failures_cannot_pass(tmp_path, monkeypatch, outcome):
+    import asyncio
+    from dataclasses import replace
+    from victor.framework.verifiers import _BufferedCommandResult
+
+    case = await matrix.build_case(MagicMock(), "parallel", tmp_path, Path(sys.executable), 240)
+    case = replace(
+        case, artifacts={"first": ("first.py", "test_first.py")}, pytest_names=("first",)
+    )
+    (tmp_path / "first.py").write_text("def first(x): return 2 * x\n")
+    (tmp_path / "test_first.py").write_text("def test_first(): pass\n")
+    runner = AsyncMock(
+        return_value=_BufferedCommandResult(
+            status=125 if outcome == "cleanup_failure" else 1,
+            returncode=0 if outcome == "cleanup_failure" else None,
+            timed_out=False,
+            error_type=None if outcome == "cleanup_failure" else "OSError",
+            cleanup_errors=("reap_process:TimeoutError",) if outcome == "cleanup_failure" else (),
+            stdout="retained output",
+            stderr="retained error",
+            stdout_truncated=True,
+            stderr_truncated=False,
+        )
+    )
+    cancellation = asyncio.CancelledError()
+    if outcome == "cancelled":
+        runner.side_effect = cancellation
+    monkeypatch.setattr(matrix, "_run_buffered_command", runner)
+    oracle = AsyncMock(return_value={"passed": True})
+    monkeypatch.setattr(matrix, "check_numeric_oracle", oracle)
+    operation = matrix.check_case(
+        case, None, tmp_path, Path(sys.executable), "reference", [], MagicMock()
+    )
+    if outcome == "cancelled":
+        with pytest.raises(asyncio.CancelledError) as caught:
+            await operation
+        assert caught.value is cancellation
+        oracle.assert_not_awaited()
+    else:
+        report = await operation
+        assert "pytest:first" in report["failures"]
+        entry = report["pytest"][0]
+        assert entry["returncode"] == runner.return_value.returncode
+        assert entry["runner_status"] == runner.return_value.status
+        assert entry["cleanup_errors"] == list(runner.return_value.cleanup_errors)
+        assert entry["error_type"] == runner.return_value.error_type
+        assert entry["output"] == "retained output"
+        assert entry["stderr"] == "retained error"
+        assert entry["stdout_truncated"] is True
+        assert entry["stderr_truncated"] is False
+        oracle.assert_awaited_once()
+
+
 @pytest.mark.parametrize(
     "fault", [None, "missing", "duplicate_session", "no_result", "constant_function"]
 )

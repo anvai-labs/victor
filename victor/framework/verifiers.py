@@ -20,6 +20,7 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 import logging
 import os
 import signal
@@ -300,12 +301,38 @@ class LSPVerifier:
         return VerificationResult(passed, total, raw, feedback)
 
 
+@dataclass(frozen=True)
+class _BufferedCommandResult:
+    """Internal process evidence; runner status is separate from the child exit."""
+
+    status: int
+    returncode: int | None
+    timed_out: bool
+    error_type: str | None
+    cleanup_errors: tuple[str, ...]
+    stdout: str
+    stderr: str
+    stdout_truncated: bool
+    stderr_truncated: bool
+
+
 async def _run_command_async(
     cmd: list[str],
     workspace: Path,
     env: Optional[dict[str, str]] = None,
     timeout: float = 120,
 ) -> tuple[int, str, str]:
+    """Keep the verifier's tuple contract over structured process evidence."""
+    result = await _run_buffered_command(cmd, workspace, env, timeout)
+    return result.status, result.stdout, result.stderr
+
+
+async def _run_buffered_command(
+    cmd: list[str],
+    workspace: Path,
+    env: Optional[dict[str, str]] = None,
+    timeout: float = 120,
+) -> _BufferedCommandResult:
     """Run a buffered verifier with bounded cleanup and retained diagnostics.
 
     Return status 124 on timeout, 125 on cleanup failure, or the actual exit code.
@@ -315,6 +342,8 @@ async def _run_command_async(
     process = None
     with tempfile.TemporaryFile() as output, tempfile.TemporaryFile() as errors:
         status = 1
+        timed_out = False
+        error_type = None
         diagnostic = ""
         primary_error: BaseException | None = None
         cleanup_errors: list[str] = []
@@ -331,8 +360,11 @@ async def _run_command_async(
             status = process.returncode if process.returncode is not None else 1
         except TimeoutError:
             status = 124
+            timed_out = True
+            error_type = "TimeoutError"
             diagnostic = f"Command timed out after {timeout}s"
         except Exception as exc:
+            error_type = type(exc).__name__
             diagnostic = f"Command failed: {type(exc).__name__}: {exc}"
         except BaseException as exc:
             primary_error = exc
@@ -363,11 +395,19 @@ async def _run_command_async(
                     primary_error.add_note(detail)
                 diagnostic += "\n" + detail
                 status = 125
+        truncated = []
         for stream in (output, errors):
             stream.seek(0, 2)
+            truncated.append(stream.tell() > 4000)
             stream.seek(max(0, stream.tell() - 4000))
-        return (
-            status,
-            output.read(4000).decode("utf-8", "replace"),
-            errors.read(4000).decode("utf-8", "replace") + diagnostic,
+        return _BufferedCommandResult(
+            status=status,
+            returncode=process.returncode if process is not None else None,
+            timed_out=timed_out,
+            error_type=error_type,
+            cleanup_errors=tuple(cleanup_errors),
+            stdout=output.read(4000).decode("utf-8", "replace"),
+            stderr=errors.read(4000).decode("utf-8", "replace") + diagnostic,
+            stdout_truncated=truncated[0],
+            stderr_truncated=truncated[1],
         )
