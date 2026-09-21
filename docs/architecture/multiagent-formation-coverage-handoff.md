@@ -101,7 +101,7 @@ Implementation delivery and live acceptance have different denominators:
 |---|---|---|
 | WS-A through WS-I increments landed | 9/9 (100%); PRs in §4 | 0 original increments |
 | Historical live passes before the new matrix | 7/15 (47%): original six plus ensemble vote | Historical tasks/gates differ; not matched acceptance |
-| New ZAI/Sandhi case passes | 10/15 (67%) | 2 deliverable failures; 3 ensemble cases blocked by resource exhaustion |
+| 2026-09-20 contract-v1 ZAI/Sandhi case passes | 10/15 (67%) | 2 deliverable failures; 3 ensemble cases blocked by resource exhaustion |
 | New matched Qwen/InferFlux case passes | 0/15 (0%); not run | 15 cases |
 | Combined matched matrix case passes | 10/30 (33%) | 20 cases without a pass (67%); overall ZAI run remains FAIL |
 | Current six-Qwen/one-ZAI C5 acceptance | Failed; earlier WS-E success is separate evidence | Full corrected run and reviewed verdict on InferFlux #184 |
@@ -121,8 +121,10 @@ models, tasks and gates: it is coverage evidence, not a matched comparison.
 Historical WS-F strict acceptance remains Qwen 1/6 and LFM 0/6. No weighted overall
 completion percentage is asserted, and case percentages do not estimate effort.
 The remaining correctness work includes G32 completion, G34 buffered reporting,
-G36 structured verification, G39 task binding, G41 resource exhaustion, G42
-independent correctness oracles and G43 member-pytest cleanup. The [research evaluation](multiagent-formation-research-evaluation.md)
+G36 structured verification, G39 task binding, G41 resource exhaustion and G43
+member-pytest cleanup. G42 independent numeric oracles landed in
+[PR #1157](https://github.com/anvai-labs/victor/pull/1157) with all CI green, including
+Vertical Py3.12. No contract-v2 cases have run; do not combine v1/v2 pass counts. The [research evaluation](multiagent-formation-research-evaluation.md)
 maps relevant papers to existing code, evidence and ordered follow-ups; it adds no
 live passes. G41's scoped cache-owner correction landed in
 [PR #1155](https://github.com/anvai-labs/victor/pull/1155), with full CI including
@@ -526,6 +528,19 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   output lines rather than the exit status. Follow-up must use explicit process
   success plus runner-owned structured reports, cover empty/failed/timeout runs,
   and retain diagnostics without promoting model-written prose into evidence.
+  **Implementation:** LocalTestVerifier now requires a fresh pytest JUnit report,
+  validates its tree and outcome totals, excludes skipped-only/empty runs, and
+  counts process success as an additional explicit check. Nonzero exit, missing,
+  malformed or contradictory reports cannot pass. Other test runners require a
+  custom Verifier until their structured adapters exist; failed detection does not
+  substitute pytest. LintVerifier uses one process-status check instead of inferred
+  punctuation counts. Buffered subprocess execution retains diagnostic tails,
+  separately bounds cleanup, avoids inherited pipes and preserves cancellation
+  with cleanup notes. Already-exited processes are never signalled. These changes
+  affect configured built-in verifiers only; default runs remain unchanged. This
+  does not repair G43's separate live-harness pytest path or establish test quality
+  or live completion. The new direct suite replaces no existing tests: the audit
+  found no prior LocalTestVerifier/LintVerifier suite or duplicate coverage owner.
 - **G37 — ✅ failure evidence retention ([PR #1143](https://github.com/anvai-labs/victor/pull/1143)).**
   In the [C5 mixed attempt](evidence/c5-mixed-gateway-2026-09-19.json), the
   unchanged `multiagent_gateway_live.py` asserted the review verdict before its
@@ -624,7 +639,7 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   source lines and branch coverage. Cache-clear unit tests now use temporary
   directories instead of the developer's persistent cache.
 
-- **G42 — matrix tests need independent semantic oracles.** The opt-in matrix's
+- **G42 — ✅ independent matrix numeric oracles ([PR #1157](https://github.com/anvai-labs/victor/pull/1157)).** The opt-in matrix's
   contract-v1 ordinary and ensemble doubling tasks request a member-authored test of `f(4) == 8`;
   independent pytest reruns that same test. A new isolated offline counterexample,
   `def first(x): return 8`, passes the requested pytest while returning 8 rather
