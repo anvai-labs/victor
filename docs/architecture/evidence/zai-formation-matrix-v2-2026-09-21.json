@@ -1,0 +1,264 @@
+{
+  "schema_version": 1,
+  "evidence_kind": "new actual-member experiment; not historical replay",
+  "date": "2026-09-21",
+  "run_id": "matrix-aae4713703",
+  "verdict": "PASS",
+  "victor_commit": "d872b6103e319fa562d20a514d458af52314c027",
+  "source_clean_at_launch": true,
+  "harness_sha256": "f0687ab7d70baac26da6bd569c59893879c2948cfbc220e4290e25a0ac2b173b",
+  "private_evidence_sha256": "c242b63709e578b376d3c704efd057f7dd9459319a6790a47748f7d5ae65d748",
+  "provider": "zai",
+  "model": "glm-5.3",
+  "case_contract_version": 2,
+  "cases": [
+    {
+      "case": "sequential",
+      "passed": true,
+      "failures": [],
+      "calls": 6,
+      "required_artifacts": 4,
+      "pytest_exit_codes": [
+        0,
+        0
+      ],
+      "oracle_inputs_checked": [
+        10242,
+        10242
+      ]
+    },
+    {
+      "case": "parallel",
+      "passed": true,
+      "failures": [],
+      "calls": 6,
+      "required_artifacts": 4,
+      "pytest_exit_codes": [
+        0,
+        0
+      ],
+      "oracle_inputs_checked": [
+        10242,
+        10242
+      ]
+    },
+    {
+      "case": "hierarchical",
+      "passed": true,
+      "failures": [],
+      "calls": 6,
+      "required_artifacts": 4,
+      "pytest_exit_codes": [
+        0,
+        0
+      ],
+      "oracle_inputs_checked": [
+        10242,
+        10242
+      ]
+    },
+    {
+      "case": "pipeline",
+      "passed": true,
+      "failures": [],
+      "calls": 6,
+      "required_artifacts": 4,
+      "pytest_exit_codes": [
+        0,
+        0
+      ],
+      "oracle_inputs_checked": [
+        10242,
+        10242
+      ]
+    },
+    {
+      "case": "consensus",
+      "passed": true,
+      "failures": [],
+      "calls": 6,
+      "required_artifacts": 4,
+      "pytest_exit_codes": [
+        0,
+        0
+      ],
+      "oracle_inputs_checked": [
+        10242,
+        10242
+      ]
+    },
+    {
+      "case": "reflection",
+      "passed": true,
+      "failures": [],
+      "calls": 8,
+      "required_artifacts": 3,
+      "pytest_exit_codes": [
+        0
+      ],
+      "oracle_inputs_checked": [
+        10242
+      ]
+    },
+    {
+      "case": "group_chat",
+      "passed": true,
+      "failures": [],
+      "calls": 6,
+      "required_artifacts": 4,
+      "pytest_exit_codes": [
+        0,
+        0
+      ],
+      "oracle_inputs_checked": [
+        10242,
+        10242
+      ]
+    },
+    {
+      "case": "debate",
+      "passed": true,
+      "failures": [],
+      "calls": 10,
+      "required_artifacts": 5,
+      "pytest_exit_codes": [
+        0,
+        0
+      ],
+      "oracle_inputs_checked": [
+        10242,
+        10242
+      ]
+    },
+    {
+      "case": "handoff",
+      "passed": true,
+      "failures": [],
+      "calls": 6,
+      "required_artifacts": 4,
+      "pytest_exit_codes": [
+        0,
+        0
+      ],
+      "oracle_inputs_checked": [
+        10242,
+        10242
+      ]
+    },
+    {
+      "case": "adaptive",
+      "passed": true,
+      "failures": [],
+      "calls": 6,
+      "required_artifacts": 4,
+      "pytest_exit_codes": [
+        0,
+        0
+      ],
+      "oracle_inputs_checked": [
+        10242,
+        10242
+      ]
+    },
+    {
+      "case": "dynamic_router",
+      "passed": true,
+      "failures": [],
+      "calls": 3,
+      "required_artifacts": 2,
+      "pytest_exit_codes": [
+        0
+      ],
+      "oracle_inputs_checked": [
+        10242
+      ]
+    },
+    {
+      "case": "multi_level_hierarchy",
+      "passed": true,
+      "failures": [],
+      "calls": 9,
+      "required_artifacts": 6,
+      "pytest_exit_codes": [
+        0,
+        0,
+        0
+      ],
+      "oracle_inputs_checked": [
+        10242,
+        10242,
+        10242
+      ]
+    },
+    {
+      "case": "ensemble_judge",
+      "passed": true,
+      "failures": [],
+      "calls": 15,
+      "required_artifacts": 5,
+      "pytest_exit_codes": [
+        0,
+        0
+      ],
+      "oracle_inputs_checked": [
+        10242,
+        10242
+      ]
+    },
+    {
+      "case": "ensemble_synthesizer",
+      "passed": true,
+      "failures": [],
+      "calls": 16,
+      "required_artifacts": 5,
+      "pytest_exit_codes": [
+        0,
+        0
+      ],
+      "oracle_inputs_checked": [
+        10242,
+        10242
+      ]
+    },
+    {
+      "case": "ensemble_vote",
+      "passed": true,
+      "failures": [],
+      "calls": 10,
+      "required_artifacts": 4,
+      "pytest_exit_codes": [
+        0,
+        0
+      ],
+      "oracle_inputs_checked": [
+        10242,
+        10242
+      ]
+    }
+  ],
+  "calls": 119,
+  "distinct_member_sessions": 33,
+  "accounting_join_failures": [],
+  "joined_calls": 119,
+  "totals": {
+    "tokens_in": 80548,
+    "tokens_out": 19013,
+    "cache_read_tokens": 363520,
+    "cache_creation_tokens": 0
+  },
+  "explicit_cache_reporting_calls": 119,
+  "max_http_seconds": 8.936,
+  "max_ledger_wait_seconds": 0.001888,
+  "buffered_gateway_deadline_seconds": 120,
+  "shared_cache_cleared": false,
+  "limitations": [
+    "Independent numeric oracle checks a finite domain; it is not a hostile-code sandbox.",
+    "Buffered calls only; no streaming or origin-cancellation acceptance.",
+    "Reported cache counts do not establish backend executed reuse.",
+    "Runtime identities and hardware acceptance must accompany this report.",
+    "No tokenizer-equivalence or session-lease acceptance claim.",
+    "Unsupported durable partial resume remains explicitly deferred.",
+    "Does not certify the subsequent provider-owned typed-handle cleanup.",
+    "Original failed v1/v2 evidence remains failed."
+  ]
+}

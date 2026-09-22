@@ -649,6 +649,19 @@ class SandhiTypedProviderMixin:
     _sandhi_typed_providers: Optional[Dict[Tuple[str, str, str, str, str, str], Any]] = None
     _SANDHI_WAIT_GRACE_SECS = 5.0
 
+    async def close(self) -> None:
+        """Release this provider's typed handles as well as native client state.
+
+        The binding has no separate close API. Dropping our owned references
+        releases idle Rust HTTP pools; active calls retain their local handles.
+        Member cleanup must not call this on a borrowed parent provider.
+        """
+        try:
+            await super().close()  # type: ignore[misc]
+        finally:
+            self._sandhi_typed_providers = None
+            self._sandhi_runtime = None
+
     def _sandhi_slug(self) -> str:
         declared = str(getattr(self, "name", "openai"))
         if _sg is not None and hasattr(_sg, "provider_descriptor_json"):
