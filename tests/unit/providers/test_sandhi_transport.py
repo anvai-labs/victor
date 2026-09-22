@@ -258,6 +258,9 @@ async def test_complete_consumes_typed_response_and_reuses_handle(monkeypatch):
     assert runtime.handle.requests[0]["messages"][0]["role"] == "developer"
     assert runtime.handle.requests[0]["tools"][0]["name"] == "lookup"
     assert second.raw_response == first.raw_response
+    await provider.close()
+    assert provider._sandhi_typed_providers is None
+    assert provider._sandhi_runtime is None
 
 
 @pytest.mark.asyncio
@@ -988,3 +991,43 @@ def test_no_gateway_anywhere_leaves_settings_untouched(monkeypatch):
     settings: dict = {}
     resolve_provider_gateway(settings, "acme")
     assert "gateway" not in settings
+
+
+@pytest.mark.parametrize("outcome", ["success", "failure", "cancellation"])
+async def test_close_releases_owned_handles_and_preserves_native_cleanup_outcome(outcome):
+    import asyncio
+    import weakref
+
+    error = {
+        "failure": OSError("native close"),
+        "cancellation": asyncio.CancelledError("native cancellation"),
+    }.get(outcome)
+
+    class Resource:
+        pass
+
+    class Native:
+        close = AsyncMock(side_effect=error)
+
+    class Provider(st.SandhiTypedProviderMixin, Native):
+        pass
+
+    provider = Provider()
+    other = Provider()
+    provider._sandhi_runtime = Resource()
+    provider._sandhi_typed_providers = {("owned",): Resource()}
+    other._sandhi_runtime = Resource()
+    runtime_ref = weakref.ref(provider._sandhi_runtime)
+    handle_ref = weakref.ref(next(iter(provider._sandhi_typed_providers.values())))
+    if error is None:
+        await provider.close()
+        await provider.close()
+        assert Native.close.await_count == 2
+    else:
+        with pytest.raises(type(error)) as caught:
+            await provider.close()
+        assert caught.value is error
+        Native.close.assert_awaited_once()
+    assert runtime_ref() is None
+    assert handle_ref() is None
+    assert other._sandhi_runtime is not None

@@ -104,10 +104,34 @@ Implementation delivery and live acceptance have different denominators:
 | 2026-09-20 contract-v1 ZAI/Sandhi case passes | 10/15 (67%) | 2 deliverable failures; 3 ensemble cases blocked by resource exhaustion |
 | New matched Qwen/InferFlux case passes | 0/15 (0%); not run | 15 cases |
 | Historical contract-v1 matched matrix case passes | 10/30 (33%) | 20 cases without a pass (67%); overall ZAI run remains FAIL |
-| 2026-09-21 contract-v2 ZAI/Sandhi case checks | 12/15 (80%); overall run FAIL | 3 ensemble cases failed; run-wide accounting also failed (G46) |
-| Contract-v2 Qwen/InferFlux case checks | 0/15 (0%); not run | 15 cases |
-| Contract-v2 combined case checks | 12/30 (40%) | 18 cases without a pass (60%); not end-to-end acceptance |
+| 2026-09-21 renewed contract-v2 ZAI/Sandhi acceptance | 15/15 (100%); overall PASS | No case failures; broader lifecycle and cross-model acceptance remain separate |
+| Contract-v2 Qwen/InferFlux ROCm case checks | 0/15 (0%); overall FAIL | 15 cases; missing tests and formation-contract failures |
+| Contract-v2 combined case checks | 15/30 (50%) | 15 Qwen cases without a pass; not mixed-team or lifecycle acceptance |
 | Current six-Qwen/one-ZAI C5 acceptance | Failed; earlier WS-E success is separate evidence | Full corrected run and reviewed verdict on InferFlux #184 |
+
+The [renewed contract-v2 ZAI run](evidence/zai-formation-matrix-v2-2026-09-21.json),
+`matrix-aae4713703`, used clean source `d872b6103e319fa562d20a514d458af52314c027`
+(the candidate merged through [PR #1163](https://github.com/anvai-labs/victor/pull/1163)).
+All 12 formations and three ensemble modes passed: 119 HTTP-200 calls, 33 distinct
+member sessions, 62 required artifacts, 29 passing pytest checks and 29 independent
+numeric oracles covering 10,242 inputs each. All 119 wire/SQLite/C4 joins and the
+dashboard totals/attribution reconciled: 80,548 fresh input, 363,520 cache-read and
+19,013 output tokens, with explicit cache reporting for 119/119 calls. Maximum HTTP
+latency was 8.936 seconds; maximum ledger settlement was 0.001888 seconds. This is
+new evidence, not a replacement verdict for either failed earlier run. It proves
+these ZAI buffered cases, not C5 mixed-team, origin cancellation, executed cache
+reuse, tokenizer equivalence or full resource lifecycle acceptance.
+
+The [new Qwen ROCm baseline](evidence/qwen-rocm-formation-matrix-v2-2026-09-21.json),
+`matrix-94d9707bc9`, used the same clean Victor source and numeric contract. It failed
+all 15 cases, predominantly missing member-written test files, with additional
+conversation/ensemble response-contract failures. All 130 wire/SQLite/C4 joins and
+aggregate dashboard conservation passed across 29 observed sessions: 457,640 fresh
+input, 12,867 output and 44 reported cache-read tokens. This new ROCm cohort does not
+replace C5's preserved CUDA runtime. Next evaluate a simpler, explicitly labelled
+single-file task profile while retaining pytest, independent numeric oracles,
+formation decisions, distinct sessions and full accounting. Neither the failed
+baseline nor a future simpler pass establishes a model-size explanation.
 
 The [new actual-member ZAI experiment](evidence/zai-formation-matrix-2026-09-20.json)
 passed sequential, parallel, hierarchical, pipeline, consensus, group chat, debate,
@@ -119,7 +143,7 @@ Separate read-only reconciliation matched all 83 calls across 25 sessions agains
 wire, SQLite, C4 and dashboard, with no further model calls or unrelated ledger
 rows. It does not replace the failed verdict or establish lifecycle acceptance.
 
-The union of historical and new passing cases is 12/15 (80%), but spans different
+Before the renewed run, the union of historical and passing cases was 12/15 (80%), spanning different
 models, tasks and gates: it is coverage evidence, not a matched comparison.
 Historical WS-F strict acceptance remains Qwen 1/6 and LFM 0/6. No weighted overall
 completion percentage is asserted, and case percentages do not estimate effort.
@@ -685,7 +709,7 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   retryable; cancellation and primary failures retain their identity and cleanup
   diagnostics. This does not prove that cache handles explain the entire live
   failure. G41 stays open pending renewed multi-case measurement and acceptance.
-  **Further measured owner (2026-09-21):** background conversation persistence
+  **Further measured owner — ✅ [PR #1163](https://github.com/anvai-labs/victor/pull/1163):** background conversation persistence
   opens thread-local project SQLite connections on executor threads that outlive
   members. An offline five-pair execution retained 15 project connections after
   shutdown and garbage collection. `ChatService` now releases only the calling
@@ -694,6 +718,16 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   cover successful/failed writes and independent caller handles; cleanup failures
   are observable and cannot replace a propagating cancellation. This is a scoped
   repair, not a full-matrix acceptance claim.
+  **Provider-owned typed handles (2026-09-21):** an offline real-binding probe
+  against a local mock HTTP server retained idle Rust transport pools after native
+  provider close: five closed providers grew descriptors from 8 to 21. Releasing
+  only each closing provider's cached typed providers/runtime held the same probe
+  flat at 11 after initialization. The mixin now releases these owned references
+  in `finally`, preserving native close errors and cancellation identity. Repeated
+  close and another live provider's ownership are covered; no member cleanup closes
+  a borrowed parent provider. This separate repair was not present in the passing
+  ZAI run above. The run removes the ensemble exhaustion blocker for this cohort,
+  but does not establish every provider lifecycle boundary.
   TDD covered success, failure, timeout, cancellation, early stream closure,
   persistence, and cleanup-error paths. The duplicate bootstrapper presence-only
   test was removed: the stronger lazy-proxy test preserves the same 51 executed
@@ -778,7 +812,7 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   integration cases remain explicitly skipped; this fixes test isolation, not the
   installed MLX native runtime, and establishes no MLX or formation live acceptance.
 
-- **G46 — contract-v2 matrix wire/ledger correlation fails for five responses.**
+- **G46 — ✅ bounded ledger observation ([PR #1163](https://github.com/anvai-labs/victor/pull/1163)).**
   New actual-member run `matrix-7cce287098` on 2026-09-21 recorded 80 HTTP-200
   responses and 25 distinct member sessions. Its original reconciliation passed
   75 joins, rejected ordinals 0, 3, 16, 22 and 43 as `nonunique_request_join`,
@@ -797,7 +831,8 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   one row within the observed bounds and the same session/run/step/model identity;
   HTTP attempts, 120-second acceptance deadline, C4, cache and token conservation
   checks remain enforced. Missing/duplicate rows fail explicitly. This change
-  makes no retrospective change to the original failed verdict.
+  makes no retrospective change to the original failed verdict. Renewed run
+  `matrix-aae4713703` passed all 119 exact joins and aggregate conservation checks.
 
 Validation-test audit: neither live harness had direct tests before this follow-up.
 The new mixed-harness suite covers rejected/malformed/missing reviews, inclusive

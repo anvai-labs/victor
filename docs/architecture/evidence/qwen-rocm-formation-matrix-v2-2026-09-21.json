@@ -1,0 +1,396 @@
+{
+  "schema_version": 1,
+  "evidence_kind": "new actual-member ROCm experiment; not C5 runtime acceptance",
+  "date": "2026-09-21",
+  "run_id": "matrix-94d9707bc9",
+  "verdict": "FAIL",
+  "victor_commit": "d872b6103e319fa562d20a514d458af52314c027",
+  "source_clean_at_launch": true,
+  "harness_sha256": "f0687ab7d70baac26da6bd569c59893879c2948cfbc220e4290e25a0ac2b173b",
+  "private_evidence_sha256": "ab67e8ec4b4df278ffbbb0421255df92e34f4944b9c8d9ee3f9da339fbf19a44",
+  "provider": "inferflux",
+  "model": "qwen3-coder-30b",
+  "case_contract_version": 2,
+  "cases": [
+    {
+      "case": "sequential",
+      "passed": false,
+      "failures": [
+        "missing_artifacts:first",
+        "pytest:first"
+      ],
+      "calls": 4,
+      "missing_artifacts": {
+        "first": [
+          "test_first.py"
+        ]
+      },
+      "pytest_exit_codes": [
+        4,
+        0
+      ]
+    },
+    {
+      "case": "parallel",
+      "passed": false,
+      "failures": [
+        "missing_artifacts:first",
+        "pytest:first",
+        "missing_artifacts:second",
+        "pytest:second"
+      ],
+      "calls": 7,
+      "missing_artifacts": {
+        "first": [
+          "test_first.py"
+        ],
+        "second": [
+          "test_second.py"
+        ]
+      },
+      "pytest_exit_codes": [
+        4,
+        4
+      ]
+    },
+    {
+      "case": "hierarchical",
+      "passed": false,
+      "failures": [
+        "missing_artifacts:first",
+        "pytest:first",
+        "missing_artifacts:second",
+        "pytest:second"
+      ],
+      "calls": 4,
+      "missing_artifacts": {
+        "first": [
+          "test_first.py"
+        ],
+        "second": [
+          "test_second.py"
+        ]
+      },
+      "pytest_exit_codes": [
+        4,
+        4
+      ]
+    },
+    {
+      "case": "pipeline",
+      "passed": false,
+      "failures": [
+        "missing_artifacts:first",
+        "pytest:first",
+        "missing_artifacts:second",
+        "pytest:second"
+      ],
+      "calls": 5,
+      "missing_artifacts": {
+        "first": [
+          "test_first.py"
+        ],
+        "second": [
+          "test_second.py"
+        ]
+      },
+      "pytest_exit_codes": [
+        4,
+        4
+      ]
+    },
+    {
+      "case": "consensus",
+      "passed": false,
+      "failures": [
+        "member_outcomes",
+        "missing_artifacts:second",
+        "pytest:second",
+        "member_usage:executor_c0646383",
+        "member_usage:executor_5ec542d0",
+        "consensus_contract"
+      ],
+      "calls": 31,
+      "missing_artifacts": {
+        "second": [
+          "test_second.py"
+        ]
+      },
+      "pytest_exit_codes": [
+        0,
+        4
+      ]
+    },
+    {
+      "case": "reflection",
+      "passed": false,
+      "failures": [
+        "member_outcomes",
+        "missing_artifacts:first",
+        "pytest:first"
+      ],
+      "calls": 27,
+      "missing_artifacts": {
+        "first": [
+          "test_first.py"
+        ]
+      },
+      "pytest_exit_codes": [
+        4
+      ]
+    },
+    {
+      "case": "group_chat",
+      "passed": false,
+      "failures": [
+        "member_outcomes",
+        "distinct_member_sessions",
+        "missing_artifacts:first",
+        "pytest:first",
+        "missing_artifacts:second",
+        "pytest:second",
+        "semantic_oracle:second",
+        "conversation_contract"
+      ],
+      "calls": 4,
+      "missing_artifacts": {
+        "first": [
+          "test_first.py"
+        ],
+        "second": [
+          "second.py",
+          "test_second.py"
+        ]
+      },
+      "pytest_exit_codes": [
+        4,
+        4
+      ]
+    },
+    {
+      "case": "debate",
+      "passed": false,
+      "failures": [
+        "member_outcomes",
+        "missing_artifacts:first",
+        "pytest:first",
+        "missing_artifacts:judge",
+        "conversation_contract",
+        "decision_contract:FileNotFoundError"
+      ],
+      "calls": 8,
+      "missing_artifacts": {
+        "first": [
+          "test_first.py"
+        ],
+        "judge": [
+          "decision.json"
+        ]
+      },
+      "pytest_exit_codes": [
+        4,
+        0
+      ]
+    },
+    {
+      "case": "handoff",
+      "passed": false,
+      "failures": [
+        "member_outcomes",
+        "distinct_member_sessions",
+        "missing_artifacts:first",
+        "pytest:first",
+        "missing_artifacts:second",
+        "pytest:second",
+        "semantic_oracle:second",
+        "conversation_contract"
+      ],
+      "calls": 2,
+      "missing_artifacts": {
+        "first": [
+          "test_first.py"
+        ],
+        "second": [
+          "second.py",
+          "test_second.py"
+        ]
+      },
+      "pytest_exit_codes": [
+        4,
+        4
+      ]
+    },
+    {
+      "case": "adaptive",
+      "passed": false,
+      "failures": [
+        "missing_artifacts:first",
+        "pytest:first",
+        "missing_artifacts:second",
+        "pytest:second"
+      ],
+      "calls": 4,
+      "missing_artifacts": {
+        "first": [
+          "test_first.py"
+        ],
+        "second": [
+          "test_second.py"
+        ]
+      },
+      "pytest_exit_codes": [
+        4,
+        4
+      ]
+    },
+    {
+      "case": "dynamic_router",
+      "passed": false,
+      "failures": [
+        "missing_artifacts:first",
+        "pytest:first"
+      ],
+      "calls": 4,
+      "missing_artifacts": {
+        "first": [
+          "test_first.py"
+        ]
+      },
+      "pytest_exit_codes": [
+        4
+      ]
+    },
+    {
+      "case": "multi_level_hierarchy",
+      "passed": false,
+      "failures": [
+        "missing_artifacts:first",
+        "pytest:first",
+        "missing_artifacts:second",
+        "pytest:second",
+        "missing_artifacts:third",
+        "pytest:third"
+      ],
+      "calls": 10,
+      "missing_artifacts": {
+        "first": [
+          "test_first.py"
+        ],
+        "second": [
+          "test_second.py"
+        ],
+        "third": [
+          "test_third.py"
+        ]
+      },
+      "pytest_exit_codes": [
+        4,
+        4,
+        4
+      ]
+    },
+    {
+      "case": "ensemble_judge",
+      "passed": false,
+      "failures": [
+        "member_outcomes",
+        "distinct_member_sessions",
+        "missing_artifacts:first",
+        "pytest:first",
+        "missing_artifacts:second",
+        "pytest:second",
+        "missing_worktree:judge",
+        "ensemble_contract",
+        "decision_contract:KeyError"
+      ],
+      "calls": 7,
+      "missing_artifacts": {
+        "first": [
+          "test_member.py"
+        ],
+        "second": [
+          "test_member.py"
+        ]
+      },
+      "pytest_exit_codes": [
+        4,
+        4
+      ]
+    },
+    {
+      "case": "ensemble_synthesizer",
+      "passed": false,
+      "failures": [
+        "member_outcomes",
+        "distinct_member_sessions",
+        "missing_artifacts:first",
+        "pytest:first",
+        "missing_artifacts:second",
+        "pytest:second",
+        "missing_worktree:synthesizer",
+        "ensemble_contract",
+        "decision_contract:KeyError"
+      ],
+      "calls": 8,
+      "missing_artifacts": {
+        "first": [
+          "test_member.py"
+        ],
+        "second": [
+          "test_member.py"
+        ]
+      },
+      "pytest_exit_codes": [
+        4,
+        4
+      ]
+    },
+    {
+      "case": "ensemble_vote",
+      "passed": false,
+      "failures": [
+        "member_outcomes",
+        "missing_artifacts:first",
+        "pytest:first",
+        "missing_artifacts:second",
+        "pytest:second",
+        "ensemble_contract"
+      ],
+      "calls": 5,
+      "missing_artifacts": {
+        "first": [
+          "test_member.py"
+        ],
+        "second": [
+          "test_member.py"
+        ]
+      },
+      "pytest_exit_codes": [
+        4,
+        4
+      ]
+    }
+  ],
+  "calls": 130,
+  "distinct_member_sessions": 29,
+  "accounting_join_failures": [],
+  "joined_calls": 130,
+  "totals": {
+    "tokens_in": 457640,
+    "tokens_out": 12867,
+    "cache_read_tokens": 44,
+    "cache_creation_tokens": 0
+  },
+  "buffered_gateway_deadline_seconds": 120,
+  "shared_cache_cleared": false,
+  "limitations": [
+    "Independent numeric oracle checks a finite domain; it is not a hostile-code sandbox.",
+    "Buffered calls only; no streaming or origin-cancellation acceptance.",
+    "Reported cache counts do not establish backend executed reuse.",
+    "Runtime identities and hardware acceptance must accompany this report.",
+    "No tokenizer-equivalence or session-lease acceptance claim.",
+    "Unsupported durable partial resume remains explicitly deferred.",
+    "ROCm runtime differs from the preserved accepted C5 CUDA runtime.",
+    "Missing tests and malformed formation responses do not establish model-size causation."
+  ]
+}
