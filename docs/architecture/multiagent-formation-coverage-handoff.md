@@ -718,7 +718,7 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   cover successful/failed writes and independent caller handles; cleanup failures
   are observable and cannot replace a propagating cancellation. This is a scoped
   repair, not a full-matrix acceptance claim.
-  **Provider-owned typed handles (2026-09-21):** an offline real-binding probe
+  **Provider-owned typed handles — ✅ [PR #1164](https://github.com/anvai-labs/victor/pull/1164):** an offline real-binding probe
   against a local mock HTTP server retained idle Rust transport pools after native
   provider close: five closed providers grew descriptors from 8 to 21. Releasing
   only each closing provider's cached typed providers/runtime held the same probe
