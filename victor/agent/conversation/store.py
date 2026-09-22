@@ -278,6 +278,19 @@ class ConversationStore:
 
         return conn
 
+    def close_thread_connection(self) -> None:
+        """Release only the calling thread's cached handle, preserving stored data.
+
+        Executor threads outlive individual agents. A background persistence job
+        must release its handle before returning the thread to the pool; closing
+        from the event-loop thread would leave that worker's handle untouched.
+        A failed close retains the reference so the owner can retry cleanup.
+        """
+        connection = getattr(self._local, "conn", None)
+        if connection is not None:
+            connection.close()
+            self._local.conn = None
+
     @contextmanager
     def _connection(self) -> Iterator[sqlite3.Connection]:
         """Context manager for database connections with automatic cleanup.

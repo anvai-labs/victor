@@ -85,6 +85,7 @@ def test_wire_sqlite_c4_conservation_with_explicit_cache(joined):
         "correlation",
         "c4_truncated",
         "extra_row",
+        "settlement_timeout",
     ],
 )
 def test_failed_attempts_or_accounting_are_never_hidden(joined, fault):
@@ -105,6 +106,8 @@ def test_failed_attempts_or_accounting_are_never_hidden(joined, fault):
         wire["http_status"] = 504
     elif fault == "correlation":
         wire["origin_request_id"] = "wrong"
+    elif fault == "settlement_timeout":
+        wire["ledger_observation"] = "timeout"
     elif fault == "c4_truncated":
         pages["request:req-1"]["truncated"] = True
     else:
@@ -113,7 +116,19 @@ def test_failed_attempts_or_accounting_are_never_hidden(joined, fault):
     assert result["failures"]
 
 
-@pytest.mark.parametrize("fault", [None, "timeout", "counter_secret"])
+@pytest.mark.parametrize(
+    "fault",
+    [
+        None,
+        "timeout",
+        "counter_secret",
+        "delayed_ledger",
+        "missing_ledger",
+        "duplicate_ledger",
+        "ledger_cancelled",
+        "ledger_error",
+    ],
+)
 async def test_forward_records_only_usage_metadata_and_keeps_failed_attempts(tmp_path, fault):
     import asyncio
     import json
@@ -122,7 +137,18 @@ async def test_forward_records_only_usage_metadata_and_keeps_failed_attempts(tmp
     observer = accounting.GatewayObserver(
         "http://gateway", "fixture-admin", tmp_path / "unused.db", tmp_path, 18084, "inferflux"
     )
-    observer.last_row = Mock(side_effect=[0, 1])
+    import itertools
+
+    observer.last_row = Mock(
+        side_effect=itertools.chain([0], itertools.repeat(2 if fault == "duplicate_ledger" else 1))
+    )
+    matches = [] if fault == "missing_ledger" else [{"rowid": 1}]
+    if fault == "duplicate_ledger":
+        matches.append({"rowid": 2})
+    observer.query = Mock(return_value=matches)
+    if fault == "delayed_ledger":
+        observer.query.side_effect = [[], [{"rowid": 1}]]
+
     secret = "fixture-secret-do-not-retain"
     response = AsyncMock()
     response.status = 200
@@ -155,7 +181,16 @@ async def test_forward_records_only_usage_metadata_and_keeps_failed_attempts(tmp
     request.read = AsyncMock(
         return_value=json.dumps({"model": "reference", "messages": [{"content": secret}]}).encode()
     )
-    if fault == "timeout":
+    if fault in {"ledger_cancelled", "ledger_error"}:
+        error = (
+            asyncio.CancelledError()
+            if fault == "ledger_cancelled"
+            else RuntimeError("ledger unavailable")
+        )
+        observer.settle_ledger = AsyncMock(side_effect=error)
+        with pytest.raises(type(error)):
+            await observer.forward(request)
+    elif fault == "timeout":
         with pytest.raises(asyncio.TimeoutError):
             await observer.forward(request)
     else:
@@ -164,6 +199,11 @@ async def test_forward_records_only_usage_metadata_and_keeps_failed_attempts(tmp
     assert (
         observer.client.request.call_args.kwargs["headers"]["Authorization"] == "Bearer " + secret
     )
+    if fault not in {"timeout", "ledger_cancelled", "ledger_error"}:
+        expected = {"missing_ledger": "timeout", "duplicate_ledger": "ambiguous"}.get(
+            fault, "matched"
+        )
+        assert observer.records[0]["ledger_observation"] == expected
     wire = (tmp_path / "wire.json").read_text()
     assert secret not in wire
     assert len(json.loads(wire)) == 1
@@ -207,3 +247,102 @@ def test_compensating_or_misreported_counters_are_rejected(joined, fault):
     for page in pages.values():
         page["rows"][0].update({field: row[field] for field in accounting.COUNTS})
     assert accounting.reconcile([wire], [row], pages)["failures"]
+
+
+async def test_settlement_observes_delayed_sqlite_commit_without_changing_response_boundary(
+    tmp_path,
+):
+    import asyncio
+    from contextlib import closing
+    import sqlite3
+
+    database = tmp_path / "usage.db"
+    with closing(sqlite3.connect(database)) as connection:
+        connection.execute("CREATE TABLE usage_events (session_id, run_id, step_id, model)")
+        connection.commit()
+    observer = accounting.GatewayObserver("unused", "unused", database, tmp_path, 0, "zai")
+    record = {
+        "ordinal": 0,
+        "before_rowid": 0,
+        "response_rowid": 0,
+        "session_id": "member",
+        "run_id": "member",
+        "step_id": "step",
+        "model": "model",
+    }
+
+    async def delayed_commit():
+        await asyncio.sleep(0.02)
+        with closing(sqlite3.connect(database)) as connection:
+            connection.execute(
+                "INSERT INTO usage_events VALUES (?, ?, ?, ?)",
+                ("member", "member", "step", "model"),
+            )
+            connection.commit()
+
+    writer = asyncio.create_task(delayed_commit())
+    try:
+        await observer.settle_ledger(record)
+        assert record["ledger_observation"] == "matched"
+        assert record["response_rowid"] == 0
+        assert record["after_rowid"] == 1
+        assert 0 < record["ledger_wait_seconds"] < accounting.LEDGER_SETTLEMENT_SECONDS
+    finally:
+        await writer
+
+
+async def test_settlement_writer_lock_times_out_without_blocking_loop(tmp_path, monkeypatch):
+    import asyncio
+    import sqlite3
+    import time
+    from contextlib import closing
+
+    database = tmp_path / "locked.db"
+    with closing(sqlite3.connect(database)) as writer:
+        writer.execute("CREATE TABLE usage_events (session_id, run_id, step_id, model)")
+        writer.commit()
+        writer.execute("BEGIN EXCLUSIVE")
+        observer = accounting.GatewayObserver("unused", "unused", database, tmp_path, 0, "zai")
+        record = {
+            "before_rowid": 0,
+            "after_rowid": 0,
+            "session_id": "m",
+            "run_id": "m",
+            "step_id": "s",
+            "model": "model",
+        }
+        monkeypatch.setattr(accounting, "LEDGER_SETTLEMENT_SECONDS", 0.05)
+        ticks = []
+
+        async def heartbeat():
+            await asyncio.sleep(0.01)
+            ticks.append(True)
+
+        timer = asyncio.create_task(heartbeat())
+        started = time.monotonic()
+        try:
+            await observer.settle_ledger(record)
+            assert record["ledger_observation"] == "timeout"
+            assert time.monotonic() - started < 0.5
+            assert ticks == [True]
+        finally:
+            writer.rollback()
+            await timer
+
+
+async def test_settlement_rejects_match_observed_after_deadline(tmp_path, monkeypatch):
+    from unittest.mock import Mock
+
+    observer = accounting.GatewayObserver(
+        "unused", "unused", tmp_path / "unused", tmp_path, 0, "zai"
+    )
+    observer.last_row = Mock(return_value=1)
+    observer.query = Mock(return_value=[{"rowid": 1}])
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(
+        accounting, "time", SimpleNamespace(monotonic=Mock(side_effect=[0.0, 2.0, 2.0]))
+    )
+    record = {"before_rowid": 0, "session_id": "m", "run_id": "m", "step_id": "s", "model": "model"}
+    await observer.settle_ledger(record)
+    assert record["ledger_observation"] == "timeout"

@@ -6,6 +6,7 @@ executed cache reuse, tokenizer equivalence, streaming or origin cancellation.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 from pathlib import Path
@@ -31,6 +32,7 @@ FIELDS = (
     "duration_source",
 )
 BUFFERED_DEADLINE_SECONDS = 120
+LEDGER_SETTLEMENT_SECONDS = 1.0
 
 
 def diagnostic_errors(item: dict[str, Any], row: dict[str, Any]) -> list[str]:
@@ -68,6 +70,8 @@ def reconcile(
             errors.append("http_failure")
         if request.get("elapsed_seconds", BUFFERED_DEADLINE_SECONDS) >= BUFFERED_DEADLINE_SECONDS:
             errors.append("deadline_reached")
+        if "ledger_observation" in request and request["ledger_observation"] != "matched":
+            errors.append("ledger_settlement")
         matches = [
             row
             for row in rows
@@ -186,16 +190,24 @@ class GatewayObserver:
         temporary.write_text(json.dumps(value, indent=2, allow_nan=False) + "\n")
         temporary.replace(self.output / name)
 
-    def query(self, sql: str, parameters: tuple[Any, ...] = ()) -> list[dict[str, Any]]:
-        connection = sqlite3.connect("file:" + str(self.database) + "?mode=ro", uri=True)
+    def query(
+        self, sql: str, parameters: tuple[Any, ...] = (), *, timeout: float = 5.0
+    ) -> list[dict[str, Any]]:
+        connection = sqlite3.connect(
+            "file:" + str(self.database) + "?mode=ro", uri=True, timeout=timeout
+        )
         try:
             connection.row_factory = sqlite3.Row
             return [dict(row) for row in connection.execute(sql, parameters)]
         finally:
             connection.close()
 
-    def last_row(self) -> int:
-        return int(self.query("SELECT COALESCE(MAX(rowid),0) AS last FROM usage_events")[0]["last"])
+    def last_row(self, *, timeout: float = 5.0) -> int:
+        return int(
+            self.query("SELECT COALESCE(MAX(rowid),0) AS last FROM usage_events", timeout=timeout)[
+                0
+            ]["last"]
+        )
 
     async def admin_call(self, path: str, payload: Any = None) -> Any:
         if self.client is None:
@@ -241,6 +253,49 @@ class GatewayObserver:
             await self.close()
             raise
 
+    async def settle_ledger(self, record: dict[str, Any]) -> None:
+        """Observe a bounded post-response commit without replaying the HTTP call.
+
+        The gateway may finish sending the response before committing its usage
+        event. Require exactly one row with the original session/run/step/model
+        identity, then freeze the observed upper row bound for reconciliation.
+        """
+        started = time.monotonic()
+        deadline = started + LEDGER_SETTLEMENT_SECONDS
+        while True:
+            matches = []
+            try:
+                # A writer lock must not invoke sqlite's default five-second
+                # busy wait on the observer event loop.
+                record["after_rowid"] = self.last_row(timeout=0)
+                matches = self.query(
+                    "SELECT rowid FROM usage_events WHERE rowid>? AND rowid<=? "
+                    "AND session_id IS ? AND run_id IS ? AND step_id IS ? AND model IS ?",
+                    (
+                        record["before_rowid"],
+                        record["after_rowid"],
+                        record["session_id"],
+                        record["run_id"],
+                        record["step_id"],
+                        record["model"],
+                    ),
+                    timeout=0,
+                )
+            except sqlite3.OperationalError as exc:
+                if getattr(exc, "sqlite_errorcode", 0) & 0xFF not in (
+                    sqlite3.SQLITE_BUSY,
+                    sqlite3.SQLITE_LOCKED,
+                ):
+                    raise
+            expired = time.monotonic() >= deadline
+            if matches or expired:
+                record["ledger_observation"] = (
+                    "timeout" if expired else "matched" if len(matches) == 1 else "ambiguous"
+                )
+                record["ledger_wait_seconds"] = round(time.monotonic() - started, 6)
+                return
+            await asyncio.sleep(min(0.01, max(0.0, deadline - time.monotonic())))
+
     async def forward(self, request: web.Request) -> web.Response:
         if self.client is None:
             raise RuntimeError("Observer is not started")
@@ -278,10 +333,11 @@ class GatewayObserver:
                 if record is not None:
                     record.update(
                         http_status=response.status,
-                        after_rowid=self.last_row(),
+                        response_rowid=self.last_row(),
                         origin_request_id=response.headers.get("x-inferflux-client-request-id"),
                         response_sha256=hashlib.sha256(output).hexdigest(),
                     )
+                    record["after_rowid"] = record["response_rowid"]
                     try:
                         value = json.loads(output)
                         usage = value.get("usage") if isinstance(value, dict) else None
@@ -322,6 +378,9 @@ class GatewayObserver:
                                 record["invalid_usage_fields"] = invalid
                     except (ValueError, TypeError):
                         record["invalid_json"] = True
+                    if response.status == 200:
+                        record["ledger_observation"] = "pending"
+                        await self.settle_ledger(record)
                 return web.Response(
                     status=response.status,
                     body=output,

@@ -104,7 +104,9 @@ Implementation delivery and live acceptance have different denominators:
 | 2026-09-20 contract-v1 ZAI/Sandhi case passes | 10/15 (67%) | 2 deliverable failures; 3 ensemble cases blocked by resource exhaustion |
 | New matched Qwen/InferFlux case passes | 0/15 (0%); not run | 15 cases |
 | Historical contract-v1 matched matrix case passes | 10/30 (33%) | 20 cases without a pass (67%); overall ZAI run remains FAIL |
-| Corrected contract-v2 matrix, ZAI and Qwen through Sandhi | 0/30 (0% run; no new verdicts) | All 30 cases: 12 formations plus 3 ensemble modes per model |
+| 2026-09-21 contract-v2 ZAI/Sandhi case checks | 12/15 (80%); overall run FAIL | 3 ensemble cases failed; run-wide accounting also failed (G46) |
+| Contract-v2 Qwen/InferFlux case checks | 0/15 (0%); not run | 15 cases |
+| Contract-v2 combined case checks | 12/30 (40%) | 18 cases without a pass (60%); not end-to-end acceptance |
 | Current six-Qwen/one-ZAI C5 acceptance | Failed; earlier WS-E success is separate evidence | Full corrected run and reviewed verdict on InferFlux #184 |
 
 The [new actual-member ZAI experiment](evidence/zai-formation-matrix-2026-09-20.json)
@@ -130,7 +132,15 @@ the fix adds no live passes.
 G36 structured verification landed in [PR #1159](https://github.com/anvai-labs/victor/pull/1159)
 after all CI gates passed, including Vertical Py3.12. G42 independent numeric oracles landed in
 [PR #1157](https://github.com/anvai-labs/victor/pull/1157) with all CI green, including
-Vertical Py3.12. No contract-v2 cases have run; do not combine v1/v2 pass counts. The [research evaluation](multiagent-formation-research-evaluation.md)
+Vertical Py3.12. The new contract-v2 experiment `matrix-7cce287098` ran on clean
+source `f3792270d72db06c12093c2992ff1817c2e79859`. All 12 formation cases passed
+their local gates, including reflection and multi-level hierarchy; none of the
+three ensemble modes passed. Across 80 HTTP-200 calls and 25 member sessions,
+75 wire/SQLite joins passed and five failed, with an additional ledger call-count
+failure. The overall verdict remains FAIL. File descriptors grew from 9 before
+the first case to 253 after the ensemble failures; G41 remains open. These are
+new actual-member results, not a replay or a retrospective change to v1 evidence.
+Do not combine v1/v2 pass counts. The [research evaluation](multiagent-formation-research-evaluation.md)
 maps relevant papers to existing code, evidence and ordered follow-ups; it adds no
 live passes. G41's scoped cache-owner correction landed in
 [PR #1155](https://github.com/anvai-labs/victor/pull/1155), with full CI including
@@ -146,6 +156,26 @@ confirmed Qwen ready through the configured Sandhi route, and matched the preser
 gateway and origin binary hashes. The accepted origin is still partial CUDA,
 not a new R9700/ROCm deployment. Readiness checks establish no new model-call or
 formation acceptance. G45 separately tracks a test-collection MLX crash.
+
+### 1.6 Surface and test pruning audit (2026-09-21)
+
+Keep the 12 canonical formations and three aggregation policies. They already
+share one registry, the conversation substrate, and `execute_ensemble`; aggregation
+policies are not additional formations. Sequential continues after member failure,
+whereas pipeline stops. Consensus iterates agreement; ensemble vote uses one
+independent proposal wave. Debate judges a transcript; ensemble judge selects an
+independent candidate. A synthesizer combines proposals instead of selecting one.
+Router selects a member; adaptive switches registered strategies. Recursive
+multi-level hierarchy differs from supervisor delegation. Removing these surfaces
+would remove supported behavior rather than duplicate execution code.
+
+Pruned three older adaptive tests whose metadata/switch-bound assertions are
+covered more strongly by existing dispatch tests, and one unused nested writer
+helper. All executed production line and branch sets were unchanged in the paired
+coverage run (136 tests before, 133 after). Preserve compatibility, registry,
+preset and dispatch tests because they exercise different boundaries. Identical
+member/coordinator test helpers remain a possible mechanical consolidation; no
+assertions were removed on that basis. No production formation was removed.
 
 ## 2. Industry pattern catalog (researched 2026-09-17)
 
@@ -655,6 +685,15 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   retryable; cancellation and primary failures retain their identity and cleanup
   diagnostics. This does not prove that cache handles explain the entire live
   failure. G41 stays open pending renewed multi-case measurement and acceptance.
+  **Further measured owner (2026-09-21):** background conversation persistence
+  opens thread-local project SQLite connections on executor threads that outlive
+  members. An offline five-pair execution retained 15 project connections after
+  shutdown and garbage collection. `ChatService` now releases only the calling
+  worker's connection after each persistence job through `ConversationStore`;
+  committed data and other threads' handles remain available. Real SQLite tests
+  cover successful/failed writes and independent caller handles; cleanup failures
+  are observable and cannot replace a propagating cancellation. This is a scoped
+  repair, not a full-matrix acceptance claim.
   TDD covered success, failure, timeout, cancellation, early stream closure,
   persistence, and cleanup-error paths. The duplicate bootstrapper presence-only
   test was removed: the stronger lazy-proxy test preserves the same 51 executed
@@ -723,7 +762,7 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   exercised with the implicit current-directory import removed. Production
   behavior and live evidence are unchanged; no duplicate test case was added.
 
-- **G45 — MLX unit-test collection launches a native GPU probe.** During the
+- **G45 — ✅ isolated MLX unit-test collection ([PR #1162](https://github.com/anvai-labs/victor/pull/1162)).** During the
   2026-09-21 collection check, a Python child aborted in MLX 0.30.6's Metal device
   initialization with an empty-array exception. `test_mlx_provider.py` evaluated a
   runtime-availability subprocess in a module-level skip marker, even when pytest
@@ -738,6 +777,27 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   boundaries. No redundant tests were found. The four previously skipped hardware
   integration cases remain explicitly skipped; this fixes test isolation, not the
   installed MLX native runtime, and establishes no MLX or formation live acceptance.
+
+- **G46 — contract-v2 matrix wire/ledger correlation fails for five responses.**
+  New actual-member run `matrix-7cce287098` on 2026-09-21 recorded 80 HTTP-200
+  responses and 25 distinct member sessions. Its original reconciliation passed
+  75 joins, rejected ordinals 0, 3, 16, 22 and 43 as `nonunique_request_join`,
+  and failed `wire_ledger_call_count`. Each rejected request recorded identical
+  before/after SQLite row bounds and no origin request ID. This does not establish
+  whether rows were absent, delayed, or excluded by the correlation window.
+  Preserve the failed evidence; investigate the existing ledger read-only and
+  compare explicit session/step identities before changing any join logic.
+  A supplementary reconciliation must not overwrite the original FAIL, and no
+  correlation or conservation assertion may be weakened. The private original is
+  `/private/tmp/victor-zai-matrix-v2-20260921/matrix-7cce287098/evidence.json`.
+  Read-only inspection found all five exact session/step rows immediately above
+  the recorded response-time row bounds. The observer now allows up to one second
+  for ledger settlement, retaining the original response bound and recording its
+  wait and matched/ambiguous/timeout status. The final join still requires exactly
+  one row within the observed bounds and the same session/run/step/model identity;
+  HTTP attempts, 120-second acceptance deadline, C4, cache and token conservation
+  checks remain enforced. Missing/duplicate rows fail explicitly. This change
+  makes no retrospective change to the original failed verdict.
 
 Validation-test audit: neither live harness had direct tests before this follow-up.
 The new mixed-harness suite covers rejected/malformed/missing reviews, inclusive
