@@ -1,0 +1,142 @@
+{
+  "schema_version": 1,
+  "evidence_kind": "new actual-member experiment; not historical replay",
+  "date": "2026-09-21",
+  "run_id": "matrix-98a78c934d",
+  "verdict": "FAIL",
+  "victor_commit": "09f9894072c0c9dbe67cbb5e768e86a21a17f9fa",
+  "source_clean_at_launch": true,
+  "harness_sha256": "167d420367ac5ed1c96b985489b7d3eddff1312e0534a0e82b1c6452cca4c697",
+  "private_evidence_sha256": "9169da658909effabb037915f900296a03e422d67e394f504f73cdf6bc852b6b",
+  "provider": "inferflux",
+  "model": "qwen3-coder-30b",
+  "case_contract_version": 2,
+  "task_profile": "single-file",
+  "cases": [
+    {
+      "case": "sequential",
+      "passed": true,
+      "failures": [],
+      "calls": 6
+    },
+    {
+      "case": "parallel",
+      "passed": true,
+      "failures": [],
+      "calls": 6
+    },
+    {
+      "case": "hierarchical",
+      "passed": true,
+      "failures": [],
+      "calls": 6
+    },
+    {
+      "case": "pipeline",
+      "passed": true,
+      "failures": [],
+      "calls": 5
+    },
+    {
+      "case": "consensus",
+      "passed": true,
+      "failures": [],
+      "calls": 6
+    },
+    {
+      "case": "reflection",
+      "passed": true,
+      "failures": [],
+      "calls": 10
+    },
+    {
+      "case": "group_chat",
+      "passed": true,
+      "failures": [],
+      "calls": 5
+    },
+    {
+      "case": "debate",
+      "passed": false,
+      "failures": [
+        "member_outcomes",
+        "missing_artifacts:judge",
+        "conversation_contract",
+        "decision_contract:FileNotFoundError"
+      ],
+      "calls": 13
+    },
+    {
+      "case": "handoff",
+      "passed": true,
+      "failures": [],
+      "calls": 4
+    },
+    {
+      "case": "adaptive",
+      "passed": true,
+      "failures": [],
+      "calls": 4
+    },
+    {
+      "case": "dynamic_router",
+      "passed": true,
+      "failures": [],
+      "calls": 2
+    },
+    {
+      "case": "multi_level_hierarchy",
+      "passed": false,
+      "failures": [
+        "missing_artifacts:first",
+        "pytest:first",
+        "semantic_oracle:first"
+      ],
+      "calls": 5
+    },
+    {
+      "case": "ensemble_judge",
+      "passed": true,
+      "failures": [],
+      "calls": 16
+    },
+    {
+      "case": "ensemble_synthesizer",
+      "passed": false,
+      "failures": [
+        "decision_contract:ValueError"
+      ],
+      "calls": 23
+    },
+    {
+      "case": "ensemble_vote",
+      "passed": true,
+      "failures": [],
+      "calls": 14
+    }
+  ],
+  "calls": 125,
+  "http_status_counts": {
+    "200": 125
+  },
+  "distinct_observed_member_sessions": 33,
+  "accounting_failures": [],
+  "accounting_observations": 125,
+  "totals": {
+    "tokens_in": 449330,
+    "tokens_out": 11373,
+    "cache_read_tokens": 12,
+    "cache_creation_tokens": 0
+  },
+  "buffered_gateway_deadline_seconds": 120,
+  "shared_cache_cleared": false,
+  "limitations": [
+    "Independent numeric oracle checks a finite domain; it is not a hostile-code sandbox.",
+    "Buffered calls only; no streaming or origin-cancellation acceptance.",
+    "Reported cache counts do not establish backend executed reuse.",
+    "Runtime identities and hardware acceptance must accompany this report.",
+    "No tokenizer-equivalence or session-lease acceptance claim.",
+    "Unsupported durable partial resume remains explicitly deferred.",
+    "Single-file profile is distinct from standard two-file evidence; do not pool counts."
+  ]
+}

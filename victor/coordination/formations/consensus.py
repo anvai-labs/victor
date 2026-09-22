@@ -22,9 +22,11 @@ import asyncio
 import logging
 import json
 from collections import Counter
+from copy import deepcopy
 from typing import Any, Dict, List, Optional
 
 from victor.coordination.formations.base import BaseFormationStrategy, TeamContext
+from victor.coordination.formations.member_attempts import aggregate_attempts
 from victor.teams.types import AgentMessage, MemberResult, MessageType
 
 logger = logging.getLogger(__name__)
@@ -92,13 +94,21 @@ class ConsensusFormation(BaseFormationStrategy):
             ((resume or {}).get("shared_state") or {}).get("__consensus__") or {}
         )
 
+        capture = bool(context.get("capture_member_usage", False))
+        if saved and bool(saved.get("capture_member_usage", False)) != capture:
+            raise ValueError("Cannot change consensus member capture during resume")
+
         # Terminal resume: the run already finished — return the persisted final results.
         if saved.get("done"):
-            return [MemberResult.from_dict(r) for r in saved.get("final") or []]
+            return [
+                MemberResult.from_dict(deepcopy(r) if capture else r)
+                for r in saved.get("final") or []
+            ]
 
         round_start = int(saved.get("round_done", 0))
         all_results: List[MemberResult] = [
-            MemberResult.from_dict(r) for r in saved.get("all_results") or []
+            MemberResult.from_dict(deepcopy(r) if capture else r)
+            for r in saved.get("all_results") or []
         ]
         current_task = task
         if round_start > 0 and saved.get("next_task_content") is not None:
@@ -114,6 +124,17 @@ class ConsensusFormation(BaseFormationStrategy):
                 max_rounds,
             )
 
+        def finish(final: List[MemberResult]) -> List[MemberResult]:
+            if not capture:
+                return final
+            return [
+                aggregate_attempts(
+                    [attempt for attempt in all_results if attempt.member_id == member.member_id],
+                    "consensus",
+                )
+                for member in final
+            ]
+
         async def _checkpoint(
             round_done: int,
             next_task_content: Optional[str],
@@ -124,11 +145,18 @@ class ConsensusFormation(BaseFormationStrategy):
             if checkpoint_hook is None:
                 return
             context.shared_state["__consensus__"] = {
+                **({"capture_member_usage": True} if capture else {}),
                 "round_done": round_done,
-                "all_results": [r.to_dict() for r in all_results],
+                "all_results": [
+                    deepcopy(r.to_dict()) if capture else r.to_dict() for r in all_results
+                ],
                 "next_task_content": next_task_content,
                 "done": done,
-                "final": [r.to_dict() for r in final] if final is not None else None,
+                "final": (
+                    [deepcopy(r.to_dict()) if capture else r.to_dict() for r in final]
+                    if final is not None
+                    else None
+                ),
             }
             marker = (final or all_results or [MemberResult(member_id="consensus", success=True)])[
                 -1
@@ -161,6 +189,8 @@ class ConsensusFormation(BaseFormationStrategy):
                 else:
                     processed_results.append(result)
 
+            if capture:
+                processed_results = [deepcopy(result) for result in processed_results]
             for result in processed_results:
                 result.metadata["round"] = round_num
             all_results.extend(processed_results)
@@ -174,9 +204,9 @@ class ConsensusFormation(BaseFormationStrategy):
                 for r in processed_results:
                     r.metadata["consensus_achieved"] = True
                     r.metadata["consensus_rounds"] = round_num + 1
-                await _checkpoint(round_num + 1, None, True, processed_results)
-                # Return results from final consensus round
-                return processed_results
+                final = finish(processed_results)
+                await _checkpoint(round_num + 1, None, True, final)
+                return final
 
             # Prepare task for next round with previous results
             current_task = AgentMessage(
@@ -227,8 +257,9 @@ class ConsensusFormation(BaseFormationStrategy):
             if chosen is not None:
                 r.metadata["consensus_tie_breaker_id"] = chosen.member_id
                 r.metadata["consensus_decision"] = chosen.output
-        await _checkpoint(max_rounds, None, True, final_round_results)
-        return final_round_results
+        final = finish(final_round_results)
+        await _checkpoint(max_rounds, None, True, final)
+        return final
 
     async def _execute_agent(
         self,

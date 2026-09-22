@@ -1,0 +1,95 @@
+{
+  "schema_version": 1,
+  "evidence_kind": "new actual-member experiment; not historical replay",
+  "date": "2026-09-21",
+  "run_id": "matrix-5920dd66b7",
+  "verdict": "INCOMPLETE / FAIL",
+  "victor_commit": "09f9894072c0c9dbe67cbb5e768e86a21a17f9fa",
+  "source_clean_at_launch": true,
+  "harness_sha256": "167d420367ac5ed1c96b985489b7d3eddff1312e0534a0e82b1c6452cca4c697",
+  "private_evidence_sha256": "b0526882764dff9dcc1b82c7bc5512019ec1cea3196c0e6604c6fb08c634d392",
+  "provider": "zai",
+  "model": "glm-5.3",
+  "case_contract_version": 2,
+  "task_profile": "single-file",
+  "cases": [
+    {
+      "case": "sequential",
+      "passed": false,
+      "failures": [
+        "member_outcomes",
+        "wire_routes_or_attempts",
+        "missing_artifacts:first",
+        "pytest:first",
+        "semantic_oracle:first"
+      ],
+      "calls": 12
+    },
+    {
+      "case": "parallel",
+      "passed": false,
+      "failures": [
+        "wire_routes_or_attempts",
+        "member_usage:executor_2f4373e7"
+      ],
+      "calls": 8
+    },
+    {
+      "case": "hierarchical",
+      "passed": false,
+      "failures": [
+        "wire_routes_or_attempts",
+        "member_usage:executor_d6435919",
+        "member_usage:executor_13750175"
+      ],
+      "calls": 9
+    },
+    {
+      "case": "pipeline",
+      "passed": false,
+      "failures": [
+        "wire_routes_or_attempts",
+        "member_usage:executor_08bc2cfb",
+        "member_usage:executor_f8d1a8c9"
+      ],
+      "calls": 16
+    }
+  ],
+  "calls": 61,
+  "http_status_counts": {
+    "429": 26,
+    "200": 35
+  },
+  "distinct_observed_member_sessions": 10,
+  "accounting_observations": 61,
+  "totals": {
+    "tokens_in": 17100,
+    "tokens_out": 2849,
+    "cache_read_tokens": 58816,
+    "cache_creation_tokens": 0
+  },
+  "buffered_gateway_deadline_seconds": 120,
+  "shared_cache_cleared": false,
+  "limitations": [
+    "Independent numeric oracle checks a finite domain; it is not a hostile-code sandbox.",
+    "Buffered calls only; no streaming or origin-cancellation acceptance.",
+    "Reported cache counts do not establish backend executed reuse.",
+    "Runtime identities and hardware acceptance must accompany this report.",
+    "No tokenizer-equivalence or session-lease acceptance claim.",
+    "Unsupported durable partial resume remains explicitly deferred.",
+    "Single-file profile is distinct from standard two-file evidence; do not pool counts.",
+    "Stopped after repeated HTTP 429s; four completed cases failed and the in-flight case was cancelled. No quota cause or model capability verdict established.",
+    "Original detailed accounting failures remain in the preserved private evidence identified by SHA256; final wire rows and cancellation-time accounting are different snapshots."
+  ],
+  "accounting_failure_counts": {
+    "http_failure": 28,
+    "invalid_or_missing_usage": 10,
+    "availability_coverage": 10,
+    "c4_cache_observation": 30,
+    "nonunique_request_join": 25,
+    "ledger_settlement": 7,
+    "deadline_reached": 2,
+    "wire_ledger_call_count": 1
+  },
+  "accounting_passed": false
+}
