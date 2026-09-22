@@ -834,6 +834,18 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   makes no retrospective change to the original failed verdict. Renewed run
   `matrix-aae4713703` passed all 119 exact joins and aggregate conservation checks.
 
+- **G47 — consensus final-round usage omits earlier rounds.** New actual-member
+  Qwen ROCm run `matrix-94d9707bc9` exhausted three consensus rounds. Aggregate
+  wire/SQLite/C4/dashboard accounting passed, but both member usage checks failed:
+  the first member reported 6,725 input / 262 output against session totals
+  44,830 / 1,200; the second reported 41,104 inclusive input / 902 output against
+  76,233 / 1,681. `ConsensusFormation` returns the final round's results while
+  the same canonical member sessions cover all rounds. Follow-up must retain
+  per-attempt evidence and aggregate canonical usage under the existing opt-in
+  capture contract, preserving legacy defaults and round-boundary durability.
+  Missing/inconsistent session or usage data must fail explicitly. The simpler
+  task profile changes neither this accounting defect nor its acceptance gate.
+
 Validation-test audit: neither live harness had direct tests before this follow-up.
 The new mixed-harness suite covers rejected/malformed/missing reviews, inclusive
 cache accounting, missing artifacts, bad member usage, pytest timeout, startup and
