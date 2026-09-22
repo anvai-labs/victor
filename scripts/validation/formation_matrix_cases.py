@@ -15,6 +15,16 @@ from scripts.validation.formation_matrix_oracle import CONTRACT_VERSION, NUMERIC
 from victor.coordination.formations.ensemble import MODES
 from victor.framework.teams import AgentTeam, TeamFormation, TeamMemberSpec
 
+TASK_PROFILES = ("standard", "single-file")
+
+
+def numeric_artifact(function: str, task_profile: str) -> str:
+    """Derive the implementation path once for prompts, artifacts and the oracle."""
+    if task_profile not in TASK_PROFILES:
+        raise ValueError(f"Unknown matrix task profile: {task_profile}")
+    return f"test_{function}.py" if task_profile == "single-file" else f"{function}.py"
+
+
 CASE_NAMES = tuple(formation.value for formation in TeamFormation) + tuple(
     f"ensemble_{mode}" for mode in sorted(MODES)
 )
@@ -26,6 +36,7 @@ class MatrixCase:
     artifacts: dict[str, tuple[str, ...]]
     pytest_names: tuple[str, ...]
     isolated: bool = False
+    task_profile: str = "standard"
 
     @property
     def executed_names(self) -> tuple[str, ...]:
@@ -33,9 +44,17 @@ class MatrixCase:
 
 
 async def build_case(
-    orchestrator: Any, name: str, root: Path, python: Path, timeout: int
+    orchestrator: Any,
+    name: str,
+    root: Path,
+    python: Path,
+    timeout: int,
+    *,
+    task_profile: str = "standard",
 ) -> MatrixCase:
     """Build one bounded scenario with explicit expected participants and artifacts."""
+    if task_profile not in TASK_PROFILES:
+        raise ValueError(f"Unknown matrix task profile: {task_profile}")
     if name not in CASE_NAMES:
         raise ValueError(f"Unknown matrix case: {name}")
     shared: dict[str, Any] = {
@@ -46,12 +65,29 @@ async def build_case(
     }
     kwargs: dict[str, Any] = {"shared_context": shared, "timeout_seconds": timeout}
 
+    def files(member: str) -> tuple[str, ...]:
+        return tuple(dict.fromkeys((numeric_artifact(member, task_profile), f"test_{member}.py")))
+
+    def single_file_goal(member: str, directory: Path | None) -> str:
+        path = numeric_artifact(member, task_profile)
+        target = str(directory / path) if directory else path
+        return (
+            NUMERIC_DOMAIN + f"Write one file {target} containing both "
+            f"def {member}(x): return x * 2 and "
+            f"def test_{member}(): assert {member}(4) == 8. "
+            f"Run {python} -m pytest {target} -q using shell readonly=False. "
+            "Do not repeat successful writes. The file must exist and pytest must pass. "
+        )
+
     def spec(member: str) -> TeamMemberSpec:
         return TeamMemberSpec(
             role="executor",
             name=member,
             goal=(
-                NUMERIC_DOMAIN + f"Assigned member: {member}. Complete in order: "
+                single_file_goal(member, root)
+                + 'Your final output must be exactly {"status":"ready"}.'
+                if task_profile == "single-file"
+                else NUMERIC_DOMAIN + f"Assigned member: {member}. Complete in order: "
                 f"1. Write {root}/{member}.py with def {member}(x): return x * 2. "
                 f"2. Write {root}/test_{member}.py importing that function and defining "
                 f"def test_{member}(): assert {member}(4) == 8. "
@@ -68,7 +104,7 @@ async def build_case(
     artifacts: dict[str, tuple[str, ...]] = {}
     for member in members:
         assert member.name is not None
-        artifacts[member.name] = (f"{member.name}.py", f"test_{member.name}.py")
+        artifacts[member.name] = files(member.name)
     goal = "Complete your assigned deliverable and test."
     isolated = False
     pytest_names: tuple[str, ...] = ("first", "second")
@@ -90,10 +126,14 @@ async def build_case(
             "Do not repeat successful writes. After both files exist and tests pass, return only "
             'JSON {"vote_key":"double","answer":"<absolute path to your member.py>"}.'
         )
-        artifacts = {
-            "first": ("member.py", "test_member.py"),
-            "second": ("member.py", "test_member.py"),
-        }
+        if task_profile == "single-file":
+            goal = (
+                "Independently work in your assigned isolated workspace. "
+                + single_file_goal("member", None)
+                + "Use relative paths so each member writes only in its own workspace. "
+                'Return only JSON {"vote_key":"double","answer":"<absolute path to your test_member.py>"}.'
+            )
+        artifacts = {"first": files("member"), "second": files("member")}
         aggregator = None
         if mode != "vote":
             contract = (
@@ -114,8 +154,13 @@ async def build_case(
         )
     elif name == "reflection":
         members[1].goal = (
-            NUMERIC_DOMAIN + f"Read {root}/first.py and {root}/test_first.py. "
-            f"Run {python} -m pytest {root}/test_first.py -q using shell readonly=False. "
+            NUMERIC_DOMAIN
+            + (
+                f"Read {root}/first.py and {root}/test_first.py. "
+                if task_profile == "standard"
+                else f"Read {root}/test_first.py. "
+            )
+            + f"Run {python} -m pytest {root}/test_first.py -q using shell readonly=False. "
             f"Write {root}/review.json with exactly verdict and feedback keys: "
             "verdict=satisfied only if the function doubles input and its test passes, "
             "otherwise verdict=needs_work; feedback must be a string. Return only that JSON."
@@ -169,7 +214,7 @@ async def build_case(
         pytest_names = ("first",)
     elif name == "multi_level_hierarchy":
         members.append(spec("third"))
-        artifacts["third"] = ("third.py", "test_third.py")
+        artifacts["third"] = files("third")
         pytest_names = ("first", "second", "third")
         team = await AgentTeam.create_multi_level_hierarchy_team(
             orchestrator, name, goal, members, max_depth=3, **kwargs
@@ -190,10 +235,13 @@ async def build_case(
     # Formations can replace the member task (routing, critique, delegation).
     # Carry assignments in the structured team objective so those payloads retain
     # the task contract; bind IDs only after the canonical preset created them.
+    task_contract = {"version": CONTRACT_VERSION, "numeric_domain": NUMERIC_DOMAIN}
+    if task_profile != "standard":
+        task_contract["task_profile"] = task_profile
     team._config.goal = json.dumps(
         {
             "objective": team._config.goal,
-            "task_contract": {"version": CONTRACT_VERSION, "numeric_domain": NUMERIC_DOMAIN},
+            "task_contract": task_contract,
             "instructions": "Perform only your assigned task, identified by member_id, name, or role. Preserve the response_contract supplied by your formation.",
             "assignments": {
                 member.id: {"name": member.name, "task": member.goal}
@@ -201,4 +249,10 @@ async def build_case(
             },
         }
     )
-    return MatrixCase(team=team, artifacts=artifacts, pytest_names=pytest_names, isolated=isolated)
+    return MatrixCase(
+        team=team,
+        artifacts=artifacts,
+        pytest_names=pytest_names,
+        isolated=isolated,
+        task_profile=task_profile,
+    )

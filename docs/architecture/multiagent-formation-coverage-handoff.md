@@ -718,7 +718,7 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   cover successful/failed writes and independent caller handles; cleanup failures
   are observable and cannot replace a propagating cancellation. This is a scoped
   repair, not a full-matrix acceptance claim.
-  **Provider-owned typed handles (2026-09-21):** an offline real-binding probe
+  **Provider-owned typed handles — ✅ [PR #1164](https://github.com/anvai-labs/victor/pull/1164):** an offline real-binding probe
   against a local mock HTTP server retained idle Rust transport pools after native
   provider close: five closed providers grew descriptors from 8 to 21. Releasing
   only each closing provider's cached typed providers/runtime held the same probe
@@ -833,6 +833,18 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   checks remain enforced. Missing/duplicate rows fail explicitly. This change
   makes no retrospective change to the original failed verdict. Renewed run
   `matrix-aae4713703` passed all 119 exact joins and aggregate conservation checks.
+
+- **G47 — consensus final-round usage omits earlier rounds.** New actual-member
+  Qwen ROCm run `matrix-94d9707bc9` exhausted three consensus rounds. Aggregate
+  wire/SQLite/C4/dashboard accounting passed, but both member usage checks failed:
+  the first member reported 6,725 input / 262 output against session totals
+  44,830 / 1,200; the second reported 41,104 inclusive input / 902 output against
+  76,233 / 1,681. `ConsensusFormation` returns the final round's results while
+  the same canonical member sessions cover all rounds. Follow-up must retain
+  per-attempt evidence and aggregate canonical usage under the existing opt-in
+  capture contract, preserving legacy defaults and round-boundary durability.
+  Missing/inconsistent session or usage data must fail explicitly. The simpler
+  task profile changes neither this accounting defect nor its acceptance gate.
 
 Validation-test audit: neither live harness had direct tests before this follow-up.
 The new mixed-harness suite covers rejected/malformed/missing reviews, inclusive

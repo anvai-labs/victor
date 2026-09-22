@@ -27,9 +27,15 @@ _SPEC.loader.exec_module(matrix)
 @pytest.mark.parametrize(
     "name", [f.value for f in TeamFormation] + [f"ensemble_{m}" for m in sorted(MODES)]
 )
-async def test_every_registered_formation_has_an_explicit_artifact_case(name, tmp_path):
+@pytest.mark.parametrize("profile", ["standard", "single-file"])
+async def test_every_registered_formation_has_an_explicit_artifact_case(name, profile, tmp_path):
     case = await matrix.build_case(
-        MagicMock(), name, tmp_path, Path("/work/.venv-codesign/bin/python"), 240
+        MagicMock(),
+        name,
+        tmp_path,
+        Path("/work/.venv-codesign/bin/python"),
+        240,
+        task_profile=profile,
     )
     config = case.team._config
     expected_formation = "parallel" if name.startswith("ensemble_") else name
@@ -48,6 +54,18 @@ async def test_every_registered_formation_has_an_explicit_artifact_case(name, tm
     assert set(task["assignments"]) == {member.id for member in config.members}
     for member in config.members:
         assert task["assignments"][member.id] == {"name": member.name, "task": member.goal}
+    assert case.task_profile == profile
+    if profile == "single-file":
+        assert task["task_contract"]["task_profile"] == profile
+        for member in config.members:
+            if member.name in case.pytest_names:
+                function = "member" if case.isolated else member.name
+                assert case.artifacts[member.name] == (f"test_{function}.py",)
+                assert "one file" in member.goal
+                assert f"def {function}(x)" in member.goal
+                assert f"def test_{function}()" in member.goal
+    else:
+        assert "task_profile" not in task["task_contract"]
     if name == "dynamic_router":
         assert case.executed_names == ("first",)
         assert len(config.members) == 2
@@ -59,7 +77,9 @@ async def test_every_registered_formation_has_an_explicit_artifact_case(name, tm
         assert config.shared_context["parallel_worktree_isolation"] is True
         assert config.shared_context["ensemble_mode"] == name.removeprefix("ensemble_")
         assert config.members[0].goal == config.members[1].goal
-        assert case.artifacts["first"] == ("member.py", "test_member.py")
+        assert case.artifacts["first"] == (
+            ("member.py", "test_member.py") if profile == "standard" else ("test_member.py",)
+        )
     if name in {"group_chat", "debate", "handoff"}:
         assert config.shared_context["conversation_max_turns"] == 2
     if name == "reflection":
@@ -67,10 +87,16 @@ async def test_every_registered_formation_has_an_explicit_artifact_case(name, tm
         assert case.artifacts["second"] == ("review.json",)
 
 
-async def test_unknown_cases_fail_explicitly(tmp_path):
+@pytest.mark.parametrize("name,profile", [("unknown", "standard"), ("parallel", "unknown")])
+async def test_unknown_cases_fail_explicitly(tmp_path, name, profile):
     with pytest.raises(ValueError):
         await matrix.build_case(
-            MagicMock(), "unknown", tmp_path, Path("/work/.venv-codesign/bin/python"), 240
+            MagicMock(),
+            name,
+            tmp_path,
+            Path("/work/.venv-codesign/bin/python"),
+            240,
+            task_profile=profile,
         )
 
 

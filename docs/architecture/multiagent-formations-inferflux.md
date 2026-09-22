@@ -499,6 +499,18 @@ than repeating calls to obtain a pass:
   --gateway-state /path/to/private/sandhi-state --output-dir /tmp/inferflux-matrix
 ```
 
+For a simpler tool-follow-through experiment, add `--task-profile single-file` to
+both commands and use fresh output directories. Each member writes one
+`test_<name>.py` containing its doubling function and a pytest test; isolated
+ensemble candidates each write their own `test_member.py`. The critic, judge and
+synthesizer retain their existing review/decision responsibilities. The independent
+numeric oracle loads the function from that same file and still checks all 10,242
+inputs. A trivial member-written test cannot certify a constant-return function.
+Every case and run report, including failures, identifies `task_profile=single-file`.
+The default `standard` profile preserves the two-file prompts, expected artifacts
+and report shape. Keep profile cohorts separate: simpler-task acceptance does not
+replace failed standard-task evidence or establish equivalent model capability.
+
 The existing private state supplies `client.json` (ZAI) or `inferflux.json`, each
 with gateway `url` and `virtual_key`, plus `admin-token` and `usage.db`. Credentials
 remain local. The observer listens on loopback port 18084 and forwards through the
@@ -520,8 +532,8 @@ Cancellation remains cancellation even when cleanup records a fault. File output
 avoids inherited-pipe hangs. This is finite-domain verification, not containment
 of hostile code or detached child processes. Reports identify contract version 2;
 version-1 evidence keeps its original verdict and acceptance scope. The separate
-member-authored pytest runner still has the inherited-pipe cleanup gap G43; repair
-that path before the next live matrix. The new oracle does not close G43.
+member-authored pytest runner uses bounded process-group cleanup from
+[PR #1160](https://github.com/anvai-labs/victor/pull/1160) (G43).
 
 Each case requires its declared files, independent bounded pytest, successful
 member outcomes, distinct member session IDs, matching model/provider routing,

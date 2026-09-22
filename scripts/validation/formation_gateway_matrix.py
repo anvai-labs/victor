@@ -23,7 +23,13 @@ import uuid
 WORKTREE = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(WORKTREE))
 
-from scripts.validation.formation_matrix_cases import CASE_NAMES, MatrixCase, build_case
+from scripts.validation.formation_matrix_cases import (
+    CASE_NAMES,
+    TASK_PROFILES,
+    MatrixCase,
+    build_case,
+    numeric_artifact,
+)
 from scripts.validation.formation_matrix_oracle import CONTRACT_VERSION, check_numeric_oracle
 from scripts.validation.gateway_matrix_accounting import BUFFERED_DEADLINE_SECONDS, GatewayObserver
 from victor.framework import Agent
@@ -50,6 +56,8 @@ async def check_case(
         "usage_reconciliation": [],
         "artifacts": {},
     }
+    if case.task_profile != "standard":
+        report["task_profile"] = case.task_profile
     results = result.member_results if result is not None else {}
     members = {member.name: member for member in case.team._config.members}
     expected = {members[name].id for name in case.executed_names}
@@ -123,7 +131,9 @@ async def check_case(
             if process_result.status != 0 or process_result.returncode != 0:
                 report["failures"].append("pytest:" + name)
             function = "member" if case.isolated else name
-            oracle = await check_numeric_oracle(directory / f"{function}.py", function, python)
+            oracle = await check_numeric_oracle(
+                directory / numeric_artifact(function, case.task_profile), function, python
+            )
             report["semantic_oracles"].append({"member": name, **oracle})
             if not oracle["passed"]:
                 report["failures"].append("semantic_oracle:" + name)
@@ -226,6 +236,8 @@ async def run_case(
         "failures": [],
         "case_contract_version": CONTRACT_VERSION,
     }
+    if args.task_profile != "standard":
+        record["task_profile"] = args.task_profile
     agent = None
     case = None
     result = None
@@ -265,6 +277,7 @@ async def run_case(
             directory,
             WORKTREE / ".venv-codesign/bin/python",
             args.timeout,
+            task_profile=args.task_profile,
         )
         result = await asyncio.wait_for(case.team.run(), args.timeout)
         record["result"] = result.to_dict()
@@ -332,6 +345,8 @@ async def run_case(
 async def main(args: argparse.Namespace) -> int:
     from scripts.validation.multiagent_gateway_live import save_report
 
+    if args.task_profile not in TASK_PROFILES:
+        raise ValueError(f"Unknown matrix task profile: {args.task_profile}")
     if not args.cases or len(set(args.cases)) != len(args.cases) or args.timeout <= 0:
         raise ValueError("Choose unique cases and a positive timeout before making model calls")
     root = Path(args.output_dir).resolve() / ("matrix-" + uuid.uuid4().hex[:10])
@@ -361,6 +376,8 @@ async def main(args: argparse.Namespace) -> int:
         "inference_reruns": 0,
         "harness_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
     }
+    if args.task_profile != "standard":
+        report["task_profile"] = args.task_profile
     try:
         await observer.start()
         report["gateway_version"] = await observer.admin_call("/admin/version")
@@ -451,6 +468,7 @@ if __name__ == "__main__":
     parser.add_argument("--gateway-state", type=Path, required=True)
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--cases", nargs="+", choices=CASE_NAMES, default=list(CASE_NAMES))
+    parser.add_argument("--task-profile", choices=TASK_PROFILES, default="standard")
     parser.add_argument("--timeout", type=int, default=240)
     parser.add_argument("--proxy-port", type=int, default=18084)
     raise SystemExit(asyncio.run(main(parser.parse_args())))

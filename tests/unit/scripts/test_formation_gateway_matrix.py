@@ -127,15 +127,20 @@ async def test_member_pytest_runner_failures_cannot_pass(tmp_path, monkeypatch, 
 @pytest.mark.parametrize(
     "fault", [None, "missing", "duplicate_session", "no_result", "constant_function"]
 )
-async def test_artifacts_usage_and_pytest_remain_independent(tmp_path, fault):
-    case = await matrix.build_case(MagicMock(), "parallel", tmp_path, Path(sys.executable), 240)
+@pytest.mark.parametrize("profile", ["standard", "single-file"])
+async def test_artifacts_usage_and_pytest_remain_independent(tmp_path, fault, profile):
+    case = await matrix.build_case(
+        MagicMock(), "parallel", tmp_path, Path(sys.executable), 240, task_profile=profile
+    )
     results = {}
     records = []
     for member in case.team._config.members:
-        (tmp_path / f"{member.name}.py").write_text(f"def {member.name}(x): return x * 2\n")
-        (tmp_path / f"test_{member.name}.py").write_text(
-            f"from {member.name} import {member.name}\ndef test_{member.name}(): assert {member.name}(4) == 8\n"
-        )
+        implementation = f"def {member.name}(x): return x * 2\n"
+        test = f"def test_{member.name}(): assert {member.name}(4) == 8\n"
+        if profile == "standard":
+            (tmp_path / f"{member.name}.py").write_text(implementation)
+            implementation = f"from {member.name} import {member.name}\n"
+        (tmp_path / f"test_{member.name}.py").write_text(implementation + test)
         session = "duplicated" if fault == "duplicate_session" else "session-" + member.id
         results[member.id] = MemberResult(
             member_id=member.id,
@@ -170,10 +175,11 @@ async def test_artifacts_usage_and_pytest_remain_independent(tmp_path, fault):
             }
         )
     )
+    code_file = tmp_path / ("first.py" if profile == "standard" else "test_first.py")
     if fault == "constant_function":
-        (tmp_path / "first.py").write_text("def first(x): return 8\n")
+        code_file.write_text(code_file.read_text().replace("return x * 2", "return 8"))
     if fault == "missing":
-        (tmp_path / "first.py").unlink()
+        code_file.unlink()
     if fault == "no_result":
         result = None
     report = await matrix.check_case(
@@ -191,7 +197,10 @@ async def test_artifacts_usage_and_pytest_remain_independent(tmp_path, fault):
 
 
 @pytest.mark.parametrize("cancelled", [False, True])
-async def test_case_always_closes_agent_when_final_checks_fail(tmp_path, monkeypatch, cancelled):
+@pytest.mark.parametrize("profile", ["standard", "single-file"])
+async def test_case_always_closes_agent_when_final_checks_fail(
+    tmp_path, monkeypatch, cancelled, profile
+):
     import asyncio
 
     agent = MagicMock()
@@ -205,7 +214,9 @@ async def test_case_always_closes_agent_when_final_checks_fail(tmp_path, monkeyp
     monkeypatch.setattr(matrix, "build_case", AsyncMock(return_value=case))
     error = asyncio.CancelledError() if cancelled else RuntimeError("acceptance failed")
     monkeypatch.setattr(matrix, "check_case", AsyncMock(side_effect=error))
-    args = SimpleNamespace(provider="zai", model="reference", proxy_port=18084, timeout=240)
+    args = SimpleNamespace(
+        provider="zai", model="reference", proxy_port=18084, timeout=240, task_profile=profile
+    )
     operation = matrix.run_case("parallel", tmp_path / "case", args, SimpleNamespace(records=[]))
     if cancelled:
         with pytest.raises(asyncio.CancelledError):
@@ -213,11 +224,17 @@ async def test_case_always_closes_agent_when_final_checks_fail(tmp_path, monkeyp
     else:
         assert (await operation)["passed"] is False
     agent.close.assert_awaited_once()
-    assert (tmp_path / "case/evidence.json").exists()
+    import json
+
+    saved = json.loads((tmp_path / "case/evidence.json").read_text())
+    assert saved.get("task_profile", "standard") == profile
+    matrix.build_case.assert_awaited_once()
+    assert matrix.build_case.await_args.kwargs["task_profile"] == profile
 
 
+@pytest.mark.parametrize("profile", ["standard", "single-file"])
 async def test_matrix_report_stays_pending_until_accounting_and_cleanup_complete(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, profile
 ):
     import copy
     import json
@@ -256,6 +273,7 @@ async def test_matrix_report_stays_pending_until_accounting_and_cleanup_complete
 
     monkeypatch.setattr(mixed, "save_report", save)
     args = SimpleNamespace(
+        task_profile=profile,
         provider="zai",
         model="reference",
         proxy_port=18084,
@@ -266,6 +284,9 @@ async def test_matrix_report_stays_pending_until_accounting_and_cleanup_complete
     )
     assert await matrix.main(args) == 0
     assert [report["passed"] for report in snapshots] == [False, False, True]
+    for report in snapshots:
+        assert report.get("task_profile", "standard") == profile
+        assert ("task_profile" in report) == (profile != "standard")
 
 
 @pytest.mark.parametrize("cancelled", [False, True])
@@ -288,7 +309,9 @@ async def test_sink_failure_still_closes_agent_and_preserves_evidence(
     monkeypatch.setattr(
         matrix, "check_case", AsyncMock(return_value={"failures": ["failed"], "passed": False})
     )
-    args = SimpleNamespace(provider="zai", model="reference", proxy_port=18084, timeout=240)
+    args = SimpleNamespace(
+        provider="zai", model="reference", proxy_port=18084, timeout=240, task_profile="standard"
+    )
     operation = matrix.run_case("parallel", tmp_path / "case", args, SimpleNamespace(records=[]))
     if cancelled:
         with pytest.raises(asyncio.CancelledError):
