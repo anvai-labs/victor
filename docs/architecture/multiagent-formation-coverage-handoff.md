@@ -107,6 +107,8 @@ Implementation delivery and live acceptance have different denominators:
 | 2026-09-21 renewed contract-v2 ZAI/Sandhi acceptance | 15/15 (100%); overall PASS | No case failures; broader lifecycle and cross-model acceptance remain separate |
 | Contract-v2 Qwen/InferFlux ROCm case checks | 0/15 (0%); overall FAIL | 15 cases; missing tests and formation-contract failures |
 | Contract-v2 combined case checks | 15/30 (50%) | 15 Qwen cases without a pass; not mixed-team or lifecycle acceptance |
+| New single-file Qwen/ROCm profile | 12/15 (80%); overall FAIL | Debate, multi-level hierarchy and ensemble synthesizer |
+| New single-file ZAI profile | 0/4 completed cases; interrupted/incomplete | 26 HTTP 429s among 61 calls; no profile acceptance |
 | Current six-Qwen/one-ZAI C5 acceptance | Failed; earlier WS-E success is separate evidence | Full corrected run and reviewed verdict on InferFlux #184 |
 
 The [renewed contract-v2 ZAI run](evidence/zai-formation-matrix-v2-2026-09-21.json),
@@ -132,6 +134,24 @@ replace C5's preserved CUDA runtime. Next evaluate a simpler, explicitly labelle
 single-file task profile while retaining pytest, independent numeric oracles,
 formation decisions, distinct sessions and full accounting. Neither the failed
 baseline nor a future simpler pass establishes a model-size explanation.
+
+The opt-in single-file profile landed in [PR #1165](https://github.com/anvai-labs/victor/pull/1165).
+The [new Qwen run](evidence/qwen-rocm-single-file-2026-09-21.json),
+`matrix-98a78c934d`, passed 12/15 cases with all 125 HTTP-200 calls and 33 sessions
+reconciled (449,330 fresh input, 11,373 output, 12 reported cache-read tokens).
+Debate's judge never wrote its decision while reporting that pytest was unavailable;
+multi-level hierarchy omitted the first member's file; the synthesizer's saved
+answer differed from its final output. Those strict failures remain failures.
+The [ZAI reference attempt](evidence/zai-single-file-2026-09-21.json),
+`matrix-5920dd66b7`, was interrupted after repeated rate limits: 26 HTTP 429s and
+35 HTTP 200s, four completed failed cases and a cancelled in-flight case. Its
+cancellation-time reconciliation also failed; some wire records finalized later
+than that snapshot, so those HTTP-200 responses are not clean-join evidence. This
+neither closes single-file ZAI acceptance nor invalidates the earlier standard
+15/15 pass. Both used clean source `09f9894072c0c9dbe67cbb5e768e86a21a17f9fa`.
+Do not combine single-file and standard task counts. A model-size explanation is
+still unproven; preserve tool-follow-through and output-contract failures separately
+from transport, accounting and capacity observations.
 
 The [new actual-member ZAI experiment](evidence/zai-formation-matrix-2026-09-20.json)
 passed sequential, parallel, hierarchical, pipeline, consensus, group chat, debate,
@@ -845,6 +865,22 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   capture contract, preserving legacy defaults and round-boundary durability.
   Missing/inconsistent session or usage data must fail explicitly. The simpler
   task profile changes neither this accounting defect nor its acceptance gate.
+  The scoped repair reuses the reflection attempt reducer for consensus capture:
+  sum all retained deltas and tool/duration totals, preserve failed attempts and
+  reject inconsistent sessions/counters. Capture snapshots on intake and restore
+  prevent mutable member metadata or returned aggregates from corrupting history.
+  Round-boundary and terminal resume retain totals without replay; changing capture
+  mode during resume is rejected. Legacy capture-disabled output is unchanged.
+  TDD reproduced five accounting cases plus two independent-review alias defects;
+  existing durability tests were parameterized instead of duplicated. This repair
+  adds no live multi-round consensus acceptance by itself.
+
+- **G48 — repeated conversation speaker usage is last-turn-only (code audit).**
+  `ConversationFormation.record` sums tool/duration counts across repeated speakers
+  but replaces usage with the latest turn's metadata. Current two-speaker matrix
+  cases execute each speaker once and do not test this boundary. Reuse the shared
+  attempt reducer under the existing opt-in capture contract and add a repeated-
+  speaker coordinator test before claiming complete conversation accounting.
 
 Validation-test audit: neither live harness had direct tests before this follow-up.
 The new mixed-harness suite covers rejected/malformed/missing reviews, inclusive

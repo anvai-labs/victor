@@ -14,6 +14,8 @@ from __future__ import annotations
 
 from typing import Any, List, Optional
 
+import pytest
+
 from victor.coordination.formations.base import TeamContext
 from victor.coordination.formations.consensus import ConsensusFormation
 from victor.coordination.formations.reflection import ReflectionFormation
@@ -43,15 +45,33 @@ def _task() -> AgentMessage:
 class _ConsensusAgent:
     """Round agent recording which rounds it ran (via the task's consensus_round tag)."""
 
-    def __init__(self, member_id: str, *, succeed: bool = True) -> None:
+    def __init__(
+        self, member_id: str, *, succeed: bool = True, shared_metadata: bool = False
+    ) -> None:
         self.id = member_id
         self._succeed = succeed
         self.rounds_seen: List[int] = []
+        self.shared_metadata = shared_metadata
+        self.details = {"session_id": "session-" + self.id, "usage": {}}
 
     async def execute(self, task: AgentMessage, context: Any) -> MemberResult:
         rnd = int(task.data.get("consensus_round", 0)) if isinstance(task.data, dict) else 0
         self.rounds_seen.append(rnd)
-        return MemberResult(member_id=self.id, success=self._succeed, output=f"{self.id}-r{rnd}")
+        metadata = (
+            self.details
+            if self.shared_metadata
+            else {"session_id": "session-" + self.id, "usage": {}}
+        )
+        count = 3 + rnd * 4 if self.shared_metadata else 3
+        metadata["usage"].update(input_tokens=count, output_tokens=2, total_tokens=count + 2)
+        return MemberResult(
+            member_id=self.id,
+            success=self._succeed,
+            output=f"{self.id}-r{rnd}",
+            tool_calls_used=1,
+            duration_seconds=1.0,
+            metadata=metadata,
+        )
 
 
 def _agents() -> List[_ConsensusAgent]:
@@ -67,10 +87,22 @@ def _consensus_snaps(checkpoints: List[Any]) -> List[Any]:
     return [c for c in checkpoints if "__consensus__" in (c.state.get("shared_state") or {})]
 
 
-async def test_consensus_checkpoints_each_round() -> None:
+@pytest.mark.parametrize("shared_metadata", [False, True])
+async def test_consensus_checkpoints_each_round(shared_metadata) -> None:
     cp = MemoryCheckpointer()
-    a, d = _agents()
-    await _consensus(3).execute([a, d], await _durable_context(cp), _task())
+    a, d = [
+        _ConsensusAgent(name, succeed=(name == "a"), shared_metadata=shared_metadata)
+        for name in ("a", "d")
+    ]
+    result = await _consensus(3).execute(
+        [a, d], await _durable_context(cp, {"capture_member_usage": True}), _task()
+    )
+    assert result[0].metadata["usage"]["input_tokens"] == (21 if shared_metadata else 9)
+    assert [item["metadata"]["round"] for item in result[0].metadata["consensus_attempts"]] == [
+        0,
+        1,
+        2,
+    ]
 
     assert a.rounds_seen == [0, 1, 2]  # all three rounds ran (consensus never reached)
     snaps = _consensus_snaps(await cp.list(_THREAD))
@@ -79,25 +111,60 @@ async def test_consensus_checkpoints_each_round() -> None:
     assert latest.state["shared_state"]["__consensus__"]["done"] is True
 
 
-async def test_consensus_resume_skips_completed_rounds() -> None:
+@pytest.mark.parametrize("capture", [False, True])
+@pytest.mark.parametrize("resume_from", ["partial", "terminal", "changed_capture"])
+async def test_consensus_resume_skips_completed_rounds(capture, resume_from) -> None:
     cp = MemoryCheckpointer()
-    await _consensus(3).execute(list(_agents()), await _durable_context(cp), _task())
-
-    # Keep only the round_done=1 snapshot → simulate a crash after round 1 (round_num 0).
-    r1 = [
-        c
-        for c in _consensus_snaps(await cp.list(_THREAD))
-        if int(c.state["shared_state"]["__consensus__"]["round_done"]) == 1
-    ]
-    assert r1
-    cp2 = MemoryCheckpointer()
-    await cp2.save(r1[0])
-
+    extra = {"capture_member_usage": capture}
+    first = await _consensus(3).execute(list(_agents()), await _durable_context(cp, extra), _task())
+    if resume_from == "partial":
+        r1 = next(
+            c
+            for c in _consensus_snaps(await cp.list(_THREAD))
+            if int(c.state["shared_state"]["__consensus__"]["round_done"]) == 1
+        )
+        cp2 = MemoryCheckpointer()
+        await cp2.save(r1)
+        cp = cp2
+    if resume_from == "changed_capture":
+        extra["capture_member_usage"] = not capture
     a2, d2 = _agents()
-    await _consensus(3).execute([a2, d2], await _durable_context(cp2), _task())
-
-    # Round 0 was restored; only the remaining rounds (consensus_round 1, 2) re-run.
-    assert a2.rounds_seen == [1, 2] and d2.rounds_seen == [1, 2]
+    ctx = await _durable_context(cp, extra)
+    operation = _consensus(3).execute([a2, d2], ctx, _task())
+    if resume_from == "changed_capture":
+        with pytest.raises(ValueError, match="Cannot change consensus member capture"):
+            await operation
+        assert a2.rounds_seen == d2.rounds_seen == []
+        return
+    resumed = await operation
+    expected = [1, 2] if resume_from == "partial" else []
+    assert a2.rounds_seen == d2.rounds_seen == expected
+    assert [r.to_dict() for r in resumed] == [r.to_dict() for r in first]
+    if capture:
+        assert resumed[0].metadata["usage"] == {
+            "input_tokens": 9,
+            "output_tokens": 6,
+            "total_tokens": 15,
+        }
+        assert len(resumed[0].metadata["consensus_attempts"]) == 3
+        assert resumed[0].tool_calls_used == 3
+        if resume_from == "terminal":
+            resumed[0].metadata["usage"]["input_tokens"] = 999
+            assert (
+                ctx.resume_completed["shared_state"]["__consensus__"]["final"][0]["metadata"][
+                    "usage"
+                ]["input_tokens"]
+                == 9
+            )
+        # Returned aggregates must not mutate the persisted attempt deltas.
+        resumed[0].metadata["consensus_attempts"][0]["metadata"]["usage"]["input_tokens"] = 999
+        snapshot = max(_consensus_snaps(await cp.list(_THREAD)), key=lambda c: c.timestamp)
+        assert (
+            snapshot.state["shared_state"]["__consensus__"]["all_results"][0]["metadata"]["usage"][
+                "input_tokens"
+            ]
+            == 3
+        )
 
 
 async def test_consensus_no_checkpointer_is_unchanged() -> None:

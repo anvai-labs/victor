@@ -5,6 +5,7 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
+from victor.coordination.formations.member_attempts import aggregate_attempts
 from victor.teams.types import AgentMessage, MemberResult, MessageType
 
 
@@ -55,40 +56,7 @@ class ReflectionResults:
             grouped.setdefault(attempt.member_id, []).append(attempt)
         results = []
         for attempts in grouped.values():
-            result = deepcopy(attempts[-1])
-            failed = [item for item in attempts if not item.success]
-            if failed:
-                result.success = False
-                result.error = failed[0].error or "An earlier reflection attempt failed"
-            result.tool_calls_used = sum(item.tool_calls_used for item in attempts)
-            result.duration_seconds = sum(item.duration_seconds for item in attempts)
-            result.metadata["reflection_attempts"] = [deepcopy(item.to_dict()) for item in attempts]
-            usage: dict[str, int] = {}
-            invalid = False
-            session = attempts[0].metadata.get("session_id")
-            for item in attempts:
-                counters = item.metadata.get("usage")
-                if (
-                    not isinstance(session, str)
-                    or not session
-                    or item.metadata.get("session_id") != session
-                    or not isinstance(counters, dict)
-                    or not {"input_tokens", "output_tokens", "total_tokens"} <= counters.keys()
-                    or any(type(value) is not int or value < 0 for value in counters.values())
-                    or counters["total_tokens"]
-                    != counters["input_tokens"] + counters["output_tokens"]
-                ):
-                    invalid = True
-                    continue
-                for key, value in counters.items():
-                    usage[key] = usage.get(key, 0) + value
-            if invalid:
-                result.success = False
-                result.error = "Reflection member capture has missing or inconsistent session/usage"
-                result.metadata.pop("usage", None)
-                result.metadata["reflection_capture_error"] = True
-            else:
-                result.metadata["usage"] = usage
+            result = aggregate_attempts(attempts, "reflection")
             if aggregate.member_id == result.member_id and not aggregate.success:
                 result.success = False
                 result.error = aggregate.error
