@@ -5,10 +5,12 @@ from __future__ import annotations
 import inspect
 import json
 import logging
+from copy import deepcopy
 from dataclasses import asdict
 from typing import Any, List
 
 from victor.coordination.formations.base import BaseFormationStrategy, TeamContext
+from victor.coordination.formations.member_attempts import aggregate_attempts
 from victor.framework.member_event_sink import (
     MEMBER_HANDOFF,
     MEMBER_SPOKE,
@@ -88,6 +90,8 @@ class ConversationFormation(BaseFormationStrategy):
         if self.mode == "handoff" and current not in speakers:
             raise ValueError("Handoff start must be a configured speaking member")
         results: dict[str, MemberResult] = {}
+        capture = bool(context.get("capture_member_usage", False))
+        attempts: dict[str, list[MemberResult]] = {}
         final_output = ""
         success = False
         reason = "max_turns"
@@ -95,7 +99,9 @@ class ConversationFormation(BaseFormationStrategy):
 
         def record(result: MemberResult):
             prior = results.get(result.member_id)
-            if prior is not None:
+            if capture:
+                attempts.setdefault(result.member_id, []).append(result)
+            elif prior is not None:
                 result.tool_calls_used += prior.tool_calls_used
                 result.duration_seconds += prior.duration_seconds
                 result.success = result.success and prior.success
@@ -113,6 +119,8 @@ class ConversationFormation(BaseFormationStrategy):
                     [by_id[identifier]], message, context, [context], indices=[index]
                 )
             )[0]
+            if capture:
+                result = deepcopy(result)
             record(result)
             if not result.success:
                 raise ValueError(result.error or f"Member {identifier} failed")
@@ -272,6 +280,17 @@ class ConversationFormation(BaseFormationStrategy):
                 raise
         if not success and reason == "max_turns":
             logger.warning("Conversation %s exhausted max_turns=%d", self.mode, max_turns)
+        if capture:
+            results = {
+                identifier: aggregate_attempts(history, "conversation")
+                for identifier, history in attempts.items()
+            }
+            invalid = next(
+                (r for r in results.values() if r.metadata.get("conversation_capture_error")), None
+            )
+            if invalid is not None and success:
+                assert invalid.error is not None
+                success, reason, final_output = False, "capture_error", invalid.error
         context.set("conversation_transcript", transcript.to_list())
         context.set("conversation_termination", reason)
         for result in results.values():

@@ -881,6 +881,14 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   cases execute each speaker once and do not test this boundary. Reuse the shared
   attempt reducer under the existing opt-in capture contract and add a repeated-
   speaker coordinator test before claiming complete conversation accounting.
+  The scoped repair now snapshots captured results before consuming each turn and
+  uses the existing attempt reducer for speaking members, routers and judges.
+  Captured usage, tool calls and duration cover the whole member session; malformed
+  final turns retain their failed attempt, and inconsistent session/usage fails
+  explicitly. Capture-disabled behavior remains unchanged. Public coordinator
+  regressions cover all three conversation formations and repeated router calls,
+  including shared mutable provider metadata. Existing protocol/selection tests
+  retain ownership; no durable partial resume or new live acceptance is claimed.
 
 - **G49 — SSO migration does not yet have actual-member acceptance.** Sandhi's
   default OIDC, dashboard roles and scoped machine authorization landed in
