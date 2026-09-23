@@ -1062,12 +1062,32 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   Resolve each field once after authentication/model authorization, expose the
   effective value and source to authorized operators, and apply the same result to
   transparent and translated requests without rebuilding pools per request. Keep
-  buffered, setup and idle limits distinct. Clients cannot raise their bounds;
+  buffered, setup and idle limits distinct; a per-attempt transport timer does not
+  include client credential acquisition and all gateway admission work. Reject
+  configured values above the operator ceiling rather than silently clamping them.
+  That ceiling must leave settlement headroom within budget-reservation lifetime;
+  longer workloads need an explicit lease-lifecycle design. Clients cannot raise their bounds;
   auth failures cannot bypass the gateway or trigger credential downgrade; timed-out
   POSTs must not be automatically replayed. A timeout response does not prove
   origin cancellation. Preserve byte-identical default wire behavior and label any
   changed-deadline acceptance cohort separately. This is a design requirement,
   not a shipped configurable feature.
+
+- **G54 — ✅ raw streaming error-body deadline repaired in source; release/deployment pending.**
+  The Sandhi 0.9.0 audit for G53 found that both raw streaming entry points stop
+  their setup timer at headers, then read non-success response bodies outside
+  setup and idle bounds. Source repair merged through
+  [Sandhi #291](https://github.com/anvai-labs/sandhi/pull/291) at `679ad4dcdd8ee7c24d53192bd01bb6f283271a9c`
+  after clean independent review and all CI gates: collect the rejection
+  body inside the same setup budget and retain observed status/request ID in one
+  terminal timeout event. TDD reproduced both escapes. One existing timeout suite
+  now owns stalled body, cumulative header/body deadline, and upstream EOF while
+  the client remains alive; the existing rate-limit test owns normal rejection
+  mapping. No duplicate fixture suite or default-timeout increase was added.
+  Workspace tests and 89.41% line coverage passed. The active released 0.9.0
+  gateway does not yet contain this source repair.
+  This source repair is distinct from G52's buffered-origin liveness failure and
+  does not add a formation/C5 pass or prove origin cancellation.
 
 Validation-test audit: neither live harness had direct tests before this follow-up.
 The new mixed-harness suite covers rejected/malformed/missing reviews, inclusive
