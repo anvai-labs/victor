@@ -67,7 +67,7 @@ dependencies = [
     # semantic caches, FEP-0012 numpy-only ML inference). Previously only reachable
     # via the embeddings/dev extras, so a bare `pip install victor-ai` shipped a CLI
     # that crashed at startup. Keep the pin aligned with the embeddings extra.
-    "numpy>=1.24,<2.5",
+    "numpy>=1.24,<2.6",
 
     # Standards-based advisory scoring; pure Python with no transitive dependencies.
     "cvss>=3.6,<4",
@@ -121,7 +121,7 @@ docker = [
 ]
 # Semantic embeddings: tool selection, conversation embeddings, codebase search
 embeddings = [
-    "numpy>=1.24,<2.5",  # Required by victor.storage.embeddings.service; numba-compatible
+    "numpy>=1.24,<2.6",  # Required by victor.storage.embeddings.service; numba-compatible
     "sentence-transformers>=2.2.0",
     "torch>=2.13.0",  # Patched floor for the embeddings backend
     "lancedb>=0.6.0",
@@ -180,7 +180,7 @@ ml = [
 
 dev = [
     # Embeddings (required for full test coverage)
-    "numpy>=1.24,<2.5",  # Required by victor.storage.embeddings.service; numba-compatible
+    "numpy>=1.24,<2.6",  # Required by victor.storage.embeddings.service; numba-compatible
     "sentence-transformers>=2.2.0",
     "torch>=2.13.0",  # Patched floor for the embeddings backend
     "lancedb>=0.6.0",
@@ -203,7 +203,7 @@ dev = [
     "pandas>=2.0",  # For data analysis handler tests
 
     # Linting/Formatting
-    "ruff==0.16.6",
+    "ruff==0.16.7",
     "mypy>=1.10",
     "black==26.5.1",
 
@@ -250,7 +250,7 @@ dev = [
 # CI/CD dependencies - includes all testing, linting, and build tools
 ci = [
     # Embeddings and optional runtime surfaces exercised in unit tests
-    "numpy>=1.24,<2.5",
+    "numpy>=1.24,<2.6",
     "sentence-transformers>=2.2.0",
     "torch>=2.13.0",  # Patched floor for the embeddings backend
     "lancedb>=0.6.0",
@@ -272,7 +272,7 @@ ci = [
     "scikit-learn>=1.4",  # FEP-0012 edge-classifier trainer round-trip tests
 
     # Linting/Formatting/Typing
-    "ruff==0.16.6",
+    "ruff==0.16.7",
     "mypy>=1.10",
     "black==26.5.1",
     "radon>=6.0",
