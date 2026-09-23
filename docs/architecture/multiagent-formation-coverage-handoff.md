@@ -876,6 +876,8 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   adds no live multi-round consensus acceptance by itself.
 
 - **G48 — repeated conversation speaker usage is last-turn-only (code audit).**
+  ✅ Code repair landed in [#1169](https://github.com/anvai-labs/victor/pull/1169)
+  after all CI gates passed; repeated-speaker live acceptance remains separate.
   `ConversationFormation.record` sums tool/duration counts across repeated speakers
   but replaces usage with the latest turn's metadata. Current two-speaker matrix
   cases execute each speaker once and do not test this boundary. Reuse the shared
@@ -906,7 +908,7 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   [#212](https://github.com/anvai-labs/inferflux/pull/212), and buffered/streaming
   TLS peer identity verification landed in
   [#213](https://github.com/anvai-labs/inferflux/pull/213). The audit credential
-  exposure fix is tracked by [#214](https://github.com/anvai-labs/inferflux/pull/214).
+  exposure fix landed in [#214](https://github.com/anvai-labs/inferflux/pull/214).
   Verified issuer discovery, Kanidm access-token interoperability, explicit
   authorization policy, bounded authority requests and trusted runtime deployment
   still need acceptance. Do not infer these from signed-token unit tests or the
@@ -921,13 +923,32 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
 
   Both live validation harnesses currently read virtual-key and admin-token files.
   Add an explicit structured OAuth credential/renewal contract and authorized
-  accounting-read identity before claiming they test the OIDC deployment. Retain
+  accounting identity before claiming they test the OIDC deployment. Sandhi 0.8.0
+  deliberately requires `admin` for the read-only C4 diagnostics POST (ADR-0011);
+  a `viewer` cannot satisfy unchanged C4 assertions. A separately reviewed scoped
+  diagnostics permission is needed for least-privilege automation. Do not silently
+  grant admin or omit diagnostics. Keep renewable OAuth access tokens inside the
+  observer adapter rather than member environments or cached provider handles;
+  use fixed route/grant bindings and separate inference/accounting identities.
+  Bootstrap credentials stay with their trusted broker. Retain
   all existing request/session, usage, dashboard, deliverable and pytest assertions;
   a 120-second buffered gateway timeout remains an acceptance failure. Complete
   released-binary SSO and upstream acceptance first, then ZAI reference, simpler
   Qwen ROCm/CUDA cohorts, and the six-Qwen/one-ZAI C5 run. Measure performance only
   after these security and usability gates; no current formation row turns green
   from the SSO integration check.
+
+- **G50 — subagent retry can conceal an authentication denial (code audit).**
+  The outer `SubAgent` retry catches `ProviderError`, including the canonical
+  `ProviderAuthError` which the provider layer already excludes from retry.
+  A denied request can therefore re-enter the whole chat and repeat earlier tool
+  work. The scoped correction propagates that typed error immediately and keeps
+  the existing failed-member result. Existing retry tests retain transient cooldown
+  coverage; new 401/403 regressions require one chat invocation, no backoff, and a
+  failed member even when a later response would succeed. TDD reproduced both
+  failures. This does not establish OAuth renewal, upstream identity, or live C5
+  acceptance; those remain G49. The redundant enum-count test was removed because
+  the existing exact role-set assertion already iterates and checks all five roles.
 
 Validation-test audit: neither live harness had direct tests before this follow-up.
 The new mixed-harness suite covers rejected/malformed/missing reviews, inclusive
