@@ -93,7 +93,7 @@ remains inline (see G17).
   blackboard and contract-net remain absent. Conversation-native formations now
   use the FEP-0035 transcript substrate; ensemble status is tracked separately (G16).
 
-### 1.5 Completion audit (2026-09-21)
+### 1.5 Completion audit (updated 2026-09-23; cohort dates retained)
 
 Implementation delivery and live acceptance have different denominators:
 
@@ -102,7 +102,7 @@ Implementation delivery and live acceptance have different denominators:
 | WS-A through WS-I increments landed | 9/9 (100%); PRs in §4 | 0 original increments |
 | Historical live passes before the new matrix | 7/15 (47%): original six plus ensemble vote | Historical tasks/gates differ; not matched acceptance |
 | 2026-09-20 contract-v1 ZAI/Sandhi case passes | 10/15 (67%) | 2 deliverable failures; 3 ensemble cases blocked by resource exhaustion |
-| New matched Qwen/InferFlux case passes | 0/15 (0%); not run | 15 cases |
+| Historical contract-v1 matched Qwen/InferFlux case passes | 0/15 (0%); not run under that contract | 15 cases |
 | Historical contract-v1 matched matrix case passes | 10/30 (33%) | 20 cases without a pass (67%); overall ZAI run remains FAIL |
 | 2026-09-21 renewed contract-v2 ZAI/Sandhi acceptance | 15/15 (100%); overall PASS | No case failures; broader lifecycle and cross-model acceptance remain separate |
 | Contract-v2 Qwen/InferFlux ROCm case checks | 0/15 (0%); overall FAIL | 15 cases; missing tests and formation-contract failures |
@@ -110,6 +110,17 @@ Implementation delivery and live acceptance have different denominators:
 | New single-file Qwen/ROCm profile | 12/15 (80%); overall FAIL | Debate, multi-level hierarchy and ensemble synthesizer |
 | New single-file ZAI profile | 0/4 completed cases; interrupted/incomplete | 26 HTTP 429s among 61 calls; no profile acceptance |
 | Current six-Qwen/one-ZAI C5 acceptance | Failed; earlier WS-E success is separate evidence | Full corrected run and reviewed verdict on InferFlux #184 |
+
+Security/release progress does not change these formation percentages. Sandhi
+[v0.8.0](https://github.com/anvai-labs/sandhi/releases/tag/v0.8.0) is published and
+independently verified across GitHub archives, PyPI, npm and crates. Both Homebrew
+binaries report 0.8.0 after a real local upgrade; tap integration merged in
+[#64](https://github.com/anvai-labs/homebrew-tap/pull/64). The
+[new published-binary SSO check](evidence/sandhi-080-oidc-release-2026-09-23.json)
+passed a scoped machine-to-ZAI request, denied machine admin access, and reconciled
+23 input / 34 output / zero cache / 57 total tokens across wire, SQLite, C4 and the
+TLS-verified dashboard with reporting coverage 1/1. Browser logout was explicitly
+verified. This is one machine integration, not an actual Victor member or C5 run.
 
 The [renewed contract-v2 ZAI run](evidence/zai-formation-matrix-v2-2026-09-21.json),
 `matrix-aae4713703`, used clean source `d872b6103e319fa562d20a514d458af52314c027`
@@ -904,11 +915,26 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   the TLS-verified browser dashboard, with explicit cache coverage 1/1. This was
   a machine integration check, not an actual Victor member or C5 run.
 
+  Published-binary verification now passed separately: release source
+  `7b634c8653c434a4f11afd9dd6916fd8bdae3aff`, binary SHA-256
+  `ee678487322c96487d51d8ccd19ab4fe0c3a4c08094c6c1280f57c414e82a083`, and new run
+  `oidc-machine-1790137208264702760` are recorded in the
+  [release evidence](evidence/sandhi-080-oidc-release-2026-09-23.json). That run
+  conserves 57 tokens; it does not replace the earlier 43-token source-candidate
+  evidence or add formation acceptance. A gateway request ID was absent from the
+  wire response: C4/SQLite request-ID and run/session/step joins were checked
+  separately, without inventing an equality to the upstream request ID.
+
   InferFlux strict token claims landed in
   [#212](https://github.com/anvai-labs/inferflux/pull/212), and buffered/streaming
   TLS peer identity verification landed in
   [#213](https://github.com/anvai-labs/inferflux/pull/213). The audit credential
   exposure fix landed in [#214](https://github.com/anvai-labs/inferflux/pull/214).
+  Promotion [#216](https://github.com/anvai-labs/inferflux/pull/216) merged these
+  repairs into main at `4c71bdc998580bab75bdbd5bb71972ed9a914019`. Deployment is
+  held: the new CUDA runtime gate failed before its model-backed step
+  ([run 35818698581](https://github.com/anvai-labs/inferflux/actions/runs/35818698581));
+  preserve that failure and resolve it before claiming runtime acceptance.
   Verified issuer discovery, Kanidm access-token interoperability, explicit
   authorization policy, bounded authority requests and trusted runtime deployment
   still need acceptance. Do not infer these from signed-token unit tests or the
@@ -926,7 +952,9 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   accounting identity before claiming they test the OIDC deployment. Sandhi 0.8.0
   deliberately requires `admin` for the read-only C4 diagnostics POST (ADR-0011);
   a `viewer` cannot satisfy unchanged C4 assertions. A separately reviewed scoped
-  diagnostics permission is needed for least-privilege automation. Do not silently
+  diagnostics permission merged through
+  [Sandhi #285](https://github.com/anvai-labs/sandhi/pull/285); it is a post-0.8.0
+  increment and needs deployment before least-privilege automation. Do not silently
   grant admin or omit diagnostics. Keep renewable OAuth access tokens inside the
   observer adapter rather than member environments or cached provider handles;
   use fixed route/grant bindings and separate inference/accounting identities.
@@ -939,6 +967,8 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   from the SSO integration check.
 
 - **G50 — subagent retry can conceal an authentication denial (code audit).**
+  ✅ Code repair landed in [#1170](https://github.com/anvai-labs/victor/pull/1170)
+  after all CI gates passed, including Vertical Py3.12.
   The outer `SubAgent` retry catches `ProviderError`, including the canonical
   `ProviderAuthError` which the provider layer already excludes from retry.
   A denied request can therefore re-enter the whole chat and repeat earlier tool
