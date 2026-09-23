@@ -882,6 +882,45 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   attempt reducer under the existing opt-in capture contract and add a repeated-
   speaker coordinator test before claiming complete conversation accounting.
 
+- **G49 — SSO migration does not yet have actual-member acceptance.** Sandhi's
+  default OIDC, dashboard roles and scoped machine authorization landed in
+  [Sandhi #281](https://github.com/anvai-labs/sandhi/pull/281); consistent 0.8.0
+  source versions landed in [#282](https://github.com/anvai-labs/sandhi/pull/282).
+  These source changes do not establish published-binary or Victor acceptance.
+  New evidence from source candidate `d6dc91bbd6f1c748f0ee41d220467a1e385d8522`
+  used a 900-second Kanidm machine token for one successful ZAI request and
+  correctly denied admin access. Run `oidc-machine-1790121988166631691` reconciled
+  23 input / 20 output / zero cache / 43 billable tokens across wire, SQLite and
+  the TLS-verified browser dashboard, with explicit cache coverage 1/1. This was
+  a machine integration check, not an actual Victor member or C5 run.
+
+  InferFlux strict token claims landed in
+  [#212](https://github.com/anvai-labs/inferflux/pull/212), and buffered/streaming
+  TLS peer identity verification landed in
+  [#213](https://github.com/anvai-labs/inferflux/pull/213). The audit credential
+  exposure fix is tracked by [#214](https://github.com/anvai-labs/inferflux/pull/214).
+  Verified issuer discovery, Kanidm access-token interoperability, explicit
+  authorization policy, bounded authority requests and trusted runtime deployment
+  still need acceptance. Do not infer these from signed-token unit tests or the
+  Sandhi browser sign-in result.
+
+  Keep gateway routing independent from authentication: direct origin access is
+  an explicit, authenticated route and bypasses gateway metering/budgets; an auth
+  failure must never switch routes or weaken credentials. Browser sessions,
+  machine credentials and upstream provider credentials have separate roles and
+  audiences. OIDC remains the default SSO posture; token compatibility requires
+  explicit selection. Preserve existing credentials, historical evidence and cache.
+
+  Both live validation harnesses currently read virtual-key and admin-token files.
+  Add an explicit structured OAuth credential/renewal contract and authorized
+  accounting-read identity before claiming they test the OIDC deployment. Retain
+  all existing request/session, usage, dashboard, deliverable and pytest assertions;
+  a 120-second buffered gateway timeout remains an acceptance failure. Complete
+  released-binary SSO and upstream acceptance first, then ZAI reference, simpler
+  Qwen ROCm/CUDA cohorts, and the six-Qwen/one-ZAI C5 run. Measure performance only
+  after these security and usability gates; no current formation row turns green
+  from the SSO integration check.
+
 Validation-test audit: neither live harness had direct tests before this follow-up.
 The new mixed-harness suite covers rejected/malformed/missing reviews, inclusive
 cache accounting, missing artifacts, bad member usage, pytest timeout, startup and
