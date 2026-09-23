@@ -357,7 +357,7 @@ class TestMCPToolExecution:
         entry.client = mock_client
         entry.status = ServerStatus.CONNECTED
         entry.tools_cache = [
-            MCPTool(name="read_file", description="Read", inputSchema={}),
+            MCPTool(name="read_file", description="Read", inputSchema={"type": "object"}),
         ]
         registry._tool_to_server["read_file"] = "exec_server"
 

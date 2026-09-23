@@ -477,7 +477,7 @@ class ToolExecutor:
         properties = schema.get("properties", {})
         for key, value in list(arguments.items()):
             prop_schema = properties.get(key)
-            if not prop_schema:
+            if not isinstance(prop_schema, dict):
                 continue
 
             expected = prop_schema.get("type")
@@ -572,10 +572,14 @@ class ToolExecutor:
         # not be rejected by STRICT for a recoverable serialization (real-agent calibration
         # saw the edit tool's `ops` sent as a JSON string). ``arguments`` is the same dict
         # that flows to execution, so the coerced values are used downstream too.
-        self._coerce_arg_types(tool, arguments)
+        preserve_arguments = getattr(tool, "preserve_arguments", False) is True
+        if not preserve_arguments:
+            self._coerce_arg_types(tool, arguments)
 
         # First check for unknown/hallucinated arguments (provides clearer errors)
-        valid, unknown_args = self._check_unknown_arguments(tool, arguments)
+        valid, unknown_args = (
+            (True, []) if preserve_arguments else self._check_unknown_arguments(tool, arguments)
+        )
         if not valid:
             # Get valid parameters for helpful error message
             schema = tool.parameters
@@ -634,6 +638,10 @@ class ToolExecutor:
 
     def _get_effective_validation_mode(self, tool: BaseTool) -> ValidationMode:
         """Elevate validation for stateful tools even when global mode is lenient."""
+        # An authoritative external contract is not a repair hint. OFF/LENIENT
+        # must not bypass it or defer refusal into execution error logging.
+        if getattr(tool, "preserve_arguments", False) is True:
+            return ValidationMode.STRICT
         if self.validation_mode != ValidationMode.LENIENT:
             return self.validation_mode
         access_mode = getattr(tool, "access_mode", AccessMode.READONLY)
@@ -732,7 +740,8 @@ class ToolExecutor:
         self._stats[tool_name]["calls"] += 1
 
         # Normalize arguments (skip if already normalized by caller)
-        if skip_normalization:
+        preserve_arguments = getattr(self.tools.get(tool_name), "preserve_arguments", False) is True
+        if skip_normalization or preserve_arguments:
             normalized_args = arguments
             strategy = None
         else:
@@ -743,7 +752,7 @@ class ToolExecutor:
         # substitution is announced in the result so the model can tell the
         # requested path from the served one.
         path_redirect_note: Optional[str] = None
-        if self._failed_path_redirects:
+        if self._failed_path_redirects and not preserve_arguments:
             for _path_key in ("path", "file_path", "filename", "root"):
                 _bad = str(normalized_args.get(_path_key, ""))
                 if _bad and _bad in self._failed_path_redirects:
@@ -765,7 +774,11 @@ class ToolExecutor:
         # Code correction middleware - validate and fix executable-code arguments.
         # Gated on the tool's access_mode contract (executable code only); file content is
         # never auto-corrected. Single ``process()`` entry shared with ToolPipeline.
-        if self.enable_code_correction and self.code_correction_middleware is not None:
+        if (
+            self.enable_code_correction
+            and self.code_correction_middleware is not None
+            and not preserve_arguments
+        ):
             try:
                 tool_obj = self.get_tool_function(tool_name)
                 normalized_args, correction_result = self.code_correction_middleware.process(
@@ -823,7 +836,9 @@ class ToolExecutor:
             return result
 
         # Check for missing required arguments before schema validation
-        missing = self._check_missing_required_args(tool, normalized_args)
+        missing = (
+            [] if preserve_arguments else self._check_missing_required_args(tool, normalized_args)
+        )
         if missing:
             error_msg = f"Error: Missing required arguments: {', '.join(missing)}"
             result = ToolExecutionResult(

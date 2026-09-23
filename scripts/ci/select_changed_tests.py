@@ -45,6 +45,7 @@ MCP_LIFECYCLE_TESTS = (
     "tests/unit/integrations/mcp/test_client_response_correlation.py",
     "tests/unit/security/test_mcp_factory_lifecycle.py",
 )
+MCP_SCHEMA_TESTS = ("tests/unit/tools/test_mcp_schema_fidelity.py",)
 DEPRECATION_NOTICE_TESTS = ("tests/unit/test_release_deprecation_targets.py",)
 DEPRECATION_NOTICE_FILES = (
     "victor/runtime/context.py",
@@ -70,11 +71,29 @@ RELATED_TESTS = {
     "victor/agent/services/chat_turn_lifecycle.py": (
         "tests/unit/agent/services/test_chat_turn_runtime.py",
     ),
-    "victor/integrations/mcp/client.py": MCP_LIFECYCLE_TESTS,
+    "victor/integrations/mcp/client.py": (*MCP_LIFECYCLE_TESTS, *MCP_SCHEMA_TESTS),
+    "victor/integrations/mcp/protocol.py": (
+        "tests/unit/agent/test_mcp_protocol.py",
+        *MCP_SCHEMA_TESTS,
+    ),
+    "victor/integrations/mcp/server.py": (
+        "tests/unit/agent/test_mcp_server.py",
+        *MCP_SCHEMA_TESTS,
+    ),
+    "victor/tools/mcp_adapter_tool.py": MCP_SCHEMA_TESTS,
+    "victor/agent/tool_executor.py": (
+        "tests/unit/tools/test_tool_executor_unit.py",
+        *MCP_SCHEMA_TESTS,
+    ),
     "victor/integrations/mcp/stdio_transport.py": MCP_LIFECYCLE_TESTS,
     "victor/ui/cli_group.py": ("tests/unit/ui/test_cli_command_resolution.py",),
     "scripts/ci/select_changed_tests.py": ("tests/unit/scripts/test_select_changed_tests.py",),
     **dict.fromkeys(DEPRECATION_NOTICE_FILES, DEPRECATION_NOTICE_TESTS),
+    "victor/tools/base.py": (
+        *DEPRECATION_NOTICE_TESTS,
+        "tests/unit/core/test_tool_base.py",
+        *MCP_SCHEMA_TESTS,
+    ),
 }
 
 

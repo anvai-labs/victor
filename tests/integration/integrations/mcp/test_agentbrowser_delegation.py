@@ -108,3 +108,34 @@ process.on('SIGTERM', async () => {{ await app.close(); process.exit(0); }});
         for stream in (server.stdout, server.stderr):
             if stream:
                 stream.close()
+
+
+@pytest.mark.asyncio
+async def test_agentbrowser_catalog_reaches_model_adapter_unchanged():
+    """Qualify real stdio discovery and presentation without model or browser effects."""
+    from victor.integrations.mcp.protocol import MCPMessageType
+    from victor.tools.enums import SchemaLevel
+    from victor.tools.mcp_adapter_tool import MCPAdapterTool
+
+    root_value = os.environ.get("AGENTBROWSER_ROOT")
+    if not root_value:
+        pytest.skip("Set AGENTBROWSER_ROOT to a built AgentBrowser checkout")
+    node = shutil.which("node")
+    assert node
+    client = MCPClient(health_check_interval=0, auto_reconnect=False)
+    try:
+        assert await client.connect(
+            [node, str(Path(root_value).resolve() / "packages/mcp-server/dist/bin.js")]
+        )
+        response = await client._send_request(MCPMessageType.LIST_TOOLS, {})
+        expected = {tool["name"]: tool["inputSchema"] for tool in response["result"]["tools"]}
+        tools = await client.refresh_tools()
+        assert "browser_autofill" in expected
+        assert {tool.name for tool in tools} == set(expected)
+        for tool in tools:
+            # Discovery/presentation only; registry execution is covered separately above.
+            adapter = MCPAdapterTool(tool, None, "agentbrowser")
+            for level in SchemaLevel:
+                assert adapter.to_schema(level)["function"]["parameters"] == expected[tool.name]
+    finally:
+        await client.cleanup()

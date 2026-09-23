@@ -365,6 +365,11 @@ class BaseTool(ABC):
         return resolve_contract(self)
 
     @property
+    def preserve_arguments(self) -> bool:
+        """Require unchanged arguments and strict validation of an authoritative contract."""
+        return False
+
+    @property
     def cost_tier(self) -> CostTier:
         """Cost tier for the tool.
 
