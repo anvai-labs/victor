@@ -107,20 +107,59 @@ Implementation delivery and live acceptance have different denominators:
 | 2026-09-21 renewed contract-v2 ZAI/Sandhi acceptance | 15/15 (100%); overall PASS | No case failures; broader lifecycle and cross-model acceptance remain separate |
 | Contract-v2 Qwen/InferFlux ROCm case checks | 0/15 (0%); overall FAIL | 15 cases; missing tests and formation-contract failures |
 | Contract-v2 combined case checks | 15/30 (50%) | 15 Qwen cases without a pass; not mixed-team or lifecycle acceptance |
-| New single-file Qwen/ROCm profile | 12/15 (80%); overall FAIL | Debate, multi-level hierarchy and ensemble synthesizer |
-| New single-file ZAI profile | 0/4 completed cases; interrupted/incomplete | 26 HTTP 429s among 61 calls; no profile acceptance |
-| Current six-Qwen/one-ZAI C5 acceptance | Failed; earlier WS-E success is separate evidence | Full corrected run and reviewed verdict on InferFlux #184 |
+| Historical 2026-09-21 single-file Qwen/ROCm profile | 12/15 (80%); overall FAIL | Debate, multi-level hierarchy and ensemble synthesizer |
+| Historical 2026-09-21 single-file ZAI profile | 0/4 completed cases; interrupted/incomplete | 26 HTTP 429s among 61 calls; no profile acceptance |
+| 2026-09-23 OIDC ZAI standard cohort | 15/15 (100%); overall PASS | Broader lifecycle acceptance remains separate |
+| 2026-09-23 OIDC ZAI single-file cohort | 15/15 (100%); overall PASS | No case failures; separate task profile |
+| 2026-09-23 OIDC Qwen3/ROCm single-file cohort | 0/15 accepted; interrupted overall FAIL | First completed case timed out; second cancelled; 13 unstarted, not 15 model-quality failures |
+| OIDC Qwen14/CUDA single-file cohort | 0/15; not started | Held for consolidated-origin liveness investigation |
+| Current six-Qwen/one-ZAI C5 acceptance | Open; historical failed run retained | Full corrected run held for origin liveness, then reviewed verdict on InferFlux #184 |
 
-Security/release progress does not change these formation percentages. Sandhi
-[v0.8.0](https://github.com/anvai-labs/sandhi/releases/tag/v0.8.0) is published and
-independently verified across GitHub archives, PyPI, npm and crates. Both Homebrew
-binaries report 0.8.0 after a real local upgrade; tap integration merged in
-[#64](https://github.com/anvai-labs/homebrew-tap/pull/64). The
-[new published-binary SSO check](evidence/sandhi-080-oidc-release-2026-09-23.json)
-passed a scoped machine-to-ZAI request, denied machine admin access, and reconciled
-23 input / 34 output / zero cache / 57 total tokens across wire, SQLite, C4 and the
-TLS-verified dashboard with reporting coverage 1/1. Browser logout was explicitly
-verified. This is one machine integration, not an actual Victor member or C5 run.
+The new OIDC cohorts use clean Victor source `208e2535f523b3c28a77823ff90673c329970a5f`
+([#1173](https://github.com/anvai-labs/victor/pull/1173)), released Sandhi 0.9.0 and
+separate inference/accounting identities. The
+[standard cohort](evidence/zai-oidc-standard-2026-09-23.json) passed all 15 cases
+with 120 HTTP-200 calls and 120 clean wire/SQLite/C4 joins. The
+[single-file cohort](evidence/zai-oidc-single-2026-09-23.json) separately passed all
+15 with 121 calls/joins. Each has 33 distinct member sessions, 29 passing pytest
+checks and 29 independent numeric oracles of 10,242 inputs each. Explicit cache
+reporting is 120/120 and 121/121; dashboard totals and attribution reconcile.
+Only the standard cohort's **accounting** identity renewed; inference-token renewal
+was not exercised. These are new actual-member experiments, not historical replays.
+
+The [new Qwen3 attempt](evidence/qwen3-oidc-single-2026-09-23.json),
+`matrix-96be2e7e91`, is incomplete and **FAIL**. Its first sequential case hit the
+240-second case limit after a gateway HTTP 504 (126.015 seconds observed including
+credential acquisition). The parallel case was cancelled while in flight. Four
+observed gateway HTTP calls across three sessions were captured; zero clean accounting
+joins passed, and cancellation-time accounting failed. The final wire file records
+four HTTP 504s; its completion occurred after the accounting snapshot, which
+contains only one ledger row. Preserve both timings and the failed verdict;
+later ledger writes cannot retroactively make that snapshot pass.
+The runtime reported ready while generation completion counters stayed zero and
+its queue grew. This is an origin-liveness investigation (G52), not evidence that
+Qwen cannot solve the simpler task. Qwen14 and the new C5 run remain unstarted.
+
+[Security and runtime evidence](evidence/oidc-consolidated-runtime-2026-09-23.json)
+records released Sandhi [v0.9.0](https://github.com/anvai-labs/sandhi/releases/tag/v0.9.0),
+source `d755c262386e6cd041a300532ea34411d012a2d8`, independently verified GitHub,
+PyPI, npm and crates artifacts. Both Homebrew binaries report 0.9.0 after a real
+upgrade ([tap #66](https://github.com/anvai-labs/homebrew-tap/pull/66)); release
+history is synchronized to develop ([Sandhi #290](https://github.com/anvai-labs/sandhi/pull/290)).
+Eight live authorization checks passed, including denied member admin/dashboard
+access and denied accounting mutation/inference. TLS-verified browser sign-in,
+actual-member run lookup, matching C4/SQLite totals and logout passed. The earlier
+[0.8.0 57-token check](evidence/sandhi-080-oidc-release-2026-09-23.json) remains
+preserved separately. Security/release checks alone add no formation passes.
+
+Consolidated InferFlux source `02cf22addb9f78309bb5b2807427f215353a7085` serves all
+three pinned models on loopback 8080: Qwen3 on ROCm, Qwen14 and BGE on CUDA. CPU CI,
+GPU CI and the separate same-process dual-GPU gate passed before deployment. Fresh
+model-file hashes and placement are recorded in the runtime evidence. Those gates
+used short setup workloads; they do not establish Victor acceptance. The origin
+still uses existing private API keys. Direct-origin OIDC, embedding compatibility
+through the new gateway, streaming/cancellation, tokenizer equivalence, session
+leases and executed-cache acceptance remain separate open gates.
 
 The [renewed contract-v2 ZAI run](evidence/zai-formation-matrix-v2-2026-09-21.json),
 `matrix-aae4713703`, used clean source `d872b6103e319fa562d20a514d458af52314c027`
@@ -490,7 +529,7 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   member approvals stay inline. A separate durability design/test increment is
   required before claiming member-granular resume for these formations.
 
-- **G18 — ROCm InferFlux does not publish sequence capacity.** Verified live during
+- **G18 — historical ROCm sequence-capacity discovery gap; current contract drift is G51.** Verified live during
   WS-C: `/v1/admin/models` omits `max_parallel_sequences`; `/metrics` exposes only
   CUDA capacity gauges (zero on this ROCm backend). The active serving YAML declares
   2 sequences and the process environment sets `INFERFLUX_LLAMA_CTX_SIZE=65536`.
@@ -903,7 +942,7 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   including shared mutable provider metadata. Existing protocol/selection tests
   retain ownership; no durable partial resume or new live acceptance is claimed.
 
-- **G49 — SSO migration does not yet have actual-member acceptance.** Sandhi's
+- **G49 — SSO migration: ZAI actual-member acceptance passed; local/mixed acceptance open.** Sandhi's
   default OIDC, dashboard roles and scoped machine authorization landed in
   [Sandhi #281](https://github.com/anvai-labs/sandhi/pull/281); consistent 0.8.0
   source versions landed in [#282](https://github.com/anvai-labs/sandhi/pull/282).
@@ -931,12 +970,16 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   [#213](https://github.com/anvai-labs/inferflux/pull/213). The audit credential
   exposure fix landed in [#214](https://github.com/anvai-labs/inferflux/pull/214).
   Promotion [#216](https://github.com/anvai-labs/inferflux/pull/216) merged these
-  repairs into main at `4c71bdc998580bab75bdbd5bb71972ed9a914019`. Deployment is
-  held: the new CUDA runtime gate failed before its model-backed step
-  ([run 35818698581](https://github.com/anvai-labs/inferflux/actions/runs/35818698581));
-  preserve that failure and resolve it before claiming runtime acceptance.
+  repairs into main at `4c71bdc998580bab75bdbd5bb71972ed9a914019`. Deployment was initially
+  held: that CUDA runtime gate failed before its model-backed step
+  ([run 35818698581](https://github.com/anvai-labs/inferflux/actions/runs/35818698581)).
+  That failure is preserved; [#217](https://github.com/anvai-labs/inferflux/pull/217)
+  repaired the missing TLS-probe build dependency, promoted through
+  [#218](https://github.com/anvai-labs/inferflux/pull/218). CPU, CUDA/ROCm and
+  same-process dual-GPU gates passed on `02cf22addb9f78309bb5b2807427f215353a7085`;
+  the exact accepted binary is deployed. Actual-member liveness still fails (G52).
   Verified issuer discovery, Kanidm access-token interoperability, explicit
-  authorization policy, bounded authority requests and trusted runtime deployment
+  authorization policy and bounded authority requests
   still need acceptance. Do not infer these from signed-token unit tests or the
   Sandhi browser sign-in result.
 
@@ -947,26 +990,30 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   audiences. OIDC remains the default SSO posture; token compatibility requires
   explicit selection. Preserve existing credentials, historical evidence and cache.
 
-  Both live validation harnesses now expose an additive
+  ✅ [#1173](https://github.com/anvai-labs/victor/pull/1173) landed after all CI
+  gates passed, including Vertical Py3.12. Both live validation harnesses expose an additive
   [OAuth broker profile](gateway-validation-oauth.md), with one bounded credential
   adapter, fixed routes and separate accounting identity. Legacy invocations still
-  read virtual-key and admin-token files. Live broker provisioning and actual-member
-  acceptance remain required before claiming they test the OIDC deployment. Sandhi 0.8.0
+  read virtual-key and admin-token files. The fixed Kanidm broker and separate
+  accounting service account are provisioned; both new ZAI cohorts passed all
+  15 cases with the released OIDC gateway (§1.5). Local/mixed and inference-token
+  renewal acceptance remain open. Sandhi 0.8.0
   deliberately requires `admin` for the read-only C4 diagnostics POST (ADR-0011);
   a `viewer` cannot satisfy unchanged C4 assertions. A separately reviewed scoped
   diagnostics permission merged through
   [Sandhi #285](https://github.com/anvai-labs/sandhi/pull/285); it is a post-0.8.0
-  increment published in 0.9.0 and needs deployment before least-privilege automation. Do not silently
+  increment published and deployed in 0.9.0; live accounting uses viewer plus that
+  permission and is denied inference, config and budget mutation. Do not silently
   grant admin or omit diagnostics. Keep renewable OAuth access tokens inside the
   observer adapter rather than member environments or cached provider handles;
   use fixed route/grant bindings and separate inference/accounting identities.
   Bootstrap credentials stay with their trusted broker. Retain
   all existing request/session, usage, dashboard, deliverable and pytest assertions;
-  a 120-second buffered gateway timeout remains an acceptance failure. Complete
-  released-binary SSO and upstream acceptance first, then ZAI reference, simpler
-  Qwen ROCm/CUDA cohorts, and the six-Qwen/one-ZAI C5 run. Measure performance only
-  after these security and usability gates; no current formation row turns green
-  from the SSO integration check.
+  a 120-second buffered gateway timeout remains an acceptance failure. Released-binary
+  SSO and both ZAI references passed. Next resolve origin liveness, validate the
+  simpler Qwen ROCm/CUDA cohorts and inference-credential renewal, then run the
+  six-Qwen/one-ZAI C5 gate. Measure performance after security and usability;
+  no formation row turns green from the SSO integration check alone.
 
 - **G50 — subagent retry can conceal an authentication denial (code audit).**
   ✅ Code repair landed in [#1170](https://github.com/anvai-labs/victor/pull/1170)
@@ -981,6 +1028,46 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   failures. This does not establish OAuth renewal, upstream identity, or live C5
   acceptance; those remain G49. The redundant enum-count test was removed because
   the existing exact role-set assertion already iterates and checks all five roles.
+
+- **G51 — current InferFlux capacity metadata does not match Victor's lookup.**
+  The deployed admin model response publishes `runtime.sequence_capacity` and
+  `runtime.context_tokens_per_sequence`. Victor's provider still requests a flat
+  `max_parallel_sequences` under the configured base URL's `/admin/models` suffix;
+  a `/v1` base also changes that path. Qwen14's static 32,768-token policy exceeds
+  the currently served 16,384 tokens per sequence. Validate one authoritative
+  runtime capability contract and its authenticated direct/gateway access before
+  claiming capacity-aware acceptance. Do not change global model metadata to match
+  one deployment or silently treat missing capacity as unlimited.
+
+- **G52 — consolidated-origin readiness did not establish actual-member liveness.**
+  The new OIDC Qwen3 cohort failed at the unchanged 120-second gateway bound and
+  240-second case limit (§1.5). Readiness remained green while observed generation
+  completion counters were zero and queued work accumulated. Runtime-wide counters
+  can include other clients; they are not per-member proof. The
+  [read-only 11:03 UTC snapshot](evidence/inferflux-stall-observation-2026-09-23.json)
+  still reports ready, a queue depth of eight and zero model completion counters
+  after this cohort stopped. Encoder-context log
+  messages are not evidence of Qwen-to-BGE misrouting without request correlation.
+  Investigate accepted-source dispatch, shared embedding/generation scheduling and
+  cancellation before more matrix/C5 load. Preserve shared cache, failed evidence,
+  runtime identity and the prior passing setup gate; do not replace this failure
+  with a longer-timeout result or attribute it to model quality.
+
+- **G53 — standalone gateway deadline policy is not operator-configurable per route.**
+  Sandhi 0.9.0 has shared transport timeout primitives, but standalone provider
+  construction supplies no timeout overrides: buffered completion is 120 seconds,
+  stream setup 30 seconds, stream idle 90 seconds. The requested policy should
+  resolve exact model-within-endpoint → endpoint credential reference → global
+  defaults, with an operator-owned ceiling and validated positive finite values.
+  Resolve each field once after authentication/model authorization, expose the
+  effective value and source to authorized operators, and apply the same result to
+  transparent and translated requests without rebuilding pools per request. Keep
+  buffered, setup and idle limits distinct. Clients cannot raise their bounds;
+  auth failures cannot bypass the gateway or trigger credential downgrade; timed-out
+  POSTs must not be automatically replayed. A timeout response does not prove
+  origin cancellation. Preserve byte-identical default wire behavior and label any
+  changed-deadline acceptance cohort separately. This is a design requirement,
+  not a shipped configurable feature.
 
 Validation-test audit: neither live harness had direct tests before this follow-up.
 The new mixed-harness suite covers rejected/malformed/missing reviews, inclusive
