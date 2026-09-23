@@ -593,6 +593,7 @@ class SubAgent(IAgent):  # type: ignore[misc]
             Exception: If all retries are exhausted
         """
         from victor.core.errors import (
+            ProviderAuthError,
             ProviderConnectionError,
             ProviderError,
             ProviderRateLimitError,
@@ -628,6 +629,10 @@ class SubAgent(IAgent):  # type: ignore[misc]
 
                 return response
 
+            except ProviderAuthError:
+                # Preserve the provider layer's non-retryable auth contract.
+                # Replaying chat can repeat completed tool work and conceal a denial.
+                raise
             except (
                 ProviderRateLimitError,
                 ProviderTimeoutError,

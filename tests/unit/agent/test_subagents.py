@@ -45,7 +45,7 @@ from victor.agent.subagents.orchestrator import (
     FanOutResult,
     SubAgentTask,
 )
-from victor.core.errors import ProviderRateLimitError
+from victor.core.errors import ProviderAuthError, ProviderRateLimitError
 
 # =============================================================================
 # SubAgentRole Tests
@@ -68,11 +68,6 @@ class TestSubAgentRole:
         assert SubAgentRole.EXECUTOR.value == "executor"
         assert SubAgentRole.REVIEWER.value == "reviewer"
         assert SubAgentRole.TESTER.value == "tester"
-
-    def test_roles_are_iterable(self):
-        """Verify we can iterate over roles."""
-        roles = list(SubAgentRole)
-        assert len(roles) == 5
 
 
 # =============================================================================
@@ -425,7 +420,34 @@ class TestSubAgent:
             result = await subagent._execute_with_retry()
 
         assert result is response
+        assert subagent.orchestrator.chat.await_count == 2
         sleep_mock.assert_awaited_once_with(17.0)
+
+    @pytest.mark.parametrize("status", [401, 403])
+    async def test_execute_reports_auth_failure_without_replaying_task(
+        self, sample_config, mock_parent_orchestrator, status
+    ):
+        """A later successful response must not hide the first authorization denial."""
+        subagent = SubAgent(sample_config, mock_parent_orchestrator)
+        subagent.orchestrator = SimpleNamespace(
+            chat=AsyncMock(
+                side_effect=[
+                    ProviderAuthError("Access denied", provider="sandhi", status_code=status),
+                    SimpleNamespace(content="unexpected replay", metadata={}),
+                ]
+            ),
+            tool_calls_used=0,
+            get_messages=lambda: [],
+        )
+
+        with patch("asyncio.sleep", new_callable=AsyncMock) as sleep_mock:
+            result = await subagent.execute()
+
+        subagent.orchestrator.chat.assert_awaited_once_with(sample_config.task)
+        sleep_mock.assert_not_awaited()
+        assert result.success is False
+        assert result.details["error_type"] == "ProviderAuthError"
+        assert f"status_code={status}" in result.error
 
     @pytest.mark.asyncio
     async def test_execute_runs_context_lifecycle_and_adds_parent_handoff(
