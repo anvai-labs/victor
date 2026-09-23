@@ -1,0 +1,208 @@
+{
+  "schema_version": 1,
+  "date": "2026-09-23",
+  "scope": "Published Sandhi 0.9.1 deployment, OIDC authorization and fresh sequential-member browser lookup; not full-matrix/InferFlux/C5 acceptance",
+  "sandhi": {
+    "release": "v0.9.1",
+    "source": "4968fd045550539f0bddfb1892e9c4f3f226ce5f",
+    "proxy_sha256": "ff4d7bd68ce4ea33a593416899acb431b845e2d217255451f98bb42593885b63",
+    "cli_sha256": "55037ce3a44cfa7c38c91be0b82c82f2c82e5dde1c149a1777eacd150a4ad26d",
+    "archive_sha256": {
+      "aarch64-apple-darwin": "2b4da921cf89a0f5bc2b6e7beed7f0d5d0fbcf5fa52f9e272b09ec4f506909b1",
+      "x86_64-unknown-linux-gnu": "c07f02c15a0dc719a7289cd64b771abf811943a68512a1cdd2f1e5b4de787068"
+    },
+    "repair_prs": [
+      291,
+      294
+    ],
+    "promotion_pr": 293,
+    "main_ci": 35890060845,
+    "published_release_workflow": 35891540648,
+    "release_verification_attempt": 2,
+    "initial_release_verifier": {
+      "outcome": "FAIL",
+      "reason": "npm version metadata returned HTTP 404 after successful publication; later registry visibility verified",
+      "failed_evidence_preserved": true,
+      "retry_scope": "read-only verify job; no packages republished"
+    },
+    "independent_published_verification": [
+      "GitHub archive sizes and SHA-256",
+      "PyPI platform-wheel metadata",
+      "four exact non-yanked crates",
+      "npm root and both expected platform packages/dependencies"
+    ],
+    "homebrew_pr": 68,
+    "homebrew_merge": "9757d5cc6821d7ab0e72977b758020b1662ac915",
+    "homebrew_ci": 35893827802,
+    "homebrew_main_ci": 35894671443,
+    "history_sync_pr": 295,
+    "history_sync_commit": "708c24bc577dca24b2178e2647a2c415ad7de3aa",
+    "history_sync_ci": 35894526492,
+    "installed_commands": {
+      "sandhi": "0.9.1",
+      "sandhi-proxy": "0.9.1"
+    },
+    "installed_binary_hashes_match_archives": true
+  },
+  "deployment": {
+    "pid": 8890,
+    "source_and_binary_identity_verified": true,
+    "initial_readiness_bound_seconds": 25,
+    "initial_readiness_within_bound": false,
+    "initial_failure_preserved": true,
+    "subsequent_readiness_verified": true,
+    "subsequent_readiness_verified_at_unix": 1790184071,
+    "rollback_binary_and_old_keg_preserved": true,
+    "private_configuration_and_usage_database_preserved": true,
+    "startup_cause": "unproven; bounded-startup acceptance remains open"
+  },
+  "authentication": {
+    "default": "oidc",
+    "inference_role": "scoped grants only",
+    "accounting_role": "viewer plus explicit read-only diagnostics",
+    "distinct_subjects": true,
+    "bootstrap_credentials_transferred": false,
+    "checks": [
+      {
+        "identity": "accounting",
+        "method": "GET",
+        "path": "/admin/version",
+        "status": 200,
+        "expected": 200
+      },
+      {
+        "identity": "accounting",
+        "method": "GET",
+        "path": "/dashboard/api/usage",
+        "status": 200,
+        "expected": 200
+      },
+      {
+        "identity": "accounting",
+        "method": "POST",
+        "path": "/admin/usage/diagnostics",
+        "status": 200,
+        "expected": 200
+      },
+      {
+        "identity": "member",
+        "method": "GET",
+        "path": "/dashboard/api/usage",
+        "status": 403,
+        "expected": 403
+      },
+      {
+        "identity": "member",
+        "method": "GET",
+        "path": "/admin/config",
+        "status": 403,
+        "expected": 403
+      },
+      {
+        "identity": "accounting",
+        "method": "GET",
+        "path": "/admin/config",
+        "status": 403,
+        "expected": 403
+      },
+      {
+        "identity": "accounting",
+        "method": "POST",
+        "path": "/admin/budget",
+        "status": 403,
+        "expected": 403
+      },
+      {
+        "identity": "accounting",
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "status": 403,
+        "expected": 403
+      }
+    ],
+    "passed": true
+  },
+  "browser": {
+    "run_id": "matrix-9099a9446a-sequential-executor_6cca2fa4",
+    "tls_verified": true,
+    "dashboard_run_visible": true,
+    "logout_verified": true,
+    "observed_at_unix": 1790184386,
+    "totals": {
+      "billable_tokens": 9418,
+      "cache_creation_tokens": 0,
+      "cache_read_coverage": {
+        "absent": 0,
+        "malformed": 0,
+        "reported": 3,
+        "unknown": 0,
+        "unsupported": 0
+      },
+      "cache_read_tokens": 5760,
+      "calls": 3,
+      "key": "matrix-9099a9446a-sequential-executor_6cca2fa4",
+      "reasoning_tokens": 25,
+      "tokens_in": 3396,
+      "tokens_out": 262
+    },
+    "diagnostics_rows": 3
+  },
+  "new_member_evidence": "zai-oidc-091-sequential-2026-09-23.json",
+  "deadline_seconds": {
+    "buffered": 120,
+    "stream_setup": 30,
+    "stream_idle": 90,
+    "operator_overrides_implemented": false
+  },
+  "inferflux_exercised": false,
+  "shared_cache_cleared": false,
+  "c5_accepted": false,
+  "inferflux_acceptance_profile_handoff": {
+    "pr": 219,
+    "merge_commit": "81fd0071ac885fcf5f3cd7241a68e1572c6ba67a",
+    "implemented": false
+  },
+  "limitations": [
+    "Initial bounded startup failed; later readiness is a separate observation.",
+    "One new sequential case does not rerun or replace the preserved 15-case 0.9.0 cohorts.",
+    "Streaming/cancellation, tokenizer units, session leases, executed cache reuse and full mixed-team C5 remain separate gates."
+  ],
+  "private_evidence_sha256": {
+    "initial_startup_failure": "6a0a61964d2610f08af6bf85f876e325f91fb7cb0b2ba9770e3c198097469863",
+    "oidc_preflight": "39d67e4ab27745d42055ec2fbba9c1d3076ab5e92e524791cef2d3938b00632a",
+    "browser": "3f0d6bda26a25ef62ffa8b4359b613bc019253849c65a266e24a5f69f895b285",
+    "independent_publication_verification": "44b7111954e78896597434da30e912c380c07fc3e87a7e50e5dfae62a02b3673",
+    "initial_release_verifier_failure": "9f6169348c6b00580b929bf5be18a852cf633d873dbcc6a41925669170273366",
+    "second_startup_failure": "34b4ce4f976d86f94a76940fc77e4b3c58b536e896e2512a3e3ce4b45c671a7b",
+    "authorization_after_viewer_addition": "39d67e4ab27745d42055ec2fbba9c1d3076ab5e92e524791cef2d3938b00632a"
+  },
+  "human_onboarding_followup": {
+    "idp_denial_operation_id": "82fe6a5f-a46b-4b26-a7ab-8528be22dcb6",
+    "diagnosis": "Authenticated human lacked mapped Sandhi application scopes and server-side subject binding",
+    "idp_change": "One verified account added to the existing mapped viewer group",
+    "sandhi_role": "viewer",
+    "other_bindings_unchanged": true,
+    "inference_grants_added": false,
+    "diagnostics_granted": false,
+    "config_mode": "0600",
+    "subject_uuid_verified_before_grant_and_after": true,
+    "reviewed_helper_sha256": {
+      "idp": "b66289849bb49b4ba1d148dac9d83eec6408f6e87f731cb161054da4ac8db2dd",
+      "gateway": "c4e0a1c60726bea4cf08bce8399e76cfaf817de62390b6d52a25f7353ff31a8f"
+    },
+    "config_guard_checks_under_optimized_python": [
+      "existing binding rejected",
+      "concurrent change rejected",
+      "viewer addition preserves other bindings and private permissions"
+    ],
+    "restarted_pid": 27895,
+    "same_binary_sha256": "ff4d7bd68ce4ea33a593416899acb431b845e2d217255451f98bb42593885b63",
+    "initial_25_second_readiness_bound_passed": false,
+    "subsequent_readiness_verified": true,
+    "existing_agent_accounting_checks_passed": 8,
+    "user_reported_dashboard_opened": true,
+    "human_login_evidence_source": "user confirmation; not automated administrator browser test",
+    "runtime_role_editor_implemented": false,
+    "documentation_pr": 296
+  }
+}
