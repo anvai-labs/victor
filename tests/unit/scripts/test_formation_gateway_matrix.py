@@ -4,7 +4,7 @@ import importlib.util
 from pathlib import Path
 import sys
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, Mock
 
 import pytest
 
@@ -232,13 +232,16 @@ async def test_case_always_closes_agent_when_final_checks_fail(
     assert matrix.build_case.await_args.kwargs["task_profile"] == profile
 
 
-@pytest.mark.parametrize("profile", ["standard", "single-file"])
+@pytest.mark.parametrize(
+    "profile,oauth_enabled", [("standard", False), ("single-file", False), ("standard", True)]
+)
 async def test_matrix_report_stays_pending_until_accounting_and_cleanup_complete(
-    tmp_path, monkeypatch, profile
+    tmp_path, monkeypatch, profile, oauth_enabled
 ):
     import copy
     import json
     from scripts.validation import multiagent_gateway_live as mixed
+    from scripts.validation.gateway_oauth import GatewayOAuth
 
     state = tmp_path / "state"
     state.mkdir()
@@ -253,7 +256,14 @@ async def test_matrix_report_stays_pending_until_accounting_and_cleanup_complete
         admin_call=AsyncMock(return_value={}),
         collect=AsyncMock(return_value={"failures": []}),
     )
-    monkeypatch.setattr(matrix, "GatewayObserver", lambda *args: observer)
+    factory = Mock(return_value=observer)
+    monkeypatch.setattr(matrix, "GatewayObserver", factory)
+    auth = SimpleNamespace(
+        gateway_url="https://gateway",
+        database=tmp_path / "oauth.db",
+        capability=lambda provider: "loopback-capability",
+    )
+    monkeypatch.setattr(GatewayOAuth, "load", Mock(return_value=auth))
     monkeypatch.setattr(
         matrix,
         "run_case",
@@ -281,12 +291,16 @@ async def test_matrix_report_stays_pending_until_accounting_and_cleanup_complete
         gateway_state=state,
         output_dir=tmp_path / "out",
         cases=["sequential", "parallel"],
+        auth_profile=tmp_path / "profile.json" if oauth_enabled else None,
     )
     assert await matrix.main(args) == 0
+    assert factory.call_args.kwargs == ({"oauth": auth} if oauth_enabled else {})
+    assert factory.call_args.args[2] == (auth.database if oauth_enabled else state / "usage.db")
     assert [report["passed"] for report in snapshots] == [False, False, True]
     for report in snapshots:
         assert report.get("task_profile", "standard") == profile
         assert ("task_profile" in report) == (profile != "standard")
+        assert ("authentication" in report) == oauth_enabled
 
 
 @pytest.mark.parametrize("cancelled", [False, True])

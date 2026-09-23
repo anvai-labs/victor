@@ -25,7 +25,8 @@ import uuid
 WORKTREE = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(WORKTREE))
 
-from aiohttp import ClientSession, web
+from aiohttp import ClientSession, DummyCookieJar, web
+from scripts.validation.gateway_oauth import GatewayOAuth, GatewayOAuthError
 from victor.agent.member_approval_context import MemberApprovalPause
 from victor.agent.subagents.base import SubAgent
 from victor.framework import Agent
@@ -60,6 +61,7 @@ async def collect_acceptance(
     gateway_url: str,
     admin: str,
     evidence: dict[str, Any],
+    oauth: GatewayOAuth | None = None,
 ) -> None:
     """Collect independent acceptance results even after an execution failure.
 
@@ -89,10 +91,13 @@ async def collect_acceptance(
         try:
             session = member.metadata["session_id"]
             entry.update(session_id=session, victor=member.metadata["usage"])
-            async with client.get(
-                gateway_url + "/admin/usage/run/" + session,
-                headers={"Authorization": f"Bearer {admin}"},
-            ) as response:
+            url = gateway_url + "/admin/usage/run/" + session
+            request = (
+                client.get(url, headers={"Authorization": f"Bearer {admin}"})
+                if oauth is None
+                else oauth.request(client, "GET", url, purpose="accounting")
+            )
+            async with request as response:
                 entry["http_status"] = response.status
                 if response.status != 200:
                     raise ValueError("Run lookup failed")
@@ -196,8 +201,14 @@ def save_report(root: Path, evidence: dict[str, Any]) -> None:
 async def validate(args: argparse.Namespace) -> int:
     root = Path(args.output_dir).resolve() / f"gateway-{uuid.uuid4().hex[:10]}"
     root.mkdir(parents=True, mode=0o700)
-    settings = json.loads((args.gateway_state / "client.json").read_text())
-    admin = (args.gateway_state / "admin-token").read_text().strip()
+    profile = getattr(args, "auth_profile", None)
+    oauth = GatewayOAuth.load(profile) if profile is not None else None
+    if oauth is None:
+        settings = json.loads((args.gateway_state / "client.json").read_text())
+        admin = (args.gateway_state / "admin-token").read_text().strip()
+    else:
+        settings = {"url": oauth.gateway_url, "virtual_key": oauth.capability("zai")}
+        admin = "observer-accounting"
     python = WORKTREE / ".venv-codesign/bin/python"
     observed: list[dict[str, Any]] = []
     evidence: dict[str, Any] = {
@@ -210,6 +221,12 @@ async def validate(args: argparse.Namespace) -> int:
         "passed": False,
     }
     results: list[MemberResult] = []
+    if oauth is not None:
+        evidence["authentication"] = {
+            "mode": "oauth-broker",
+            "renewal": True,
+            "separate_accounting_identity": True,
+        }
     configured_members: list[TeamMember] = []
     previous_cwd = Path.cwd()
     gateway_env = (
@@ -220,7 +237,8 @@ async def validate(args: argparse.Namespace) -> int:
     previous_env = {key: os.environ.get(key) for key in gateway_env}
     runner: web.AppRunner | None = None
     started = time.monotonic()
-    async with ClientSession() as client:
+    client_options: dict[str, Any] = {"cookie_jar": DummyCookieJar()} if oauth else {}
+    async with ClientSession(**client_options) as client:
 
         try:
 
@@ -241,15 +259,35 @@ async def validate(args: argparse.Namespace) -> int:
                     if k.lower() not in {"host", "content-length", "transfer-encoding"}
                 }
                 headers["Accept-Encoding"] = "identity"
-                async with client.request(
-                    request.method, settings["url"] + request.path_qs, data=body, headers=headers
-                ) as upstream:
-                    response = web.Response(
-                        status=upstream.status,
-                        body=await upstream.read(),
-                        content_type="application/json",
+                try:
+                    upstream_request = (
+                        client.request(
+                            request.method,
+                            settings["url"] + request.path_qs,
+                            data=body,
+                            headers=headers,
+                        )
+                        if oauth is None
+                        else oauth.request(
+                            client,
+                            request.method,
+                            settings["url"] + request.path_qs,
+                            data=body,
+                            headers=request.headers,
+                            purpose="inference",
+                        )
                     )
-                    return response
+                    async with upstream_request as upstream:
+                        return web.Response(
+                            status=upstream.status,
+                            body=await upstream.read(),
+                            content_type="application/json",
+                        )
+                except GatewayOAuthError as exc:
+                    return web.json_response(
+                        {"error": "gateway credential boundary rejected request"},
+                        status=exc.http_status,
+                    )
 
             app = web.Application()
             app.router.add_route("*", "/{tail:.*}", forward)
@@ -260,7 +298,11 @@ async def validate(args: argparse.Namespace) -> int:
             os.environ["SANDHI_GATEWAY_VIRTUAL_KEY_ZAI"] = settings["virtual_key"]
             local = None
             if args.mixed:
-                local = json.loads((args.gateway_state / "inferflux.json").read_text())
+                local = (
+                    json.loads((args.gateway_state / "inferflux.json").read_text())
+                    if oauth is None
+                    else {"virtual_key": oauth.capability("inferflux")}
+                )
                 os.environ["SANDHI_GATEWAY_VIRTUAL_KEY_INFERFLUX"] = local["virtual_key"]
                 evidence.update(
                     provider="inferflux+zai",
@@ -454,6 +496,7 @@ async def validate(args: argparse.Namespace) -> int:
                     gateway_url=settings["url"],
                     admin=admin,
                     evidence=evidence,
+                    **({"oauth": oauth} if oauth is not None else {}),
                 )
             except asyncio.CancelledError:
                 failure(evidence, "acceptance_collection", error_type="CancelledError")
@@ -499,6 +542,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--gateway-state", type=Path, required=True)
+    parser.add_argument("--auth-profile", type=Path, help="Opt-in fixed OAuth broker profile")
     parser.add_argument(
         "--mixed", action="store_true", help="Use InferFlux members plus ZAI reviewer"
     )
