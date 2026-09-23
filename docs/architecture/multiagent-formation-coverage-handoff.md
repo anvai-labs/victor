@@ -114,6 +114,7 @@ Implementation delivery and live acceptance have different denominators:
 | 2026-09-23 OIDC Qwen3/ROCm single-file cohort | 0/15 accepted; interrupted overall FAIL | First completed case timed out; second cancelled; 13 unstarted, not 15 model-quality failures |
 | OIDC Qwen14/CUDA single-file cohort | 0/15; not started | Held for consolidated-origin liveness investigation |
 | Current six-Qwen/one-ZAI C5 acceptance | Open; historical failed run retained | Full corrected run held for origin liveness, then reviewed verdict on InferFlux #184 |
+| G53 operator deadline policy | Buffered-only implementation: [Sandhi #297](https://github.com/anvai-labs/sandhi/pull/297) | Streaming policy, bounded settlement, release/deployment and changed-deadline live evidence remain separate |
 
 The new OIDC cohorts use clean Victor source `208e2535f523b3c28a77823ff90673c329970a5f`
 ([#1173](https://github.com/anvai-labs/victor/pull/1173)), released Sandhi 0.9.0 and
@@ -1073,29 +1074,39 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   runtime identity and the prior passing setup gate; do not replace this failure
   with a longer-timeout result or attribute it to model quality.
 
-- **G53 — standalone gateway deadline policy is not operator-configurable per route.**
-  Sandhi 0.9.1 has shared transport timeout primitives, but standalone provider
-  construction supplies no timeout overrides: buffered completion is 120 seconds,
-  stream setup 30 seconds, stream idle 90 seconds. The requested policy should
-  resolve exact model-within-endpoint → endpoint credential reference → global
-  defaults, with an operator-owned ceiling and validated positive finite values.
-  Resolve each field once after authentication/model authorization, expose the
-  effective value and source to authorized operators, and apply the same result to
-  transparent and translated requests without rebuilding pools per request. Keep
-  buffered, setup and idle limits distinct; a per-attempt transport timer does not
-  include client credential acquisition and all gateway admission work. Reject
-  configured values above the operator ceiling rather than silently clamping them.
-  That ceiling must leave settlement headroom within budget-reservation lifetime;
-  longer workloads need an explicit lease-lifecycle design. Stream-idle limits bound
-  gaps between chunks, not total stream lifetime: a smaller idle setting alone
-  cannot guarantee settlement before lease expiry. A total-stream bound or lease
-  renewal needs a separate explicit contract and acceptance evidence.
-  Clients cannot raise their bounds;
-  auth failures cannot bypass the gateway or trigger credential downgrade; timed-out
-  POSTs must not be automatically replayed. A timeout response does not prove
-  origin cancellation. Preserve byte-identical default wire behavior and label any
-  changed-deadline acceptance cohort separately. This is a design requirement,
-  not a shipped configurable feature.
+- **G53 — partially implemented: ✅ buffered route policy; streaming remains open.**
+  [Sandhi #297](https://github.com/anvai-labs/sandhi/pull/297) adds opt-in startup
+  `buffered_deadlines` configuration: exact model within the authorized credential
+  reference → endpoint → global default. Values are positive integer milliseconds,
+  validated against an operator-owned ceiling; duplicate keys, unknown fields and
+  unsupported streaming settings fail rather than being silently ignored.
+  Admin config preview/apply expose active and desired effective values with their
+  source, and explicitly require restart. Policy is resolved once after identity,
+  model and attribution authorization. The existing transparent and translated
+  transports share one absolute monotonic deadline without rebuilding connection
+  pools, resetting it at inner boundaries, or enabling inference POST retries.
+  Custom host-owned transports cannot silently ignore the configured limit.
+
+  Before dispatch, actual reservation expiry (rounded to persisted-second
+  precision) must fit the buffered deadline plus 60 seconds of settlement headroom.
+  Otherwise admission returns 503, releases the lease, and sends no upstream call
+  or usage event. This reserves an opportunity for settlement; it does **not** bound
+  waits on ledger/SQLite contention or guarantee settlement before lease expiry.
+  The [operator contract](https://github.com/anvai-labs/sandhi/blob/develop/docs/operator/buffered-deadlines.md)
+  records the limits and activation procedure. Local validation: 704 passing
+  workspace tests, 89.42% line coverage, formatting and all-target Clippy clean;
+  independent exact-commit review found no blocking findings or duplicate test
+  owners. Existing unit and real-HTTP timeout owners remain distinct.
+
+  **Still open:** configurable stream setup/idle bounds require an explicit total
+  stream lifetime or lease-renewal contract; idle gaps alone cannot bound lease
+  lifetime. A bounded settlement contract and new live acceptance evidence are
+  separate gates. This source increment is not a new release or deployment: the
+  running 0.9.1 gateway remains buffered120s/setup30s/idle90s. No production config,
+  runtime, shared cache or credentials changed. Client headers/timeouts cannot
+  raise the operator limit; earlier body/auth/admission work is outside the transport
+  deadline. A timeout does not establish origin cancellation, and any future
+  changed-deadline cohort must retain a separate identity from the failed baseline.
 
 - **G54 — ✅ raw streaming error-body deadline repaired and deployed in 0.9.1.**
   The Sandhi 0.9.0 audit for G53 found that both raw streaming entry points stop
