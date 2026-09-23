@@ -140,7 +140,7 @@ The runtime reported ready while generation completion counters stayed zero and
 its queue grew. This is an origin-liveness investigation (G52), not evidence that
 Qwen cannot solve the simpler task. Qwen14 and the new C5 run remain unstarted.
 
-[Security and runtime evidence](evidence/oidc-consolidated-runtime-2026-09-23.json)
+[The preceding security/runtime snapshot](evidence/oidc-consolidated-runtime-2026-09-23.json)
 records released Sandhi [v0.9.0](https://github.com/anvai-labs/sandhi/releases/tag/v0.9.0),
 source `d755c262386e6cd041a300532ea34411d012a2d8`, independently verified GitHub,
 PyPI, npm and crates artifacts. Both Homebrew binaries report 0.9.0 after a real
@@ -151,6 +151,26 @@ access and denied accounting mutation/inference. TLS-verified browser sign-in,
 actual-member run lookup, matching C4/SQLite totals and logout passed. The earlier
 [0.8.0 57-token check](evidence/sandhi-080-oidc-release-2026-09-23.json) remains
 preserved separately. Security/release checks alone add no formation passes.
+
+The subsequent [0.9.1 release/deployment evidence](evidence/sandhi-091-oidc-release-2026-09-23.json)
+records the published binaries, real Homebrew upgrade and preserved OIDC state.
+Exact-main CI, all package targets, tap PR/post-merge CI and the history-sync gate
+passed. The first release verifier observed npm propagation 404; only its read-only
+verification job was retried, successfully. The new gateway missed its initial
+25-second startup bound before later independent readiness and eight OIDC checks
+passed (G57). Neither original failure was overwritten.
+A [fresh 0.9.1 sequential case](evidence/zai-oidc-091-sequential-2026-09-23.json),
+`matrix-9099a9446a`, passed with six HTTP-200 calls, six clean accounting joins,
+two distinct sessions, two deliverables and two passing pytest/oracle checks.
+Fresh/cache-read/output totals are 5067/13248/535; cache reporting is explicit 6/6.
+TLS-verified browser sign-in, lookup of a new member's three calls and matching
+C4/dashboard totals, then logout passed. This is one new release smoke case, not
+a rerun of the 15-case cohorts; it adds no InferFlux or full C5 acceptance.
+The subsequent human-account repair granted the existing mapped viewer group and
+one verified-subject `viewer` binding; all other bindings remained unchanged.
+The user confirmed that the dashboard opened. Agent/accounting permission checks
+passed again after the restart; this confirmation is distinct from the automated
+administrator browser test (G58).
 
 Consolidated InferFlux source `02cf22addb9f78309bb5b2807427f215353a7085` serves all
 three pinned models on loopback 8080: Qwen3 on ROCm, Qwen14 and BGE on CUDA. CPU CI,
@@ -1054,7 +1074,7 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   with a longer-timeout result or attribute it to model quality.
 
 - **G53 — standalone gateway deadline policy is not operator-configurable per route.**
-  Sandhi 0.9.0 has shared transport timeout primitives, but standalone provider
+  Sandhi 0.9.1 has shared transport timeout primitives, but standalone provider
   construction supplies no timeout overrides: buffered completion is 120 seconds,
   stream setup 30 seconds, stream idle 90 seconds. The requested policy should
   resolve exact model-within-endpoint → endpoint credential reference → global
@@ -1062,12 +1082,94 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   Resolve each field once after authentication/model authorization, expose the
   effective value and source to authorized operators, and apply the same result to
   transparent and translated requests without rebuilding pools per request. Keep
-  buffered, setup and idle limits distinct. Clients cannot raise their bounds;
+  buffered, setup and idle limits distinct; a per-attempt transport timer does not
+  include client credential acquisition and all gateway admission work. Reject
+  configured values above the operator ceiling rather than silently clamping them.
+  That ceiling must leave settlement headroom within budget-reservation lifetime;
+  longer workloads need an explicit lease-lifecycle design. Stream-idle limits bound
+  gaps between chunks, not total stream lifetime: a smaller idle setting alone
+  cannot guarantee settlement before lease expiry. A total-stream bound or lease
+  renewal needs a separate explicit contract and acceptance evidence.
+  Clients cannot raise their bounds;
   auth failures cannot bypass the gateway or trigger credential downgrade; timed-out
   POSTs must not be automatically replayed. A timeout response does not prove
   origin cancellation. Preserve byte-identical default wire behavior and label any
   changed-deadline acceptance cohort separately. This is a design requirement,
   not a shipped configurable feature.
+
+- **G54 — ✅ raw streaming error-body deadline repaired and deployed in 0.9.1.**
+  The Sandhi 0.9.0 audit for G53 found that both raw streaming entry points stop
+  their setup timer at headers, then read non-success response bodies outside
+  setup and idle bounds. Source repair merged through
+  [Sandhi #291](https://github.com/anvai-labs/sandhi/pull/291) at `679ad4dcdd8ee7c24d53192bd01bb6f283271a9c`
+  after clean independent review and all CI gates: collect the rejection
+  body inside the same setup budget and retain observed status/request ID in one
+  terminal timeout event. TDD reproduced both escapes. One existing timeout suite
+  now owns stalled body, cumulative header/body deadline, and upstream EOF while
+  the client remains alive; the existing rate-limit test owns normal rejection
+  mapping. No duplicate fixture suite or default-timeout increase was added.
+  Workspace tests and 89.41% line coverage passed. Reviewed promotion
+  [Sandhi #293](https://github.com/anvai-labs/sandhi/pull/293), exact-main CI and
+  all-target publication put this repair in 0.9.1; both Homebrew commands were
+  upgraded through [tap #68](https://github.com/anvai-labs/homebrew-tap/pull/68).
+  The OIDC listener now serves the published proxy (source `4968fd045550539f0bddfb1892e9c4f3f226ce5f`,
+  binary SHA-256 `ff4d7bd68ce4ea33a593416899acb431b845e2d217255451f98bb42593885b63`).
+  This source repair is distinct from G52's buffered-origin liveness failure and
+  does not add a formation/C5 pass or prove origin cancellation.
+
+- **G55 — ✅ dashboard session-check cancellation repaired and deployed in 0.9.1.**
+  Sandhi's 0.9.1 release verification exposed an intermittent browser fixture race
+  in [develop CI](https://github.com/anvai-labs/sandhi/actions/runs/35878734917).
+  The delayed-response test could intercept Clear's anonymous refresh instead of
+  the old authenticated request. Investigation also reproduced a distinct runtime
+  defect: an older cancelled `/auth/session` check unconditionally cleared a newer
+  token submission. The repair scopes failures to their initiating authentication
+  revision while keeping current-revision authority failures fail closed. It merged
+  in [Sandhi #294](https://github.com/anvai-labs/sandhi/pull/294),
+  `474d410ce88e61dd2ed3da7add4b1823a5cf4554`, after independent review and green CI.
+  The existing delayed-response test now uses an authenticated-request barrier and
+  one shared helper; only the missing stale/current-revision pair was added. TDD
+  reproduced the stale-revision failure; all 31 dashboard browser tests and 239 proxy
+  tests passed, with five repeats of the three affected race cases. The same
+  reviewed 0.9.1 release/deployment in G54 includes this repair; its source tests
+  do not alter formation or C5 evidence.
+
+- **G56 — full InferFlux acceptance is not yet driven by a canonical serving profile.**
+  [InferFlux #219](https://github.com/anvai-labs/inferflux/pull/219) lands the reviewed
+  [configuration-driven acceptance handoff](https://github.com/anvai-labs/inferflux/blob/develop/docs/planning/VICTOR_ACCEPTANCE_PROFILES_HANDOFF_2026-09-23.md),
+  not implementation. The existing two-model setup gate uses 2048 total context and
+  eight GPU layers, unlike the full three-model serving configuration. Extend its
+  existing configuration/test owners with strict versioned profiles, effective
+  global/model configuration comparisons, separate socket/queue/execution/harness
+  deadline semantics, and per-contract evidence. Direct-origin cohorts must mark
+  gateway accounting unexercised and cannot substitute for Sandhi/C5 acceptance.
+  Resolve G52 before additional load; no runtime, cache or credential was changed
+  by the handoff.
+
+- **G57 — the published gateway missed its initial bounded startup check.**
+  The 0.9.1 deployment helper's 25-second readiness window expired while the new
+  process stayed alive, both on deployment and on the later human-role restart.
+  Preserve both failed results. Subsequent independent
+  check verified the exact PID, binary hash, exclusive listener, served package
+  version and readiness; eight OIDC permission checks then passed. This establishes
+  later serving readiness, not startup within the original bound. Startup phase
+  timing and a repeatable unattended startup acceptance gate remain open. The cause
+  is unproven; do not attribute it to OIDC or keyring access, silently extend the
+  bound, or rewrite the original failed evidence.
+
+- **G58 — ✅ human dashboard onboarding required both IdP admission and a subject role.**
+  Administrator browser acceptance did not grant the user's account access. The
+  IdP audit for the reported operation ID showed successful authentication but no
+  application scopes; Sandhi also had no binding for that subject. A reviewed repair
+  verified the account UUID before adding existing viewer-group membership, then
+  added only a private `viewer` binding and restarted the same published binary.
+  Existing bindings, credentials and usage were preserved. Eight agent/accounting
+  checks passed again; the user confirmed that the dashboard opened. The
+  [operator guide](https://github.com/anvai-labs/sandhi/blob/develop/docs/operator/oidc-sso.md#onboard-a-human-dashboard-user)
+  in [Sandhi #296](https://github.com/anvai-labs/sandhi/pull/296)
+  documents both steps, role selection and denial diagnosis. An authenticated role
+  editor/API is still unimplemented: current role changes need deployment-config
+  access and restart. No group-to-role synchronization or self-elevation is implied.
 
 Validation-test audit: neither live harness had direct tests before this follow-up.
 The new mixed-harness suite covers rejected/malformed/missing reviews, inclusive

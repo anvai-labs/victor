@@ -1,0 +1,107 @@
+{
+  "schema_version": 1,
+  "evidence_kind": "new post-upgrade OIDC sequential actual-member case; not a full matrix or historical replay",
+  "date": "2026-09-23",
+  "run_id": "matrix-9099a9446a",
+  "verdict": "PASS",
+  "victor_commit": "c08d305eeed34559721282e321ae035da337350b",
+  "source_clean_at_launch": true,
+  "source_clean_at_completion": true,
+  "harness_sha256": "1546491c3a0ba63f8cc3c8b2c7508cfdd2f4c2bc611cd1dd9ccc000e939ca6f3",
+  "entry_sha256": "37985ccf74c0af39041c0cd8eebbbcd1c93af9121fed11640a6c7bfb60b057d3",
+  "private_evidence_sha256": "24ea2d3267eadb4a98f9b8b69133bdb6b6547e892f0a669bab3e44387ce7e3ca",
+  "provider": "zai",
+  "model": "glm-5.3",
+  "task_profile": "single-file",
+  "case_contract_version": 2,
+  "authentication": {
+    "mode": "oidc",
+    "credential_renewal": "before_request",
+    "accounting_identity": "separate"
+  },
+  "sandhi": {
+    "release_tag": "v0.9.1",
+    "source": "4968fd045550539f0bddfb1892e9c4f3f226ce5f",
+    "sha256": "ff4d7bd68ce4ea33a593416899acb431b845e2d217255451f98bb42593885b63",
+    "archive_sha256": "2b4da921cf89a0f5bc2b6e7beed7f0d5d0fbcf5fa52f9e272b09ec4f506909b1"
+  },
+  "buffered_gateway_deadline_seconds": 120,
+  "cases": [
+    {
+      "case": "sequential",
+      "passed": true,
+      "failures": [],
+      "calls": 6,
+      "required_artifacts": 2,
+      "pytest_exit_codes": [
+        0,
+        0
+      ],
+      "oracle_inputs_checked": [
+        10242,
+        10242
+      ],
+      "oracle_passes": [
+        true,
+        true
+      ]
+    }
+  ],
+  "calls": 6,
+  "http_statuses": {
+    "200": 6
+  },
+  "distinct_member_sessions": 2,
+  "accounting_joins": 6,
+  "passing_accounting_joins": 6,
+  "accounting_failures": [],
+  "totals": {
+    "tokens_in": 5067,
+    "tokens_out": 535,
+    "cache_read_tokens": 13248,
+    "cache_creation_tokens": 0
+  },
+  "unrelated_new_rows": 0,
+  "maximum_http_seconds": 13.858,
+  "unfinished_wire_records": 0,
+  "credential_acquisitions_by_subject": {
+    "24db382c-54ad-4f1f-81de-f9bed657bfd9": 1,
+    "68c5399a-3777-48ac-8cae-436da47d20bb": 1
+  },
+  "actual_credential_renewal_observed": false,
+  "credential_renewal_by_role": {
+    "member": {
+      "acquisitions": 1,
+      "renewal_observed": false
+    },
+    "accounting": {
+      "acquisitions": 1,
+      "renewal_observed": false
+    }
+  },
+  "cache_reporting_coverage": {
+    "selected_sqlite_rows": 6,
+    "status_counts": {
+      "reported": 6,
+      "absent": 0,
+      "malformed": 0,
+      "unknown": 0,
+      "unsupported": 0
+    },
+    "dashboard_count_delta": {
+      "reported": 6,
+      "absent": 0,
+      "malformed": 0,
+      "unknown": 0,
+      "unsupported": 0
+    }
+  },
+  "failures": [],
+  "limitations": [
+    "Buffered cases do not establish streaming or origin cancellation.",
+    "Reported cache counts do not prove executed reuse or tokenizer equivalence.",
+    "Different task profiles and models are separate acceptance cohorts.",
+    "Local capabilities are not OS isolation from unrestricted same-user tools.",
+    "This matrix is not the full six-Qwen/one-ZAI C5 verdict."
+  ]
+}
