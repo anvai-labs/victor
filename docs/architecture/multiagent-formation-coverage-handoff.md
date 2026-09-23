@@ -947,14 +947,16 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   audiences. OIDC remains the default SSO posture; token compatibility requires
   explicit selection. Preserve existing credentials, historical evidence and cache.
 
-  Both live validation harnesses currently read virtual-key and admin-token files.
-  Add an explicit structured OAuth credential/renewal contract and authorized
-  accounting identity before claiming they test the OIDC deployment. Sandhi 0.8.0
+  Both live validation harnesses now expose an additive
+  [OAuth broker profile](gateway-validation-oauth.md), with one bounded credential
+  adapter, fixed routes and separate accounting identity. Legacy invocations still
+  read virtual-key and admin-token files. Live broker provisioning and actual-member
+  acceptance remain required before claiming they test the OIDC deployment. Sandhi 0.8.0
   deliberately requires `admin` for the read-only C4 diagnostics POST (ADR-0011);
   a `viewer` cannot satisfy unchanged C4 assertions. A separately reviewed scoped
   diagnostics permission merged through
   [Sandhi #285](https://github.com/anvai-labs/sandhi/pull/285); it is a post-0.8.0
-  increment and needs deployment before least-privilege automation. Do not silently
+  increment published in 0.9.0 and needs deployment before least-privilege automation. Do not silently
   grant admin or omit diagnostics. Keep renewable OAuth access tokens inside the
   observer adapter rather than member environments or cached provider handles;
   use fixed route/grant bindings and separate inference/accounting identities.

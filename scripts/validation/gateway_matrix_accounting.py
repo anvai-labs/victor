@@ -11,10 +11,14 @@ import hashlib
 import json
 from pathlib import Path
 import sqlite3
+import sys
 import time
 from typing import Any
 
-from aiohttp import ClientSession, ClientTimeout, web
+from aiohttp import ClientSession, ClientTimeout, DummyCookieJar, web
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from scripts.validation.gateway_oauth import GatewayOAuth, GatewayOAuthError
 
 COUNTS = ("tokens_in", "tokens_out", "cache_read_tokens", "cache_creation_tokens")
 FIELDS = (
@@ -172,6 +176,8 @@ class GatewayObserver:
         output: Path,
         port: int,
         expected_provider: str,
+        *,
+        oauth: GatewayOAuth | None = None,
     ):
         self.gateway_url = gateway_url.rstrip("/")
         self._admin = admin
@@ -179,6 +185,7 @@ class GatewayObserver:
         self.output = output
         self.port = port
         self.expected_provider = expected_provider
+        self.oauth = oauth
         self.records: list[dict[str, Any]] = []
         self.client: ClientSession | None = None
         self.runner: web.AppRunner | None = None
@@ -212,12 +219,17 @@ class GatewayObserver:
     async def admin_call(self, path: str, payload: Any = None) -> Any:
         if self.client is None:
             raise RuntimeError("Observer is not started")
-        async with self.client.request(
-            "POST" if payload is not None else "GET",
-            self.gateway_url + path,
-            json=payload,
-            headers={"Authorization": "Bearer " + self._admin},
-        ) as response:
+        method = "POST" if payload is not None else "GET"
+        url = self.gateway_url + path
+        headers = {"Authorization": "Bearer " + self._admin}
+        operation = (
+            self.client.request(method, url, json=payload, headers=headers)
+            if self.oauth is None
+            else self.oauth.request(
+                self.client, method, url, purpose="accounting", json=payload, headers=headers
+            )
+        )
+        async with operation as response:
             if response.status != 200:
                 raise RuntimeError(f"Admin API returned HTTP {response.status}")
             return await response.json()
@@ -240,7 +252,10 @@ class GatewayObserver:
         return result
 
     async def start(self) -> None:
-        self.client = ClientSession(timeout=ClientTimeout(total=300), auto_decompress=False)
+        options: dict[str, Any] = {"cookie_jar": DummyCookieJar()} if self.oauth is not None else {}
+        self.client = ClientSession(
+            timeout=ClientTimeout(total=300), auto_decompress=False, **options
+        )
         try:
             self.before = await self.snapshot("before")
             self.baseline = self.last_row()
@@ -323,12 +338,20 @@ class GatewayObserver:
         }
         headers["Accept-Encoding"] = "identity"
         try:
-            async with self.client.request(
-                request.method,
-                self.gateway_url + request.path_qs,
-                data=body,
-                headers=headers,
-            ) as response:
+            url = self.gateway_url + request.path_qs
+            operation = (
+                self.client.request(request.method, url, data=body, headers=headers)
+                if self.oauth is None
+                else self.oauth.request(
+                    self.client,
+                    request.method,
+                    url,
+                    purpose="inference",
+                    data=body,
+                    headers=request.headers,
+                )
+            )
+            async with operation as response:
                 output = await response.read()
                 if record is not None:
                     record.update(
@@ -399,6 +422,10 @@ class GatewayObserver:
         except BaseException as exc:
             if record is not None:
                 record["observer_error_type"] = type(exc).__name__
+            if isinstance(exc, GatewayOAuthError):
+                if record is not None:
+                    record["http_status"] = exc.http_status
+                return web.Response(status=exc.http_status, text="Gateway credential unavailable")
             raise
         finally:
             if record is not None:

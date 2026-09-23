@@ -61,7 +61,7 @@ def completed_run(tmp_path, monkeypatch):
     return members, client, pytest_run
 
 
-async def collect(tmp_path, completed_run):
+async def collect(tmp_path, completed_run, **kwargs):
     members, client, _ = completed_run
     evidence = {"failures": []}
     await live.collect_acceptance(
@@ -73,6 +73,7 @@ async def collect(tmp_path, completed_run):
         gateway_url="http://localhost:18788",
         admin="private-test-token",
         evidence=evidence,
+        **kwargs,
     )
     return evidence
 
@@ -108,12 +109,21 @@ async def test_missing_artifact_and_bad_member_usage_do_not_hide_other_results(
     assert evidence["pytest"]["returncode"] == 0
 
 
-async def test_complete_run_reconciles_cache_inclusive_usage(tmp_path, completed_run):
-    evidence = await collect(tmp_path, completed_run)
+@pytest.mark.parametrize("oauth_enabled", [False, True])
+async def test_complete_run_reconciles_cache_inclusive_usage(
+    tmp_path, completed_run, oauth_enabled
+):
+    auth = Mock()
+    auth.request.return_value = completed_run[1].get.return_value
+    evidence = await collect(tmp_path, completed_run, **({"oauth": auth} if oauth_enabled else {}))
     assert evidence["failures"] == []
     assert len(evidence["usage_reconciliation"]) == 7
     assert evidence["missing_deliverables"] == []
     assert evidence["review"] == {"verdict": "approved", "findings": []}
+    if oauth_enabled:
+        completed_run[1].get.assert_not_called()
+        assert auth.request.call_count == 7
+        assert all(call.kwargs == {"purpose": "accounting"} for call in auth.request.call_args_list)
 
 
 async def test_pytest_timeout_is_failure_with_retained_usage(tmp_path, completed_run):
@@ -125,7 +135,8 @@ async def test_pytest_timeout_is_failure_with_retained_usage(tmp_path, completed
 
 
 @pytest.mark.parametrize(
-    "phase", ["startup", "team", "pause", "cancelled", "opaque", "provenance", "collect_cancel"]
+    "phase",
+    ["startup", "team", "pause", "cancelled", "opaque", "provenance", "collect_cancel", "oauth"],
 )
 async def test_validate_writes_failure_evidence_and_restores_process_state(
     tmp_path, monkeypatch, phase
@@ -136,6 +147,12 @@ async def test_validate_writes_failure_evidence_and_restores_process_state(
     for name in ("client.json", "inferflux.json"):
         (state / name).write_text(json.dumps(settings))
     (state / "admin-token").write_text("private-test-admin")
+    if phase == "oauth":
+        for path in state.iterdir():
+            path.unlink()
+        auth = Mock(gateway_url="https://gateway")
+        auth.capability.side_effect = lambda provider: "private-test-" + provider
+        monkeypatch.setattr(live.GatewayOAuth, "load", Mock(return_value=auth))
     monkeypatch.setenv("SANDHI_GATEWAY_URL", "http://previous")
     monkeypatch.delenv("SANDHI_GATEWAY_VIRTUAL_KEY_ZAI", raising=False)
     monkeypatch.setattr(live.web.TCPSite, "start", AsyncMock())
@@ -183,6 +200,7 @@ async def test_validate_writes_failure_evidence_and_restores_process_state(
         gateway_state=state,
         mixed=True,
         proxy_port=18082,
+        auth_profile=tmp_path / "profile.json" if phase == "oauth" else None,
     )
     if phase in {"cancelled", "collect_cancel"}:
         with pytest.raises(asyncio.CancelledError):
@@ -198,6 +216,9 @@ async def test_validate_writes_failure_evidence_and_restores_process_state(
         assert report["pytest"]["returncode"] != 0
     assert any(item["check"] == "execution" for item in report["failures"])
     assert "private-test-" not in serialized
+    assert ("authentication" in report) == (phase == "oauth")
+    if phase == "oauth":
+        assert [call.args for call in auth.capability.call_args_list] == [("zai",), ("inferflux",)]
     assert json.loads(report_path.with_name("requests.json").read_text()) == []
     assert Path.cwd() == previous_cwd
     assert os.environ["SANDHI_GATEWAY_URL"] == "http://previous"

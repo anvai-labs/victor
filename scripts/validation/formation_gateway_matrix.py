@@ -351,9 +351,17 @@ async def main(args: argparse.Namespace) -> int:
         raise ValueError("Choose unique cases and a positive timeout before making model calls")
     root = Path(args.output_dir).resolve() / ("matrix-" + uuid.uuid4().hex[:10])
     root.mkdir(parents=True, mode=0o700)
-    config_name = "client.json" if args.provider == "zai" else "inferflux.json"
-    config = json.loads((args.gateway_state / config_name).read_text())
-    admin = (args.gateway_state / "admin-token").read_text().strip()
+    from scripts.validation.gateway_oauth import GatewayOAuth
+
+    profile = getattr(args, "auth_profile", None)
+    oauth = GatewayOAuth.load(profile) if profile is not None else None
+    if oauth is None:
+        config_name = "client.json" if args.provider == "zai" else "inferflux.json"
+        config = json.loads((args.gateway_state / config_name).read_text())
+        admin = (args.gateway_state / "admin-token").read_text().strip()
+    else:
+        config = {"url": oauth.gateway_url, "virtual_key": oauth.capability(args.provider)}
+        admin = "observer-accounting"
     environment = {
         "SANDHI_GATEWAY_URL": f"http://127.0.0.1:{args.proxy_port}",
         "SANDHI_GATEWAY_VIRTUAL_KEY_" + args.provider.upper(): config["virtual_key"],
@@ -362,7 +370,13 @@ async def main(args: argparse.Namespace) -> int:
     prior = {key: os.environ.get(key) for key in environment}
     os.environ.update(environment)
     observer = GatewayObserver(
-        config["url"], admin, args.gateway_state / "usage.db", root, args.proxy_port, args.provider
+        config["url"],
+        admin,
+        oauth.database if oauth else args.gateway_state / "usage.db",
+        root,
+        args.proxy_port,
+        args.provider,
+        **({"oauth": oauth} if oauth else {}),
     )
     report: dict[str, Any] = {
         "provider": args.provider,
@@ -378,6 +392,12 @@ async def main(args: argparse.Namespace) -> int:
     }
     if args.task_profile != "standard":
         report["task_profile"] = args.task_profile
+    if oauth is not None:
+        report["authentication"] = {
+            "mode": "oidc",
+            "credential_renewal": "before_request",
+            "accounting_identity": "separate",
+        }
     try:
         await observer.start()
         report["gateway_version"] = await observer.admin_call("/admin/version")
@@ -466,6 +486,7 @@ if __name__ == "__main__":
     parser.add_argument("--provider", choices=("inferflux", "zai"), required=True)
     parser.add_argument("--model", required=True)
     parser.add_argument("--gateway-state", type=Path, required=True)
+    parser.add_argument("--auth-profile", type=Path, help="Opt-in strict OAuth broker profile")
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--cases", nargs="+", choices=CASE_NAMES, default=list(CASE_NAMES))
     parser.add_argument("--task-profile", choices=TASK_PROFILES, default="standard")

@@ -127,6 +127,8 @@ def test_failed_attempts_or_accounting_are_never_hidden(joined, fault):
         "duplicate_ledger",
         "ledger_cancelled",
         "ledger_error",
+        "oauth",
+        "oauth_denied",
     ],
 )
 async def test_forward_records_only_usage_metadata_and_keeps_failed_attempts(tmp_path, fault):
@@ -170,6 +172,11 @@ async def test_forward_records_only_usage_metadata_and_keeps_failed_attempts(tmp
         context.__aenter__.side_effect = asyncio.TimeoutError()
     observer.client = Mock()
     observer.client.request.return_value = context
+    if fault in {"oauth", "oauth_denied"}:
+        observer.oauth = Mock()
+        observer.oauth.request.return_value = context
+        if fault == "oauth_denied":
+            context.__aenter__.side_effect = accounting.GatewayOAuthError("credential rejected")
     request = Mock()
     request.path = request.path_qs = "/v1/chat/completions"
     request.method = "POST"
@@ -194,12 +201,20 @@ async def test_forward_records_only_usage_metadata_and_keeps_failed_attempts(tmp
         with pytest.raises(asyncio.TimeoutError):
             await observer.forward(request)
     else:
-        assert (await observer.forward(request)).status == 200
-    observer.client.request.assert_called_once()
-    assert (
-        observer.client.request.call_args.kwargs["headers"]["Authorization"] == "Bearer " + secret
-    )
-    if fault not in {"timeout", "ledger_cancelled", "ledger_error"}:
+        assert (await observer.forward(request)).status == (401 if fault == "oauth_denied" else 200)
+    if observer.oauth is not None:
+        observer.client.request.assert_not_called()
+        observer.oauth.request.assert_called_once()
+        forwarded = observer.oauth.request.call_args.kwargs
+        assert forwarded["purpose"] == "inference"
+        assert forwarded["headers"] is request.headers
+    else:
+        observer.client.request.assert_called_once()
+        assert (
+            observer.client.request.call_args.kwargs["headers"]["Authorization"]
+            == "Bearer " + secret
+        )
+    if fault not in {"timeout", "ledger_cancelled", "ledger_error", "oauth_denied"}:
         expected = {"missing_ledger": "timeout", "duplicate_ledger": "ambiguous"}.get(
             fault, "matched"
         )
@@ -209,6 +224,10 @@ async def test_forward_records_only_usage_metadata_and_keeps_failed_attempts(tmp
     assert len(json.loads(wire)) == 1
     if fault == "timeout":
         assert observer.records[0]["observer_error_type"] == "TimeoutError"
+    elif fault == "oauth_denied":
+        assert observer.records[0]["http_status"] == 401
+        assert observer.records[0]["observer_error_type"] == "GatewayOAuthError"
+        assert "usage" not in observer.records[0]
     else:
         assert observer.records[0]["usage"]["prompt_tokens_details"] == {"cached_tokens": 5}
 
