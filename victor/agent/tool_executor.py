@@ -477,7 +477,7 @@ class ToolExecutor:
         properties = schema.get("properties", {})
         for key, value in list(arguments.items()):
             prop_schema = properties.get(key)
-            if not prop_schema:
+            if not isinstance(prop_schema, dict):
                 continue
 
             expected = prop_schema.get("type")

@@ -32,6 +32,7 @@ class FakeMCPTool:
     description: str
     parameters: list = field(default_factory=list)
     version: str = "1.0.0"
+    input_schema: dict | None = None
 
 
 def _param(name, type_str, desc, required=False, default=None):

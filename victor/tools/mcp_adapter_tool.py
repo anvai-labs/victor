@@ -20,10 +20,12 @@ Usage:
 
 from __future__ import annotations
 
+from copy import deepcopy
 import logging
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from victor.tools.base import BaseTool, CostTier, ToolResult
+from victor.tools.enums import SchemaLevel
 
 if TYPE_CHECKING:
     from victor.integrations.mcp.protocol import MCPParameter, MCPTool
@@ -96,7 +98,12 @@ class MCPAdapterTool(BaseTool):
         self._registry = mcp_registry
         self._server_name = server_name
         self._name_prefix = name_prefix or DEFAULT_MCP_PREFIX
-        self._json_schema = _mcp_params_to_json_schema(mcp_tool.parameters)
+        self._has_input_schema = mcp_tool.input_schema is not None
+        self._json_schema = (
+            deepcopy(mcp_tool.input_schema)
+            if mcp_tool.input_schema is not None
+            else _mcp_params_to_json_schema(mcp_tool.parameters)
+        )
 
         # Set tool source metadata for deduplication
         try:
@@ -118,7 +125,7 @@ class MCPAdapterTool(BaseTool):
 
     @property
     def parameters(self) -> Dict[str, Any]:
-        return self._json_schema
+        return deepcopy(self._json_schema)
 
     @property
     def cost_tier(self) -> CostTier:
@@ -130,8 +137,12 @@ class MCPAdapterTool(BaseTool):
 
     @property
     def default_schema_level(self) -> str:
-        """MCP tools default to STUB schema for token efficiency."""
-        return "stub"
+        """Keep captured server contracts intact; legacy tools retain their stub default."""
+        return "full" if self._has_input_schema else "stub"
+
+    def to_schema(self, level: Optional[SchemaLevel] = None) -> Dict[str, Any]:
+        """Do not let presentation compaction remove server validation constraints."""
+        return super().to_schema(SchemaLevel.FULL if self._has_input_schema else level)
 
     @property
     def mcp_server_name(self) -> str:

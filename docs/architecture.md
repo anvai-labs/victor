@@ -726,3 +726,6 @@ views; the entry-point table below is an index, not a second dependency model.
 | `AgentFactory` | `victor/framework/agent_factory.py` | Single authority for agent creation |
 | `VictorFastAPIServer` | `victor/integrations/api/fastapi_server.py` | FastAPI REST endpoint |
 | `VictorClient` | `victor/framework/client.py` | UI layer entry point |
+
+MCP client contract preservation and qualification limits are documented in
+[MCP schema fidelity](architecture/mcp-schema-fidelity.md).
