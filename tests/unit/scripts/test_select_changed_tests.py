@@ -135,3 +135,17 @@ def test_attribution_guard_selects_its_policy_regressions():
     assert select(["scripts/ci/check_no_agent_attribution.py"]) == [
         "tests/unit/scripts/test_check_no_agent_attribution.py"
     ]
+
+
+@pytest.mark.parametrize(
+    ("source", "contract_test"),
+    [
+        ("victor/integrations/mcp/client.py", "tests/unit/agent/test_mcp_client.py"),
+        ("victor/integrations/mcp/protocol.py", "tests/unit/agent/test_mcp_protocol.py"),
+        ("victor/integrations/mcp/server.py", "tests/unit/agent/test_mcp_server.py"),
+        ("victor/tools/mcp_adapter_tool.py", "tests/unit/tools/test_mcp_adapter_tool.py"),
+        ("victor/agent/tool_executor.py", "tests/unit/tools/test_tool_executor_unit.py"),
+    ],
+)
+def test_mcp_schema_owners_include_legacy_location_and_end_to_end_contract(source, contract_test):
+    assert {contract_test, "tests/unit/tools/test_mcp_schema_fidelity.py"} <= set(select([source]))

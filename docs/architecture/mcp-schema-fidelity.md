@@ -59,7 +59,7 @@ background browser service was changed. T8 therefore remains in progress.
 ## Candidate validation
 
 - 490 affected client, adapter, executor, integration and boundary tests passed.
-- 33,298 tests collected successfully across the full repository.
+- 33,303 tests collected successfully across the full repository.
 - Black and Ruff passed for all changed Python files; MyPy passed for five
   changed production files.
 - Both opt-in real AgentBrowser catalog and bound-delegation tests passed.
@@ -70,6 +70,14 @@ background browser service was changed. T8 therefore remains in progress.
   directly outside pytest. No sandbox policy or assertion was weakened.
 - Independent source review found the two consumer assumptions above; both were
   repaired with failing-first tests and re-reviewed clean.
+
+The initial CI candidate exposed a missing changed-file test mapping for the legacy
+MCP server suite. Explicit related-test mappings now retain the protocol/client/
+server/adapter and executor suites, including schema fidelity. Five failing-first
+selector cases pin those mappings; unmapped-source refusal and the target cap are
+unchanged. The exact changed-file selection and 80% changed-line coverage gate are
+also run locally before the follow-up candidate: 465 passed, three existing skips,
+and 100% coverage of changed production lines.
 
 ## Next qualification slices
 
