@@ -89,6 +89,11 @@ RELATED_TESTS = {
     "victor/ui/cli_group.py": ("tests/unit/ui/test_cli_command_resolution.py",),
     "scripts/ci/select_changed_tests.py": ("tests/unit/scripts/test_select_changed_tests.py",),
     **dict.fromkeys(DEPRECATION_NOTICE_FILES, DEPRECATION_NOTICE_TESTS),
+    "victor/tools/base.py": (
+        *DEPRECATION_NOTICE_TESTS,
+        "tests/unit/core/test_tool_base.py",
+        *MCP_SCHEMA_TESTS,
+    ),
 }
 
 

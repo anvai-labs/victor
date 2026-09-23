@@ -95,6 +95,7 @@ dependencies = [
 
     # Tools
     "jsonschema>=4.20",
+    "referencing>=0.28.4",  # Explicit offline registry for captured MCP schemas
     "tiktoken>=0.7",
     "pyyaml>=6.0",
     "beautifulsoup4>=4.12",

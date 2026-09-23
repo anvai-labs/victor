@@ -24,7 +24,7 @@ from copy import deepcopy
 import logging
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
-from victor.tools.base import BaseTool, CostTier, ToolResult
+from victor.tools.base import BaseTool, CostTier, ToolResult, ToolValidationResult
 from victor.tools.enums import SchemaLevel
 
 if TYPE_CHECKING:
@@ -44,6 +44,7 @@ except ImportError:
 
 # Default prefix for all MCP tools (unified naming convention)
 DEFAULT_MCP_PREFIX = "mcp"
+_SCHEMA_VALIDATION_ERROR = "MCP input schema could not be validated locally"
 
 
 def _mcp_param_to_json_schema(param: "MCPParameter") -> Dict[str, Any]:
@@ -128,6 +129,40 @@ class MCPAdapterTool(BaseTool):
         return deepcopy(self._json_schema)
 
     @property
+    def preserve_arguments(self) -> bool:
+        return self._has_input_schema
+
+    def validate_parameters_detailed(self, **kwargs: Any) -> ToolValidationResult:
+        """Validate captured contracts offline; never weaken them on resolver failure."""
+        if not self._has_input_schema:
+            return super().validate_parameters_detailed(**kwargs)
+        # BaseTool.execute receives framework context under this reserved name.
+        # Refuse it instead of allowing executor cleanup to silently change input.
+        if "_exec_ctx" in kwargs:
+            return ToolValidationResult.failure([_SCHEMA_VALIDATION_ERROR])
+
+        try:
+            # Keep schema machinery out of the CLI import path. Registry's default
+            # refuses external retrieval while retaining references within the document.
+            from jsonschema import Draft7Validator
+            from jsonschema.validators import validator_for
+            from referencing import Registry
+
+            schema = self._json_schema
+            validator_type = validator_for(
+                schema, default=None if "$schema" in schema else Draft7Validator
+            )
+            if validator_type is not None:
+                validator_type.check_schema(schema)
+                if validator_type(schema, registry=Registry()).is_valid(kwargs):
+                    return ToolValidationResult.success()
+        except Exception:
+            # Remote schemas and argument values are untrusted and may be private.
+            # Do not echo resolver/schema/instance errors or use primitive fallback.
+            pass
+        return ToolValidationResult.failure([_SCHEMA_VALIDATION_ERROR])
+
+    @property
     def cost_tier(self) -> CostTier:
         return CostTier.MEDIUM  # MCP tools involve IPC
 
@@ -156,6 +191,12 @@ class MCPAdapterTool(BaseTool):
 
     async def execute(self, _exec_ctx: Dict[str, Any], **kwargs: Any) -> ToolResult:
         """Execute by routing through MCPRegistry.call_tool()."""
+        if self._has_input_schema and not self.validate_parameters_detailed(**kwargs).valid:
+            return ToolResult(
+                success=False,
+                output="",
+                error=_SCHEMA_VALIDATION_ERROR,
+            )
         try:
             result = await self._registry.call_tool(self._mcp_tool.name, **kwargs)
             return ToolResult(

@@ -4,7 +4,7 @@
 """Server schemas survive discovery and model-facing adapter presentation."""
 
 from copy import deepcopy
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from pydantic import ValidationError
@@ -121,6 +121,9 @@ async def test_absent_schema_keeps_legacy_conversion_and_serialization():
         "limit" not in adapter.to_schema(SchemaLevel.STUB)["function"]["parameters"]["properties"]
     )
     assert set(tool.model_dump()) == {"name", "description", "parameters", "version"}
+    assert adapter.validate_parameters(query="ok")
+    assert not adapter.validate_parameters(query=42)
+    assert adapter.preserve_arguments is False
 
 
 def test_captured_schema_does_not_change_legacy_server_serialization(schema):
@@ -168,3 +171,152 @@ def test_executor_leaves_boolean_and_union_schema_values_to_validation(property_
     assert arguments == {"value": "5"}
     valid = adapter.validate_parameters(**arguments)
     assert valid is (property_schema is not False)
+
+
+def adapter_for_schema(schema):
+    registry = MagicMock()
+    registry.call_tool = AsyncMock(return_value=MagicMock(success=True, result="ok"))
+    return MCPAdapterTool(
+        MCPTool(name="fill", description="Fill", inputSchema=schema), registry, "browser"
+    )
+
+
+@pytest.mark.parametrize(
+    "reference",
+    ["https://example.invalid/PRIVATE_SCHEMA", "file:///PRIVATE_SCHEMA", "#/$defs/missing"],
+)
+async def test_unresolved_references_refuse_without_io_or_payload(reference):
+    adapter = adapter_for_schema({"type": "object", "properties": {"value": {"$ref": reference}}})
+    with patch("urllib.request.urlopen", side_effect=OSError("PRIVATE_SCHEMA")) as opener:
+        validation = adapter.validate_parameters_detailed(value="PRIVATE_VALUE")
+        result = await adapter.execute({}, value="PRIVATE_VALUE")
+    opener.assert_not_called()
+    assert not validation.valid
+    assert validation.errors == ["MCP input schema could not be validated locally"]
+    assert not result.success
+    assert "PRIVATE" not in result.error
+    adapter._registry.call_tool.assert_not_awaited()
+
+
+@pytest.mark.parametrize("value,valid", [("ok", True), (42, False)])
+async def test_local_reference_constraints_apply_before_dispatch(value, valid):
+    adapter = adapter_for_schema(
+        {
+            "type": "object",
+            "$defs": {"value": {"type": "string"}},
+            "properties": {"value": {"$ref": "#/$defs/value"}},
+        }
+    )
+    assert adapter.validate_parameters(value=value) is valid
+    result = await adapter.execute({}, value=value)
+    assert result.success is valid
+    assert adapter._registry.call_tool.await_count == int(valid)
+
+
+async def test_malformed_nested_schema_refuses_without_diagnostic_payload():
+    adapter = adapter_for_schema(
+        {"type": "object", "properties": {"value": {"type": "PRIVATE_SCHEMA"}}}
+    )
+    validation = adapter.validate_parameters_detailed(value="PRIVATE_VALUE")
+    assert not validation.valid
+    assert validation.errors == ["MCP input schema could not be validated locally"]
+    result = await adapter.execute({}, value="PRIVATE_VALUE")
+    assert not result.success
+    assert "PRIVATE" not in result.error
+    adapter._registry.call_tool.assert_not_awaited()
+
+
+@pytest.mark.parametrize("mode", ["strict", "lenient", "off"])
+async def test_executor_never_dispatches_unresolved_schema(mode, caplog):
+    from victor.agent.tool_executor import ToolExecutor, ValidationMode
+    from victor.tools.registry import ToolRegistry
+
+    adapter = adapter_for_schema(
+        {"type": "object", "properties": {"value": {"$ref": "#/$defs/missing"}}}
+    )
+    registry = ToolRegistry()
+    registry.register(adapter)
+    executor = ToolExecutor(tool_registry=registry, validation_mode=ValidationMode(mode))
+    result = await executor.execute(adapter.name, {"value": "PRIVATE_VALUE"})
+    assert not result.success
+    adapter._registry.call_tool.assert_not_awaited()
+    assert "PRIVATE" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    "schema,arguments,valid",
+    [
+        ({"type": "object", "additionalProperties": {"type": "string"}}, {"extra": "ok"}, True),
+        ({"type": "object"}, {"_exec_ctx": {"private": "PRIVATE_VALUE"}}, False),
+        ({"type": "object", "additionalProperties": False}, {"extra": "PRIVATE_VALUE"}, False),
+        ({"type": "object", "properties": {"count": {"type": "integer"}}}, {"count": "5"}, False),
+        ({"type": "object", "required": "PRIVATE_SCHEMA"}, {}, False),
+        ({"type": "object", "$schema": "https://example.invalid/PRIVATE_SCHEMA"}, {}, False),
+        (
+            {"type": "object", "properties": {"value": {"const": "PRIVATE_SCHEMA"}}},
+            {"value": "PRIVATE_VALUE"},
+            False,
+        ),
+        (
+            {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {"value": {"type": "array", "prefixItems": [{"type": "string"}]}},
+            },
+            {"value": [42]},
+            False,
+        ),
+        (
+            {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {"value": {"type": "array", "prefixItems": [{"type": "string"}]}},
+            },
+            {"value": ["ok"]},
+            True,
+        ),
+    ],
+)
+async def test_executor_honors_full_contract_without_heuristic_rewrite(
+    schema, arguments, valid, caplog
+):
+    from victor.agent.tool_executor import ToolExecutor
+    from victor.tools.registry import ToolRegistry
+
+    adapter = adapter_for_schema(schema)
+    registry = ToolRegistry()
+    registry.register(adapter)
+    executor = ToolExecutor(tool_registry=registry)
+    before = deepcopy(arguments)
+    with patch(
+        "urllib.request.urlopen", side_effect=AssertionError("unexpected retrieval")
+    ) as opener:
+        result = await executor.execute(adapter.name, arguments)
+    opener.assert_not_called()
+    assert result.success is valid
+    assert arguments == before
+    if valid:
+        adapter._registry.call_tool.assert_awaited_once_with("fill", **before)
+    else:
+        adapter._registry.call_tool.assert_not_awaited()
+    assert "PRIVATE" not in caplog.text
+
+
+async def test_executor_does_not_correct_external_paths_or_code():
+    from victor.agent.tool_executor import ToolExecutor
+    from victor.tools.registry import ToolRegistry
+
+    adapter = adapter_for_schema({"type": "object", "properties": {"path": {"type": "string"}}})
+    registry = ToolRegistry()
+    registry.register(adapter)
+    normalizer = MagicMock()
+    correction = MagicMock()
+    executor = ToolExecutor(tool_registry=registry, argument_normalizer=normalizer)
+    executor.enable_code_correction = True
+    executor.code_correction_middleware = correction
+    executor._failed_path_redirects = {"remote-only-path": "different-local-path"}
+    result = await executor.execute(adapter.name, {"path": "remote-only-path"})
+    assert result.success
+    normalizer.normalize_arguments.assert_not_called()
+    correction.process.assert_not_called()
+    adapter._registry.call_tool.assert_awaited_once_with("fill", path="remote-only-path")
