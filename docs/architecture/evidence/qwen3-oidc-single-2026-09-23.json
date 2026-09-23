@@ -1,0 +1,306 @@
+{
+  "schema_version": 1,
+  "evidence_kind": "new actual-member OIDC experiment; not historical replay",
+  "date": "2026-09-23",
+  "run_id": "matrix-96be2e7e91",
+  "verdict": "FAIL",
+  "victor_commit": "208e2535f523b3c28a77823ff90673c329970a5f",
+  "source_clean_at_launch": true,
+  "source_clean_at_completion": true,
+  "harness_sha256": "1546491c3a0ba63f8cc3c8b2c7508cfdd2f4c2bc611cd1dd9ccc000e939ca6f3",
+  "entry_sha256": "4e82f288542eb8ca5a5d430c678fde13c3ffcd7c904010aed8859ad08309dd01",
+  "private_evidence_sha256": "5109e89232caf79ad2df00cf1c2ea255ea384229087448e524a2e74897b783d0",
+  "provider": "inferflux",
+  "model": "qwen3-coder-30b",
+  "task_profile": "single-file",
+  "case_contract_version": 2,
+  "authentication": {
+    "mode": "oidc",
+    "credential_renewal": "before_request",
+    "accounting_identity": "separate"
+  },
+  "sandhi": {
+    "release_tag": "v0.9.0",
+    "source": "d755c262386e6cd041a300532ea34411d012a2d8",
+    "sha256": "7169fd4850189a2521ef7f19b06f9cb358e5646100cbf28196fd4d13938aceac",
+    "archive_sha256": "f3a4b363ab66209311d2f722b8cb79a0fd3a1fa24ac66f6c6141a30312269fd3"
+  },
+  "buffered_gateway_deadline_seconds": 120,
+  "cases": [
+    {
+      "case": "sequential",
+      "passed": false,
+      "failures": [
+        "execution:TimeoutError",
+        "member_outcomes",
+        "distinct_member_sessions",
+        "wire_routes_or_attempts",
+        "missing_artifacts:first",
+        "pytest:first",
+        "semantic_oracle:first",
+        "missing_artifacts:second",
+        "pytest:second",
+        "semantic_oracle:second"
+      ],
+      "calls": 2,
+      "required_artifacts": 2,
+      "pytest_exit_codes": [
+        4,
+        4
+      ],
+      "oracle_inputs_checked": [
+        null,
+        null
+      ],
+      "oracle_passes": [
+        false,
+        false
+      ]
+    }
+  ],
+  "calls": 4,
+  "http_statuses": {
+    "504": 4
+  },
+  "distinct_member_sessions": 3,
+  "accounting_joins": 4,
+  "passing_accounting_joins": 0,
+  "accounting_failures": [
+    {
+      "ordinal": 0,
+      "check": "http_failure"
+    },
+    {
+      "ordinal": 0,
+      "check": "deadline_reached"
+    },
+    {
+      "ordinal": 0,
+      "check": "origin_correlation_mismatch"
+    },
+    {
+      "ordinal": 0,
+      "check": "invalid_or_missing_usage"
+    },
+    {
+      "ordinal": 0,
+      "check": "availability_coverage"
+    },
+    {
+      "ordinal": 0,
+      "check": "c4_cache_observation"
+    },
+    {
+      "ordinal": 1,
+      "check": "http_failure"
+    },
+    {
+      "ordinal": 1,
+      "check": "deadline_reached"
+    },
+    {
+      "ordinal": 1,
+      "check": "nonunique_request_join"
+    },
+    {
+      "ordinal": 2,
+      "check": "http_failure"
+    },
+    {
+      "ordinal": 2,
+      "check": "deadline_reached"
+    },
+    {
+      "ordinal": 2,
+      "check": "nonunique_request_join"
+    },
+    {
+      "ordinal": 3,
+      "check": "http_failure"
+    },
+    {
+      "ordinal": 3,
+      "check": "deadline_reached"
+    },
+    {
+      "ordinal": 3,
+      "check": "nonunique_request_join"
+    },
+    {
+      "check": "wire_ledger_call_count"
+    },
+    {
+      "check": "c4_cache_observation",
+      "kind": "session",
+      "session_id": "matrix-96be2e7e91-sequential-executor_76336600"
+    },
+    {
+      "check": "c4_cache_observation",
+      "kind": "run",
+      "session_id": "matrix-96be2e7e91-sequential-executor_76336600"
+    }
+  ],
+  "totals": {
+    "tokens_in": 0,
+    "tokens_out": 0,
+    "cache_read_tokens": 0,
+    "cache_creation_tokens": 0
+  },
+  "unrelated_new_rows": 0,
+  "maximum_http_seconds": 126.015,
+  "unfinished_wire_records": 0,
+  "credential_acquisitions_by_subject": {
+    "24db382c-54ad-4f1f-81de-f9bed657bfd9": 1,
+    "68c5399a-3777-48ac-8cae-436da47d20bb": 1
+  },
+  "actual_credential_renewal_observed": false,
+  "credential_renewal_by_role": {
+    "member": {
+      "acquisitions": 1,
+      "renewal_observed": false
+    },
+    "accounting": {
+      "acquisitions": 1,
+      "renewal_observed": false
+    }
+  },
+  "cache_reporting_coverage": {
+    "selected_sqlite_rows": 1,
+    "status_counts": {
+      "reported": 0,
+      "absent": 0,
+      "malformed": 0,
+      "unknown": 0,
+      "unsupported": 0
+    },
+    "dashboard_count_delta": {
+      "reported": 0,
+      "absent": 0,
+      "malformed": 0,
+      "unknown": 1,
+      "unsupported": 0
+    },
+    "unclassified_sqlite_rows": 1,
+    "unclassified_reason": "One selected SQLite row has NULL cache_read_status; dashboard canonicalizes it as unknown. No explicit reporting claim."
+  },
+  "failures": [
+    {
+      "check": "matrix_incomplete"
+    },
+    {
+      "case": "sequential",
+      "check": "case_failed"
+    },
+    {
+      "check": "execution",
+      "error_type": "CancelledError"
+    },
+    {
+      "ordinal": 0,
+      "check": "http_failure"
+    },
+    {
+      "ordinal": 0,
+      "check": "deadline_reached"
+    },
+    {
+      "ordinal": 0,
+      "check": "origin_correlation_mismatch"
+    },
+    {
+      "ordinal": 0,
+      "check": "invalid_or_missing_usage"
+    },
+    {
+      "ordinal": 0,
+      "check": "availability_coverage"
+    },
+    {
+      "ordinal": 0,
+      "check": "c4_cache_observation"
+    },
+    {
+      "ordinal": 1,
+      "check": "http_failure"
+    },
+    {
+      "ordinal": 1,
+      "check": "deadline_reached"
+    },
+    {
+      "ordinal": 1,
+      "check": "nonunique_request_join"
+    },
+    {
+      "ordinal": 2,
+      "check": "http_failure"
+    },
+    {
+      "ordinal": 2,
+      "check": "deadline_reached"
+    },
+    {
+      "ordinal": 2,
+      "check": "nonunique_request_join"
+    },
+    {
+      "ordinal": 3,
+      "check": "http_failure"
+    },
+    {
+      "ordinal": 3,
+      "check": "deadline_reached"
+    },
+    {
+      "ordinal": 3,
+      "check": "nonunique_request_join"
+    },
+    {
+      "check": "wire_ledger_call_count"
+    },
+    {
+      "check": "c4_cache_observation",
+      "kind": "session",
+      "session_id": "matrix-96be2e7e91-sequential-executor_76336600"
+    },
+    {
+      "check": "c4_cache_observation",
+      "kind": "run",
+      "session_id": "matrix-96be2e7e91-sequential-executor_76336600"
+    }
+  ],
+  "limitations": [
+    "Buffered cases do not establish streaming or origin cancellation.",
+    "Reported cache counts do not prove executed reuse or tokenizer equivalence.",
+    "Different task profiles and models are separate acceptance cohorts.",
+    "Local capabilities are not OS isolation from unrestricted same-user tools.",
+    "This matrix is not the full six-Qwen/one-ZAI C5 verdict.",
+    "Origin uses existing private API-key authentication; direct-origin OIDC remains unaccepted.",
+    "Origin session handles are disabled; distinct Victor sessions do not prove session leases.",
+    "Qwen14 static context metadata exceeds the served per-sequence capacity; these tasks do not establish capacity-aware admission."
+  ],
+  "inferflux": {
+    "source": "02cf22addb9f78309bb5b2807427f215353a7085",
+    "binary_sha256": "5c806f3b652e5f1e50f293fc00eefd3763b9ee9be252c915ecb1ed5f051353c4",
+    "config_sha256": "8cd10ac8510620966c8e45b650727cd0e91697537c908ab0d456a8009f73d3e7",
+    "bind": "127.0.0.1:8080"
+  },
+  "model_identity": {
+    "model": "qwen3-coder-30b",
+    "sha256": "2841aa314d916434860cfb8990347528dcdfe5c350dbcb9d1461dbee88ff2533",
+    "bytes": 17665334432,
+    "backend": "llama_cpp_rocm",
+    "device": "rocm:0",
+    "context_size": 65536,
+    "max_parallel_sequences": 2
+  },
+  "planned_cases": 15,
+  "completed_cases": 1,
+  "cancelled_cases": [
+    "parallel"
+  ],
+  "unstarted_cases": 13,
+  "interrupted_by_operator": true,
+  "interrupt_reason": "Confirmed gateway deadline and stalled-origin investigation; no changed-deadline rerun",
+  "accounting_snapshot": "Cancellation-time accounting snapshot precedes final wire records; final wire has four completed HTTP 504s, while the earlier snapshot contains one ledger row. No clean join acceptance."
+}

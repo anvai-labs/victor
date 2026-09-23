@@ -1,0 +1,36 @@
+{
+  "observed_at": "2026-09-23T11:03:21.052255+00:00",
+  "source": "02cf22addb9f78309bb5b2807427f215353a7085",
+  "binary_sha256": "5c806f3b652e5f1e50f293fc00eefd3763b9ee9be252c915ecb1ed5f051353c4",
+  "readiness": {
+    "decode_pool_warm": true,
+    "disagg_timeout_debt": 0,
+    "disagg_timeout_debt_threshold": 6,
+    "disagg_timeout_streak": 0,
+    "disagg_timeout_streak_threshold": 3,
+    "disagg_transport_degraded": false,
+    "model_loaded": true,
+    "role": "unified",
+    "status": "ready"
+  },
+  "runtime_wide_metrics": [
+    "inferflux_requests_total{backend=\"llama_cpp_rocm\"} 0",
+    "inferflux_scheduler_iteration_requests_total{backend=\"llama_cpp_rocm\"} 44",
+    "inferflux_scheduler_iteration_tokens_total{backend=\"llama_cpp_rocm\"} 293376",
+    "inferflux_queue_wait_duration_ms_count{backend=\"llama_cpp_rocm\"} 22",
+    "inferflux_model_prompt_tokens_total{model=\"bge-small-en-v1.5\",backend=\"llama_cpp_cuda\"} 0",
+    "inferflux_model_prompt_tokens_total{model=\"qwen2.5-coder-14b\",backend=\"llama_cpp_cuda\"} 0",
+    "inferflux_model_prompt_tokens_total{model=\"qwen3-coder-30b\",backend=\"llama_cpp_rocm\"} 0",
+    "inferflux_model_completion_tokens_total{model=\"bge-small-en-v1.5\",backend=\"llama_cpp_cuda\"} 0",
+    "inferflux_model_completion_tokens_total{model=\"qwen2.5-coder-14b\",backend=\"llama_cpp_cuda\"} 0",
+    "inferflux_model_completion_tokens_total{model=\"qwen3-coder-30b\",backend=\"llama_cpp_rocm\"} 0",
+    "inferflux_active_connections 10",
+    "inferflux_scheduler_queue_depth 8",
+    "inferflux_prefill_queue_depth 8",
+    "inferflux_decode_queue_depth 0"
+  ],
+  "limitations": [
+    "Runtime-wide counters are not request-correlated; other clients may contribute.",
+    "This read-only observation made no inference call and did not clear cache."
+  ]
+}
