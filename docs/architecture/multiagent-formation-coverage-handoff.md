@@ -114,7 +114,7 @@ Implementation delivery and live acceptance have different denominators:
 | 2026-09-23 OIDC Qwen3/ROCm single-file cohort | 0/15 accepted; interrupted overall FAIL | First completed case timed out; second cancelled; 13 unstarted, not 15 model-quality failures |
 | OIDC Qwen14/CUDA single-file cohort | 0/15; not started | Held for consolidated-origin liveness investigation |
 | Current six-Qwen/one-ZAI C5 acceptance | Open; historical failed run retained | Full corrected run held for origin liveness, then reviewed verdict on InferFlux #184 |
-| G53 operator deadline policy | Buffered-only implementation: [Sandhi #297](https://github.com/anvai-labs/sandhi/pull/297) | Streaming policy, bounded settlement, release/deployment and changed-deadline live evidence remain separate |
+| G53 operator deadline policy | Buffered policy [Sandhi #297](https://github.com/anvai-labs/sandhi/pull/297); opt-in Rust stream body owner [Sandhi #298](https://github.com/anvai-labs/sandhi/pull/298) | Standalone streaming policy, bounded settlement, release/deployment and changed-deadline live evidence remain separate |
 
 The new OIDC cohorts use clean Victor source `208e2535f523b3c28a77823ff90673c329970a5f`
 ([#1173](https://github.com/anvai-labs/victor/pull/1173)), released Sandhi 0.9.0 and
@@ -1074,7 +1074,7 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   runtime identity and the prior passing setup gate; do not replace this failure
   with a longer-timeout result or attribute it to model quality.
 
-- **G53 — partially implemented: ✅ buffered route policy; streaming remains open.**
+- **G53 — partially implemented: ✅ buffered route policy and opt-in Rust stream body owner.**
   [Sandhi #297](https://github.com/anvai-labs/sandhi/pull/297) adds opt-in startup
   `buffered_deadlines` configuration: exact model within the authorized credential
   reference → endpoint → global default. Values are positive integer milliseconds,
@@ -1098,10 +1098,33 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   independent exact-commit review found no blocking findings or duplicate test
   owners. Existing unit and real-HTTP timeout owners remain distinct.
 
-  **Still open:** configurable stream setup/idle bounds require an explicit total
-  stream lifetime or lease-renewal contract; idle gaps alone cannot bound lease
-  lifetime. A bounded settlement contract and new live acceptance evidence are
-  separate gates. This source increment is not a new release or deployment: the
+  [Sandhi #298](https://github.com/anvai-labs/sandhi/pull/298) adds a Rust-only
+  `StreamBodyLifetime` owner shared by both streaming planes. It closes the source
+  independently of client reads, including unpolled/full-queue bodies, disconnects
+  and shutdown grace expiry. Setup remains separately bounded; the new absolute
+  body timer starts after upstream headers. A copied-fragment delivery queue is
+  bounded at 64 KiB, excluding a pending fragment and source/parser/transport
+  buffers. The common actual-lease check runs before dispatch and after setup.
+  Real upstream errors now fail the opt-in body explicitly, without a misleading
+  translated completion tail; default bytes and finalization ordering stay intact.
+
+  The source drops before exactly one blocking finalizer takes accounting.
+  Admission capacity and lifecycle operations stay held until settlement finishes,
+  so a blocked ledger cannot delay the transport error or falsely report idle.
+  Observed final usage remains final if delivery fails. Opt-in transport success
+  does **not** imply a durable settlement receipt, and a closed upstream connection
+  does not prove GPU cancellation. Local validation: 711 passing workspace tests,
+  89.59% line coverage, formatting/Clippy and independent exact-commit review clean.
+  Both unread-body and real-origin-error regressions were observed failing before
+  their fixes. Existing wire/SQLite/ledger fixtures were extended; the duplicate
+  audit found distinct test owners. See the
+  [body lifetime contract](https://github.com/anvai-labs/sandhi/blob/develop/docs/operator/stream-body-lifetime.md).
+
+  **Still open:** standalone configurable stream setup/idle/body policy and an
+  explicit lease-renewal or bounded settlement contract; idle gaps alone cannot
+  bound lease lifetime. Blocking finalization can still outlive headroom, and the
+  proxy has not adopted the store's atomic settlement-evidence primitive. New live
+  acceptance evidence remains a separate gate. This source increment is not a new release or deployment: the
   running 0.9.1 gateway remains buffered120s/setup30s/idle90s. No production config,
   runtime, shared cache or credentials changed. Client headers/timeouts cannot
   raise the operator limit; earlier body/auth/admission work is outside the transport
