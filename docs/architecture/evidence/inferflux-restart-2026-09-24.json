@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "new_evidence": true,
+  "scope": "supplemental same-runtime recovery; not actual-member acceptance",
+  "source": "02cf22addb9f78309bb5b2807427f215353a7085",
+  "binary_sha256": "5c806f3b652e5f1e50f293fc00eefd3763b9ee9be252c915ecb1ed5f051353c4",
+  "config_sha256": "8cd10ac8510620966c8e45b650727cd0e91697537c908ab0d456a8009f73d3e7",
+  "old_pid": 59055,
+  "new_pid": 602210,
+  "bind": "127.0.0.1:8080",
+  "restart": {
+    "user_authorized_downtime": true,
+    "unchanged_binary_and_config": true,
+    "forced_termination_after_grace_seconds": 15,
+    "prior_process_exit_and_port_release_verified_before_launch": true,
+    "private_rollback_snapshot_preserved_on_origin": true,
+    "persisted_cache_deleted": false,
+    "credentials_transferred": false,
+    "volatile_runtime_state_reset_by_restart": true
+  },
+  "readiness": "ready",
+  "startup_log_placements": {
+    "qwen3-coder-30b": "AMD Radeon AI PRO R9700 / llama_cpp_rocm",
+    "qwen2.5-coder-14b": "NVIDIA RTX 4000 Ada Generation / llama_cpp_cuda",
+    "bge-small-en-v1.5": "NVIDIA RTX 4000 Ada Generation / llama_cpp_cuda"
+  },
+  "supplemental_chat_checks": [
+    {
+      "model": "qwen3-coder-30b",
+      "request_id": "restart-check-8332b7ee6f394dbf95a386caeb945656",
+      "http_status": 200,
+      "elapsed_seconds": 0.577,
+      "client_timeout_seconds": 25,
+      "prompt_tokens": 14,
+      "completion_tokens": 1,
+      "cached_tokens": 0,
+      "total_tokens": 15
+    },
+    {
+      "model": "qwen2.5-coder-14b",
+      "request_id": "restart-check-7303b124404f4151baa4a21fd2ac426f",
+      "http_status": 200,
+      "elapsed_seconds": 0.551,
+      "client_timeout_seconds": 25,
+      "prompt_tokens": 14,
+      "completion_tokens": 1,
+      "cached_tokens": 0,
+      "total_tokens": 15
+    }
+  ],
+  "gateway_exercised": false,
+  "embeddings_exercised_after_restart": false,
+  "actual_member_evidence": false,
+  "c5_accepted": false,
+  "stall_root_cause_proven": false,
+  "limitations": [
+    "Startup placement is not concurrent GPU execution evidence.",
+    "Short direct chat success does not establish formation or sustained mixed-traffic liveness.",
+    "Reported cache counts do not prove executed reuse.",
+    "The candidate cancellation fix was not deployed.",
+    "Original failed actual-member evidence remains unchanged."
+  ]
+}

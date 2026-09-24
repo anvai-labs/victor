@@ -1074,6 +1074,22 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   runtime identity and the prior passing setup gate; do not replace this failure
   with a longer-timeout result or attribute it to model quality.
 
+  The authorized [2026-09-24 recovery](evidence/inferflux-restart-2026-09-24.json)
+  restarted the same accepted binary/configuration on loopback 8080 after preserving
+  private rollback state. PID 59055 required forced termination after a 15-second
+  grace period; PID 602210 loaded the same three model placements and reported ready.
+  Supplemental direct chat checks returned 200 for Qwen3/AMD in 0.577s and Qwen14/CUDA
+  in 0.551s. These were short service checks, not member replay, gateway reconciliation
+  or formation acceptance; the prior cohort failure and G52 remain open. Persisted
+  cache files were preserved; restarting necessarily reset volatile runtime state.
+
+  [InferFlux #220](https://github.com/anvai-labs/inferflux/pull/220) addresses a
+  separate reproduced defect: cancellation during the only/final embedding slice
+  returned success. Its publication check retains measured completed-work tokens
+  and suppresses cancelled vectors/requeueing. All 54 CPU CTest targets pass; the
+  existing admission fixture now covers single/final slices without a duplicate
+  suite. This is not native GPU preemption or a demonstrated stall diagnosis.
+
 - **G53 — partially implemented: ✅ buffered route policy and opt-in Rust stream body owner.**
   [Sandhi #297](https://github.com/anvai-labs/sandhi/pull/297) adds opt-in startup
   `buffered_deadlines` configuration: exact model within the authorized credential
@@ -1119,6 +1135,15 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   their fixes. Existing wire/SQLite/ledger fixtures were extended; the duplicate
   audit found distinct test owners. See the
   [body lifetime contract](https://github.com/anvai-labs/sandhi/blob/develop/docs/operator/stream-body-lifetime.md).
+
+  [Sandhi #300](https://github.com/anvai-labs/sandhi/pull/300) adds the opt-in
+  library settlement foundation: a frozen observed charge either returns the
+  existing atomic receipt or retains the original pending attempt with a structured
+  failure. Unknown usage, no lease, volatile storage, contention and poisoned locks
+  cannot claim durable success. Independent review reproduced and repaired an inner
+  shard-poison unwind. Existing ledger/store test owners were extended; 715 tests,
+  89.64% line coverage and strict lint passed. HTTP finalization remains unchanged;
+  unresolved ownership is volatile, and retries require the original ledger/topology.
 
   **Still open:** standalone configurable stream setup/idle/body policy and an
   explicit lease-renewal or bounded settlement contract; idle gaps alone cannot
@@ -1204,6 +1229,17 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   documents both steps, role selection and denial diagnosis. An authenticated role
   editor/API is still unimplemented: current role changes need deployment-config
   access and restart. No group-to-role synchronization or self-elevation is implied.
+
+- **G59 — embedding batch allocation is independent of declared model context.**
+  Accepted InferFlux source hardcodes 32 sequences × 512 tokens for the dedicated
+  embedding context, batch and microbatch. The stalled runtime log records a 13432 MiB
+  CUDA embedding compute reservation, while AMD's existing model/KV/compute buffers
+  occupy approximately 23 GiB. BGE's small weights therefore do not establish that its
+  execution footprint fits remaining AMD memory. Keep BGE's current placement until
+  bounded model-owned embedding geometry is implemented, validated and measured on
+  trusted-main runtime. Merely changing the declared context or moving BGE does not
+  change the hardcoded batch. Preserve pooling, token accounting and ordered outputs;
+  test mixed traffic and actual members after the capacity/liveness gates pass.
 
 Validation-test audit: neither live harness had direct tests before this follow-up.
 The new mixed-harness suite covers rejected/malformed/missing reviews, inclusive
