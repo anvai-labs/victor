@@ -361,7 +361,7 @@ class TestMiddlewareChain:
 
     @pytest.mark.asyncio
     async def test_exception_handling(self):
-        """Exceptions in middleware should be caught and logged."""
+        """A broken configured middleware blocks execution through the public API."""
 
         class FailingMiddleware:
             async def before_tool_call(
@@ -378,9 +378,10 @@ class TestMiddlewareChain:
         chain = MiddlewareChain()
         chain.add(FailingMiddleware())
 
-        # Should not raise, should return proceed=True (fail-open)
         result = await chain.process_before("test", {})
-        assert result.proceed is True
+        assert result.proceed is False
+        assert result.metadata == {"enforcement_error": True}
+        assert result.error_message == "Middleware enforcement failed."
 
     def test_clear(self):
         """clear() should remove all middleware."""

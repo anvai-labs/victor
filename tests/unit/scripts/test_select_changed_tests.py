@@ -63,8 +63,33 @@ def test_selector_changes_select_its_own_regressions():
     )
 
 
-def test_cli_group_maps_to_its_descriptive_regression_suite():
-    assert select(["victor/ui/cli_group.py"]) == ["tests/unit/ui/test_cli_command_resolution.py"]
+@pytest.mark.parametrize(
+    ("source", "owners"),
+    [
+        ("victor/ui/cli_group.py", ["tests/unit/ui/test_cli_command_resolution.py"]),
+        (
+            "victor/agent/factory/coordination_builders.py",
+            ["tests/unit/framework/policies/test_builder_wiring.py"],
+        ),
+        (
+            "victor/agent/middleware_chain.py",
+            [
+                "tests/unit/agent/test_continuation_loop_fix.py",
+                "tests/unit/agent/test_tool_pipeline.py",
+            ],
+        ),
+        (
+            "victor/framework/policies/gate.py",
+            [
+                "tests/unit/framework/policies/test_message_phases.py",
+                "tests/unit/agent/services/test_chat_stream_governance.py",
+                "tests/unit/agent/services/test_turn_execution_runtime.py",
+            ],
+        ),
+    ],
+)
+def test_source_maps_to_its_descriptive_regression_suites(source, owners):
+    assert select([source]) == sorted(owners)
 
 
 def test_stale_explicit_mapping_fails_closed(monkeypatch):
