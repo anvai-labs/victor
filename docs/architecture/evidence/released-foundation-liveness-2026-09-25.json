@@ -1,0 +1,201 @@
+{
+  "schema_version": 1,
+  "date": "2026-09-25",
+  "new_evidence": true,
+  "scope": "Synthetic released-origin and gateway liveness/accounting; not actual-member, formation or C5 acceptance.",
+  "origin": {
+    "new_evidence": true,
+    "scope": "synthetic released-origin liveness only; not actual-member, C5, tokenizer, cache-reuse or cancellation acceptance",
+    "source": "75e8d3c58d0c748dd6ac41a20179e040dcff518e",
+    "binary_sha256": "cb367bcd77eddee272a629b7048d0682124235ebd28874eb1e4bbd7adf869a8e",
+    "config_sha256": "45b72899c70eb6f0c09882b8afbb6a8e5e3d2921d12cf7998dcc2de01ddca041",
+    "process_start_ticks": "82833633",
+    "pid": 1088441,
+    "release_tag": "v0.4.0",
+    "client_deadline_seconds": 120,
+    "authentication": "existing private service API key over loopback; LAN listener retained; not origin OIDC acceptance",
+    "configured_placement": [
+      {
+        "id": "qwen3-coder-30b",
+        "backend": "llama_cpp_rocm",
+        "device": "rocm:0",
+        "embedding_batch_size": null
+      },
+      {
+        "id": "qwen2.5-coder-14b",
+        "backend": "llama_cpp_cuda",
+        "device": "cuda:0",
+        "embedding_batch_size": null
+      },
+      {
+        "id": "bge-small-en-v1.5",
+        "backend": "llama_cpp_cuda",
+        "device": "cuda:0",
+        "embedding_batch_size": 1
+      }
+    ],
+    "checks": [
+      {
+        "kind": "discovery",
+        "status": 200,
+        "elapsed_seconds": 0.006695821066386998,
+        "models": [
+          "bge-small-en-v1.5",
+          "qwen2.5-coder-14b",
+          "qwen3-coder-30b"
+        ],
+        "passed": true
+      },
+      {
+        "kind": "chat",
+        "model": "qwen3-coder-30b",
+        "status": 200,
+        "elapsed_seconds": 0.4148810630431399,
+        "nonempty_content": true,
+        "usage": {
+          "prompt_tokens": 15,
+          "completion_tokens": 1,
+          "total_tokens": 16,
+          "prompt_tokens_details": {
+            "cached_tokens": 0
+          }
+        },
+        "passed": true
+      },
+      {
+        "kind": "chat",
+        "model": "qwen2.5-coder-14b",
+        "status": 200,
+        "elapsed_seconds": 0.35377108689863235,
+        "nonempty_content": true,
+        "usage": {
+          "prompt_tokens": 15,
+          "completion_tokens": 1,
+          "total_tokens": 16,
+          "prompt_tokens_details": {
+            "cached_tokens": 0
+          }
+        },
+        "passed": true
+      },
+      {
+        "kind": "embeddings",
+        "model": "bge-small-en-v1.5",
+        "status": 200,
+        "elapsed_seconds": 0.14903954498004168,
+        "ordered_finite_384d_vectors": true,
+        "usage": {
+          "prompt_tokens": 2,
+          "total_tokens": 2
+        },
+        "passed": true
+      }
+    ],
+    "completed": true,
+    "passed": true
+  },
+  "gateway": {
+    "new_evidence": true,
+    "scope": "synthetic released gateway chat liveness and strict wire/SQLite/C4/dashboard joins; not member, C5, streaming, cancellation, tokenizer or executed cache-reuse acceptance",
+    "gateway_source": "bdbf41f95d1395403ebbeeb6ca18bbf32e147bac",
+    "gateway_binary_sha256": "3573ddcbc528bb1b75ddd5cec355a4ec56bac03fb36f4871025c51d94a92ec1f",
+    "gateway_release": "v0.10.1",
+    "gateway_pid": 62342,
+    "client_deadline_seconds": 120,
+    "acceptance_deadline_seconds": 120,
+    "authentication": "existing OIDC inference and separate accounting principals",
+    "checks": [
+      {
+        "model": "qwen3-coder-30b",
+        "session_id": "release_liveness_571b07b7357b4d6b904703160ce9468b",
+        "passed": true,
+        "http_status": 200,
+        "nonempty_content": true,
+        "elapsed_seconds": 7.8115487499162555
+      },
+      {
+        "model": "qwen2.5-coder-14b",
+        "session_id": "release_liveness_dccab4c520f04122aea192ebc14537f6",
+        "passed": true,
+        "http_status": 200,
+        "nonempty_content": true,
+        "elapsed_seconds": 0.19195904210209846
+      }
+    ],
+    "passed": true,
+    "accounting": {
+      "failures": [],
+      "totals": {
+        "tokens_in": 30,
+        "tokens_out": 2,
+        "cache_read_tokens": 0,
+        "cache_creation_tokens": 0
+      },
+      "requests": 2,
+      "verified_joins": 2
+    }
+  },
+  "retained_failed_gateway_attempt": {
+    "new_evidence": true,
+    "scope": "synthetic released gateway chat liveness and strict wire/SQLite/C4/dashboard joins; not member, C5, streaming, cancellation, tokenizer or executed cache-reuse acceptance",
+    "gateway_source": "bdbf41f95d1395403ebbeeb6ca18bbf32e147bac",
+    "gateway_binary_sha256": "3573ddcbc528bb1b75ddd5cec355a4ec56bac03fb36f4871025c51d94a92ec1f",
+    "gateway_release": "v0.10.1",
+    "gateway_pid": 62342,
+    "client_deadline_seconds": 120,
+    "acceptance_deadline_seconds": 120,
+    "authentication": "existing OIDC inference and separate accounting principals",
+    "checks": [],
+    "passed": false,
+    "error_type": "GatewayBrokerUnavailable"
+  },
+  "origin_identity_verified_after_gateway": true,
+  "effective_policy": {
+    "shared_requests_per_minute": 6480,
+    "aggregate_source": "policy_store",
+    "endpoint_limits_source": "startup_yaml",
+    "embeddings": {
+      "requests_per_minute": 6480,
+      "burst": 6480
+    },
+    "additional_generation_bucket": false
+  },
+  "release_gates": {
+    "main_ci": 36148194716,
+    "main_docs": 36148194729,
+    "trusted_main_gpu": 36148340200,
+    "pre_tag_packaging": 36150614987,
+    "tag_ci": 36152854915,
+    "tag_publication": 36155467482,
+    "all_passed": true,
+    "manifest_assets_verified": 13
+  },
+  "homebrew": {
+    "pr": 75,
+    "commit": "607f1d986ec8b1b20a7a08225ace0a2012f9664d",
+    "local_contract_tests_passed": 8,
+    "local_upgrade_and_test_passed": true,
+    "independent_review_clean": true,
+    "installed_binaries": {
+      "inferfluxd": {
+        "sha256": "fe8c3859b86d269c022c98cae1cd211b7b9ac853c3548332bf57c33de4d8cdc6",
+        "help_exit_code": 0,
+        "matches_release_archive": true
+      },
+      "inferctl": {
+        "sha256": "02f87a23846e166c4ed8839fb3f8c61d07029f408f68707924f5266eb44264ed",
+        "help_exit_code": 1,
+        "matches_release_archive": true
+      }
+    }
+  },
+  "limitations": [
+    "Direct origin used existing service API key; origin OIDC was not exercised.",
+    "Two short synthetic gateway calls do not establish broker reliability, full lifecycle, streaming/cancellation or C5 acceptance.",
+    "Explicit zero cache reporting does not prove zero executed cache reuse.",
+    "Passage throughput samples exclude competing generation and sustained mixed load.",
+    "Sandhi has no embedding ingress/accounting acceptance.",
+    "SSH forwards were restored but are not supervised across reconnect/reboot.",
+    "Sandhi durable HTTP settlement and recovery remain undeployed."
+  ]
+}
