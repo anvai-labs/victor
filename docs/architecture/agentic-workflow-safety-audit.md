@@ -61,6 +61,11 @@ recovery guarantee cannot be averaged away by unrelated successful tests.
 
 ### Follow-up: pre-dispatch enforcement repair
 
+Landed in [#1180](https://github.com/anvai-labs/victor/pull/1180), squash commit
+`3a2881a7b7f9f6640e981affd05813ae17c5577a`, after clean exact-source review and
+all CI gates, including Vertical Py3.12. The findings below retain the original
+audit baseline; this follow-up supersedes its pre-dispatch failure behavior only.
+
 The first repair changes configured enforcement failures into explicit stops:
 policy selection/evaluation and malformed verdicts deny; middleware selection,
 execution and malformed results block dispatch; the outer tool pipeline no longer
@@ -93,6 +98,13 @@ was removed after coverage comparison retained exactly **79 executed middleware
 lines and 18 executed branches** (23 cases before, 22 after). The original failed
 collection attempt encountered a concurrent coverage-database error; the isolated
 collection rerun passed. These are offline controls tests, not model or C5 acceptance.
+
+The final CI repair mapped three modules to their existing test owners and replaced
+the coding vertical's stale fail-open expectation. It added no duplicate suites.
+The selected cohort passed **250 tests with 94% changed-line coverage**, the vertical
+middleware owner passed **26 tests with two existing skips**, and the final candidate
+collected **33,475 tests**. Initial selector and Vertical failures remain recorded
+in the PR alongside their repairs.
 
 ### G60 — configured policy failures can allow execution (high priority)
 

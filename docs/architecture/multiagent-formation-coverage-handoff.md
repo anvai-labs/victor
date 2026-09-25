@@ -93,7 +93,7 @@ remains inline (see G17).
   blackboard and contract-net remain absent. Conversation-native formations now
   use the FEP-0035 transcript substrate; ensemble status is tracked separately (G16).
 
-### 1.5 Completion audit (updated 2026-09-23; cohort dates retained)
+### 1.5 Completion audit (updated 2026-09-24; cohort dates retained)
 
 Implementation delivery and live acceptance have different denominators:
 
@@ -113,8 +113,36 @@ Implementation delivery and live acceptance have different denominators:
 | 2026-09-23 OIDC ZAI single-file cohort | 15/15 (100%); overall PASS | No case failures; separate task profile |
 | 2026-09-23 OIDC Qwen3/ROCm single-file cohort | 0/15 accepted; interrupted overall FAIL | First completed case timed out; second cancelled; 13 unstarted, not 15 model-quality failures |
 | OIDC Qwen14/CUDA single-file cohort | 0/15; not started | Held for consolidated-origin liveness investigation |
-| Current six-Qwen/one-ZAI C5 acceptance | Open; historical failed run retained | Full corrected run held for origin liveness, then reviewed verdict on InferFlux #184 |
-| G53 operator deadline policy | Buffered policy [Sandhi #297](https://github.com/anvai-labs/sandhi/pull/297); opt-in Rust stream body owner [Sandhi #298](https://github.com/anvai-labs/sandhi/pull/298) | Standalone streaming policy, bounded settlement, release/deployment and changed-deadline live evidence remain separate |
+| Current six-Qwen/one-ZAI C5 acceptance | Open; historical failed run retained | Released-origin short liveness now passes; full run remains held for foundation acceptance and reviewed verdict on InferFlux #184 |
+| G53 operator deadline policy | ✅ Buffered #297, stream body owner #298 and standalone streaming policy [Sandhi #301](https://github.com/anvai-labs/sandhi/pull/301) released in 0.10.1 | Bounded durable HTTP settlement/recovery and changed-deadline live evidence remain open |
+| G60 pre-dispatch enforcement repair | ✅ [Victor #1180](https://github.com/anvai-labs/victor/pull/1180); all CI green including Vertical Py3.12 | Post-execution result withholding remains open; G61–G65 unchanged |
+
+**Released foundation checkpoint (2026-09-24).** Sandhi 0.10.1 and InferFlux
+0.3.0 are published and deployed. The
+[new synthetic liveness evidence](evidence/released-foundation-liveness-2026-09-24.json)
+records exact source/binary/config identities. InferFlux's one loopback endpoint
+on aiserver1:8080 serves Qwen3 on AMD and Qwen2.5-Coder-14B plus BGE on NVIDIA.
+Discovery, both direct chat checks and ordered finite 384-dimensional embeddings
+passed with BGE `embedding_batch_size=1`. Mixed-load capacity and performance
+remain unaccepted; separate startup and lazy embedding contexts prevent treating
+a single allocation log value as a comparable memory benchmark.
+
+Two new short Qwen calls through released Sandhi used existing OIDC inference and
+separate accounting identities. Both succeeded below the unchanged 120-second
+acceptance deadline. The existing wire/SQLite/C4/dashboard oracle verified **2/2
+joins**, conserving **30 input, 2 output and explicitly reported zero cache tokens**.
+Shared cache was preserved; reported zero does not establish executed reuse.
+These are explicitly synthetic startup checks, not the preserved five-call member
+replay, new formation passes or C5 acceptance. Formation percentages above are unchanged.
+
+The mixed-GPU deployment is a separately hashed build of the exact published
+InferFlux tag; standard Linux release archives are CPU-only. The Homebrew formula
+update [#74](https://github.com/anvai-labs/homebrew-tap/pull/74) passed review, CI,
+actual upgrade, executable test and installed/archive hash comparison. InferFlux's
+unsupported `--version` flags remain a usability gap; do not infer binary identity
+from version output. Origin OIDC, broader lifecycle acceptance, and Sandhi durable
+HTTP settlement remain open. The earlier gateway startup-bound failure and all
+historical failed evidence remain retained.
 
 The new OIDC cohorts use clean Victor source `208e2535f523b3c28a77823ff90673c329970a5f`
 ([#1173](https://github.com/anvai-labs/victor/pull/1173)), released Sandhi 0.9.0 and
@@ -173,7 +201,8 @@ The user confirmed that the dashboard opened. Agent/accounting permission checks
 passed again after the restart; this confirmation is distinct from the automated
 administrator browser test (G58).
 
-Consolidated InferFlux source `02cf22addb9f78309bb5b2807427f215353a7085` serves all
+The historical consolidated InferFlux deployment at source
+`02cf22addb9f78309bb5b2807427f215353a7085` served all
 three pinned models on loopback 8080: Qwen3 on ROCm, Qwen14 and BGE on CUDA. CPU CI,
 GPU CI and the separate same-process dual-GPU gate passed before deployment. Fresh
 model-file hashes and placement are recorded in the runtime evidence. Those gates
@@ -1145,13 +1174,18 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   89.64% line coverage and strict lint passed. HTTP finalization remains unchanged;
   unresolved ownership is volatile, and retries require the original ledger/topology.
 
-  **Still open:** standalone configurable stream setup/idle/body policy and an
-  explicit lease-renewal or bounded settlement contract; idle gaps alone cannot
+  [Sandhi #301](https://github.com/anvai-labs/sandhi/pull/301) subsequently added
+  standalone configurable stream setup/idle/body policy, now released in 0.10.1.
+  [Sandhi #308](https://github.com/anvai-labs/sandhi/pull/308) adds an inactive
+  durable intent library on develop; it is not HTTP recovery or a release claim.
+  **Still open:** an explicit lease-renewal or bounded durable HTTP settlement
+  contract; idle gaps alone cannot
   bound lease lifetime. Blocking finalization can still outlive headroom, and the
   proxy has not adopted the store's atomic settlement-evidence primitive. New live
-  acceptance evidence remains a separate gate. This source increment is not a new release or deployment: the
-  running 0.9.1 gateway remains buffered120s/setup30s/idle90s. No production config,
-  runtime, shared cache or credentials changed. Client headers/timeouts cannot
+  acceptance evidence remains a separate gate. At #300, the source increment did
+  not change the then-running 0.9.1 gateway (buffered120s/setup30s/idle90s), config,
+  runtime, shared cache or credentials. The newer release checkpoint is recorded
+  in §1.5. Client headers/timeouts cannot
   raise the operator limit; earlier body/auth/admission work is outside the transport
   deadline. A timeout does not establish origin cancellation, and any future
   changed-deadline cohort must retain a separate identity from the failed baseline.
@@ -1231,21 +1265,24 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   access and restart. No group-to-role synchronization or self-elevation is implied.
 
 - **G59 — embedding batch allocation is independent of declared model context.**
-  Accepted InferFlux source hardcodes 32 sequences × 512 tokens for the dedicated
+  The original accepted InferFlux baseline hardcoded 32 sequences × 512 tokens for the dedicated
   embedding context, batch and microbatch. The stalled runtime log records a 13432 MiB
   CUDA embedding compute reservation, while AMD's existing model/KV/compute buffers
   occupy approximately 23 GiB. BGE's small weights therefore do not establish that its
-  execution footprint fits remaining AMD memory. Keep BGE's current placement until
-  bounded model-owned embedding geometry is implemented, validated and measured on
-  trusted-main runtime. Merely changing the declared context or moving BGE does not
-  change the hardcoded batch. Preserve pooling, token accounting and ordered outputs;
-  test mixed traffic and actual members after the capacity/liveness gates pass.
+  execution footprint fits remaining AMD memory. Configurable model-owned geometry
+  landed in [InferFlux #221](https://github.com/anvai-labs/inferflux/pull/221) and is
+  released in 0.3.0; the §1.5 deployment supersedes that baseline. Explicit BGE
+  batch size 1 now passes the synthetic ordered embedding check on NVIDIA.
+  Keep the placement while measuring comparable embedding-context allocations and
+  mixed-load capacity; no memory improvement follows from comparing different
+  contexts. Preserve pooling, token accounting and ordered outputs; actual-member
+  and mixed-traffic acceptance remain open after short liveness checks.
 
 - **G60 — configured governance failures can permit dispatch.** The 2026-09-24
   [workflow safety audit](agentic-workflow-safety-audit.md#g60--configured-policy-failures-can-allow-execution-high-priority)
   reproduces ALLOW after a configured policy raises. Required policy and middleware
   errors must fail closed; normal DENY/ASK handling already has useful controls.
-  The first repair blocks pre-dispatch policy/middleware failures, malformed
+  ✅ [#1180](https://github.com/anvai-labs/victor/pull/1180) blocks pre-dispatch policy/middleware failures, malformed
   decisions, configured-context failures and broken governance wiring. Invalid
   content regexes and failed configured approval handlers also stop execution.
   Existing test owners provide red/green regressions with executor-not-called
@@ -1289,6 +1326,15 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   a demonstrated tenant leak. The [audit](agentic-workflow-safety-audit.md#g65--retrieval-contract-does-not-establish-authorized-versioned-evidence)
   requires adapter-specific access checks and explicit unavailable/denied results
   before claiming protected retrieval. Keep current facts in authoritative APIs.
+
+- **G66 — InferFlux release identity needs a side-effect-free CLI contract.**
+  Homebrew verification of 0.3.0 found that neither `inferfluxd --version` nor
+  `inferctl --version` provides a supported version response. The daemon treated
+  the flag as a normal startup attempt; its verification child was stopped and
+  the serving process was preserved. Use published source/artifact hashes for
+  current acceptance. InferFlux should reject unknown flags and provide a bounded
+  version command before config/model initialization, with packaging tests for
+  both binaries. Do not infer a successful version probe from startup output.
 
 Validation-test audit: neither live harness had direct tests before this follow-up.
 The new mixed-harness suite covers rejected/malformed/missing reviews, inclusive
