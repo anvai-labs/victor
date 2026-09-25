@@ -159,6 +159,24 @@ Sandhi currently has no embeddings ingress (G68), so direct InferFlux embedding
 results cannot establish gateway embedding metering. No formation counts or C5
 verdicts change, and these changes have not replaced the released runtimes above.
 
+**Later 2026-09-25 checkpoint:** [Sandhi #312](https://github.com/anvai-labs/sandhi/pull/312)
+landed scoped, read-only recovery inventory after independent review and green PR and
+post-merge CI: 735 workspace tests passed, with 89.82% line coverage. It shares canonical
+eligibility/receipt-consistency checks and rejects orphaned or inconsistent evidence;
+it does not activate HTTP settlement or a recovery worker. [InferFlux #230](https://github.com/anvai-labs/inferflux/pull/230)
+landed v0.4.0 preparation after all CI gates passed; cumulative promotion
+[#231](https://github.com/anvai-labs/inferflux/pull/231) is open. GPU, publication,
+deployment and capacity acceptance remain pending. The 54 configured CPU CTest targets
+passed on isolated ports; an initial run conflicted with the retained 18081 tunnel.
+
+A subsequent read-only deployment preflight found the port-8080 runtime had restarted
+outside this session: PID 927115 replaced recorded PID 912276, and an environment
+override binds all interfaces. The actual binary hash still matches released v0.3.0,
+but the private configuration hash changed and the canonical deployment record is
+stale. Preserve the active process/configuration pending owner coordination and fresh
+rollback evidence (G69); earlier readiness or metadata reads do not establish current
+configuration acceptance. No new formation or C5 verdict follows from these changes.
+
 The new OIDC cohorts use clean Victor source `208e2535f523b3c28a77823ff90673c329970a5f`
 ([#1173](https://github.com/anvai-labs/victor/pull/1173)), released Sandhi 0.9.0 and
 separate inference/accounting identities. The
@@ -1202,6 +1220,12 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   bypass the new guard, so mixed-version ownership or rollback with tracked work
   needs an explicit compatibility plan. These library increments are not HTTP
   activation, an amendment contract, recovery workers or released-runtime acceptance.
+  [#312](https://github.com/anvai-labs/sandhi/pull/312) adds a bounded read-only inventory
+  with frozen admission range and current state per page; it shares settlement eligibility
+  and validates receipt/reservation/observation consistency. Pagination is not a recovery
+  worker, a claim on work, or proof of quiescence. The proxy still needs tracked owner
+  integration, an explicit never-dispatched abandonment transition, honest finalization
+  outcomes and bounded ownership of blocking work before authoritative HTTP activation.
   **Still open:** an explicit lease-renewal or bounded durable HTTP settlement
   contract; idle gaps alone cannot
   bound lease lifetime. Blocking finalization can still outlive headroom, and the
@@ -1383,6 +1407,17 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   existing identity, admission and settlement authorities. Do not substitute a chat
   request or an unmetered direct call for gateway embedding evidence. This is an
   additional retrieval/embedding integration gap, not a new formation failure.
+
+- **G69 — deployment records can become stale after out-of-band restart/configuration changes.**
+  The 2026-09-25 preflight found the same released InferFlux binary serving under a new
+  PID with changed configuration and a host-binding environment override, while the
+  canonical record still named the old PID/configuration hash. A record alone is not
+  live process evidence. Before stop, rollback or acceptance, reconcile process start
+  identity, executable hash, listener ownership, configuration hash and effective
+  overrides with the active operator. Preserve concurrent changes and take a fresh
+  origin-local rollback snapshot; do not kill a stale PID or restore an old configuration
+  blindly. Promotion-triggered GPU work must wait for coordinated device ownership.
+  This is an operational identity/ownership gap, not a model-quality or formation failure.
 
 Validation-test audit: neither live harness had direct tests before this follow-up.
 The new mixed-harness suite covers rejected/malformed/missing reviews, inclusive
