@@ -38,6 +38,11 @@ from victor.core.constants import DEFAULT_VERTICAL
 from victor.agent.argument_normalizer import ArgumentNormalizer, NormalizationStrategy
 from victor.agent.error_recovery import is_confident_path_suggestion, recover_from_error
 from victor.agent.safety import SafetyChecker, get_safety_checker
+from victor.agent.tool_retry_safety import (
+    allows_tool_retry,
+    blocks_tool_retry,
+    mark_unknown_tool_outcome,
+)
 from victor.storage.cache.tool_cache import ToolCache
 from victor.core.errors import (
     ErrorCategory,
@@ -905,7 +910,7 @@ class ToolExecutor:
             tool, normalized_args, exec_context
         )
         recovered_execution = None
-        if not success:
+        if not success and allows_tool_retry(tool) and not blocks_tool_retry(error_info):
             recovered_execution = await self._retry_with_recovered_path_if_safe(
                 tool,
                 normalized_args,
@@ -958,7 +963,11 @@ class ToolExecutor:
             # Only typo-class (high basename similarity) suggestions are recorded;
             # a weak fuzzy match must surface as an honest not-found error, not a
             # silent substitute (session proximaDB-5b2726a3 spiral).
-            if self._is_safe_read_only_path_retry(tool, normalized_args, error):
+            if (
+                not blocks_tool_retry(error_info)
+                and allows_tool_retry(tool)
+                and self._is_safe_read_only_path_retry(tool, normalized_args, error)
+            ):
                 import re as _re
 
                 for _path_key in ("path", "file_path", "filename", "root"):
@@ -1186,6 +1195,7 @@ class ToolExecutor:
 
         while True:
             retry_context.attempt += 1
+            execution_started = False
 
             try:
                 # Run before hooks - critical hooks can block execution
@@ -1195,6 +1205,7 @@ class ToolExecutor:
                 arguments.pop("_exec_ctx", None)
                 # Per-tool timeout: tool-level override then executor default
                 per_attempt_timeout = self._get_tool_timeout(tool)
+                execution_started = True
                 result = await asyncio.wait_for(
                     tool.execute(_exec_ctx=context, **arguments),
                     timeout=per_attempt_timeout,
@@ -1227,6 +1238,9 @@ class ToolExecutor:
                             context={"tool": tool.name, "arguments": arguments},
                         )
                         self._track_error_category(error_info.category)
+                        if not allows_tool_retry(tool):
+                            mark_unknown_tool_outcome(error_info)
+                            error = error_info.to_user_message()
                         return (
                             result.output,
                             False,
@@ -1253,6 +1267,16 @@ class ToolExecutor:
                 self._track_error_category(last_error_info.category)
                 retry_context.record_exception(e)
 
+                if not allows_tool_retry(tool):
+                    mark_unknown_tool_outcome(last_error_info)
+                    self.retry_strategy.on_failure(retry_context)
+                    return (
+                        None,
+                        False,
+                        last_error_info.to_user_message(),
+                        retry_context.attempt - 1,
+                        last_error_info,
+                    )
                 if self.retry_strategy.should_retry(retry_context):
                     self.retry_strategy.on_retry(retry_context)
                     delay = self.retry_strategy.get_delay(retry_context)
@@ -1268,44 +1292,6 @@ class ToolExecutor:
                         retry_context.attempt - 1,
                         last_error_info,
                     )
-
-            except (TimeoutError, asyncio.TimeoutError) as timeout_error:
-                retry_context.record_exception(timeout_error)
-
-                # Use centralized error handler for structured logging
-                last_error_info = self.error_handler.handle(
-                    timeout_error,
-                    context={
-                        "tool": tool.name,
-                        "attempt": retry_context.attempt,
-                        "max_attempts": retry_context.max_attempts,
-                        "arguments": arguments,
-                    },
-                )
-                self._track_error_category(last_error_info.category)
-
-                if self.retry_strategy.should_retry(retry_context):
-                    self.retry_strategy.on_retry(retry_context)
-                    delay = self.retry_strategy.get_delay(retry_context)
-                    logger.warning(
-                        "[%s] Tool %s timeout - retrying in %.2fs " "(attempt %d/%d): %s",
-                        last_error_info.correlation_id,
-                        tool.name,
-                        delay,
-                        retry_context.attempt,
-                        retry_context.max_attempts,
-                        str(timeout_error),
-                    )
-                    await asyncio.sleep(delay)
-                    continue
-
-                return (
-                    None,
-                    False,
-                    str(timeout_error),
-                    retry_context.attempt - 1,
-                    last_error_info,
-                )
 
             except (
                 ToolExecutionError,
@@ -1329,6 +1315,19 @@ class ToolExecutor:
                 )
                 self._track_error_category(last_error_info.category)
 
+                if not allows_tool_retry(tool) or isinstance(e, PermissionError):
+                    if not allows_tool_retry(tool):
+                        mark_unknown_tool_outcome(last_error_info)
+                    else:
+                        last_error_info.details["retryable"] = False
+                    self.retry_strategy.on_failure(retry_context)
+                    return (
+                        None,
+                        False,
+                        last_error_info.to_user_message(),
+                        retry_context.attempt - 1,
+                        last_error_info,
+                    )
                 logger.warning(
                     "[%s] Tool %s failed (attempt %d/%d): %s",
                     last_error_info.correlation_id,
@@ -1358,6 +1357,23 @@ class ToolExecutor:
                         retry_context.attempt - 1,
                         last_error_info,
                     )
+
+            except Exception as e:
+                if not execution_started or allows_tool_retry(tool):
+                    raise
+                # Includes critical after-hook failures following a committed effect.
+                # Cancellation and durable approval pauses are BaseException signals.
+                last_error_info = self.error_handler.handle(e, context={"tool": tool.name})
+                mark_unknown_tool_outcome(last_error_info)
+                self._track_error_category(last_error_info.category)
+                self.retry_strategy.on_failure(retry_context)
+                return (
+                    None,
+                    False,
+                    last_error_info.to_user_message(),
+                    retry_context.attempt - 1,
+                    last_error_info,
+                )
 
     def _track_error_category(self, category: ErrorCategory) -> None:
         """Track error occurrences by category for metrics.
