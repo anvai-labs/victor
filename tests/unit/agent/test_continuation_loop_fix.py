@@ -686,6 +686,7 @@ class TestMiddlewareChainWiring:
         """Middleware chain should be called during tool execution."""
         from victor.agent.tool_pipeline import ToolPipeline, ToolPipelineConfig
         from victor.agent.middleware_chain import MiddlewareChain
+        from victor.core.verticals.protocols import MiddlewareResult
 
         mock_registry = MagicMock()
         mock_registry.is_tool_enabled.return_value = True
@@ -697,9 +698,7 @@ class TestMiddlewareChainWiring:
 
         # Create middleware chain with mock middleware
         chain = MiddlewareChain()
-        chain.process_before = AsyncMock(
-            return_value=MagicMock(proceed=True, modified_arguments=None)
-        )
+        chain.process_before = AsyncMock(return_value=MiddlewareResult(proceed=True))
         chain.process_after = AsyncMock(return_value="result")
 
         config = ToolPipelineConfig()
@@ -725,6 +724,7 @@ class TestMiddlewareChainWiring:
         """Middleware blocking should prevent tool execution."""
         from victor.agent.tool_pipeline import ToolPipeline, ToolPipelineConfig
         from victor.agent.middleware_chain import MiddlewareChain
+        from victor.core.verticals.protocols import MiddlewareResult
 
         mock_registry = MagicMock()
         mock_registry.is_tool_enabled.return_value = True
@@ -735,7 +735,7 @@ class TestMiddlewareChainWiring:
         # Create middleware chain that blocks
         chain = MiddlewareChain()
         chain.process_before = AsyncMock(
-            return_value=MagicMock(
+            return_value=MiddlewareResult(
                 proceed=False,
                 error_message="Blocked by safety middleware",
             )

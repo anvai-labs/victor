@@ -20,6 +20,8 @@ plus end-to-end gating through the real MiddlewareChain.
 
 import asyncio
 
+import pytest
+
 from victor.agent.factory.coordination_builders import CoordinationBuildersMixin
 from victor.agent.middleware_chain import MiddlewareChain
 from victor.config.settings import Settings
@@ -69,6 +71,66 @@ async def test_enabled_gates_tool_calls():
         second = await chain.process_before("read_file", {})
         assert first.proceed is True
         assert second.proceed is False
+    finally:
+        mgr.disable(FeatureFlag.USE_POLICY_ENGINE)
+
+
+@pytest.mark.parametrize("failure", ["engine", "chain", "approval_resolution"])
+def test_configured_governance_wiring_failure_is_fatal(monkeypatch, failure):
+    from victor.framework import policies
+
+    mgr = get_feature_flag_manager()
+    mgr.enable(FeatureFlag.USE_POLICY_ENGINE)
+    try:
+        host = _Host(_governed_settings())
+        chain = MiddlewareChain()
+
+        def broken(*args, **kwargs):
+            raise RuntimeError("private configuration")
+
+        if failure == "engine":
+            monkeypatch.setattr(policies, "PolicyEngine", broken)
+        elif failure == "chain":
+            chain = None
+        else:
+            monkeypatch.setattr(host.container, "get_optional", broken)
+        with pytest.raises(RuntimeError, match="Governance initialization failed"):
+            host._maybe_add_policy_engine(chain)
+    finally:
+        mgr.disable(FeatureFlag.USE_POLICY_ENGINE)
+
+
+async def test_configured_cost_context_failure_blocks():
+    from victor.agent.conversation.controller import ConversationController
+
+    class BrokenController:
+        def get_session_cost_usd(self):
+            raise RuntimeError("private cost details")
+
+    mgr = get_feature_flag_manager()
+    mgr.enable(FeatureFlag.USE_POLICY_ENGINE)
+    try:
+        chain = MiddlewareChain()
+        host = _Host(
+            _governed_settings(cost_budget_usd=1.0),
+            _FakeContainer({ConversationController: BrokenController()}),
+        )
+        host._maybe_add_policy_engine(chain)
+        assert not (await chain.process_before("write", {})).proceed
+    finally:
+        mgr.disable(FeatureFlag.USE_POLICY_ENGINE)
+
+
+def test_invalid_message_policy_prevents_initialization():
+    from victor.agent.factory.coordination_builders import build_message_policy_gate
+
+    mgr = get_feature_flag_manager()
+    mgr.enable(FeatureFlag.USE_POLICY_ENGINE)
+    try:
+        with pytest.raises(RuntimeError, match="Governance initialization failed"):
+            build_message_policy_gate(
+                _governed_settings(block_request_patterns=["["]), _FakeContainer(), "m"
+            )
     finally:
         mgr.disable(FeatureFlag.USE_POLICY_ENGINE)
 

@@ -16,6 +16,8 @@
 
 from typing import List, Tuple
 
+import pytest
+
 from victor.framework.policies import (
     Phase,
     Policy,
@@ -157,18 +159,77 @@ async def test_result_modification_on_tool_result_phase():
     assert verdict.modified_result == "[REDACTED]"
 
 
-async def test_misbehaving_policy_is_skipped_not_fatal():
+@pytest.mark.parametrize(
+    "failure",
+    [
+        "phases",
+        "phase_shape",
+        "applies_to",
+        "applicability_shape",
+        "evaluate",
+        "verdict",
+        "action",
+        "arguments",
+    ],
+)
+async def test_misbehaving_policy_denies_without_running_later_policies(failure):
     class _Boom(Policy):
         name = "boom"
 
-        async def evaluate(self, event: PolicyEvent) -> PolicyVerdict:
-            raise RuntimeError("kaboom")
+        def phases(self):
+            if failure == "phases":
+                raise RuntimeError("private details")
+            if failure == "phase_shape":
+                return "tool_call"
+            return {Phase.TOOL_CALL}
 
-    engine = PolicyEngine([_Boom(), _StubPolicy("ok", PolicyVerdict.allow())])
+        def applies_to(self, tool_name):
+            if failure == "applies_to":
+                raise ValueError("private details")
+            if failure == "applicability_shape":
+                return None
+            return True
+
+        async def evaluate(self, event: PolicyEvent) -> PolicyVerdict:
+            if failure == "verdict":
+                return None
+            if failure == "action":
+                return PolicyVerdict(action="allow")
+            if failure == "arguments":
+                return PolicyVerdict.allow(modified_arguments=[])
+            raise RuntimeError("private details")
+
+    later = _StubPolicy("ok", PolicyVerdict.allow())
+    events = []
+    engine = PolicyEngine([_Boom(), later], event_emitter=lambda *event: events.append(event))
     verdict = await engine.evaluate(_event())
 
-    # The crashing policy is skipped; evaluation continues and allows.
-    assert verdict.is_allow
+    assert verdict.is_deny
+    assert verdict.policy_name == "boom"
+    assert not later.evaluated
+    assert "private details" not in verdict.reason
+    assert events[0][1]["decision"] == "deny"
+
+
+async def test_policy_cancellation_propagates():
+    import asyncio
+
+    class _Cancelled(Policy):
+        async def evaluate(self, event):
+            raise asyncio.CancelledError()
+
+    with pytest.raises(asyncio.CancelledError):
+        await PolicyEngine([_Cancelled()]).evaluate(_event())
+
+
+async def test_broken_observer_cannot_change_denial():
+    def emit(*args):
+        raise RuntimeError("observer unavailable")
+
+    verdict = await PolicyEngine(
+        [_StubPolicy("deny", PolicyVerdict.deny("blocked"))], event_emitter=emit
+    ).evaluate(_event())
+    assert verdict.is_deny
 
 
 async def test_event_emitter_called_on_deny():

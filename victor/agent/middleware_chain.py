@@ -58,6 +58,21 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _validate_before_result(result: Any) -> MiddlewareResult:
+    """Validate a dispatch decision at both middleware and pipeline boundaries."""
+    if (
+        not isinstance(result, MiddlewareResult)
+        or type(result.proceed) is not bool
+        or not isinstance(result.metadata, dict)
+        or (
+            result.modified_arguments is not None
+            and not isinstance(result.modified_arguments, dict)
+        )
+    ):
+        raise TypeError("Invalid middleware decision")
+    return result
+
+
 class MiddlewareChain:
     """Chain of middleware for tool execution processing.
 
@@ -165,6 +180,11 @@ class MiddlewareChain:
         applicable = []
         for mw in self._middleware:
             tools = mw.get_applicable_tools()
+            if tools is not None and (
+                not isinstance(tools, (set, frozenset))
+                or any(not isinstance(name, str) for name in tools)
+            ):
+                raise TypeError("Invalid middleware tool scope")
             if tools is None or tool_name in tools:
                 applicable.append(mw)
         return applicable
@@ -189,7 +209,15 @@ class MiddlewareChain:
         if not self._enabled:
             return MiddlewareResult()
 
-        applicable = self._get_applicable_middleware(tool_name)
+        try:
+            applicable = self._get_applicable_middleware(tool_name)
+        except Exception:
+            logger.error("Middleware selection failed; blocking dispatch")
+            return MiddlewareResult(
+                proceed=False,
+                error_message="Middleware selection failed.",
+                metadata={"enforcement_error": True},
+            )
         current_args = arguments.copy()
 
         # Initialize metadata with vertical context info (DIP - provides vertical
@@ -201,7 +229,9 @@ class MiddlewareChain:
 
         for middleware in applicable:
             try:
-                result = await middleware.before_tool_call(tool_name, current_args)
+                result = _validate_before_result(
+                    await middleware.before_tool_call(tool_name, current_args)
+                )
 
                 # Aggregate metadata
                 aggregated_metadata.update(result.metadata)
@@ -221,17 +251,19 @@ class MiddlewareChain:
                     )
 
                 # Apply argument modifications
-                if result.modified_arguments:
+                if result.modified_arguments is not None:
                     current_args = result.modified_arguments
 
-            except Exception as e:
+            except Exception:
                 logger.error(
-                    "Middleware %s failed in before_tool_call: %s",
+                    "Middleware %s failed before dispatch; blocking",
                     type(middleware).__name__,
-                    e,
                 )
-                # Continue with other middleware on error
-                continue
+                return MiddlewareResult(
+                    proceed=False,
+                    error_message="Middleware enforcement failed.",
+                    metadata={**aggregated_metadata, "enforcement_error": True},
+                )
 
         return MiddlewareResult(
             proceed=True,

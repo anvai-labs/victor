@@ -106,6 +106,75 @@ class TestToolPipelineInit:
 
 
 class TestExecuteToolCalls:
+    @pytest.mark.parametrize(
+        "failure",
+        [
+            "selection",
+            "scope",
+            "hook",
+            "malformed",
+            "chain",
+            "decision",
+            "arguments",
+            "outer_decision",
+        ],
+    )
+    async def test_middleware_failure_never_dispatches(self, pipeline, failure):
+        from victor.agent.middleware_chain import MiddlewareChain
+        from victor.core.verticals.protocols import MiddlewarePriority, MiddlewareResult
+
+        chain = MiddlewareChain()
+        middleware = MagicMock()
+        middleware.get_priority.return_value = MiddlewarePriority.NORMAL
+        middleware.get_applicable_tools.return_value = None
+        middleware.before_tool_call = AsyncMock(side_effect=RuntimeError("private details"))
+        if failure == "selection":
+            middleware.get_applicable_tools.side_effect = AttributeError("private details")
+        elif failure == "scope":
+            middleware.get_applicable_tools.return_value = "read"
+        elif failure == "malformed":
+            middleware.before_tool_call = AsyncMock(return_value=None)
+        elif failure == "chain":
+            chain.process_before = AsyncMock(side_effect=TypeError("private details"))
+        elif failure in {"decision", "outer_decision"}:
+            method = AsyncMock(return_value=MiddlewareResult(proceed="false"))
+            if failure == "outer_decision":
+                chain.process_before = method
+            else:
+                middleware.before_tool_call = method
+        elif failure == "arguments":
+            middleware.before_tool_call = AsyncMock(
+                return_value=MiddlewareResult(modified_arguments=[])
+            )
+        chain.add(middleware)
+        pipeline.middleware_chain = chain
+
+        outcome = await pipeline.execute_tool_calls([{"name": "write", "arguments": {}}])
+
+        pipeline.executor.execute.assert_not_called()
+        result = outcome.results[0]
+        assert not result.success and result.skipped
+        assert result.block_source == "middleware_chain"
+        assert result.retryable is False
+        assert "private details" not in (result.skip_reason or "")
+
+    async def test_empty_middleware_arguments_replace_original(self, pipeline):
+        from victor.agent.middleware_chain import MiddlewareChain
+        from victor.core.verticals.protocols import MiddlewarePriority, MiddlewareResult
+
+        middleware = MagicMock()
+        middleware.get_priority.return_value = MiddlewarePriority.NORMAL
+        middleware.get_applicable_tools.return_value = None
+        middleware.before_tool_call = AsyncMock(
+            return_value=MiddlewareResult(modified_arguments={})
+        )
+        middleware.after_tool_call = AsyncMock(return_value=None)
+        chain = MiddlewareChain()
+        chain.add(middleware)
+        pipeline.middleware_chain = chain
+        await pipeline.execute_tool_calls([{"name": "write", "arguments": {"content": "old"}}])
+        assert pipeline.executor.execute.call_args.kwargs["arguments"] == {}
+
     async def test_single_successful_call(self, pipeline):
         tool_calls = [{"name": "read", "arguments": {"path": "/tmp/f.py"}}]
         result = await pipeline.execute_tool_calls(tool_calls)

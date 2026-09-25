@@ -45,6 +45,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Mapping, Optional, Set, TYPE_CHECKING
 
 from victor.agent.argument_normalizer import ArgumentNormalizer, NormalizationStrategy
+from victor.agent.middleware_chain import _validate_before_result
 from victor.agent.tool_executor import ToolExecutor, ToolExecutionResult
 from victor.agent.parameter_enforcer import (
     get_enforcer_for_tool,
@@ -3099,8 +3100,8 @@ class ToolPipeline:
         # Process through middleware chain (before execution)
         if self.middleware_chain is not None:
             try:
-                before_result = await self.middleware_chain.process_before(
-                    tool_name, normalized_args
+                before_result = _validate_before_result(
+                    await self.middleware_chain.process_before(tool_name, normalized_args)
                 )
                 if not before_result.proceed:
                     logger.info(
@@ -3114,17 +3115,26 @@ class ToolPipeline:
                         skip_reason=f"Blocked by middleware: {before_result.error_message}",
                         outcome_kind="middleware_blocked",
                         block_source="middleware_chain",
-                        retryable=True,
+                        retryable=False,
                         user_message=before_result.error_message,
                         normalization_applied=normalization_applied,
                     )
                 # Apply any argument modifications from middleware
-                if before_result.modified_arguments:
+                if before_result.modified_arguments is not None:
                     normalized_args = before_result.modified_arguments
-            except (ValueError, TypeError, KeyError) as e:
-                logger.warning(f"Middleware chain process_before failed (data error): {e}")
-            except AttributeError as e:
-                logger.debug(f"Middleware chain not properly configured: {e}")
+            except Exception:
+                logger.error("Middleware chain failed; blocking dispatch")
+                return _build_skip_result(
+                    tool_name=tool_name,
+                    arguments=normalized_args,
+                    success=False,
+                    skip_reason="Middleware enforcement failed.",
+                    outcome_kind="middleware_error",
+                    block_source="middleware_chain",
+                    retryable=False,
+                    user_message="Tool execution stopped because its policy checks failed.",
+                    normalization_applied=normalization_applied,
+                )
 
         # Emit pre-execution intent event (LogAct-inspired)
         self._emit_tool_intent(tool_name, normalized_args)

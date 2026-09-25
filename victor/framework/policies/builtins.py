@@ -231,13 +231,13 @@ class MaxToolCallsPolicy(Policy):
 
 
 def _compile_patterns(patterns: Optional[Iterable[str]]) -> List[Pattern[str]]:
-    """Compile regex patterns, skipping (with a warning) any that don't compile."""
+    """Compile every configured pattern or reject the invalid policy configuration."""
     compiled: List[Pattern[str]] = []
     for raw in patterns or []:
         try:
             compiled.append(re.compile(raw))
-        except re.error as exc:  # pragma: no cover - defensive: bad config
-            logger.warning("Skipping invalid policy regex %r: %s", raw, exc)
+        except re.error:
+            raise ValueError("Invalid policy pattern") from None
     return compiled
 
 
