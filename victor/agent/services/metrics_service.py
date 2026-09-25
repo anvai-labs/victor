@@ -109,7 +109,14 @@ class _TaskUsageSnapshot:
 
 @dataclass
 class _ActiveTaskReport:
-    """Task report state held while execution is in flight."""
+    """Task report state held while execution is in flight.
+
+    Both usage sources are snapshotted at task start so the finish delta is
+    computed within ONE source: the tracker if it recorded any request during
+    the window (authoritative streaming counts), else the accumulator
+    (buffered-only sessions, handoff G34). Switching sources between the two
+    snapshots would collapse or fabricate the delta.
+    """
 
     task_id: str
     description: str
@@ -117,6 +124,7 @@ class _ActiveTaskReport:
     started_at: float
     metadata: Dict[str, Any]
     snapshot: _TaskUsageSnapshot
+    tracker_snapshot: _TaskUsageSnapshot
 
 
 class AgentMetricsService:
@@ -444,7 +452,8 @@ class AgentMetricsService:
             task_type=task_type or "default",
             started_at=time.time(),
             metadata=dict(metadata or {}),
-            snapshot=self._snapshot_task_usage(),
+            snapshot=self._accumulator_task_usage(),
+            tracker_snapshot=self._tracker_task_usage(),
         )
         return task_id
 
@@ -465,26 +474,37 @@ class AgentMetricsService:
             return {}
 
         finished_at = time.time()
-        final_snapshot = self._snapshot_task_usage()
+        final_tracker = self._tracker_task_usage()
+        if active.tracker_snapshot.request_count > 0 or final_tracker.request_count > 0:
+            # The tracker recorded (or recorded within) this window: its counts
+            # are the authoritative streaming usage. Both ends read the tracker
+            # so the delta stays within one source.
+            final_snapshot = final_tracker
+            start_snapshot = active.tracker_snapshot
+        else:
+            # Buffered-only window (no tracker requests): the accumulator is
+            # the only source that moved.
+            final_snapshot = self._accumulator_task_usage()
+            start_snapshot = active.snapshot
         merged_metadata = dict(active.metadata)
         if metadata:
             merged_metadata.update(metadata)
         self._normalize_workspace_report_metadata(merged_metadata)
 
-        prompt_delta = max(0, final_snapshot.prompt_tokens - active.snapshot.prompt_tokens)
+        prompt_delta = max(0, final_snapshot.prompt_tokens - start_snapshot.prompt_tokens)
         completion_delta = max(
-            0, final_snapshot.completion_tokens - active.snapshot.completion_tokens
+            0, final_snapshot.completion_tokens - start_snapshot.completion_tokens
         )
-        total_delta = max(0, final_snapshot.total_tokens - active.snapshot.total_tokens)
-        cached_delta = max(0, final_snapshot.cached_tokens - active.snapshot.cached_tokens)
+        total_delta = max(0, final_snapshot.total_tokens - start_snapshot.total_tokens)
+        cached_delta = max(0, final_snapshot.cached_tokens - start_snapshot.cached_tokens)
         cache_read_delta = max(
-            0, final_snapshot.cache_read_tokens - active.snapshot.cache_read_tokens
+            0, final_snapshot.cache_read_tokens - start_snapshot.cache_read_tokens
         )
         cache_write_delta = max(
-            0, final_snapshot.cache_write_tokens - active.snapshot.cache_write_tokens
+            0, final_snapshot.cache_write_tokens - start_snapshot.cache_write_tokens
         )
-        request_delta = max(0, final_snapshot.request_count - active.snapshot.request_count)
-        total_cost_delta = max(0.0, final_snapshot.total_cost_usd - active.snapshot.total_cost_usd)
+        request_delta = max(0, final_snapshot.request_count - start_snapshot.request_count)
+        total_cost_delta = max(0.0, final_snapshot.total_cost_usd - start_snapshot.total_cost_usd)
 
         cache_input_tokens = cached_delta or cache_read_delta
         cache_hit_rate = (
@@ -699,8 +719,44 @@ class AgentMetricsService:
             normalized.append(diagnostic)
         return normalized
 
-    def _snapshot_task_usage(self) -> _TaskUsageSnapshot:
-        """Capture the cumulative usage counters used for task deltas."""
+    def _accumulator_task_usage(self) -> _TaskUsageSnapshot:
+        """Accumulator snapshot: legacy per-process counters.
+
+        Buffered TurnExecutor calls (including recovery) update this
+        accumulator, but the streaming runtime does not — it records to the
+        tracker instead. Tokens from this source are a fallback for sessions
+        where the tracker saw no requests (handoff G34: buffered cost
+        recording is not yet integrated).
+        """
+        request_count, token_summary, cost_summary = self._tracker_summary()
+        return _TaskUsageSnapshot(
+            prompt_tokens=int(self._cumulative_token_usage.get("prompt_tokens", 0) or 0),
+            completion_tokens=int(self._cumulative_token_usage.get("completion_tokens", 0) or 0),
+            total_tokens=int(self._cumulative_token_usage.get("total_tokens", 0) or 0),
+            cached_tokens=int(self._cumulative_token_usage.get("cached_tokens", 0) or 0),
+            cache_read_tokens=int(
+                token_summary.get(
+                    "cache_read",
+                    getattr(self._session_cost_tracker, "total_cache_read_tokens", 0),
+                )
+                or 0
+            ),
+            cache_write_tokens=int(
+                token_summary.get(
+                    "cache_write",
+                    getattr(self._session_cost_tracker, "total_cache_write_tokens", 0),
+                )
+                or 0
+            ),
+            total_cost_usd=float(
+                cost_summary.get("total", getattr(self._session_cost_tracker, "total_cost", 0.0))
+                or 0.0
+            ),
+            request_count=request_count,
+        )
+
+    def _tracker_summary(self) -> tuple[int, Dict[str, Any], Dict[str, Any]]:
+        """Read the tracker summary once: (request_count, token fields, cost fields)."""
         summary: Dict[str, Any] = {}
         tracker = self._session_cost_tracker
         if hasattr(tracker, "get_summary"):
@@ -716,46 +772,25 @@ class AgentMetricsService:
         tracker_requests = getattr(tracker, "requests", None)
         if request_count is None and isinstance(tracker_requests, list):
             request_count = len(tracker_requests)
+        return int(request_count or 0), token_summary, cost_summary
 
-        # Token source selection: the streaming runtime records usage to the
-        # tracker via finalize_stream_metrics, and nothing on the service path
-        # writes the legacy cumulative accumulator anymore — reading it made
-        # every streaming task report report 0 tokens. Buffered TurnExecutor
-        # calls (including recovery) still lack tracker recording (handoff
-        # G34), so sessions with no tracker requests fall back to the
-        # accumulator rather than reporting zeros. Read one token source;
-        # never add the copies or select the larger total.
-        tracker_has_requests = bool(request_count)
-        token_source: Dict[str, Any] = (
-            token_summary if tracker_has_requests else self._cumulative_token_usage
-        )
+    def _tracker_task_usage(self) -> _TaskUsageSnapshot:
+        """Tracker snapshot: the authoritative streaming token source.
+
+        The streaming runtime records usage to the tracker via
+        ``finalize_stream_metrics`` -> ``record_request``; the tracker's token
+        summary is the only source that reflects real API counts there.
+        """
+        request_count, token_summary, cost_summary = self._tracker_summary()
         return _TaskUsageSnapshot(
-            prompt_tokens=int(
-                token_source.get("prompt", token_source.get("prompt_tokens", 0)) or 0
-            ),
-            completion_tokens=int(
-                token_source.get("completion", token_source.get("completion_tokens", 0)) or 0
-            ),
-            total_tokens=int(token_source.get("total", token_source.get("total_tokens", 0)) or 0),
-            cached_tokens=int(self._cumulative_token_usage.get("cached_tokens", 0) or 0),
-            cache_read_tokens=int(
-                token_summary.get(
-                    "cache_read",
-                    getattr(tracker, "total_cache_read_tokens", 0),
-                )
-                or 0
-            ),
-            cache_write_tokens=int(
-                token_summary.get(
-                    "cache_write",
-                    getattr(tracker, "total_cache_write_tokens", 0),
-                )
-                or 0
-            ),
-            total_cost_usd=float(
-                cost_summary.get("total", getattr(tracker, "total_cost", 0.0)) or 0.0
-            ),
-            request_count=int(request_count or 0),
+            prompt_tokens=int(token_summary.get("prompt", 0) or 0),
+            completion_tokens=int(token_summary.get("completion", 0) or 0),
+            total_tokens=int(token_summary.get("total", 0) or 0),
+            cached_tokens=0,
+            cache_read_tokens=int(token_summary.get("cache_read", 0) or 0),
+            cache_write_tokens=int(token_summary.get("cache_write", 0) or 0),
+            total_cost_usd=float(cost_summary.get("total", 0.0) or 0.0),
+            request_count=request_count,
         )
 
     # ========================================================================
