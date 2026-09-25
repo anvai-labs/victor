@@ -202,3 +202,87 @@ async def test_review_diff_members_carry_provider_and_model(fake_team):
 async def test_review_diff_requires_reviewers():
     with pytest.raises(ValueError):
         await review_diff("diff", [], orchestrator=object())
+
+
+class _FakeProc:
+    def __init__(self, stdout: bytes, returncode: int, stderr: bytes = b""):
+        self._stdout = stdout
+        self._stderr = stderr
+        self.returncode = returncode
+
+    async def communicate(self):
+        return self._stdout, self._stderr
+
+
+class _FakeAgentTeamForPR(FakeAgentTeam):
+    pass
+
+
+async def test_review_pull_request_fetches_diff_and_reviews(monkeypatch):
+    seen: dict = {}
+
+    async def fake_review_diff(diff, specs, *, orchestrator, intent, timeout_seconds):
+        seen["diff"] = diff
+        return "panel-verdict"
+
+    monkeypatch.setattr(review_mod, "review_diff", fake_review_diff)
+
+    async def fake_exec(*cmd, **kwargs):
+        assert tuple(cmd[:3]) == ("gh", "pr", "diff")
+        assert "-R" not in cmd
+        return _FakeProc(b"diff --git a/f b/f\n", 0)
+
+    monkeypatch.setattr(review_mod.asyncio, "create_subprocess_exec", fake_exec)
+    verdict = await review_mod.review_pull_request(
+        42, SPECS, orchestrator=object(), timeout_seconds=10
+    )
+    assert verdict == "panel-verdict"
+    assert seen["diff"].startswith("diff --git")
+
+
+async def test_review_pull_request_passes_repo_and_raises_on_gh_failure(monkeypatch):
+    async def fake_exec(*cmd, **kwargs):
+        assert "-R" in cmd and "org/repo" in cmd
+        return _FakeProc(b"", 1, stderr=b"boom")
+
+    monkeypatch.setattr(review_mod.asyncio, "create_subprocess_exec", fake_exec)
+    with pytest.raises(RuntimeError, match="boom"):
+        await review_mod.review_pull_request(
+            42, SPECS, orchestrator=object(), repo="org/repo", timeout_seconds=10
+        )
+
+
+async def test_review_pull_request_empty_diff_is_rejected(monkeypatch):
+    async def fake_exec(*cmd, **kwargs):
+        return _FakeProc(b"   \n", 0)
+
+    monkeypatch.setattr(review_mod.asyncio, "create_subprocess_exec", fake_exec)
+    with pytest.raises(RuntimeError, match="empty diff"):
+        await review_mod.review_pull_request(42, SPECS, orchestrator=object(), timeout_seconds=10)
+
+
+async def test_resolve_member_result_positional_fallback():
+    """Coordinators that omit display_name metadata still resolve positionally."""
+    member_results = {
+        "auto-1": MemberResult(member_id="auto-1", success=True, output="first", metadata={}),
+        "auto-2": MemberResult(member_id="auto-2", success=True, output="second", metadata={}),
+    }
+    result = TeamResult(
+        success=True,
+        final_output="",
+        member_results=member_results,
+        formation=TeamFormation.PARALLEL,
+    )
+    specs = [ReviewerSpec(provider="a", model="m"), ReviewerSpec(provider="b", model="m")]
+    out1, ok1 = review_mod._resolve_member_result(result, specs[0])
+    out2, ok2 = review_mod._resolve_member_result(result, specs[1])
+    assert (out1, ok1) == ("first", True)
+    assert (out2, ok2) == ("second", True)
+
+
+def test_resolve_member_result_no_results_is_failure():
+    class _Empty:
+        member_results = {}
+
+    out, ok = review_mod._resolve_member_result(_Empty(), SPECS[0])
+    assert out is None and ok is False
