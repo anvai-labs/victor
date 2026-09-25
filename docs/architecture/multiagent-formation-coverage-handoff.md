@@ -144,6 +144,21 @@ from version output. Origin OIDC, broader lifecycle acceptance, and Sandhi durab
 HTTP settlement remain open. The earlier gateway startup-bound failure and all
 historical failed evidence remain retained.
 
+**2026-09-25 implementation checkpoint (not a deployment or formation verdict):**
+[InferFlux #229](https://github.com/anvai-labs/inferflux/pull/229) landed endpoint
+request admission on develop after independent review and all PR CI gates passed.
+The shared per-subject ceiling remains authoritative; generation and embeddings can
+have separate opt-in buckets on one listener. Its 54 CPU CTest targets pass, but
+released deployment and measured embedding/mixed-load capacity remain open (G67).
+[Sandhi #310](https://github.com/anvai-labs/sandhi/pull/310) landed immutable terminal
+observations; [#311](https://github.com/anvai-labs/sandhi/pull/311) landed canonical
+settlement from their stored charge after clean review and green PR CI. The latter
+passes 732 workspace tests with 89.80% line coverage. Both are library foundations;
+authoritative HTTP settlement, bounded recovery and lifecycle acceptance remain open.
+Sandhi currently has no embeddings ingress (G68), so direct InferFlux embedding
+results cannot establish gateway embedding metering. No formation counts or C5
+verdicts change, and these changes have not replaced the released runtimes above.
+
 The new OIDC cohorts use clean Victor source `208e2535f523b3c28a77823ff90673c329970a5f`
 ([#1173](https://github.com/anvai-labs/victor/pull/1173)), released Sandhi 0.9.0 and
 separate inference/accounting identities. The
@@ -1178,6 +1193,15 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   standalone configurable stream setup/idle/body policy, now released in 0.10.1.
   [Sandhi #308](https://github.com/anvai-labs/sandhi/pull/308) adds an inactive
   durable intent library on develop; it is not HTTP recovery or a release claim.
+  [#310](https://github.com/anvai-labs/sandhi/pull/310) adds immutable terminal usage
+  snapshots, and [#311](https://github.com/anvai-labs/sandhi/pull/311) binds their
+  frozen charge to the existing receipt writer in one transaction. Current legacy
+  caller-charge APIs reject tracked reservations; untracked defaults stay unchanged.
+  Final provider-reported usage can settle, including explicit zero. Unknown,
+  partial and estimated usage retains liability through expiry. Older writers can
+  bypass the new guard, so mixed-version ownership or rollback with tracked work
+  needs an explicit compatibility plan. These library increments are not HTTP
+  activation, an amendment contract, recovery workers or released-runtime acceptance.
   **Still open:** an explicit lease-renewal or bounded durable HTTP settlement
   contract; idle gaps alone cannot
   bound lease lifetime. Blocking finalization can still outlive headroom, and the
@@ -1335,6 +1359,30 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   current acceptance. InferFlux should reject unknown flags and provide a bounded
   version command before config/model initialization, with packaging tests for
   both binaries. Do not infer a successful version probe from startup output.
+
+- **G67 — endpoint admission needs released deployment and capacity acceptance.**
+  The inspected InferFlux 0.3.0 deployment used a persisted shared limit of 120
+  requests/minute per authenticated subject, overriding YAML's 600. This permits
+  approximately 2 requests/s sustained across routes, with bursts; it does not prove
+  the cause of every reported 429. [#229](https://github.com/anvai-labs/inferflux/pull/229)
+  implements opt-in startup generation/embedding buckets with atomic shared/class
+  admission, effective policy provenance and structured retry information. It is
+  merged into develop, not yet released/deployed here. Keep one port 8080 and origin
+  protection when Sandhi is optional. Eight embedding requests/s remains a bounded
+  benchmark target requiring fixed input length/batching and competing generation
+  on the embedding GPU. Rate and burst are distinct from concurrency, queue limits
+  and measured capacity; do not globally raise the shared limit to bypass rejection.
+
+- **G68 — Sandhi has no embedding ingress/accounting contract.** Source inspection
+  at Sandhi `6425697` found chat/messages/responses/Gemini ingress, with no
+  `/v1/embeddings` route or provider embedding transport. The ledger-only #311
+  does not add one. Keep embedding validation direct to InferFlux until a separate
+  Sandhi increment defines typed request/result/usage contracts, model/scope
+  authorization, bounded payloads, vector order/dimensions, explicit cache-reporting
+  coverage and request/session correlation through SQLite/C4/dashboard. Reuse the
+  existing identity, admission and settlement authorities. Do not substitute a chat
+  request or an unmetered direct call for gateway embedding evidence. This is an
+  additional retrieval/embedding integration gap, not a new formation failure.
 
 Validation-test audit: neither live harness had direct tests before this follow-up.
 The new mixed-harness suite covers rejected/malformed/missing reviews, inclusive
