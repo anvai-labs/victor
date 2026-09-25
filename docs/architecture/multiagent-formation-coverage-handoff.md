@@ -93,7 +93,7 @@ remains inline (see G17).
   blackboard and contract-net remain absent. Conversation-native formations now
   use the FEP-0035 transcript substrate; ensemble status is tracked separately (G16).
 
-### 1.5 Completion audit (updated 2026-09-24; cohort dates retained)
+### 1.5 Completion audit (updated 2026-09-25; cohort dates retained)
 
 Implementation delivery and live acceptance have different denominators:
 
@@ -149,7 +149,8 @@ historical failed evidence remain retained.
 request admission on develop after independent review and all PR CI gates passed.
 The shared per-subject ceiling remains authoritative; generation and embeddings can
 have separate opt-in buckets on one listener. Its 54 CPU CTest targets pass, but
-released deployment and measured embedding/mixed-load capacity remain open (G67).
+released deployment and measured embedding/mixed-load capacity were still open at
+that implementation checkpoint (G67); the later release checkpoint below supersedes it.
 [Sandhi #310](https://github.com/anvai-labs/sandhi/pull/310) landed immutable terminal
 observations; [#311](https://github.com/anvai-labs/sandhi/pull/311) landed canonical
 settlement from their stored charge after clean review and green PR CI. The latter
@@ -159,23 +160,74 @@ Sandhi currently has no embeddings ingress (G68), so direct InferFlux embedding
 results cannot establish gateway embedding metering. No formation counts or C5
 verdicts change, and these changes have not replaced the released runtimes above.
 
-**Later 2026-09-25 checkpoint:** [Sandhi #312](https://github.com/anvai-labs/sandhi/pull/312)
-landed scoped, read-only recovery inventory after independent review and green PR and
-post-merge CI: 735 workspace tests passed, with 89.82% line coverage. It shares canonical
-eligibility/receipt-consistency checks and rejects orphaned or inconsistent evidence;
-it does not activate HTTP settlement or a recovery worker. [InferFlux #230](https://github.com/anvai-labs/inferflux/pull/230)
-landed v0.4.0 preparation after all CI gates passed; cumulative promotion
-[#231](https://github.com/anvai-labs/inferflux/pull/231) is open. GPU, publication,
-deployment and capacity acceptance remain pending. The 54 configured CPU CTest targets
-passed on isolated ports; an initial run conflicted with the retained 18081 tunnel.
+**Later 2026-09-25 foundation checkpoint:** [Sandhi #312](https://github.com/anvai-labs/sandhi/pull/312)
+landed scoped, read-only recovery inventory, followed by
+[#313](https://github.com/anvai-labs/sandhi/pull/313)'s owned terminal-observation and
+settlement bridge. Both passed independent review, PR CI and post-merge CI.
+The latter passes 738 workspace tests with 89.87% CI-scope line coverage. Persistence
+failure retains the owner and unresolved liability; original stored charge and receipt
+remain authoritative. These library increments do not activate durable HTTP settlement,
+a recovery worker or pre-dispatch closure, and are not deployed in released Sandhi 0.10.1.
 
-A subsequent read-only deployment preflight found the port-8080 runtime had restarted
-outside this session: PID 927115 replaced recorded PID 912276, and an environment
-override binds all interfaces. The actual binary hash still matches released v0.3.0,
-but the private configuration hash changed and the canonical deployment record is
-stale. Preserve the active process/configuration pending owner coordination and fresh
-rollback evidence (G69); earlier readiness or metadata reads do not establish current
-configuration acceptance. No new formation or C5 verdict follows from these changes.
+[InferFlux #230](https://github.com/anvai-labs/inferflux/pull/230) prepared v0.4.0;
+[#232](https://github.com/anvai-labs/inferflux/pull/232) superseded #231 and promoted the
+reviewed tree to main at `75e8d3c58d0c748dd6ac41a20179e040dcff518e` after all PR CI
+passed. Exact-main CI and all four trusted GPU jobs passed, including CUDA, ROCm and
+same-process placement/concurrency/gateway accounting. Pre-release packaging and all
+four platform installer/archive smoke jobs passed. The immutable v0.4.0 tag names
+that revision. Tag CI and all tagged packaging/publication gates subsequently passed;
+all 13 manifest-listed assets were downloaded and checksum-verified.
+The 54 configured CPU CTest targets passed on isolated ports; an initial run conflicted
+with the retained 18081 tunnel.
+
+The [new synthetic embedding measurements](evidence/inferflux-embedding-capacity-2026-09-25.json)
+record 14,309/14,309 successful timed direct BGE requests across four 15-second samples,
+excluding two warmups. They check finite 384-dimensional outputs and integer prompt-token
+reporting, not full usage conservation. Approximately 256-token passages
+measured 154.55 requests/s at concurrency 4 and 162.64 at concurrency 16. These are
+payload-specific samples, not long-duration capacity, competing generation, gateway
+embedding or actual-member evidence. At the user's request, the live v0.3.0 shared
+per-subject ceiling was changed to **6,480 requests/minute (108/s refill)**: 70% of the
+lower passage measurement, rounded down to whole requests/s. The admin update was
+acknowledged and read back exactly. Preserve this newer persisted policy during restart;
+600/minute in the benchmark's restoration field is the earlier intermediate value.
+
+The deployment preflight also found stale canonical PID/configuration metadata (G69).
+Authorized maintenance uses fresh executable/start-time/listener/configuration evidence,
+origin-local rollback copies and a verified-child-only stop. Preserve credentials, cache,
+LAN binding and effective policy; startup can re-encrypt unchanged policy, so restoration
+must compare private semantics and effective limits, not require identical ciphertext.
+The old released runtime was restored with readiness and the 6,480/minute policy
+verified before the release upgrade. Missing Mac origin forwards and the dataserver3
+HTTPS reverse forward were also restored; the existing OIDC accounting principal again
+received HTTP 200. These are current transport checks, not reconnect/reboot supervision.
+The [released-runtime checkpoint](evidence/released-foundation-liveness-2026-09-25.json)
+then deployed InferFlux **v0.4.0** on the consolidated port 8080 from the published
+source above, using the separately accepted mixed-GPU binary SHA-256
+`cb367bcd77eddee272a629b7048d0682124235ebd28874eb1e4bbd7adf869a8e`.
+Readiness, exclusive listener ownership and effective policy were checked before
+publishing its new canonical process identity. The shared **6,480/minute** policy
+remains authoritative; an explicit embeddings bucket now has **6,480/minute and
+6,480 burst**, with no additional generation bucket. These are request quotas and
+burst allowances, not limits on concurrent GPU work.
+
+New direct discovery, both Qwen chat checks and ordered finite 384-dimensional BGE
+vectors passed with conserved reported usage. Two synthetic chat requests through
+released Sandhi **v0.10.1**, using existing OIDC inference and separate accounting
+identities, passed the unchanged 120-second deadline and strict **2/2 wire/SQLite/C4/
+dashboard joins**: **30 input, 2 output, explicitly reported zero cache tokens**.
+The origin process identity remained unchanged across those gateway checks. An initial
+broker-unavailable attempt was preserved as failed evidence; a later authenticated
+read and full retry passed. This does not establish broker reliability or origin OIDC.
+
+Homebrew [#75](https://github.com/anvai-labs/homebrew-tap/pull/75) carries the v0.4.0
+formula. Local upgrade, executable help/test, all eight existing contract tests and
+style checks passed; installed macOS executables match the published archive exactly.
+Independent review is clean; its PR CI and merge remain tracked separately.
+No shared cache or credentials were cleared/transferred. These are synthetic released
+startup/accounting checks, not the preserved actual-member replay, executed cache-reuse
+proof, mixed-load capacity, lifecycle acceptance or new formation results.
+Formation counts and the C5 verdict remain unchanged.
 
 The new OIDC cohorts use clean Victor source `208e2535f523b3c28a77823ff90673c329970a5f`
 ([#1173](https://github.com/anvai-labs/victor/pull/1173)), released Sandhi 0.9.0 and
@@ -1384,18 +1436,22 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   version command before config/model initialization, with packaging tests for
   both binaries. Do not infer a successful version probe from startup output.
 
-- **G67 — endpoint admission needs released deployment and capacity acceptance.**
-  The inspected InferFlux 0.3.0 deployment used a persisted shared limit of 120
-  requests/minute per authenticated subject, overriding YAML's 600. This permits
-  approximately 2 requests/s sustained across routes, with bursts; it does not prove
-  the cause of every reported 429. [#229](https://github.com/anvai-labs/inferflux/pull/229)
-  implements opt-in startup generation/embedding buckets with atomic shared/class
-  admission, effective policy provenance and structured retry information. It is
-  merged into develop, not yet released/deployed here. Keep one port 8080 and origin
-  protection when Sandhi is optional. Eight embedding requests/s remains a bounded
-  benchmark target requiring fixed input length/batching and competing generation
-  on the embedding GPU. Rate and burst are distinct from concurrency, queue limits
-  and measured capacity; do not globally raise the shared limit to bypass rejection.
+- **G67 — endpoint admission needs sustained mixed-load capacity acceptance.**
+  The original persisted shared 120 requests/minute overrode YAML's 600. After the
+  [new passage benchmark](evidence/inferflux-embedding-capacity-2026-09-25.json), the
+  user authorized **6,480 requests/minute per authenticated subject**, verified by
+  admin readback. This is a shared quota with a burst allowance, not a concurrency
+  limit or a guarantee of throughput under competing generation.
+  [#229](https://github.com/anvai-labs/inferflux/pull/229) implements opt-in startup
+  generation/embedding buckets with atomic shared/class admission, effective policy
+  provenance and structured retry information, promoted via
+  [#232](https://github.com/anvai-labs/inferflux/pull/232). Released v0.4.0 deployment,
+  effective shared/embedding policy readback and bounded direct/gateway liveness now
+  pass; see the [release evidence](evidence/released-foundation-liveness-2026-09-25.json).
+  Keep one port 8080 and origin protection when Sandhi is optional.
+  Preserve the resolved policy path across config relocation. Endpoint limits add no
+  inference-lifetime bound or GPU scheduling isolation. Direct sampled capacity is now
+  measured; sustained mixed load and gateway embeddings remain unaccepted.
 
 - **G68 — Sandhi has no embedding ingress/accounting contract.** Source inspection
   at Sandhi `6425697` found chat/messages/responses/Gemini ingress, with no
@@ -1417,6 +1473,9 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   overrides with the active operator. Preserve concurrent changes and take a fresh
   origin-local rollback snapshot; do not kill a stale PID or restore an old configuration
   blindly. Promotion-triggered GPU work must wait for coordinated device ownership.
+  A later checked restore reconciled the canonical identity and verified policy semantics
+  after startup rewrites the policy. Missing SSH forwards were restored without changing
+  credentials or OIDC policy; persistent reconnect/reboot supervision remains open.
   This is an operational identity/ownership gap, not a model-quality or formation failure.
 
 Validation-test audit: neither live harness had direct tests before this follow-up.

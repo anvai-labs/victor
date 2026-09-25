@@ -1,0 +1,107 @@
+{
+  "new_evidence": true,
+  "scope": "15-second synthetic direct-origin samples; measured profile throughput only, not universal capacity, Sandhi, actual-member or C5 acceptance",
+  "pid": 927115,
+  "source": "276e199918414b2e701bf1636d3bbecf1e107e56",
+  "binary_sha256": "3316f921224b9efecdb8428ccb19413de07b74d7cad2b0b5f6cff7ab81ae8dab",
+  "config_sha256": "2d54cde506c9d5b63963ac8e5c2d2ca1f5b50f739609116517fffa6ea2cd2b10",
+  "model": "bge-small-en-v1.5",
+  "requests_per_input": 1,
+  "max_requests": 40002,
+  "profiles": [
+    {
+      "profile": "short_query",
+      "concurrency": 4,
+      "requests": 4924,
+      "successes": 4924,
+      "elapsed_seconds": 15.005590772954747,
+      "successful_requests_per_second": 328.1443612919757,
+      "p50_ms": 6.1740464880131185,
+      "p95_ms": 11.231819982640445,
+      "mean_prompt_tokens": 13.912266450040617,
+      "explicit_usage_count": 4924,
+      "http_429": 0,
+      "failures": []
+    },
+    {
+      "profile": "short_query",
+      "concurrency": 16,
+      "requests": 4592,
+      "successes": 4592,
+      "elapsed_seconds": 15.052380149019882,
+      "successful_requests_per_second": 305.06803273228536,
+      "p50_ms": 33.2116115023382,
+      "p95_ms": 178.23206691537052,
+      "mean_prompt_tokens": 14.367595818815332,
+      "explicit_usage_count": 4592,
+      "http_429": 0,
+      "failures": []
+    },
+    {
+      "profile": "document_passage",
+      "concurrency": 4,
+      "requests": 2320,
+      "successes": 2320,
+      "elapsed_seconds": 15.011773845995776,
+      "successful_requests_per_second": 154.5453604484479,
+      "p50_ms": 14.142330503091216,
+      "p95_ms": 154.5477849431336,
+      "mean_prompt_tokens": 256.3439655172414,
+      "explicit_usage_count": 2320,
+      "http_429": 0,
+      "failures": []
+    },
+    {
+      "profile": "document_passage",
+      "concurrency": 16,
+      "requests": 2473,
+      "successes": 2473,
+      "elapsed_seconds": 15.205517877009697,
+      "successful_requests_per_second": 162.63832774410824,
+      "p50_ms": 63.21364699397236,
+      "p95_ms": 225.81171500496566,
+      "mean_prompt_tokens": 256.3720177921553,
+      "explicit_usage_count": 2473,
+      "http_429": 0,
+      "failures": []
+    }
+  ],
+  "passed": true,
+  "placement": {
+    "backend": "llama_cpp_cuda",
+    "device": "cuda:0",
+    "embedding_batch_size": 1,
+    "max_parallel_sequences": 32,
+    "context_size": 16384
+  },
+  "scheduler": {
+    "max_batch_size": 128,
+    "max_batch_tokens": null,
+    "batch_accumulation_ms": 50
+  },
+  "original_shared_requests_per_minute": 600,
+  "benchmark_shared_requests_per_minute": 0,
+  "restored_shared_requests_per_minute": 600,
+  "subsequent_user_requested_policy": {
+    "action": "user-requested passage throughput policy",
+    "basis": "70% of lower measured passage throughput, rounded down to whole requests/second",
+    "measured_passage_requests_per_second": 154.5453604484479,
+    "requests_per_second": 108,
+    "requests_per_minute": 6480,
+    "previous_requests_per_minute": 600,
+    "verified_live": true,
+    "admin_update_acknowledged": true,
+    "endpoint_specific_limits_live": false,
+    "runtime_release": "v0.3.0",
+    "pid": 927115,
+    "restart_required": false
+  },
+  "limitations": [
+    "Synthetic direct-origin evidence, not actual-member, Sandhi embeddings or C5 acceptance.",
+    "Four 15-second samples; no claim of long-duration saturation or universal maximum.",
+    "Qwen models were loaded but no concurrent generation workload was measured.",
+    "Quota refill is distinct from burst capacity, concurrency and queue bounds.",
+    "The timed-request denominator excludes two successful warmup requests.",
+    "explicit_usage_count checks integer prompt-token reporting, not prompt/output/total conservation."
+  ]
+}
