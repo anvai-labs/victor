@@ -44,6 +44,11 @@ class _FakeOrchestrator:
 
 
 def _create_server(monkeypatch, tmp_path: Path, **server_kwargs):
+    # Persistent HITL routes must never open the developer's real approval store.
+    monkeypatch.setattr(
+        "victor.workflows.hitl_api.get_default_hitl_db_path",
+        lambda: tmp_path / "hitl.db",
+    )
     monkeypatch.setattr(
         fastapi_server,
         "load_fastapi_router_registrations",
