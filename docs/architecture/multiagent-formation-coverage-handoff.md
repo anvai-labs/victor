@@ -1241,6 +1241,49 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   change the hardcoded batch. Preserve pooling, token accounting and ordered outputs;
   test mixed traffic and actual members after the capacity/liveness gates pass.
 
+- **G60 — configured governance failures can permit dispatch.** The 2026-09-24
+  [workflow safety audit](agentic-workflow-safety-audit.md#g60--configured-policy-failures-can-allow-execution-high-priority)
+  reproduces ALLOW after a configured policy raises. Required policy and middleware
+  errors must fail closed; normal DENY/ASK handling already has useful controls.
+  Extend the existing engine/middleware tests; no repair is claimed here.
+
+- **G61 — resumed approval is not bound to the exact action payload.** Resume
+  selects by tool name/position and executes conversation arguments through the raw
+  tool service, without comparing the approved arguments. Lower schema, safety,
+  budget and optional RBAC checks remain, but do not bind the approval. The
+  [audit](agentic-workflow-safety-audit.md#g61--durable-approval-is-not-bound-to-the-dispatched-payload-high-priority)
+  calls for one canonical dispatch with payload/version/scope binding and current
+  authorization, extending the existing durable-resume test owner.
+
+- **G62 — potentially committed tool effects lack a complete recovery contract.**
+  Generic timeout retry does not first establish effect/idempotency safety. A
+  consumed approval or completed node can precede persistence of its result.
+  Add durable action identity, intent, unknown outcomes and receipt reconciliation;
+  do not equate checkpoints with exactly-once external writes. This extends G17/G21
+  without another formation implementation; see the
+  [audit](agentic-workflow-safety-audit.md#g62--durable-external-action-recovery-is-incomplete-high-priority).
+
+- **G63 — workflow HTTP lifecycle is not durable admission or owned cancellation.**
+  The inspected routes store in-memory records, launch a background task, expose
+  run status without owner filtering and mark cancellation without stopping that
+  task. Configured API authentication is separate from these guarantees. The
+  [audit](agentic-workflow-safety-audit.md#g63--workflow-api-admission-ownership-and-cancellation-need-durable-semantics)
+  scopes reliable admission, request deduplication, ownership and truthful status
+  to the durable/shared service profile, with tests in the existing route suite.
+
+- **G64 — concurrent budgets and argument redaction need consistent ownership.**
+  Check-before-await/consume-afterward is not an atomic reservation; unavailable
+  cost is not zero spend. Argument logs/errors also need a shared sensitive-field
+  projection. The [audit](agentic-workflow-safety-audit.md#g64--budget-reservations-and-redaction-need-consistent-boundary-ownership)
+  identifies existing owners and separates tool counts from hard spend guarantees.
+
+- **G65 — retrieval needs explicit authorization/provenance/error contracts.**
+  The inspected gateway carries session filters but not authenticated evidence scope,
+  version and retrieval time; backend errors may become empty results. This is not
+  a demonstrated tenant leak. The [audit](agentic-workflow-safety-audit.md#g65--retrieval-contract-does-not-establish-authorized-versioned-evidence)
+  requires adapter-specific access checks and explicit unavailable/denied results
+  before claiming protected retrieval. Keep current facts in authoritative APIs.
+
 Validation-test audit: neither live harness had direct tests before this follow-up.
 The new mixed-harness suite covers rejected/malformed/missing reviews, inclusive
 cache accounting, missing artifacts, bad member usage, pytest timeout, startup and
