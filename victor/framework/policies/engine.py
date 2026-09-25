@@ -36,6 +36,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence
 from victor.framework.policies.base import Policy
 from victor.framework.policies.types import (
     UNSET,
+    Phase,
     PolicyAction,
     PolicyEvent,
     PolicyVerdict,
@@ -85,24 +86,40 @@ class PolicyEngine:
         ask_policy = ""
 
         for policy in self._policies:
-            if event.phase not in policy.phases():
-                continue
-            if not policy.applies_to(event.tool_name):
-                continue
-
-            sub_event = replace(
-                event,
-                arguments=current_args,
-                result=current_result,
-                content=current_content,
-            )
             try:
+                phases = policy.phases()
+                if not isinstance(phases, (set, frozenset)) or any(
+                    not isinstance(phase, Phase) for phase in phases
+                ):
+                    raise TypeError("Invalid policy phases")
+                if event.phase not in phases:
+                    continue
+                applicable = policy.applies_to(event.tool_name)
+                if type(applicable) is not bool:
+                    raise TypeError("Invalid policy applicability")
+                if not applicable:
+                    continue
+
+                sub_event = replace(
+                    event,
+                    arguments=current_args,
+                    result=current_result,
+                    content=current_content,
+                )
                 verdict = await policy.evaluate(sub_event)
-            except Exception:  # pragma: no cover - defensive
-                # A misbehaving policy must not crash the tool pipeline. Fail
-                # open for that policy (skip it) but record the failure.
-                logger.exception("Policy %s raised during evaluation; skipping", policy.name)
-                continue
+                if not isinstance(verdict, PolicyVerdict) or not isinstance(
+                    verdict.action, PolicyAction
+                ):
+                    raise TypeError("Invalid policy verdict")
+                if verdict.modified_arguments is not None and not isinstance(
+                    verdict.modified_arguments, dict
+                ):
+                    raise TypeError("Invalid policy arguments")
+            except Exception:
+                # Enforcement failures are decisions to stop, not absent policies.
+                # Do not include exception text (which may contain arguments/secrets).
+                logger.error("Policy %s evaluation failed; denying", policy.name)
+                verdict = PolicyVerdict.deny("Policy evaluation failed.", policy_name=policy.name)
 
             if verdict.is_deny:
                 self._emit_decision(event, verdict)

@@ -19,6 +19,8 @@ builtins (redaction + block), and the :class:`MessagePolicyGate` adapter
 (allow / redact / deny / ask).
 """
 
+import pytest
+
 from victor.framework.policies import (
     BlockPatternPolicy,
     GateResult,
@@ -93,13 +95,10 @@ async def test_redact_policy_default_phases_are_request_and_response():
     assert policy.phases() == {Phase.REQUEST, Phase.RESPONSE}
 
 
-async def test_redact_policy_skips_invalid_regex():
-    # An unparseable pattern is dropped (warned), not raised.
-    policy = RedactContentPolicy([r"[", r"good"], placeholder="G")
-    verdict = await policy.evaluate(
-        PolicyEvent(phase=Phase.REQUEST, tool_name="", content="a good thing")
-    )
-    assert verdict.modified_content == "a G thing"
+@pytest.mark.parametrize("policy_type", [RedactContentPolicy, BlockPatternPolicy])
+def test_content_policy_rejects_invalid_regex(policy_type):
+    with pytest.raises(ValueError, match="Invalid policy pattern"):
+        policy_type([r"[", r"good"])
 
 
 # -- BlockPatternPolicy ------------------------------------------------------
@@ -244,7 +243,7 @@ async def test_gate_context_provider_used_and_safe():
     assert captured["model"] == "opus"
 
 
-async def test_gate_context_provider_failure_degrades():
+async def test_gate_context_provider_failure_blocks():
     def boom() -> PolicyContext:
         raise RuntimeError("provider down")
 
@@ -253,6 +252,6 @@ async def test_gate_context_provider_failure_degrades():
         context_provider=boom,
     )
     result = await gate.gate_request("a secret value")
-    # Provider failure must not break the gate; redaction still works.
-    assert result.allowed is True
-    assert result.content == "a [REDACTED] value"
+    assert result.allowed is False
+    assert result.content == ""
+    assert result.blocked_by == "policy_context"

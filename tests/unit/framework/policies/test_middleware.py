@@ -16,6 +16,8 @@
 
 from typing import Optional, Tuple
 
+import pytest
+
 from victor.core.verticals.protocols import MiddlewarePriority
 from victor.framework.hitl import ApprovalRequest, ApprovalStatus
 from victor.framework.policies import (
@@ -182,16 +184,58 @@ async def test_after_tool_call_no_change_returns_none():
 # -- context provider resilience --------------------------------------------
 
 
-async def test_failing_context_provider_degrades_gracefully():
+@pytest.mark.parametrize("invalid", ["raises", "none", "nan", "inf", "negative"])
+async def test_failing_context_provider_blocks(invalid):
     def boom() -> PolicyContext:
+        if invalid == "none":
+            return None
+        if invalid in {"nan", "inf", "negative"}:
+            return PolicyContext(cost_usd=-1.0 if invalid == "negative" else float(invalid))
         raise RuntimeError("provider down")
 
-    # MaxToolCalls doesn't need context; a failing provider must not crash the gate.
     mw = PolicyEngineMiddleware(PolicyEngine([MaxToolCallsPolicy(limit=1)]), boom)
     first = await mw.before_tool_call("read_file", {})
-    second = await mw.before_tool_call("read_file", {})
-    assert first.proceed is True
-    assert second.proceed is False
+    assert first.proceed is False
+    assert "provider down" not in first.error_message
+
+
+async def test_configured_approval_handler_failure_does_not_use_allow_fallback():
+    async def broken(request):
+        raise RuntimeError("private details")
+
+    mw = PolicyEngineMiddleware(
+        PolicyEngine([AskOnToolsPolicy(["write"])]),
+        approval_handler=broken,
+        ask_fallback="allow",
+    )
+    assert not (await mw.before_tool_call("write", {})).proceed
+
+
+@pytest.mark.parametrize("handler", [0, object()])
+async def test_noncallable_approval_handler_cannot_autoapprove(handler):
+    mw = PolicyEngineMiddleware(
+        PolicyEngine([AskOnToolsPolicy(["write"])]), approval_handler=handler
+    )
+    assert not (await mw.before_tool_call("write", {})).proceed
+
+
+async def test_falsey_callable_approval_handler_is_invoked():
+    class Handler:
+        called = False
+
+        def __bool__(self):
+            return False
+
+        async def __call__(self, request):
+            self.called = True
+            return ApprovalStatus.REJECTED, "denied", "reviewer"
+
+    handler = Handler()
+    mw = PolicyEngineMiddleware(
+        PolicyEngine([AskOnToolsPolicy(["write"])]), approval_handler=handler
+    )
+    assert not (await mw.before_tool_call("write", {})).proceed
+    assert handler.called
 
 
 async def test_no_context_provider_uses_empty_context():

@@ -59,6 +59,41 @@ recovery guarantee cannot be averaged away by unrelated successful tests.
 
 ## Findings, in dependency order
 
+### Follow-up: pre-dispatch enforcement repair
+
+The first repair changes configured enforcement failures into explicit stops:
+policy selection/evaluation and malformed verdicts deny; middleware selection,
+execution and malformed results block dispatch; the outer tool pipeline no longer
+catches those failures and proceeds. A blocked middleware result is non-retryable.
+Configured context errors no longer become an empty/zero snapshot, broken governance
+wiring prevents initialization, and invalid content-policy regexes are rejected.
+Configured approval-handler resolution/invocation failures cannot use an explicit
+allow-on-absence fallback. Errors presented to callers omit exception text.
+
+The feature remains opt-in. No-policy operation and successful evaluations retain
+their contracts; absent optional context still uses the documented default, and
+absent approval handlers retain the configured fallback. Best-effort observers stay
+separate from enforcement. Cancellation and durable approval pauses propagate.
+
+This does **not** close all of G60: the TOOL_RESULT adapter/after-middleware path
+still needs an explicit result-withholding contract after a tool has executed.
+Streaming checks cannot retract tokens already emitted. G61–G65 are unchanged;
+missing pricing remains separate from a configured context source raising an error.
+The original findings below remain the historical audit of the pinned base.
+
+Verification reused existing owners: 20 failing regressions on the original code,
+followed by separate review regressions (8 and 4 failures) for malformed decisions,
+scope, context and falsey approval handlers. The final targeted and affected cohort
+passed **310 tests**, including durable/streaming pause and member approval suites.
+Existing fail-open expectations were replaced, not duplicated; normal denial,
+explicit absence, pause and cancellation tests remain. The pipeline fault cases
+assert that the executor was never called. Formatting, lint and configured type
+checks passed; **33,472 tests collected**. One redundant falsey-handler parameter
+was removed after coverage comparison retained exactly **79 executed middleware
+lines and 18 executed branches** (23 cases before, 22 after). The original failed
+collection attempt encountered a concurrent coverage-database error; the isolated
+collection rerun passed. These are offline controls tests, not model or C5 acceptance.
+
 ### G60 — configured policy failures can allow execution (high priority)
 
 `victor/framework/policies/engine.py:99–105` catches an ordinary policy exception,

@@ -31,6 +31,7 @@ safe) rather than silently proceeding.
 from __future__ import annotations
 
 import logging
+import math
 from typing import Any, Callable, Dict, Optional, Set
 
 from victor.core.verticals.protocols import (
@@ -53,6 +54,22 @@ logger = logging.getLogger(__name__)
 ContextProvider = Callable[[], PolicyContext]
 
 
+def _resolve_policy_context(provider: Optional[ContextProvider]) -> PolicyContext:
+    """Keep optional absence distinct from a failed configured context source."""
+    if provider is None:
+        return PolicyContext()
+    context = provider()
+    if not isinstance(context, PolicyContext):
+        raise TypeError("Invalid policy context")
+    if (
+        type(context.cost_usd) not in (int, float)
+        or not math.isfinite(context.cost_usd)
+        or context.cost_usd < 0
+    ):
+        raise ValueError("Invalid policy cost context")
+    return context
+
+
 async def resolve_policy_ask(
     approval_handler: Optional[Any],
     *,
@@ -72,7 +89,7 @@ async def resolve_policy_ask(
         approval_handler: Async HITL ``ApprovalHandler`` or None. When None, the
             decision falls back to ``ask_fallback``.
         ask_fallback: ``"allow"`` or ``"deny"`` (fail safe) — outcome when no
-            handler is configured or the handler errors.
+            handler is configured. A configured handler's failure always denies.
         ask_timeout_seconds: Timeout passed to the approval request.
         title: Short approval title (e.g. ``"Approve tool: run_command"``).
         description: Longer human-readable reason.
@@ -90,10 +107,19 @@ async def resolve_policy_ask(
         )
         return ask_fallback == "allow"
 
+    if not callable(approval_handler):
+        logger.error("Configured approval handler is not callable; denying")
+        return False
+
+    async def invoke_approval(request: Any) -> Any:
+        # HITL's optional handler path uses truthiness. A configured callable
+        # with __bool__ == False must still run, never become auto-approval.
+        return await approval_handler(request)
+
     # Reuse the existing HITL machinery for the request lifecycle.
     from victor.framework.hitl import HITLController
 
-    controller = HITLController(approval_handler=approval_handler)
+    controller = HITLController(approval_handler=invoke_approval)
     request = controller.request_approval(
         title=title,
         description=description,
@@ -102,9 +128,9 @@ async def resolve_policy_ask(
     )
     try:
         resolved = await controller.process_approval(request.id)
-    except Exception:  # pragma: no cover - defensive
-        logger.exception("Approval handler failed for '%s'; failing safe", title)
-        return ask_fallback == "allow"
+    except Exception:
+        logger.error("Approval handler failed; denying")
+        return False
     return resolved.is_approved
 
 
@@ -152,11 +178,20 @@ class PolicyEngineMiddleware(MiddlewareProtocol):
 
     async def before_tool_call(self, tool_name: str, arguments: Dict[str, Any]) -> MiddlewareResult:
         """Gate a tool call through the policy engine (TOOL_CALL phase)."""
+        try:
+            context = self._safe_context()
+        except Exception:
+            logger.error("Configured policy context failed; blocking dispatch")
+            return MiddlewareResult(
+                proceed=False,
+                error_message="Policy context unavailable.",
+                metadata={"enforcement_error": True},
+            )
         event = PolicyEvent(
             phase=Phase.TOOL_CALL,
             tool_name=tool_name,
             arguments=arguments,
-            context=self._safe_context(),
+            context=context,
         )
         verdict = await self._engine.evaluate(event)
 
@@ -205,14 +240,8 @@ class PolicyEngineMiddleware(MiddlewareProtocol):
     # -- internals ----------------------------------------------------------
 
     def _safe_context(self) -> PolicyContext:
-        """Resolve the session snapshot, degrading to empty on any failure."""
-        if self._context_provider is None:
-            return PolicyContext()
-        try:
-            return self._context_provider()
-        except Exception:  # pragma: no cover - provider must not break the gate
-            logger.debug("Policy context provider failed; using empty context", exc_info=True)
-            return PolicyContext()
+        """Resolve context without replacing configured failures with zero usage."""
+        return _resolve_policy_context(self._context_provider)
 
     async def _resolve_ask(
         self,

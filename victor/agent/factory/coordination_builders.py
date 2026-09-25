@@ -127,10 +127,12 @@ def _resolve_inner_approval_handler(governance: Any, container: Any = None) -> O
             from victor.framework.policies import PolicyApprovalHandler
 
             holder = container.get_optional(PolicyApprovalHandler)
-            if holder is not None and getattr(holder, "handler", None) is not None:
+            if holder is not None:
+                if not callable(getattr(holder, "handler", None)):
+                    raise TypeError("Invalid registered approval handler")
                 return holder.handler
-        except Exception:  # pragma: no cover - defensive
-            pass
+        except Exception:
+            raise RuntimeError("Approval handler resolution failed") from None
 
     # 2. TTY console handler (opt-in).
     if not getattr(governance, "interactive_approval", False):
@@ -144,8 +146,8 @@ def _resolve_inner_approval_handler(governance: Any, container: Any = None) -> O
         from victor.framework.policies import console_approval_handler
 
         return console_approval_handler
-    except Exception:  # pragma: no cover - defensive
-        return None
+    except Exception:
+        raise RuntimeError("Approval handler resolution failed") from None
 
 
 def resolve_policy_approval_handler(governance: Any, container: Any = None) -> Optional[Any]:
@@ -259,9 +261,8 @@ def build_message_policy_gate(settings: Any, container: Any, model: Optional[str
             ", ".join(p.name for p in policies),
         )
         return gate
-    except Exception as e:  # pragma: no cover - never break runtime init
-        logger.warning("Message policy gate wiring skipped: %s", e)
-        return None
+    except Exception:
+        raise RuntimeError("Governance initialization failed for message policies") from None
 
 
 class CoordinationBuildersMixin:
@@ -522,12 +523,11 @@ class CoordinationBuildersMixin:
         # Governance policy engine (opt-in: USE_POLICY_ENGINE + governance.enabled).
         # Assembled from existing primitives — adds a single CRITICAL-priority
         # middleware that gates tool calls with ALLOW/DENY/ASK verdicts.
-        if middleware_chain is not None:
-            self._maybe_add_policy_engine(middleware_chain)
+        self._maybe_add_policy_engine(middleware_chain)
 
         return middleware_chain, code_correction_middleware
 
-    def _maybe_add_policy_engine(self, middleware_chain: "MiddlewareChain") -> None:
+    def _maybe_add_policy_engine(self, middleware_chain: Optional["MiddlewareChain"]) -> None:
         """Conditionally add the governance PolicyEngineMiddleware to the chain.
 
         No-op unless the USE_POLICY_ENGINE feature flag and
@@ -583,21 +583,24 @@ class CoordinationBuildersMixin:
                 logger.debug("Policy engine enabled but no policies configured; skipping")
                 return
 
+            if middleware_chain is None:
+                raise RuntimeError("Required middleware chain unavailable")
+
             model = getattr(self, "model", None)
+            needs_cost = any(isinstance(policy, CostBudgetPolicy) for policy in policies)
 
             def _context_provider() -> PolicyContext:
                 """Resolve a live session snapshot for policy evaluation."""
                 cost = 0.0
-                try:
+                if needs_cost:
                     from victor.agent.conversation.controller import (
                         ConversationController,
                     )
 
                     controller = self.container.get_optional(ConversationController)
-                    if controller is not None:
-                        cost = controller.get_session_cost_usd()
-                except Exception:  # pragma: no cover - defensive
-                    cost = 0.0
+                    if controller is None:
+                        raise RuntimeError("Required cost context unavailable")
+                    cost = controller.get_session_cost_usd()
                 return PolicyContext(cost_usd=cost, model=model)
 
             engine = PolicyEngine(policies, event_emitter=self._build_policy_emitter())
@@ -606,10 +609,9 @@ class CoordinationBuildersMixin:
             # container-resolved one; None (top-level/single-agent) falls back unchanged.
             from victor.agent.member_approval_context import current_member_approval_handler
 
-            approval_handler = (
-                current_member_approval_handler.get()
-                or self._resolve_policy_approval_handler(governance)
-            )
+            approval_handler = current_member_approval_handler.get()
+            if approval_handler is None:
+                approval_handler = self._resolve_policy_approval_handler(governance)
             middleware = PolicyEngineMiddleware(
                 engine,
                 context_provider=_context_provider,
@@ -622,8 +624,8 @@ class CoordinationBuildersMixin:
                 len(policies),
                 ", ".join(p.name for p in policies),
             )
-        except Exception as e:  # pragma: no cover - never break orchestrator init
-            logger.warning(f"Policy engine wiring skipped: {e}")
+        except Exception:
+            raise RuntimeError("Governance initialization failed for tool policies") from None
 
     def _build_policy_emitter(self) -> Optional[Callable[[str, Dict[str, Any]], None]]:
         """Build a sync emitter that forwards policy DENY/ASK to the event bus."""

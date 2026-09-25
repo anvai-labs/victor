@@ -1245,7 +1245,13 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   [workflow safety audit](agentic-workflow-safety-audit.md#g60--configured-policy-failures-can-allow-execution-high-priority)
   reproduces ALLOW after a configured policy raises. Required policy and middleware
   errors must fail closed; normal DENY/ASK handling already has useful controls.
-  Extend the existing engine/middleware tests; no repair is claimed here.
+  The first repair blocks pre-dispatch policy/middleware failures, malformed
+  decisions, configured-context failures and broken governance wiring. Invalid
+  content regexes and failed configured approval handlers also stop execution.
+  Existing test owners provide red/green regressions with executor-not-called
+  assertions; optional absence and no-policy behavior remain. **Still open:**
+  TOOL_RESULT/after-middleware result withholding after a tool already executed;
+  do not claim full G60 or external-write acceptance from the pre-dispatch repair.
 
 - **G61 — resumed approval is not bound to the exact action payload.** Resume
   selects by tool name/position and executes conversation arguments through the raw
