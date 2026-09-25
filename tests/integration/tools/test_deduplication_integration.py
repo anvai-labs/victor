@@ -1,5 +1,7 @@
 """Integration tests for tool deduplication across native, LangChain, and MCP tools."""
 
+from typing import Any, Dict, Optional
+
 import pytest
 
 from victor.tools.deduplication import (
@@ -53,12 +55,23 @@ class MockLangChainTool:
 
 
 class MockMCPTool:
-    """Mock MCP tool for testing."""
+    """Mock MCP tool for testing.
 
-    def __init__(self, name: str, description: str = "MCP tool"):
+    Mirrors the real MCPTool contract: ``input_schema`` is optional and may be
+    None, in which case MCPAdapterTool derives a JSON schema from the legacy
+    ``parameters`` list — the path these tests exercise.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        description: str = "MCP tool",
+        input_schema: Optional[Dict[str, Any]] = None,
+    ):
         self.name = name
         self.description = description
         self.parameters = []
+        self.input_schema = input_schema
         self._tool_source = ToolSource.MCP
 
 
@@ -389,6 +402,25 @@ class TestAdapterNamingConventions:
 
         # MCP adapter should have MCP source
         assert mcp_adapter._tool_source == ToolSource.MCP
+
+    def test_mcp_adapter_schema_paths_match_contract(self):
+        """The mock mirrors MCPTool: explicit input_schema wins; None falls back
+        to the legacy parameters-derived schema. Both paths must construct an
+        adapter without error (the missing-attribute case used to crash)."""
+        from victor.tools.mcp_adapter_tool import MCPAdapterTool
+
+        class MockMCPRegistry:
+            async def call_tool(self, name, **kwargs):
+                pass
+
+        explicit = {"type": "object", "properties": {"q": {"type": "string"}}}
+        with_schema = MCPAdapterTool(
+            MockMCPTool(name="t1", input_schema=explicit), MockMCPRegistry(), "srv"
+        )
+        assert with_schema.parameters == explicit
+
+        without_schema = MCPAdapterTool(MockMCPTool(name="t2"), MockMCPRegistry(), "srv")
+        assert without_schema.parameters == {"type": "object", "properties": {}}
 
 
 class TestDeduplicationConfiguration:
