@@ -281,9 +281,13 @@ async def test_resolved_sibling_is_not_reexecuted(store):
         "later_middleware",
         "dispatch_expiry",
         "dispatch_session",
+        "dispatch_scope",
+        "dispatch_context_failure",
+        "dispatch_multiple_scopes",
+        "dispatch_resolution_expiry",
     ],
 )
-async def test_current_policy_and_final_payload_are_enforced(store, change):
+async def test_current_policy_and_final_payload_are_enforced(store, change, monkeypatch):
     from victor.framework.policies import Policy, PolicyVerdict
 
     state = await paused_runtime(store)
@@ -328,6 +332,36 @@ async def test_current_policy_and_final_payload_are_enforced(store, change):
             return MiddlewareResult(proceed=True, modified_arguments={"payload": "changed"})
 
         state.pipeline.middleware_chain.process_before = mutate
+    elif change == "dispatch_scope":
+        state.pipeline.executor._run_before_hooks = lambda name, args: state.scope.update(
+            labels={"role": "revoked"}
+        )
+    elif change == "dispatch_context_failure":
+        state.pipeline.executor._run_before_hooks = lambda name, args: state.scope.update(
+            cost_usd=float("nan")
+        )
+    elif change == "dispatch_multiple_scopes":
+        other_scope = deepcopy(state.scope)
+        state.pipeline.middleware_chain.add(
+            PolicyEngineMiddleware(PolicyEngine([]), lambda: PolicyContext(**other_scope))
+        )
+        # A later unchanged owner must not replace the first owner's fresh check.
+        state.pipeline.executor._run_before_hooks = lambda name, args: state.scope.update(
+            labels={"role": "revoked"}
+        )
+    elif change == "dispatch_resolution_expiry":
+        from victor.framework import approval_binding
+
+        def refresh_context():
+            grant = approval_binding.current_approval_grant.get()
+            if grant.scope_resolvers:
+                # A synchronous refresh can cross expiry without any async yield.
+                monkeypatch.setattr(
+                    approval_binding, "time", SimpleNamespace(time=lambda: grant.expires_at + 1)
+                )
+            return PolicyContext(**state.scope)
+
+        state.pipeline.middleware_chain._middleware[0]._context_provider = refresh_context
     elif change == "dispatch_session":
         state.pipeline.executor._run_before_hooks = lambda name, args: setattr(
             state.orch, "active_session_id", "other"

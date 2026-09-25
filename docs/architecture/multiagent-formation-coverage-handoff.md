@@ -1393,10 +1393,14 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   TOOL_RESULT/after-middleware result withholding after a tool already executed;
   do not claim full G60 or external-write acceptance from the pre-dispatch repair.
 
-- **G61 — exact approval binding remains partial.** Bound single-agent resume now
+- **G61 — exact approval binding remains partial.** The bounded single-agent repair
+  ([#1188](https://github.com/anvai-labs/victor/pull/1188))
   rejects changed/legacy/ambiguous calls and uses the service-owned tool runtime,
   current policy and final executor checks. One-use grants bind call/proposal/payload,
   schema/access contract, request/session/expiry, policy scope and local RBAC identity.
+  Every participating policy scope is freshly resolved at final dispatch; changed
+  scope or resolver failure blocks execution. Atomic policy-version/budget checks
+  remain outside this repair.
   Authenticated principal ownership, implementation/data versions, inline/member
   approval and whole-member replay remain open; do not treat local RBAC defaults or
   model names as authenticated identities. See the FEP-0029 amendment and

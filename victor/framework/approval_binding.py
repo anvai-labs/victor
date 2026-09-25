@@ -14,7 +14,7 @@ import json
 import math
 import time
 from contextvars import ContextVar
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Callable
 
 
@@ -123,7 +123,7 @@ class ApprovalGrant:
     binding: dict[str, Any]
     expires_at: float
     session_is_current: Callable[[], bool]
-    policy_checked: bool = False
+    scope_resolvers: list[Callable[[], dict[str, Any]]] = field(default_factory=list)
     ask_consumed: bool = False
     dispatched: bool = False
 
@@ -147,12 +147,16 @@ class ApprovalGrant:
             )
 
     def check_policy(
-        self, tool_name: str, arguments: dict[str, Any], scope: dict[str, Any]
+        self,
+        tool_name: str,
+        arguments: dict[str, Any],
+        scope: dict[str, Any],
+        scope_resolver: Callable[[], dict[str, Any]],
     ) -> None:
         self.check(tool_name, arguments)
         if digest(scope) != self.binding["scope"]:
             raise ApprovalBindingError("Approval policy scope changed")
-        self.policy_checked = True
+        self.scope_resolvers.append(scope_resolver)
 
     def approve_ask(self, policy: str) -> bool:
         if self.ask_consumed or policy != self.binding["policy"]:
@@ -163,13 +167,21 @@ class ApprovalGrant:
     def dispatch(self, tool: Any, arguments: dict[str, Any], authority: Any) -> None:
         self.check(tool.name, arguments)
         if (
-            not self.policy_checked
+            not self.scope_resolvers
             or tool_contract(tool) != self.binding["contract"]
             or digest(authority) != self.binding["authority"]
         ):
             raise ApprovalBindingError(
                 "Approval requires current policy and unchanged tool contract"
             )
+        for resolve_scope in self.scope_resolvers:
+            try:
+                scope = resolve_scope()
+                if digest(scope) != self.binding["scope"]:
+                    raise ApprovalBindingError("Approval policy scope changed")
+            except Exception as exc:
+                raise ApprovalBindingError("Approval policy scope unavailable or changed") from exc
+        self.check(tool.name, arguments)  # A synchronous context refresh can cross expiry.
         self.dispatched = True  # Consume before any possible effect, never reopen on failure.
 
 

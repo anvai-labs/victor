@@ -458,14 +458,17 @@ An approved call enters the existing service-owned ToolExecutionRuntime, includi
 current policy, budget, safety and RBAC. A runtime-only, task-local, one-use grant can
 satisfy only the original ASK. DENY remains authoritative. The executor checks the
 final payload, current contract/identity and expiry after normalization and hooks,
-immediately before dispatch. Any changed payload requires new approval. The runtime
+immediately before dispatch. It also freshly resolves every participating policy
+scope through its trusted context provider; changed session/labels or a failed
+resolution blocks dispatch. Any changed payload requires new approval. The runtime
 owns result injection; resume does not append a second tool message. Missing result
 evidence stops continuation without replay. The grant is removed before later turns.
 
 This amendment deliberately fails closed on unsupported legacy/ambiguous cases.
 Non-durable execution remains unchanged. It does **not** establish authenticated API
 principal/session ownership, tool implementation-version or external data-precondition
-binding, inline-approval final binding, member approval/replay safety, durable action
+binding, atomic policy-version/budget checks, inline-approval final binding,
+member approval/replay safety, durable action
 receipts, or exactly-once external effects. Configured RBAC identity is a local runtime
 value, not proof of SSO identity. Parallel control-signal/result retention (G70) and
 G62 action reconciliation remain required before claiming the broader acceptance gates.

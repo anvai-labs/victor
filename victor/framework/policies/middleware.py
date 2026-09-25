@@ -54,6 +54,10 @@ logger = logging.getLogger(__name__)
 ContextProvider = Callable[[], PolicyContext]
 
 
+def _approval_scope(context: PolicyContext) -> Dict[str, Any]:
+    return {"session_id": context.session_id, "labels": context.labels}
+
+
 def _resolve_policy_context(provider: Optional[ContextProvider]) -> PolicyContext:
     """Keep optional absence distinct from a failed configured context source."""
     if provider is None:
@@ -207,9 +211,11 @@ class PolicyEngineMiddleware(MiddlewareProtocol):
         effective_args = (
             verdict.modified_arguments if verdict.modified_arguments is not None else arguments
         )
-        scope = {"session_id": context.session_id, "labels": context.labels}
+        scope = _approval_scope(context)
         if grant is not None:
-            grant.check_policy(tool_name, effective_args, scope)
+            grant.check_policy(
+                tool_name, effective_args, scope, lambda: _approval_scope(self._safe_context())
+            )
 
         if verdict.is_ask:
             approved = await self._resolve_ask(

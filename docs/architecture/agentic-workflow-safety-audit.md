@@ -220,7 +220,9 @@ New pipeline approvals bind the exact call ID and source proposal, effective JSO
 payload, tool schema/access contract, request expiry, original session, policy scope
 and configured local RBAC identity. Resume enters the canonical service-owned tool
 runtime, reruns current policy, and uses a one-use runtime grant for only the matching
-ASK. The executor checks final arguments after transformations and hooks. Legacy or
+ASK. The executor checks final arguments after transformations and hooks, and freshly
+resolves every participating policy scope; changed labels/session or failed resolution
+block dispatch. Legacy or
 malformed records, stale approvals, unknown session hydration, duplicate call IDs,
 ambiguous unresolved siblings and missing recorded results fail without replay.
 In-memory pause records now snapshot nested objects rather than exposing mutable aliases.
@@ -234,7 +236,7 @@ cover alias mutation and failed restoration.
 
 **Still open:** authenticated principal/session ownership (neither a model name nor
 `decision.responder` is an identity proof), tool implementation-version and external
-precondition binding, inline and member approval paths, parallel pause/result retention
+precondition binding, atomic policy-version/budget checks, inline and member approval paths, parallel pause/result retention
 (G70), and durable claim-to-effect reconciliation (G62). This bounded single-agent
 repair does not close the complete G61 acceptance gate or C5.
 
