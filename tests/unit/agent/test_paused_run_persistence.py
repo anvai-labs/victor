@@ -86,3 +86,23 @@ def test_null_pending_tool_and_metadata_round_trip(tmp_path: Path) -> None:
     assert run.pending_tool is None
     assert run.metadata == {}
     assert run.session_id is None
+
+
+def test_in_memory_store_snapshots_nested_approval_data():
+    from victor.agent.paused_run_store import InMemoryPausedRunStore
+
+    store = InMemoryPausedRunStore()
+    request = {"context": {"arguments": {"payload": "approved"}}}
+    pending = {"binding": {"payload": "hash"}}
+    run_id = store.save(
+        session_id="s", agent_id="a", approval_request=request, pending_tool=pending
+    )
+    request["context"]["arguments"]["payload"] = "changed"
+    pending["binding"]["payload"] = "changed"
+    run = store.get(run_id)
+    assert run.approval_request["context"]["arguments"]["payload"] == "approved"
+    assert run.pending_tool["binding"]["payload"] == "hash"
+    run.pending_tool["binding"]["payload"] = "changed again"
+    store.list_pending()[0].approval_request["context"].clear()
+    assert store.get(run_id).pending_tool["binding"]["payload"] == "hash"
+    assert store.get(run_id).approval_request["context"]["arguments"]["payload"] == "approved"

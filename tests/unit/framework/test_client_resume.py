@@ -120,3 +120,25 @@ async def test_resume_of_a_stale_pause_is_expired(_store: Any) -> None:
         await _client().resume(run_id, ApprovalDecision(approved=True))
     # It was retired (not left pending) so a retry keeps failing cleanly.
     assert _store.get(run_id).status == "expired"
+
+
+async def test_failed_session_hydration_never_reaches_resume(monkeypatch, _store):
+    from unittest.mock import AsyncMock
+    from victor.agent import durable_resume
+
+    run_id = _store.save(session_id="missing", agent_id="a", approval_request={})
+    client = _client()
+    client.resume_session = AsyncMock(return_value=None)
+    replay = AsyncMock()
+    monkeypatch.setattr(durable_resume, "resume_paused_run", replay)
+    with pytest.raises(ValueError, match="restored"):
+        await client.resume(run_id, ApprovalDecision(True))
+    replay.assert_not_awaited()
+    assert _store.get(run_id).status == "resumed"  # no automatic reopening of claims
+
+
+async def test_non_boolean_decision_does_not_consume_pause(_store):
+    run_id = _save(_store)
+    with pytest.raises(ValueError, match="boolean"):
+        await _client().resume(run_id, ApprovalDecision("false"))
+    assert _store.get(run_id).status == "awaiting_approval"
