@@ -7,7 +7,97 @@ not a claim that the recommended repairs have shipped. Line references below use
 that revision. The [formation handoff](multiagent-formation-coverage-handoff.md)
 remains the acceptance record for formations and C5.
 
-## Verdict and applicability
+## PDF recheck and design critique — 2026-09-25
+
+Rechecked the six-page **Agentic Workflow Automation** PDF at
+`~/code/resume/aawa/prep-pack/interview-prep.pdf` (the only PDF found recursively
+under `aawa`). SHA-256:
+`8b982eaa7e1b9828733aa305af97bb472a365e05723b0ea855b787910ab66117`.
+This version's pages 2–3 explicitly use a supervisor and focused specialists;
+page 5 applies the controlled execution loop to **every** agent proposal.
+The original findings below remain pinned to their historical revision. This
+recheck starts from current `develop`, `2de681e072435d02f552d7441d94808012e43f49`.
+
+The PDF supplies useful correctness requirements, not a reason to replace Victor's
+formation registry or require an enterprise deployment for local coding. Apply it
+as follows:
+
+| PDF recommendation | Critical assessment and Victor decision |
+|---|---|
+| Supervisor plus specialists (pp. 2–3) | Conditional, not universally optimal. Keep HIERARCHICAL for decomposition, PARALLEL for independent work, PIPELINE for fixed stages, and single-agent execution as the baseline. Require measured improvement in verified outcome, separate permissions or domain expertise before adding members. A supervisor model is not the workflow's authorization authority. |
+| Durable admission, queue and workers (pp. 2, 4) | Appropriate for long waits, restarts and shared services. Do not impose a queue on every synchronous local read. Preserve one coordinator/StateGraph dispatch and declare each formation's actual durability. At-least-once queue delivery does not establish exactly-once external effects. |
+| Runtime → MCP client → MCP server → business API (pp. 2–3) | A useful interoperability option, not a mandatory extra network hop. Preserve typed local/API adapters where simpler. Neither MCP transport nor Sandhi model identity replaces per-tool authority, exact approval or business receipts. |
+| Approval of exact payload, followed by current authorization (pp. 3–5) | Adopt. A supervisor, reviewer, critic, judge or synthesizer cannot approve its own sensitive write by emitting text or a verdict. G61 remains open: current durable resume can select by name/position and bypass policy middleware. |
+| Reconcile unknown writes before retry (pp. 3–5) | Adopt. Current generic retries can duplicate committed effects. The repair below limits automatic replay; a backend action ledger and receipt lookup are still required for durable recovery (G62). |
+| Scoped evidence and live authoritative facts (pp. 3, 6) | Adopt for protected data. Retrieval is evidence, never authority to grant tools; preserve ACLs, provenance and explicit unavailable status (G65). A second model or majority vote is not independent business verification. |
+| Per-task and whole-workflow budgets (pp. 3–6) | Adopt as runtime controls. Member limits, retry counts and endpoint requests/minute are different quantities; neither summed counters nor a faster model proves atomic team-wide admission (G64). The PDF's example traffic estimates are illustrative, not capacity targets. |
+
+### Bounded G62 repair: automatic tool replay
+
+The generic executor now permits retries only from a trusted, explicit effect-free
+tool declaration: `AccessMode.READONLY`, or the legacy literal
+`is_idempotent is True` when no access mode is present. An explicit write, execute,
+network, mixed, malformed or unavailable declaration cannot be overridden by a
+tool name, scheduling category, truthy string, error text or retry strategy.
+This is a conservative adapter contract, not a proof that an arbitrary function
+is pure. Existing decorator defaults and adapters still require honest metadata;
+network/mixed operations need a narrower contract before automatic replay.
+
+After an uncertain effect, the existing structured error record carries
+`execution_outcome=unknown`, `retryable=false` and
+`reconciliation_required=true`. The executor, pipeline timeout/fallback path and
+service retry wrapper share this rule. Result middleware preserves the error and
+replay veto. Cache/observer failure after a successful execution cannot resubmit
+the action. The service wrapper now calls the existing canonical pipeline method;
+its former `_execute_single_tool` target does not exist. No new dispatch or registry
+is added. Cancellation and approval pauses still propagate.
+
+Successful calls and declared safe-read retries retain their behavior. The unsafe
+failure behavior intentionally changes: generic write retries stop rather than
+being hidden behind an opt-in safety flag. The duplicate timeout exception branch
+is removed because `asyncio.TimeoutError` and `TimeoutError` are the same type on
+supported Python versions. Existing retry, timeout and path-recovery test owners
+are extended; no independent duplicate suite or formation is introduced.
+
+**Limits:** unknown is not confirmed failure or confirmed cancellation. No durable
+action key, receipt ledger, restart reconciliation, backend deduplication guarantee
+or whole-member replay protection is added. A model can propose a new call later;
+this local retry guard is not a durable cross-turn action identity. G62 stays open.
+G60 result withholding, G61 approval binding and G63–G65 are also still open.
+
+Verification: **496 affected tests passed**, including policy/member approval and
+durable-pause owners; **33,499 tests collected** with
+`.venv-codesign/bin/python -m pytest` and `VICTOR_ENABLE_MLX_PROVIDER=0`.
+The focused 190-test coverage run exercised **98% of changed production lines**.
+Black, Ruff, configured MyPy, repository hygiene, dependency-lock and documentation
+drift checks passed. The original fake committed-write tests failed before repair;
+independent review exposed a permission-error path-recovery bypass, reproduced as
+two executions and fixed in the existing regression. No model or external business
+operation was called. No duplicate tests were removed without coverage evidence;
+the removed production timeout branch was unreachable on supported Python.
+
+### Formation acceptance gates derived from the PDF
+
+All formation families must use the canonical policy/tool boundary; the G61 resume
+bypass means this is not yet an end-to-end guarantee. Adding bespoke approval or
+retry loops to each strategy would multiply the gaps. Extend the existing owners:
+
+| Scope | Required evidence before claiming alignment | Existing owner / gap |
+|---|---|---|
+| Every member, including supervisor and nested subagent | Current caller/member tool scope; typed proposal; denial, malformed guard and expired/changed approval cannot dispatch | Policy/middleware and `test_member_approval.py`; G60–G61 |
+| SEQUENTIAL, PIPELINE, PARALLEL, HIERARCHICAL durable member pauses | Restart with exact pending action; reject stale approval; completed work is restored and uncertain effects reconciled before retry | `test_durable_resume.py`, `test_durable_pause_gating.py`, member checkpoint owners; G17/G21/G61–G63 |
+| CONSENSUS, REFLECTION, ADAPTIVE, DYNAMIC_ROUTER, MULTI_LEVEL_HIERARCHY, GROUP_CHAT, HANDOFF, DEBATE and ensemble modes | Preserve declared pause limitations; bounded rounds/switches/turns; invalid routing or unresolved disagreement fails explicitly. Do not infer mid-loop recovery from in-process success | Existing strategy/dispatch suites and durability statements; G17/G21 |
+| Parallel, ensemble, nested and heterogeneous teams | Atomic shared-budget admission, bounded attempts, cancellation status distinguishing stopped work from committed effects; seven distinct member sessions for mixed C5 | Budget/runtime, coordinator, mixed harness owners; G62–G64 and C5 |
+| Shared transcript and retrieved context | Malicious text cannot expand authority; evidence is access-filtered and versioned before reaching any member | Existing conversation/retrieval/policy owners; G65 |
+| Final team outcome | Artifact/domain oracle and pytest validate claims; report partial/unknown effects; compare verified outcomes, intervention, latency and cost with single-agent baseline | Existing formation matrix/oracle; C5 remains separate from offline controls tests |
+
+Keep the agreed order: released Sandhi/InferFlux settlement and lifecycle foundations,
+then full mixed-team C5, then the wider ZAI reference / appropriately sized Qwen
+formation cohorts. These model-independent safety repairs can proceed offline
+without lifting the live-run hold. Do not report an aggregate “best-practice
+compliance percentage”; missing approval/recovery guarantees are acceptance blockers.
+
+## Verdict and applicability (original audit baseline)
 
 **Victor partially aligns. It has useful orchestration and validation primitives,
 but the inspected execution paths do not establish the supplied durable,

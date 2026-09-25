@@ -47,6 +47,11 @@ from typing import Any, Callable, Dict, List, Mapping, Optional, Set, TYPE_CHECK
 from victor.agent.argument_normalizer import ArgumentNormalizer, NormalizationStrategy
 from victor.agent.middleware_chain import _validate_before_result
 from victor.agent.tool_executor import ToolExecutor, ToolExecutionResult
+from victor.agent.tool_retry_safety import (
+    allows_tool_retry,
+    blocks_tool_retry,
+    mark_unknown_tool_outcome,
+)
 from victor.agent.parameter_enforcer import (
     get_enforcer_for_tool,
     ParameterInferenceError,
@@ -3154,6 +3159,7 @@ class ToolPipeline:
             json_dumps(normalized_args, default=str)[:500],
         )
         start_time = time.monotonic()
+        execution_interrupted = False
         try:
             exec_result = await asyncio.wait_for(
                 self.executor.execute(
@@ -3164,6 +3170,7 @@ class ToolPipeline:
                 timeout=self._get_tool_timeout(tool_name),
             )
         except asyncio.TimeoutError:
+            execution_interrupted = True
             effective_timeout = self._get_tool_timeout(tool_name)
             tb_str = traceback.format_exc()
 
@@ -3210,6 +3217,7 @@ class ToolPipeline:
             )
         except Exception as e:
             tb_str = traceback.format_exc()
+            execution_interrupted = True
             logger.error(f"[Pipeline] Tool '{tool_name}' execution failed: {e}", exc_info=True)
             exec_result = ToolExecutionResult(
                 tool_name=tool_name,
@@ -3232,6 +3240,17 @@ class ToolPipeline:
             )
         execution_time_ms = (time.monotonic() - start_time) * 1000
 
+        # Outer timeout/exception conversion can bypass the executor's own result.
+        # It does not prove that the underlying operation was cancelled before commit.
+        if (
+            not exec_result.success
+            and exec_result.error_info is not None
+            and execution_interrupted
+            and not allows_tool_retry(self.tools.get(tool_name))
+        ):
+            mark_unknown_tool_outcome(exec_result.error_info)
+            exec_result.error = exec_result.error_info.to_user_message()
+
         # Update state
         self._calls_used += 1
         self._executed_tools.append(tool_name)
@@ -3247,6 +3266,7 @@ class ToolPipeline:
             normalization_applied=normalization_applied,
             user_message=steering_user_message,
             error_info=exec_result.error_info,  # Preserve structured error info
+            retryable=False if blocks_tool_retry(exec_result) else None,
         )
 
         low_signal_reason = None
@@ -3309,7 +3329,12 @@ class ToolPipeline:
         )
 
         # Attempt error recovery fallback on failure
-        if not exec_result.success and exec_result.error:
+        if (
+            not exec_result.success
+            and exec_result.error
+            and not blocks_tool_retry(exec_result)
+            and allows_tool_retry(self.tools.get(tool_name))
+        ):
             self._record_path_redirect_from_error(tool_name, normalized_args, exec_result.error)
             try:
                 from victor.agent.error_recovery import (
@@ -3347,7 +3372,9 @@ class ToolPipeline:
                             fallback_name,
                         )
 
-                if recovery_tool_name != tool_name or recovery_args is not normalized_args:
+                if (
+                    recovery_tool_name != tool_name or recovery_args is not normalized_args
+                ) and allows_tool_retry(self.tools.get(recovery_tool_name)):
                     try:
                         recovered_exec_result = await asyncio.wait_for(
                             self.executor.execute(
@@ -3401,15 +3428,9 @@ class ToolPipeline:
                     tool_name, normalized_args, call_result.result, call_result.success
                 )
                 if modified_result is not None and modified_result != call_result.result:
-                    call_result = ToolCallResult(
-                        tool_name=call_result.tool_name,
-                        arguments=call_result.arguments,
-                        success=call_result.success,
-                        result=modified_result,
-                        error=call_result.error,
-                        execution_time_ms=call_result.execution_time_ms,
-                        normalization_applied=call_result.normalization_applied,
-                    )
+                    from dataclasses import replace
+
+                    call_result = replace(call_result, result=modified_result)
                     if self.on_tool_event:
                         try:
                             self.on_tool_event(

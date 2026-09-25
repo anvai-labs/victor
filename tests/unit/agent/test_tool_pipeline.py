@@ -14,6 +14,7 @@ from victor.agent.tool_pipeline import (
     LRUToolCache,
 )
 from victor.agent.tool_executor import ToolExecutionResult
+from victor.tools.enums import AccessMode
 
 
 @pytest.fixture
@@ -39,6 +40,7 @@ def log_capture():
 def mock_tool_registry():
     registry = MagicMock()
     registry.is_tool_enabled.return_value = True
+    registry.get.return_value.access_mode = AccessMode.READONLY
     return registry
 
 
@@ -106,6 +108,85 @@ class TestToolPipelineInit:
 
 
 class TestExecuteToolCalls:
+    @pytest.mark.parametrize("failure", [TimeoutError, RuntimeError])
+    async def test_uncertain_write_survives_middleware_without_fallback(self, pipeline, failure):
+        from victor.core.verticals.protocols import MiddlewareResult
+
+        pipeline.tools.get.return_value.access_mode = AccessMode.WRITE
+        committed = []
+
+        async def submit(**kwargs):
+            committed.append("receipt")
+            raise failure("File not found: original\nDid you mean:\n - replacement")
+
+        pipeline.executor.execute.side_effect = submit
+        chain = MagicMock()
+        chain.process_before = AsyncMock(return_value=MiddlewareResult(proceed=True))
+        chain.process_after = AsyncMock(return_value="transformed output")
+        pipeline.middleware_chain = chain
+        # Invoke the common execution path directly; before-policy behavior has its own owner.
+        result = await pipeline._execute_single_call({"name": "submit", "arguments": {}}, {})
+
+        assert committed == ["receipt"]
+        assert result.success is False
+        assert result.retryable is False
+        assert result.error_info.details["execution_outcome"] == "unknown"
+        assert result.error_info.details["reconciliation_required"] is True
+        assert result.result == "transformed output"
+
+    @pytest.mark.parametrize("boundary", ["inner", "outer", "cancel"])
+    async def test_real_execution_boundary_does_not_replay_committed_write(self, boundary):
+        import asyncio
+        from types import SimpleNamespace
+        from victor.agent.services.tool_retry import ToolRetryExecutor
+        from victor.agent.tool_executor import ToolExecutor
+        from victor.tools.decorators import tool
+        from victor.tools.registry import ToolRegistry
+
+        committed = []
+        started = asyncio.Event()
+
+        @tool(access_mode=AccessMode.WRITE)
+        async def submit_record(_exec_ctx=None):
+            committed.append("receipt")
+            started.set()
+            if boundary == "inner":
+                raise TimeoutError("response lost")
+            await asyncio.Event().wait()
+
+        registry = ToolRegistry()
+        registry.register(submit_record)
+        executor = ToolExecutor(tool_registry=registry, retry_delay=0)
+        pipeline = ToolPipeline(
+            tool_registry=registry,
+            tool_executor=executor,
+            config=ToolPipelineConfig(
+                enable_caching=False,
+                enable_semantic_caching=False,
+                per_tool_timeout_seconds=0.02 if boundary == "outer" else 60,
+            ),
+        )
+        retry = ToolRetryExecutor(
+            SimpleNamespace(
+                retry_enabled=True,
+                max_retry_attempts=3,
+                retry_base_delay=0,
+                retry_max_delay=0,
+            ),
+            pipeline,
+        )
+        task = asyncio.create_task(retry.execute_tool_with_retry("submit_record", {}, {}))
+        await asyncio.wait_for(started.wait(), 2)
+        if boundary == "cancel":
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+        else:
+            result, success, _ = await task
+            assert success is False and result.retryable is False
+            assert result.error_info.details["execution_outcome"] == "unknown"
+        assert committed == ["receipt"]
+
     @pytest.mark.parametrize(
         "failure",
         [

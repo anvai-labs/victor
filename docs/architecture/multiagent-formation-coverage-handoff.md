@@ -117,6 +117,12 @@ Implementation delivery and live acceptance have different denominators:
 | G53 operator deadline policy | ✅ Buffered #297, stream body owner #298 and standalone streaming policy [Sandhi #301](https://github.com/anvai-labs/sandhi/pull/301) released in 0.10.1 | Bounded durable HTTP settlement/recovery and changed-deadline live evidence remain open |
 | G60 pre-dispatch enforcement repair | ✅ [Victor #1180](https://github.com/anvai-labs/victor/pull/1180); all CI green including Vertical Py3.12 | Post-execution result withholding remains open; G61–G65 unchanged |
 
+The [PDF recheck and critique](agentic-workflow-safety-audit.md#pdf-recheck-and-design-critique--2026-09-25)
+maps the local Agentic Workflow Automation guide to formation-specific acceptance
+gates. Supervisor/MCP/queue choices remain workload-dependent; exact approval,
+effect-aware recovery and verified outcomes apply to every member. Offline safety
+repairs do not add formation passes or close C5.
+
 **Released foundation checkpoint (2026-09-24).** Sandhi 0.10.1 and InferFlux
 0.3.0 are published and deployed. The
 [new synthetic liveness evidence](evidence/released-foundation-liveness-2026-09-24.json)
@@ -416,8 +422,8 @@ arXiv 2601.13671). URLs in §5.
 
 Two orthogonal dimensions organize every pattern found: **control topology** (who
 directs whom) and **communication substrate** (what carries information between
-members). Victor's six formations span topology well but sit on exactly ONE
-substrate — which is the deepest structural finding of this review.
+members). The original six used artifact/context handoff. WS-G subsequently added
+a bounded shared transcript; the current substrate table below includes that work.
 
 ### 2.1 Control-topology patterns
 
@@ -438,23 +444,20 @@ substrate — which is the deepest structural finding of this review.
 | Contract-net / auction task bidding (Smith 1980) | manager announces tasks; agents bid on capability/load | ❌ absent |
 | External/inter-system agents (A2A protocol, MCP ecosystems, FEP-0006) | members are remote/foreign agents behind a protocol | 🚧 FEP-0006 Draft; Sandhi already gives the transport seam |
 
-### 2.2 Communication substrates (the missing dimension)
+### 2.2 Communication substrates (updated after WS-G)
 
 | Substrate | Who uses it | Victor today |
 |---|---|---|
-| Artifact/context handoff (task string in → result out) | LangChain subagents-as-tools, OpenAI `Agent.as_tool()`, ADK `AgentTool` | ✅ the ONLY substrate: members get the task + `shared_state`, return `MemberResult` |
-| Shared transcript (broadcast conversation) | AutoGen group chats, OpenAI handoffs (full history carries), debate | ❌ none — each member owns a private orchestrator history |
+| Artifact/context handoff (task string in → result out) | LangChain subagents-as-tools, OpenAI `Agent.as_tool()`, ADK `AgentTool` | ✅ members get the task + `shared_state`, return `MemberResult` |
+| Shared transcript (broadcast conversation) | AutoGen group chats, OpenAI handoffs (full history carries), debate | ✅ WS-G / FEP-0035; bounded immutable snapshots for GROUP_CHAT, HANDOFF and DEBATE, [PR #1113](https://github.com/anvai-labs/victor/pull/1113) |
 | Shared state/scratchpad keyed per member | ADK session state (`output_key`), blackboard | ⚠️ `TeamContext`/`shared_state` dict exists but is coordinator-curated, not member-writable by convention |
 | Structured ledgers (task/progress) | Magentic-One TaskLedger/ProgressLedger | ❌ (adjacent: session ledger FEP-0023, not team-facing) |
 
-**Structural conclusion:** every Victor formation is a *workflow shape over artifact
-handoff*. That is the same design point as Anthropic's orchestrator-workers and
-LangChain's subagents — the empirically strongest patterns for coding work — so the
-six formations are NOT behind on the patterns that matter most for Victor's domain.
-The gaps are concentrated in the *conversation-native* family (group chat, debate,
-swarm handoff), which requires building a transcript substrate before any of those
-three topologies can exist; and in *ensemble aggregation*, which is substrate-light
-and could ride PARALLEL.
+**Current conclusion:** Victor supports both artifact handoff and bounded shared
+transcripts through the existing formation coordinator. WS-G and WS-H implemented
+the former conversation/ensemble gaps; their implementation does not establish
+durable action recovery or measured advantage over a single agent. Prioritize the
+common execution-boundary gaps and matched acceptance over adding more topologies.
 
 ### 2.3 Agent-role nomenclature (standardization proposal)
 
@@ -1405,6 +1408,12 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   do not equate checkpoints with exactly-once external writes. This extends G17/G21
   without another formation implementation; see the
   [audit](agentic-workflow-safety-audit.md#g62--durable-external-action-recovery-is-incomplete-high-priority).
+  The PDF recheck also found automatic replay in the service wrapper, pipeline
+  fallback, and post-success bookkeeping error path. The bounded repair shares one
+  effect-free metadata gate and preserves structured unknown/reconciliation-required
+  errors through middleware; it does not implement durable action reconciliation,
+  exact approval binding or whole-member replay protection. Keep G62 open until
+  those boundaries have independent failure/restart evidence.
 
 - **G63 — workflow HTTP lifecycle is not durable admission or owned cancellation.**
   The inspected routes store in-memory records, launch a background task, expose
