@@ -723,10 +723,11 @@ class AgentMetricsService:
         """Accumulator snapshot: legacy per-process counters.
 
         Buffered TurnExecutor calls (including recovery) update this
-        accumulator, but the streaming runtime does not — it records to the
-        tracker instead. Tokens from this source are a fallback for sessions
-        where the tracker saw no requests (handoff G34: buffered cost
-        recording is not yet integrated).
+        accumulator, and the streaming runtime folds turn usage into the same
+        orchestrator-shared dict — while authoritative streaming counts land
+        in the tracker (see ``_tracker_task_usage``). Tokens from this source
+        are a fallback for sessions where the tracker saw no requests
+        (handoff G34: buffered cost recording is not yet integrated).
         """
         request_count, token_summary, cost_summary = self._tracker_summary()
         return _TaskUsageSnapshot(
