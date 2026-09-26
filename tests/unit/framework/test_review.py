@@ -2,10 +2,14 @@
 
 No LLM, no network: AgentTeam is faked at the seam and member outputs are
 canned TeamResult objects built from the real teams types, so the aggregation
-and coercion contracts are what's under test.
+and strict validation contracts are what's under test.
 """
 
 from __future__ import annotations
+
+import asyncio
+import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -15,7 +19,6 @@ from victor.framework.review import (
     REQUEST_CHANGES,
     REVIEW_INCOMPLETE,
     ReviewerSpec,
-    _member_goal,
     parse_reviewer_output,
     review_diff,
 )
@@ -65,7 +68,9 @@ class FakeAgentTeam:
         for i, m in enumerate(members):
             output, ok = FakeAgentTeam.outputs.get(m.name, ("", False))
             results.append((m.name, output, ok))
-        return cls(_team_result(results))
+        team = cls(_team_result(results))
+        team.members = [SimpleNamespace(id=f"rev{i}", name=m.name) for i, m in enumerate(members)]
+        return team
 
     async def run(self):
         return self._result
@@ -74,6 +79,7 @@ class FakeAgentTeam:
 @pytest.fixture()
 def fake_team(monkeypatch):
     FakeAgentTeam.outputs = {}
+    FakeAgentTeam.last_members = []
     monkeypatch.setattr(review_mod, "AgentTeam", FakeAgentTeam)
     return FakeAgentTeam
 
@@ -84,26 +90,64 @@ SPECS = [
 ]
 
 
-def test_parse_reviewer_output_valid_with_prose():
-    text = 'blahblah {"verdict": "approve", "summary": "ok", "findings": [], "confidence": 0.7} trailing'
-    parsed = parse_reviewer_output(text)
-    assert parsed is not None
-    assert parsed["verdict"] == APPROVE and parsed["confidence"] == 0.7
+@pytest.mark.parametrize(
+    "text",
+    [
+        "prefix " + _member_output_json(APPROVE),
+        _member_output_json(APPROVE) + " trailing",
+        "```json\n" + _member_output_json(APPROVE) + "\n```",
+        '{"verdict":"abstain","verdict":"approve","summary":"s","findings":[],"confidence":1}',
+    ],
+)
+def test_parse_reviewer_output_requires_only_json(text):
+    assert parse_reviewer_output(text) is None
 
 
-def test_parse_reviewer_output_coerces_bad_fields():
-    parsed = parse_reviewer_output(
-        '{"verdict": "ship it", "findings": [{"severity": "apocalyptic", "line": "x"}], "confidence": 9}'
-    )
-    assert parsed is None  # unknown verdict is unparseable, never coerced to approve
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("verdict", "APPROVE"),
+        ("summary", 3),
+        ("findings", {}),
+        ("findings", [False]),
+        ("confidence", True),
+        ("confidence", "1"),
+        ("confidence", float("nan")),
+        ("confidence", float("inf")),
+        ("confidence", 1.1),
+        ("confidence", -0.1),
+        ("extra", "field"),
+    ],
+)
+def test_parse_reviewer_output_rejects_wrong_fields(field, value):
+    data = json.loads(_member_output_json(APPROVE))
+    data[field] = value
+    assert parse_reviewer_output(json.dumps(data)) is None
 
-    parsed = parse_reviewer_output(
-        '{"verdict": "request_changes", "findings": [{"severity": "apocalyptic", "line": "x", "summary": "f"}], "confidence": 9}'
-    )
-    assert parsed["verdict"] == REQUEST_CHANGES
-    assert parsed["findings"][0]["severity"] == "minor"  # unknown severity coerced
-    assert parsed["findings"][0]["line"] is None
-    assert parsed["confidence"] == 1.0  # clamped from 9
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("severity", "apocalyptic"),
+        ("file", ""),
+        ("line", True),
+        ("line", 0),
+        ("line", "2"),
+        ("summary", []),
+        ("extra", 1),
+    ],
+)
+def test_parse_reviewer_output_rejects_wrong_finding(field, value):
+    finding = {"severity": "major", "file": "f.py", "line": 1, "summary": "bug"}
+    finding[field] = value
+    assert parse_reviewer_output(_member_output_json(REQUEST_CHANGES, [finding])) is None
+
+
+def test_parse_reviewer_output_complete_contract():
+    assert parse_reviewer_output(_member_output_json(APPROVE))["verdict"] == APPROVE
+    data = json.loads(_member_output_json(APPROVE))
+    del data["confidence"]
+    assert parse_reviewer_output(json.dumps(data)) is None
 
 
 def test_parse_reviewer_output_garbage():
@@ -111,11 +155,6 @@ def test_parse_reviewer_output_garbage():
     assert parse_reviewer_output("{broken") is None
     assert parse_reviewer_output("[1,2,3]") is None
     assert parse_reviewer_output("") is None
-
-
-def test_member_goal_truncates_long_diff():
-    goal = _member_goal("intent", "x" * (review_mod._MAX_DIFF_CHARS + 10))
-    assert "truncated" in goal
 
 
 async def test_review_diff_any_block_blocks(fake_team):
@@ -171,24 +210,49 @@ async def test_review_diff_unparseable_output_is_abstain(fake_team):
     }
     verdict = await review_diff("diff", SPECS, orchestrator=object())
     assert verdict.reviewer_verdicts["zai/glm"] == "abstain"
-    assert verdict.verdict == APPROVE  # the one real verdict carries it
+    assert verdict.verdict == REVIEW_INCOMPLETE
 
 
-async def test_review_diff_runner_failure_with_valid_output_still_counts(fake_team):
-    # A cleanup-phase failure can flip MemberResult.success after a full verdict;
-    # the verdict text is still the reviewer's and must count.
+@pytest.mark.parametrize(
+    "output,success",
+    [
+        (_member_output_json(APPROVE), False),
+        (_member_output_json(REQUEST_CHANGES), False),
+        (_member_output_json("abstain"), True),
+    ],
+)
+async def test_review_diff_every_required_member_must_succeed(fake_team, output, success):
     fake_team.outputs = {
-        "zai/glm": (
-            _member_output_json(
-                REQUEST_CHANGES,
-                [{"severity": "critical", "file": "b.py", "line": 1, "summary": "cmd injection"}],
-            ),
-            False,
-        ),
+        "zai/glm": (output, success),
         "inferflux/qwen": (_member_output_json(APPROVE), True),
     }
     verdict = await review_diff("diff", SPECS, orchestrator=object())
-    assert verdict.verdict == REQUEST_CHANGES
+    assert verdict.verdict == REVIEW_INCOMPLETE
+
+
+async def test_review_diff_truncation_cannot_approve(fake_team):
+    fake_team.outputs = {s.display_name: (_member_output_json(APPROVE), True) for s in SPECS}
+    verdict = await review_diff(
+        "x" * (review_mod._MAX_DIFF_CHARS + 1), SPECS, orchestrator=object()
+    )
+    assert verdict.verdict == REVIEW_INCOMPLETE
+
+
+@pytest.mark.parametrize(
+    "specs",
+    [
+        [ReviewerSpec("", "m")],
+        [ReviewerSpec("a", " ")],
+        [ReviewerSpec("a", "m", " ")],
+        [ReviewerSpec(" a", "m")],
+        [ReviewerSpec("a", "m"), ReviewerSpec("a", "m")],
+        [ReviewerSpec("a", "m", "same"), ReviewerSpec("b", "m", "same")],
+    ],
+)
+async def test_review_diff_rejects_invalid_identity(fake_team, specs):
+    with pytest.raises(ValueError):
+        await review_diff("diff", specs, orchestrator=object())
+    assert fake_team.last_members == []
 
 
 async def test_review_diff_members_carry_provider_and_model(fake_team):
@@ -197,6 +261,10 @@ async def test_review_diff_members_carry_provider_and_model(fake_team):
     by_name = {m.name: m for m in FakeAgentTeam.last_members}
     assert by_name["zai/glm"].provider == "zai"
     assert by_name["inferflux/qwen"].model == "qwen3-coder-30b"
+    assert all(
+        m.allowed_tools == [] and m.to_team_member().allowed_tools == []
+        for m in FakeAgentTeam.last_members
+    )
 
 
 async def test_review_diff_requires_reviewers():
@@ -206,83 +274,221 @@ async def test_review_diff_requires_reviewers():
 
 class _FakeProc:
     def __init__(self, stdout: bytes, returncode: int, stderr: bytes = b""):
-        self._stdout = stdout
-        self._stderr = stderr
+        self.stdout = asyncio.StreamReader()
+        self.stdout.feed_data(stdout)
+        self.stdout.feed_eof()
         self.returncode = returncode
+        self.killed = False
+        self.waited = False
 
-    async def communicate(self):
-        return self._stdout, self._stderr
+    async def wait(self):
+        self.waited = True
+        return self.returncode
+
+    def kill(self):
+        self.killed = True
+        self.returncode = -9
+        self.stdout.feed_eof()
 
 
-class _FakeAgentTeamForPR(FakeAgentTeam):
-    pass
+BASE = "a" * 40
+HEAD = "b" * 40
 
 
-async def test_review_pull_request_fetches_diff_and_reviews(monkeypatch):
-    seen: dict = {}
-
-    async def fake_review_diff(diff, specs, *, orchestrator, intent, timeout_seconds):
-        seen["diff"] = diff
-        return "panel-verdict"
-
-    monkeypatch.setattr(review_mod, "review_diff", fake_review_diff)
+@pytest.mark.parametrize("change_head", [False, True])
+async def test_review_pull_request_fetches_pinned_diff(monkeypatch, change_head):
+    commands = []
 
     async def fake_exec(*cmd, **kwargs):
-        assert tuple(cmd[:3]) == ("gh", "pr", "diff")
-        assert "-R" not in cmd
-        return _FakeProc(b"diff --git a/f b/f\n", 0)
-
-    monkeypatch.setattr(review_mod.asyncio, "create_subprocess_exec", fake_exec)
-    verdict = await review_mod.review_pull_request(
-        42, SPECS, orchestrator=object(), timeout_seconds=10
-    )
-    assert verdict == "panel-verdict"
-    assert seen["diff"].startswith("diff --git")
-
-
-async def test_review_pull_request_passes_repo_and_raises_on_gh_failure(monkeypatch):
-    async def fake_exec(*cmd, **kwargs):
-        assert "-R" in cmd and "org/repo" in cmd
-        return _FakeProc(b"", 1, stderr=b"boom")
-
-    monkeypatch.setattr(review_mod.asyncio, "create_subprocess_exec", fake_exec)
-    with pytest.raises(RuntimeError, match="boom"):
-        await review_mod.review_pull_request(
-            42, SPECS, orchestrator=object(), repo="org/repo", timeout_seconds=10
+        commands.append(cmd)
+        assert kwargs["stderr"] == asyncio.subprocess.DEVNULL
+        if cmd[1:3] == ("pr", "view"):
+            return _FakeProc(
+                json.dumps(
+                    {
+                        "baseRefOid": BASE,
+                        "headRefOid": HEAD if len(commands) == 1 or not change_head else "c" * 40,
+                        "url": "https://github.com/org/repo/pull/42",
+                        "changedFiles": 1,
+                        "additions": 3,
+                        "deletions": 0,
+                    }
+                ).encode(),
+                0,
+            )
+        assert cmd == (
+            "gh",
+            "api",
+            f"repos/org/repo/compare/{BASE}...{HEAD}",
+            "-H",
+            "Accept: application/vnd.github.diff",
+        )
+        return _FakeProc(
+            b"diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -0,0 +1,3 @@\n+diff --git fake\n+@@ fake\n+++literal\n",
+            0,
         )
 
-
-async def test_review_pull_request_empty_diff_is_rejected(monkeypatch):
-    async def fake_exec(*cmd, **kwargs):
-        return _FakeProc(b"   \n", 0)
+    async def fake_review_diff(diff, specs, **kwargs):
+        assert diff.startswith("diff --git")
+        return review_mod.ReviewVerdict(APPROVE)
 
     monkeypatch.setattr(review_mod.asyncio, "create_subprocess_exec", fake_exec)
-    with pytest.raises(RuntimeError, match="empty diff"):
-        await review_mod.review_pull_request(42, SPECS, orchestrator=object(), timeout_seconds=10)
+    monkeypatch.setattr(review_mod, "review_diff", fake_review_diff)
+    if change_head:
+        with pytest.raises(RuntimeError, match="changed"):
+            await review_mod.review_pull_request(42, SPECS, orchestrator=object())
+    else:
+        verdict = await review_mod.review_pull_request(42, SPECS, orchestrator=object())
+        assert (verdict.repository, verdict.base_sha, verdict.head_sha) == ("org/repo", BASE, HEAD)
+        assert len(commands) == 3
 
 
-async def test_resolve_member_result_positional_fallback():
-    """Coordinators that omit display_name metadata still resolve positionally."""
-    member_results = {
-        "auto-1": MemberResult(member_id="auto-1", success=True, output="first", metadata={}),
-        "auto-2": MemberResult(member_id="auto-2", success=True, output="second", metadata={}),
-    }
-    result = TeamResult(
+@pytest.mark.parametrize("mode", ["failure", "empty", "oversize", "timeout", "cancel"])
+async def test_gh_fetch_failure_cleanup(monkeypatch, mode):
+    proc = _FakeProc(b"x" if mode == "failure" else b"", 1 if mode == "failure" else 0)
+    if mode in ("timeout", "cancel"):
+        proc.returncode = None
+
+        async def blocked(_size):
+            if mode == "cancel":
+                raise asyncio.CancelledError()
+            await asyncio.Future()
+
+        proc.stdout.read = blocked
+    if mode == "oversize":
+        proc = _FakeProc(b"x" * 10, 0)
+
+    async def fake_exec(*cmd, **kwargs):
+        return proc
+
+    monkeypatch.setattr(review_mod.asyncio, "create_subprocess_exec", fake_exec)
+    expected = asyncio.CancelledError if mode == "cancel" else (RuntimeError, asyncio.TimeoutError)
+    with pytest.raises(expected):
+        await review_mod._gh_output(["gh", "test"], limit=5, timeout=0.01)
+    if mode in ("timeout", "cancel"):
+        assert proc.killed and proc.waited
+
+
+@pytest.mark.parametrize("identity", ["missing", "mismatched", "valid"])
+def test_resolve_member_result_uses_canonical_member_id(identity):
+    mr = MemberResult(
+        member_id="rev1" if identity == "valid" else "other",
         success=True,
-        final_output="",
-        member_results=member_results,
-        formation=TeamFormation.PARALLEL,
+        output="out",
+        metadata={"display_name": "zai/glm"},
     )
-    specs = [ReviewerSpec(provider="a", model="m"), ReviewerSpec(provider="b", model="m")]
-    out1, ok1 = review_mod._resolve_member_result(result, specs[0])
-    out2, ok2 = review_mod._resolve_member_result(result, specs[1])
-    assert (out1, ok1) == ("first", True)
-    assert (out2, ok2) == ("second", True)
+    result = _team_result([])
+    result.member_results = {"rev1" if identity != "missing" else "other": mr}
+    assert review_mod._resolve_member_result(result, "rev1") == (
+        ("out", True) if identity == "valid" else (None, False)
+    )
+    assert mr.metadata == {"display_name": "zai/glm"}
 
 
-def test_resolve_member_result_no_results_is_failure():
-    class _Empty:
-        member_results = {}
+@pytest.mark.parametrize("reason", ["file_limit", "missing_hunk", "binary"])
+async def test_review_pull_request_incomplete_diff_never_dispatches(monkeypatch, reason):
+    async def fake_exec(*cmd, **kwargs):
+        if cmd[1:3] == ("pr", "view"):
+            identity = {
+                "baseRefOid": BASE,
+                "headRefOid": HEAD,
+                "url": "https://github.com/org/repo/pull/42",
+                "changedFiles": 300 if reason == "file_limit" else 1,
+                "additions": 1,
+                "deletions": 0,
+            }
+            return _FakeProc(json.dumps(identity).encode(), 0)
+        return _FakeProc(
+            (
+                b"diff --git a/f b/f\nBinary files differ\n"
+                if reason == "binary"
+                else b"diff --git a/f b/f\n"
+            ),
+            0,
+        )
 
-    out, ok = review_mod._resolve_member_result(_Empty(), SPECS[0])
-    assert out is None and ok is False
+    async def forbidden(*args, **kwargs):
+        pytest.fail("incomplete server diff dispatched to reviewers")
+
+    monkeypatch.setattr(review_mod.asyncio, "create_subprocess_exec", fake_exec)
+    monkeypatch.setattr(review_mod, "review_diff", forbidden)
+    with pytest.raises(RuntimeError):
+        await review_mod.review_pull_request(42, SPECS, orchestrator=object())
+
+
+async def test_review_diff_cancellation_propagates(fake_team, monkeypatch):
+    async def cancelled(self):
+        raise asyncio.CancelledError()
+
+    monkeypatch.setattr(fake_team, "run", cancelled)
+    with pytest.raises(asyncio.CancelledError):
+        await review_diff("diff", SPECS, orchestrator=object())
+
+
+@pytest.mark.parametrize("mode", ["timeout", "cancel"])
+async def test_gh_real_child_is_reaped(monkeypatch, mode):
+    import sys
+
+    real_exec = asyncio.create_subprocess_exec
+    started = asyncio.Event()
+    children = []
+
+    async def tracked_exec(*args, **kwargs):
+        child = await real_exec(*args, **kwargs)
+        children.append(child)
+        started.set()
+        return child
+
+    monkeypatch.setattr(review_mod.asyncio, "create_subprocess_exec", tracked_exec)
+    task = asyncio.create_task(
+        review_mod._gh_output(
+            [sys.executable, "-c", "import time; time.sleep(60)"],
+            limit=32,
+            timeout=0.05 if mode == "timeout" else 10,
+        )
+    )
+    try:
+        await asyncio.wait_for(started.wait(), 5)
+        if mode == "cancel":
+            task.cancel()
+        with pytest.raises(asyncio.CancelledError if mode == "cancel" else asyncio.TimeoutError):
+            await asyncio.wait_for(task, 10)
+        assert children[0].returncode is not None
+    finally:
+        for child in children:
+            if child.returncode is None:
+                child.kill()
+            await child.wait()
+
+
+@pytest.mark.parametrize(
+    "parameter,value",
+    [
+        ("tool_budget", True),
+        ("tool_budget", 0),
+        ("tool_budget", -1),
+        ("temperature", True),
+        ("temperature", -0.1),
+        ("temperature", 2.1),
+        ("temperature", float("nan")),
+        ("temperature", float("inf")),
+        ("timeout_seconds", True),
+        ("timeout_seconds", 0),
+    ],
+)
+async def test_review_diff_rejects_execution_options_before_create(fake_team, parameter, value):
+    with pytest.raises(ValueError):
+        await review_diff("diff", SPECS, orchestrator=object(), **{parameter: value})
+    assert fake_team.last_members == []
+
+
+@pytest.mark.parametrize("timeout", [False, 0, -1, float("inf")])
+async def test_pr_timeout_invalid_before_network(monkeypatch, timeout):
+    async def forbidden(*args, **kwargs):
+        pytest.fail("network before timeout validation")
+
+    monkeypatch.setattr(review_mod.asyncio, "create_subprocess_exec", forbidden)
+    with pytest.raises(ValueError):
+        await review_mod.review_pull_request(
+            42, SPECS, orchestrator=object(), timeout_seconds=timeout
+        )

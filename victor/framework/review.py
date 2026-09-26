@@ -14,16 +14,14 @@
 
 """Independent multi-provider PR review panel.
 
-Each reviewer is an ISOLATED team member with its own provider/model and no
-shared context with the caller — a hostile second pair of eyes, not a
-self-review. Agent speed makes fresh-agent review cheaper than waiting on a
-human for every PR; heterogeneity (different providers) keeps the panel from
-sharing one model's blind spots.
+Each reviewer is a PARALLEL team member with its own provider/model and
+independent message history. No tools are granted: an untrusted diff is input
+evidence, not authority to run commands or change the workspace.
 
-Verdicts are strict-JSON, coerced, and aggregated FAIL-CLOSED:
-- any reviewer says request_changes  → REQUEST_CHANGES
-- no blocker and at least one approve → APPROVE
-- no reviewer finished (all abstain/fail) → REVIEW_INCOMPLETE
+Verdicts use a strict JSON contract and aggregate fail closed. A successful
+reviewer requesting changes blocks approval; otherwise every required reviewer
+must finish successfully and approve the complete diff. These are advisory model
+opinions, not proof of correctness or authorization to merge.
 
 Layering: framework surface built on ``AgentTeam`` (framework) only — no
 runtime internals. Agents and CLIs consume ``review_diff``/``ReviewVerdict``.
@@ -34,7 +32,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import re
+from urllib.parse import urlparse
 from dataclasses import dataclass, field
 from typing import Any, Optional, Sequence
 
@@ -50,11 +50,11 @@ REVIEW_INCOMPLETE = "review_incomplete"
 _VALID_VERDICTS = {APPROVE, REQUEST_CHANGES, ABSTAIN}
 _VALID_SEVERITIES = {"critical", "major", "minor", "nit"}
 
-# Diffs above this are truncated for the reviewer prompt; the reviewer is told
-# the diff was truncated so it can abstain rather than review blind.
-_MAX_DIFF_CHARS = 160_000
+# Oversized diffs are not dispatched: an incomplete review cannot approve.
+_MAX_DIFF_CHARS = 24_000
+_MAX_INTENT_CHARS = 2_000
 
-_JSON_RE = re.compile(r"\{.*\}", re.DOTALL)
+_MAX_OUTPUT_CHARS = 64_000
 
 _REVIEWER_BRIEF = """You are an INDEPENDENT adversarial code reviewer. You did not write this change
 and you owe its author nothing. Attack the diff like a hostile reviewer whose job
@@ -122,103 +122,112 @@ class ReviewVerdict:
     reviewer_verdicts: dict[str, str] = field(default_factory=dict)
     reviewer_summaries: dict[str, str] = field(default_factory=dict)
     blocked_by: list[str] = field(default_factory=list)
+    repository: Optional[str] = None
+    base_sha: Optional[str] = None
+    head_sha: Optional[str] = None
 
     @property
     def approved(self) -> bool:
         return self.verdict == APPROVE
 
 
+def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate JSON key")
+        result[key] = value
+    return result
+
+
 def parse_reviewer_output(text: str) -> Optional[dict[str, Any]]:
-    """Extract and coerce a reviewer's strict-JSON verdict.
-
-    Returns a normalized dict (verdict/summary/findings/confidence) or None when
-    the output is unparseable — callers treat None as an abstention.
-    """
-    match = _JSON_RE.search(text or "")
-    if not match:
+    """Validate one complete JSON verdict; never extract prose or coerce fields."""
+    if not isinstance(text, str) or len(text) > _MAX_OUTPUT_CHARS:
         return None
     try:
-        data = json.loads(match.group(0))
-    except json.JSONDecodeError:
+        data = json.loads(text, object_pairs_hook=_unique_object)
+    except (ValueError, RecursionError):
         return None
-    if not isinstance(data, dict):
+    if not isinstance(data, dict) or set(data) != {"verdict", "summary", "findings", "confidence"}:
         return None
-
-    verdict = str(data.get("verdict") or "").strip().lower()
-    if verdict not in _VALID_VERDICTS:
+    if not isinstance(data["verdict"], str) or data["verdict"] not in _VALID_VERDICTS:
         return None
+    if not isinstance(data["summary"], str) or not data["summary"].strip():
+        return None
+    confidence = data["confidence"]
+    if (
+        type(confidence) not in (int, float)
+        or not 0 <= confidence <= 1
+        or not math.isfinite(confidence)
+    ):
+        return None
+    if not isinstance(data["findings"], list):
+        return None
+    for finding in data["findings"]:
+        if not isinstance(finding, dict) or set(finding) != {"severity", "file", "line", "summary"}:
+            return None
+        if not isinstance(finding["severity"], str) or finding["severity"] not in _VALID_SEVERITIES:
+            return None
+        if any(
+            not isinstance(finding[key], str) or not finding[key].strip()
+            for key in ("file", "summary")
+        ):
+            return None
+        line = finding["line"]
+        if line is not None and (type(line) is not int or line < 1):
+            return None
+    # An approval containing blocking findings contradicts its own contract.
+    if data["verdict"] == APPROVE and any(
+        f["severity"] in {"critical", "major"} for f in data["findings"]
+    ):
+        return None
+    return data
 
-    findings: list[dict[str, Any]] = []
-    for raw in data.get("findings") or []:
-        if not isinstance(raw, dict):
-            continue
-        severity = str(raw.get("severity") or "minor").strip().lower()
-        if severity not in _VALID_SEVERITIES:
-            severity = "minor"
-        line = raw.get("line")
-        findings.append(
-            {
-                "severity": severity,
-                "file": str(raw.get("file") or "").strip(),
-                "line": int(line) if isinstance(line, int) else None,
-                "summary": str(raw.get("summary") or "").strip(),
-            }
-        )
 
-    try:
-        confidence = float(data.get("confidence", 0.5))
-    except (TypeError, ValueError):
-        confidence = 0.5
+def _validate_reviewers(reviewers: Sequence[ReviewerSpec]) -> None:
+    if not reviewers:
+        raise ValueError("review_diff requires at least one ReviewerSpec")
+    names: set[str] = set()
+    for spec in reviewers:
+        if not isinstance(spec, ReviewerSpec):
+            raise ValueError("expected ReviewerSpec")
+        if any(
+            not isinstance(v, str) or not v.strip() or v != v.strip()
+            for v in (spec.provider, spec.model)
+        ):
+            raise ValueError("reviewer provider and model must be nonempty, trimmed strings")
+        if (
+            not isinstance(spec.name, str)
+            or (spec.name and not spec.name.strip())
+            or spec.name != spec.name.strip()
+        ):
+            raise ValueError("reviewer name must be empty or a trimmed, nonempty string")
+        if spec.display_name in names:
+            raise ValueError("reviewer identities must be unique")
+        names.add(spec.display_name)
 
-    return {
-        "verdict": verdict,
-        "summary": str(data.get("summary") or "").strip(),
-        "findings": findings,
-        "confidence": max(0.0, min(1.0, confidence)),
-    }
+
+def _validate_timeout(timeout_seconds: int) -> None:
+    if type(timeout_seconds) is not int or timeout_seconds <= 0:
+        raise ValueError("timeout_seconds must be a positive integer")
 
 
 def _member_goal(intent: str, diff: str) -> str:
-    truncated = False
-    if len(diff) > _MAX_DIFF_CHARS:
-        diff = diff[:_MAX_DIFF_CHARS]
-        truncated = True
-    body = _REVIEWER_BRIEF.format(
+    return _REVIEWER_BRIEF.format(
         intent=intent or "(not stated — infer from the diff, and lower confidence)",
-        diff=diff + ("\n... (truncated)" if truncated else ""),
+        diff=diff,
     )
-    if truncated:
-        body += (
-            "\n\nNOTE: the diff was truncated. If the unseen part could change "
-            'your verdict, respond "abstain".'
-        )
-    return body
 
 
-def _resolve_member_result(result: Any, spec: ReviewerSpec) -> tuple[Optional[str], bool]:
-    """Return (output_text, member_success) for one spec from a TeamResult.
-
-    Member ids are auto-generated, so match on the identity metadata the
-    coordinator copies into ``MemberResult.metadata`` (display_name/member_id),
-    falling back to positional order for coordinators that preserve it.
-    """
+def _resolve_member_result(result: Any, member_id: str) -> tuple[Optional[str], bool]:
+    """Resolve only the configured team member ID; metadata cannot claim identity."""
     member_results = getattr(result, "member_results", None)
-    if not member_results:
+    if not isinstance(member_results, dict):
         return None, False
-
-    display = spec.display_name
-    for member_id, mr in member_results.items():
-        metadata = getattr(mr, "metadata", None) or {}
-        if display in (metadata.get("display_name"), metadata.get("member_id"), member_id):
-            return getattr(mr, "output", None), bool(getattr(mr, "success", False))
-
-    # Positional fallback: first result not yet claimed by an earlier spec.
-    for member_id, mr in member_results.items():
-        metadata = getattr(mr, "metadata", None)
-        if isinstance(metadata, dict) and not metadata.get("_claimed"):
-            metadata["_claimed"] = True
-            return getattr(mr, "output", None), bool(getattr(mr, "success", False))
-    return None, False
+    member = member_results.get(member_id)
+    if member is None or getattr(member, "member_id", None) != member_id:
+        return None, False
+    return getattr(member, "output", None), getattr(member, "success", None) is True
 
 
 async def review_diff(
@@ -233,12 +242,30 @@ async def review_diff(
 ) -> ReviewVerdict:
     """Run the reviewer panel over ``diff`` and aggregate a fail-closed verdict.
 
-    Each reviewer runs as an isolated PARALLEL team member with its own
-    provider/model. Reviewer failure or unparseable output counts as an
+    Each reviewer runs as a PARALLEL team member with its own
+    provider/model and no tools. Reviewer failure or unparseable output counts as an
     abstention, never as an approval.
     """
-    if not reviewers:
-        raise ValueError("review_diff requires at least one ReviewerSpec")
+    _validate_reviewers(reviewers)
+    _validate_timeout(timeout_seconds)
+    if type(tool_budget) is not int or tool_budget <= 0:
+        raise ValueError("tool_budget must be a positive integer")
+    if (
+        type(temperature) not in (int, float)
+        or not 0 <= temperature <= 2
+        or not math.isfinite(temperature)
+    ):
+        raise ValueError("temperature must be finite and between zero and two")
+    if not isinstance(intent, str) or len(intent) > _MAX_INTENT_CHARS:
+        raise ValueError("intent exceeds review prompt budget")
+    if not isinstance(diff, str) or not diff.strip() or len(diff) > _MAX_DIFF_CHARS:
+        return ReviewVerdict(
+            verdict=REVIEW_INCOMPLETE,
+            reviewer_verdicts={s.display_name: ABSTAIN for s in reviewers},
+            reviewer_summaries={
+                s.display_name: "Complete bounded diff required." for s in reviewers
+            },
+        )
 
     goal = _member_goal(intent, diff)
     members = [
@@ -250,6 +277,7 @@ async def review_diff(
             model=r.model,
             temperature=temperature,
             tool_budget=tool_budget,
+            allowed_tools=[],
         )
         for r in reviewers
     ]
@@ -263,22 +291,31 @@ async def review_diff(
         shared_context={"capture_member_usage": True},
         timeout_seconds=timeout_seconds,
     )
-    result = await team.run()
+    member_ids = {member.name: member.id for member in team.members}
+    if (
+        len(member_ids) != len(reviewers)
+        or set(member_ids) != {s.display_name for s in reviewers}
+        or len(set(member_ids.values())) != len(reviewers)
+    ):
+        raise RuntimeError("review team identity mismatch")
+    result = await asyncio.wait_for(team.run(), timeout=timeout_seconds)
 
     verdict = ReviewVerdict(verdict=REVIEW_INCOMPLETE)
-    any_approve = False
+    all_approve = True
     for spec in reviewers:
-        output, success = _resolve_member_result(result, spec)
+        output, success = _resolve_member_result(result, member_ids[spec.display_name])
         parsed = parse_reviewer_output(output) if output else None
-        if not success and parsed is None:
+        if not success:
             logger.warning("review panel: reviewer %s failed to produce output", spec.display_name)
             verdict.reviewer_verdicts[spec.display_name] = ABSTAIN
+            all_approve = False
             continue
         if parsed is None:
             logger.warning(
                 "review panel: reviewer %s returned unparseable output", spec.display_name
             )
             verdict.reviewer_verdicts[spec.display_name] = ABSTAIN
+            all_approve = False
             continue
 
         v = parsed["verdict"]
@@ -296,16 +333,68 @@ async def review_diff(
             )
         if v == REQUEST_CHANGES:
             verdict.blocked_by.append(spec.display_name)
-        elif v == APPROVE:
-            any_approve = True
+        if v != APPROVE:
+            all_approve = False
 
     if verdict.blocked_by:
         verdict.verdict = REQUEST_CHANGES
-    elif any_approve:
+    elif all_approve and getattr(result, "success", None) is True:
         verdict.verdict = APPROVE
     else:
         verdict.verdict = REVIEW_INCOMPLETE
     return verdict
+
+
+async def _gh_output(cmd: list[str], *, limit: int, timeout: float = 120) -> str:
+    """Read bounded stdout, discard potentially sensitive stderr, reap on failure."""
+    proc = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.DEVNULL,
+    )
+
+    async def read() -> str:
+        if proc.stdout is None:
+            raise RuntimeError("gh stdout unavailable")
+        output = bytearray()
+        while True:
+            chunk = await proc.stdout.read(min(65536, limit + 1 - len(output)))
+            if not chunk:
+                break
+            output.extend(chunk)
+            if len(output) > limit:
+                raise RuntimeError("gh output exceeds review limit")
+        await proc.wait()
+        if proc.returncode != 0:
+            raise RuntimeError("gh review fetch failed")
+        text = output.decode("utf-8", errors="strict")
+        if not text.strip():
+            raise RuntimeError("gh returned an empty diff or identity")
+        return text
+
+    try:
+        return await asyncio.wait_for(read(), timeout=timeout)
+    except BaseException as primary:
+        if proc.returncode is None:
+            try:
+                proc.kill()
+            except ProcessLookupError:
+                pass
+            except Exception as cleanup:
+                primary.add_note(f"gh signal failed: {type(cleanup).__name__}")
+        # asyncio has no public Process.close. Closing its owned transport also
+        # releases stdout if an exited child left an inherited pipe open.
+        transport = getattr(proc, "_transport", None)
+        if transport is not None:
+            try:
+                transport.close()
+            except Exception as cleanup:
+                primary.add_note(f"gh transport cleanup failed: {type(cleanup).__name__}")
+        try:
+            await asyncio.wait_for(proc.wait(), timeout=5)
+        except Exception as cleanup:
+            primary.add_note(f"gh cleanup failed: {type(cleanup).__name__}")
+        raise
 
 
 async def review_pull_request(
@@ -317,30 +406,93 @@ async def review_pull_request(
     intent: str = "",
     timeout_seconds: int = 1200,
 ) -> ReviewVerdict:
-    """Fetch a PR diff with the gh CLI and run the reviewer panel over it."""
-    import subprocess  # local import: only needed on this path
+    """Review an immutable GitHub base/head pair, rejecting a moved PR afterwards.
 
-    cmd = ["gh", "pr", "diff", str(pr_number)]
+    The returned identity binds this advisory result, not a later merge operation.
+    A caller must compare head_sha again before applying it to a mutable PR.
+    """
+    _validate_reviewers(reviewers)
+    _validate_timeout(timeout_seconds)
+    if not isinstance(intent, str) or len(intent) > _MAX_INTENT_CHARS:
+        raise ValueError("intent exceeds review prompt budget")
+    if type(pr_number) is not int or pr_number <= 0:
+        raise ValueError("positive PR number required")
+    cmd = [
+        "gh",
+        "pr",
+        "view",
+        str(pr_number),
+        "--json",
+        "baseRefOid,headRefOid,url,changedFiles,additions,deletions",
+    ]
     if repo:
         cmd += ["-R", repo]
-    proc = await asyncio.create_subprocess_exec(
-        *cmd,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
-    if proc.returncode != 0:
-        raise RuntimeError(
-            f"gh pr diff {pr_number} failed ({proc.returncode}): "
-            f"{stderr.decode(errors='replace').strip()[:300]}"
+
+    async def identity() -> tuple[str, str, str, int, int, int]:
+        data = json.loads(await _gh_output(cmd, limit=16_384), object_pairs_hook=_unique_object)
+        if not isinstance(data, dict):
+            raise RuntimeError("invalid PR identity")
+        base, head, url = data.get("baseRefOid"), data.get("headRefOid"), data.get("url")
+        if not all(
+            isinstance(sha, str) and re.fullmatch(r"[0-9a-f]{40}", sha) for sha in (base, head)
+        ) or not isinstance(url, str):
+            raise RuntimeError("invalid PR identity")
+        parsed = urlparse(url)
+        match = re.fullmatch(
+            r"/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/pull/" + str(pr_number), parsed.path
         )
-    diff = stdout.decode(errors="replace")
-    if not diff.strip():
-        raise RuntimeError(f"gh pr diff {pr_number} returned an empty diff")
-    return await review_diff(
+        if (
+            parsed.scheme != "https"
+            or parsed.netloc != "github.com"
+            or parsed.query
+            or parsed.fragment
+            or match is None
+        ):
+            raise RuntimeError("unsupported PR repository identity")
+        counts = [data.get(key) for key in ("changedFiles", "additions", "deletions")]
+        if any(type(value) is not int or value < 0 for value in counts) or not 0 < counts[0] < 300:
+            raise RuntimeError("PR exceeds bounded diff completeness contract")
+        return match.group(1), base, head, counts[0], counts[1], counts[2]
+
+    pinned = await identity()
+    repository, base_sha, head_sha, files, additions, deletions = pinned
+    diff = await _gh_output(
+        [
+            "gh",
+            "api",
+            f"repos/{repository}/compare/{base_sha}...{head_sha}",
+            "-H",
+            "Accept: application/vnd.github.diff",
+        ],
+        limit=_MAX_DIFF_CHARS * 4,
+    )
+    # GitHub limits displayed/API diffs. Compare exact PR statistics with the
+    # immutable patch rather than treating a size-bounded response as complete.
+    seen_files = added = deleted = 0
+    in_hunk = False
+    for line in diff.splitlines():
+        if line.startswith("diff --git "):
+            seen_files += 1
+            in_hunk = False
+        elif line.startswith("@@ "):
+            in_hunk = True
+        elif line.startswith(("Binary files ", "GIT binary patch")):
+            raise RuntimeError("binary diff requires separate review")
+        elif in_hunk:
+            added += line.startswith("+")
+            deleted += line.startswith("-")
+    if (seen_files, added, deleted) != (files, additions, deletions):
+        raise RuntimeError("incomplete PR diff")
+    verdict = await review_diff(
         diff,
         reviewers,
         orchestrator=orchestrator,
         intent=intent,
         timeout_seconds=timeout_seconds,
     )
+    if await identity() != pinned:
+        raise RuntimeError("PR identity changed during review")
+    verdict.repository = repository
+    verdict.base_sha = base_sha
+    verdict.head_sha = head_sha
+    return verdict

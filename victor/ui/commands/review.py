@@ -32,6 +32,9 @@ from victor.framework.review import (
     APPROVE,
     REQUEST_CHANGES,
     ReviewerSpec,
+    ReviewVerdict,
+    _validate_reviewers,
+    _MAX_DIFF_CHARS,
     review_diff,
     review_pull_request,
 )
@@ -40,21 +43,29 @@ review_app = typer.Typer(add_completion=False, help="Independent multi-provider 
 
 
 def _parse_reviewers(raw: str) -> List[ReviewerSpec]:
+    if not raw.strip():
+        return []
     specs: List[ReviewerSpec] = []
     for part in raw.split(","):
         part = part.strip()
         if not part:
-            continue
+            raise typer.BadParameter("empty reviewer entry")
         if ":" not in part:
             raise typer.BadParameter(f"reviewer {part!r} must be provider:model (e.g. zai:glm-5.3)")
         provider, model = part.split(":", 1)
         specs.append(ReviewerSpec(provider=provider.strip(), model=model.strip()))
+    try:
+        _validate_reviewers(specs)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
     return specs
 
 
 def _default_reviewers(provider: Optional[str], model: Optional[str]) -> List[ReviewerSpec]:
-    if provider and model:
-        return [ReviewerSpec(provider=provider, model=model)]
+    if provider is not None or model is not None:
+        if provider is None or model is None:
+            raise typer.BadParameter("--provider and --model must be supplied together")
+        return _parse_reviewers(f"{provider}:{model}")
     from victor.config.settings import load_settings
 
     settings = load_settings(fresh=True)
@@ -64,11 +75,29 @@ def _default_reviewers(provider: Optional[str], model: Optional[str]) -> List[Re
         raise typer.BadParameter(
             "No default provider/model configured — pass --reviewers provider:model"
         )
-    return [ReviewerSpec(provider=p, model=m)]
+    return _parse_reviewers(f"{p}:{m}")
 
 
-def _print_verdict(verdict) -> None:
+def _read_diff_file(path: Path) -> str:
+    """Bound allocation and preserve the exact UTF-8 evidence before Agent.create."""
+    try:
+        with path.open("rb") as stream:
+            raw = stream.read(_MAX_DIFF_CHARS * 4 + 1)
+        if len(raw) > _MAX_DIFF_CHARS * 4:
+            raise ValueError("oversized diff")
+        text = raw.decode("utf-8", errors="strict")
+        if not text.strip() or len(text) > _MAX_DIFF_CHARS:
+            raise ValueError("empty or oversized diff")
+        return text
+    except (OSError, ValueError) as exc:
+        typer.echo("review incomplete: diff file must be bounded, nonempty UTF-8", err=True)
+        raise typer.Exit(2) from exc
+
+
+def _print_verdict(verdict: ReviewVerdict) -> None:
     typer.echo("\n=== PR review panel ===")
+    if verdict.head_sha:
+        typer.echo(f"Reviewed {verdict.repository}: {verdict.base_sha}...{verdict.head_sha}")
     for reviewer, v in verdict.reviewer_verdicts.items():
         typer.echo(f"  {reviewer:<40} {v}")
     typer.echo(f"\nVERDICT: {verdict.verdict}")
@@ -142,13 +171,13 @@ def review_pr(
     diff_file: Optional[Path] = typer.Option(
         None, "--diff-file", help="Review this diff file instead of fetching a PR."
     ),
-    timeout_seconds: int = typer.Option(1200, "--timeout", help="Panel wall-clock budget."),
+    timeout_seconds: int = typer.Option(1200, "--timeout", min=1, help="Panel wall-clock budget."),
     provider: Optional[str] = typer.Option(None, "--provider", help="Fallback panel provider."),
     model: Optional[str] = typer.Option(None, "--model", help="Fallback panel model."),
 ) -> None:
     """Review a PR with a panel of independent agents (fresh context each)."""
     specs = _parse_reviewers(reviewers) or _default_reviewers(provider, model)
-    diff_text = diff_file.read_text(errors="replace") if diff_file else None
+    diff_text = _read_diff_file(diff_file) if diff_file else None
 
     async def _run() -> int:
         return await _run_review(
@@ -165,6 +194,9 @@ def review_pr(
     except asyncio.TimeoutError:
         typer.echo("review panel exceeded its wall-clock budget", err=True)
         raise typer.Exit(2)
+    except (RuntimeError, ValueError, OSError) as exc:
+        typer.echo(f"review incomplete: {type(exc).__name__}", err=True)
+        raise typer.Exit(2) from exc
     raise typer.Exit(code)
 
 
@@ -173,13 +205,13 @@ def review_diff_file(
     diff_file: Path = typer.Argument(..., help="Path to a unified diff.", exists=True),
     reviewers: str = typer.Option("", "--reviewers"),
     intent: str = typer.Option("", "--intent"),
-    timeout_seconds: int = typer.Option(1200, "--timeout"),
+    timeout_seconds: int = typer.Option(1200, "--timeout", min=1),
     provider: Optional[str] = typer.Option(None, "--provider"),
     model: Optional[str] = typer.Option(None, "--model"),
 ) -> None:
     """Review a diff file with a panel of independent agents."""
     specs = _parse_reviewers(reviewers) or _default_reviewers(provider, model)
-    diff_text = diff_file.read_text(errors="replace")
+    diff_text = _read_diff_file(diff_file)
 
     async def _run() -> int:
         return await _run_review(
@@ -196,4 +228,7 @@ def review_diff_file(
     except asyncio.TimeoutError:
         typer.echo("review panel exceeded its wall-clock budget", err=True)
         raise typer.Exit(2)
+    except (RuntimeError, ValueError, OSError) as exc:
+        typer.echo(f"review incomplete: {type(exc).__name__}", err=True)
+        raise typer.Exit(2) from exc
     raise typer.Exit(code)

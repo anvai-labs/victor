@@ -35,9 +35,10 @@ class TestParseReviewers:
     def test_empty_string_yields_no_specs(self):
         assert _parse_reviewers("") == []
 
-    def test_missing_model_is_rejected(self):
+    @pytest.mark.parametrize("raw", ["zai", "zai:", ":model", "zai:m,zai:m", "zai:m,,other:m", ","])
+    def test_missing_model_is_rejected(self, raw):
         with pytest.raises(review_cli.typer.BadParameter):
-            _parse_reviewers("zai")
+            _parse_reviewers(raw)
 
 
 class TestDefaultReviewers:
@@ -48,14 +49,13 @@ class TestDefaultReviewers:
         assert [(s.provider, s.model) for s in specs] == [("anthropic", "claude-x")]
 
     def test_falls_back_to_configured_defaults(self, monkeypatch):
-        class _Provider:
-            default_provider = "zai"
-            default_model = "glm-5.3"
+        from victor.config.settings import Settings
+        from victor.config.groups import ProviderSettings
 
-        class _Settings:
-            provider = _Provider()
-
-        monkeypatch.setattr("victor.config.settings.load_settings", lambda fresh=False: _Settings())
+        settings = Settings(
+            provider=ProviderSettings(default_provider="zai", default_model="glm-5.3")
+        )
+        monkeypatch.setattr("victor.config.settings.load_settings", lambda fresh=False: settings)
         specs = _default_reviewers(None, None)
         assert [(s.provider, s.model) for s in specs] == [("zai", "glm-5.3")]
 
@@ -88,6 +88,10 @@ class TestPrintVerdict:
 
 
 def _patch_panel(monkeypatch, result: int, calls: dict):
+    monkeypatch.setattr(
+        review_cli, "_default_reviewers", lambda *_: [review_cli.ReviewerSpec("test", "model")]
+    )
+
     async def fake_run(specs, **kwargs):
         calls["specs"] = specs
         calls["kwargs"] = kwargs
@@ -145,6 +149,10 @@ def test_cli_diff_command_reviews_file(monkeypatch, tmp_path):
 
 
 def test_cli_timeout_reports_exit_two(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        review_cli, "_default_reviewers", lambda *_: [review_cli.ReviewerSpec("test", "model")]
+    )
+
     def factory(*args, **kwargs):
         async def forever(*a, **k):
             raise asyncio.TimeoutError()
@@ -169,16 +177,55 @@ def _drain(coro):
         loop.close()
 
 
-def test_cli_review_incomplete_prints(monkeypatch, tmp_path):
-    # Print content is covered by TestPrintVerdict; here we pin that the
-    # incomplete verdict flows through the command's exit code.
-    calls: dict = {}
-    _patch_panel(monkeypatch, 2, calls)
-    diff_file = tmp_path / "d.diff"
-    diff_file.write_text("x\n")
-    result = runner.invoke(review_app, ["pr", "1", "--diff-file", str(diff_file)])
+@pytest.mark.parametrize("provider,model", [("zai", None), (None, "glm")])
+def test_partial_explicit_defaults_rejected(provider, model):
+    with pytest.raises(review_cli.typer.BadParameter):
+        _default_reviewers(provider, model)
+
+
+@pytest.mark.parametrize("failure", [False, True])
+async def test_run_review_uses_framework_agent_and_closes(monkeypatch, failure):
+    from unittest.mock import AsyncMock, MagicMock
+    from victor.framework.agent import Agent
+
+    agent = MagicMock()
+    agent.close = AsyncMock()
+    monkeypatch.setattr(Agent, "create", AsyncMock(return_value=agent))
+    panel = AsyncMock(
+        side_effect=RuntimeError("failed") if failure else None, return_value=ReviewVerdict(APPROVE)
+    )
+    monkeypatch.setattr(review_cli, "review_diff", panel)
+    kwargs = {
+        "pr_number": 0,
+        "repo": None,
+        "diff_text": "diff",
+        "intent": "",
+        "timeout_seconds": 10,
+    }
+    if failure:
+        with pytest.raises(RuntimeError):
+            await review_cli._run_review([review_cli.ReviewerSpec("a", "m")], **kwargs)
+    else:
+        assert await review_cli._run_review([review_cli.ReviewerSpec("a", "m")], **kwargs) == 0
+    agent.close.assert_awaited_once()
+    assert panel.await_args.kwargs["orchestrator"] is agent.get_orchestrator.return_value
+
+
+@pytest.mark.parametrize("kind", ["invalid_utf8", "oversize", "empty"])
+@pytest.mark.parametrize("command", ["diff", "pr"])
+def test_diff_input_failure_prevents_agent_creation(monkeypatch, tmp_path, kind, command):
+    path = tmp_path / "review.diff"
+    path.write_bytes(
+        b"\xff"
+        if kind == "invalid_utf8"
+        else b"x" * (review_cli._MAX_DIFF_CHARS * 4 + 1) if kind == "oversize" else b" \n"
+    )
+
+    async def forbidden(*args, **kwargs):
+        pytest.fail("invalid file dispatched")
+
+    monkeypatch.setattr(review_cli, "_run_review", forbidden)
+    args = ["diff", str(path)] if command == "diff" else ["pr", "1", "--diff-file", str(path)]
+    result = runner.invoke(review_app, args + ["--reviewers", "zai:m"])
     assert result.exit_code == 2
-
-
-def test_review_incomplete_constant_is_fail_closed():
-    assert REVIEW_INCOMPLETE != APPROVE
+    assert "diff file" in result.output
