@@ -12,6 +12,7 @@ from victor.agent.session_cost_tracker import SessionCostTracker
 from victor.agent.services.metrics_service import AgentMetricsService
 from victor.agent.services.turn_execution_runtime import TurnExecutor
 from victor.providers.base import CompletionResponse
+from victor.providers.usage_accounting import accumulate_usage
 
 
 def _make_metrics_coordinator() -> AgentMetricsService:
@@ -147,7 +148,11 @@ def test_task_report_captures_token_deltas_and_success_average():
     assert coordinator.get_last_task_report()["task_id"] == report["task_id"]
 
 
-def test_buffered_task_reports_use_runtime_counters_across_task_boundaries():
+@pytest.mark.parametrize("historical_stream", [False, True])
+@pytest.mark.parametrize("mixed_window", [False, True])
+def test_buffered_task_reports_use_runtime_counters_across_task_boundaries(
+    historical_stream, mixed_window
+):
     cumulative = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
     tracker = SessionCostTracker(provider="unknown", model="test-model")
     coordinator = AgentMetricsService(MagicMock(), tracker, cumulative)
@@ -162,19 +167,30 @@ def test_buffered_task_reports_use_runtime_counters_across_task_boundaries():
         role="assistant",
         usage={"prompt_tokens": 19, "completion_tokens": 7, "total_tokens": 26},
     )
+    stream_usage = {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
+    if historical_stream:
+        # Both production streaming writers run, but this usage predates every task.
+        accumulate_usage(cumulative, stream_usage)
+        tracker.record_request(**stream_usage)
     # Usage before the task belongs to the session, not this task's delta.
     executor._accumulate_token_usage(response)
     for count, success in ((2, True), (1, False), (0, True)):
         coordinator.start_task_report("buffered task")
         for _ in range(count):
             executor._accumulate_token_usage(response)
+        stream_count = int(mixed_window and count > 0)
+        if stream_count:
+            accumulate_usage(cumulative, stream_usage)
+            tracker.record_request(**stream_usage)
         report = coordinator.finish_task_report(success)
-        assert report["api_prompt_tokens"] == 19 * count
-        assert report["api_completion_tokens"] == 7 * count
-        assert report["api_total_tokens"] == 26 * count
-    assert coordinator.get_token_usage().total_tokens == 104
-    # Token reporting does not pretend the unwired buffered cost tracker was updated.
-    assert tracker.total_tokens == 0
+        assert report["api_prompt_tokens"] == 19 * count + 10 * stream_count
+        assert report["api_completion_tokens"] == 7 * count + 5 * stream_count
+        assert report["api_total_tokens"] == 26 * count + 15 * stream_count
+        # The tracker still counts only streaming requests, not buffered usage.
+        assert report["request_count"] == stream_count
+    streamed_tokens = 15 * int(historical_stream) + 30 * int(mixed_window)
+    assert coordinator.get_token_usage().total_tokens == 104 + streamed_tokens
+    assert tracker.total_tokens == streamed_tokens
 
 
 def test_task_report_promotes_workspace_policy_and_diagnostics():
