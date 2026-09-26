@@ -50,6 +50,7 @@ The older `docs/feps/` 0001/0002 documents form a separate historical series.
 | [FEP-0034](fep-0034-tool-supply-pipeline-consolidation.md) | Tool-Supply Pipeline Consolidation — one per-turn pipeline, one hydration seam, no duplicate selection transports | Draft |
 
 | [FEP-0036](fep-0036-independent-review-panel.md) | Independent review panel with commit-bound advisory verdicts | Draft |
+| [FEP-0037](0037-v1-classify-endpoint.md) | Versioned /v1/classify surface on victor serve — one structured completion, CI-enforced contract | Draft |
 
 ## Submit or Update a Proposal
 
