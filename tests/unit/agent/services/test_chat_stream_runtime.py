@@ -987,3 +987,32 @@ async def test_finalization_uses_explicit_capabilities_without_facade(outcome):
         ctx.cumulative_usage,
         provider_diagnostics=None,
     )
+
+
+@pytest.mark.asyncio
+async def test_service_streaming_runtime_warns_when_usage_fold_context_is_missing(
+    caplog, monkeypatch
+):
+    """A missing lifecycle context means per-turn usage can never reach the
+    session accumulator (the task-report undercount class the v0.10.0
+    promotion audit measured) — the skip must be visible in the log."""
+    import logging
+
+    orch = _make_orchestrator_stub()
+    orch.services.stream_lifecycle.current_context.return_value = None
+    runtime = ServiceStreamingRuntime(orch)
+    chunk = StreamChunk(content="x", is_final=True)
+
+    class DummyExecutor:
+        async def run_unified(self, user_message: str, **kwargs):
+            yield chunk
+
+    service_module = importlib.import_module("victor.agent.services.chat_stream_executor")
+    monkeypatch.setattr(
+        service_module, "create_streaming_chat_executor", lambda owner, **k: DummyExecutor()
+    )
+
+    with caplog.at_level(logging.WARNING, logger="victor.agent.services.chat_stream_runtime"):
+        _ = [c async for c in runtime.stream_chat("hello")]
+
+    assert any("usage fold skipped" in r.message for r in caplog.records)
