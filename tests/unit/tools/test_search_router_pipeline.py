@@ -30,9 +30,27 @@ from victor.agent.tool_executor import ToolExecutionResult
 
 @pytest.fixture
 def mock_tool_registry():
-    """Create a mock tool registry."""
+    """Create a mock tool registry.
+
+    ``get`` mirrors a real registry: registered tools declare their access
+    mode (the tool-replay guard reads it to authorize automatic retries),
+    unknown names resolve to None.
+    """
+    from victor.tools.enums import AccessMode
+
+    class _DeclaredTool:
+        def __init__(self, name: str):
+            self.name = name
+            self.access_mode = AccessMode.READONLY
+
+    known_tools = {
+        "read": _DeclaredTool("read"),
+        "semantic_code_search": _DeclaredTool("semantic_code_search"),
+        "code_search": _DeclaredTool("code_search"),
+    }
     registry = MagicMock()
     registry.is_tool_enabled = MagicMock(return_value=True)
+    registry.get = MagicMock(side_effect=lambda name: known_tools.get(name))
     return registry
 
 

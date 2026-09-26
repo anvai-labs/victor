@@ -40,20 +40,27 @@ async def test_tool_service_execute_tool_with_retry_uses_bound_retry_executor():
 async def test_tool_service_execute_tool_with_retry_uses_service_owned_retry_runtime():
     service = _make_tool_service()
     pipeline = MagicMock()
-    pipeline._execute_single_tool = AsyncMock(
+    pipeline._execute_single_call = AsyncMock(
         return_value=SimpleNamespace(success=True, error=None)
     )
+    # The service-owned retry runtime consults the pipeline's registry to read
+    # the tool's declared access mode before authorizing replay; "read" is a
+    # declared READONLY tool, so the retry must reach the single-call executor.
+    from victor.tools.enums import AccessMode
+
+    read_tool = MagicMock()
+    read_tool.access_mode = AccessMode.READONLY
+    pipeline.tools.get.return_value = read_tool
 
     service.bind_runtime_components(tool_pipeline=pipeline)
 
     result = await service.execute_tool_with_retry("read", {"path": "a.py"}, {"task_type": "read"})
 
-    pipeline._execute_single_tool.assert_awaited_once_with(
-        "read",
-        {"path": "a.py"},
+    pipeline._execute_single_call.assert_awaited_once_with(
+        {"name": "read", "arguments": {"path": "a.py"}},
         {"task_type": "read"},
     )
-    assert result == (pipeline._execute_single_tool.return_value, True, None)
+    assert result == (pipeline._execute_single_call.return_value, True, None)
 
 
 def test_tool_service_parse_and_validate_tool_calls_matches_runtime_contract():
