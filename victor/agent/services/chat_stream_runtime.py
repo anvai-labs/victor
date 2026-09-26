@@ -436,6 +436,23 @@ class ServiceStreamingRuntime(ChatStreamHelperMixin):
             self.services.stream_lifecycle.finish()
             ctx = self.services.stream_lifecycle.current_context()
 
+            if ctx is None:
+                # A missing context means this turn's usage can never reach the
+                # session accumulator — the exact class of silent task-report
+                # undercount the promotion audit flagged. Make it visible.
+                logger.warning(
+                    "[ServiceStreamingRuntime] usage fold skipped: no stream "
+                    "lifecycle context; per-turn tokens will be missing from "
+                    "task reports"
+                )
+            elif not hasattr(ctx, "cumulative_usage"):
+                logger.warning(
+                    "[ServiceStreamingRuntime] usage fold skipped: stream "
+                    "context %s lacks cumulative_usage; per-turn tokens will "
+                    "be missing from task reports",
+                    type(ctx).__name__,
+                )
+
             if ctx is not None:
                 if hasattr(ctx, "cumulative_usage"):
                     self.services.metrics.accumulate_usage(ctx.cumulative_usage)

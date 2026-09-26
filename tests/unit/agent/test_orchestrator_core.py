@@ -5175,3 +5175,44 @@ class TestRateLimitRetry:
         # attempt=2: 120 * 2^2 = 480, capped at 300
         wait_time = cc._get_rate_limit_wait_time(exc, attempt=2)
         assert wait_time == 300.0
+
+
+class TestTaskUsageAccumulatorIdentity:
+    """Promotion-audit guard (2026-09-25, #1186 feedback).
+
+    Every task-report token delta is read from the session accumulator dict.
+    If any path (metrics service, streaming fold, buffered TurnExecutor) ever
+    holds a COPY instead of this exact instance, task reports silently
+    undercount — the failure mode the v0.10.0 promotion audit measured as
+    "0 instead of 26" / "15 instead of 41".
+    """
+
+    def test_metrics_service_reads_the_session_accumulator(self, orchestrator):
+        assert (
+            orchestrator._metrics_coordinator._cumulative_token_usage
+            is orchestrator._cumulative_token_usage
+        )
+
+    def test_session_state_execution_state_is_the_same_dict(self, orchestrator):
+        assert (
+            orchestrator._session_state.execution_state.token_usage
+            is orchestrator._cumulative_token_usage
+        )
+
+    def test_buffered_accumulation_is_visible_to_the_task_report_reader(self, orchestrator):
+        """A fold through the real shared dict must move the value the task
+        report snapshot reads — no per-path copy in between."""
+        from victor.providers.base import CompletionResponse
+        from victor.agent.services.turn_execution_runtime import TurnExecutor
+
+        executor = TurnExecutor.__new__(TurnExecutor)
+        executor._chat_context = orchestrator.protocol_adapter
+        executor._accumulate_token_usage(
+            CompletionResponse(
+                content="",
+                usage={"prompt_tokens": 26, "completion_tokens": 0, "total_tokens": 26},
+            )
+        )
+        assert orchestrator._cumulative_token_usage.get("total_tokens") >= 26
+        snapshot = orchestrator._metrics_coordinator._snapshot_task_usage()
+        assert snapshot.total_tokens >= 26
