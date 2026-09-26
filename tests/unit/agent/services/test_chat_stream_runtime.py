@@ -1016,3 +1016,34 @@ async def test_service_streaming_runtime_warns_when_usage_fold_context_is_missin
         _ = [c async for c in runtime.stream_chat("hello")]
 
     assert any("usage fold skipped" in r.message for r in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_service_streaming_runtime_warns_when_context_lacks_cumulative_usage(
+    caplog, monkeypatch
+):
+    """Second skip path: a lifecycle context object without cumulative_usage
+    must warn (and must not crash the turn) — diff-cover line 449."""
+    import logging
+    from types import SimpleNamespace
+
+    orch = _make_orchestrator_stub()
+    # The lifecycle view reads current_stream_context from the owner (the
+    # capability read is stubbed off) — plant a context WITHOUT the attribute.
+    orch.current_stream_context = SimpleNamespace(other="state")
+    runtime = ServiceStreamingRuntime(orch)
+    chunk = StreamChunk(content="x", is_final=True)
+
+    class DummyExecutor:
+        async def run_unified(self, user_message: str, **kwargs):
+            yield chunk
+
+    service_module = importlib.import_module("victor.agent.services.chat_stream_executor")
+    monkeypatch.setattr(
+        service_module, "create_streaming_chat_executor", lambda owner, **k: DummyExecutor()
+    )
+
+    with caplog.at_level(logging.WARNING, logger="victor.agent.services.chat_stream_runtime"):
+        _ = [c async for c in runtime.stream_chat("hello")]
+
+    assert any("lacks cumulative_usage" in r.message for r in caplog.records)
