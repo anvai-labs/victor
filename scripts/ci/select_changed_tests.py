@@ -28,14 +28,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 
-# A change that maps past this many targets is a *sweeping* edit — a repo-wide
-# rename, license/email-header pass, or formatting run — not a proportional
-# feature change. Selecting its (near-full-suite) target set blows the fast
-# gate's wall-clock budget (observed: a 3,265-file email sweep mapped to
-# thousands of targets and the 25-min job was cancelled at ~5%). Past the cap we
-# select NOTHING and lean on the documented safety net — the sharded full suite
-# at develop->main — exactly as an unmapped change already does. Set well above
-# any real feature PR's footprint so it only trips on mechanical sweeps.
+# Bound the fast gate's wall-clock budget: broad changes must be split or
+# validated by the explicitly sharded full-suite gate. Never silently drop
+# selected tests or unmapped core sources to fit this cap.
 MAX_SELECTED_TARGETS = 200
 
 # Lifecycle contracts span the extracted transport and the older client layout.
@@ -63,6 +58,39 @@ DEPRECATION_NOTICE_FILES = (
     "victor/agent/sqlite_session_persistence.py",
 )
 RELATED_TESTS = {
+    # Descriptive suites own these modules; provider_settings is the retired
+    # path whose replacement is the grouped ProviderSettings contract.
+    "victor/agent/strategies/provider_strategies.py": (
+        "tests/unit/providers/test_provider_components.py",
+    ),
+    "victor/agent/tool_selection/selector.py": ("tests/unit/tools/test_tool_selection.py",),
+    "victor/agent/unified_task_tracker.py": (
+        "tests/unit/classification/test_tracker_classifier_integration.py",
+    ),
+    "victor/config/api_keys.py": (
+        "tests/unit/providers/test_provider_kinds.py",
+        "tests/unit/config/test_account_scoped_credentials.py",
+        "tests/unit/security/test_secure_paths.py",
+    ),
+    "victor/config/groups/provider_config.py": (
+        "tests/unit/config/test_inferflux_default.py",
+        "tests/unit/config/test_settings_stratification.py",
+    ),
+    "victor/config/provider_settings.py": (
+        "tests/unit/config/test_inferflux_default.py",
+        "tests/unit/config/test_settings_stratification.py",
+    ),
+    "victor/config/tool_settings.py": (
+        "tests/unit/config/test_tool_selection_access.py",
+        "tests/unit/config/test_settings_stratification.py",
+    ),
+    "victor/framework/agent_factory.py": (
+        "tests/unit/framework/test_skill_registry_wiring.py",
+        "tests/unit/agent/test_runtime_provider_hardcodes.py",
+    ),
+    "victor/framework/enhanced_completion_evaluation.py": (
+        "tests/unit/framework/test_enhanced_completion_evaluator.py",
+    ),
     "scripts/ci/release_contract.py": ("tests/unit/scripts/test_security_workflow_contract.py",),
     "scripts/check_version_sync.py": ("tests/unit/scripts/test_security_workflow_contract.py",),
     ".github/workflows/release.yml": ("tests/unit/scripts/test_security_workflow_contract.py",),
