@@ -4,7 +4,7 @@ title: "Single-Agent Durable Chat Continuation (pause/resume on approval)"
 type: Standards Track
 status: Draft
 created: 2026-08-01
-modified: 2026-08-01
+modified: 2026-09-25
 authors:
   - name: Vijaykumar Singh
     email: vijay@anvaiops.com
@@ -436,3 +436,39 @@ Status **Draft** — submitted for review. Open questions above are the decision
 
 - Full unit + integration battery per phase; mypy strict; no vertical boundary violations; the
   headless `victor serve` ASK→resume path demonstrated end-to-end.
+
+
+## Exact-action resume amendment (2026-09-25, G61)
+
+A durable approval authorizes one identified call, not an unresolved batch. Newly
+captured single-agent pipeline approvals carry a versioned binding containing the
+provider call ID, canonical JSON proposal and effective argument hashes, tool schema
+and access contract, policy name and policy context scope, and configured executor
+RBAC identity. The paused record adds the original session, request ID and request
+expiry. The in-memory backend snapshots nested data just as SQLite serialization does.
+
+Resume rejects missing/legacy bindings, malformed JSON, changed payloads, duplicate
+IDs, unresolved siblings, expired requests and failed session hydration. Existing
+legacy records remain readable for diagnosis but require a new approval; they are
+never silently upgraded. Resolved siblings are retained without execution. A boolean
+rejection records a tool error without dispatch. The atomic claim remains consumed
+on failure: reopening it could replay an uncertain effect.
+
+An approved call enters the existing service-owned ToolExecutionRuntime, including
+current policy, budget, safety and RBAC. A runtime-only, task-local, one-use grant can
+satisfy only the original ASK. DENY remains authoritative. The executor checks the
+final payload, current contract/identity and expiry after normalization and hooks,
+immediately before dispatch. It also freshly resolves every participating policy
+scope through its trusted context provider; changed session/labels or a failed
+resolution blocks dispatch. Any changed payload requires new approval. The runtime
+owns result injection; resume does not append a second tool message. Missing result
+evidence stops continuation without replay. The grant is removed before later turns.
+
+This amendment deliberately fails closed on unsupported legacy/ambiguous cases.
+Non-durable execution remains unchanged. It does **not** establish authenticated API
+principal/session ownership, tool implementation-version or external data-precondition
+binding, atomic policy-version/budget checks, inline-approval final binding,
+member approval/replay safety, durable action
+receipts, or exactly-once external effects. Configured RBAC identity is a local runtime
+value, not proof of SSO identity. Parallel control-signal/result retention (G70) and
+G62 action reconciliation remain required before claiming the broader acceptance gates.

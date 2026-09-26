@@ -799,6 +799,11 @@ class ToolExecutor:
             except (AttributeError, TypeError, ValueError, RuntimeError) as e:
                 logger.warning("Code correction middleware failed: %s", str(e))
 
+        from victor.framework.approval_binding import current_approval_grant
+
+        if current_approval_grant.get() is not None:
+            skip_cache = True
+
         # Check cache first
         if not skip_cache and self.cache:
             cached_result = self.cache.get(tool_name, normalized_args)
@@ -1205,6 +1210,11 @@ class ToolExecutor:
                 arguments.pop("_exec_ctx", None)
                 # Per-tool timeout: tool-level override then executor default
                 per_attempt_timeout = self._get_tool_timeout(tool)
+                from victor.framework.approval_binding import current_approval_grant
+
+                grant = current_approval_grant.get()
+                if grant is not None:
+                    grant.dispatch(tool, arguments, self.current_user)
                 execution_started = True
                 result = await asyncio.wait_for(
                     tool.execute(_exec_ctx=context, **arguments),
