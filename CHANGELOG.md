@@ -28,6 +28,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Add opt-in `victor review` and framework review panels with strict required-reviewer
+  verdicts, no reviewer tools, bounded input and commit-bound PR provenance. Results
+  are advisory; they do not authorize merges or prove model-review accuracy.
+
 - Add 77 code-search tests covering filters, cache invalidation, index integrity
   and recovery, literal retrieval, and semantic dispatch/fallback without model
   downloads or a live vector database.
@@ -77,8 +81,8 @@ Version metadata is prepared on `develop`; no `v0.10.0` release tag has been pub
   paths change and reuses the existing aggregate runner job.
 - Regenerate the core, API and CPU-embedding deployment locks under shared
   constraints and enforce every lock against project metadata in required CI.
-- Run the primary Python CI matrix on 3.12 and 3.13 while continuing to build
-  Python 3.11 wheels and retain its security-maintenance scan.
+- Require Python 3.12+ for this release candidate and run the primary Python CI
+  matrix on 3.12 and 3.13; Python 3.11 wheels are not part of this candidate.
 - Raise the default bash command timeout from 60 seconds to 120 seconds and
   route GitHub operations through the dedicated `gh` tool rather than `git pr`.
 - Retain existing Victor AI compatibility shims through this release and move

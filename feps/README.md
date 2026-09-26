@@ -49,6 +49,8 @@ The older `docs/feps/` 0001/0002 documents form a separate historical series.
 | [FEP-0033](fep-0033-rl-subsystem-relocation.md) | RL/Prompt-Evolution Subsystem Relocation — out of victor/framework, into an application-level victor.rl | Draft |
 | [FEP-0034](fep-0034-tool-supply-pipeline-consolidation.md) | Tool-Supply Pipeline Consolidation — one per-turn pipeline, one hydration seam, no duplicate selection transports | Draft |
 
+| [FEP-0036](fep-0036-independent-review-panel.md) | Independent review panel with commit-bound advisory verdicts | Draft |
+
 ## Submit or Update a Proposal
 
 1. Start from the [canonical template](fep-0000-template.md).
