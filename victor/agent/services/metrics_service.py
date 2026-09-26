@@ -109,14 +109,7 @@ class _TaskUsageSnapshot:
 
 @dataclass
 class _ActiveTaskReport:
-    """Task report state held while execution is in flight.
-
-    Both usage sources are snapshotted at task start so the finish delta is
-    computed within ONE source: the tracker if it recorded any request during
-    the window (authoritative streaming counts), else the accumulator
-    (buffered-only sessions, handoff G34). Switching sources between the two
-    snapshots would collapse or fabricate the delta.
-    """
+    """Task report state held while execution is in flight."""
 
     task_id: str
     description: str
@@ -124,7 +117,6 @@ class _ActiveTaskReport:
     started_at: float
     metadata: Dict[str, Any]
     snapshot: _TaskUsageSnapshot
-    tracker_snapshot: _TaskUsageSnapshot
 
 
 class AgentMetricsService:
@@ -452,8 +444,7 @@ class AgentMetricsService:
             task_type=task_type or "default",
             started_at=time.time(),
             metadata=dict(metadata or {}),
-            snapshot=self._accumulator_task_usage(),
-            tracker_snapshot=self._tracker_task_usage(),
+            snapshot=self._snapshot_task_usage(),
         )
         return task_id
 
@@ -474,18 +465,8 @@ class AgentMetricsService:
             return {}
 
         finished_at = time.time()
-        final_tracker = self._tracker_task_usage()
-        if active.tracker_snapshot.request_count > 0 or final_tracker.request_count > 0:
-            # The tracker recorded (or recorded within) this window: its counts
-            # are the authoritative streaming usage. Both ends read the tracker
-            # so the delta stays within one source.
-            final_snapshot = final_tracker
-            start_snapshot = active.tracker_snapshot
-        else:
-            # Buffered-only window (no tracker requests): the accumulator is
-            # the only source that moved.
-            final_snapshot = self._accumulator_task_usage()
-            start_snapshot = active.snapshot
+        final_snapshot = self._snapshot_task_usage()
+        start_snapshot = active.snapshot
         merged_metadata = dict(active.metadata)
         if metadata:
             merged_metadata.update(metadata)
@@ -719,15 +700,15 @@ class AgentMetricsService:
             normalized.append(diagnostic)
         return normalized
 
-    def _accumulator_task_usage(self) -> _TaskUsageSnapshot:
-        """Accumulator snapshot: legacy per-process counters.
+    def _snapshot_task_usage(self) -> _TaskUsageSnapshot:
+        """Capture cumulative counters without switching token sources.
 
-        Buffered TurnExecutor calls (including recovery) update this
-        accumulator, and the streaming runtime folds turn usage into the same
-        orchestrator-shared dict — while authoritative streaming counts land
-        in the tracker (see ``_tracker_task_usage``). Tokens from this source
-        are a fallback for sessions where the tracker saw no requests
-        (handoff G34: buffered cost recording is not yet integrated).
+        Buffered TurnExecutor calls (including recovery) and streaming runtime
+        accumulation update the same session dictionary. The cost tracker only
+        records streaming requests, so selecting its token totals would omit
+        buffered usage in mixed sessions or tasks. Never add the two copies.
+        Cost, cache-read/write and request counts retain tracker semantics until
+        buffered cost recording is integrated separately (handoff G34).
         """
         request_count, token_summary, cost_summary = self._tracker_summary()
         return _TaskUsageSnapshot(
@@ -774,25 +755,6 @@ class AgentMetricsService:
         if request_count is None and isinstance(tracker_requests, list):
             request_count = len(tracker_requests)
         return int(request_count or 0), token_summary, cost_summary
-
-    def _tracker_task_usage(self) -> _TaskUsageSnapshot:
-        """Tracker snapshot: the authoritative streaming token source.
-
-        The streaming runtime records usage to the tracker via
-        ``finalize_stream_metrics`` -> ``record_request``; the tracker's token
-        summary is the only source that reflects real API counts there.
-        """
-        request_count, token_summary, cost_summary = self._tracker_summary()
-        return _TaskUsageSnapshot(
-            prompt_tokens=int(token_summary.get("prompt", 0) or 0),
-            completion_tokens=int(token_summary.get("completion", 0) or 0),
-            total_tokens=int(token_summary.get("total", 0) or 0),
-            cached_tokens=0,
-            cache_read_tokens=int(token_summary.get("cache_read", 0) or 0),
-            cache_write_tokens=int(token_summary.get("cache_write", 0) or 0),
-            total_cost_usd=float(cost_summary.get("total", 0.0) or 0.0),
-            request_count=request_count,
-        )
 
     # ========================================================================
     # Metrics Collector Delegation

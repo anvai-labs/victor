@@ -23,6 +23,7 @@ analysis read. This pins the fix: finalized stream metrics emit prompt/completio
 from __future__ import annotations
 
 from typing import Any, Dict, List, Tuple
+from unittest.mock import MagicMock
 
 from victor.agent.metrics_collector import MetricsCollector, MetricsCollectorConfig
 
@@ -103,35 +104,38 @@ def test_zero_usage_still_emits_explicit_token_fields():
 
 
 def _metrics_service():
-    """Wire a real AgentMetricsService over a real SessionCostTracker + collector."""
+    """Wire the real streaming metrics capability, accumulator, tracker and collector."""
+    from victor.agent.factory.chat_runtime_bindings import _ChatStreamMetricsView
+    from victor.agent.services.chat_runtime_services import ChatStreamMetrics
     from victor.agent.services.metrics_service import AgentMetricsService
     from victor.agent.session_cost_tracker import SessionCostTracker
 
     collector, _logger = _collector()
     tracker = SessionCostTracker(provider="ollama", model="qwen3.5:4b")
-    # The legacy cumulative dict that previously (and wrongly) sourced the task report.
+    # This is the same dictionary shared by the production stream and task-report paths.
     cumulative = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
     service = AgentMetricsService(
         metrics_collector=collector,
         session_cost_tracker=tracker,
         cumulative_token_usage=cumulative,
     )
-    return service, collector
+    owner = MagicMock(
+        _metrics_collector=collector,
+        _metrics_coordinator=service,
+        _cumulative_token_usage=cumulative,
+    )
+    return service, ChatStreamMetrics(_ChatStreamMetricsView(owner)), owner
 
 
-def test_task_report_tokens_come_from_session_cost_tracker():
-    # The regression: the task report sourced tokens from `_cumulative_token_usage`, which has
-    # no writer on the service path, so every report read total_tokens=0 even though the turn's
-    # usage was correctly recorded to the SessionCostTracker via finalize_stream_metrics. The
-    # snapshot must read the SAME authoritative tracker the cost/cache fields already use.
-    service, collector = _metrics_service()
+def test_task_report_tokens_follow_streaming_accumulation():
+    service, stream_metrics, _owner = _metrics_service()
 
     service.start_task_report("explain the codebase", task_type="general")
-    # Simulate one finalized streaming turn (records to SessionCostTracker).
-    collector.init_stream_metrics()
-    service.finalize_stream_metrics(
-        {"prompt_tokens": 1000, "completion_tokens": 200, "total_tokens": 1200}
-    )
+    # ServiceStreamingRuntime accumulates each turn before finalizing its tracker record.
+    stream_metrics.begin()
+    usage = {"prompt_tokens": 1000, "completion_tokens": 200, "total_tokens": 1200}
+    stream_metrics.accumulate_usage(usage)
+    stream_metrics.finalize(usage)
     report = service.finish_task_report(True)
 
     assert report["api_prompt_tokens"] == 1000
@@ -142,11 +146,13 @@ def test_task_report_tokens_come_from_session_cost_tracker():
 def test_task_report_tokens_not_double_counted():
     # Guard against over-counting: a single finalized turn must produce a delta equal to that
     # turn's usage, not a multiple of it.
-    service, collector = _metrics_service()
+    service, stream_metrics, _owner = _metrics_service()
 
     service.start_task_report("task", task_type="general")
-    collector.init_stream_metrics()
-    service.finalize_stream_metrics({"prompt_tokens": 500, "completion_tokens": 50})
+    stream_metrics.begin()
+    usage = {"prompt_tokens": 500, "completion_tokens": 50}
+    stream_metrics.accumulate_usage(usage)
+    stream_metrics.finalize(usage)
     report = service.finish_task_report(True)
 
     assert report["api_total_tokens"] == 550
