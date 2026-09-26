@@ -1,42 +1,5 @@
 # Victor MVP Release Readiness
 
-## Focused v0.9.5 co-design candidate
-
-Checkpoint: 2026-09-17. The owner selected a focused v0.9.5 cut from protected main
-`4e4e0d6405b4ff2a353aafa9adce1aac8aa4e993`, excluding unrelated develop changes and the
-broader v0.10.0 promotion. Existing v0.10.0 work is preserved separately, not merged into this cut.
-The candidate contains consumer inclusion/billing/provenance fixes, production-seam regressions,
-and `sandhi-gateway==0.7.0` with contract minor 8. The three deployment snapshots change only
-that exact pin; no dependency refresh or provider-default change is included.
-
-- Local focused accounting, production-stream, transport, session-cost, stream-handler,
-  parsing/conformance and metrics tests: 228 passed with the published Sandhi 0.7.0 binding.
-  The existing real-localhost transport suite also passed 29 tests.
-- Fresh three-repository CPU/stub probes: 18 passed on this focused source and the published
-  Sandhi 0.7.0 binding, using the earlier reviewed InferFlux `3f45fed87` runtime binary, not a
-  build of its later exact-main `12cf` revision. Two additional buffered/streaming localhost
-  probes preserved boolean reasoning inclusion, exact origin timing and billable output through
-  the actual binding. These are model-free wire/consumer checks, not loaded-model evidence.
-- Existing CLI/verb/skill wiring tests: 67 passed with the focused dependency range's
-  Typer 0.25.1, Click 8.5.0 and Rich 15. No later CLI compatibility or skill scheduling fix is included.
-- Version synchronization, docs drift/hygiene, Black/Ruff, targeted mypy (11 source files),
-  whitespace and exact pin-only deployment-snapshot checks passed.
-- Independent source review and second-account approving review: pending; no review bypass.
-- Fresh canonical candidate CI, main promotion and exact-main checks: pending. The unchanged
-  main-baseline unit matrix has 36 shards across Python 3.11, 3.12 and 3.13.
-- Tag/publication and verification of every declared artifact: pending. Historical release or
-  broader-candidate successes are not evidence that this new focused candidate passed.
-- Real loaded-model behavior, performance and production acceptance are not established by
-  local usage fixtures or CPU/stub protocol tests.
-
-Do not dispatch publication as a dry run, move an existing tag, or infer an artifact's success
-from another job. Retain the release workflow's declared Python/native/binary/extension/Docker
-outputs and checksums/SBOM checks as separate verification obligations. The
-[consumer handoff](architecture/inferflux-reasoning-separation-handoff.md) records the bounded
-runtime change; the [roadmap](roadmap.md) retains deferred feature and production gates.
-
-## Historical v0.9.0 closeout
-
 Date: 2026-08-20
 Scope: v0.9.0 release closeout, including promotion CI, release automation, artifacts, and public
 registry verification.

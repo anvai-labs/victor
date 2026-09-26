@@ -20,6 +20,14 @@ from victor.storage.cache.tool_cache import ToolCache, _hash_args
 from victor.storage.cache.config import CacheConfig
 
 
+@pytest.fixture(autouse=True)
+def isolated_cache_directory(tmp_path, monkeypatch):
+    # These tests clear caches; never use the developer's persistent cache.
+    from victor.config.settings import ProjectPaths
+
+    monkeypatch.setattr(ProjectPaths, "global_cache_dir", property(lambda self: tmp_path / "cache"))
+
+
 class TestHashArgs:
     """Tests for _hash_args function."""
 

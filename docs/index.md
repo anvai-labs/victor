@@ -1,9 +1,13 @@
 # Victor AI Framework — Documentation
 
-> **Contract-first, service-first agentic AI framework** for building agents that reason,
-> call tools, execute DAG workflows, and coordinate multi-agent teams across 25 LLM providers.
+!!! abstract "Start here"
 
-**Version**: {{ victor_version }} | **License**: Apache-2.0 | **Python**: 3.11+
+    Victor is a contract-first agent framework for tool use, compiled workflows and
+    multi-agent coordination across local and cloud providers.
+
+    **Published baseline:** Victor AI 0.9.5. **Development line:** 0.10.0 candidate.
+
+**Version**: {{ victor_version }} | **License**: Apache-2.0 | **Python**: 3.12+
 
 ---
 
@@ -25,20 +29,56 @@ title: Victor system overview
 ---
 %%{init: {"theme":"base","themeVariables":{"primaryColor":"#E8EFF7","primaryTextColor":"#17324D","primaryBorderColor":"#456987","lineColor":"#456987","fontFamily":"Arial"}}}%%
 flowchart TB
-  C["Clients<br/>CLI · TUI · HTTP · MCP · VS Code"]
-  F["Framework<br/>VictorClient · AgentFactory<br/>Agent · WorkflowEngine · StateGraph"]
-  R["Runtime<br/>AgentOrchestrator facade<br/>chat, tool and session services"]
-  I["Infrastructure<br/>providers · tools · storage · core"]
+  subgraph C["Clients"]
+    CS["CLI · TUI · HTTP · MCP · VS Code"]
+  end
+  subgraph F["Framework · public API"]
+    VC["VictorClient<br/>application/session API"]
+    AG["Agent · AgentFactory<br/>agent lifecycle"]
+    WF["WorkflowEngine · StateGraph<br/>workflow authoring"]
+  end
+  subgraph R["Runtime · internal"]
+    OR["AgentOrchestrator<br/>composition facade"]
+    SV["Chat · tool · session services<br/>owned behavior"]
+    WR["Workflow runtime<br/>compiler · executor · CompiledGraph"]
+  end
+  subgraph I["Infrastructure"]
+    IN["providers · tools · storage · core"]
+  end
   V["External vertical definitions"]
-  S["victor_contracts"]
-  C -->|"call public APIs"| F
-  F -->|"construct and delegate"| R
-  R -->|"perform effectful operations"| I
-  V -->|"declare capabilities"| S
-  F -.->|"consume contracts"| S
+  S["victor_contracts<br/>portable definitions"]
+  CS -->|"call"| VC
+  CS -->|"create or embed"| AG
+  CS -->|"submit workflows"| WF
+  VC -->|"delegate"| OR
+  AG -->|"construct and delegate"| OR
+  WF -->|"compile and execute"| WR
+  OR -->|"delegate behavior"| SV
+  SV -->|"use"| IN
+  WR -->|"use"| IN
+  V -->|"import only"| S
+  AG -.->|"consume contracts"| S
+  WF -.->|"consume contracts"| S
 ```
 
 **Start here** → [System Architecture](architecture.md) for the full picture.
+
+---
+
+## Delivery State
+
+| Surface | v0.9.5 public release | Current `develop` |
+| --- | --- | --- |
+| Sandhi consumer accounting | Published | Published behavior plus later lifecycle fixes |
+| Tool supply | Existing selection runtime | Unified turn pipeline and demand hydration integrated |
+| Teams | Six core formations | Expanded formations, isolation and usage guards |
+| Chat ownership | Earlier service slices | Turn frame, planning and stream controls migrated |
+| Toolchain | Node 22.12 or 24 extension support | Node 24 minimum; Python 3.12/3.13 CI |
+
+!!! note
+
+    Pages deploys from `main`. Pull requests build a preview; the current `develop`
+    documentation publishes with the next main promotion.
 
 ---
 
@@ -57,10 +97,11 @@ flowchart TB
 
 | Document | Description |
 |----------|-------------|
-| [Orchestrator Decomposition](architecture/orchestrator_decomposition.md) | Facade pattern, 6 services, 23 coordinators, 10 boundary modules |
+| [Orchestrator Decomposition](architecture/orchestrator_decomposition.md) | Historical extraction record; current ownership links back here |
 | [SDK Boundary](architecture/CONTRACTS_BOUNDARY.md) | Plugin/vertical/extension contracts and import rules |
 | [State-Passed Architecture](architecture/state-passed-architecture.md) | Coordinator patterns, ContextSnapshot, CoordinatorResult |
-| [Streaming Pipeline](architecture/streaming-pipeline.md) | Streaming execution pipeline design |
+| [Native Acceleration Strategy](architecture/native-acceleration-strategy.md) | Measured Python/Rust/FFI decision rules and platform plan |
+| [Streaming Runtime](architecture/streaming-pipeline.md) | Current turn flow, capability ownership and lifecycle guards |
 | [Smart Routing](architecture/smart_routing.md) | Provider routing and selection |
 | [Edge Provider Strategy](architecture/edge-provider-tool-strategy.md) | Edge model decisions |
 | [InferFlux Reasoning Contract](architecture/inferflux-reasoning-separation-handoff.md) | Reasoning stream and usage contract consumed through Sandhi |
@@ -165,7 +206,8 @@ Contributions use conventional commits and the checks documented in the PR workf
 
 ## Current work and historical evidence
 
-The [roadmap](roadmap.md) distinguishes the 0.9.3 release snapshot from remaining Stage C work.
+The [roadmap](roadmap.md) distinguishes the published 0.9.5 baseline from the 0.10.0
+development candidate and remaining Stage C work.
 The [September co-design review](reviews/2026-09-03-codesign/README.md) preserves dated findings;
 merged design documents do not imply their implementation has shipped. See the
 [documentation source index](https://github.com/anvai-labs/victor/blob/develop/docs/README.md) for canonical ownership and historical-record conventions.

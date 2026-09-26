@@ -15,7 +15,7 @@
 """SQLite-based session persistence for Victor conversations.
 
 .. deprecated:: 0.7.0
-    This module is DEPRECATED and will be removed in version 0.10.0.
+    This module is DEPRECATED and will be removed in version 0.11.0.
     Use ``ConversationStore`` from ``victor.agent.conversation.store`` instead.
 
 Migration guide:
@@ -62,7 +62,7 @@ class SQLiteSessionPersistence:
     .. deprecated:: 0.7.0
         Use ``ConversationStore`` from
         ``victor.agent.conversation.store`` instead. This class
-        will be removed in version 0.10.0.
+        will be removed in version 0.11.0.
 
     Stores conversation sessions and messages in the project database,
     providing fast queries and eliminating JSON file duplication.
@@ -100,10 +100,10 @@ class SQLiteSessionPersistence:
 
         .. deprecated:: 0.7.0
             Use ConversationStore from victor.agent.conversation.store instead.
-            This class will be removed in version 0.10.0.
+            This class will be removed in version 0.11.0.
         """
         warnings.warn(
-            "SQLiteSessionPersistence is deprecated and will be removed in v0.10.0. "
+            "SQLiteSessionPersistence is deprecated and will be removed in v0.11.0. "
             "Migrate to ConversationStore from victor.agent.conversation.store. "
             "See module docstring for migration guide. "
             "All features have feature parity in ConversationStore.",
@@ -710,7 +710,7 @@ def get_sqlite_session_persistence(
 
     .. deprecated:: 0.7.0
         Use ``ConversationStore`` from ``victor.agent.conversation.store`` instead.
-        This function will be removed in version 0.10.0.
+        This function will be removed in version 0.11.0.
 
     Args:
         db_path: Optional database path (for testing). If not provided,
@@ -734,7 +734,7 @@ def get_sqlite_session_persistence(
 
     warnings.warn(
         "get_sqlite_session_persistence() is deprecated. Use ConversationStore from "
-        "victor.agent.conversation.store instead. This will be removed in version 0.10.0.",
+        "victor.agent.conversation.store instead. This will be removed in version 0.11.0.",
         DeprecationWarning,
         stacklevel=2,
     )

@@ -298,3 +298,5 @@ docs/diagrams/**/*.png
 /output/
 /tmp_cache/
 /victor_test/
+changed-coverage.xml
+.venv-codesign/

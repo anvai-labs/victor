@@ -9,6 +9,9 @@ from victor.agent.metrics_collector import MetricsCollector, MetricsCollectorCon
 from victor.agent.services.chat_delivery import ChatDelivery
 from victor.agent.services.chat_runtime_services import (
     ChatRuntimeServices,
+    ChatStreamLifecycle,
+    ChatStreamMetrics,
+    ChatTaskState,
     SessionTaskRequirementState,
 )
 from victor.agent.services.chat_stream_helpers import ChatStreamHelperMixin
@@ -21,12 +24,44 @@ from victor.agent.streaming.context import StreamingChatContext
 from victor.config.metrics_capabilities import ProviderMetricsCapabilities
 from victor.providers.base import StreamChunk
 from victor.providers.usage_parsing import usage_dict_from_neutral
+from victor.providers.usage_accounting import accumulate_usage
+
+
+class _MetricsRuntime:
+    def __init__(self, collector, coordinator, cumulative):
+        self.collector = collector
+        self.coordinator = coordinator
+        self.cumulative = cumulative
+
+    def begin(self):
+        return self.collector.init_stream_metrics()
+
+    def record_first_token(self):
+        self.collector.record_first_token()
+
+    def accumulate_usage(self, usage_data):
+        accumulate_usage(self.cumulative, usage_data)
+
+    def finalize(self, usage_data, *, provider_diagnostics=None):
+        return self.coordinator.finalize_stream_metrics(
+            usage_data,
+            provider_diagnostics=provider_diagnostics,
+        )
 
 
 class Helper(ChatStreamHelperMixin):
     def __init__(self, orchestrator):
         self._orchestrator = orchestrator
-        self.services = SimpleNamespace(delivery=ChatDelivery(sanitizer=orchestrator.sanitizer))
+        self.services = SimpleNamespace(
+            delivery=ChatDelivery(sanitizer=orchestrator.sanitizer),
+            metrics=ChatStreamMetrics(
+                _MetricsRuntime(
+                    orchestrator._metrics_collector,
+                    orchestrator._metrics_coordinator,
+                    orchestrator._cumulative_token_usage,
+                )
+            ),
+        )
 
 
 @pytest.mark.parametrize(
@@ -58,9 +93,11 @@ async def test_terminal_usage_reaches_session_cost_and_canonical_record(
         "victor.config.metrics_capabilities.get_metrics_capabilities", lambda *_args: capabilities
     )
     tracker = SessionCostTracker(_capabilities=capabilities)
+    cumulative = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
     service = AgentMetricsService(
-        metrics_collector=collector, session_cost_tracker=tracker, cumulative_token_usage={}
+        metrics_collector=collector, session_cost_tracker=tracker, cumulative_token_usage=cumulative
     )
+    service.start_task_report("streamed task")
     ctx = StreamingChatContext(user_message="x", total_iterations=1)
     ctx.stream_metrics = collector.init_stream_metrics()
     orch = SimpleNamespace(
@@ -72,7 +109,7 @@ async def test_terminal_usage_reaches_session_cost_and_canonical_record(
         sanitizer=SimpleNamespace(is_garbage_content=lambda _c: False, sanitize=lambda c: c),
         _metrics_collector=collector,
         _metrics_coordinator=service,
-        _cumulative_token_usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+        _cumulative_token_usage=cumulative,
     )
     helper = Helper(orch)
     for completion, reasoning, included in calls:
@@ -106,20 +143,17 @@ async def test_terminal_usage_reaches_session_cost_and_canonical_record(
     assert ctx.cumulative_usage["billable_completion_tokens"] == expected_output
     assert ctx.cumulative_usage["total_tokens"] == expected_prompt + expected_output
 
+    lifecycle = MagicMock()
+    lifecycle.current_context.return_value = ctx
     runtime = ServiceStreamingRuntime(
         orch,
         services=ChatRuntimeServices(
-            SessionTaskRequirementState(SessionStateAccessor(SessionStateManager()))
+            SessionTaskRequirementState(SessionStateAccessor(SessionStateManager())),
+            ChatStreamLifecycle(lifecycle),
+            metrics=helper.services.metrics,
+            task_state=ChatTaskState(MagicMock()),
         ),
     )
-    bindings = SimpleNamespace(
-        state_host=orch,
-        state_dict={},
-        get_capability_value=lambda name, default=None: (
-            ctx if name == "current_stream_context" else default
-        ),
-    )
-    monkeypatch.setattr(runtime, "_get_runtime_bindings", lambda *a, **k: bindings)
 
     class Executor:
         async def run_unified(self, _message, **_kwargs):
@@ -129,6 +163,7 @@ async def test_terminal_usage_reaches_session_cost_and_canonical_record(
     monkeypatch.setattr(runtime, "get_executor", lambda: Executor())
     async for _ in runtime.stream_chat("x"):
         pass
+    lifecycle.clear_context.assert_called_once_with(ctx)
 
     expected_cost = (expected_prompt + expected_output * 10) / 1_000_000
     metrics = collector.get_last_stream_metrics()
@@ -142,6 +177,12 @@ async def test_terminal_usage_reaches_session_cost_and_canonical_record(
     assert tracker.total_cost == pytest.approx(expected_cost)
     assert tracker.total_tokens == expected_prompt + expected_output
     assert orch._cumulative_token_usage["total_tokens"] == expected_prompt + expected_output
+    report = service.finish_task_report(True)
+    assert report["api_prompt_tokens"] == expected_prompt
+    assert report["api_completion_tokens"] == raw_completion
+    assert report["api_total_tokens"] == expected_prompt + expected_output
+    assert report["total_cost_usd"] == pytest.approx(expected_cost)
+    assert report["request_count"] == 1
     record = [
         call.args[1]
         for call in logger.log_event.call_args_list

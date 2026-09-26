@@ -76,6 +76,7 @@ from typing import (
     TYPE_CHECKING,
 )
 
+from victor.core.async_utils import aclosing_if_supported
 from victor.agent.turn_policy import (
     FulfillmentCriteriaBuilder,
     NudgePolicy,
@@ -97,6 +98,7 @@ from victor.framework.evaluation_nodes import (
     EvaluationResult,
     create_agentic_loop_graph,
 )
+from victor.framework import response_classification
 from victor.framework.fulfillment import FulfillmentDetector, TaskType
 from victor.framework.perception_integration import Perception, PerceptionIntegration
 from victor.framework.runtime_evaluation_policy import RuntimeEvaluationPolicy
@@ -827,6 +829,8 @@ class AgenticLoop:
         from victor.framework.agentic_loop_executor import use_stategraph_executor
 
         if use_stategraph_executor():
+            if getattr(self, "_verifier", None) is not None:
+                raise NotImplementedError("StateGraph execution does not support verification")
             return await self._run_with_stategraph(
                 query=query,
                 context=context,
@@ -857,7 +861,10 @@ class AgenticLoop:
         _sem_cache = None
         from victor.core.feature_flags import FeatureFlag, is_feature_enabled
 
-        if is_feature_enabled(FeatureFlag.USE_SEMANTIC_RESPONSE_CACHE):
+        # Cached prose does not establish that this workspace's artifacts verify.
+        if getattr(self, "_verifier", None) is None and is_feature_enabled(
+            FeatureFlag.USE_SEMANTIC_RESPONSE_CACHE
+        ):
             try:
                 from victor.agent.semantic_response_cache import get_semantic_cache
 
@@ -1343,6 +1350,8 @@ class AgenticLoop:
                 # DECIDE
                 logger.info(f"[Iteration {i}/{effective_max}] DECIDE: {evaluation.decision}")
                 iteration.stage = LoopStage.DECIDE
+                if getattr(self, "_verifier", None) is not None:
+                    iteration.evaluation = evaluation
                 iterations.append(iteration)
 
                 # Check termination conditions
@@ -1351,6 +1360,8 @@ class AgenticLoop:
                 # be considered done yet.
                 if evaluation.decision == EvaluationDecision.COMPLETE:
                     evaluation = self._apply_backslide_guard(evaluation)
+                    if getattr(self, "_verifier", None) is not None:
+                        iteration.evaluation = evaluation
                     # FEP-0018: framework verification hook — verify before accepting.
                     if await self._maybe_verify_and_retry(i, evaluation, state, streaming=False):
                         continue  # re-enter the loop (skip break)
@@ -1644,19 +1655,26 @@ class AgenticLoop:
     ) -> bool:
         """FEP-0018 verify gate, shared by ``run()`` and ``run_streaming()``.
 
-        After the agent claims COMPLETE (post backslide-guard), run the verifier if
-        one is set and retries remain. On failure, inject the feedback, bump the retry
-        counter, and return ``True`` so the caller re-enters the loop; otherwise return
-        ``False`` and let the caller accept COMPLETE. Extracted so the gate lives in one
-        place instead of two byte-drifting copies (FEP-0021 / FP-3 residue).
+        Verify every COMPLETE claim when a verifier is configured, including the
+        final allowed retry. Failed checks downgrade the shared evaluation to RETRY
+        or FAIL so iteration exhaustion and reward emission cannot retain COMPLETE.
+        Return True only when another verification retry is granted. The same gate
+        serves buffered and streaming execution (FEP-0021 / FP-3 residue).
         """
         if not (
             evaluation.decision == EvaluationDecision.COMPLETE
             and getattr(self, "_verifier", None) is not None
-            and getattr(self, "_verify_retries", 0) < getattr(self, "_max_verify_retries", 0)
         ):
             return False
         vr = await self._run_verification(state)
+        state["verification"] = {
+            "passed": vr.passed,
+            "total": vr.total,
+            "verified": vr.is_verified,
+            "retries_used": self._verify_retries,
+            "max_retries": self._max_verify_retries,
+        }
+        evaluation.metadata["verification"] = dict(state["verification"])
         logger.info(
             "Turn %d verify%s: %d/%d (%s) retries=%d/%d",
             turn,
@@ -1667,10 +1685,17 @@ class AgenticLoop:
             self._verify_retries + 1,
             self._max_verify_retries,
         )
-        if not vr.is_verified:
+        if vr.is_verified:
+            return False
+        evaluation.score = 0.0
+        evaluation.reason = vr.feedback or "Verification did not pass all checks"
+        if self._verify_retries < self._max_verify_retries:
+            evaluation.decision = EvaluationDecision.RETRY
             self._inject_verify_feedback(vr)
             self._verify_retries += 1
             return True
+        evaluation.decision = EvaluationDecision.FAIL
+        evaluation.reason += "; verification retry budget exhausted"
         return False
 
     def _resolve_workspace(self, state: Dict[str, Any]) -> Optional[Path]:
@@ -1849,15 +1874,18 @@ class AgenticLoop:
 
             # ACT (streaming) — yields chunks; produces a TurnResult via the outcome holder.
             act_outcome = StreamingTurnOutcome()
-            async for chunk in self.streaming_act_port.stream_turn_act(
-                query=query,
-                state=state,
-                perception=perception,
-                plan=plan,
-                turn_index=i,
-                outcome=act_outcome,
-            ):
-                yield chunk
+            async with aclosing_if_supported(
+                self.streaming_act_port.stream_turn_act(
+                    query=query,
+                    state=state,
+                    perception=perception,
+                    plan=plan,
+                    turn_index=i,
+                    outcome=act_outcome,
+                )
+            ) as stream:
+                async for chunk in stream:
+                    yield chunk
             action_result = act_outcome.turn_result
             state["action_result"] = action_result
 
@@ -1911,6 +1939,10 @@ class AgenticLoop:
         Yields:
             LoopIteration for each iteration
         """
+        if getattr(self, "_verifier", None) is not None:
+            raise NotImplementedError(
+                "Iteration streaming does not support verification; use run or run_streaming"
+            )
         from victor.framework.agentic_loop_executor import use_stategraph_executor
 
         if use_stategraph_executor():
@@ -2871,115 +2903,16 @@ class AgenticLoop:
         )
 
     def _is_continuation_request(self, response: str) -> bool:
-        """Check if response is asking for continuation direction.
-
-        Args:
-            response: The model's response text
-
-        Returns:
-            True if response is asking for continuation, False otherwise
-        """
-        if not response:
-            return False
-
-        response_lower = response.lower()
-
-        continuation_patterns = [
-            "would you like me to",
-            "should i continue",
-            "do you want me to",
-            "shall i proceed",
-            "let me know if you'd like",
-            "would you prefer i",
-        ]
-
-        return any(pattern in response_lower for pattern in continuation_patterns)
+        """Check if response is asking for continuation direction."""
+        return response_classification.is_continuation_request(response)
 
     def _is_intent_only_response(self, response: str) -> bool:
-        """Return True when the response is pure future-intent narration.
+        """True when the response is pure future-intent narration.
 
-        Phrases like "I'll now read…" or "Let me analyze…" describe planned
-        actions rather than completed work.  Treating them as final answers
-        causes the loop to exit before any tools are actually invoked.
-
-        Two checks are applied:
-          1. First-line prefix check (preserves legacy behavior) so responses
-             that start with intent but contain substantive findings are
-             still allowed through.
-          2. Meta-deliberation density check across the FULL response. This
-             catches the failure mode where the model narrates imminent
-             action ("Executing now", "Going now", "Calling now", "Making the
-             call", "no more deliberation") without ever invoking a tool.
-             Such narration must NOT be treated as a complete answer, or the
-             agent loop exits before any tool runs. Only fires when there is
-             no substantive payload (no code blocks / result-like content).
+        Shared implementation: victor.framework.response_classification
+        (EnhancedCompletionEvaluator used to carry a hand-synced copy).
         """
-        if not response:
-            return False
-        first_line = response.strip().split("\n")[0].strip().lower()
-        intent_prefixes = (
-            "i'll now ",
-            "i'll ",
-            "i will now ",
-            "i will ",
-            "let me now ",
-            "let me ",
-            "now i'll ",
-            "now i will ",
-            "i'm going to ",
-            "i am going to ",
-            "i'm now ",
-            "i am now ",
-            "next, i'll ",
-            "next i'll ",
-        )
-        if any(first_line.startswith(p) for p in intent_prefixes):
-            return True
-
-        # Meta-deliberation narration density check (full response).
-        # Real findings usually carry a payload (a fenced code block or a
-        # tool-result-style table). Narration-only responses do not, so we
-        # gate the density signal on the absence of such payloads.
-        if "```" in response:
-            return False
-        lowered = response.lower()
-        if lowered.count("|") >= 3 and "---" in lowered:
-            return False  # Markdown table — looks like a result dump, not narration
-
-        deliberation_markers = (
-            "executing now",
-            "executing.",
-            "going now",
-            "going.",
-            "calling now",
-            "calling.",
-            "running now",
-            "running.",
-            "making the call",
-            "making the request",
-            "let me make the call",
-            "no more deliberation",
-            "stop the meta-deliberation",
-            "stop deliberating",
-            "done deliberating",
-            "just execute",
-            "executing the",
-            "polling",
-            "no sleep",
-            "pure status read",
-            "going. (",
-            "done. (",
-            "final. (",
-            "(no sleep)",
-            "(no more deliberation)",
-            "(will act on results",
-            "(finally.)",
-            "(stop. calling.)",
-        )
-        marker_hits = sum(1 for m in deliberation_markers if m in lowered)
-        # 3+ distinct imminent-action markers without a payload is strong
-        # evidence of meta-deliberation narration, not a real answer.
-        return marker_hits >= 3
+        return response_classification.is_intent_only_response(response)
 
     @staticmethod
     def _build_rubric_evaluator(strategy: str, rubric_complete_fn: Any):
@@ -3094,6 +3027,12 @@ class AgenticLoop:
         is_substantial = len(content) > 100
         if not (had_prior_tool_usage or is_substantial):
             return False
+        # Before ANY tool usage, a future-tense plan is narration, not a
+        # delivered answer ("Let me create the file...") — accepting it as
+        # terminal let zero-work turns complete (observed in multi-agent runs:
+        # write-capable members finished without calling a single tool).
+        if not had_prior_tool_usage and self._is_future_intent_narration(content):
+            return False
         # A refusal / "I can't do this" is not a delivered answer. Treating it as
         # terminal would force a high-confidence COMPLETE (success=True) for a turn
         # that declined the task — so exclude it like narration and questions.
@@ -3103,32 +3042,17 @@ class AgenticLoop:
             and not self._is_refusal_response(content)
         )
 
-    # Phrases where the model declines/aborts the task itself (not findings like
-    # "I cannot find any bugs"). Kept tight to avoid misclassifying real answers.
-    _REFUSAL_MARKERS = (
-        "i can't read",
-        "i cannot read",
-        "i can't access",
-        "i cannot access",
-        "unable to read",
-        "unable to access",
-        "i'm unable to",
-        "i am unable to",
-        "cannot comply",
-        "can't comply",
-        "the information needed",  # "...don't have the information needed..."
-        "i can't provide a grounded",
-        "can't give a grounded",
-        "i'm sorry, but i can't",
-        "i am sorry, but i can't",
-    )
+    def _is_future_intent_narration(self, content: str) -> bool:
+        """True when the response OPENS as a plan for future work.
+
+        First-line startswith only: a substantive answer that contains
+        "Let me show an example" mid-text is a real answer, not narration.
+        """
+        return response_classification.is_future_intent_narration(content)
 
     def _is_refusal_response(self, content: str) -> bool:
         """True when the final answer declines/aborts the task (a non-answer)."""
-        if not content:
-            return False
-        lowered = content.lower()
-        return any(marker in lowered for marker in self._REFUSAL_MARKERS)
+        return response_classification.is_refusal_response(content)
 
     async def _evaluate(
         self,

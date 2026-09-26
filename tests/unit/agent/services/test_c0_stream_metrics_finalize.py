@@ -26,6 +26,9 @@ from unittest.mock import MagicMock
 from victor.agent.services.chat_stream_runtime import ServiceStreamingRuntime
 from victor.agent.services.chat_runtime_services import (
     ChatRuntimeServices,
+    ChatStreamLifecycle,
+    ChatStreamMetrics,
+    ChatTaskState,
     SessionTaskRequirementState,
 )
 from victor.agent.session_state_accessor import SessionStateAccessor
@@ -43,27 +46,20 @@ def _usage(p: int, c: int) -> dict:
 
 
 async def test_stream_chat_finalizes_metrics_with_cumulative_usage(monkeypatch):
-    orch = SimpleNamespace(_finalize_stream_metrics=MagicMock())
+    orch = SimpleNamespace()
+    metrics = MagicMock()
+    ctx = SimpleNamespace(cumulative_usage=_usage(120, 40))
+    lifecycle = MagicMock()
+    lifecycle.current_context.return_value = ctx
     rt = ServiceStreamingRuntime(
         orch,
         services=ChatRuntimeServices(
-            SessionTaskRequirementState(SessionStateAccessor(SessionStateManager()))
+            SessionTaskRequirementState(SessionStateAccessor(SessionStateManager())),
+            ChatStreamLifecycle(lifecycle),
+            metrics=ChatStreamMetrics(metrics),
+            task_state=ChatTaskState(MagicMock()),
         ),
     )
-
-    ctx = SimpleNamespace(cumulative_usage=_usage(120, 40))
-    state_dict = {
-        "_current_stream_context": ctx,
-        "_cumulative_token_usage": _usage(0, 0),
-    }
-    bindings = SimpleNamespace(
-        state_host=orch,
-        state_dict=state_dict,
-        get_capability_value=lambda name, default=None: (
-            ctx if name == "current_stream_context" else default
-        ),
-    )
-    monkeypatch.setattr(rt, "_get_runtime_bindings", lambda *a, **k: bindings)
 
     class _Executor:
         async def run_unified(self, user_message, **kwargs):
@@ -76,33 +72,30 @@ async def test_stream_chat_finalizes_metrics_with_cumulative_usage(monkeypatch):
         pass
 
     # The wire is closed: metrics are finalized exactly once with the turn's usage.
-    orch._finalize_stream_metrics.assert_called_once()
-    called_usage = orch._finalize_stream_metrics.call_args[0][0]
+    metrics.accumulate_usage.assert_called_once_with(ctx.cumulative_usage)
+    metrics.finalize.assert_called_once()
+    called_usage = metrics.finalize.call_args[0][0]
     assert called_usage["prompt_tokens"] == 120
     assert called_usage["completion_tokens"] == 40
+    lifecycle.clear_context.assert_called_once_with(ctx)
 
 
 async def test_finalize_failure_does_not_break_the_stream(monkeypatch):
-    orch = SimpleNamespace(_finalize_stream_metrics=MagicMock(side_effect=RuntimeError("boom")))
+    orch = SimpleNamespace()
+    metrics = MagicMock()
+    metrics.finalize.side_effect = RuntimeError("boom")
+    ctx = SimpleNamespace(cumulative_usage=_usage(10, 5))
+    lifecycle = MagicMock()
+    lifecycle.current_context.return_value = ctx
     rt = ServiceStreamingRuntime(
         orch,
         services=ChatRuntimeServices(
-            SessionTaskRequirementState(SessionStateAccessor(SessionStateManager()))
+            SessionTaskRequirementState(SessionStateAccessor(SessionStateManager())),
+            ChatStreamLifecycle(lifecycle),
+            metrics=ChatStreamMetrics(metrics),
+            task_state=ChatTaskState(MagicMock()),
         ),
     )
-    ctx = SimpleNamespace(cumulative_usage=_usage(10, 5))
-    state_dict = {
-        "_current_stream_context": ctx,
-        "_cumulative_token_usage": _usage(0, 0),
-    }
-    bindings = SimpleNamespace(
-        state_host=orch,
-        state_dict=state_dict,
-        get_capability_value=lambda name, default=None: (
-            ctx if name == "current_stream_context" else default
-        ),
-    )
-    monkeypatch.setattr(rt, "_get_runtime_bindings", lambda *a, **k: bindings)
 
     class _Executor:
         async def run_unified(self, user_message, **kwargs):
@@ -114,4 +107,6 @@ async def test_finalize_failure_does_not_break_the_stream(monkeypatch):
     # Finalize raising must not propagate out of the stream (it's best-effort).
     async for _ in rt.stream_chat("hi"):
         pass
-    orch._finalize_stream_metrics.assert_called_once()
+    metrics.accumulate_usage.assert_called_once_with(ctx.cumulative_usage)
+    metrics.finalize.assert_called_once()
+    lifecycle.clear_context.assert_called_once_with(ctx)

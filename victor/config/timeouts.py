@@ -74,7 +74,7 @@ class TimeoutConfig:
     # =========================================================================
 
     # Default bash command timeout
-    BASH_DEFAULT: int = 60
+    BASH_DEFAULT: int = 120
 
     # Quick commands (git status, ls, etc.)
     BASH_QUICK: int = 30

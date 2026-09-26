@@ -45,7 +45,7 @@ from victor.agent.subagents.orchestrator import (
     FanOutResult,
     SubAgentTask,
 )
-from victor.core.errors import ProviderRateLimitError
+from victor.core.errors import ProviderAuthError, ProviderRateLimitError
 
 # =============================================================================
 # SubAgentRole Tests
@@ -68,11 +68,6 @@ class TestSubAgentRole:
         assert SubAgentRole.EXECUTOR.value == "executor"
         assert SubAgentRole.REVIEWER.value == "reviewer"
         assert SubAgentRole.TESTER.value == "tester"
-
-    def test_roles_are_iterable(self):
-        """Verify we can iterate over roles."""
-        roles = list(SubAgentRole)
-        assert len(roles) == 5
 
 
 # =============================================================================
@@ -425,7 +420,34 @@ class TestSubAgent:
             result = await subagent._execute_with_retry()
 
         assert result is response
+        assert subagent.orchestrator.chat.await_count == 2
         sleep_mock.assert_awaited_once_with(17.0)
+
+    @pytest.mark.parametrize("status", [401, 403])
+    async def test_execute_reports_auth_failure_without_replaying_task(
+        self, sample_config, mock_parent_orchestrator, status
+    ):
+        """A later successful response must not hide the first authorization denial."""
+        subagent = SubAgent(sample_config, mock_parent_orchestrator)
+        subagent.orchestrator = SimpleNamespace(
+            chat=AsyncMock(
+                side_effect=[
+                    ProviderAuthError("Access denied", provider="sandhi", status_code=status),
+                    SimpleNamespace(content="unexpected replay", metadata={}),
+                ]
+            ),
+            tool_calls_used=0,
+            get_messages=lambda: [],
+        )
+
+        with patch("asyncio.sleep", new_callable=AsyncMock) as sleep_mock:
+            result = await subagent.execute()
+
+        subagent.orchestrator.chat.assert_awaited_once_with(sample_config.task)
+        sleep_mock.assert_not_awaited()
+        assert result.success is False
+        assert result.details["error_type"] == "ProviderAuthError"
+        assert f"status_code={status}" in result.error
 
     @pytest.mark.asyncio
     async def test_execute_runs_context_lifecycle_and_adds_parent_handoff(
@@ -910,3 +932,46 @@ class TestOrchestratorSubAgentIntegration:
         # Call the property getter directly
         result = AgentOrchestrator.subagent_orchestrator.fget(mock_orchestrator)
         assert result is None
+
+
+class TestMemberSessionIdResolution:
+    """Single derivation for the member session id (provider KV-cache key)."""
+
+    def _config(self, **overrides):
+        from victor.agent.subagents.base import SubAgentConfig, SubAgentRole
+
+        defaults = {
+            "role": SubAgentRole.EXECUTOR,
+            "task": "demo",
+            "allowed_tools": ["read", "shell"],
+            "tool_budget": 5,
+            "context_limit": 30000,
+            "member_id": "m1",
+            "agent_id": "agent_m1",
+            "parent_session_id": "session_root",
+        }
+        defaults.update(overrides)
+        return SubAgentConfig(**defaults)
+
+    def test_prefers_explicit_child_session_id(self, monkeypatch):
+        monkeypatch.delenv("VICTOR_TOOL_SELECTION", raising=False)
+        config = self._config(child_session_id="session_child")
+        assert config.resolve_member_session_id() == "session_child"
+
+    def test_dash_format_uses_member_then_agent_id(self, monkeypatch):
+        monkeypatch.delenv("VICTOR_TOOL_SELECTION", raising=False)
+        config = self._config()
+        assert config.resolve_member_session_id() == "session_root-m1"
+        no_member = self._config(member_id=None)
+        assert no_member.resolve_member_session_id() == "session_root-agent_m1"
+
+    def test_to_runtime_context_and_resolver_agree(self, monkeypatch):
+        monkeypatch.delenv("VICTOR_TOOL_SELECTION", raising=False)
+        config = self._config()
+        assert config.to_runtime_context().session_id == config.resolve_member_session_id()
+
+    def test_concurrent_members_never_collide(self, monkeypatch):
+        monkeypatch.delenv("VICTOR_TOOL_SELECTION", raising=False)
+        a = self._config(member_id="a")
+        b = self._config(member_id="b")
+        assert a.resolve_member_session_id() != b.resolve_member_session_id()

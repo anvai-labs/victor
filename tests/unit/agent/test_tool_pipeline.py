@@ -14,6 +14,7 @@ from victor.agent.tool_pipeline import (
     LRUToolCache,
 )
 from victor.agent.tool_executor import ToolExecutionResult
+from victor.tools.enums import AccessMode
 
 
 @pytest.fixture
@@ -39,6 +40,7 @@ def log_capture():
 def mock_tool_registry():
     registry = MagicMock()
     registry.is_tool_enabled.return_value = True
+    registry.get.return_value.access_mode = AccessMode.READONLY
     return registry
 
 
@@ -106,6 +108,154 @@ class TestToolPipelineInit:
 
 
 class TestExecuteToolCalls:
+    @pytest.mark.parametrize("failure", [TimeoutError, RuntimeError])
+    async def test_uncertain_write_survives_middleware_without_fallback(self, pipeline, failure):
+        from victor.core.verticals.protocols import MiddlewareResult
+
+        pipeline.tools.get.return_value.access_mode = AccessMode.WRITE
+        committed = []
+
+        async def submit(**kwargs):
+            committed.append("receipt")
+            raise failure("File not found: original\nDid you mean:\n - replacement")
+
+        pipeline.executor.execute.side_effect = submit
+        chain = MagicMock()
+        chain.process_before = AsyncMock(return_value=MiddlewareResult(proceed=True))
+        chain.process_after = AsyncMock(return_value="transformed output")
+        pipeline.middleware_chain = chain
+        # Invoke the common execution path directly; before-policy behavior has its own owner.
+        result = await pipeline._execute_single_call({"name": "submit", "arguments": {}}, {})
+
+        assert committed == ["receipt"]
+        assert result.success is False
+        assert result.retryable is False
+        assert result.error_info.details["execution_outcome"] == "unknown"
+        assert result.error_info.details["reconciliation_required"] is True
+        assert result.result == "transformed output"
+
+    @pytest.mark.parametrize("boundary", ["inner", "outer", "cancel"])
+    async def test_real_execution_boundary_does_not_replay_committed_write(self, boundary):
+        import asyncio
+        from types import SimpleNamespace
+        from victor.agent.services.tool_retry import ToolRetryExecutor
+        from victor.agent.tool_executor import ToolExecutor
+        from victor.tools.decorators import tool
+        from victor.tools.registry import ToolRegistry
+
+        committed = []
+        started = asyncio.Event()
+
+        @tool(access_mode=AccessMode.WRITE)
+        async def submit_record(_exec_ctx=None):
+            committed.append("receipt")
+            started.set()
+            if boundary == "inner":
+                raise TimeoutError("response lost")
+            await asyncio.Event().wait()
+
+        registry = ToolRegistry()
+        registry.register(submit_record)
+        executor = ToolExecutor(tool_registry=registry, retry_delay=0)
+        pipeline = ToolPipeline(
+            tool_registry=registry,
+            tool_executor=executor,
+            config=ToolPipelineConfig(
+                enable_caching=False,
+                enable_semantic_caching=False,
+                per_tool_timeout_seconds=0.02 if boundary == "outer" else 60,
+            ),
+        )
+        retry = ToolRetryExecutor(
+            SimpleNamespace(
+                retry_enabled=True,
+                max_retry_attempts=3,
+                retry_base_delay=0,
+                retry_max_delay=0,
+            ),
+            pipeline,
+        )
+        task = asyncio.create_task(retry.execute_tool_with_retry("submit_record", {}, {}))
+        await asyncio.wait_for(started.wait(), 2)
+        if boundary == "cancel":
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+        else:
+            result, success, _ = await task
+            assert success is False and result.retryable is False
+            assert result.error_info.details["execution_outcome"] == "unknown"
+        assert committed == ["receipt"]
+
+    @pytest.mark.parametrize(
+        "failure",
+        [
+            "selection",
+            "scope",
+            "hook",
+            "malformed",
+            "chain",
+            "decision",
+            "arguments",
+            "outer_decision",
+        ],
+    )
+    async def test_middleware_failure_never_dispatches(self, pipeline, failure):
+        from victor.agent.middleware_chain import MiddlewareChain
+        from victor.core.verticals.protocols import MiddlewarePriority, MiddlewareResult
+
+        chain = MiddlewareChain()
+        middleware = MagicMock()
+        middleware.get_priority.return_value = MiddlewarePriority.NORMAL
+        middleware.get_applicable_tools.return_value = None
+        middleware.before_tool_call = AsyncMock(side_effect=RuntimeError("private details"))
+        if failure == "selection":
+            middleware.get_applicable_tools.side_effect = AttributeError("private details")
+        elif failure == "scope":
+            middleware.get_applicable_tools.return_value = "read"
+        elif failure == "malformed":
+            middleware.before_tool_call = AsyncMock(return_value=None)
+        elif failure == "chain":
+            chain.process_before = AsyncMock(side_effect=TypeError("private details"))
+        elif failure in {"decision", "outer_decision"}:
+            method = AsyncMock(return_value=MiddlewareResult(proceed="false"))
+            if failure == "outer_decision":
+                chain.process_before = method
+            else:
+                middleware.before_tool_call = method
+        elif failure == "arguments":
+            middleware.before_tool_call = AsyncMock(
+                return_value=MiddlewareResult(modified_arguments=[])
+            )
+        chain.add(middleware)
+        pipeline.middleware_chain = chain
+
+        outcome = await pipeline.execute_tool_calls([{"name": "write", "arguments": {}}])
+
+        pipeline.executor.execute.assert_not_called()
+        result = outcome.results[0]
+        assert not result.success and result.skipped
+        assert result.block_source == "middleware_chain"
+        assert result.retryable is False
+        assert "private details" not in (result.skip_reason or "")
+
+    async def test_empty_middleware_arguments_replace_original(self, pipeline):
+        from victor.agent.middleware_chain import MiddlewareChain
+        from victor.core.verticals.protocols import MiddlewarePriority, MiddlewareResult
+
+        middleware = MagicMock()
+        middleware.get_priority.return_value = MiddlewarePriority.NORMAL
+        middleware.get_applicable_tools.return_value = None
+        middleware.before_tool_call = AsyncMock(
+            return_value=MiddlewareResult(modified_arguments={})
+        )
+        middleware.after_tool_call = AsyncMock(return_value=None)
+        chain = MiddlewareChain()
+        chain.add(middleware)
+        pipeline.middleware_chain = chain
+        await pipeline.execute_tool_calls([{"name": "write", "arguments": {"content": "old"}}])
+        assert pipeline.executor.execute.call_args.kwargs["arguments"] == {}
+
     async def test_single_successful_call(self, pipeline):
         tool_calls = [{"name": "read", "arguments": {"path": "/tmp/f.py"}}]
         result = await pipeline.execute_tool_calls(tool_calls)

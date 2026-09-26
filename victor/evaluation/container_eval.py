@@ -115,8 +115,8 @@ class RuntimeSpec:
 # config.runtime_version; the default per-language tag is used when unset.
 _LANGUAGE_BASE_IMAGE = {
     "python": lambda v: f"python:{v or '3.11'}-slim",
-    "javascript": lambda v: f"node:{v or '20'}-slim",
-    "typescript": lambda v: f"node:{v or '20'}-slim",
+    "javascript": lambda v: f"node:{v or '24'}-slim",
+    "typescript": lambda v: f"node:{v or '24'}-slim",
     "go": lambda v: f"golang:{v or '1.22'}-bookworm",
     "rust": lambda v: f"rust:{v or '1.75'}-slim-bookworm",
     "java": lambda v: f"maven:{v or '3.9'}-eclipse-temurin-21",

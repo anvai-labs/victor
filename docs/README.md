@@ -13,8 +13,9 @@ contributor guidance from dated experiments, design proposals and review evidenc
 | Feature catalog | [Features](features.md) |
 | Development environment | [Development Setup](development/setup.md) |
 | Deployment dependencies and container targets | [Dependency maintenance](development/dependencies.md) |
-| Security release candidate and remaining findings | [0.9.4 batch status](development/security-remediation-0.9.4.md) |
+| Security release evidence and retained findings | [0.9.4 release record](development/security-remediation-0.9.4.md) |
 | Native extension build | [Native build recipe](development/setup.md#native-extension-build) |
+| Native performance decisions | [Native acceleration strategy](architecture/native-acceleration-strategy.md) |
 | Documentation build and preview | [Documentation build](development/setup.md#documentation-build) |
 | Branches, verification and pull requests | [PR Workflow](development/PR_WORKFLOW.md) |
 | Self-hosted runner preparation | [Runner environments](development/self-hosted-runners.md) |
@@ -39,9 +40,20 @@ point there instead of maintaining a second copy.
 
 ## Authoring conventions
 
-Use Markdown and Mermaid for diagrams. Clearly label proposed architecture as a target until
-its implementation lands. Keep file names, links, dependency requirements and execution claims
-consistent with code, and update the owning guide when behavior changes.
+Write for scanning first, then deeper reading:
+
+| Order | Content |
+| --- | --- |
+| 1 | One summary or status admonition |
+| 2 | One diagram, table or short checklist |
+| 3 | Focused implementation details |
+| 4 | Evidence and canonical links |
+
+- Prefer Mermaid, tables and short bullets over repeated prose.
+- Give each diagram one canonical home; link to it elsewhere.
+- Label architecture **Current**, **Target** or **Historical**.
+- Keep file names, links, versions and execution claims consistent with source.
+- Update the owning guide in the same change as behavior.
 
 `site/` is generated output: do not hand-edit or commit it. Use the canonical
 [documentation build instructions](development/setup.md#documentation-build) for previewing changes.

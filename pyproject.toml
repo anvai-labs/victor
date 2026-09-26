@@ -18,14 +18,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "victor-ai"
-version = "0.9.5"
+version = "0.10.0"
 description = "Open-source agentic AI framework with multi-provider support, workflow orchestration, and extensible tool system"
 readme = "README.md"
 license = {text = "Apache-2.0"}
 authors = [
     {name = "Vijaykumar Singh", email = "vijay@anvaiops.com"}
 ]
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 keywords = [
     "ai",
     "llm",
@@ -44,7 +44,6 @@ classifiers = [
     "Intended Audience :: Developers",
     "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
@@ -56,7 +55,7 @@ dependencies = [
     "pydantic>=2.0",
     "pydantic-settings>=2.0",
     "python-dotenv>=1.0",
-    "typing-extensions>=4.9",  # For typing.Self on Python 3.10
+    "typing-extensions>=4.9",  # Shared typing helpers used by runtime and contracts
     "orjson>=3.9.0",  # Fast JSON serialization (Rust-backed, 5-10x faster than stdlib)
     # Typed provider runtime and wire transport; Sandhi is a core boundary, not an extra.
     "sandhi-gateway==0.7.0",
@@ -68,7 +67,7 @@ dependencies = [
     # semantic caches, FEP-0012 numpy-only ML inference). Previously only reachable
     # via the embeddings/dev extras, so a bare `pip install victor-ai` shipped a CLI
     # that crashed at startup. Keep the pin aligned with the embeddings extra.
-    "numpy>=1.24,<2.3",
+    "numpy>=1.24,<2.5",
 
     # Standards-based advisory scoring; pure Python with no transitive dependencies.
     "cvss>=3.6,<4",
@@ -84,7 +83,7 @@ dependencies = [
     # set, which old typer doesn't do — every boolean CLI option then fails at
     # group-build time. Floor at a click-8.2+ aware typer; cap to satisfy
     # huggingface-hub (typer<0.26).
-    "typer>=0.15,<0.26",
+    "typer>=0.15,<0.28",
     "rich>=13.7",
     "prompt-toolkit>=3.0",
     "textual>=0.89",
@@ -96,6 +95,7 @@ dependencies = [
 
     # Tools
     "jsonschema>=4.20",
+    "referencing>=0.28.4",  # Explicit offline registry for captured MCP schemas
     "tiktoken>=0.7",
     "pyyaml>=6.0",
     "beautifulsoup4>=4.12",
@@ -121,7 +121,7 @@ docker = [
 ]
 # Semantic embeddings: tool selection, conversation embeddings, codebase search
 embeddings = [
-    "numpy>=1.24,<2.3",  # Required by victor.storage.embeddings.service; numba-compatible
+    "numpy>=1.24,<2.5",  # Required by victor.storage.embeddings.service; numba-compatible
     "sentence-transformers>=2.2.0",
     "torch>=2.13.0",  # Patched floor for the embeddings backend
     "lancedb>=0.6.0",
@@ -180,7 +180,7 @@ ml = [
 
 dev = [
     # Embeddings (required for full test coverage)
-    "numpy>=1.24,<2.3",  # Required by victor.storage.embeddings.service; numba-compatible
+    "numpy>=1.24,<2.5",  # Required by victor.storage.embeddings.service; numba-compatible
     "sentence-transformers>=2.2.0",
     "torch>=2.13.0",  # Patched floor for the embeddings backend
     "lancedb>=0.6.0",
@@ -203,9 +203,9 @@ dev = [
     "pandas>=2.0",  # For data analysis handler tests
 
     # Linting/Formatting
-    "ruff==0.15.20",
+    "ruff==0.16.7",
     "mypy>=1.10",
-    "black==26.3.1",
+    "black==26.5.1",
 
     # Code complexity analysis
     "radon>=6.0",
@@ -216,7 +216,6 @@ dev = [
 
     # Integration test dependencies
     "strawberry-graphql[fastapi]>=0.243",  # For GraphQL API integration tests
-    "tomli>=2.0; python_version < '3.11'",
     # All tree-sitter grammar wheels, inlined (repo hygiene forbids
     # victor-ai[lang-all] self-references in dev/ci — nested extras do not
     # resolve reliably in CI). Keep in sync with [lang-all]. Two consumers:
@@ -251,7 +250,7 @@ dev = [
 # CI/CD dependencies - includes all testing, linting, and build tools
 ci = [
     # Embeddings and optional runtime surfaces exercised in unit tests
-    "numpy>=1.24,<2.3",
+    "numpy>=1.24,<2.5",
     "sentence-transformers>=2.2.0",
     "torch>=2.13.0",  # Patched floor for the embeddings backend
     "lancedb>=0.6.0",
@@ -273,16 +272,15 @@ ci = [
     "scikit-learn>=1.4",  # FEP-0012 edge-classifier trainer round-trip tests
 
     # Linting/Formatting/Typing
-    "ruff==0.15.20",
+    "ruff==0.16.7",
     "mypy>=1.10",
-    "black==26.3.1",
+    "black==26.5.1",
     "radon>=6.0",
     "types-pyyaml",
     "types-aiofiles",
 
     # Additional CI-specific tools
     "pytest-split>=0.8",
-    "tomli>=2.0; python_version < '3.11'",
     # All tree-sitter grammar wheels for CCG + language-handler tests,
     # inlined (see [dev] note; keep in sync with [lang-all]).
     "tree-sitter-python>=0.23",
@@ -320,6 +318,7 @@ ci = [
     # Documentation validation
     "mkdocs>=1.5",
     "mkdocs-material>=9.5",
+    "mkdocs-git-revision-date-localized-plugin>=1.5,<2",
     "mkdocstrings[python]>=0.24",
     "pygments>=2.20.0",
 ]
@@ -327,6 +326,7 @@ ci = [
 docs = [
     "mkdocs>=1.5",
     "mkdocs-material>=9.5",
+    "mkdocs-git-revision-date-localized-plugin>=1.5,<2",
     "mkdocstrings[python]>=0.24",
     "pygments>=2.20.0",
 ]
@@ -546,7 +546,7 @@ apple-silicon = [
 #   pip install victor-ai[native]
 # Build from source: cd rust && maturin develop --release
 native = [
-    "victor-native>=0.8.1",
+    "victor-native>=0.8.2",
 ]
 
 # Extracted vertical packages (optional meta-extras for cross-repo installs)
@@ -749,7 +749,7 @@ filterwarnings = [
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py312"
 extend-exclude = [
     "archive",
     "examples",
@@ -800,7 +800,7 @@ ignore = [
 ]
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.12"
 # Type checking configuration - M3: Global strict mode enabled (2026-03-10)
 strict = true
 warn_return_any = true
@@ -896,7 +896,7 @@ ignore_errors = true
 
 [tool.black]
 line-length = 100
-target-version = ['py311']
+target-version = ['py312']
 include = '\.pyi?$'
 
 [tool.coverage.run]

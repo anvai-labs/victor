@@ -775,8 +775,8 @@ def _ensure_profile_preset(
     profiles_file: Path,
     name: str,
     description: str,
-    provider: str = "ollama",
-    model: str = "qwen2.5-coder:7b",
+    provider: str = "inferflux",
+    model: str = "qwen3-coder-30b",
 ) -> Optional[bool]:
     """Add a profile preset if missing. True=added, False=exists, None=error."""
     data: dict = {}
@@ -970,15 +970,13 @@ def init(
             # Create a basic default profile
             default_config = """profiles:
   default:
-    provider: ollama
-    model: qwen2.5-coder:7b
+    provider: inferflux
+    model: qwen3-coder-30b
     temperature: 0.7
-    max_tokens: 4096
-
-providers:
-  ollama:
-    base_url: http://localhost:11434
+    max_tokens: 8192
 """
+            # No provider credentials written here; set INFERFLUX_API_KEY if the server
+            # requires auth (see docs/reference/providers/setup.md).
             profiles_file.write_text(default_config)
             console.print(f"[green]✓[/] Global config created at {config_dir}")
             created_profiles = True

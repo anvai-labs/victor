@@ -47,11 +47,13 @@ Usage:
 from __future__ import annotations
 
 import logging
+import json
 import re
 from typing import Any, Dict, List, Optional
 
 from victor.coordination.formations.base import BaseFormationStrategy, TeamContext
-from victor.teams.types import AgentMessage, MemberResult, MessageType
+from victor.coordination.formations.reflection_results import ReflectionResults
+from victor.teams.types import AgentMessage, FormationRole, MemberResult, MessageType
 
 logger = logging.getLogger(__name__)
 
@@ -143,9 +145,12 @@ class ReflectionFormation(BaseFormationStrategy):
                 - final_feedback: Critic's final feedback
                 - satisfied: Whether critic was satisfied
         """
+        verdict_format = context.get("reflection_verdict_format", "legacy")
+        if verdict_format not in {"legacy", "json"}:
+            raise ValueError("reflection_verdict_format must be legacy or json")
         # Get agents from context
-        generator = context.get("generator")
-        critic = context.get("critic")
+        generator = context.get(FormationRole.GENERATOR.value)
+        critic = context.get(FormationRole.CRITIC.value)
 
         if not generator or not critic:
             logger.error("ReflectionFormation requires 'generator' and 'critic' agents in context")
@@ -186,14 +191,20 @@ class ReflectionFormation(BaseFormationStrategy):
         saved: Dict[str, Any] = dict(
             ((resume or {}).get("shared_state") or {}).get("__reflection__") or {}
         )
+        captured = ReflectionResults(agents, context, saved)
 
+        if saved and saved.get("verdict_format", "legacy") != verdict_format:
+            raise ValueError("Cannot change reflection verdict format during resume")
         if saved.get("done"):
             # Terminal resume: the loop already finished — rebuild the final aggregate result.
-            return [
+            return captured.finish(
                 self._final_result(
-                    saved.get("result"), saved.get("feedback"), int(saved["iter_done"])
+                    saved.get("result"),
+                    saved.get("feedback"),
+                    int(saved["iter_done"]),
+                    verdict_format,
                 )
-            ]
+            )
 
         iter_start = int(saved.get("iter_done", 0))
         if iter_start > 0:
@@ -221,6 +232,8 @@ class ReflectionFormation(BaseFormationStrategy):
                 "result": str(result) if result is not None else None,
                 "feedback": feedback,
                 "done": done,
+                "verdict_format": verdict_format,
+                **captured.checkpoint(),
             }
             marker = MemberResult(
                 member_id="reflection_formation",
@@ -239,9 +252,7 @@ class ReflectionFormation(BaseFormationStrategy):
             if member_event_hook is not None:
                 await member_event_hook("member_start", generator.id, iteration)
             try:
-                generator_response = await generator.execute(
-                    task.content, context=context.shared_state
-                )
+                generator_response = await captured.execute(generator, task.content)
                 result = generator_response
             except Exception as e:
                 logger.error(f"Generator failed in iteration {iteration + 1}: {e}")
@@ -249,25 +260,23 @@ class ReflectionFormation(BaseFormationStrategy):
                     await member_event_hook(
                         "member_error", generator.id, iteration, success=False, content=str(e)
                     )
-                return [
+                return captured.finish(
                     MemberResult(
                         member_id=generator.id,
                         success=False,
                         output=str(result) if result else "",
                         error=f"Generator failed: {str(e)}",
                     )
-                ]
+                )
             if member_event_hook is not None:
                 await member_event_hook("member_completed", generator.id, iteration, success=True)
 
             # Critique the solution against the original task.
-            critique_prompt = self._build_critique_prompt(original_task, result)
+            critique_prompt = self._build_critique_prompt(original_task, result, verdict_format)
             if member_event_hook is not None:
                 await member_event_hook("member_start", critic.id, iteration)
             try:
-                critique_response = await critic.execute(
-                    critique_prompt, context=context.shared_state
-                )
+                critique_response = await captured.execute(critic, critique_prompt)
                 feedback = critique_response
                 if member_event_hook is not None:
                     await member_event_hook("member_completed", critic.id, iteration, success=True)
@@ -279,8 +288,21 @@ class ReflectionFormation(BaseFormationStrategy):
                         "member_error", critic.id, iteration, success=False, content=str(e)
                     )
 
-            # Check if satisfied (critic verdict preferred; keyword fallback)
-            if self._is_satisfied(feedback):
+            # JSON is an opt-in machine-checkable contract with a hard error policy.
+            try:
+                satisfied = self._is_satisfied(feedback, verdict_format)
+            except ValueError as exc:
+                logger.warning("Invalid reflection verdict; stopping refinement: %s", exc)
+                return captured.finish(
+                    MemberResult(
+                        member_id=critic.id,
+                        success=False,
+                        output=str(result) if result is not None else "",
+                        error=str(exc),
+                        metadata={"iterations": iteration + 1, "verdict_contract_error": True},
+                    )
+                )
+            if satisfied:
                 logger.info(f"Critic satisfied after {iteration + 1} iterations")
                 break
 
@@ -297,9 +319,11 @@ class ReflectionFormation(BaseFormationStrategy):
         await _checkpoint(iteration + 1, None, done=True)
 
         # Return final result with metadata
-        return [self._final_result(result, feedback, iteration + 1)]
+        return captured.finish(self._final_result(result, feedback, iteration + 1, verdict_format))
 
-    def _final_result(self, result: Any, feedback: Optional[str], iterations: int) -> MemberResult:
+    def _final_result(
+        self, result: Any, feedback: Optional[str], iterations: int, verdict_format: str = "legacy"
+    ) -> MemberResult:
         """Build the reflection formation's single aggregate result (shared by resume)."""
         return MemberResult(
             member_id="reflection_formation",
@@ -308,7 +332,7 @@ class ReflectionFormation(BaseFormationStrategy):
             metadata={
                 "iterations": iterations,
                 "final_feedback": feedback,
-                "satisfied": self._is_satisfied(feedback),
+                "satisfied": self._is_satisfied(feedback, verdict_format),
                 "formation": "reflection",
             },
         )
@@ -322,8 +346,8 @@ class ReflectionFormation(BaseFormationStrategy):
         Returns:
             True if context has 'generator' and 'critic' keys
         """
-        generator = context.get("generator")
-        critic = context.get("critic")
+        generator = context.get(FormationRole.GENERATOR.value)
+        critic = context.get(FormationRole.CRITIC.value)
 
         has_generator = generator is not None
         has_critic = critic is not None
@@ -342,7 +366,7 @@ class ReflectionFormation(BaseFormationStrategy):
         Returns:
             List of required role names: ['generator', 'critic']
         """
-        return ["generator", "critic"]
+        return [FormationRole.GENERATOR.value, FormationRole.CRITIC.value]
 
     def supports_early_termination(self) -> bool:
         """Check if formation supports early termination.
@@ -359,13 +383,24 @@ class ReflectionFormation(BaseFormationStrategy):
         return True
 
     @staticmethod
-    def _build_critique_prompt(original_task: str, result: Any) -> str:
+    def _build_critique_prompt(
+        original_task: str, result: Any, verdict_format: str = "legacy"
+    ) -> str:
         """Build a critique prompt that judges the solution against the task.
 
         Includes the original task so the critic assesses fitness-for-purpose,
         and requests an explicit verdict line so satisfaction can be judged by
         the critic rather than inferred from incidental positive words.
         """
+        if verdict_format == "json":
+            return (
+                f"Objective: assess the candidate against the original task.\n"
+                f"ORIGINAL TASK:\n{original_task}\nCANDIDATE SOLUTION:\n{result}\n"
+                "Use the candidate and assigned sources/tools only. Do not implement changes.\n"
+                "Return only a JSON object with exactly two keys: verdict (satisfied or needs_work) "
+                "and feedback (specific actionable text). No markdown or extra keys.\n"
+                'Example: {"verdict":"needs_work","feedback":"Add the missing boundary test."}'
+            )
         return (
             "You are reviewing a candidate solution against the original task.\n\n"
             f"ORIGINAL TASK:\n{original_task}\n\n"
@@ -385,12 +420,12 @@ class ReflectionFormation(BaseFormationStrategy):
             "Refine your solution to better satisfy the original task.\n\n"
             f"ORIGINAL TASK:\n{original_task}\n\n"
             f"CURRENT SOLUTION:\n{result}\n\n"
-            f"REVIEWER FEEDBACK:\n{feedback}\n\n"
+            f"CRITIC FEEDBACK:\n{feedback}\n\n"
             "Produce an improved solution that addresses the feedback while "
             "fully satisfying the original task."
         )
 
-    def _is_satisfied(self, feedback: Optional[str]) -> bool:
+    def _is_satisfied(self, feedback: Optional[str], verdict_format: str = "legacy") -> bool:
         """Check whether critic feedback indicates satisfaction.
 
         Prefers the critic's explicit ``VERDICT: SATISFIED`` / ``NEEDS_WORK``
@@ -404,6 +439,21 @@ class ReflectionFormation(BaseFormationStrategy):
         Returns:
             True if the critic is satisfied.
         """
+        if verdict_format == "json":
+            try:
+                payload = json.loads(feedback or "")
+            except (TypeError, json.JSONDecodeError) as exc:
+                raise ValueError("Critic must return a JSON verdict object") from exc
+            if (
+                not isinstance(payload, dict)
+                or set(payload) != {"verdict", "feedback"}
+                or payload["verdict"] not in ("satisfied", "needs_work")
+                or not isinstance(payload["feedback"], str)
+            ):
+                raise ValueError(
+                    "Critic verdict requires verdict=satisfied|needs_work and string feedback"
+                )
+            return payload["verdict"] == "satisfied"
         if not feedback:
             return False
 
@@ -411,6 +461,7 @@ class ReflectionFormation(BaseFormationStrategy):
         if verdict is not None:
             return verdict
 
+        logger.warning("Reflection critic omitted a verdict marker; using legacy keyword policy")
         return self._keyword_satisfied(feedback)
 
     @staticmethod

@@ -33,7 +33,7 @@ Paste the full error message here
 ## Environment
 
 - **OS**: [e.g., macOS 14.1, Ubuntu 22.04, Windows 11]
-- **Python Version**: [e.g., 3.10.5]
+- **Python Version**: [e.g., 3.12.5]
 - **Victor Version**: [e.g., 0.1.0]
 - **Provider**: [e.g., Ollama, Anthropic]
 - **Model**: [e.g., qwen2.5-coder:7b, claude-sonnet-4-5]

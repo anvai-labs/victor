@@ -34,6 +34,9 @@ from victor.coordination.formations.adaptive import (
     AdaptiveFormation,
     AdaptationStrategy,
 )
+from victor.coordination.formations.group_chat import GroupChatFormation
+from victor.coordination.formations.debate import DebateFormation
+from victor.coordination.formations.handoff import HandoffFormation
 from victor.coordination.formations.base import BaseFormationStrategy
 from victor.coordination.formations.consensus import ConsensusFormation
 from victor.coordination.formations.dynamic_router import DynamicRouterFormation
@@ -50,6 +53,9 @@ from victor.coordination.formations.sequential import SequentialFormation
 __all__ = [
     # Base
     "BaseFormationStrategy",
+    "GroupChatFormation",
+    "DebateFormation",
+    "HandoffFormation",
     # Basic formations
     "SequentialFormation",
     "ParallelFormation",
@@ -64,3 +70,24 @@ __all__ = [
     "AdaptiveFormation",
     "AdaptationStrategy",
 ]
+
+
+def create_formation_registry():
+    """Build the single formation registry, shared by coordinator and adaptive dispatch."""
+    from victor.teams.types import TeamFormation
+
+    formations = {
+        TeamFormation.GROUP_CHAT: GroupChatFormation(),
+        TeamFormation.DEBATE: DebateFormation(),
+        TeamFormation.HANDOFF: HandoffFormation(),
+        TeamFormation.SEQUENTIAL: SequentialFormation(),
+        TeamFormation.PARALLEL: ParallelFormation(),
+        TeamFormation.HIERARCHICAL: HierarchicalFormation(),
+        TeamFormation.PIPELINE: PipelineFormation(),
+        TeamFormation.CONSENSUS: ConsensusFormation(),
+        TeamFormation.REFLECTION: ReflectionFormation(),
+        TeamFormation.DYNAMIC_ROUTER: DynamicRouterFormation(),
+        TeamFormation.MULTI_LEVEL_HIERARCHY: MultiLevelHierarchyFormation(),
+    }
+    formations[TeamFormation.ADAPTIVE] = AdaptiveFormation(resolve_formation=formations.__getitem__)
+    return formations

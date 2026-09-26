@@ -3,28 +3,8 @@ name: Performance Regression Tests
 on:
   push:
     branches: [main]
-    paths:
-      - '.github/workflows/performance-tests.yml'
-      - 'victor/**'
-      - 'victor-contracts/**'
-      - 'rust/**'
-      - 'tests/**'
-      - 'benchmarks/**'
-      - 'scripts/**'
-      - 'pyproject.toml'
-      - 'requirements*.txt'
   pull_request:
     branches: [main]
-    paths:
-      - '.github/workflows/performance-tests.yml'
-      - 'victor/**'
-      - 'victor-contracts/**'
-      - 'rust/**'
-      - 'tests/**'
-      - 'benchmarks/**'
-      - 'scripts/**'
-      - 'pyproject.toml'
-      - 'requirements*.txt'
   schedule:
     # Run performance tests daily at 2 AM UTC
     - cron: '0 2 * * *'
@@ -46,7 +26,7 @@ jobs:
 
     strategy:
       matrix:
-        python-version: ['3.11']
+        python-version: ['3.12']
       fail-fast: false
 
     steps:
@@ -154,7 +134,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: '3.11'
+          python-version: '3.12'
           cache: 'pip'
 
 
@@ -191,7 +171,7 @@ jobs:
       - name: Download current results
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: benchmark-results-3.11
+          name: benchmark-results-3.12
           path: .
 
       - name: Compare results
@@ -242,3 +222,20 @@ jobs:
         run: |
           echo "Performance tests failed. Check workflow logs for details."
           # Add actual notification logic here (e.g., Slack, email)
+
+  performance-summary:
+    name: Performance Summary
+    runs-on: ubuntu-24.04
+    needs: [performance-regression, baseline-comparison]
+    # The baseline comparison exists only for pull requests. Keep scheduled,
+    # push, and manual benchmark runs useful without manufacturing a red
+    # summary from that intentional skip.
+    if: always() && github.event_name == 'pull_request'
+    steps:
+      - name: Require benchmark and regression comparison green
+        run: |
+          if [ "${{ needs.performance-regression.result }}" != "success" ] || \
+             [ "${{ needs.baseline-comparison.result }}" != "success" ]; then
+            echo "::error::Performance benchmark or baseline comparison did not pass."
+            exit 1
+          fi

@@ -32,6 +32,7 @@ needs on top of the transcript.
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 import sqlite3
 import threading
 import time
@@ -112,10 +113,10 @@ class InMemoryPausedRunStore:
             run_id=run_id,
             session_id=session_id,
             agent_id=agent_id,
-            approval_request=approval_request,
-            pending_tool=pending_tool,
+            approval_request=deepcopy(approval_request),
+            pending_tool=deepcopy(pending_tool),
             created_at=created_at,
-            metadata=dict(metadata or {}),
+            metadata=deepcopy(metadata or {}),
         )
         with self._lock:
             self._runs[run_id] = run
@@ -123,7 +124,7 @@ class InMemoryPausedRunStore:
 
     def get(self, run_id: str) -> Optional[PausedRun]:
         with self._lock:
-            return self._runs.get(run_id)
+            return deepcopy(self._runs.get(run_id))
 
     def mark_resumed(self, run_id: str) -> bool:
         """Mark a run resumed (single-use). Returns False if unknown or already resumed."""
@@ -136,7 +137,7 @@ class InMemoryPausedRunStore:
 
     def list_pending(self) -> List[PausedRun]:
         with self._lock:
-            return [r for r in self._runs.values() if r.status == "awaiting_approval"]
+            return deepcopy([r for r in self._runs.values() if r.status == "awaiting_approval"])
 
     def expire_pending(self, *, max_age_seconds: float, now: Optional[float] = None) -> int:
         """Mark pending runs older than ``max_age_seconds`` as ``expired``. Returns the count."""
@@ -377,10 +378,21 @@ def record_pause_from_approval(
     ctx = getattr(request, "context", {}) or {}
     tool_name = ctx.get("tool_name") or ctx.get("tool")
     pending_tool = (
-        {"tool_name": tool_name, "arguments": ctx.get("arguments") or ctx.get("args")}
+        {
+            "tool_name": tool_name,
+            "arguments": ctx["arguments"] if "arguments" in ctx else ctx.get("args"),
+        }
         if tool_name
         else None
     )
+    if pending_tool is not None and ctx.get("action_binding") is not None:
+        pending_tool["binding"] = {
+            **deepcopy(ctx["action_binding"]),
+            "session_id": session_id,
+            "agent_id": agent_id,
+            "request_id": req_dict.get("id"),
+            "expires_at": req_dict.get("created_at", 0) + req_dict.get("timeout_seconds", 0),
+        }
     run_id = get_paused_run_store().save(
         session_id=session_id,
         agent_id=agent_id,

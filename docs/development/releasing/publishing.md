@@ -152,7 +152,7 @@ git push origin v0.2.0
 When a tag matching `v*` is pushed, GitHub Actions automatically:
 
 ### 1. Runs Tests
-- Unit tests on Python 3.11 and 3.12
+- Unit tests on Python 3.12 and 3.13
 - Linting with ruff and black
 - Type checking with mypy
 

@@ -40,6 +40,10 @@ def _make_orchestrator_stub():
         "total_tokens": 0,
     }
     orch._conversation_controller = MagicMock()
+    # The chat runtime now consumes classification through the explicit
+    # task-guidance capability; keep this fixture's configurable classifier.
+    orch._prompt_pipeline = SimpleNamespace(classify_task_keywords=orch._classify_task_keywords)
+    orch._task_analyzer = None
     orch.messages = []
     return orch
 
@@ -82,7 +86,7 @@ def test_service_streaming_runtime_caches_executor(monkeypatch):
     assert owner is runtime
     assert kwargs["perception"] is None
     assert kwargs["fulfillment"] is None
-    assert kwargs["runtime_intelligence"] is orch._runtime_intelligence
+    assert "runtime_intelligence" not in kwargs
 
 
 def test_service_streaming_runtime_exposes_only_executor_interface(monkeypatch):
@@ -259,164 +263,6 @@ async def test_service_streaming_runtime_serializes_overlapping_turn_state():
 
 
 @pytest.mark.asyncio
-async def test_service_streaming_runtime_prefers_chat_service_for_context_limit_handling():
-    orch = _make_orchestrator_stub()
-    orch._chat_service = SimpleNamespace(
-        handle_context_and_iteration_limits=AsyncMock(
-            return_value=(True, StreamChunk(content="service-stop", is_final=True))
-        )
-    )
-    orch._handle_context_and_iteration_limits_runtime = AsyncMock(
-        side_effect=AssertionError("legacy runtime helper should not be used")
-    )
-    runtime = ServiceStreamingRuntime(OrchestratorProtocolAdapter(orch))
-
-    handled, chunk = await runtime._handle_context_and_iteration_limits(
-        "hello",
-        5,
-        1000,
-        1,
-        0.8,
-    )
-
-    assert handled is True
-    assert chunk is not None
-    assert chunk.content == "service-stop"
-    orch._chat_service.handle_context_and_iteration_limits.assert_awaited_once_with(
-        "hello",
-        5,
-        1000,
-        1,
-        0.8,
-    )
-
-
-@pytest.mark.asyncio
-async def test_service_streaming_runtime_context_limit_uses_canonical_helper_when_service_absent():
-    orch = _make_orchestrator_stub()
-    orch._chat_service = None
-    expected_chunk = StreamChunk(content="legacy-stop", is_final=True)
-    context_limit_helper = MagicMock()
-    context_limit_helper.handle_limits = AsyncMock(return_value=(True, expected_chunk))
-    orch._get_context_limit_runtime = MagicMock(return_value=context_limit_helper)
-    orch._handle_context_and_iteration_limits_runtime = AsyncMock(
-        side_effect=AssertionError("legacy runtime wrapper should not be used")
-    )
-    runtime = ServiceStreamingRuntime(OrchestratorProtocolAdapter(orch))
-
-    handled, chunk = await runtime._handle_context_and_iteration_limits(
-        "hello",
-        5,
-        1000,
-        1,
-        0.8,
-    )
-
-    assert handled is True
-    assert chunk is expected_chunk
-    orch._get_context_limit_runtime.assert_called_once_with()
-    context_limit_helper.handle_limits.assert_awaited_once_with(
-        "hello",
-        5,
-        1000,
-        1,
-        0.8,
-    )
-
-
-@pytest.mark.asyncio
-async def test_service_streaming_runtime_context_limit_does_not_use_name_resolver_hook():
-    orch = _make_orchestrator_stub()
-    orch._chat_service = None
-    expected_chunk = StreamChunk(content="legacy-stop", is_final=True)
-    context_limit_helper = MagicMock()
-    context_limit_helper.handle_limits = AsyncMock(return_value=(True, expected_chunk))
-    orch._get_context_limit_runtime = MagicMock(return_value=context_limit_helper)
-    orch._handle_context_and_iteration_limits_runtime = AsyncMock(
-        side_effect=AssertionError("legacy runtime wrapper should not be used")
-    )
-    runtime = ServiceStreamingRuntime(OrchestratorProtocolAdapter(orch))
-    runtime._get_orchestrator_runtime_helper = MagicMock(
-        side_effect=AssertionError("name-based runtime helper resolver should not be used")
-    )
-
-    handled, chunk = await runtime._handle_context_and_iteration_limits(
-        "hello",
-        5,
-        1000,
-        1,
-        0.8,
-    )
-
-    assert handled is True
-    assert chunk is expected_chunk
-    orch._get_context_limit_runtime.assert_called_once_with()
-    context_limit_helper.handle_limits.assert_awaited_once_with(
-        "hello",
-        5,
-        1000,
-        1,
-        0.8,
-    )
-
-
-@pytest.mark.asyncio
-async def test_service_streaming_runtime_context_limit_bypasses_adapter_wrapper_method():
-    orch = _make_orchestrator_stub()
-    orch._chat_service = None
-    expected_chunk = StreamChunk(content="service-stop", is_final=True)
-    context_limit_helper = MagicMock()
-    context_limit_helper.handle_limits = AsyncMock(return_value=(True, expected_chunk))
-    orch._get_context_limit_runtime = MagicMock(return_value=context_limit_helper)
-    adapter = OrchestratorProtocolAdapter(orch)
-    adapter._handle_context_and_iteration_limits_runtime = AsyncMock(
-        side_effect=AssertionError("adapter wrapper method should not be used")
-    )
-    runtime = ServiceStreamingRuntime(adapter)
-
-    handled, chunk = await runtime._handle_context_and_iteration_limits(
-        "hello",
-        5,
-        1000,
-        1,
-        0.8,
-    )
-
-    assert handled is True
-    assert chunk is expected_chunk
-    orch._get_context_limit_runtime.assert_called_once_with()
-    context_limit_helper.handle_limits.assert_awaited_once_with(
-        "hello",
-        5,
-        1000,
-        1,
-        0.8,
-    )
-
-
-@pytest.mark.asyncio
-async def test_service_streaming_runtime_context_limit_does_not_fall_back_to_host_wrapper():
-    orch = _make_orchestrator_stub()
-    orch._chat_service = None
-    orch._get_context_limit_runtime = None
-    orch._handle_context_and_iteration_limits_runtime = AsyncMock(
-        side_effect=AssertionError("host wrapper should not be used")
-    )
-    runtime = ServiceStreamingRuntime(orch)
-
-    handled, chunk = await runtime._handle_context_and_iteration_limits(
-        "hello",
-        5,
-        1000,
-        1,
-        0.8,
-    )
-
-    assert handled is False
-    assert chunk is None
-
-
-@pytest.mark.asyncio
 async def test_service_streaming_runtime_create_stream_context_uses_blocked_threshold_setting():
     orch = _make_orchestrator_stub()
     orch.settings = SimpleNamespace(recovery_blocked_consecutive_threshold=7)
@@ -446,6 +292,7 @@ async def test_service_streaming_runtime_create_stream_context_uses_blocked_thre
     ctx = await runtime._create_stream_context("hello")
 
     assert ctx.max_blocked_before_force == 7
+    assert not hasattr(ctx, "task_completion_detector")
 
 
 @pytest.mark.asyncio
@@ -699,6 +546,7 @@ async def test_service_streaming_runtime_stream_chat_restores_runtime_overrides(
     assert orch.task_coordinator.tool_budget == 9
     assert orch._tool_service.budget == 9
     assert orch._tool_service.history == [4, 9]
+    orch._conversation_controller.record_actual_usage.assert_called_once_with(3, 3)
     assert "_runtime_tool_context_overrides" not in orch.__dict__
     orch._runtime_intelligence.record_topology_outcome.assert_called_once()
     feedback_payload = orch._runtime_intelligence.record_topology_outcome.call_args.args[0]
@@ -1081,3 +929,61 @@ async def test_service_streaming_runtime_stream_chat_normalizes_recovery_events(
         "retry_with_hint",
         "empty response loop",
     ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("outcome", ["success", "error", "cancel", "close", "metrics_error"])
+async def test_finalization_uses_explicit_capabilities_without_facade(outcome):
+    from victor.agent.factory.chat_runtime_bindings import bind_chat_runtime_services
+
+    owner = _make_orchestrator_stub()
+    ctx = SimpleNamespace(
+        cumulative_usage={"prompt_tokens": 2, "completion_tokens": 3, "total_tokens": 5},
+        runtime_override_snapshot=None,
+        plan_steps=[str(i) for i in range(12)],
+    )
+    owner._current_stream_context = ctx
+
+    totals_at_finalize = []
+
+    def finalize(*_args, **_kwargs):
+        totals_at_finalize.append(owner._cumulative_token_usage["total_tokens"])
+        if outcome == "metrics_error":
+            raise RuntimeError("telemetry")
+
+    owner._metrics_coordinator.finalize_stream_metrics.side_effect = finalize
+    view = bind_chat_runtime_services(owner)
+    # An opaque host cannot supply raw dictionaries or accept facade-state writes.
+    runtime = ServiceStreamingRuntime(object(), services=view)
+
+    class Executor:
+        async def run_unified(self, *_args, **_kwargs):
+            yield StreamChunk(content="partial")
+            if outcome == "error":
+                raise ValueError("provider failed")
+            if outcome == "cancel":
+                raise asyncio.CancelledError()
+
+    runtime._streaming_executor = Executor()
+    stream = runtime.stream_chat("hello")
+    assert (await anext(stream)).content == "partial"
+    if outcome == "close":
+        await stream.aclose()
+    elif outcome in {"error", "cancel"}:
+        expected = ValueError if outcome == "error" else asyncio.CancelledError
+        with pytest.raises(expected):
+            await anext(stream)
+    else:
+        with pytest.raises(StopAsyncIteration):
+            await anext(stream)
+    await stream.aclose()  # Closing an exhausted stream must not account twice.
+
+    assert totals_at_finalize == [5]
+    assert owner._cumulative_token_usage["total_tokens"] == 5
+    assert owner._last_stream_task_context["plan_steps"] == [str(i) for i in range(8)]
+    assert owner._current_stream_context is None
+    assert not view.stream_turn_lock.locked()
+    owner._metrics_coordinator.finalize_stream_metrics.assert_called_once_with(
+        ctx.cumulative_usage,
+        provider_diagnostics=None,
+    )

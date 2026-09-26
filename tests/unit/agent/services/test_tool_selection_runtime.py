@@ -609,5 +609,7 @@ async def test_qa_gate_read_core_mode_returns_read_tools():
     # Borderline Q&A keeps a minimal read-only core (not None), at STUB schema.
     assert result is not None
     names = [t.name for t in result]
-    assert names == ["read", "code_search", "ls"]
+    # The shared stable-definitions builder sorts names (byte-stable schema
+    # list); declaration order is not preserved.
+    assert names == ["code_search", "ls", "read"]
     assert all(t.schema_level == "stub" for t in result)

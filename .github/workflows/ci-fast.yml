@@ -60,7 +60,7 @@ jobs:
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.11"
+          python-version: "3.12"
           cache: pip
 
       - name: Install Black
@@ -78,11 +78,11 @@ jobs:
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.11"
+          python-version: "3.12"
           cache: pip
 
       - name: Install Ruff
-        run: pip install ruff==0.15.20
+        run: python -m pip install "$(python scripts/ci/release_contract.py ruff)"
 
       - name: Lint with Ruff
         run: ruff check victor
@@ -96,14 +96,16 @@ jobs:
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.11"
+          python-version: "3.12"
           cache: pip
 
       - name: Install repo hygiene dependencies
-        run: pip install pyyaml
+        run: pip install packaging pyyaml
 
       - name: Check repo hygiene
-        run: python scripts/ci/repo_hygiene_check.py
+        run: |
+          python scripts/ci/repo_hygiene_check.py
+          python scripts/ci/check_dependency_locks.py
 
   docs-drift:
     name: Docs Drift (version/counts vs code)
@@ -114,7 +116,7 @@ jobs:
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.11"
+          python-version: "3.12"
 
       - name: Check docs match code (version, provider/tool/vertical counts)
         # Pure stdlib; no install. Fails if a doc contradicts VERSION, the provider count, or the
@@ -130,7 +132,7 @@ jobs:
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.11"
+          python-version: "3.12"
           cache: pip
 
       - name: Install MyPy
@@ -148,7 +150,7 @@ jobs:
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.11"
+          python-version: "3.12"
           cache: pip
 
       - name: Install MyPy
@@ -173,7 +175,7 @@ jobs:
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.11"
+          python-version: "3.12"
           cache: pip
 
 
@@ -183,6 +185,11 @@ jobs:
           pip install torch --index-url https://download.pytorch.org/whl/cpu
           # Install victor-contracts from local repository first (includes constants module)
           pip install -e ./victor-contracts
+          # Resolve the published-runtime lock under the shared constraints before
+          # installing optional test surfaces. This catches inconsistent grouped
+          # dependency updates (for example a pydantic/pydantic-core mismatch) in
+          # an existing CI job instead of spending another runner slot.
+          pip install -c constraints.txt -r requirements.txt
           # Then install victor-ai with embeddings (needed for import chain)
           pip install -e ".[embeddings]"
 
@@ -201,7 +208,7 @@ jobs:
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.11"
+          python-version: "3.12"
           cache: pip
 
 
@@ -308,7 +315,7 @@ jobs:
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.11"
+          python-version: "3.12"
           cache: pip
 
 
@@ -345,7 +352,7 @@ jobs:
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.11"
+          python-version: "3.12"
           cache: pip
 
 
@@ -368,7 +375,7 @@ jobs:
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.11"
+          python-version: "3.12"
 
       - name: Check victor-ai / victor-contracts version consistency
         run: python scripts/check_version_sync.py
@@ -376,7 +383,7 @@ jobs:
   guards:
     name: CI Guards
     runs-on: ubuntu-24.04
-    timeout-minutes: 2
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -384,7 +391,56 @@ jobs:
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.11"
+          python-version: "3.12"
+
+      - name: Detect VS Code extension changes
+        id: vscode-changes
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          changed=false
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            changed=true
+          elif [ "$EVENT_NAME" = "pull_request" ]; then
+            git fetch origin "$BASE_REF" --quiet
+            files=$(git diff --name-only "origin/$BASE_REF...HEAD")
+          elif [ -n "$BEFORE_SHA" ] && [ "$BEFORE_SHA" != "0000000000000000000000000000000000000000" ]; then
+            files=$(git diff --name-only "$BEFORE_SHA...HEAD")
+          else
+            changed=true
+          fi
+          if printf '%s\n' "${files:-}" | grep -Eq '^(vscode-victor/|\.github/workflows/(build|ci-fast|release)\.yml$)'; then
+            changed=true
+          fi
+          echo "changed=$changed" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Node.js
+        if: steps.vscode-changes.outputs.changed == 'true'
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: |
+            vscode-victor/package-lock.json
+            vscode-victor/webview-ui/package-lock.json
+
+      - name: Validate VS Code extension
+        if: steps.vscode-changes.outputs.changed == 'true'
+        working-directory: vscode-victor
+        run: |
+          npm ci
+          npm run lint
+          npm run compile
+          npm run coverage
+          cd webview-ui
+          npm ci
+          npm run check
+          npm run build
+          cd ..
+          xvfb-run -a npm test
+          npx vsce package --no-dependencies
 
       - name: Check archive/victor-legacy guard
         if: github.event_name == 'pull_request'
@@ -473,6 +529,7 @@ jobs:
           pip install -e ./victor-contracts
           pip install -e ./victor-codegraph
           pip install -e ".[dev]"
+          pip install 'diff-cover>=9,<10'
 
       - name: Run unit tests for changed files
         # Map changed files -> mirror unit tests (scripts/ci/select_changed_tests.py). No mapped
@@ -485,27 +542,34 @@ jobs:
           if [ -n "$BASE_REF" ]; then
             git fetch origin "$BASE_REF" --quiet
             CHANGED=$(git diff --name-only "origin/$BASE_REF...HEAD")
+            COMPARE_REF="origin/$BASE_REF"
           else
             CHANGED=$(git diff --name-only HEAD~1 HEAD)
+            COMPARE_REF="HEAD~1"
           fi
-          echo "Changed files:"; echo "$CHANGED" | sed 's/^/  /'
-          mapfile -t TARGETS < <(python scripts/ci/select_changed_tests.py $CHANGED)
+          echo "Changed files:"
+          while IFS= read -r changed_file; do
+            printf '  %s\n' "$changed_file"
+          done <<< "$CHANGED"
+          target_file="${RUNNER_TEMP}/changed-test-targets.txt"
+          printf '%s\n' "$CHANGED" | python scripts/ci/select_changed_tests.py --stdin > "$target_file"
+          mapfile -t TARGETS < "$target_file"
           if [ ${#TARGETS[@]} -eq 0 ]; then
-            echo "No mapped unit tests for the changed files — nothing to run (full suite runs at develop->main)."
+            echo "No core Python source or unit-test files changed — no targeted unit tests required."
             exit 0
           fi
           echo "Running ${#TARGETS[@]} changed-file test target(s):"; printf '  %s\n' "${TARGETS[@]}"
-          # pytest exits 5 when every collected test was skipped/deselected (e.g. all
-          # mapped tests skip on missing optional deps in CI) — that's a pass, not a fail.
-          set +e
-          pytest "${TARGETS[@]}" -m "not slow" --tb=short -q
-          rc=$?
-          set -e
-          if [ "$rc" -eq 5 ]; then
-            echo "All mapped tests were skipped or deselected (pytest exit 5) — treating as pass."
-            exit 0
-          fi
-          exit "$rc"
+          pytest "${TARGETS[@]}" \
+            -m "not slow" \
+            --tb=short \
+            -q \
+            --cov=victor \
+            --cov-report=xml:changed-coverage.xml
+          # New/changed core lines must be exercised by the tests selected above.
+          # Global coverage is enforced on develop->main; this closes the per-PR gap.
+          diff-cover changed-coverage.xml \
+            --compare-branch="$COMPARE_REF" \
+            --fail-under=80
 
   collect-check:
     name: Full-Suite Collection Check
@@ -560,7 +624,7 @@ jobs:
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.11"
+          python-version: "3.12"
           cache: pip
 
 
@@ -606,7 +670,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.11"
+          python-version: "3.12"
       - name: Scan commits for agent authorship attribution
         # Refs passed via env (not inline ${{…}}) to satisfy the Semgrep
         # run-shell-injection rule (same convention as the quick-tests job).
@@ -663,7 +727,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.11"
+          python-version: "3.12"
       - name: Run boundary check
         run: python scripts/ci/check_extracted_vertical_boundaries.py
 
@@ -693,7 +757,7 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         if: steps.find-feps.outputs.fep_files != ''
         with:
-          python-version: "3.11"
+          python-version: "3.12"
           cache: pip
       - name: Install Victor
         if: steps.find-feps.outputs.fep_files != ''
@@ -736,7 +800,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.11"
+          python-version: "3.12"
       - name: Install Bandit
         run: pip install bandit[toml]
       - name: Bandit (high severity + high confidence, blocking)
@@ -757,7 +821,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: '3.11'
+          python-version: '3.12'
       - name: Install package for audit
         run: |
           python -m pip install -e ./victor-contracts
@@ -793,14 +857,17 @@ jobs:
         with:
           workspaces: rust
 
-      - name: Check formatting and tests
+      - name: Install pinned Rust coverage tool
+        run: cargo install cargo-llvm-cov --locked --version 0.6.22
+
+      - name: Check formatting, tests, and measured coverage
         working-directory: rust
         env:
           # PyO3 tests embed Python; do not discover an unsupported host install.
           PYO3_PYTHON: ${{ steps.python.outputs.python-path }}
         run: |
           cargo fmt --all --check
-          cargo test --workspace --locked
+          cargo llvm-cov --workspace --locked --summary-only --fail-under-lines 68
 
       - name: Validate publishable crate archives
         working-directory: rust
@@ -835,7 +902,7 @@ jobs:
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.11"
+          python-version: "3.12"
           cache: pip
 
       - name: Install Python dependencies + maturin

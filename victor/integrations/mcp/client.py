@@ -27,6 +27,7 @@ Features:
 
 import asyncio
 import logging
+import os
 import subprocess
 import time
 import uuid
@@ -43,8 +44,6 @@ from victor.integrations.mcp.protocol import (
     MCPClientInfo,
     MCPMessage,
     MCPMessageType,
-    MCPParameter,
-    MCPParameterType,
     MCPResource,
     MCPServerInfo,
     MCPTool,
@@ -52,79 +51,6 @@ from victor.integrations.mcp.protocol import (
 )
 
 logger = logging.getLogger(__name__)
-
-
-def _translate_input_schema_to_parameters(
-    tool_name: str,
-    input_schema: Dict[str, Any],
-) -> List["MCPParameter"]:
-    """Convert standard MCP inputSchema to Victor's legacy parameters format.
-
-    This bridges AgentBrowser's modern MCP protocol (JSON Schema Draft 2020-12)
-    with Victor's legacy parameter format. Post-transformation, the inputSchema
-    key is deleted from the tool dict to prevent Pydantic from silently ignoring it.
-
-    Args:
-        tool_name: Name of the tool (for logging)
-        input_schema: JSON Schema inputSchema from MCP tools/list response
-
-    Returns:
-        List of MCPParameter objects in Victor's legacy format
-
-    Example:
-        AgentBrowser returns:
-        {
-            "name": "browser_navigate",
-            "inputSchema": {
-                "type": "object",
-                "properties": {"url": {"type": "string", "description": "..."}},
-                "required": ["url"]
-            }
-        }
-
-        This function translates to:
-        [
-            MCPParameter(
-                name="url",
-                type=MCPParameterType.STRING,
-                description="...",
-                required=True,
-                default=None
-            )
-        ]
-    """
-    if not input_schema or input_schema.get("type") != "object":
-        logger.warning(f"Invalid inputSchema for tool {tool_name}: {input_schema}")
-        return []
-
-    properties = input_schema.get("properties", {})
-    required = set(input_schema.get("required", []))
-
-    params = []
-    for param_name, prop_def in properties.items():
-        param_type_str = prop_def.get("type", "string")
-
-        # Map JSON Schema types to MCPParameterType enum
-        try:
-            param_type = MCPParameterType(param_type_str)
-        except ValueError:
-            logger.debug(
-                f"Unknown type '{param_type_str}' for param '{param_name}' "
-                f"in tool '{tool_name}', defaulting to STRING"
-            )
-            param_type = MCPParameterType.STRING
-
-        params.append(
-            MCPParameter(
-                name=param_name,
-                type=param_type,
-                description=prop_def.get("description", ""),
-                required=param_name in required,
-                default=prop_def.get("default"),
-            )
-        )
-
-    return params
 
 
 class MCPClient:
@@ -229,6 +155,7 @@ class MCPClient:
                 stderr=subprocess.PIPE,
                 text=True,
                 bufsize=1,
+                start_new_session=os.name == "posix",
             ),
             None,
         )
@@ -243,7 +170,16 @@ class MCPClient:
         if self.process is None and self._sandboxed_process is None:
             return None
         if self._transport is None or self._transport.process is not self.process:
-            self._transport = StdioTransport(self.process, self._sandboxed_process)
+            process_group = (
+                self._sandboxed_process.process_group_for(self.process)
+                if self.process is not None and self._sandboxed_process is not None
+                else None
+            )
+            self._transport = StdioTransport(
+                self.process,
+                self._sandboxed_process,
+                process_group=process_group,
+            )
         return self._transport
 
     def _detach_transport(self, transport: StdioTransport) -> None:
@@ -280,7 +216,11 @@ class MCPClient:
         transport = None
         try:
             process, owner = await self._start_process(command)
-            transport = StdioTransport(process, owner)
+            transport = StdioTransport(
+                process,
+                owner,
+                process_group=(owner.process_group_for(process) if owner is not None else None),
+            )
             if generation != self._connection_generation:
                 await asyncio.shield(self._retire_transport(transport))
                 return False
@@ -404,19 +344,8 @@ class MCPClient:
         if response and "result" in response:
             tools_data = response["result"].get("tools", [])
 
-            # Translate inputSchema → parameters for compatibility with modern MCP servers
-            # (e.g., AgentBrowser uses standard JSON Schema inputSchema, Victor uses legacy format)
-            mcp_tools = []
-            for tool_dict in tools_data:
-                if "inputSchema" in tool_dict:
-                    # Modern MCP server: translate JSON Schema to legacy parameters
-                    tool_dict["parameters"] = _translate_input_schema_to_parameters(
-                        tool_dict["name"], tool_dict["inputSchema"]
-                    )
-                    del tool_dict["inputSchema"]  # Clean up after translation
-                mcp_tools.append(MCPTool(**tool_dict))
-
-            self.tools = mcp_tools
+            # Parse into detached tool models; publish only a fully valid catalog.
+            self.tools = [MCPTool(**tool_dict) for tool_dict in tools_data]
             return self.tools
 
         return []

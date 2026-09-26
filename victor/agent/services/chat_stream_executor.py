@@ -14,6 +14,11 @@ from __future__ import annotations
 
 import hashlib
 import logging
+
+from victor.core.async_utils import aclosing_if_supported
+from victor.agent.services.tool_selection_runtime import (
+    hydrate_demand_tools,
+)
 import re
 from types import SimpleNamespace
 from dataclasses import dataclass
@@ -35,6 +40,31 @@ from victor.framework.runtime_evaluation_policy import RuntimeEvaluationPolicy
 from victor.providers.base import CompletionResponse, StreamChunk
 
 logger = logging.getLogger(__name__)
+
+
+class _StreamingCancelled(Exception):
+    """Internal cooperative signal used to unwind the live loop before side effects."""
+
+
+def _raise_if_stream_cancelled(services: ChatRuntimeServices) -> None:
+    if services.stream_lifecycle.is_cancelled():
+        raise _StreamingCancelled
+
+
+def _cancelled_stream_chunk(services: ChatRuntimeServices, stream_ctx: Any) -> StreamChunk:
+    """Close live cancellation state and return its terminal failure signal."""
+    services.stream_lifecycle.finish()
+    services.intelligence.record_outcome(
+        success=False,
+        quality_score=float(getattr(stream_ctx, "last_quality_score", 0.0) or 0.0),
+        user_satisfied=False,
+        completed=False,
+    )
+    return StreamChunk(
+        content="\n\n[Cancelled by user]\n",
+        is_final=True,
+        metadata={"agentic_loop_success": False, "cancelled": True},
+    )
 
 
 def _tool_call_signatures(tool_calls: Optional[List[dict]]) -> set:
@@ -238,13 +268,12 @@ class StreamingChatExecutor:
     def __init__(
         self,
         runtime_owner: StreamingExecutionRuntimeProtocol,
-        runtime_intelligence: Optional[Any] = None,
         perception: Optional[Any] = None,
         fulfillment: Optional[Any] = None,
         confidence_monitor: Optional[Any] = None,
     ) -> None:
         self._runtime_owner = runtime_owner
-        self._runtime_intelligence = runtime_intelligence
+        runtime_intelligence = self._get_runtime_intelligence()
         resolved_policy = getattr(runtime_intelligence, "evaluation_policy", None)
         if not isinstance(resolved_policy, RuntimeEvaluationPolicy):
             resolved_policy = RuntimeEvaluationPolicy()
@@ -261,6 +290,13 @@ class StreamingChatExecutor:
     def services(self) -> ChatRuntimeServices:
         """Return the runtime's explicitly bound service capabilities."""
         return self._runtime_owner.services
+
+    def _get_runtime_intelligence(self) -> Any:
+        """Resolve the optional learned runtime through its typed capability."""
+        intelligence = getattr(self.services, "intelligence", None)
+        if intelligence is None:
+            return None
+        return intelligence.executor_runtime()
 
     @staticmethod
     def _normalize_visible_content_key(content: str) -> str:
@@ -310,26 +346,17 @@ class StreamingChatExecutor:
         self._prev_visible_content = normalized_key
         return display_content
 
-    @staticmethod
-    def _get_task_completion_summary(detector: Any) -> str:
-        """Return the detector's last completion summary without active markers."""
-        state = getattr(detector, "_state", None)
-        summary = getattr(state, "last_summary", "") if state is not None else ""
-        return strip_active_completion_markers(summary).strip()
-
     def _resolve_terminal_visible_output(
         self,
-        orch: Any,
         stream_ctx: Any,
         *,
         full_content: str,
         user_message: str,
     ) -> tuple[str, Optional[str]]:
         """Pick the best visible terminal response from provider and summary fallbacks."""
-        detector = getattr(orch, "_task_completion_detector", None)
         candidates = (
             ("provider_response", full_content),
-            ("completion_summary", self._get_task_completion_summary(detector)),
+            ("completion_summary", self.services.completion.terminal_summary()),
             ("compaction_summary", getattr(stream_ctx, "compaction_summary", "")),
         )
 
@@ -348,7 +375,7 @@ class StreamingChatExecutor:
 
         return "", None
 
-    async def _govern_final_response(self, orch: Any, text: str) -> tuple[str, bool]:
+    async def _govern_final_response(self, text: str) -> tuple[str, bool]:
         """RESPONSE-phase gate for the streaming path's final assistant output.
 
         Returns ``(text_to_use, blocked)``. When no message policy gate is
@@ -357,10 +384,11 @@ class StreamingChatExecutor:
         persisted history copy and the final delivered chunk (the documented
         limitation of message governance on the streaming path).
         """
-        gate = getattr(orch, "_message_policy_gate", None)
-        if gate is None or not text:
+        if not text:
             return text, False
-        result = await gate.gate_response(text)
+        result = await self.services.governance.check_response(text)
+        if result is None:
+            return text, False
         if not result.allowed:
             return result.reason or "The response was withheld by policy.", True
         return result.content, False
@@ -375,7 +403,6 @@ class StreamingChatExecutor:
     ) -> StreamChunk:
         """Guarantee a visible terminal assistant chunk or an explicit final marker."""
         terminal_content, content_source = self._resolve_terminal_visible_output(
-            orch,
             stream_ctx,
             full_content=full_content,
             user_message=user_message,
@@ -383,7 +410,7 @@ class StreamingChatExecutor:
 
         if terminal_content:
             # RESPONSE-phase governance on the terminal (final) assistant output.
-            terminal_content, _blocked = await self._govern_final_response(orch, terminal_content)
+            terminal_content, _blocked = await self._govern_final_response(terminal_content)
 
             from victor.agent.conversation.types import (
                 MESSAGE_SOURCE_METADATA_KEY,
@@ -504,12 +531,12 @@ class StreamingChatExecutor:
     def _tool_name_value(tool_name: Any) -> str:
         return str(tool_name or "").split(".")[-1].strip().lower()
 
-    def _is_write_action_turn(self, orch: Any, stream_ctx: Any) -> bool:
+    def _is_write_action_turn(self, stream_ctx: Any) -> bool:
         """Return True for turns where continued read-only exploration is risky."""
         if not bool(getattr(stream_ctx, "is_action_task", False)):
             return False
 
-        intent = getattr(orch, "_current_intent", None)
+        intent = self.services.planning.current_intent()
         intent_value = str(getattr(intent, "value", intent) or "").lower()
         if intent_value in {"write_allowed", "edit", "write"}:
             return True
@@ -536,7 +563,7 @@ class StreamingChatExecutor:
         tool_calls_used: int,
     ) -> bool:
         """Nudge write-intent turns out of repeated read-only exploration."""
-        if not self._is_write_action_turn(orch, stream_ctx):
+        if not self._is_write_action_turn(stream_ctx):
             return False
         if self._has_mutation_tool_executed(stream_ctx):
             return False
@@ -685,37 +712,8 @@ class StreamingChatExecutor:
         if hasattr(orch, "tool_calls_used"):
             orch.tool_calls_used = 0
 
-        tool_pipeline = getattr(orch, "_tool_pipeline", None)
-        reset_pipeline = getattr(tool_pipeline, "reset", None)
-        if callable(reset_pipeline):
-            reset_pipeline()
-
-        detector = getattr(orch, "_task_completion_detector", None)
-        reset_detector = getattr(detector, "reset", None)
-        if callable(reset_detector):
-            reset_detector()
-
-    @staticmethod
-    def _clear_deferred_active_completion_signal(detector: Any) -> None:
-        """Clear a completion marker that arrived alongside additional tool calls."""
-        clear_active_signal = getattr(detector, "clear_active_signal", None)
-        if callable(clear_active_signal):
-            clear_active_signal()
-            return
-
-        state = getattr(detector, "_state", None)
-        if state is None:
-            return
-
-        if hasattr(state, "active_signal_detected"):
-            state.active_signal_detected = False
-
-        signals = getattr(state, "completion_signals", None)
-        if isinstance(signals, set):
-            signals_to_keep = {
-                signal for signal in signals if not str(signal).startswith("active:")
-            }
-            state.completion_signals = signals_to_keep
+        self.services.tool_calls.reset()
+        self.services.completion.reset()
 
     @staticmethod
     def _serialize_conversation_message(message: Any) -> dict[str, Any] | None:
@@ -775,7 +773,6 @@ class StreamingChatExecutor:
 
     async def _get_tools_cached(
         self,
-        orch: Any,
         context_msg: str,
         goals: Any,
         planned_tools: Any = None,
@@ -784,7 +781,7 @@ class StreamingChatExecutor:
         if self._last_tool_context == context_msg and self._last_tools is not None:
             return self._last_tools
 
-        tools = await orch._select_tools_for_turn(
+        tools = await self.services.planning.select_tools(
             context_msg,
             goals,
             planned_tools=planned_tools,
@@ -943,16 +940,19 @@ class StreamingChatExecutor:
                 },
             )
 
-    @staticmethod
     def _apply_run_guidance(
-        orch: Any, stream_ctx: Any, user_message: str, max_exploration_iterations: int
+        self,
+        orch: Any,
+        stream_ctx: Any,
+        user_message: str,
+        max_exploration_iterations: int,
     ) -> None:
         """Apply intent guard + task-type guidance + action-task guidance for one run.
 
         A cohesive piece of run()'s preamble (FEP-0007 Phase 2 decomposition). Mutates orch
         (guards + guidance messages); yields nothing.
         """
-        orch._apply_intent_guard(user_message)
+        self.services.planning.apply_intent_guard(user_message)
 
         if stream_ctx.is_analysis_task and stream_ctx.unified_task_type.value in (
             "edit",
@@ -972,13 +972,13 @@ class StreamingChatExecutor:
             stream_ctx.is_action_task,
         )
 
-        orch._apply_task_guidance(
-            user_message,
-            stream_ctx.unified_task_type,
-            stream_ctx.is_analysis_task,
-            stream_ctx.is_action_task,
-            stream_ctx.needs_execution,
-            max_exploration_iterations,
+        self.services.planning.apply_task_guidance(
+            user_message=user_message,
+            unified_task_type=stream_ctx.unified_task_type,
+            is_analysis_task=stream_ctx.is_analysis_task,
+            is_action_task=stream_ctx.is_action_task,
+            needs_execution=stream_ctx.needs_execution,
+            max_exploration_iterations=max_exploration_iterations,
         )
 
         if stream_ctx.is_action_task:
@@ -1015,15 +1015,14 @@ class StreamingChatExecutor:
                     metadata=_guidance_meta,
                 )
 
-    @staticmethod
-    def _initialize_task_intent(orch: Any, stream_ctx: Any, user_message: str) -> Any:
+    def _initialize_task_intent(self, stream_ctx: Any, user_message: str) -> Any:
         """Seed task intent on the stream context and return the inferred goals.
 
         Final cohesive piece of run()'s preamble (FEP-0007 Phase 2 decomposition). Mutates
         stream_ctx (task intent, plan steps, task-start event); yields nothing. Returns the
         inferred ``goals`` so the loop can use them for tool planning.
         """
-        goals = orch._tool_planner.infer_goals_from_message(user_message)
+        goals = self.services.planning.infer_goals(user_message)
         if hasattr(stream_ctx, "set_task_intent"):
             stream_ctx.set_task_intent(user_message)
         if hasattr(stream_ctx, "extend_plan_steps"):
@@ -1058,8 +1057,15 @@ class StreamingChatExecutor:
             available_inputs = ["query"]
             if orch.observed_files:
                 available_inputs.append("file_contents")
-            planned_tools = self.services.tool_planner.plan_tools(goals, available_inputs)
+            planned_tools = self.services.planning.plan_tools(goals, available_inputs)
         stream_ctx.planned_tools = planned_tools
+
+        # Stage 1 — demand hydration (FEP-0034). Must precede BOTH the Q&A
+        # branch and the session-tool freeze below: turn 1 can be
+        # Q&A-classified while turn 2 carries the mention, and the frozen set
+        # is computed on the first get_session_tools() call — a tool that
+        # misses that first registration never reaches this session's schema.
+        hydrate_demand_tools(orch, getattr(stream_ctx, "context_msg", "") or "")
 
         if getattr(stream_ctx, "is_qa_task", False):
             tools = None
@@ -1067,7 +1073,6 @@ class StreamingChatExecutor:
             tools = orch.get_session_tools()
         else:
             tools = await self._get_tools_cached(
-                orch,
                 stream_ctx.context_msg,
                 goals,
                 planned_tools=planned_tools,
@@ -1109,6 +1114,7 @@ class StreamingChatExecutor:
         produced ``ToolExecutionResult`` is written to ``result_holder.result`` for run() to read
         (``should_return`` loop control + downstream fulfillment/plateau/novelty evaluation).
         """
+        _raise_if_stream_cancelled(self.services)
         if not runtime_owner._tool_execution_handler:
             from victor.agent.streaming import create_tool_execution_handler
 
@@ -1118,47 +1124,83 @@ class StreamingChatExecutor:
             set(orch.observed_files) if orch.observed_files else set()
         )
 
-        if hasattr(runtime_owner._tool_execution_handler, "execute_tools_streaming"):
-            from victor.agent.streaming.tool_execution import (
-                ToolExecutionResult,
-            )
+        tool_exec_result = None
+        accounted = False
 
-            tool_exec_result = ToolExecutionResult()
-            async for chunk in runtime_owner._tool_execution_handler.execute_tools_streaming(
-                stream_ctx=stream_ctx,
-                tool_calls=tool_calls,
+        def account_completed_tools() -> None:
+            nonlocal accounted
+            if accounted or tool_exec_result is None:
+                return
+            orch.tool_calls_used += tool_exec_result.tool_calls_executed
+            stream_ctx.tool_calls_used = orch.tool_calls_used
+            record_count = getattr(stream_ctx, "record_iteration_tool_count", None)
+            if callable(record_count):
+                record_count(tool_exec_result.tool_calls_executed)
+            result_holder.result = tool_exec_result
+            accounted = True
+
+        try:
+            if hasattr(runtime_owner._tool_execution_handler, "execute_tools_streaming"):
+                from victor.agent.streaming.tool_execution import (
+                    ToolExecutionResult,
+                )
+
+                tool_exec_result = ToolExecutionResult()
+                async with aclosing_if_supported(
+                    runtime_owner._tool_execution_handler.execute_tools_streaming(
+                        stream_ctx=stream_ctx,
+                        tool_calls=tool_calls,
+                        user_message=user_message,
+                        full_content=full_content,
+                        tool_calls_used=orch.tool_calls_used,
+                        tool_budget=orch.tool_budget,
+                        result=tool_exec_result,
+                    )
+                ) as stream:
+                    iterator = aiter(stream)
+                    while True:
+                        _raise_if_stream_cancelled(self.services)
+                        try:
+                            chunk = await anext(iterator)
+                        except StopAsyncIteration:
+                            break
+                        if self.services.stream_lifecycle.is_cancelled():
+                            break
+                        yield chunk
+            else:
+                _raise_if_stream_cancelled(self.services)
+                tool_exec_result = await runtime_owner._tool_execution_handler.execute_tools(
+                    stream_ctx=stream_ctx,
+                    tool_calls=tool_calls,
+                    user_message=user_message,
+                    full_content=full_content,
+                    tool_calls_used=orch.tool_calls_used,
+                    tool_budget=orch.tool_budget,
+                )
+                if not self.services.stream_lifecycle.is_cancelled():
+                    for chunk in tool_exec_result.chunks:
+                        yield chunk
+
+            cancelled = self.services.stream_lifecycle.is_cancelled()
+            if cancelled and tool_exec_result.tool_calls_executed <= 0:
+                raise _StreamingCancelled
+            account_completed_tools()
+            if cancelled:
+                raise _StreamingCancelled
+
+            self._maybe_inject_write_action_guard(
+                orch,
+                stream_ctx,
                 user_message=user_message,
-                full_content=full_content,
                 tool_calls_used=orch.tool_calls_used,
-                tool_budget=orch.tool_budget,
-                result=tool_exec_result,
+            )
+        finally:
+            if (
+                tool_exec_result is not None
+                and tool_exec_result.tool_calls_executed > 0
+                and not accounted
             ):
-                yield chunk
-        else:
-            tool_exec_result = await runtime_owner._tool_execution_handler.execute_tools(
-                stream_ctx=stream_ctx,
-                tool_calls=tool_calls,
-                user_message=user_message,
-                full_content=full_content,
-                tool_calls_used=orch.tool_calls_used,
-                tool_budget=orch.tool_budget,
-            )
-            for chunk in tool_exec_result.chunks:
-                yield chunk
-
-        orch.tool_calls_used += tool_exec_result.tool_calls_executed
-        stream_ctx.tool_calls_used = orch.tool_calls_used
-        _record = getattr(stream_ctx, "record_iteration_tool_count", None)
-        if callable(_record):
-            _record(tool_exec_result.tool_calls_executed)
-        self._maybe_inject_write_action_guard(
-            orch,
-            stream_ctx,
-            user_message=user_message,
-            tool_calls_used=orch.tool_calls_used,
-        )
-
-        result_holder.result = tool_exec_result
+                account_completed_tools()
 
     async def _emit_assistant_turn(
         self,
@@ -1205,7 +1247,7 @@ class StreamingChatExecutor:
                 # content turns continue the loop and must not be blocked.
                 _is_final_emit = forced_task_completion and not tool_calls
                 if _is_final_emit:
-                    sanitized, _ = await self._govern_final_response(orch, sanitized)
+                    sanitized, _ = await self._govern_final_response(sanitized)
                 orch.add_message(
                     "assistant",
                     sanitized,
@@ -1237,7 +1279,7 @@ class StreamingChatExecutor:
 
                     _is_final_emit = forced_task_completion and not tool_calls
                     if _is_final_emit:
-                        plain_text, _ = await self._govern_final_response(orch, plain_text)
+                        plain_text, _ = await self._govern_final_response(plain_text)
                     orch.add_message(
                         "assistant",
                         plain_text,
@@ -1312,7 +1354,7 @@ class StreamingChatExecutor:
             else:
                 recovery_ctx = create_recovery_context(stream_ctx)
                 fallback_msg = recovery.get_recovery_fallback_message(recovery_ctx)
-                orch._record_runtime_intelligence_outcome(
+                self.services.intelligence.record_outcome(
                     success=False,
                     quality_score=0.3,
                     user_satisfied=False,
@@ -1324,7 +1366,6 @@ class StreamingChatExecutor:
 
     def _detect_high_confidence_completion(
         self,
-        orch: Any,
         stream_ctx: Any,
         *,
         full_content: str,
@@ -1332,24 +1373,17 @@ class StreamingChatExecutor:
     ) -> bool:
         """Return True when this turn's answer is a HIGH-confidence completion with no pending tools.
 
-        Runs ``orch._task_completion_detector`` over the assistant content; on a HIGH-confidence
+        Runs the completion capability over the assistant content; on a HIGH-confidence
         active signal with no outstanding tool calls it persists a VICTOR_SUMMARY for any next-turn
         context and returns True. This is the streaming loop's prompt-completion signal (formerly in
         ``_detect_task_completion_and_mentions``) — the unified loop surfaces it onto the TurnResult
         so EVALUATE stops immediately instead of restating to the iteration cap (FEP-0007 tune-up).
         """
-        detector = getattr(orch, "_task_completion_detector", None)
-        if not detector or not full_content:
-            return False
-
-        from victor.agent.task_completion import CompletionConfidence
-
-        detector.analyze_response(full_content)
-        if detector.get_completion_confidence() != CompletionConfidence.HIGH:
-            return False
-        if tool_calls:
-            # Defer: a HIGH marker alongside pending tool calls isn't a real completion.
-            self._clear_deferred_active_completion_signal(detector)
+        completed = self.services.completion.detect_high_confidence(
+            full_content,
+            has_pending_tools=bool(tool_calls),
+        )
+        if not completed:
             return False
 
         logger.info(
@@ -1358,15 +1392,9 @@ class StreamingChatExecutor:
         )
         stream_ctx.force_completion = True
         stream_ctx.skip_continuation = True
-        last_summary = getattr(getattr(detector, "_state", None), "last_summary", "")
-        sanitized_summary = strip_active_completion_markers(last_summary).strip()
-        if sanitized_summary and hasattr(orch, "_conversation_controller"):
-            try:
-                orch._conversation_controller.persist_compaction_summary(sanitized_summary, [])
-                orch._conversation_controller.inject_compaction_context()
-                logger.info("VICTOR_SUMMARY persisted for next-turn context injection")
-            except Exception as exc:
-                logger.debug("Failed to persist VICTOR_SUMMARY: %s", exc)
+        self.services.conversation.persist_terminal_summary(
+            self.services.completion.terminal_summary()
+        )
         return True
 
     @staticmethod
@@ -1444,29 +1472,45 @@ class StreamingChatExecutor:
             pass
 
         # ACT — provider response (token streaming happens inside _stream_provider_turn).
+        _raise_if_stream_cancelled(self.services)
         tools, full_content, tool_calls, garbage_detected = await self._stream_provider_turn(
             orch, runtime_owner, stream_ctx, goals
         )
-        tool_calls, full_content = orch._parse_and_validate_tool_calls(tool_calls, full_content)
+        _raise_if_stream_cancelled(self.services)
+        tool_calls, full_content = self.services.tool_calls.parse_and_validate(
+            tool_calls,
+            full_content,
+        )
         result.tools = tools
         result.garbage_detected = garbage_detected
 
         # ACT — emit the assistant response (handles tool-call-only / empty-response recovery).
         _emit = _EmitDecision()
-        async for chunk in self._emit_assistant_turn(
-            orch,
-            runtime_owner,
-            stream_ctx,
-            recovery=recovery,
-            create_recovery_context=create_recovery_context,
-            full_content=full_content,
-            tool_calls=tool_calls,
-            forced_task_completion=forced_task_completion,
-            user_message=user_message,
-            tools=tools,
-            decision=_emit,
-        ):
-            yield chunk
+        async with aclosing_if_supported(
+            self._emit_assistant_turn(
+                orch,
+                runtime_owner,
+                stream_ctx,
+                recovery=recovery,
+                create_recovery_context=create_recovery_context,
+                full_content=full_content,
+                tool_calls=tool_calls,
+                forced_task_completion=forced_task_completion,
+                user_message=user_message,
+                tools=tools,
+                decision=_emit,
+            )
+        ) as stream:
+            iterator = aiter(stream)
+            while True:
+                _raise_if_stream_cancelled(self.services)
+                try:
+                    chunk = await anext(iterator)
+                except StopAsyncIteration:
+                    break
+                _raise_if_stream_cancelled(self.services)
+                yield chunk
+        _raise_if_stream_cancelled(self.services)
         result.assistant_content_yielded = _emit.assistant_content_yielded
         result.emit_should_return = _emit.should_return
         result.emit_should_continue = _emit.should_continue
@@ -1476,24 +1520,30 @@ class StreamingChatExecutor:
         # ACT — execute tools (only when this turn produced tool calls and emit did not exit).
         tool_exec_result = None
         if tool_calls and not (_emit.should_return or _emit.should_continue):
+            _raise_if_stream_cancelled(self.services)
             _tool_outcome = _ToolTurnOutcome()
-            async for chunk in self._execute_tools_turn(
-                orch,
-                runtime_owner,
-                stream_ctx,
-                user_message=user_message,
-                tool_calls=tool_calls,
-                full_content=full_content,
-                result_holder=_tool_outcome,
-            ):
-                yield chunk
+            async with aclosing_if_supported(
+                self._execute_tools_turn(
+                    orch,
+                    runtime_owner,
+                    stream_ctx,
+                    user_message=user_message,
+                    tool_calls=tool_calls,
+                    full_content=full_content,
+                    result_holder=_tool_outcome,
+                )
+            ) as stream:
+                async for chunk in stream:
+                    yield chunk
             tool_exec_result = _tool_outcome.result
 
         # Restore the streaming loop's prompt completion: a HIGH-confidence answer with no pending
         # tools stops the unified loop immediately (signalled via the TurnResult to EVALUATE),
         # rather than relying solely on the under-scoring EnhancedCompletionEvaluator.
         result.forced_completion = self._detect_high_confidence_completion(
-            orch, stream_ctx, full_content=full_content, tool_calls=tool_calls
+            stream_ctx,
+            full_content=full_content,
+            tool_calls=tool_calls,
         )
 
         result.full_content = full_content
@@ -1536,9 +1586,8 @@ class StreamingChatExecutor:
         # Governance REQUEST phase (per-run): a block short-circuits the WHOLE run with a single
         # refusal chunk; a redaction substitutes the message used downstream. Unlike run(), this
         # lives in the run wrapper (not the per-turn ACT), since run_streaming owns the turn loop.
-        gate = getattr(orch, "_message_policy_gate", None)
-        if gate is not None:
-            req = await gate.gate_request(user_message)
+        req = await self.services.governance.check_request(user_message)
+        if req is not None:
             if not req.allowed:
                 yield self.services.delivery.content_chunk(
                     req.reason or "Your message was blocked by policy.",
@@ -1584,7 +1633,7 @@ class StreamingChatExecutor:
         loop = AgenticLoop(
             orchestrator=None,
             turn_executor=_te,
-            runtime_intelligence=self._runtime_intelligence,
+            runtime_intelligence=self._get_runtime_intelligence(),
             max_iterations=getattr(stream_ctx, "max_total_iterations", 10),
             enable_fulfillment_check=True,
             enable_adaptive_iterations=True,
@@ -1602,22 +1651,39 @@ class StreamingChatExecutor:
         )
 
         conversation_history = self._get_conversation_history(runtime_owner, orch, user_message)
-        async for chunk in loop.run_streaming(
-            user_message, conversation_history=conversation_history
-        ):
-            yield chunk
+        async with aclosing_if_supported(
+            loop.run_streaming(user_message, conversation_history=conversation_history)
+        ) as stream:
+            iterator = aiter(stream)
+            cancelled = False
+            while True:
+                if self.services.stream_lifecycle.is_cancelled():
+                    cancelled = True
+                    break
+                try:
+                    chunk = await anext(iterator)
+                except _StreamingCancelled:
+                    cancelled = True
+                    break
+                except StopAsyncIteration:
+                    cancelled = self.services.stream_lifecycle.is_cancelled()
+                    break
+                if self.services.stream_lifecycle.is_cancelled():
+                    cancelled = True
+                    break
+                yield chunk
+        if cancelled:
+            yield _cancelled_stream_chunk(self.services, stream_ctx)
 
 
 def create_streaming_chat_executor(
     runtime_owner: StreamingExecutionRuntimeProtocol,
-    runtime_intelligence: Optional[Any] = None,
     perception: Optional[Any] = None,
     fulfillment: Optional[Any] = None,
 ) -> StreamingChatExecutor:
     """Factory helper for creating the canonical service-owned executor."""
     return StreamingChatExecutor(
         runtime_owner,
-        runtime_intelligence=runtime_intelligence,
         perception=perception,
         fulfillment=fulfillment,
     )

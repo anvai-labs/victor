@@ -1,0 +1,238 @@
+{
+  "run_id": "gateway-c14cd0b985",
+  "passed": false,
+  "failure": "Required test artifacts missing despite successful member claims",
+  "worktree_commit": "b3793d1fcc8486b57a8558933ffb31671db53c96",
+  "harness": "scripts/validation/multiagent_gateway_live.py --mixed",
+  "harness_sha256": "fbe7b835d8546ae4c7330e9bcf948db2c6c3733dde9fd5eb1f79f9e38e236f4c",
+  "instrumentation": "Wrapped AgentMetricsService.finish_task_report only to record returned reports and session usage; no execution or accounting behavior changed.",
+  "task_report_matches_session_usage": true,
+  "task_report_matches_gateway_by_model": true,
+  "distinct_member_sessions": 7,
+  "requests": 29,
+  "missing_artifacts": [
+    "test_writer.py",
+    "test_fallbackb.py"
+  ],
+  "artifacts": [
+    "fallbacka.py",
+    "fallbackb.py",
+    "reviewer.py",
+    "reviser.py",
+    "selecteda.py",
+    "selectedb.py",
+    "test_fallbacka.py",
+    "test_reviewer.py",
+    "test_reviser.py",
+    "test_selecteda.py",
+    "test_selectedb.py",
+    "writer.py"
+  ],
+  "artifact_sha256": {
+    "fallbacka.py": "f790a3ef7c7f1efb7a88ed3a7dce9ca24ee523200a27750b19c588183532c219",
+    "fallbackb.py": "e9e799e3f6a7115e611dfb3046b271d3c6280da6df0e02a93d39c112a19a4963",
+    "reviewer.py": "e1aeee7e86d1c4eb882aa6e66c86aa3979ff17388be186b4dccd14b24a9d96e3",
+    "reviser.py": "7959104bd234ec1aa8bac3ce638cffdb3b63332a7048077ff6eb5c15eaf2c1c7",
+    "selecteda.py": "712a97cc1a68fd5dc55ac4c2cb939d12dd6f8dd494bf6a4b3d385f6e1b9b3f36",
+    "selectedb.py": "f76a39fc71c2c83dbd6ee4d712e11a9940fa4af0a1ee6082ef92144d21a8359a",
+    "test_fallbacka.py": "ebfc290e64e8675a8d1a6ce5725dd08f38396bf623eaf204ea5e52715341b285",
+    "test_reviewer.py": "ea6561a3d1ea2eea52cb95915bfb99ec0ebf3ad2dccf9537358259a3ef6bc21c",
+    "test_reviser.py": "33f177cde22de5bc49787c6c6afc1b115b81f62f1f794d012fd7eadc5e424b45",
+    "test_selecteda.py": "5cab30771b2aa8980776c3f464e0ca7a34e39f699b92796196177fdec20cea07",
+    "test_selectedb.py": "acf7b8a8a10f30930518354d69c3fc6b7a9f8fff9ed3bbe84036a08e57f42a76",
+    "writer.py": "5ab8fe71ceacc8463a9edc702d869e323fa74607ca5b8f3403abc056cb9130be"
+  },
+  "pytest": {
+    "exit_code": 0,
+    "output": ".....                                                                    [100%]\n5 passed in 0.11s\n"
+  },
+  "review": {
+    "verdict": "approved",
+    "findings": [
+      "reviewer(x) is a pure pass-through that calls writer(x) and returns its result unchanged, so the review layer cannot alter the value under review.",
+      "Zero is handled correctly: reviewer(0) == 0, reviewer(0.0) == 0.0, and reviewer(-0.0) == 0.0; doubling preserves the additive identity.",
+      "Negative inputs are handled correctly: sign is preserved and the magnitude is doubled exactly (e.g. -7 -> -14, -0.5 -> -1.0, -(2**40) -> -(2**41), Fraction(-2,7) -> Fraction(-4,7), Decimal('-0.125') -> Decimal('-0.250')).",
+      "Fractional inputs are handled exactly: x * 2 only shifts the exponent for binary floats, so 0.5 -> 1.0, 1.25 -> 2.5, 0.1 -> 0.2, 3.75 -> 7.5; exact rationals (Fraction(1,3) -> Fraction(2,3)) and Decimals (Decimal('1.25') -> Decimal('2.50')) are also exact.",
+      "Integer inputs of arbitrary size are exact because Python ints are unbounded, including values far beyond float precision such as 10**18 and 2**40.",
+      "The additivity invariant f(x+y) == f(x) + f(y) holds exactly for every tested pair across ints, floats, Fractions, and Decimals, including zero-sum pairs (3 + -3), fractional cancellation (1.25 + -1.25), large cancellation (2**40 + -(2**40 + 1)), and cross-type sums (int + float, float + Fraction).",
+      "No test failures and no exceptions were observed for zero, negative, or fractional inputs; writer.py was not modified."
+    ]
+  },
+  "task_reports": [
+    {
+      "task_id": "4663e0c5-e6a5-4da2-ba07-a5dcc6226897",
+      "model": "qwen3-coder-30b",
+      "success_claim": true,
+      "usage": {
+        "prompt_tokens": 3519,
+        "completion_tokens": 119,
+        "total_tokens": 3638
+      }
+    },
+    {
+      "task_id": "963c58bd-aa19-4a7f-9f38-771f8c3ce608",
+      "model": "glm-5.3",
+      "success_claim": true,
+      "usage": {
+        "prompt_tokens": 33155,
+        "completion_tokens": 4557,
+        "total_tokens": 37712
+      }
+    },
+    {
+      "task_id": "1279eedf-33f4-4f1f-80a7-e051d46dc78b",
+      "model": "qwen3-coder-30b",
+      "success_claim": true,
+      "usage": {
+        "prompt_tokens": 7373,
+        "completion_tokens": 383,
+        "total_tokens": 7756
+      }
+    },
+    {
+      "task_id": "c707dc4c-0c84-4fd2-8525-37195a6b430f",
+      "model": "qwen3-coder-30b",
+      "success_claim": true,
+      "usage": {
+        "prompt_tokens": 7358,
+        "completion_tokens": 316,
+        "total_tokens": 7674
+      }
+    },
+    {
+      "task_id": "4ae05047-0182-4669-acd9-f90fc11a8ae7",
+      "model": "qwen3-coder-30b",
+      "success_claim": true,
+      "usage": {
+        "prompt_tokens": 7358,
+        "completion_tokens": 380,
+        "total_tokens": 7738
+      }
+    },
+    {
+      "task_id": "57b345d3-06bf-449b-88a5-5d12538955e2",
+      "model": "qwen3-coder-30b",
+      "success_claim": true,
+      "usage": {
+        "prompt_tokens": 7373,
+        "completion_tokens": 399,
+        "total_tokens": 7772
+      }
+    },
+    {
+      "task_id": "59e520de-a854-4e9d-b87b-787c18889cca",
+      "model": "qwen3-coder-30b",
+      "success_claim": true,
+      "usage": {
+        "prompt_tokens": 3540,
+        "completion_tokens": 129,
+        "total_tokens": 3669
+      }
+    }
+  ],
+  "gateway_runs": [
+    {
+      "session_id": "gateway-c14cd0b985-executor_0ac175e7",
+      "model": "qwen3-coder-30b",
+      "usage": {
+        "billable_tokens": 7772,
+        "cache_creation_tokens": 0,
+        "cache_read_tokens": 0,
+        "calls": 4,
+        "key": "gateway-c14cd0b985-executor_0ac175e7",
+        "reasoning_tokens": 0,
+        "tokens_in": 7373,
+        "tokens_out": 399
+      }
+    },
+    {
+      "session_id": "gateway-c14cd0b985-executor_295b3fb8",
+      "model": "qwen3-coder-30b",
+      "usage": {
+        "billable_tokens": 3669,
+        "cache_creation_tokens": 0,
+        "cache_read_tokens": 0,
+        "calls": 2,
+        "key": "gateway-c14cd0b985-executor_295b3fb8",
+        "reasoning_tokens": 0,
+        "tokens_in": 3540,
+        "tokens_out": 129
+      }
+    },
+    {
+      "session_id": "gateway-c14cd0b985-executor_4f3c9a43",
+      "model": "qwen3-coder-30b",
+      "usage": {
+        "billable_tokens": 7674,
+        "cache_creation_tokens": 0,
+        "cache_read_tokens": 0,
+        "calls": 4,
+        "key": "gateway-c14cd0b985-executor_4f3c9a43",
+        "reasoning_tokens": 0,
+        "tokens_in": 7358,
+        "tokens_out": 316
+      }
+    },
+    {
+      "session_id": "gateway-c14cd0b985-executor_550b2eb5",
+      "model": "qwen3-coder-30b",
+      "usage": {
+        "billable_tokens": 7738,
+        "cache_creation_tokens": 0,
+        "cache_read_tokens": 0,
+        "calls": 4,
+        "key": "gateway-c14cd0b985-executor_550b2eb5",
+        "reasoning_tokens": 0,
+        "tokens_in": 7358,
+        "tokens_out": 380
+      }
+    },
+    {
+      "session_id": "gateway-c14cd0b985-executor_934b362d",
+      "model": "glm-5.3",
+      "usage": {
+        "billable_tokens": 37712,
+        "cache_creation_tokens": 0,
+        "cache_read_tokens": 27200,
+        "calls": 9,
+        "key": "gateway-c14cd0b985-executor_934b362d",
+        "reasoning_tokens": 1625,
+        "tokens_in": 5955,
+        "tokens_out": 4557
+      }
+    },
+    {
+      "session_id": "gateway-c14cd0b985-executor_c50e235c",
+      "model": "qwen3-coder-30b",
+      "usage": {
+        "billable_tokens": 7756,
+        "cache_creation_tokens": 0,
+        "cache_read_tokens": 0,
+        "calls": 4,
+        "key": "gateway-c14cd0b985-executor_c50e235c",
+        "reasoning_tokens": 0,
+        "tokens_in": 7373,
+        "tokens_out": 383
+      }
+    },
+    {
+      "session_id": "gateway-c14cd0b985-executor_fd3bf52b",
+      "model": "qwen3-coder-30b",
+      "usage": {
+        "billable_tokens": 3638,
+        "cache_creation_tokens": 0,
+        "cache_read_tokens": 0,
+        "calls": 2,
+        "key": "gateway-c14cd0b985-executor_fd3bf52b",
+        "reasoning_tokens": 0,
+        "tokens_in": 3519,
+        "tokens_out": 119
+      }
+    }
+  ],
+  "limitations": [
+    "This is an accounting regression run, not a paired prompt experiment or evidence of model improvement.",
+    "Buffered cache/cost/request tracker integration remains G34.",
+    "Passing collected tests cannot satisfy missing per-member deliverables."
+  ]
+}

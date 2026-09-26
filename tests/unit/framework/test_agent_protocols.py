@@ -444,7 +444,7 @@ class TestTeamFormationEnum:
         assert TeamFormation.REFLECTION.value == "reflection"
 
     def test_all_formations_count(self):
-        """TeamFormation should have exactly 6 formations."""
+        """TeamFormation should enumerate every coordination formation."""
         from victor.framework.agent_protocols import TeamFormation
 
         expected = {
@@ -454,6 +454,12 @@ class TestTeamFormationEnum:
             "pipeline",
             "consensus",
             "reflection",
+            "adaptive",
+            "dynamic_router",
+            "multi_level_hierarchy",
+            "debate",
+            "handoff",
+            "group_chat",
         }
         actual = {f.value for f in TeamFormation}
         assert actual == expected

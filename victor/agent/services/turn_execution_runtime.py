@@ -45,6 +45,7 @@ import asyncio
 import hashlib
 import inspect
 import logging
+
 import re
 from typing import Any, Dict, List, Optional, Set, TYPE_CHECKING
 
@@ -1616,66 +1617,21 @@ class TurnExecutor:
         Returns:
             List of tool definitions or None
         """
-        conversation_depth = self._chat_context.conversation.message_count()
-        from victor.agent.tool_selection.history_projection import _selector_history_projection
+        from victor.agent.services.tool_selection_runtime import ToolSelectionRuntime
+        from victor.agent.services.turn_tool_selection_adapter import TurnToolSelectionAdapter
 
-        conversation_history = _selector_history_projection(self._chat_context.messages)
-
-        tools = await self._tool_context.tool_selector.select_tools(
-            user_message,
-            use_semantic=self._tool_context.use_semantic_selection,
-            conversation_history=conversation_history,
-            conversation_depth=conversation_depth,
-        )
-
-        # When the caller curated the toolset (_enabled_tools is a real non-empty
-        # collection), the schema must reach the LLM UNCHANGED — no stage
-        # prioritization or intent filtering that drops curated tools (code/graph).
-        # select_tools() already short-circuits to the stable curated set (#368);
-        # skip the downstream gates too so the full 6-tool set survives.
-        _curated = getattr(self._tool_context.tool_selector, "_enabled_tools", None)
-        if isinstance(_curated, (set, frozenset, list)) and _curated:
-            return tools
-
-        # Prioritize by stage
-        tools = self._tool_context.tool_selector.prioritize_by_stage(user_message, tools)
-
-        # Delegate intent filtering to the canonical planner when available.
-        planner = getattr(self._tool_context, "_tool_planner", None)
-        if tools and intent and planner and hasattr(planner, "filter_tools_by_intent"):
-            try:
-                from victor.agent.action_authorizer import ActionIntent
-
-                tools = planner.filter_tools_by_intent(
-                    tools,
-                    current_intent=ActionIntent(intent),
-                    user_message=user_message,
-                )
-            except (ValueError, ImportError, AttributeError):
-                pass
-        # Backward-compatible fallback for shim contexts that have not yet been wired
-        # through the canonical planner service.
-        elif tools and intent:
-            try:
-                from victor.agent.action_authorizer import (
-                    ActionIntent,
-                    is_tool_blocked_for_intent,
-                )
-
-                action_intent = ActionIntent(intent)
-                tools = [
-                    t
-                    for t in tools
-                    if not is_tool_blocked_for_intent(
-                        (t.get("name") if isinstance(t, dict) else getattr(t, "name", None)) or "",
-                        action_intent,
-                        user_message,
-                    )
-                ]
-            except (ValueError, ImportError, AttributeError):
-                pass
-
-        return tools
+        if not hasattr(self, "_turn_tool_selection_adapter"):
+            self._turn_tool_selection_lock = asyncio.Lock()
+            self._turn_tool_selection_adapter = TurnToolSelectionAdapter(self)
+            self._turn_tool_selection_runtime = ToolSelectionRuntime(
+                self._turn_tool_selection_adapter
+            )
+        # Keep turn inputs stable across selection awaits on the shared adapter.
+        async with self._turn_tool_selection_lock:
+            self._turn_tool_selection_adapter.bind_turn(user_message, intent)
+            return await self._turn_tool_selection_runtime.select_tools_for_turn(
+                user_message, goals=None
+            )
 
     def _build_rubric_complete_fn(self) -> Optional[Any]:
         """The LLM rubric judge's ``complete_fn(prompt)->text`` (ADR-009, FEP-0030).
@@ -2086,46 +2042,28 @@ class TurnExecutor:
             failure_context=(failure_context if failure_context.failed_tools else None),
         )
 
-        if completion_result.content:
-            from victor.agent.conversation.types import (
-                MESSAGE_SOURCE_METADATA_KEY,
-                MessageSource,
-            )
+        for provider_response in completion_result.provider_responses:
+            self._accumulate_token_usage(provider_response)
 
-            self._chat_context.add_message(
-                "assistant",
-                completion_result.content,
-                metadata={MESSAGE_SOURCE_METADATA_KEY: MessageSource.AGENT_RESPONSE.value},
+        content = completion_result.content
+        if not content:
+            # Last resort fallback; normal and fallback content share one recording path.
+            content = (
+                "I was unable to generate a complete response. "
+                "Please try rephrasing your request."
             )
-            return CompletionResponse(
-                content=completion_result.content,
-                role="assistant",
-                tool_calls=None,
-            )
-
-        # Last resort fallback
-        fallback_content = (
-            "I was unable to generate a complete response. " "Please try rephrasing your request."
-        )
-        if failure_context.failed_tools:
-            fallback_content = (
-                self._provider_context.response_completer.format_tool_failure_message(
+            if failure_context.failed_tools:
+                content = self._provider_context.response_completer.format_tool_failure_message(
                     failure_context
                 )
-            )
-
-        from victor.agent.conversation.types import (
-            MESSAGE_SOURCE_METADATA_KEY,
-            MessageSource,
-        )
 
         self._chat_context.add_message(
             "assistant",
-            fallback_content,
+            content,
             metadata={MESSAGE_SOURCE_METADATA_KEY: MessageSource.AGENT_RESPONSE.value},
         )
         return CompletionResponse(
-            content=fallback_content,
+            content=content,
             role="assistant",
             tool_calls=None,
         )

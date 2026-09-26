@@ -1,0 +1,112 @@
+{
+  "schema_version": 1,
+  "new_evidence": true,
+  "scope": "Published-binary machine OAuth integration; not an actual Victor member, formation cohort or C5 acceptance",
+  "passed": true,
+  "runtime": {
+    "release_tag": "v0.8.0",
+    "source": "7b634c8653c434a4f11afd9dd6916fd8bdae3aff",
+    "sha256": "ee678487322c96487d51d8ccd19ab4fe0c3a4c08094c6c1280f57c414e82a083",
+    "archive_sha256": "e12a3eb00301c6047fdea29c4de0c1b8c0223f2b3ec35a0e64c1423c78e80aa2"
+  },
+  "release_ci": "https://github.com/anvai-labs/sandhi/actions/runs/35810452742",
+  "published_targets_verified": [
+    "github-archives",
+    "pypi",
+    "npm",
+    "crates"
+  ],
+  "route": "OIDC Sandhi candidate -> ZAI",
+  "auth_mode": "oidc",
+  "bootstrap_credentials_transferred": false,
+  "run_id": "oidc-machine-1790137208264702760",
+  "session_id": "oidc-machine-1790137208264702760-member-1",
+  "step_id": "cloud-1",
+  "model": "glm-5.3",
+  "inference_http_status": 200,
+  "machine_admin_http_status": 403,
+  "access_token_lifetime_seconds": 900,
+  "token_exchange_ms": 44,
+  "request_ms": 2169,
+  "wire_usage": {
+    "completion_tokens": 34,
+    "completion_tokens_details": {
+      "reasoning_tokens": 31
+    },
+    "prompt_tokens": 23,
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    },
+    "total_tokens": 57
+  },
+  "wire_upstream_request_id": "dd3a637b-5393-4e04-96c4-0f8b1768db98",
+  "wire_gateway_request_id": null,
+  "sqlite_rows": [
+    {
+      "request_id": "req_1790137213437_0",
+      "session_id": "oidc-machine-1790137208264702760-member-1",
+      "run_id": "oidc-machine-1790137208264702760",
+      "step_id": "cloud-1",
+      "provider": "zai",
+      "model": "glm-5.3",
+      "tokens_in": 23,
+      "tokens_out": 34,
+      "cache_read_tokens": 0,
+      "cache_creation_tokens": 0,
+      "cache_read_status": "reported",
+      "cache_read_source": "origin_usage"
+    }
+  ],
+  "c4_rows": [
+    {
+      "cache_creation_tokens": 0,
+      "cache_read_observation": {
+        "source": "origin_usage",
+        "status": "reported"
+      },
+      "cache_read_tokens": 0,
+      "duration_ms": 2141,
+      "duration_source": "boundary",
+      "model": "glm-5.3",
+      "occurred_at": "2026-09-23T04:20:15.58108Z",
+      "provider": "zai",
+      "reasoning_included": true,
+      "reasoning_tokens": 31,
+      "request_id": "req_1790137213437_0",
+      "run_id": "oidc-machine-1790137208264702760",
+      "session_id": "oidc-machine-1790137208264702760-member-1",
+      "step_id": "cloud-1",
+      "tokens_in": 23,
+      "tokens_out": 34
+    }
+  ],
+  "dashboard_run_total": {
+    "billable_tokens": 57,
+    "cache_creation_tokens": 0,
+    "cache_read_coverage": {
+      "absent": 0,
+      "malformed": 0,
+      "reported": 1,
+      "unknown": 0,
+      "unsupported": 0
+    },
+    "cache_read_tokens": 0,
+    "calls": 1,
+    "key": "oidc-machine-1790137208264702760",
+    "reasoning_tokens": 31,
+    "tokens_in": 23,
+    "tokens_out": 34
+  },
+  "browser": {
+    "tls_verified": true,
+    "run_visible": true,
+    "logout_verified": true
+  },
+  "limitations": [
+    "No actual-member or formation/C5 inference in this check.",
+    "No gateway request ID was present in the wire response; the C4/SQLite request ID join and run/session/step join are verified separately.",
+    "Reported cache is explicitly zero; executed backend reuse is not established.",
+    "No InferFlux authentication, tokenizer, session-lease, streaming or cancellation acceptance.",
+    "Sandhi 0.8.0 diagnostics still require admin authorization; scoped diagnostics is a separate source increment."
+  ]
+}

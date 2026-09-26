@@ -45,7 +45,13 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Mapping, Optional, Set, TYPE_CHECKING
 
 from victor.agent.argument_normalizer import ArgumentNormalizer, NormalizationStrategy
+from victor.agent.middleware_chain import _validate_before_result
 from victor.agent.tool_executor import ToolExecutor, ToolExecutionResult
+from victor.agent.tool_retry_safety import (
+    allows_tool_retry,
+    blocks_tool_retry,
+    mark_unknown_tool_outcome,
+)
 from victor.agent.parameter_enforcer import (
     get_enforcer_for_tool,
     ParameterInferenceError,
@@ -2731,6 +2737,25 @@ class ToolPipeline:
             pass  # Intent logging is non-critical
 
     async def _execute_single_call(
+        self, tool_call: Dict[str, Any], context: Dict[str, Any]
+    ) -> ToolCallResult:
+        from victor.framework.approval_binding import (
+            ApprovalCall,
+            current_approval_call,
+            current_approval_grant,
+            proposal,
+        )
+        from victor.framework.approval_pause import current_durable_pause_enabled
+
+        if not current_durable_pause_enabled.get() and current_approval_grant.get() is None:
+            return await self._execute_single_call_inner(tool_call, context)
+        token = current_approval_call.set(ApprovalCall(proposal(tool_call)))
+        try:
+            return await self._execute_single_call_inner(tool_call, context)
+        finally:
+            current_approval_call.reset(token)
+
+    async def _execute_single_call_inner(
         self,
         tool_call: Dict[str, Any],
         context: Dict[str, Any],
@@ -2844,9 +2869,13 @@ class ToolPipeline:
         normalization_applied = None if strategy == NormalizationStrategy.DIRECT else strategy.value
         steering_user_message: Optional[str] = None
 
+        from victor.framework.approval_binding import current_approval_grant
+
+        bound_resume = current_approval_grant.get() is not None
+
         # Check idempotent cache for read-only tools
         # This prevents DeepSeek/Ollama from re-reading the same file multiple times
-        cached_result = self.get_cached_result(tool_name, normalized_args)
+        cached_result = None if bound_resume else self.get_cached_result(tool_name, normalized_args)
         if cached_result is not None:
             logger.info(f"[Pipeline] Returning cached result for {tool_name}")
             # Still count as a tool call for tracking, but don't execute
@@ -2866,7 +2895,7 @@ class ToolPipeline:
 
         # Cross-turn dedup: cache "effectively idempotent" tools (web_search, etc.)
         # These produce identical results for identical args within a session window.
-        if self._cross_turn_enabled and tool_name in CROSS_TURN_DEDUP_TOOLS:
+        if not bound_resume and self._cross_turn_enabled and tool_name in CROSS_TURN_DEDUP_TOOLS:
             signature = self._get_call_signature(tool_name, normalized_args)
             cross_cached = self._cross_turn_cache.get(signature)
             if cross_cached is not None:
@@ -2891,7 +2920,11 @@ class ToolPipeline:
 
         # Check semantic cache (FAISS-based with mtime invalidation)
         # This catches similar-but-not-identical queries that would return same results
-        if self.config.enable_semantic_caching and self.semantic_cache is not None:
+        if (
+            not bound_resume
+            and self.config.enable_semantic_caching
+            and self.semantic_cache is not None
+        ):
             try:
                 semantic_result = await self.semantic_cache.get(tool_name, normalized_args)
                 if semantic_result is not None:
@@ -3096,11 +3129,18 @@ class ToolPipeline:
             except AttributeError as e:
                 logger.debug(f"Deduplication tracker not properly initialized: {e}")
 
+        from victor.framework.approval_binding import current_approval_call, tool_contract, digest
+
+        approval_call = current_approval_call.get()
+        if approval_call is not None:
+            approval_call.contract = tool_contract(self.tools.get(tool_name))
+            approval_call.authority = digest(self.executor.current_user)
+
         # Process through middleware chain (before execution)
         if self.middleware_chain is not None:
             try:
-                before_result = await self.middleware_chain.process_before(
-                    tool_name, normalized_args
+                before_result = _validate_before_result(
+                    await self.middleware_chain.process_before(tool_name, normalized_args)
                 )
                 if not before_result.proceed:
                     logger.info(
@@ -3114,17 +3154,26 @@ class ToolPipeline:
                         skip_reason=f"Blocked by middleware: {before_result.error_message}",
                         outcome_kind="middleware_blocked",
                         block_source="middleware_chain",
-                        retryable=True,
+                        retryable=False,
                         user_message=before_result.error_message,
                         normalization_applied=normalization_applied,
                     )
                 # Apply any argument modifications from middleware
-                if before_result.modified_arguments:
+                if before_result.modified_arguments is not None:
                     normalized_args = before_result.modified_arguments
-            except (ValueError, TypeError, KeyError) as e:
-                logger.warning(f"Middleware chain process_before failed (data error): {e}")
-            except AttributeError as e:
-                logger.debug(f"Middleware chain not properly configured: {e}")
+            except Exception:
+                logger.error("Middleware chain failed; blocking dispatch")
+                return _build_skip_result(
+                    tool_name=tool_name,
+                    arguments=normalized_args,
+                    success=False,
+                    skip_reason="Middleware enforcement failed.",
+                    outcome_kind="middleware_error",
+                    block_source="middleware_chain",
+                    retryable=False,
+                    user_message="Tool execution stopped because its policy checks failed.",
+                    normalization_applied=normalization_applied,
+                )
 
         # Emit pre-execution intent event (LogAct-inspired)
         self._emit_tool_intent(tool_name, normalized_args)
@@ -3144,6 +3193,7 @@ class ToolPipeline:
             json_dumps(normalized_args, default=str)[:500],
         )
         start_time = time.monotonic()
+        execution_interrupted = False
         try:
             exec_result = await asyncio.wait_for(
                 self.executor.execute(
@@ -3154,6 +3204,7 @@ class ToolPipeline:
                 timeout=self._get_tool_timeout(tool_name),
             )
         except asyncio.TimeoutError:
+            execution_interrupted = True
             effective_timeout = self._get_tool_timeout(tool_name)
             tb_str = traceback.format_exc()
 
@@ -3200,6 +3251,7 @@ class ToolPipeline:
             )
         except Exception as e:
             tb_str = traceback.format_exc()
+            execution_interrupted = True
             logger.error(f"[Pipeline] Tool '{tool_name}' execution failed: {e}", exc_info=True)
             exec_result = ToolExecutionResult(
                 tool_name=tool_name,
@@ -3222,6 +3274,17 @@ class ToolPipeline:
             )
         execution_time_ms = (time.monotonic() - start_time) * 1000
 
+        # Outer timeout/exception conversion can bypass the executor's own result.
+        # It does not prove that the underlying operation was cancelled before commit.
+        if (
+            not exec_result.success
+            and exec_result.error_info is not None
+            and execution_interrupted
+            and not allows_tool_retry(self.tools.get(tool_name))
+        ):
+            mark_unknown_tool_outcome(exec_result.error_info)
+            exec_result.error = exec_result.error_info.to_user_message()
+
         # Update state
         self._calls_used += 1
         self._executed_tools.append(tool_name)
@@ -3237,6 +3300,7 @@ class ToolPipeline:
             normalization_applied=normalization_applied,
             user_message=steering_user_message,
             error_info=exec_result.error_info,  # Preserve structured error info
+            retryable=False if blocks_tool_retry(exec_result) else None,
         )
 
         low_signal_reason = None
@@ -3299,7 +3363,12 @@ class ToolPipeline:
         )
 
         # Attempt error recovery fallback on failure
-        if not exec_result.success and exec_result.error:
+        if (
+            not exec_result.success
+            and exec_result.error
+            and not blocks_tool_retry(exec_result)
+            and allows_tool_retry(self.tools.get(tool_name))
+        ):
             self._record_path_redirect_from_error(tool_name, normalized_args, exec_result.error)
             try:
                 from victor.agent.error_recovery import (
@@ -3337,7 +3406,9 @@ class ToolPipeline:
                             fallback_name,
                         )
 
-                if recovery_tool_name != tool_name or recovery_args is not normalized_args:
+                if (
+                    recovery_tool_name != tool_name or recovery_args is not normalized_args
+                ) and allows_tool_retry(self.tools.get(recovery_tool_name)):
                     try:
                         recovered_exec_result = await asyncio.wait_for(
                             self.executor.execute(
@@ -3391,15 +3462,9 @@ class ToolPipeline:
                     tool_name, normalized_args, call_result.result, call_result.success
                 )
                 if modified_result is not None and modified_result != call_result.result:
-                    call_result = ToolCallResult(
-                        tool_name=call_result.tool_name,
-                        arguments=call_result.arguments,
-                        success=call_result.success,
-                        result=modified_result,
-                        error=call_result.error,
-                        execution_time_ms=call_result.execution_time_ms,
-                        normalization_applied=call_result.normalization_applied,
-                    )
+                    from dataclasses import replace
+
+                    call_result = replace(call_result, result=modified_result)
                     if self.on_tool_event:
                         try:
                             self.on_tool_event(

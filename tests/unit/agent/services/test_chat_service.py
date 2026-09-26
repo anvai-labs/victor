@@ -20,12 +20,36 @@ from unittest import mock
 
 import pytest
 
+from victor.agent.session_cost_tracker import SessionCostTracker
 from victor.agent.services.chat_service import ChatService, ChatServiceConfig
+from victor.agent.services.metrics_service import AgentMetricsService
 from victor.providers.base import CompletionResponse, StreamChunk
 
 # =============================================================================
 # Mock Dependencies
 # =============================================================================
+
+
+class _BoundTurnRuntime:
+    """Small callback-backed turn runtime for ChatService boundary tests."""
+
+    def __init__(self, *, enter=None, exit=None, start=None, finish=None):
+        self._enter = enter
+        self._exit = exit
+        self._start = start
+        self._finish = finish
+
+    def enter(self, *args, **kwargs):
+        return self._enter(*args, **kwargs) if self._enter is not None else None
+
+    def exit(self, *args, **kwargs):
+        return self._exit(*args, **kwargs) if self._exit is not None else None
+
+    def start_task_report(self, *args, **kwargs):
+        return self._start(*args, **kwargs) if self._start is not None else None
+
+    def finish_task_report(self, *args, **kwargs):
+        return self._finish(*args, **kwargs) if self._finish is not None else None
 
 
 class MockProviderService:
@@ -141,15 +165,26 @@ class MockStreamingCoordinator:
 
 
 class FailingMemoryManager:
+    def __init__(self, close_failure=False):
+        self.close_calls = 0
+        self.close_failure = close_failure
+
     def add_message(self, **kwargs):
         raise RuntimeError("database is locked")
 
+    def close_thread_connection(self):
+        self.close_calls += 1
+        if self.close_failure:
+            raise RuntimeError("injected close failure")
+
 
 @pytest.mark.asyncio
-async def test_persist_message_background_failure_is_consumed():
+@pytest.mark.parametrize("close_failure", [False, True])
+async def test_persist_message_background_failure_is_consumed(close_failure, caplog):
     """Background persistence failures should not surface as event-loop errors."""
     loop = asyncio.get_running_loop()
     exceptions = []
+    memory = FailingMemoryManager(close_failure)
     previous_handler = loop.get_exception_handler()
     loop.set_exception_handler(lambda _loop, context: exceptions.append(context))
 
@@ -157,7 +192,7 @@ async def test_persist_message_background_failure_is_consumed():
         ChatService.persist_message(
             "assistant",
             "hello",
-            FailingMemoryManager(),
+            memory,
             "session-1",
             usage_logger=None,
         )
@@ -166,6 +201,82 @@ async def test_persist_message_background_failure_is_consumed():
         loop.set_exception_handler(previous_handler)
 
     assert exceptions == []
+    assert memory.close_calls == 1
+    assert ("connection cleanup failed" in caplog.text) is close_failure
+
+
+async def test_background_cleanup_preserves_propagating_cancellation(monkeypatch):
+    loop = asyncio.get_running_loop()
+    callbacks = []
+    cancelled = asyncio.CancelledError("primary cancellation")
+    memory = mock.Mock()
+    memory.add_message.side_effect = cancelled
+    memory.close_thread_connection.side_effect = OSError("cleanup failed")
+
+    def capture(_executor, callback):
+        callbacks.append(callback)
+        future = loop.create_future()
+        future.set_result(None)
+        return future
+
+    monkeypatch.setattr(loop, "run_in_executor", capture)
+    ChatService.persist_message("assistant", "message", memory, "session", usage_logger=None)
+    with pytest.raises(asyncio.CancelledError) as caught:
+        callbacks[0]()
+    assert caught.value is cancelled
+    assert any("OSError" in note for note in cancelled.__notes__)
+    memory.close_thread_connection.assert_called_once()
+
+
+@pytest.mark.parametrize("write_failure", [False, True])
+async def test_background_persistence_releases_worker_connection_only(
+    tmp_path, monkeypatch, write_failure
+):
+    """Real SQLite handles close after each worker job; the caller stays usable."""
+    import sqlite3
+    from concurrent.futures import ThreadPoolExecutor
+    from victor.agent.conversation.store import ConversationStore
+
+    store = ConversationStore(db_path=tmp_path / "conversation.db")
+    session = store.create_session(project_path=str(tmp_path))
+    caller = store._get_connection()
+    worker_connections = []
+    futures = []
+    add_message = store.add_message
+    loop = asyncio.get_running_loop()
+
+    def write(**kwargs):
+        worker_connections.append(store._get_connection())
+        if write_failure:
+            raise RuntimeError("injected write failure")
+        return add_message(**kwargs)
+
+    monkeypatch.setattr(store, "add_message", write)
+    with ThreadPoolExecutor(max_workers=1) as executor:
+
+        def submit(_executor, callback):
+            future = asyncio.wrap_future(executor.submit(callback))
+            futures.append(future)
+            return future
+
+        monkeypatch.setattr(loop, "run_in_executor", submit)
+        try:
+            for index in range(3):
+                ChatService.persist_message(
+                    "assistant", f"message-{index}", store, session.session_id, usage_logger=None
+                )
+                await asyncio.wait_for(futures[-1], timeout=5)
+            assert caller.execute("SELECT COUNT(*) FROM messages").fetchone()[0] == (
+                0 if write_failure else 3
+            )
+            for connection in worker_connections:
+                with pytest.raises(sqlite3.ProgrammingError, match="closed"):
+                    connection.execute("SELECT 1")
+        finally:
+            for connection in worker_connections:
+                connection.close()
+            store.close_thread_connection()
+            store.close_thread_connection()
 
 
 # =============================================================================
@@ -722,10 +833,10 @@ class TestChatServiceTaskReporting(BaseChatServiceTest):
 
         service.bind_runtime_components(
             turn_executor=_TurnExecutor(),
-            task_report_start_handler=lambda user_message, **kwargs: started.append(
-                (user_message, kwargs)
+            turn_runtime=_BoundTurnRuntime(
+                start=lambda user_message, **kwargs: started.append((user_message, kwargs)),
+                finish=lambda success, **kwargs: finished.append((success, kwargs)),
             ),
-            task_report_finish_handler=lambda success, **kwargs: finished.append((success, kwargs)),
         )
 
         result = await service.chat("hello")
@@ -748,7 +859,7 @@ class TestChatServiceTaskReporting(BaseChatServiceTest):
 
         service.bind_runtime_components(
             turn_executor=_TurnExecutor(),
-            task_report_finish_handler=lambda success, **kwargs: report,
+            turn_runtime=_BoundTurnRuntime(finish=lambda success, **kwargs: report),
         )
 
         await service.chat("hello")
@@ -770,10 +881,10 @@ class TestChatServiceTaskReporting(BaseChatServiceTest):
 
         service.bind_runtime_components(
             turn_executor=_TurnExecutor(),
-            task_report_start_handler=lambda user_message, **kwargs: started.append(
-                (user_message, kwargs)
+            turn_runtime=_BoundTurnRuntime(
+                start=lambda user_message, **kwargs: started.append((user_message, kwargs)),
+                finish=lambda success, **kwargs: finished.append((success, kwargs)),
             ),
-            task_report_finish_handler=lambda success, **kwargs: finished.append((success, kwargs)),
         )
 
         with pytest.raises(RuntimeError, match="boom"):
@@ -799,7 +910,9 @@ class TestChatServiceTaskReporting(BaseChatServiceTest):
 
         service.bind_runtime_components(
             turn_executor=_TurnExecutor(),
-            task_report_finish_handler=lambda success, **kwargs: finished.append((success, kwargs)),
+            turn_runtime=_BoundTurnRuntime(
+                finish=lambda success, **kwargs: finished.append((success, kwargs))
+            ),
         )
 
         result = await service.chat("inventory")
@@ -819,10 +932,10 @@ class TestChatServiceTaskReporting(BaseChatServiceTest):
 
         service.bind_runtime_components(
             stream_chat_handler=_stream_handler,
-            task_report_start_handler=lambda user_message, **kwargs: started.append(
-                (user_message, kwargs)
+            turn_runtime=_BoundTurnRuntime(
+                start=lambda user_message, **kwargs: started.append((user_message, kwargs)),
+                finish=lambda success, **kwargs: finished.append((success, kwargs)),
             ),
-            task_report_finish_handler=lambda success, **kwargs: finished.append((success, kwargs)),
         )
 
         chunks = [chunk async for chunk in service.stream_chat("stream me")]
@@ -831,6 +944,145 @@ class TestChatServiceTaskReporting(BaseChatServiceTest):
         assert started == [("stream me", {"stream": True, "metadata": {"use_planning": None}})]
         assert finished[0][0] is True
         assert finished[0][1]["stream"] is True
+
+    @pytest.mark.asyncio
+    async def test_stream_chat_marks_cancellation_signal_as_task_failure(self):
+        service = self._create_test_service()
+        finished = []
+
+        async def _stream_handler(user_message, **kwargs):
+            yield StreamChunk(
+                content="[Cancelled by user]",
+                is_final=True,
+                metadata={"agentic_loop_success": False, "cancelled": True},
+            )
+
+        service.bind_runtime_components(
+            stream_chat_handler=_stream_handler,
+            turn_runtime=_BoundTurnRuntime(
+                finish=lambda success, **kwargs: finished.append((success, kwargs))
+            ),
+        )
+
+        chunks = [chunk async for chunk in service.stream_chat("cancel me")]
+
+        assert chunks[-1].metadata["cancelled"] is True
+        assert finished[0][0] is False
+        assert finished[0][1]["response"] is chunks[-1]
+
+    @pytest.mark.asyncio
+    async def test_overlapping_streams_keep_task_reports_and_usage_attributed(self):
+        service = self._create_test_service()
+        cumulative = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+        metrics = AgentMetricsService(mock.MagicMock(), SessionCostTracker(), cumulative)
+        first_started = asyncio.Event()
+        second_started = asyncio.Event()
+        release_first = asyncio.Event()
+        usage_by_message = {
+            "first": {"prompt_tokens": 2, "completion_tokens": 3, "total_tokens": 5},
+            "second": {"prompt_tokens": 7, "completion_tokens": 11, "total_tokens": 18},
+        }
+
+        async def _stream_handler(user_message, **_kwargs):
+            if user_message == "first":
+                first_started.set()
+                await release_first.wait()
+            else:
+                second_started.set()
+            for key, value in usage_by_message[user_message].items():
+                cumulative[key] += value
+            yield StreamChunk(content=user_message, is_final=True)
+
+        service.bind_runtime_components(
+            stream_chat_handler=_stream_handler,
+            turn_runtime=_BoundTurnRuntime(
+                start=lambda user_message, **kwargs: metrics.start_task_report(
+                    user_message, metadata=kwargs.get("metadata")
+                ),
+                finish=lambda success, **kwargs: metrics.finish_task_report(
+                    success, metadata=kwargs.get("metadata")
+                ),
+            ),
+        )
+
+        async def consume(message):
+            return [chunk async for chunk in service.stream_chat(message)]
+
+        first_task = asyncio.create_task(consume("first"))
+        await first_started.wait()
+        second_task = asyncio.create_task(consume("second"))
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        assert not second_started.is_set()
+
+        release_first.set()
+        first_chunks, second_chunks = await asyncio.gather(first_task, second_task)
+
+        assert [chunk.content for chunk in first_chunks] == ["first"]
+        assert [chunk.content for chunk in second_chunks] == ["second"]
+        reports = metrics.get_task_report_history()
+        assert [(report["description"], report["api_total_tokens"]) for report in reports] == [
+            ("first", 5),
+            ("second", 18),
+        ]
+        assert cumulative == {
+            "prompt_tokens": 9,
+            "completion_tokens": 14,
+            "total_tokens": 23,
+        }
+
+    @pytest.mark.asyncio
+    async def test_explicit_close_finalizes_runtime_before_report_and_next_turn(self):
+        service = self._create_test_service()
+        events = []
+
+        async def _stream_handler(user_message, **_kwargs):
+            events.append((user_message, "runtime-start"))
+            try:
+                yield StreamChunk(content=user_message, is_final=True)
+            finally:
+                events.append((user_message, "runtime-finalize"))
+
+        async def _turn_setup(user_message, **_kwargs):
+            events.append((user_message, "setup"))
+
+        async def _turn_teardown(user_message, **_kwargs):
+            events.append((user_message, "teardown"))
+
+        service.bind_runtime_components(
+            stream_chat_handler=_stream_handler,
+            turn_runtime=_BoundTurnRuntime(
+                enter=_turn_setup,
+                exit=_turn_teardown,
+                start=lambda user_message, **_kwargs: events.append((user_message, "report-start")),
+                finish=lambda _success, **kwargs: events.append(
+                    (kwargs["user_message"], "report-finish")
+                ),
+            ),
+        )
+
+        first_stream = service.stream_chat("first")
+        assert (await anext(first_stream)).content == "first"
+        events.append(("first", "caller-close"))
+        await first_stream.aclose()
+        second_chunks = [chunk async for chunk in service.stream_chat("second")]
+
+        assert [chunk.content for chunk in second_chunks] == ["second"]
+        assert events == [
+            ("first", "setup"),
+            ("first", "report-start"),
+            ("first", "runtime-start"),
+            ("first", "caller-close"),
+            ("first", "runtime-finalize"),
+            ("first", "report-finish"),
+            ("first", "teardown"),
+            ("second", "setup"),
+            ("second", "report-start"),
+            ("second", "runtime-start"),
+            ("second", "runtime-finalize"),
+            ("second", "report-finish"),
+            ("second", "teardown"),
+        ]
 
 
 class TestChatServiceTurnScope(BaseChatServiceTest):
@@ -856,8 +1108,7 @@ class TestChatServiceTurnScope(BaseChatServiceTest):
 
         service.bind_runtime_components(
             turn_executor=_TurnExecutor(),
-            turn_setup_handler=_turn_setup,
-            turn_teardown_handler=_turn_teardown,
+            turn_runtime=_BoundTurnRuntime(enter=_turn_setup, exit=_turn_teardown),
         )
 
         constraints = object()
@@ -895,8 +1146,7 @@ class TestChatServiceTurnScope(BaseChatServiceTest):
 
         service.bind_runtime_components(
             stream_chat_handler=_stream_handler,
-            turn_setup_handler=_turn_setup,
-            turn_teardown_handler=_turn_teardown,
+            turn_runtime=_BoundTurnRuntime(enter=_turn_setup, exit=_turn_teardown),
         )
 
         constraints = object()
@@ -943,8 +1193,7 @@ class TestChatServiceTurnScope(BaseChatServiceTest):
 
         service.bind_runtime_components(
             turn_executor=_TurnExecutor(),
-            turn_setup_handler=_turn_setup,
-            turn_teardown_handler=_turn_teardown,
+            turn_runtime=_BoundTurnRuntime(enter=_turn_setup, exit=_turn_teardown),
         )
 
         constraints = object()
@@ -963,6 +1212,51 @@ class TestChatServiceTurnScope(BaseChatServiceTest):
                 "hello",
                 {"stream": False, "constraints": constraints, "vertical": None},
             ),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_chat_cancellation_reports_failure_before_teardown_and_unlocks(self):
+        service = self._create_test_service()
+        started = asyncio.Event()
+        release = asyncio.Event()
+        events = []
+        response = CompletionResponse(content="done", role="assistant", stop_reason="stop")
+
+        class _TurnExecutor:
+            async def execute_agentic_loop(self, user_message):
+                events.append((user_message, "execute"))
+                if user_message == "first":
+                    started.set()
+                    await release.wait()
+                return response
+
+        service.bind_runtime_components(
+            turn_executor=_TurnExecutor(),
+            turn_runtime=_BoundTurnRuntime(
+                enter=lambda message, **_: events.append((message, "setup")),
+                finish=lambda success, **kwargs: events.append(
+                    (kwargs["user_message"], "report", success, type(kwargs["error"]))
+                ),
+                exit=lambda message, **_: events.append((message, "teardown")),
+            ),
+        )
+
+        first = asyncio.create_task(service.chat("first"))
+        await started.wait()
+        first.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await first
+
+        assert await service.chat("second") is response
+        assert events == [
+            ("first", "setup"),
+            ("first", "execute"),
+            ("first", "report", False, asyncio.CancelledError),
+            ("first", "teardown"),
+            ("second", "setup"),
+            ("second", "execute"),
+            ("second", "report", True, type(None)),
+            ("second", "teardown"),
         ]
 
 
@@ -1042,30 +1336,6 @@ class TestToolService:
         assert service._selector is selector
         assert service._executor is executor
         assert service._registrar is registrar
-
-    @pytest.mark.asyncio
-    async def test_select_tools(self):
-        """Test tool selection."""
-        from victor.agent.services.tool_service import ToolService, ToolServiceConfig
-
-        config = ToolServiceConfig()
-        selector = mock.Mock()
-        selector.select = mock.AsyncMock(return_value=["tool1", "tool2"])
-        executor = mock.Mock()
-        registrar = mock.Mock()
-
-        service = ToolService(
-            config=config,
-            tool_selector=selector,
-            tool_executor=executor,
-            tool_registrar=registrar,
-        )
-
-        context = mock.Mock()
-        tools = await service.select_tools(context, max_tools=10)
-
-        assert tools == ["tool1", "tool2"]
-        selector.select.assert_called_once_with(context, 10)
 
     @pytest.mark.asyncio
     async def test_execute_tool_success(self):

@@ -4,7 +4,7 @@ title: "Chat Runtime Inversion — ChatService owns the turn lifecycle"
 type: Standards Track
 status: Draft
 created: 2026-09-06
-modified: 2026-09-06
+modified: 2026-09-20
 authors:
   - name: Vijaykumar Singh
     email: vijay@anvaiops.com
@@ -17,19 +17,20 @@ discussion: https://github.com/anvai-labs/victor/discussions/0031
 
 ## Summary
 
-Victor's chat turn lifecycle is split across three layers with the **orchestrator owning the
-glue**: `ChatService` frames the turn and immediately calls back into eight orchestrator-supplied
-handlers (`bind_runtime_components`); `TurnExecutor` (service layer) already builds and drives the
-`AgenticLoop`; and `AgentOrchestrator` — the documented *facade* — still supplies every runtime,
-owns turn setup/teardown, task-report framing, tool selection, and context-limit handling, and is
-reached around **53 sites calling `orch._*` privates** (55 occurrences) in the chat streaming
-cluster (4,349 lines across `chat_stream_runtime.py` / `chat_stream_executor.py` /
-`chat_stream_helpers.py` / `streaming_act_adapter.py`), touching **29 distinct facade
-internals**, with `TurnExecutor` reaching back via `_resolve_orchestrator()` at 10 call sites. This FEP inverts that:
-ChatService owns the turn lifecycle end-to-end, receives frozen per-turn state instead of
-setup/teardown handler pairs, and the chat runtime cluster depends on a narrow, explicitly
-enumerated `ChatRuntimeServices` view instead of the orchestrator's privates. Public contracts
-(`Agent.run`/`Agent.stream`, `orchestrator.chat()`'s facade methods) are unchanged.
+!!! info "Implementation status — 2026-09-20"
+
+    **In progress.** Requirements/delivery, planning, the service-owned turn frame,
+    stream execution controls, context lifecycle, runtime intelligence, metrics and task state
+    are integrated. Session-usage accumulation and bounded resume-context publication now use
+    those same capabilities. Provider and broader runtime state, factories and facade shims remain. Public `Agent.run()` /
+    `Agent.stream()` contracts are unchanged.
+
+The proposal baseline had the orchestrator owning the glue across three layers: eight
+`bind_runtime_components` handlers, about **53 `orch._*` sites** in the chat stream cluster,
+29 distinct facade internals and 10 `TurnExecutor._resolve_orchestrator()` call sites.
+This FEP replaces that reach-through with `ChatService` lifecycle ownership and an explicit
+`ChatRuntimeServices` capability view. The progress sections below separate landed slices
+from the remaining target.
 
 ## Motivation
 
@@ -213,8 +214,160 @@ The executor private-attribute cap shrinks from 94 to 87 and private-probe cap
 from 17 to 16; the helper private-attribute cap shrinks from 99 to 97. A zero-cap
 AST guard forbids chunk-generator and sanitizer access throughout the four-file
 cluster, including the public `chunk_generator` alias and literal dynamic probes.
-Phase 1 and review item 27 remain incomplete; the eight binding kwargs and
-orchestrator structural caps are unchanged.
+At this Phase 1 slice, review item 27 remained incomplete and the eight binding
+kwargs were unchanged; the later Phase 2 slice below lowers that cap to six.
+
+### Phase 1 progress: planning and guidance (complete)
+
+The chat runtime now consumes task preparation, goal inference, tool planning,
+concrete tool selection, intent guards, task guidance, and keyword classification
+through one typed `ChatPlanning` capability. It composes the existing service-owned
+`TaskGuidanceRuntime` and `ToolSelectionRuntime`; the chat cluster no longer calls
+the corresponding orchestrator privates or retains the raw tool planner. Keyword
+classification moved into `TaskGuidanceRuntime`, while the orchestrator method is
+now a compatibility delegation.
+
+The boundary guard gives the migrated private names a zero cap. The executor
+private-attribute cap shrinks from 87 to 83, the helper cap shrinks from 97 to 95,
+and the orchestrator line cap shrinks from 4,223 to 4,209. Missing planning
+dependencies fail before provider execution instead of falling back to a facade
+lookup. Task preparation also reuses this capability, so reminder wiring and
+conversation-controller access have one owner. The helper private-attribute cap
+falls from 63 to 60, and the four underlying collaborator names stay at zero
+across the stream cluster. Review item 27 remains incomplete while the remaining
+runtime capabilities still need migration.
+
+### Phase 2 progress: service-owned turn frame (complete)
+
+`ChatTurnRuntime` now owns stream skill activation, temporary constraints, task
+report start/finish metadata, teardown, and turn-boundary credit assignment as
+one capability held by `ChatService`. Its enumerated live-state adapter uses a
+weak owner reference, so the turn component itself does not retain the facade.
+The four former orchestrator handlers, two helper methods, and the unused
+context-limit passthrough are deleted.
+
+`bind_runtime_components` shrinks from eight keyword arguments to the phase-2
+target of six while preserving the shared cancellation-safe stream lock. The
+orchestrator line cap falls from 4,209 to 4,070, its definition cap from 226 to
+219, and its `getattr(self, ...)` cap from 136 to 120. Phase 1 remains open for
+the chat cluster capabilities that still reach through the facade.
+
+### Phase 1 progress: stream execution controls (cluster complete)
+
+The chat stream cluster now receives message governance, task completion,
+conversation startup/history/accounting, tool-call parsing/reset, and outcome feedback
+through typed entries on `ChatRuntimeServices`; current intent comes from the
+existing `ChatPlanning` capability. Completion detection owns summary
+sanitization, while the cohesive conversation capability owns system-prompt
+insertion, history, actual usage accounting, and summary persistence. Its adapter
+resolves the current controller weakly, as do the feedback and tool-call adapters,
+so callback graphs do not extend the facade lifetime. Configured governance fails
+closed on invalid gate results and survives runtime bootstrap without being reset.
+
+The boundary guard gives all seven migrated collaborator names a zero cap across
+the four-file cluster. The executor private-attribute cap shrinks from 83 to 76
+and private-probe cap from 16 to 5; the helper cap falls from 95 to 92 and its
+probe cap from 26 to 20. Missing tool parsing dependencies fail closed, while
+optional governance, completion, conversation, and feedback operations remain
+explicit no-ops when disabled. Phase 1 remains open for the broader runtime
+state accesses outside this execution-control group.
+
+System-prompt insertion now fails closed through that conversation capability and
+mirrors the legacy `_system_added` facade flag only inside the composition adapter.
+The cluster guard holds direct, probed, and raw-state access to that flag at zero;
+the helper private-attribute cap falls from 64 to 63.
+
+### Phase 1 progress: stream lifecycle state (complete)
+
+Stream start, cancellation checks, and terminal cleanup now flow through the typed
+`ChatStreamLifecycle` capability. Its weak live-state adapter preserves the public facade's
+`request_cancellation()` and `is_streaming()` behavior without exposing `_cancel_event`,
+`_is_streaming`, or `_check_cancellation` to the chat cluster. The service runtime closes the
+lifecycle on normal completion, exceptions, generator close, and cancellation; this also fixes
+the prior normal-completion path that left `is_streaming()` true. The canonical unified-stream
+wrapper checks cancellation before advancing the loop and after every yielded chunk, so a request
+cannot start the next provider or tool batch after the request is observed. An in-flight tool
+batch keeps its completed-work accounting while its output is suppressed; the terminal
+cancellation chunk marks the task report failed.
+
+The same capability now binds, reads and identity-clears the active stream context. The ACT
+adapter and service finalizer no longer read or write `_current_stream_context` directly, while
+the registered compatibility capability remains authoritative for other runtime services.
+Provider-derived rate-limit timing also flows through this stream lifecycle boundary; retry
+backoff and its five-minute cap remain unchanged while `_provider_service` stays private to
+composition.
+
+The boundary guard gives those four facade names a zero cap and lowers the helper
+private-attribute cap from 92 to 88. The runtime cap later falls from 44 to 43 and its raw-state
+cap from 7 to 6; the ACT adapter cap falls from 13 to 12. Phase 1 remains open for context, task
+tracking, broader provider operations, and other runtime state. The provider-service zero guard
+later lowers the helper private-attribute cap from 66 to 64.
+
+### Phase 1 progress: stream metrics (complete)
+
+`ChatStreamMetrics` now owns stream-metric initialization, first-token timing and terminal
+finalization. Its weak adapter resolves the existing collector and coordinator at each call,
+so the cluster keeps the established cost tracker and Sandhi diagnostics path without retaining
+the facade. Missing initialization wiring fails before provider execution; terminal finalization
+remains best effort so observability cannot replace the stream outcome.
+
+The boundary guard gives `_metrics_collector`, `_metrics_coordinator` and
+`_finalize_stream_metrics` a zero cap. The runtime private-attribute cap falls from 48 to 45 and
+its private-probe cap from 5 to 4; the helper private-attribute cap falls from 88 to 86. Phase 1
+remains open for context, task tracking and other runtime state.
+
+Session-usage accumulation also flows through `ChatStreamMetrics`, which updates the current
+canonical totals dictionary in place before metric/report finalization. `ChatTaskState` publishes
+the bounded stream context used by resume consumers. Neither operation reads facade state from
+the stream runtime, and reset/restore continues to resolve the live owner through weak adapters.
+The runtime caps fall to 41 private attributes, 3 private probes and 5 raw-state accesses;
+`_cumulative_token_usage` and `_last_stream_task_context` join the zero-access guards.
+
+### Phase 1 progress: task classification state (complete)
+
+`ChatTaskState` now owns turn reset, task-type detection/publication, continuation context,
+prompt-derived budget changes and exploration limits. Its weak live adapter keeps the existing
+session, reminder and `UnifiedTaskTracker` owners authoritative while the stream cluster sees only
+typed operations. Continuation state remains protected by the service's per-session stream lock;
+missing tracker or reset collaborators fail before provider execution.
+
+The boundary guard gives `_session_state`, `_pending_continuation_task_context`,
+`_current_task_type`, `_progress` and `_task_config` a zero cap. The helper private-attribute cap
+falls from 86 to 79 and its private-probe cap from 20 to 19. Phase 1 remains open for context,
+provider/runtime-intelligence state and the remaining facade reach-throughs.
+
+### Phase 1 progress: context lifecycle (complete)
+
+`ChatContextLifecycle` owns background-compaction startup through a weak adapter. The initial
+phase also introduced an ordered pre-iteration compaction path, but the unified-stream audit found
+its only consumer was a private compatibility helper with no production caller after FEP-0007.
+That helper, its event type and its adapter-only fallback chain are deleted.
+
+The boundary guard gives `_context_manager`, `_context_lifecycle_service`, `_context_service`,
+`_context_compactor`, `_agent_runtime_context` and `_memory_session_id` a zero cap. The helper
+private-attribute cap falls from 79 to 68 and its private-probe cap from 19 to 15. Phase 1 remains
+open for provider/runtime-intelligence state and the remaining facade reach-throughs.
+
+The same audit removed the zero-caller context-limit compatibility delegate. Active iteration
+bounds remain in `AgenticLoop.run_streaming`; `StreamingActAdapter` synchronizes the stream turn,
+and `StreamingChatExecutor` owns cancellation checks. The public `ChatService` limit bridge stays
+available to compatibility callers. The guard prevents the stream cluster from rediscovering
+that bridge or its private factory. The helper caps fall from 60 to 56 private attributes, 15 to
+13 probes and 7 to 6 raw-state reads.
+
+### Phase 1 progress: runtime intelligence (complete)
+
+`ChatRuntimeIntelligence` consolidates the former feedback-only capability with request guidance,
+learned topology routing, executor runtime construction and topology outcomes. The weak adapter
+resolves live integration state; the chat cluster no longer creates or reads the facade-owned
+runtime service. Structured policy remains preferred over the legacy routing-context method, and
+telemetry stays best effort.
+
+The boundary guard gives `_runtime_intelligence`, `_prepare_runtime_intelligence_request`,
+`_optimization_injector` and `_record_runtime_intelligence_outcome` a zero cap. The runtime
+private-attribute cap falls from 45 to 44 and raw-state cap from 10 to 7; the helper caps fall from
+68 to 66 and from 8 raw-state reads to 7. Phase 1 remains open for provider and broader runtime
+state.
 
 ## Benefits
 
@@ -240,9 +393,8 @@ orchestrator structural caps are unchanged.
 
 ## Unresolved Questions
 
-- Does `ChatTurnRuntime` live as part of ChatService or as a sibling service component
-  constructed by it? (Lean: sibling component, ChatService constructs and owns it — avoids
-  growing `chat_service.py` past its own readability.)
+- **Resolved:** `ChatTurnRuntime` is a sibling component held by `ChatService` and built at the
+  chat composition boundary. This keeps turn behavior out of the already-large service module.
 - The orchestrator chat shims have ~13 remaining production call sites; phase 3 includes the
   caller migration, but the exact split (migrate callers to `Agent`/`ChatService` vs keep thin
   facade forwarders permanently) is settled during phase 3 review.

@@ -11,7 +11,12 @@ echo ""
 
 # Check if Python is installed
 if ! command -v python3 &> /dev/null; then
-    echo "❌ Python 3 is not installed. Please install Python 3.10+ first."
+    echo "❌ Python 3 is not installed. Please install Python 3.12+ first."
+    exit 1
+fi
+
+if ! python3 -c 'import sys; raise SystemExit(sys.version_info < (3, 12))'; then
+    echo "❌ Python 3.12+ is required; activate a supported environment first."
     exit 1
 fi
 
@@ -24,12 +29,23 @@ if command -v victor &> /dev/null; then
     ALREADY_INSTALLED=true
 else
     echo "📦 Installing Victor..."
-    pip install -e .
+    python3 -m pip install -e .
     echo "✅ Victor installed successfully!"
     ALREADY_INSTALLED=false
 fi
 
 echo ""
+
+# Preferred default: a reachable InferFlux server (self-hosted llama.cpp-class
+# inference with native tool calls). If it answers, point the default profile
+# at it and skip the Ollama setup below.
+INFERFLUX_HEALTH="http://127.0.0.1:8080/healthz"
+if curl -sf ${INFERFLUX_API_KEY:+-H "Authorization: Bearer $INFERFLUX_API_KEY"} \
+        --max-time 3 "$INFERFLUX_HEALTH" > /dev/null 2>&1; then
+    echo "✅ InferFlux is reachable at http://127.0.0.1:8080 — default profile will use it"
+    echo "   (set INFERFLUX_API_KEY if your server requires auth)"
+    echo ""
+fi
 
 # Check if Ollama is installed
 if command -v ollama &> /dev/null; then

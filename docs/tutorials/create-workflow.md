@@ -7,7 +7,7 @@ is no longer a separate execution engine. See [ADR-030](../architecture/adr/030-
 ## Prerequisites
 
 Install Victor using the [installation guide](../getting-started/installation.md).
-The examples below require Python 3.11 or later and no provider credentials.
+The examples below require Python 3.12 or later and no provider credentials.
 
 ## 1. Build a StateGraph
 

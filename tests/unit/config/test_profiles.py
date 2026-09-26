@@ -117,7 +117,7 @@ class TestProfileSettings:
     def test_basic_profile_settings(self):
         """Basic profile has conservative defaults."""
         settings = BASIC_PROFILE.settings
-        assert settings["default_provider"] == "ollama"
+        assert settings["default_provider"] == "inferflux"
         assert settings["fallback_max_tools"] == 5
         assert settings["framework_preload_enabled"] is True
 
@@ -141,7 +141,7 @@ class TestProfileGeneration:
         """Generating basic profile YAML works."""
         yaml_content = generate_profile_yaml(BASIC_PROFILE)
         assert "provider:" in yaml_content
-        assert "ollama" in yaml_content
+        assert "inferflux" in yaml_content
         assert "fallback_max_tools:" in yaml_content
         assert "5" in yaml_content  # basic has 5 max tools
 

@@ -108,6 +108,7 @@ suite('ToolExecutionService Test Suite', () => {
                 { id: '3', status: 'completed' },
             ];
 
+            assert.strictEqual(history.length, 3);
             history = [];
             assert.strictEqual(history.length, 0);
         });
@@ -209,6 +210,7 @@ suite('ToolExecutionService Test Suite', () => {
             let status: Status = 'pending';
 
             // Start execution
+            assert.strictEqual(status, 'pending');
             status = 'running';
             assert.strictEqual(status, 'running');
         });
@@ -218,6 +220,7 @@ suite('ToolExecutionService Test Suite', () => {
             let status: Status = 'running';
 
             // Complete execution
+            assert.strictEqual(status, 'running');
             status = 'completed';
             assert.strictEqual(status, 'completed');
         });
@@ -227,6 +230,7 @@ suite('ToolExecutionService Test Suite', () => {
             let status: Status = 'running';
 
             // Fail execution
+            assert.strictEqual(status, 'running');
             status = 'failed';
             assert.strictEqual(status, 'failed');
         });
@@ -236,6 +240,7 @@ suite('ToolExecutionService Test Suite', () => {
             let status: Status = 'running';
 
             // Cancel execution
+            assert.strictEqual(status, 'running');
             status = 'cancelled';
             assert.strictEqual(status, 'cancelled');
         });

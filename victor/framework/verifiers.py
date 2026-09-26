@@ -5,9 +5,8 @@
 
 """Built-in verifiers for FEP-0018 (framework verification hook).
 
-Provides ``LocalTestVerifier`` (auto-detects the test runner via
-``victor.context.test_runner.detect_test_runner`` — pytest, django, unittest,
-npm, cargo, go, gradle, maven) and ``LintVerifier`` (runs ruff) so any agent
+Provides ``LocalTestVerifier`` (pytest with a fresh runner-owned JUnit report)
+and ``LintVerifier`` (process exit status) so any agent
 session can verify-and-retry without benchmark-specific wiring. Both implement
 the ``Verifier`` protocol from ``victor.framework.verification``.
 
@@ -21,8 +20,12 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 import logging
-import re
+import os
+import signal
+import tempfile
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any, Optional
 
@@ -33,13 +36,11 @@ logger = logging.getLogger(__name__)
 
 
 class LocalTestVerifier:
-    """Verifier that auto-detects and runs the project's test suite.
+    """Run pytest and require its structured test results plus process success.
 
-    Uses ``detect_test_runner`` (``victor.context.test_runner``) to discover
-    the correct runner for the workspace's language/ecosystem — pytest,
-    django, unittest, npm, cargo, go, gradle, or maven. No hardcoded command.
-
-    Falls back to ``python -m pytest -x -q`` if detection fails.
+    Runner detection remains shared with the test-runner service. Detected runners
+    without a supported structured report fail explicitly; they are not parsed as
+    prose or replaced with pytest. Use a custom Verifier for other report formats.
     """
 
     def __init__(
@@ -54,21 +55,12 @@ class LocalTestVerifier:
 
     def _resolve_command(self, workspace: Path) -> tuple[list[str], dict[str, str]]:
         """Detect the test runner for this workspace, or use the override."""
-        if self._override_command:
+        if self._override_command is not None:
             return self._override_command, self._override_env
-        try:
-            from victor.context.test_runner import detect_test_runner
+        from victor.context.test_runner import detect_test_runner
 
-            config = detect_test_runner(workspace)
-            logger.info(
-                "LocalTestVerifier: detected %s runner: %s",
-                config.runner_type,
-                " ".join(config.command),
-            )
-            return list(config.command), {**config.env, **self._override_env}
-        except Exception:
-            logger.debug("detect_test_runner failed; falling back to pytest")
-            return ["python", "-m", "pytest", "-x", "-q"], self._override_env
+        config = detect_test_runner(workspace)
+        return list(config.command), {**config.env, **self._override_env}
 
     async def verify(
         self,
@@ -76,34 +68,132 @@ class LocalTestVerifier:
         workspace: Optional[Path] = None,
         state: Optional[dict] = None,
     ) -> VerificationResult:
-        """Run the test suite and parse results."""
+        """Require a fresh structured report; test prose is diagnostics only."""
         if workspace is None:
             return VerificationResult(0, 0, "", "no workspace provided")
-        cmd, env = self._resolve_command(workspace)
-        rc, stdout, stderr = await _run_command_async(cmd, workspace, env, self._timeout)
-        raw = stdout + stderr
-        passed, total = _parse_test_output(raw)
-
-        if total == 0 and rc != 0:
-            feedback = f"Tests failed to run (rc={rc}). Output:\n{raw[-1500:]}"
-        elif passed == total and total > 0:
-            feedback = f"VERIFIED: {passed}/{total} tests passed."
-        else:
-            feedback = (
-                f"VERIFICATION FAILED: {passed}/{total} tests passed. "
-                f"Fix the remaining {total - passed} failure(s).\n\n"
-                f"{raw[-2000:]}"
+        try:
+            cmd, env = self._resolve_command(workspace)
+        except Exception as exc:
+            return VerificationResult(
+                0, 0, "", f"Test runner detection failed: {type(exc).__name__}"
             )
-        logger.info("LocalTestVerifier: %d/%d (rc=%d)", passed, total, rc)
-        return VerificationResult(passed, total, raw[-4000:], feedback)
+        if not cmd or not (
+            cmd[1:3] == ["-m", "pytest"]
+            or Path(cmd[0]).name in {"pytest", "pytest.exe", "py.test", "py.test.exe"}
+        ):
+            return VerificationResult(
+                0, 0, "", "Unsupported structured test runner; supply a custom Verifier"
+            )
+        with tempfile.TemporaryDirectory(prefix="victor-verification-") as directory:
+            report = Path(directory) / "pytest.xml"
+            rc, stdout, stderr = await _run_command_async(
+                [*cmd, "--junitxml=" + str(report)], workspace, env, self._timeout
+            )
+            raw = stdout + stderr
+            try:
+                passed, total = _read_pytest_report(report)
+            except (OSError, ValueError, ET.ParseError) as exc:
+                return VerificationResult(
+                    0,
+                    0,
+                    raw[-4000:],
+                    f"VERIFICATION FAILED: missing or invalid pytest report ({type(exc).__name__}); rc={rc}.",
+                )
+        if total == 0:
+            return VerificationResult(0, 0, raw[-4000:], "VERIFICATION FAILED: no executed tests.")
+        # Count process acceptance as one explicit check; preserve actual test
+        # counts in feedback instead of pretending a nonzero exit passed tests.
+        checks_passed, checks_total = passed + int(rc == 0), total + 1
+        verified = checks_passed == checks_total
+        feedback = (
+            f"{'VERIFIED' if verified else 'VERIFICATION FAILED'}: "
+            f"{checks_passed}/{checks_total} checks ({passed}/{total} tests; process rc={rc})."
+        )
+        if not verified:
+            feedback += "\n" + raw[-2000:]
+        return VerificationResult(checks_passed, checks_total, raw[-4000:], feedback)
+
+
+def _read_pytest_report(path: Path) -> tuple[int, int]:
+    """Validate JUnit structure/counts; skipped-only runs cannot verify work."""
+    if path.stat().st_size > 64 * 1024 * 1024:
+        raise ValueError("pytest report exceeds 64 MiB")
+    root = ET.fromstring(path.read_bytes())
+    if root.tag not in {"testsuites", "testsuite"}:
+        raise ValueError("Expected a JUnit testsuite report")
+    suites = list(root) if root.tag == "testsuites" else [root]
+    passed = total = 0
+    aggregate = {"tests": 0, "failures": 0, "errors": 0, "skipped": 0}
+    for suite in suites:
+        if suite.tag != "testsuite":
+            raise ValueError("Unexpected JUnit root child")
+        declared = {}
+        for key in ("tests", "failures", "errors", "skipped"):
+            value = suite.get(key, "")
+            if not value.isascii() or not value.isdigit():
+                raise ValueError("Missing or invalid JUnit count: " + key)
+            declared[key] = int(value)
+            aggregate[key] += declared[key]
+        observed = {"failure": 0, "error": 0, "skipped": 0}
+        cases = clean = 0
+        for case in suite:
+            if case.tag == "properties":
+                _validate_junit_properties(case)
+                continue
+            if case.tag != "testcase" or not case.get("name"):
+                raise ValueError("Expected a named JUnit test case")
+            cases += 1
+            statuses = set()
+            for child in case:
+                if child.tag == "properties":
+                    _validate_junit_properties(child)
+                elif child.tag in {"failure", "error", "skipped", "system-out", "system-err"}:
+                    if len(child):
+                        raise ValueError("Unexpected nested JUnit outcome")
+                    if child.tag in observed:
+                        observed[child.tag] += 1
+                        statuses.add(child.tag)
+                else:
+                    raise ValueError("Unexpected JUnit test case child")
+            failed = bool(statuses & {"failure", "error"})
+            if not statuses:
+                clean += 1
+            if "skipped" in statuses and not failed:
+                continue
+            total += 1
+            passed += int(not failed)
+        if any(
+            declared[key] != observed[tag]
+            for key, tag in (("failures", "failure"), ("errors", "error"), ("skipped", "skipped"))
+        ):
+            raise ValueError("JUnit outcome counts disagree with test cases")
+        # Pytest may count multiple setup/call/teardown outcomes for one case.
+        # Any such case already fails acceptance; an all-pass suite must match
+        # its testcase count exactly, so inflated success summaries cannot pass.
+        if not cases <= declared["tests"] <= clean + sum(observed.values()):
+            raise ValueError("JUnit test count disagrees with test cases")
+    if root.tag == "testsuites":
+        for key, expected in aggregate.items():
+            value = root.get(key)
+            if value is not None and (
+                not value.isascii() or not value.isdigit() or int(value) != expected
+            ):
+                raise ValueError("JUnit aggregate count disagrees with suites: " + key)
+    return passed, total
+
+
+def _validate_junit_properties(node: ET.Element) -> None:
+    """Metadata cannot hide nested test results or errors."""
+    if any(child.tag != "property" or len(child) for child in node):
+        raise ValueError("Unexpected JUnit property child")
 
 
 class LintVerifier:
     """Verifier that runs a linter in the workspace.
 
-    Auto-detects: ``ruff`` for Python projects, ``cargo clippy`` for Rust,
-    ``golangci-lint`` for Go. Falls back to ``ruff check`` if detection fails.
-    ``is_verified`` when 0 errors.
+    Selects ``cargo clippy`` for Rust, ``go vet`` for Go and ``ruff check``
+    otherwise. Acceptance is one explicit process-exit check; diagnostic text
+    never supplies an inferred issue count.
     """
 
     def __init__(
@@ -116,7 +206,7 @@ class LintVerifier:
 
     def _resolve_command(self, workspace: Path) -> list[str]:
         """Detect the appropriate linter for this workspace."""
-        if self._override_command:
+        if self._override_command is not None:
             return self._override_command
         # Rust
         if (workspace / "Cargo.toml").exists():
@@ -133,26 +223,21 @@ class LintVerifier:
         workspace: Optional[Path] = None,
         state: Optional[dict] = None,
     ) -> VerificationResult:
-        """Run the linter and parse results."""
+        """Run the linter; only successful process completion verifies it."""
         if workspace is None:
             return VerificationResult(0, 0, "", "no workspace provided")
         cmd = self._resolve_command(workspace)
+        if not cmd:
+            return VerificationResult(0, 0, "", "No lint command configured")
         rc, stdout, stderr = await _run_command_async(cmd, workspace, None, self._timeout)
         raw = stdout + stderr
-        # Most linters: rc=0 = clean, rc=1 = issues found.
-        error_lines = [line for line in raw.splitlines() if line.strip() and ":" in line]
-        errors = len(error_lines)
-        total = errors if errors > 0 else 1
-        passed = 0 if errors > 0 else 1
-
-        if passed == total:
-            feedback = "VERIFIED: no lint issues."
-        else:
-            feedback = (
-                f"VERIFICATION FAILED: {errors} lint issue(s). Fix them:\n\n" f"{raw[-2000:]}"
-            )
-        logger.info("LintVerifier: %d issue(s) (rc=%d)", errors, rc)
-        return VerificationResult(passed, total, raw[-4000:], feedback)
+        passed = int(rc == 0)
+        feedback = (
+            "VERIFIED: lint process exited successfully."
+            if passed
+            else f"VERIFICATION FAILED: lint process rc={rc}.\n{raw[-2000:]}"
+        )
+        return VerificationResult(passed, 1, raw[-4000:], feedback)
 
 
 class LSPVerifier:
@@ -162,8 +247,8 @@ class LSPVerifier:
     diagnostics — zero command execution, instant, multi-language (Python,
     TypeScript, Rust, Go, etc. via pyright/rust-analyzer/gopls). Catches
     type errors, undefined references, and syntax issues that tests may not
-    cover. Gracefully degrades when LSP is unavailable (victor-coding not
-    installed → vacuous pass).
+    cover. Unavailable LSP or no edited files yields zero checks and does not
+    establish verified completion.
     """
 
     def __init__(self, lsp_capability: Any = None, include_warnings: bool = False):
@@ -216,63 +301,113 @@ class LSPVerifier:
         return VerificationResult(passed, total, raw, feedback)
 
 
+@dataclass(frozen=True)
+class _BufferedCommandResult:
+    """Internal process evidence; runner status is separate from the child exit."""
+
+    status: int
+    returncode: int | None
+    timed_out: bool
+    error_type: str | None
+    cleanup_errors: tuple[str, ...]
+    stdout: str
+    stderr: str
+    stdout_truncated: bool
+    stderr_truncated: bool
+
+
 async def _run_command_async(
     cmd: list[str],
     workspace: Path,
     env: Optional[dict[str, str]] = None,
     timeout: float = 120,
 ) -> tuple[int, str, str]:
-    """Run a command asynchronously in the workspace. Returns (rc, stdout, stderr)."""
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            cwd=str(workspace),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env=env,
-        )
-        stdout_b, stderr_b = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-        return (
-            proc.returncode or 0,
-            stdout_b.decode("utf-8", "replace"),
-            stderr_b.decode("utf-8", "replace"),
-        )
-    except asyncio.TimeoutError:
-        return 124, "", f"Command timed out after {timeout}s"
-    except Exception as exc:
-        return 1, "", str(exc)
+    """Keep the verifier's tuple contract over structured process evidence."""
+    result = await _run_buffered_command(cmd, workspace, env, timeout)
+    return result.status, result.stdout, result.stderr
 
 
-def _parse_test_output(output: str) -> tuple[int, int]:
-    """Parse a test runner's summary for passed/total counts.
+async def _run_buffered_command(
+    cmd: list[str],
+    workspace: Path,
+    env: Optional[dict[str, str]] = None,
+    timeout: float = 120,
+) -> _BufferedCommandResult:
+    """Run a buffered verifier with bounded cleanup and retained diagnostics.
 
-    Handles pytest (``N passed, M failed``), unittest (``OK`` / ``FAILED``),
-    cargo (``test result: ok. N passed``), go (``--- FAIL:`` / ``ok``),
-    and generic ``N passed`` patterns.
+    Return status 124 on timeout, 125 on cleanup failure, or the actual exit code.
+    File output avoids inherited-pipe hangs; detached-child containment is outside
+    this helper's scope. Cancellation propagates, retaining cleanup notes.
     """
-    passed = 0
-    failed = 0
-
-    # pytest / generic: "N passed", "N failed", "N error"
-    for match in re.finditer(r"(\d+) (passed|failed|error)", output):
-        count = int(match.group(1))
-        kind = match.group(2)
-        if kind == "passed":
-            passed = count
-        else:
-            failed = count
-
-    # cargo: "test result: ok. 3 passed; 0 failed"
-    if passed == 0 and failed == 0:
-        cargo = re.search(r"(\d+) passed;\s*(\d+) failed", output)
-        if cargo:
-            passed = int(cargo.group(1))
-            failed = int(cargo.group(2))
-
-    # go: count "ok" and "FAIL" package lines
-    if passed == 0 and failed == 0:
-        passed = output.count("\nok\t") + output.count("\nok\n")
-        failed = output.count("FAIL\t")
-
-    total = passed + failed
-    return passed, total
+    process = None
+    with tempfile.TemporaryFile() as output, tempfile.TemporaryFile() as errors:
+        status = 1
+        timed_out = False
+        error_type = None
+        diagnostic = ""
+        primary_error: BaseException | None = None
+        cleanup_errors: list[str] = []
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                cwd=str(workspace),
+                stdout=output,
+                stderr=errors,
+                env=env,
+                start_new_session=(os.name == "posix"),
+            )
+            await asyncio.wait_for(process.wait(), timeout=timeout)
+            status = process.returncode if process.returncode is not None else 1
+        except TimeoutError:
+            status = 124
+            timed_out = True
+            error_type = "TimeoutError"
+            diagnostic = f"Command timed out after {timeout}s"
+        except Exception as exc:
+            error_type = type(exc).__name__
+            diagnostic = f"Command failed: {type(exc).__name__}: {exc}"
+        except BaseException as exc:
+            primary_error = exc
+            raise
+        finally:
+            if process is not None:
+                if process.returncode is None and os.name == "posix":
+                    try:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                    except Exception as exc:
+                        cleanup_errors.append("kill_group:" + type(exc).__name__)
+                if process.returncode is None:
+                    try:
+                        process.kill()
+                    except ProcessLookupError:
+                        pass
+                    except Exception as exc:
+                        cleanup_errors.append("kill_process:" + type(exc).__name__)
+                try:
+                    await asyncio.wait_for(process.wait(), timeout=1)
+                except Exception as exc:
+                    cleanup_errors.append("reap_process:" + type(exc).__name__)
+            if cleanup_errors:
+                detail = "Cleanup failed: " + ", ".join(cleanup_errors)
+                if primary_error is not None:
+                    primary_error.add_note(detail)
+                diagnostic += "\n" + detail
+                status = 125
+        truncated = []
+        for stream in (output, errors):
+            stream.seek(0, 2)
+            truncated.append(stream.tell() > 4000)
+            stream.seek(max(0, stream.tell() - 4000))
+        return _BufferedCommandResult(
+            status=status,
+            returncode=process.returncode if process is not None else None,
+            timed_out=timed_out,
+            error_type=error_type,
+            cleanup_errors=tuple(cleanup_errors),
+            stdout=output.read(4000).decode("utf-8", "replace"),
+            stderr=errors.read(4000).decode("utf-8", "replace") + diagnostic,
+            stdout_truncated=truncated[0],
+            stderr_truncated=truncated[1],
+        )

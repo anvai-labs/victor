@@ -25,14 +25,20 @@ def test_inferflux_is_thin_typed_policy(provider: InferfluxProvider) -> None:
     assert not hasattr(provider, "client")
 
 
-def test_model_policy_placeholder_and_prefix_routes(provider: InferfluxProvider) -> None:
-    # Model ids are operator config server-side; the placeholder satisfies the
-    # default_model∈models invariant and the prefix routes catch real ids.
+def test_model_policy_lineup_and_prefix_routes(provider: InferfluxProvider) -> None:
+    # Model ids are operator config server-side; the YAML tier pins the
+    # production R9700 store lineup (served by inferflux's
+    # config/server.rocm.qwen3coder30b.yaml). The 32768 windows mirror the
+    # serving pool's per-sequence context (n_ctx 65536 / 2 sequences).
     required = {"description", "context_window", "max_output", "supports_tools"}
     assert all(required <= metadata.keys() for metadata in INFERFLUX_MODELS.values())
-    assert INFERFLUX_MODELS["llama3-8b"]["supports_tools"] is True
-    assert provider.context_window("llama3-8b") == 8192
-    assert provider.context_window("qwen3-coder") == 32768  # prefix-route catch
+    assert provider.get_default_model() == "qwen3-coder-30b"
+    assert INFERFLUX_MODELS["qwen3-coder-30b"]["supports_tools"] is True
+    assert provider.context_window("qwen3-coder-30b") == 32768
+    assert provider.context_window("gpt-oss-20b") == 32768
+    # Unknown operator id: the prefix routes (then the default) catch it, so
+    # budgeting still matches whatever the server actually loads.
+    assert provider.context_window("granite-8b") == 32768
 
 
 def test_cache_policy_reports_no_split(provider: InferfluxProvider) -> None:
@@ -51,11 +57,20 @@ async def test_model_listing_falls_back_to_local_policy(
     assert {entry["id"] for entry in await provider.list_models()} == set(INFERFLUX_MODELS)
 
 
-def test_keyless_local_construction_needs_no_credential(monkeypatch) -> None:
+def test_keyless_local_construction_needs_no_credential(monkeypatch, tmp_path) -> None:
     """An anonymous InferFlux server is the documented default: constructing the
     provider with no env key must yield the EMPTY key (sandhi 0.3.0 then sends no
     Authorization header at all — ADR-0008 D1), never APIKeyNotFoundError."""
     monkeypatch.delenv("INFERFLUX_API_KEY", raising=False)
+    # Hermetic: point the resolver's keys-file source at an empty dir so a
+    # developer-machine ~/.victor/api_keys.yaml can't satisfy the lookup.
+    import victor.config.api_keys as api_keys_module
+
+    monkeypatch.setattr(
+        api_keys_module,
+        "_get_secure_keys_file",
+        lambda: tmp_path / "missing" / "api_keys.yaml",
+    )
     provider = InferfluxProvider()
     assert provider._api_key == ""
 
@@ -66,3 +81,50 @@ def test_inferflux_api_key_env_var_is_live(monkeypatch) -> None:
     monkeypatch.setenv("INFERFLUX_API_KEY", "secret123")
     provider = InferfluxProvider()
     assert provider._api_key == "secret123"
+
+
+@pytest.mark.asyncio
+async def test_parallel_capacity_uses_explicit_serving_declaration():
+    provider = InferfluxProvider(api_key="test", max_parallel_sequences=2)
+    assert await provider.get_parallel_capacity("qwen3-coder-30b") == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("capacity", [0, -1, "2", True])
+async def test_parallel_capacity_rejects_invalid_declaration(capacity):
+    provider = InferfluxProvider(api_key="test", max_parallel_sequences=capacity)
+    with pytest.raises(ValueError, match="max_parallel_sequences"):
+        await provider.get_parallel_capacity("qwen3-coder-30b")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "model_metadata, expected",
+    [
+        ({"id": "model", "max_parallel_sequences": 2}, 2),
+        ({"id": "model"}, None),
+        ({"id": "different"}, None),
+    ],
+)
+async def test_admin_capacity_lookup_is_fail_closed(monkeypatch, model_metadata, expected):
+    import httpx
+    from unittest.mock import AsyncMock, MagicMock
+
+    client = MagicMock()
+    client.get = AsyncMock(
+        return_value=httpx.Response(
+            200,
+            json={"models": [model_metadata]},
+            request=httpx.Request("GET", "http://localhost/v1/admin/models"),
+        )
+    )
+    manager = MagicMock()
+    manager.__aenter__ = AsyncMock(return_value=client)
+    manager.__aexit__ = AsyncMock(return_value=None)
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: manager)
+    provider = InferfluxProvider(api_key="test")
+    if expected is None:
+        with pytest.raises(ValueError):
+            await provider.get_parallel_capacity("model")
+    else:
+        assert await provider.get_parallel_capacity("model") == expected

@@ -31,7 +31,9 @@ import inspect
 import logging
 from typing import TYPE_CHECKING, Any, AsyncIterator, Callable, Dict, List, Optional
 
+from victor.core.async_utils import aclosing_if_supported
 from victor.agent.services.chat_evidence import ChatEvidenceMixin
+from victor.agent.services.chat_turn_runtime import ChatTurnRuntime
 
 if TYPE_CHECKING:
     from victor.agent.services.protocols import (
@@ -129,11 +131,9 @@ class ChatService(ChatEvidenceMixin):
         self._planning_handler: Optional[Callable[[str], Any]] = None
         self._stream_chat_handler: Optional[Callable[..., AsyncIterator[Any]]] = None
         self._context_limit_handler: Optional[Callable[..., Any]] = None
-        self._task_report_start_handler: Optional[Callable[..., Any]] = None
-        self._task_report_finish_handler: Optional[Callable[..., Any]] = None
-        self._turn_setup_handler: Optional[Callable[..., Any]] = None
-        self._turn_teardown_handler: Optional[Callable[..., Any]] = None
+        self._turn_runtime: Optional[ChatTurnRuntime] = None
         self._context_accepts_keyword_messages: Optional[bool] = None
+        self._turn_lock = asyncio.Lock()
 
         # Initialize metrics tracking
         self._metrics: Dict[str, Any] = {
@@ -159,10 +159,8 @@ class ChatService(ChatEvidenceMixin):
         planning_handler: Optional[Callable[[str], Any]] = None,
         stream_chat_handler: Optional[Callable[..., AsyncIterator[Any]]] = None,
         context_limit_handler: Optional[Callable[..., Any]] = None,
-        task_report_start_handler: Optional[Callable[..., Any]] = None,
-        task_report_finish_handler: Optional[Callable[..., Any]] = None,
-        turn_setup_handler: Optional[Callable[..., Any]] = None,
-        turn_teardown_handler: Optional[Callable[..., Any]] = None,
+        turn_runtime: Optional[ChatTurnRuntime] = None,
+        stream_turn_lock: Optional[asyncio.Lock] = None,
     ) -> None:
         """Bind live runtime collaborators after bootstrap."""
         if turn_executor is not None:
@@ -173,16 +171,19 @@ class ChatService(ChatEvidenceMixin):
             self._stream_chat_handler = stream_chat_handler
         if context_limit_handler is not None:
             self._context_limit_handler = context_limit_handler
-        if task_report_start_handler is not None:
-            self._task_report_start_handler = task_report_start_handler
-        if task_report_finish_handler is not None:
-            self._task_report_finish_handler = task_report_finish_handler
-        if turn_setup_handler is not None:
-            self._turn_setup_handler = turn_setup_handler
-        if turn_teardown_handler is not None:
-            self._turn_teardown_handler = turn_teardown_handler
+        if turn_runtime is not None:
+            self._turn_runtime = turn_runtime
+        if stream_turn_lock is not None:
+            self._turn_lock = stream_turn_lock
 
     async def chat(
+        self, user_message: str, *, stream: bool = False, **kwargs
+    ) -> "CompletionResponse":
+        """Process one exclusive buffered or aggregated streaming turn."""
+        async with self._turn_lock:
+            return await self._chat_exclusive(user_message, stream=stream, **kwargs)
+
+    async def _chat_exclusive(
         self, user_message: str, *, stream: bool = False, **kwargs
     ) -> "CompletionResponse":
         """Process a chat message through the bound canonical runtime.
@@ -209,7 +210,7 @@ class ChatService(ChatEvidenceMixin):
 
         if stream:
             chunks = []
-            async for chunk in self.stream_chat(
+            async for chunk in self._stream_chat_exclusive(
                 user_message,
                 use_planning=use_planning,
                 _preserve_turn_state=True,
@@ -251,6 +252,15 @@ class ChatService(ChatEvidenceMixin):
                         user_message,
                         runtime_context_overrides=runtime_context_overrides,
                     )
+            except asyncio.CancelledError as exc:
+                await self._finish_task_report(
+                    False,
+                    user_message=user_message,
+                    stream=False,
+                    error=exc,
+                    metadata={"use_planning": use_planning},
+                )
+                raise
             except Exception as exc:
                 await self._finish_task_report(
                     False,
@@ -308,6 +318,17 @@ class ChatService(ChatEvidenceMixin):
         )
 
     async def stream_chat(self, user_message: str, **kwargs) -> AsyncIterator["StreamChunk"]:
+        """Stream one exclusive turn through the bound canonical runtime."""
+        async with self._turn_lock:
+            async with aclosing_if_supported(
+                self._stream_chat_exclusive(user_message, **kwargs)
+            ) as stream:
+                async for chunk in stream:
+                    yield chunk
+
+    async def _stream_chat_exclusive(
+        self, user_message: str, **kwargs
+    ) -> AsyncIterator["StreamChunk"]:
         """Stream a chat response through the bound canonical runtime.
 
         Args:
@@ -373,9 +394,10 @@ class ChatService(ChatEvidenceMixin):
                         "stream_chat_handler is required for stream_chat()."
                     )
 
-                async for chunk in handler(user_message, **kwargs):
-                    response = chunk
-                    yield chunk
+                async with aclosing_if_supported(handler(user_message, **kwargs)) as runtime_stream:
+                    async for chunk in runtime_stream:
+                        response = chunk
+                        yield chunk
                 finished = True
             except Exception as exc:
                 failure = exc
@@ -588,7 +610,7 @@ class ChatService(ChatEvidenceMixin):
     ) -> None:
         """Run bound per-turn setup before task execution starts."""
         await self._run_optional_callback(
-            self._turn_setup_handler,
+            self._turn_runtime.enter if self._turn_runtime is not None else None,
             user_message,
             stream=stream,
             constraints=constraints,
@@ -605,7 +627,7 @@ class ChatService(ChatEvidenceMixin):
     ) -> None:
         """Run bound per-turn cleanup after task execution finishes."""
         await self._run_optional_callback(
-            self._turn_teardown_handler,
+            self._turn_runtime.exit if self._turn_runtime is not None else None,
             user_message,
             stream=stream,
             constraints=constraints,
@@ -1417,10 +1439,31 @@ class ChatService(ChatEvidenceMixin):
                     loop = None
 
                 def _persist_background_message() -> None:
+                    primary_error: BaseException | None = None
                     try:
                         memory_manager.add_message(**add_kwargs)
                     except Exception as exc:
                         logger.debug("Failed to persist message in background: %s", exc)
+                    except BaseException as exc:
+                        primary_error = exc
+                        raise
+                    finally:
+                        # The worker owns this thread-local handle. Do not close
+                        # the caller's connection or shut down a shared store.
+                        close = getattr(memory_manager, "close_thread_connection", None)
+                        if callable(close):
+                            try:
+                                close()
+                            except Exception as exc:
+                                logger.warning(
+                                    "Background persistence connection cleanup failed: %s",
+                                    type(exc).__name__,
+                                )
+                                if primary_error is None:
+                                    raise
+                                primary_error.add_note(
+                                    f"Background persistence cleanup failed: {type(exc).__name__}"
+                                )
 
                 def _consume_background_result(future: asyncio.Future) -> None:
                     try:

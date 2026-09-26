@@ -41,6 +41,7 @@ if TYPE_CHECKING:
     from victor.storage.cache.tool_cache import ToolCache
 
 from victor.core.utils.log_helpers import truncate_for_log
+from victor.agent.tool_retry_safety import allows_tool_retry, blocks_tool_retry
 from victor.tools.core_tool_aliases import canonicalize_core_tool_name
 from victor.tools.tool_names import ToolNames, get_canonical_name
 
@@ -110,7 +111,7 @@ class ToolRetryExecutor:
             context: Execution context
             tool_executor: Optional custom executor callable. If provided, called as
                 ``await tool_executor(tool_name, tool_args, context)``.
-                Defaults to ``self._pipeline._execute_single_tool``.
+                Defaults to the pipeline's canonical ``_execute_single_call``.
             cache: Optional cache override. Defaults to ``self._cache``.
             on_success: Optional callback invoked on success as
                 ``on_success(tool_name, tool_args, result)``.
@@ -144,17 +145,27 @@ class ToolRetryExecutor:
             base_delay = self._config.retry_base_delay
             max_delay = self._config.retry_max_delay
 
+        # A custom callable has no trusted effect contract. The canonical pipeline
+        # uses the same registered tool declaration as the inner executor.
+        from victor.tools.decorators import resolve_tool_name
+
+        retry_safe = tool_executor is None and allows_tool_retry(
+            self._pipeline.tools.get(resolve_tool_name(tool_name))
+        )
         last_error = None
         for attempt in range(max_attempts):
+            execution_succeeded = False
+            result = None
             try:
                 if tool_executor:
                     result = await tool_executor(tool_name, tool_args, context)
                 else:
-                    result = await self._pipeline._execute_single_tool(
-                        tool_name, tool_args, context
+                    result = await self._pipeline._execute_single_call(
+                        {"name": tool_name, "arguments": tool_args}, context
                     )
 
                 if result.success:
+                    execution_succeeded = True
                     # Cache successful result
                     if effective_cache:
                         effective_cache.set(tool_name, tool_args, result)
@@ -203,6 +214,9 @@ class ToolRetryExecutor:
                     # Tool returned failure - check if retryable
                     error_msg = result.error or "Unknown error"
 
+                    if blocks_tool_retry(result) or not retry_safe:
+                        return result, False, error_msg
+
                     # Don't retry validation errors or permanent failures
                     non_retryable_errors = [
                         "Invalid",
@@ -234,12 +248,32 @@ class ToolRetryExecutor:
                         return result, False, error_msg
 
             except Exception as e:
+                if execution_succeeded:
+                    # Cache/observer failure must never cause another business action.
+                    return (
+                        result,
+                        False,
+                        (
+                            "Tool execution succeeded, but post-execution bookkeeping failed; "
+                            "do not repeat the action."
+                        ),
+                    )
                 # Check for non-retryable errors
                 from victor.core.errors import ToolNotFoundError, ToolValidationError
 
                 if isinstance(e, (ToolNotFoundError, ToolValidationError, PermissionError)):
                     logger.error(f"Tool '{tool_name}' permanent failure: {truncate_for_log(e)}")
                     return None, False, str(e)
+
+                if not retry_safe:
+                    return (
+                        None,
+                        False,
+                        (
+                            "Tool execution outcome is unknown. Reconcile before another attempt; "
+                            "automatic replay is blocked."
+                        ),
+                    )
 
                 # Retryable transient errors
                 last_error = str(e)

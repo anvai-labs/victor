@@ -1,8 +1,8 @@
 # Diagram refresh — September 2026
 
 This records the D2 diagram dispositions after documentation consolidation and the ADR-030
-single-engine migration. Current diagrams describe the execution paths after step 3;
-FEP-0031, FEP-0032 and FEP-0033 diagrams are explicitly **TARGET** and retain Draft status.
+single-engine migration. Current diagrams describe shipped source behavior. FEP-0031 is
+partially implemented; FEP-0032 and FEP-0033 remain **TARGET** diagrams.
 
 ## Canonical diagram map
 
@@ -10,7 +10,7 @@ FEP-0031, FEP-0032 and FEP-0033 diagrams are explicitly **TARGET** and retain Dr
 | --- | --- | --- |
 | System layering and guards | [Architecture](../architecture.md#system-overview) | Framework entry points; client boundary tests; facade AST guard; hotspot guard; contracts boundary manifests |
 | Unified agentic loop | [Streaming sequence](../architecture.md#agenticloop) | `chat_stream_runtime.py`, `chat_stream_executor.py`, `streaming_act_adapter.py`, `agentic_loop.py`; run/stream parity tests |
-| Chat runtime inversion target | [FEP-0031](https://github.com/anvai-labs/victor/blob/develop/feps/fep-0031-chat-runtime-inversion.md#target-ownership-diagram) | Proposed Change and Acceptance Criteria; target names and measured baseline |
+| Chat runtime ownership | [Current streaming status](../architecture/streaming-pipeline.md#ownership-status) and [FEP-0031 target](https://github.com/anvai-labs/victor/blob/develop/feps/fep-0031-chat-runtime-inversion.md#target-ownership-diagram) | Current turn frame/planning/control slices plus the remaining target |
 | One workflow engine | [Workflow execution](../architecture.md#workflow-engine) | Runtime factory, StateGraph adapter/executor, native compiler boundary, CompiledGraph; ADR-030 step 3 |
 | Interrupt/resume target | [FEP-0032](https://github.com/anvai-labs/victor/blob/develop/feps/fep-0032-interrupt-resume-semantics.md#target-checkpoint-and-resume-flow) | Proposed checkpoint fields, paused results, input acknowledgement and unresolved HITL bridge |
 | RL relocation target | [FEP-0033](https://github.com/anvai-labs/victor/blob/develop/feps/fep-0033-rl-subsystem-relocation.md#target-package-dependencies) | Contracts-first dependency inversion and one-window framework shim |

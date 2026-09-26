@@ -16,14 +16,6 @@ class TestAgentRuntimeBootstrapper:
         orch._background_tasks = set()
         return orch
 
-    def test_create_facades_sets_orchestration_facade(self):
-        orch = self._make_mock_orchestrator()
-        AgentRuntimeBootstrapper.create_facades(orch)
-
-        # Only OrchestrationFacade remains; the 7 per-domain facades were removed
-        # as dead parallel views (zero production readers).
-        assert hasattr(orch, "_orchestration_facade")
-
     def test_create_facades_lazifies_orchestration_facade(self):
         orch = self._make_mock_orchestrator()
 
@@ -198,6 +190,7 @@ class TestAgentRuntimeBootstrapper:
         AgentRuntimeBootstrapper.wire_lifecycle(orch)
 
         orch._lifecycle_manager.set_provider.assert_called_once()
+        orch._lifecycle_manager.set_tool_cache.assert_called_once_with(orch.tool_cache)
         orch._lifecycle_manager.set_code_manager.assert_called_once()
         orch._lifecycle_manager.set_semantic_selector.assert_called_once()
         orch._lifecycle_manager.set_usage_logger.assert_called_once()
@@ -228,6 +221,8 @@ class TestAgentRuntimeBootstrapper:
 
     def test_prepare_components_creates_checkpoint_and_wires_dependencies(self):
         orch = self._make_mock_orchestrator()
+        configured_gate = sentinel.configured_message_policy_gate
+        orch._message_policy_gate = configured_gate
         # MagicMock doesn't auto-create dunder-named methods
         orch.__init_capability_registry__ = MagicMock()
         settings = MagicMock()
@@ -253,3 +248,4 @@ class TestAgentRuntimeBootstrapper:
         assert orch._coordination_advisor_runtime is None
         assert orch._turn_executor is None
         assert orch._protocol_adapter is None
+        assert orch._message_policy_gate is configured_gate

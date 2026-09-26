@@ -1,78 +1,141 @@
-# Streaming Chat Executor Architecture
+# Streaming Runtime
 
-> Project-graph analysis (Feb 2025) showed that `_stream_chat_impl` inside the
-> old coordinator path still orchestrated every phase of streaming chat. The
-> orchestration first moved into a dedicated pipeline module. The live runtime
-> has since been consolidated again: the canonical entry point is now the
-> service-owned streaming runtime backed by
-> `victor.agent.services.chat_stream_executor.StreamingChatExecutor`, not
-> `ChatCoordinator.stream_chat()`.
+!!! abstract "Current path"
 
-## 1. Responsibilities
+    `ChatService` frames the turn. `ServiceStreamingRuntime` calls
+    `StreamingChatExecutor.run_unified()`, which drives the single
+    `AgenticLoop.run_streaming()` path through `StreamingActAdapter`.
 
-| Phase | Responsibilities formerly inside `_stream_chat_impl` | Extracted component |
+    The deprecated `run()` alias, `AgenticLoop.stream_chat()` wrapper and
+    `_stream_chat_impl` path are removed.
+
+## Turn flow
+
+```mermaid
+---
+title: Current streaming turn
+---
+%%{init: {"theme":"base","themeVariables":{"primaryColor":"#E8EFF7","primaryTextColor":"#17324D","primaryBorderColor":"#456987","lineColor":"#456987","fontFamily":"Arial"}}}%%
+sequenceDiagram
+  actor Client
+  participant Chat as ChatService
+  participant Frame as ChatTurnRuntime
+  participant Runtime as ServiceStreamingRuntime
+  participant Exec as StreamingChatExecutor
+  participant AL as AgenticLoop
+  participant Act as StreamingActAdapter
+  Client->>Chat: stream_chat(message)
+  Chat->>Frame: enter + start task report
+  Chat->>Runtime: stream(message)
+  Runtime->>Exec: run_unified(message)
+  Exec->>AL: run_streaming(message)
+  loop PERCEIVE · PLAN · ACT · EVALUATE · DECIDE
+    AL->>Act: stream_turn_act(...)
+    Act->>Exec: execute_turn_streaming(...)
+    Exec-->>Act: chunks + turn result
+    Act-->>AL: chunks + outcome
+    AL-->>Exec: stream chunks
+    Exec-->>Runtime: stream chunks
+    Runtime-->>Chat: stream chunks
+    Chat-->>Client: stream chunks
+  end
+  Runtime->>Exec: close nested generator
+  Runtime-->>Chat: stream ends
+  Chat->>Frame: finish task report
+  Chat->>Frame: exit turn scope
+  Chat->>Chat: release turn lock
+```
+
+## Capability map
+
+The stream cluster receives an enumerated `ChatRuntimeServices` view. Related operations share
+one capability so callers do not accumulate facade fields.
+
+| Capability | Owns | Failure behavior |
 | --- | --- | --- |
-| Session bootstrap | Create `StreamingChatContext`, emit requirement events, reset dedup state | `victor.agent.streaming.context` |
-| Iteration loop | Enforce limits, request provider responses, feed tool calls | `StreamingChatHandler`, `ToolExecutionHandler` |
-| Intent handling | Run classifier, apply continuation overrides | `IntentClassificationHandler`, `ContinuationHandler` |
-| Recovery & fallbacks | Delegate to `RecoveryCoordinator`, `response_completer` | `victor.agent.recovery_coordinator`, `response_completer` |
-| Metrics & observability | Emit streaming metrics, cumulative token usage | `StreamingController`, `StreamingCoordinator` |
+| Session requirements | Required files, outputs and read state | Live session owner |
+| Delivery | Request and response delivery | Existing delivery contract |
+| Planning | Task preparation, goals, intent, guidance and tool selection | Required wiring fails early |
+| Governance | Request/response policy | Invalid configured result fails closed |
+| Completion | High-confidence completion and clean summary | Optional when disabled |
+| Conversation | System-prompt insertion, history, actual usage and terminal summary persistence | Startup fails closed; later accounting is best effort; weak owner |
+| Tool calls | Reset, parse and validate | Missing runtime fails closed |
+| Stream lifecycle | Start, context binding, cancellation, retry timing and cleanup | Required; weak live owner |
+| Stream metrics | Initialization, first-token timing, cost and terminal diagnostics | Required; weak live owner |
+| Task state | Reset, classification, continuation and prompt-derived budgets | Required; weak live owner |
+| Context lifecycle | Background compaction startup | Optional; weak live owner |
+| Runtime intelligence | Request guidance, learned routing and outcome feedback | Optional; weak live owner |
+| Recovery | Retry and fallback coordination | Existing recovery contract |
 
-The original pipeline extraction removed streaming fan-out from the old
-coordinator facade. The current runtime keeps that same fan-out inside the
-canonical executor rather than inside a deprecated coordinator or a parallel
-pipeline surface.
+!!! note "Limit ownership"
 
-## 2. Canonical Architecture
+    `AgenticLoop.run_streaming` enforces the active iteration bound; `StreamingActAdapter` syncs
+    the turn counter and `StreamingChatExecutor` checks cancellation around provider/tool work.
+    The bound `ChatService` context-limit handler remains a compatibility API and is not
+    rediscovered from the stream cluster.
 
-The [unified streaming sequence](../architecture.md#agenticloop) is the canonical diagram.
-`ServiceStreamingRuntime` calls `StreamingChatExecutor.run_unified()`, which drives
-`AgenticLoop.run_streaming()` with `StreamingActAdapter`. The adapter invokes
-`execute_turn_streaming()` for ACT; the framework loop owns evaluation and continuation.
-The deprecated `run()` alias and `AgenticLoop.stream_chat()` wrapper were removed in
-ADR-030 step 3.
+## Lifecycle invariants
 
-The remaining sections preserve the earlier extraction history and its test plan;
-references to retired coordinators describe that migration, not current entry points.
+!!! warning "Required invariants"
 
-## 3. Implemented Changes
+    - Close nested async generators before releasing the shared turn lock.
+    - Finish task reports on success, error and cancellation.
+    - Check cancellation around provider and tool boundaries; preserve accounting for completed
+      in-flight tools, then close the loop before emitting the terminal cancellation signal.
+    - Resolve mutable session and controller state from its current owner.
+    - Keep configured governance gates through bootstrap; malformed results are errors.
+    - Update session totals through the metrics capability before finalizing cost and reports.
+    - Publish bounded resume context through task state, including on error and stream close.
+    - Start configured background compaction once during stream preparation.
 
-1. **Executor landing** –
-   `victor/agent/services/chat_stream_executor.py` now contains the live
-   streaming implementation and reuses dedicated helper modules for intent,
-   continuation, tool execution, and recovery.
-2. **Service-owned runtime** –
-   `victor.agent.services.chat_stream_runtime.ServiceStreamingRuntime` is the
-   canonical owner of executor construction and invocation.
-3. **Factory exposure** – orchestrator/runtime builders expose
-   `create_streaming_chat_executor(...)` and
-   `create_service_streaming_runtime(...)` so canonical wiring stays out of the
-   deprecated coordinator shims.
-4. **Compatibility shim retention** – `ChatCoordinator.stream_chat()` no longer
-   owns streaming orchestration. It forwards to the service/runtime surfaces
-   and only falls back to the legacy hook for older integrations.
+| Guard | What it prevents |
+| --- | --- |
+| Stream-turn AST caps | New access to migrated orchestrator internals |
+| Facade and hotspot caps | Growth in the composition facade |
+| Run/stream parity | Divergence between buffered and streaming semantics |
+| Lifetime regressions | Lock, generator or report leaks after cancellation |
+| Usage regressions | Double counting or loss during reset/restore |
 
-## 4. Testing Strategy
+## Ownership status
 
-1. **Executor unit tests**
-   - Mock/spy runtime-owner helpers to prove the executor exercises the
-     expected phases (pre-checks, continuation, tool execution, recovery).
-   - Simulate error and cancellation paths to guard the retry logic.
-2. **Compatibility tests**
-   - Keep explicit coverage that deprecated shims prefer `ChatService`, then
-     `ServiceStreamingRuntime`, and only then the legacy hook.
-3. **Integration coverage**
-   - Maintain `tests/unit/agent/test_orchestrator_core.py` and service
-     delegation suites so the service-owned runtime remains the canonical path.
-   - Maintain the streaming CLI integration tests to ensure real providers
-     and tool executions still behave identically.
+```mermaid
+---
+title: FEP-0031 ownership progress
+---
+%%{init: {"theme":"base","themeVariables":{"primaryColor":"#E8EFF7","primaryTextColor":"#17324D","primaryBorderColor":"#456987","lineColor":"#456987","fontFamily":"Arial"}}}%%
+flowchart LR
+  subgraph DONE["Implemented"]
+    T["Turn frame"]
+    P["Planning and guidance"]
+    E["Stream execution controls"]
+    L["Stream lifecycle"]
+    X["Stream metrics and session totals"]
+    K["Task classification and resume context"]
+    C["Context lifecycle"]
+    I["Runtime intelligence"]
+  end
+  subgraph NEXT["Remaining"]
+    S["Provider and broader runtime state"]
+    F["Handler factories"]
+    M["Facade shims and mixins"]
+  end
+  T --> S
+  P --> S
+  E --> S
+  L --> S
+  X --> S
+  K --> S
+  C --> S
+  I --> S
+  S --> F --> M
+```
 
-## 5. Follow-up Checklist
+FEP-0031 remains **Draft / in progress**. See the
+[proposal and measured progress](https://github.com/anvai-labs/victor/blob/develop/feps/fep-0031-chat-runtime-inversion.md)
+and the [canonical architecture](../architecture.md#service-layer).
 
-- [x] Extract streaming orchestration out of `_stream_chat_impl`.
-- [x] Move canonical streaming ownership to `ServiceStreamingRuntime`.
-- [x] Consolidate the live path onto `StreamingChatExecutor`.
-- [x] Reduce `ChatCoordinator.stream_chat` to a compatibility forwarding layer.
-- [x] Remove `_stream_chat_impl`.
-- [ ] Add dedicated unit tests for executor-level behaviours beyond current service/runtime suites.
-- [ ] Add CI checks that fail when streaming fan-out exceeds agreed thresholds.
+## Compatibility
+
+Public `Agent.run()`, `Agent.stream()` and facade chat methods retain their contracts.
+Compatibility coordinators forward to the service/runtime path; they do not own a second
+streaming engine.

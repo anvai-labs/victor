@@ -1,5 +1,7 @@
 from unittest.mock import MagicMock
 
+from types import SimpleNamespace
+
 from victor.agent.runtime.interaction_runtime import (
     create_interaction_runtime_components,
 )
@@ -28,6 +30,7 @@ def _runtime_kwargs():
         "cost_tracker": MagicMock(),
         "conversation_controller": MagicMock(),
         "streaming_coordinator": MagicMock(),
+        "settings": MagicMock(name="settings"),
     }
 
 
@@ -61,15 +64,66 @@ def test_create_interaction_runtime_components_prefers_runtime_service_bundle():
     session_service.bind_runtime_components.assert_called_once()
 
 
+def test_resolved_tool_service_keeps_owner_settings_and_fixed_binder_contract():
+    from victor.agent.services.tool_service import ToolService, ToolServiceConfig
+
+    owner_settings = SimpleNamespace(tools=SimpleNamespace(tool_selection_enabled=True))
+    later_settings = SimpleNamespace(tools=SimpleNamespace(tool_selection_enabled=False))
+    service = ToolService(
+        ToolServiceConfig(),
+        MagicMock(),
+        MagicMock(),
+        MagicMock(),
+        settings=owner_settings,
+    )
+
+    first_kwargs = _runtime_kwargs()
+    first_kwargs["settings"] = owner_settings
+    first = create_interaction_runtime_components(
+        runtime_services=ResolvedRuntimeServices(tool=service),
+        **first_kwargs,
+    )
+    second_kwargs = _runtime_kwargs()
+    second_kwargs["settings"] = later_settings
+    second = create_interaction_runtime_components(
+        runtime_services=ResolvedRuntimeServices(tool=service),
+        **second_kwargs,
+    )
+
+    assert first.tool_service is second.tool_service is service
+    assert service._settings is owner_settings
+
+    class FixedBinderService:
+        def bind_runtime_components(
+            self,
+            *,
+            tool_registry=None,
+            tool_pipeline=None,
+            tool_cache=None,
+            mode_controller=None,
+            argument_normalizer=None,
+        ):
+            self.bound = True
+
+    fixed_service = FixedBinderService()
+    create_interaction_runtime_components(
+        runtime_services=ResolvedRuntimeServices(tool=fixed_service),
+        **_runtime_kwargs(),
+    )
+    assert fixed_service.bound is True
+
+
 def test_create_interaction_runtime_components_uses_context_adapter_fallback():
     from victor.agent.services.adapters.context_adapter import ContextServiceAdapter
 
+    kwargs = _runtime_kwargs()
     components = create_interaction_runtime_components(
         runtime_services=ResolvedRuntimeServices(),
-        **_runtime_kwargs(),
+        **kwargs,
     )
 
     assert isinstance(components.context_service, ContextServiceAdapter)
+    assert components.tool_service._settings is kwargs["settings"]
 
 
 def test_create_interaction_runtime_components_passes_context_compactor_to_adapter():

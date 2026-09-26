@@ -347,6 +347,7 @@ class BaseFormationStrategy(ABC):
         tasks: Optional[List["AgentMessage"]] = None,
         indices: Optional[List[int]] = None,
         resume_override: Optional[Dict[str, Any]] = None,
+        member_retries: int = 0,
     ) -> List[MemberResult]:
         """Run members concurrently with ADR-023 durable checkpoint/resume + streaming lanes.
 
@@ -409,9 +410,32 @@ class BaseFormationStrategy(ABC):
                     f"{type(self).__name__}: skipping completed member {agent.id} (resume)"
                 )
                 return _SKIPPED
-            result = await self._execute_member_with_events(
-                agent, agent_task, exec_context, index, member_event_hook=member_event_hook
-            )
+            total_tools = 0
+            total_duration = 0.0
+            total_usage: Dict[str, int] = {}
+            for attempt in range(member_retries + 1):
+                result = await self._execute_member_with_events(
+                    agent, agent_task, exec_context, index, member_event_hook=member_event_hook
+                )
+                total_tools += result.tool_calls_used
+                total_duration += result.duration_seconds
+                for key, value in result.metadata.get("usage", {}).items():
+                    total_usage[key] = total_usage.get(key, 0) + value
+                if (
+                    result.success
+                    or result.metadata.get("awaiting_approval")
+                    or attempt == member_retries
+                ):
+                    break
+                logger.warning(
+                    "Member %s failed; retrying (%d/%d)", agent.id, attempt + 1, member_retries
+                )
+            if member_retries:
+                result.tool_calls_used = total_tools
+                result.duration_seconds = total_duration
+                result.metadata["execution_attempts"] = attempt + 1
+                if total_usage:
+                    result.metadata["usage"] = total_usage
             # A member awaiting approval durably pauses (only when the formation supports it, i.e.
             # a batch pause hook is wired): it is NOT recorded as completed, so a resumed run
             # re-runs it. Collect it for the post-wave pause aggregate instead.
@@ -431,9 +455,48 @@ class BaseFormationStrategy(ABC):
                             )
             return _AWAITING if is_awaiting else result
 
+        concurrency_limit = context.get("member_concurrency_limit")
+        if concurrency_limit is not None and (
+            not isinstance(concurrency_limit, int)
+            or isinstance(concurrency_limit, bool)
+            or concurrency_limit < 1
+        ):
+            raise ValueError("member_concurrency_limit must be a positive integer")
+        semaphore = asyncio.Semaphore(concurrency_limit) if concurrency_limit is not None else None
+
+        async def _admitted_run(agent, exec_context, index, agent_task):
+            if semaphore is None or agent.id in completed_ids:
+                return await _run(agent, exec_context, index, agent_task)
+            if semaphore.locked():
+                from victor.framework.member_event_sink import (
+                    MEMBER_THROTTLED,
+                    MemberEvent,
+                    current_member_sink,
+                )
+
+                logger.warning(
+                    "Member %s waiting for provider capacity (%d concurrent members)",
+                    agent.id,
+                    concurrency_limit,
+                )
+                sink = current_member_sink.get()
+                if sink is not None:
+                    await sink.emit(
+                        MemberEvent(
+                            kind=MEMBER_THROTTLED,
+                            member_id=agent.id,
+                            formation=context.formation,
+                            index=index,
+                            content="Waiting for provider capacity",
+                            metadata={"concurrency_limit": concurrency_limit, "level": "warning"},
+                        )
+                    )
+            async with semaphore:
+                return await _run(agent, exec_context, index, agent_task)
+
         gathered = await asyncio.gather(
             *[
-                _run(a, c, i, t)
+                _admitted_run(a, c, i, t)
                 for a, c, i, t in zip(agents, exec_contexts, member_indices, member_tasks)
             ],
             return_exceptions=True,

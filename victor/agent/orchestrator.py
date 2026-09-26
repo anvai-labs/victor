@@ -64,9 +64,8 @@ from rich.console import Console
 
 # Coordinators (Phase 2 refactoring - being integrated)
 # NOTE: These are runtime imports, not type-checking only
-from victor.agent.services.metrics_service import (  # noqa: F401
-    AgentMetricsService,
-)  # imported for runtime use
+from victor.core.async_utils import aclosing_if_supported as _aclosing
+from victor.agent.services.metrics_service import AgentMetricsService  # noqa: F401
 
 if TYPE_CHECKING:
     # Type-only imports (created by factory, only used for type hints)
@@ -108,12 +107,6 @@ if TYPE_CHECKING:
 # Runtime imports - used for instantiation, enums, constants, or function calls
 from victor.agent.argument_normalizer import ArgumentNormalizer, NormalizationStrategy
 from victor.agent.message_history import MessageHistory
-from victor.agent.task_report_metadata import (
-    build_compaction_metadata,
-    build_task_report_finish_metadata,
-    build_task_report_start_metadata,
-    resolve_task_type,
-)
 from victor.agent.tool_supply_policy import (
     classify_tool_supply,
     demote_tools_to_fit,
@@ -631,6 +624,7 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
             cost_tracker=self._session_cost_tracker,
             conversation_controller=self._conversation_controller,
             streaming_coordinator=self._streaming_controller,
+            settings=self.settings,
             runtime_services=resolve_runtime_services(self),
         )
         self._chat_service = self._interaction_runtime.chat_service
@@ -731,16 +725,14 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
         self._recovery_service = self._container.get_optional(RecoveryServiceProtocol)
 
         if self._tool_service is None:
-            from victor.agent.services.tool_service import (
-                ToolService,
-                ToolServiceConfig,
-            )
+            from victor.agent.services.tool_service import ToolService, ToolServiceConfig
 
             self._tool_service = ToolService(
                 config=ToolServiceConfig(default_tool_budget=getattr(self, "tool_budget", 100)),
                 tool_selector=(self.tool_selector if hasattr(self, "tool_selector") else None),
                 tool_executor=getattr(self, "tool_executor", None),
                 tool_registrar=getattr(self, "tools", None),
+                settings=self.settings,
             )
 
         if self._tool_service and hasattr(self._tool_service, "bind_runtime_components"):
@@ -757,6 +749,7 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
 
         if self._chat_service and hasattr(self._chat_service, "bind_runtime_components"):
             from victor.agent.runtime.provider_runtime import LazyRuntimeProxy
+            from victor.agent.factory.chat_runtime_bindings import bind_chat_turn_runtime
 
             chat_stream_adapter = self._get_chat_stream_adapter()
             self._chat_service.bind_runtime_components(
@@ -765,14 +758,11 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
                     name="turn_executor",
                 ),
                 planning_handler=self._get_planning_chat_runtime().run,
-                stream_chat_handler=chat_stream_adapter.stream_chat,
+                stream_chat_handler=chat_stream_adapter.stream_chat_under_turn_lock,
                 context_limit_handler=self._get_context_limit_runtime().handle_limits,
-                task_report_start_handler=self._start_task_report,
-                task_report_finish_handler=self._finish_task_report,
-                turn_setup_handler=self._prepare_chat_service_turn_runtime,
-                turn_teardown_handler=self._teardown_chat_service_turn_runtime,
+                turn_runtime=bind_chat_turn_runtime(self),
+                stream_turn_lock=chat_stream_adapter.services.stream_turn_lock,
             )
-
         if self._provider_service is not None and hasattr(
             self._provider_service, "bind_runtime_components"
         ):
@@ -2297,71 +2287,6 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
         """
         self._metrics_coordinator.export_session_costs(path, format)
 
-    def _start_task_report(
-        self,
-        user_message: str,
-        *,
-        stream: bool = False,
-        metadata: Optional[Dict[str, Any]] = None,
-    ) -> Optional[str]:
-        """Start a first-class task report on the canonical chat runtime path."""
-        task_type = self._resolve_task_report_task_type()
-        provider_name = getattr(self.provider, "name", getattr(self, "provider_name", "unknown"))
-        return self._metrics_coordinator.start_task_report(
-            description=user_message,
-            task_type=task_type,
-            metadata=build_task_report_start_metadata(
-                stream=stream,
-                provider_name=provider_name,
-                model=getattr(self, "model", "unknown"),
-                metadata=metadata,
-            ),
-        )
-
-    def _finish_task_report(
-        self,
-        success: bool,
-        *,
-        user_message: str,
-        stream: bool = False,
-        response: Optional[Any] = None,
-        error: Optional[BaseException] = None,
-        metadata: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
-        """Finish the active task report with compaction and tool-strategy metadata."""
-        stream_ctx = getattr(self, "_current_stream_context", None)
-        provider_name = getattr(self.provider, "name", getattr(self, "provider_name", "unknown"))
-        report_metadata = build_task_report_finish_metadata(
-            stream=stream,
-            provider_name=provider_name,
-            model=getattr(self, "model", "unknown"),
-            user_message=user_message,
-            response=response,
-            stream_ctx=stream_ctx,
-            metadata=metadata,
-        )
-
-        last_tool_event = self._metrics_coordinator.get_last_tool_strategy_event() or {}
-        return self._metrics_coordinator.finish_task_report(
-            success,
-            task_type=self._resolve_task_report_task_type(),
-            metadata=report_metadata,
-            error=str(error) if error else None,
-            tool_schema_tokens=int(last_tool_event.get("tool_tokens", 0) or 0),
-            compaction=build_compaction_metadata(
-                stream_ctx,
-                getattr(self, "_context_service", None),
-            ),
-        )
-
-    def _resolve_task_report_task_type(self) -> str:
-        """Resolve task type via the pure task-report metadata helper (ADR-019)."""
-        return resolve_task_type(
-            getattr(self, "_current_stream_context", None),
-            getattr(self, "unified_tracker", None),
-            (getattr(self, "_current_task_type", None), getattr(self, "_task_type", None)),
-        )
-
     async def _preload_embeddings(self) -> None:
         """Preload tool embeddings in background to avoid blocking first query.
 
@@ -2793,14 +2718,6 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
             self._skill_runtime = runtime
         return runtime
 
-    def _apply_skill_for_turn(self, user_message: str) -> None:
-        """Apply skill auto-selection for a turn (used by both sync and streaming paths).
-
-        Clears previous skill, matches new skill(s), injects into prompt,
-        and records analytics.
-        """
-        self._get_skill_runtime().apply_skill_for_turn(user_message)
-
     def get_last_skill_match_info(self) -> Optional[Dict[str, Any]]:
         """Return metadata about the last skill match for response attachment."""
         return self._get_skill_runtime().get_last_skill_match_info()
@@ -2978,7 +2895,7 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
     def _classify_task_keywords(self, user_message: str) -> Dict[str, Any]:
         """Classify task type based on keywords in the user message.
 
-        Delegates to UnifiedPromptPipeline or TaskAnalyzer directly.
+        Delegates to the service-owned task-guidance runtime.
 
         Args:
             user_message: The user's input message
@@ -2986,24 +2903,7 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
         Returns:
             Dictionary with classification results
         """
-        pipeline = getattr(self, "_prompt_pipeline", None)
-        if pipeline is not None:
-            return pipeline.classify_task_keywords(user_message)
-
-        task_analyzer = getattr(self, "_task_analyzer", None)
-        if task_analyzer is not None:
-            try:
-                method = getattr(
-                    task_analyzer,
-                    "classify_task_keywords",
-                    getattr(task_analyzer, "classify_keywords", None),
-                )
-                if method is not None:
-                    return method(user_message)
-            except Exception as exc:
-                logger.debug("Task keyword classification fallback failed: %s", exc)
-
-        return {"task_type": "default", "confidence": 0.0}
+        return self._get_task_guidance_runtime().classify_task_keywords(user_message)
 
     def _classify_task_with_context(
         self, user_message: str, history: Optional[List[Dict[str, Any]]] = None
@@ -3248,61 +3148,6 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
             runtime = ContextLimitRuntime(self)
             self._context_limit_runtime = runtime
         return runtime
-
-    def _prepare_chat_service_turn_runtime(
-        self,
-        user_message: str,
-        *,
-        stream: bool,
-        constraints: Any = None,
-        vertical: Optional[str] = None,
-    ) -> None:
-        """Prepare the canonical chat-service turn scope for a live task."""
-        if stream:
-            self._apply_skill_for_turn(user_message)
-
-        if constraints:
-            self._constraint_activator.activate_constraints(
-                constraints=constraints,
-                vertical=vertical or getattr(self, "vertical", "coding"),
-            )
-
-    def _teardown_chat_service_turn_runtime(
-        self,
-        _user_message: str,
-        *,
-        stream: bool,
-        constraints: Any = None,
-        vertical: Optional[str] = None,
-    ) -> None:
-        """Tear down any temporary chat-service turn scope state."""
-        del stream, vertical
-        if constraints:
-            self._constraint_activator.deactivate_constraints()
-
-        # Close the credit-assignment feedback loop (universal per-turn teardown).
-        if getattr(self, "_credit_tracking_service", None) is not None:
-            self._credit_tracking_service.assign_turn_credit_at_boundary()
-
-    async def _handle_context_and_iteration_limits(
-        self,
-        user_message: str,
-        max_total_iterations: int,
-        max_context: int,
-        total_iterations: int,
-        last_quality_score: float,
-    ) -> tuple[bool, Optional[StreamChunk]]:
-        """Handle context overflow and hard iteration limits.
-
-        Delegates to ChatService.
-        """
-        return await self._chat_service.handle_context_and_iteration_limits(
-            user_message,
-            max_total_iterations,
-            max_context,
-            total_iterations,
-            last_quality_score,
-        )
 
     def _get_chat_stream_adapter(self) -> Any:
         """Get the canonical service-owned chat-stream adapter."""
@@ -3699,8 +3544,9 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
             except Exception:
                 pass
 
-        async for chunk in self._chat_service.stream_chat(user_message, **kwargs):
-            yield chunk
+        async with _aclosing(self._chat_service.stream_chat(user_message, **kwargs)) as stream:
+            async for chunk in stream:
+                yield chunk
 
     async def execute_tool_with_retry(
         self, tool_name: str, tool_args: Dict[str, Any], context: Dict[str, Any]

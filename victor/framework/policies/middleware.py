@@ -31,6 +31,7 @@ safe) rather than silently proceeding.
 from __future__ import annotations
 
 import logging
+import math
 from typing import Any, Callable, Dict, Optional, Set
 
 from victor.core.verticals.protocols import (
@@ -53,6 +54,26 @@ logger = logging.getLogger(__name__)
 ContextProvider = Callable[[], PolicyContext]
 
 
+def _approval_scope(context: PolicyContext) -> Dict[str, Any]:
+    return {"session_id": context.session_id, "labels": context.labels}
+
+
+def _resolve_policy_context(provider: Optional[ContextProvider]) -> PolicyContext:
+    """Keep optional absence distinct from a failed configured context source."""
+    if provider is None:
+        return PolicyContext()
+    context = provider()
+    if not isinstance(context, PolicyContext):
+        raise TypeError("Invalid policy context")
+    if (
+        type(context.cost_usd) not in (int, float)
+        or not math.isfinite(context.cost_usd)
+        or context.cost_usd < 0
+    ):
+        raise ValueError("Invalid policy cost context")
+    return context
+
+
 async def resolve_policy_ask(
     approval_handler: Optional[Any],
     *,
@@ -72,7 +93,7 @@ async def resolve_policy_ask(
         approval_handler: Async HITL ``ApprovalHandler`` or None. When None, the
             decision falls back to ``ask_fallback``.
         ask_fallback: ``"allow"`` or ``"deny"`` (fail safe) — outcome when no
-            handler is configured or the handler errors.
+            handler is configured. A configured handler's failure always denies.
         ask_timeout_seconds: Timeout passed to the approval request.
         title: Short approval title (e.g. ``"Approve tool: run_command"``).
         description: Longer human-readable reason.
@@ -90,10 +111,19 @@ async def resolve_policy_ask(
         )
         return ask_fallback == "allow"
 
+    if not callable(approval_handler):
+        logger.error("Configured approval handler is not callable; denying")
+        return False
+
+    async def invoke_approval(request: Any) -> Any:
+        # HITL's optional handler path uses truthiness. A configured callable
+        # with __bool__ == False must still run, never become auto-approval.
+        return await approval_handler(request)
+
     # Reuse the existing HITL machinery for the request lifecycle.
     from victor.framework.hitl import HITLController
 
-    controller = HITLController(approval_handler=approval_handler)
+    controller = HITLController(approval_handler=invoke_approval)
     request = controller.request_approval(
         title=title,
         description=description,
@@ -102,9 +132,9 @@ async def resolve_policy_ask(
     )
     try:
         resolved = await controller.process_approval(request.id)
-    except Exception:  # pragma: no cover - defensive
-        logger.exception("Approval handler failed for '%s'; failing safe", title)
-        return ask_fallback == "allow"
+    except Exception:
+        logger.error("Approval handler failed; denying")
+        return False
     return resolved.is_approved
 
 
@@ -152,11 +182,20 @@ class PolicyEngineMiddleware(MiddlewareProtocol):
 
     async def before_tool_call(self, tool_name: str, arguments: Dict[str, Any]) -> MiddlewareResult:
         """Gate a tool call through the policy engine (TOOL_CALL phase)."""
+        try:
+            context = self._safe_context()
+        except Exception:
+            logger.error("Configured policy context failed; blocking dispatch")
+            return MiddlewareResult(
+                proceed=False,
+                error_message="Policy context unavailable.",
+                metadata={"enforcement_error": True},
+            )
         event = PolicyEvent(
             phase=Phase.TOOL_CALL,
             tool_name=tool_name,
             arguments=arguments,
-            context=self._safe_context(),
+            context=context,
         )
         verdict = await self._engine.evaluate(event)
 
@@ -166,8 +205,25 @@ class PolicyEngineMiddleware(MiddlewareProtocol):
                 error_message=self._block_message(tool_name, verdict, asked=False),
             )
 
+        from victor.framework.approval_binding import current_approval_grant, current_approval_call
+
+        grant = current_approval_grant.get()
+        effective_args = (
+            verdict.modified_arguments if verdict.modified_arguments is not None else arguments
+        )
+        scope = _approval_scope(context)
+        if grant is not None:
+            grant.check_policy(
+                tool_name, effective_args, scope, lambda: _approval_scope(self._safe_context())
+            )
+
         if verdict.is_ask:
-            approved = await self._resolve_ask(tool_name, verdict, arguments)
+            approved = await self._resolve_ask(
+                tool_name,
+                verdict,
+                effective_args if current_approval_call.get() is not None else arguments,
+                scope,
+            )
             if not approved:
                 return MiddlewareResult(
                     proceed=False,
@@ -205,37 +261,41 @@ class PolicyEngineMiddleware(MiddlewareProtocol):
     # -- internals ----------------------------------------------------------
 
     def _safe_context(self) -> PolicyContext:
-        """Resolve the session snapshot, degrading to empty on any failure."""
-        if self._context_provider is None:
-            return PolicyContext()
-        try:
-            return self._context_provider()
-        except Exception:  # pragma: no cover - provider must not break the gate
-            logger.debug("Policy context provider failed; using empty context", exc_info=True)
-            return PolicyContext()
+        """Resolve context without replacing configured failures with zero usage."""
+        return _resolve_policy_context(self._context_provider)
 
     async def _resolve_ask(
         self,
         tool_name: str,
         verdict: PolicyVerdict,
         arguments: Optional[Dict[str, Any]] = None,
+        scope: Optional[Dict[str, Any]] = None,
     ) -> bool:
         """Resolve an ASK verdict to a boolean approval decision.
 
         Includes the tool ``arguments`` in the approval context so surfaces can show the
         exact command/diff being approved (informed approval) rather than just the name.
         """
+        from victor.framework.approval_binding import current_approval_grant, request_binding
+
+        grant = current_approval_grant.get()
+        if grant is not None:
+            return grant.approve_ask(verdict.policy_name)
+        context = {
+            "tool_name": tool_name,
+            "policy": verdict.policy_name,
+            "arguments": arguments or {},
+        }
+        binding = request_binding(tool_name, arguments or {}, verdict.policy_name, scope or {})
+        if binding is not None:
+            context["action_binding"] = binding
         return await resolve_policy_ask(
             self._approval_handler,
             ask_fallback=self._ask_fallback,
             ask_timeout_seconds=self._ask_timeout_seconds,
             title=f"Approve tool: {tool_name}",
             description=verdict.reason or f"Policy requests approval to run '{tool_name}'.",
-            context={
-                "tool_name": tool_name,
-                "policy": verdict.policy_name,
-                "arguments": arguments or {},
-            },
+            context=context,
         )
 
     @staticmethod

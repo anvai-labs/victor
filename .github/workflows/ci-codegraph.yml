@@ -7,13 +7,7 @@ name: CI - codegraph
 on:
   push:
     branches: [develop, main]
-    paths:
-      - 'victor-codegraph/**'
-      - '.github/workflows/ci-codegraph.yml'
   pull_request:
-    paths:
-      - 'victor-codegraph/**'
-      - '.github/workflows/ci-codegraph.yml'
 
 jobs:
   test:
@@ -23,7 +17,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.11", "3.12"]
+        python-version: ["3.12", "3.13"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -37,6 +31,29 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ./victor-contracts
           pip install -e "./victor-codegraph[dev]"
+          pip install pytest-cov
+
+      - name: Load required tree-sitter grammars
+        run: |
+          python - <<'PYTHON'
+          import time
+          from tree_sitter import Parser
+          from tree_sitter_language_pack import get_language
+
+          # Recent grammar packs download native libraries lazily. Make that
+          # setup explicit: tests must not silently skip unavailable grammars.
+          for language in ("javascript", "typescript", "go", "rust", "java", "c", "cpp"):
+              for attempt in range(3):
+                  try:
+                      Parser(get_language(language))
+                      print(f"Loaded {language}", flush=True)
+                      break
+                  except Exception as error:
+                      print(f"::warning::Grammar {language} attempt {attempt + 1}: {error}", flush=True)
+                      if attempt == 2:
+                          raise
+                      time.sleep(2 ** attempt)
+          PYTHON
 
       - name: Lint (ruff)
         working-directory: victor-codegraph
@@ -44,4 +61,26 @@ jobs:
 
       - name: Test
         working-directory: victor-codegraph
-        run: pytest tests -v --tb=short
+        run: |
+          if [ "${{ matrix.python-version }}" = "3.12" ]; then
+            pytest tests -v --tb=short \
+              --cov=victor_codegraph \
+              --cov-report=term-missing \
+              --cov-report=xml:coverage.xml \
+              --cov-fail-under=90
+          else
+            pytest tests -v --tb=short
+          fi
+
+  summary:
+    name: Codegraph Summary
+    runs-on: ubuntu-24.04
+    needs: test
+    if: always()
+    steps:
+      - name: Require every supported Python and the coverage floor
+        run: |
+          if [ "${{ needs.test.result }}" != "success" ]; then
+            echo "::error::Codegraph tests or coverage did not pass."
+            exit 1
+          fi

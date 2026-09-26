@@ -3,29 +3,129 @@
 All notable changes to Victor are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased] — focused v0.9.5 co-design candidate
-
-This candidate is cut from protected `main` at `4e4e0d6405b4ff2a353aafa9adce1aac8aa4e993`,
-not from the broader v0.10.0 develop promotion. Independent review, second-account approval,
-canonical CI, main promotion, exact-main verification and publication are still required.
-
-### Fixed
-
-- Preserve Sandhi's boolean reasoning-inclusion convention through response and stream models;
-  fold separate reasoning into billable output once per call before aggregation and session pricing.
-- Retain raw completion counts alongside billable completion counts, preserve reported totals,
-  and include separate reasoning when deriving missing totals.
-- Preserve independent origin/boundary timing provenance through transport and canonical metrics;
-  reject invalid timing values and avoid assigning stale provenance to later measurements.
+## [Unreleased] (develop)
 
 ### Changed
 
-- Pin `sandhi-gateway==0.7.0` in package metadata and all three existing deployment snapshots,
-  and recognize chat contract minor 8. No other deployment dependency versions are refreshed.
-- Add production-stream/accounting regressions. Provider defaults, tool/session behavior,
-  reasoning replay policy, TUI, MCP and workflow/runtime changes from develop are not included.
+- Require Python 3.12+ across core, contracts, codegraph, native extensions and
+  verticals. CI tests 3.12/3.13; Python 3.10/3.11 installations must upgrade
+  before installing the next release. Previously published releases are unchanged.
 
-## Historical v0.9.4 preparation record
+- Route chat planning, task guidance, and tool selection through explicit
+  runtime capabilities; route streaming governance, completion, tool-call
+  processing, conversation history/accounting, and outcome feedback through
+  the enumerated runtime view; and move setup, reporting, and teardown into the
+  service-owned chat turn frame.
+- Preserve configured request/response governance during runtime bootstrap and
+  reject invalid configured-gate results instead of treating them as disabled.
+- Headless and benchmark turns now use the shared per-turn tool-selection
+  runtime (FEP-0034 Stage C), including capability/Q&A gates, intent projection,
+  and KV policy. Curated schemas remain stable, pruning remains opt-in, and
+  supply traces also cover curated early returns.
+- Benchmark traces identify the tool-supply cutover with
+  `completion_signals.tool_supply_pipeline=fep-0034-stage-c`.
+- Pin the development interpreter to Python 3.12 via `.python-version`.
+
+### Added
+
+- Add opt-in `victor review` and framework review panels with strict required-reviewer
+  verdicts, no reviewer tools, bounded input and commit-bound PR provenance. Results
+  are advisory; they do not authorize merges or prove model-review accuracy.
+
+- Add 77 code-search tests covering filters, cache invalidation, index integrity
+  and recovery, literal retrieval, and semantic dispatch/fallback without model
+  downloads or a live vector database.
+
+### Fixed
+
+- Permit the exact Dependabot co-author trailer in the attribution gate while
+  retaining checks for altered identities, appended text and other bot trailers.
+
+- Finalize buffered task reports on cancellation before turn teardown releases
+  the shared chat lock.
+- Close nested streaming generators before releasing per-turn locks, metrics,
+  and task reports so early client disconnects and cancellations cannot leak
+  one turn's state into the next.
+- Preserve full-path CLI suggestions with Typer's vendored Click runtime and
+  keep unrelated usage errors on their native exception path.
+- Resolve tool-pruning settings at each policy call and isolate team goals in
+  per-execution context so concurrent and hierarchical runs cannot overwrite
+  one another's assignments.
+
+## [0.10.0] - Unreleased candidate
+
+Version metadata is prepared on `develop`; no `v0.10.0` release tag has been published.
+
+### Added
+
+- Add the demand-loaded `gh` tool for GitHub pull requests, issues, workflow
+  runs, releases, repository queries and API calls.
+- Add `victor mcp add` to verify and register project or user-level stdio MCP
+  servers with restricted configuration permissions.
+
+### Changed
+
+- Make InferFlux with `qwen3-coder-30b` the default provider while retaining
+  Ollama through the `local` profile and stock llama-server through
+  `local-llamacpp`. This is the release's primary breaking default change.
+- Advance `sandhi-gateway` to 0.7.0 and recognize chat-contract minor 8,
+  preserving reasoning-accounting semantics through the current consumer API.
+- Complete FEP-0034 tool-supply consolidation: demand hydration, stable tool
+  definitions, member-scoped sessions and per-turn supply traces now align
+  served chat, headless and benchmark execution.
+- Mount the TUI before background session initialization, keep its prompt live
+  during turns with a FIFO queue, and make terminal-native mouse selection the
+  default.
+- Move the supported extension toolchain to Node 24, TypeScript 6, ESLint 10,
+  Vitest 5 and Vite 8. Required CI validates the extension only when relevant
+  paths change and reuses the existing aggregate runner job.
+- Regenerate the core, API and CPU-embedding deployment locks under shared
+  constraints and enforce every lock against project metadata in required CI.
+- Require Python 3.12+ for this release candidate and run the primary Python CI
+  matrix on 3.12 and 3.13; Python 3.11 wheels are not part of this candidate.
+- Raise the default bash command timeout from 60 seconds to 120 seconds and
+  route GitHub operations through the dedicated `gh` tool rather than `git pr`.
+- Retain existing Victor AI compatibility shims through this release and move
+  their announced removal target to 0.11.0. Victor Contracts remains on its
+  independent version train and keeps its existing stability schedule.
+
+### Fixed
+
+- Preserve Sandhi's reasoning-inclusion convention and per-call folding through
+  provider responses, streaming metrics and session pricing while retaining raw
+  completion counts, totals and timing provenance.
+- Respect explicit curated tool sets before pruning and demand hydration;
+  unavailable curated tools no longer expand to the full registry.
+- Isolate concurrent team-member sessions, preserve member goals, and restore
+  caller context across streaming yields, early termination and timeout cleanup.
+- Bound coding-sandbox startup when Docker is unavailable, remove hardcoded
+  provider lookups, and initialize the optional skill matcher outside the
+  startup critical path.
+- Terminate and reap owned MCP stdio process groups across normal close,
+  timeout, cancellation and failed initialization.
+- Report `edit(commit=False)` as unapplied instead of returning a misleading
+  success result.
+
+## [0.9.5] - 2026-09-18
+
+### Fixed
+
+- Preserve Sandhi's boolean reasoning-inclusion convention through response and
+  stream models; fold separate reasoning into billable output once per call before
+  aggregation and session pricing.
+- Retain raw completion counts alongside billable completion counts, preserve
+  reported totals, and include separate reasoning when deriving missing totals.
+- Preserve independent origin/boundary timing provenance through transport and
+  canonical metrics; reject invalid timing values and stale provenance.
+
+### Changed
+
+- Pin `sandhi-gateway==0.7.0` in package metadata and deployment snapshots and
+  recognize chat contract minor 8.
+- Keep this release focused on the consumer-accounting correction. The broader
+  0.10.0 develop features remain outside the v0.9.5 artifacts.
+
+## [0.9.4] - 2026-09-16
 
 ### Security
 
@@ -80,13 +180,11 @@ canonical CI, main promotion, exact-main verification and publication are still 
   replace the Python coding package.
 - Report the installed package version from HTTP and GraphQL health metadata.
 
-Version 0.9.4 is prepared for develop; it is not published until the release
-checks and unresolved security dispositions are complete. Independently installed
-vertical/native packages require their own releases. The candidate requires
-`victor-contracts>=0.9.2` and, for the native extra, `victor-native>=0.8.1`;
-the VS Code extension candidate is 0.5.1. See the
-[security batch status](docs/development/security-remediation-0.9.4.md) for
-release prerequisites and remaining findings.
+Victor AI 0.9.4 was published on 2026-09-16 with Python packages,
+native wheels, standalone binaries, checksums, SBOM, Docker image and a GitHub
+Release. `victor-contracts` 0.9.2 followed on 2026-09-17. See the
+[security batch record](docs/development/security-remediation-0.9.4.md) for the
+validated deployment shapes and retained historical-risk evidence.
 
 ## [0.9.3] - 2026-09-10
 

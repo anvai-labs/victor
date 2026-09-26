@@ -624,13 +624,15 @@ class TieredCache:
         logger.info("Warmed up cache with %d entries", count)
         return count
 
-    def close(self) -> None:
-        """Close cache connections and cleanup."""
+    def close(self, *, strict: bool = False) -> None:
+        """Close connections; strict owners must observe and handle cleanup failure."""
         if self._disk_cache is not None:
             try:
                 self._disk_cache.close()
                 logger.info("Disk cache closed")
             except Exception as e:
+                if strict:
+                    raise
                 logger.warning("Error closing disk cache: %s", e)
 
     def get_observability_data(self) -> Dict[str, Any]:

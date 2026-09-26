@@ -110,8 +110,9 @@ modifications thread between policies.
 - First `DENY` returns immediately (later policies do not run).
 - `ASK` verdicts accumulate; if any ASK and no DENY, return a single ASK with
   combined reason and the first asking policy's name.
-- A policy that raises is skipped (fail-open for that one policy) and logged —
-  a misbehaving policy never crashes the tool pipeline.
+- A policy selection/evaluation failure or malformed verdict yields DENY and stops
+  evaluation. Configured guard failures must not authorize dispatch. Cancellation
+  and durable approval pauses propagate; optional audit emission is best-effort.
 - DENY/ASK are emitted to an optional `(topic, payload)` observability sink.
 
 #### Middleware bridge (`middleware.py`)
@@ -125,6 +126,15 @@ modifications thread between policies.
 - Because `MiddlewareResult` is boolean-only, ASK is resolved *synchronously
   inside* the async `before_tool_call`. If no approval handler is configured,
   the ASK resolves via `ask_fallback` (`"deny"` default = fail safe).
+- A configured handler that fails resolves to denial, even with an allow-on-absence
+  fallback. Failed configured context providers block instead of becoming zero-cost
+  snapshots. Invalid governance wiring or content regexes reject initialization.
+- Before-tool middleware and pipeline boundaries validate typed decisions and
+  replacement arguments, including explicit empty dictionaries. Failures block
+  dispatch with non-retryable outcomes; no-policy and successful paths retain their
+  contracts. Error responses omit exception text.
+- Result withholding after execution is a separate outstanding G60 contract; the
+  pre-dispatch repair does not certify the TOOL_RESULT/after-middleware path.
 
 #### Message-phase gate (`gate.py`)
 - The middleware chain is tool-only, so message phases use a thin

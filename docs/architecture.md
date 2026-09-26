@@ -3,35 +3,31 @@
 > **Single source of truth** for Victor system architecture.
 > Supersedes: `ARCHITECTURE.md`, `docs/architecture/overview.md`, `docs/diagrams/`
 
-**Version**: {{ victor_version }} | **Last Updated**: 2026-09-07 | **Status**: Canonical
+**Version**: {{ victor_version }} | **Last Updated**: 2026-09-19 | **Status**: Canonical
 
 ---
 
-## Table of Contents
+!!! abstract "Architecture in 30 seconds"
 
-- [System Overview](#system-overview)
-- [Layer Architecture](#layer-architecture)
-- [Service Layer](#service-layer)
-- [Agent Runtime](#agent-runtime)
-- [Provider System](#provider-system)
-- [Tool System](#tool-system)
-- [Workflow Engine](#workflow-engine)
-- [Multi-Agent Teams](#multi-agent-teams)
-- [State Management](#state-management)
-- [Database Architecture](#database-architecture)
-- [Configuration System](#configuration-system)
-- [Extension System](#extension-system)
-- [Rust Native Extensions](#rust-native-extensions)
-- [Integration Points Map](#integration-points-map)
+    - Clients enter through `VictorClient`, `Agent`, or `AgentFactory`.
+    - Framework APIs delegate to service-owned runtime behavior.
+    - `AgentOrchestrator` composes and delegates; it is not a second service layer.
+    - Providers, tools, storage, and core utilities supply infrastructure.
+    - External vertical definitions depend on `victor_contracts` only.
+
+| Concern | Canonical owner | Guardrail |
+| --- | --- | --- |
+| Public entry points | `victor/framework/` | Client import guards |
+| Chat execution | `ChatService` + `ChatRuntimeServices` | Facade AST and shrink-only caps |
+| Workflows | `NativeWorkflowGraphCompiler` + `CompiledGraph` | Engine parity tests |
+| Domain definitions | `victor_contracts` | Vertical boundary audit |
 
 ---
 
 ## System Overview
 
-Victor is a contract-first agentic AI framework in Python 3.11+ providing a typed,
-service-first runtime for building agents that reason, call tools, execute DAG
-workflows, and coordinate multi-agent teams across 25 LLM providers.
-The layering diagram shows entry points, service ownership, and the boundary guards.
+The layers are complementary: each owns a distinct decision boundary and calls downward
+through a guarded interface.
 
 ```mermaid
 ---
@@ -43,12 +39,14 @@ flowchart TB
     C["CLI / TUI / HTTP API / MCP / VS Code"]
   end
   subgraph FW["Framework · stable public API"]
-    ENTRY["VictorClient · AgentFactory / Agent"]
-    API["WorkflowEngine · StateGraph"]
+    VC["VictorClient<br/>application and session API"]
+    AG["Agent · AgentFactory<br/>agent lifecycle"]
+    API["WorkflowEngine · StateGraph<br/>workflow authoring"]
   end
-  subgraph RT["Runtime · victor/agent"]
+  subgraph RT["Runtime implementation"]
     FAC["AgentOrchestrator · facade"]
-    SVC["victor/agent/services<br/>ChatService · TurnExecutor"]
+    SVC["victor/agent/services<br/>owned runtime behavior"]
+    WRT["Workflow runtime<br/>victor/workflows · victor/framework/graph.py"]
   end
   subgraph INF["Infrastructure"]
     I["victor/providers · victor/tools<br/>victor/storage · victor/core"]
@@ -56,17 +54,30 @@ flowchart TB
   V["External vertical definitions"]
   SDK["victor_contracts<br/>protocols · types · manifests"]
   GUARD["Boundary and ratchet tests<br/>client imports · facade AST · hotspot caps"]
-  C -->|"public entry points"| ENTRY
-  ENTRY -->|"construct and delegate"| FAC
-  ENTRY -->|"workflow API"| API
+  C -->|"application/session use"| VC
+  C -->|"agent lifecycle"| AG
+  C -->|"workflow use"| API
+  VC -->|"delegate"| FAC
+  AG -->|"construct and delegate"| FAC
+  API -->|"compile and execute"| WRT
   FAC -->|"delegate behavior"| SVC
   SVC -->|"provider, tool and storage services"| I
+  WRT -->|"storage and tool infrastructure"| I
   V -->|"declare capabilities using contracts"| SDK
-  ENTRY -.->|"consume contracts"| SDK
+  AG -.->|"consume contracts"| SDK
+  API -.->|"consume contracts"| SDK
   SVC -.->|"implement contracts"| SDK
   GUARD -.->|"check client/runtime separation"| C
   GUARD -.->|"limit facade growth"| FAC
 ```
+
+| Group | Why it has several components |
+| --- | --- |
+| Clients | Different transports over the same public framework boundary |
+| Framework | Separate APIs for application sessions, agent lifecycle and workflows |
+| Runtime | The facade composes; services and workflow executors own behavior |
+| Infrastructure | Replaceable providers, tools, persistence and shared primitives |
+| Contracts | Portable definitions for external verticals; no host-runtime imports |
 
 ### Codebase scale
 
@@ -86,7 +97,7 @@ provider counts against the source tree and maintains the declared tool-module i
 |------|-------------|------------|
 | Clients use Framework only | UI guard rejects direct `AgentOrchestrator` imports; broader runtime dependencies remain migration work | `test_architectural_boundaries.py` |
 | Framework delegates to Runtime | `Agent.create()` goes through `AgentFactory` | Agent entry point |
-| Runtime delegates to Services | Services implement behavior; turn-frame inversion remains planned in FEP-0031 | `test_service_layer_validation.py`, facade and hotspot guards |
+| Runtime delegates to Services | `ChatService` owns the turn frame and typed stream-control capabilities; broader state migration continues under FEP-0031 | `test_service_layer_validation.py`, facade and hotspot guards |
 | Services own infrastructure | Effectful behavior via `ExecutionContext.services` | Service accessor |
 | Vertical definitions use Contracts | Definition files import `victor_contracts`; runtime extension allowances are separately audited | `test_contracts_import_boundaries.py`, `check_extracted_vertical_boundaries.py` |
 
@@ -112,7 +123,7 @@ The table below identifies the owning modules.
 | **Client** | `victor/integrations/mcp/` | — | MCP protocol bridge |
 | **Framework** | `victor/framework/` | `agent.py` | Public API surface |
 | **Runtime** | `victor/agent/` | `orchestrator.py` | Orchestration facade |
-| **Runtime** | `victor/agent/services/` | `chat_service.py` | 6 canonical services |
+| **Runtime** | `victor/agent/services/` | `chat_service.py` | Service-owned behavior |
 | **Infrastructure** | `victor/providers/` | `base.py` | LLM provider adapters |
 | **Infrastructure** | `victor/tools/` | `base.py` | Tool modules |
 | **Infrastructure** | `victor/state/` | `__init__.py` | 4-scope state management |
@@ -123,11 +134,23 @@ The table below identifies the owning modules.
 
 ## Service Layer
 
-The runtime is **service-first**, with six canonical services and supporting runtime modules.
-`AgentOrchestrator` delegates to these services, but still supplies chat setup/teardown and
-collaborators. [FEP-0031](https://github.com/anvai-labs/victor/blob/develop/feps/fep-0031-chat-runtime-inversion.md) proposes moving that turn
-frame into `ChatService` and replacing facade-private access with `ChatRuntimeServices`.
-That inversion is a target, not the current ownership model.
+!!! success "Current ownership"
+
+    `ChatService` owns the turn frame. The streaming cluster obtains planning and execution
+    controls from `ChatRuntimeServices`; it no longer reaches through the facade for those
+    migrated collaborators.
+
+| Capability | Owner | Runtime rule |
+| --- | --- | --- |
+| Setup, task reports, teardown, credit | `ChatTurnRuntime` held by `ChatService` | One frame per turn |
+| Requirements and response delivery | Session/delivery capabilities | Resolve live session state |
+| Goal, guidance and tool selection | `ChatPlanning` | Fail before provider use when required wiring is absent |
+| Governance and completion | Typed runtime capabilities | Configured gates fail closed |
+| History, usage and terminal summary | `ChatConversation` | One cohesive conversation boundary |
+| Tool calls, feedback and recovery | Typed runtime capabilities | Weak owner adapters avoid facade retention |
+
+Broader runtime-state and factory migration remains under
+[FEP-0031](https://github.com/anvai-labs/victor/blob/develop/feps/fep-0031-chat-runtime-inversion.md).
 
 ```mermaid
 ---
@@ -135,14 +158,18 @@ title: Current runtime service ownership
 ---
 %%{init: {"theme":"base","themeVariables":{"primaryColor":"#E8EFF7","primaryTextColor":"#17324D","primaryBorderColor":"#456987","lineColor":"#456987","fontFamily":"Arial"}}}%%
 flowchart TB
-  O["AgentOrchestrator<br/>facade and current turn-frame binding"]
-  C["ChatService"]
+  O["AgentOrchestrator<br/>facade and composition root"]
+  C["ChatService<br/>turn owner"]
+  F["ChatTurnRuntime<br/>setup · reports · teardown"]
+  V["ChatRuntimeServices<br/>requirements · delivery · planning<br/>governance · completion · conversation<br/>tool calls · feedback · recovery"]
   T["ToolService"]
   S["SessionService"]
   X["ContextService"]
   P["ProviderService"]
   R["RecoveryService"]
-  O -->|"chat and streaming"| C
+  O -->|"public chat delegation"| C
+  C -->|"owns turn frame"| F
+  C -->|"uses declared collaborators"| V
   O -->|"tool registration and execution"| T
   O -->|"session lifecycle"| S
   O -->|"context assembly"| X
@@ -209,13 +236,13 @@ which drives `AgenticLoop.run_streaming()` through `StreamingActAdapter` and
 [FEP-0007](https://github.com/anvai-labs/victor/blob/develop/feps/fep-0007-unified-agentic-loop.md) is Implemented. ADR-030 step 3 (#1043) removed the deprecated `run()` alias and unused
 `AgenticLoop.stream_chat()` wrapper; `run_unified()` is the streaming entry point.
 
-### Planned runtime and learning changes
+### Runtime change status
 
-The next ownership changes remain proposal targets:
-
-- [Chat runtime inversion target](https://github.com/anvai-labs/victor/blob/develop/feps/fep-0031-chat-runtime-inversion.md#target-ownership-diagram): ChatService-owned turn framing.
-- [Interrupt/resume target](https://github.com/anvai-labs/victor/blob/develop/feps/fep-0032-interrupt-resume-semantics.md#target-checkpoint-and-resume-flow): explicit paused signals and resume position.
-- [RL relocation target](https://github.com/anvai-labs/victor/blob/develop/feps/fep-0033-rl-subsystem-relocation.md#target-package-dependencies): runtime implementation outside the framework package.
+| Change | Status | Remaining boundary |
+| --- | --- | --- |
+| [Chat runtime inversion](https://github.com/anvai-labs/victor/blob/develop/feps/fep-0031-chat-runtime-inversion.md) | In progress | Turn frame, planning and stream controls are migrated; broader state, factories and facade shims remain |
+| [Interrupt/resume](https://github.com/anvai-labs/victor/blob/develop/feps/fep-0032-interrupt-resume-semantics.md#target-checkpoint-and-resume-flow) | Target | Explicit paused result and resume position |
+| [RL relocation](https://github.com/anvai-labs/victor/blob/develop/feps/fep-0033-rl-subsystem-relocation.md#target-package-dependencies) | Target | Contracts-first runtime package and compatibility window |
 
 ### AgentFactory
 
@@ -669,6 +696,9 @@ flowchart LR
 
 **Build**: follow the [canonical native extension recipe](development/setup.md#native-extension-build).
 
+**Design decisions**: follow the [native acceleration strategy](architecture/native-acceleration-strategy.md)
+before moving Python work across an FFI boundary or introducing another compiled toolchain.
+
 **Fallback pattern**: native processing paths provide Python fallbacks when Rust extensions
 are absent. Exact token counting uses native `BpeTokenizer` with the Python reference behavior;
 the required `native-parity` job in `CI Success` checks native/fallback agreement.
@@ -696,3 +726,6 @@ views; the entry-point table below is an index, not a second dependency model.
 | `AgentFactory` | `victor/framework/agent_factory.py` | Single authority for agent creation |
 | `VictorFastAPIServer` | `victor/integrations/api/fastapi_server.py` | FastAPI REST endpoint |
 | `VictorClient` | `victor/framework/client.py` | UI layer entry point |
+
+MCP client contract preservation and qualification limits are documented in
+[MCP schema fidelity](architecture/mcp-schema-fidelity.md).

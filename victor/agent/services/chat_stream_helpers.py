@@ -23,9 +23,7 @@ from victor.agent.topology_telemetry import (
     build_topology_telemetry_event,
     emit_topology_telemetry_event,
 )
-from victor.agent.runtime.context import AgentRuntimeContext
 from victor.agent.services.chat_runtime_services import ChatRuntimeServices
-from victor.agent.services.context_service import compact_context_if_recommended
 from victor.agent.unified_task_tracker import TrackerTaskType
 from victor.core.loop_thresholds import DEFAULT_BLOCKED_CONSECUTIVE_THRESHOLD
 from victor.core.errors import (
@@ -196,47 +194,6 @@ class ChatStreamHelperMixin:
         resolved["carry_forward_resume_context"] = carry_forward_resume_context
         return resolved
 
-    async def _handle_context_and_iteration_limits(
-        self,
-        user_message: str,
-        max_total_iterations: int,
-        max_context: int,
-        total_iterations: int,
-        last_quality_score: float,
-    ) -> tuple[bool, Optional[StreamChunk]]:
-        """Compatibility delegate for context and iteration limit handling."""
-        orch = self._orchestrator
-
-        state_dict = self._get_runtime_state_dict(orch)
-        chat_service = state_dict.get("_chat_service")
-        if chat_service is None:
-            chat_service = getattr(orch, "_chat_service", None)
-        service_handler = getattr(chat_service, "handle_context_and_iteration_limits", None)
-        if callable(service_handler):
-            return await service_handler(
-                user_message,
-                max_total_iterations,
-                max_context,
-                total_iterations,
-                last_quality_score,
-            )
-
-        state_host = self._get_runtime_state_host(orch)
-        runtime_getter = getattr(state_host, "_get_context_limit_runtime", None)
-        if callable(runtime_getter):
-            runtime = runtime_getter()
-            runtime_handler = getattr(runtime, "handle_limits", None)
-            if callable(runtime_handler):
-                return await runtime_handler(
-                    user_message,
-                    max_total_iterations,
-                    max_context,
-                    total_iterations,
-                    last_quality_score,
-                )
-
-        return False, None
-
     async def _prepare_stream(self, user_message: str, **kwargs: Any) -> tuple[
         Any,
         float,
@@ -255,10 +212,9 @@ class ChatStreamHelperMixin:
             raise OverrideRestorationError("Recreate the session after failed override restoration")
         orch = self._orchestrator
 
-        orch._cancel_event = asyncio.Event()
-        orch._is_streaming = True
+        self.services.stream_lifecycle.begin()
 
-        stream_metrics = orch._metrics_collector.init_stream_metrics()
+        stream_metrics = self.services.metrics.begin()
         start_time = stream_metrics.start_time
         estimated_content_tokens: float = 0
 
@@ -272,11 +228,8 @@ class ChatStreamHelperMixin:
             "cache_read_input_tokens": 0,
         }
 
-        orch.conversation.ensure_system_prompt()
-        orch._system_added = True
-        orch._session_state.reset_for_new_turn()
-        orch.unified_tracker.reset()
-        orch.reminder_manager.reset()
+        self.services.conversation.ensure_system_prompt()
+        self.services.task_state.reset_turn()
 
         usage_analytics = self._get_runtime_capability_value("usage_analytics")
         if self._has_runtime_capability("usage_analytics") and usage_analytics:
@@ -286,10 +239,9 @@ class ChatStreamHelperMixin:
         if self._has_runtime_capability("tool_sequence_tracker") and tool_sequence_tracker:
             tool_sequence_tracker.clear_history()
 
-        if orch._context_manager and hasattr(orch._context_manager, "start_background_compaction"):
-            await orch._context_manager.start_background_compaction(interval_seconds=15.0)
+        await self.services.context_lifecycle.start_background_compaction()
 
-        max_total_iterations = orch.unified_tracker.config.get("max_total_iterations", 50)
+        max_total_iterations = self.services.task_state.max_total_iterations()
 
         fallback_iteration = kwargs.get("_fallback_iteration", 0)
         if fallback_iteration > 0:
@@ -317,17 +269,17 @@ class ChatStreamHelperMixin:
         if self._has_runtime_capability("usage_analytics") and usage_analytics:
             usage_analytics.record_turn()
 
-        unified_task_type = orch.unified_tracker.detect_task_type(user_message)
+        unified_task_type = self.services.task_state.detect_task_type(user_message)
         continuation_task_context = self._resolve_continuation_task_context(
             user_message, unified_task_type
         )
-        orch._pending_continuation_task_context = continuation_task_context
+        self.services.task_state.set_continuation_context(continuation_task_context)
         if continuation_task_context is not None and continuation_task_context.get(
             "carry_forward_task_shape"
         ):
             prior_task_type = continuation_task_context["unified_task_type"]
             if prior_task_type != unified_task_type:
-                orch.unified_tracker.set_task_type(prior_task_type)
+                self.services.task_state.set_task_type(prior_task_type)
                 unified_task_type = prior_task_type
             logger.info(
                 "Continuation request detected; carrying forward prior task type: %s",
@@ -342,7 +294,7 @@ class ChatStreamHelperMixin:
             unified_task_type == TrackerTaskType.GENERAL
             and self._should_promote_general_task_to_edit(user_message)
         ):
-            orch.unified_tracker.set_task_type(TrackerTaskType.EDIT)
+            self.services.task_state.set_task_type(TrackerTaskType.EDIT)
             unified_task_type = TrackerTaskType.EDIT
             logger.info(
                 "Promoted general task type to edit for explicit write-authorized follow-up request"
@@ -362,29 +314,24 @@ class ChatStreamHelperMixin:
         # — the population dimension existed in the schema and carried no
         # information. The tracker was likewise only updated on the continuation
         # branch, leaving the tool-selection guard reading GENERAL for real edits.
-        orch.unified_tracker.set_task_type(unified_task_type)
-        orch._current_task_type = unified_task_type.value
+        self.services.task_state.publish_task_type(unified_task_type)
 
         prompt_requirements = extract_prompt_requirements(user_message)
         if prompt_requirements.has_explicit_requirements():
-            orch.unified_tracker._progress.has_prompt_requirements = True
+            tool_budget_updated, iteration_budget_updated = (
+                self.services.task_state.apply_prompt_requirements(
+                    tool_budget=prompt_requirements.tool_budget,
+                    iteration_budget=prompt_requirements.iteration_budget,
+                )
+            )
 
-            if (
-                prompt_requirements.tool_budget
-                and prompt_requirements.tool_budget > orch.unified_tracker._progress.tool_budget
-            ):
-                orch.unified_tracker.set_tool_budget(prompt_requirements.tool_budget)
+            if tool_budget_updated:
                 logger.info(
                     f"Dynamic budget from prompt: {prompt_requirements.tool_budget} "
                     f"(files={prompt_requirements.file_count}, fixes={prompt_requirements.fix_count})"
                 )
 
-            if (
-                prompt_requirements.iteration_budget
-                and prompt_requirements.iteration_budget
-                > orch.unified_tracker._task_config.max_exploration_iterations
-            ):
-                orch.unified_tracker.set_max_iterations(prompt_requirements.iteration_budget)
+            if iteration_budget_updated:
                 logger.info(
                     f"Dynamic iterations from prompt: {prompt_requirements.iteration_budget}"
                 )
@@ -393,15 +340,15 @@ class ChatStreamHelperMixin:
         intelligent_task = None
         if not direct_response.is_direct_response:
             intelligent_task = asyncio.create_task(
-                orch._prepare_runtime_intelligence_request(
+                self.services.intelligence.prepare_request(
                     task=user_message,
                     task_type=unified_task_type.value,
                 )
             )
 
-        max_exploration_iterations = orch.unified_tracker.max_exploration_iterations
+        max_exploration_iterations = self.services.task_state.max_exploration_iterations()
 
-        task_classification, complexity_tool_budget = self._prepare_task(
+        task_classification, complexity_tool_budget = self.services.planning.prepare_task(
             user_message, unified_task_type
         )
         if continuation_task_context is not None:
@@ -420,7 +367,7 @@ class ChatStreamHelperMixin:
                 prior_complexity = getattr(prior_task_classification, "complexity", None)
                 if prior_budget is not None:
                     complexity_tool_budget = int(prior_budget)
-                    orch.unified_tracker.set_tool_budget(complexity_tool_budget)
+                    self.services.task_state.set_tool_budget(complexity_tool_budget)
                 logger.info(
                     "Continuation request detected; carrying forward prior task complexity: %s",
                     getattr(prior_complexity, "value", prior_complexity),
@@ -481,8 +428,8 @@ class ChatStreamHelperMixin:
             complexity_tool_budget,
         ) = await self._prepare_stream(user_message, **kwargs)
 
-        task_keywords = orch._classify_task_keywords(user_message)
-        continuation_task_context = getattr(orch, "_pending_continuation_task_context", None)
+        task_keywords = self.services.planning.classify_task_keywords(user_message)
+        continuation_task_context = self.services.task_state.continuation_context()
         if isinstance(continuation_task_context, dict) and continuation_task_context.get(
             "carry_forward_task_shape"
         ):
@@ -566,10 +513,9 @@ class ChatStreamHelperMixin:
         from victor.agent.services.turn_execution_runtime import TurnExecutor
 
         ctx.is_qa_task = TurnExecutor._is_question_only(user_message)
-        ctx.goals = orch._tool_planner.infer_goals_from_message(user_message)
+        ctx.goals = self.services.planning.infer_goals(user_message)
         ctx.tool_budget = orch.tool_budget
         ctx.tool_calls_used = orch.tool_calls_used
-        ctx.task_completion_detector = orch._task_completion_detector
         if isinstance(continuation_task_context, dict):
             ctx.degraded_resume_state = bool(
                 continuation_task_context.get("degraded_resume_state", False)
@@ -598,7 +544,7 @@ class ChatStreamHelperMixin:
             if last_compaction_policy_reason:
                 ctx.last_compaction_policy_reason = str(last_compaction_policy_reason)
         await self._initialize_stream_topology_context(ctx, user_message)
-        orch._pending_continuation_task_context = None
+        self.services.task_state.set_continuation_context(None)
 
         return ctx
 
@@ -648,43 +594,16 @@ class ChatStreamHelperMixin:
                     provider_candidates.append(fallback)
             if provider_candidates:
                 routing_context["provider_candidates"] = list(dict.fromkeys(provider_candidates))
-        runtime_intelligence = self._get_runtime_state_dict(orch).get("_runtime_intelligence")
-        structured_routing_policy = None
-        if runtime_intelligence is not None and hasattr(
-            runtime_intelligence, "get_structured_routing_policy"
-        ):
-            learned_scope_context = dict(routing_context)
-            learned_scope_context.setdefault("task_type", task_type)
-            try:
-                structured_routing_policy = runtime_intelligence.get_structured_routing_policy(
-                    query=user_message,
-                    scope_context=learned_scope_context,
-                )
-            except Exception as exc:
-                logger.debug("Streaming structured routing policy unavailable: %s", exc)
-            else:
-                if structured_routing_policy is not None:
-                    if hasattr(structured_routing_policy, "to_dict"):
-                        serialized_policy = structured_routing_policy.to_dict()
-                        if isinstance(serialized_policy, dict):
-                            stream_ctx.structured_routing_policy = serialized_policy
-                    learned_topology_context = structured_routing_policy.selector_context()
-                    if isinstance(learned_topology_context, dict) and learned_topology_context:
-                        routing_context.update(learned_topology_context)
-        elif runtime_intelligence is not None and hasattr(
-            runtime_intelligence, "get_topology_routing_context"
-        ):
-            learned_scope_context = dict(routing_context)
-            learned_scope_context.setdefault("task_type", task_type)
-            try:
-                learned_topology_context = runtime_intelligence.get_topology_routing_context(
-                    query=user_message, scope_context=learned_scope_context
-                )
-            except Exception as exc:
-                logger.debug("Streaming topology feedback hints unavailable: %s", exc)
-            else:
-                if learned_topology_context:
-                    routing_context.update(learned_topology_context)
+        learned_scope_context = dict(routing_context)
+        learned_scope_context.setdefault("task_type", task_type)
+        learned_routing = self.services.intelligence.routing_context(
+            query=user_message,
+            scope_context=learned_scope_context,
+        )
+        if learned_routing.structured_policy is not None:
+            stream_ctx.structured_routing_policy = learned_routing.structured_policy
+        if learned_routing.context:
+            routing_context.update(learned_routing.context)
 
         paradigm_router = getattr(self, "_paradigm_router", None)
         if paradigm_router is None:
@@ -914,243 +833,6 @@ class ChatStreamHelperMixin:
         except (TypeError, ValueError):
             return None
 
-    def _prepare_task(
-        self, user_message: str, unified_task_type: TrackerTaskType
-    ) -> tuple[Any, int]:
-        """Prepare task-specific guidance and budget adjustments."""
-        orch = self._orchestrator
-
-        if orch.task_coordinator._reminder_manager is None:
-            orch.task_coordinator.set_reminder_manager(orch.reminder_manager)
-
-        return orch.task_coordinator.prepare_task(
-            user_message, unified_task_type, orch.conversation_controller
-        )
-
-    async def _run_iteration_pre_checks(
-        self,
-        stream_ctx: "StreamingChatContext",
-        user_message: str,
-    ) -> AsyncIterator[StreamChunk]:
-        """Run pre-iteration checks: cancellation, compaction, time limit."""
-        orch = self._orchestrator
-
-        if orch._check_cancellation():
-            logger.info("Stream cancelled by user request")
-            orch._is_streaming = False
-            orch._record_runtime_intelligence_outcome(
-                success=False,
-                quality_score=stream_ctx.last_quality_score,
-                user_satisfied=False,
-                completed=False,
-            )
-            yield StreamChunk(
-                content="\n\n[Cancelled by user]\n",
-                is_final=True,
-            )
-            return
-
-        lifecycle_handled = await self._run_lifecycle_pre_iteration_compaction(
-            stream_ctx,
-            user_message,
-        )
-        context_service_handled = False
-        if not lifecycle_handled:
-            context_service_handled = await self._run_context_service_pre_iteration_compaction(
-                stream_ctx,
-            )
-
-        if not lifecycle_handled and not context_service_handled and orch._context_compactor:
-            compaction_action = orch._context_compactor.check_and_compact(
-                current_query=user_message,
-                force=False,
-                tool_call_count=orch.tool_calls_used,
-                task_complexity=TaskComplexity.COMPLEX.value,
-            )
-            if compaction_action.action_taken:
-                logger.info(
-                    f"Compacted context: {compaction_action.messages_removed} messages removed, "
-                    f"{compaction_action.tokens_freed} tokens freed"
-                )
-                compaction_summary = ""
-                if hasattr(orch, "conversation_controller") and orch.conversation_controller:
-                    summaries = orch.conversation_controller.get_compaction_summaries()
-                    if summaries:
-                        compaction_summary = summaries[-1]
-                if hasattr(stream_ctx, "record_compaction_event"):
-                    stream_ctx.record_compaction_event(
-                        summary=compaction_summary,
-                        messages_removed=compaction_action.messages_removed,
-                        strategy=getattr(orch.settings, "context_compaction_strategy", "tiered"),
-                        reason="pre_iteration",
-                    )
-                else:
-                    stream_ctx.compaction_occurred = True
-                    stream_ctx.last_compaction_turn = stream_ctx.total_iterations
-                    stream_ctx.compaction_message_removed_count = compaction_action.messages_removed
-                    stream_ctx.compaction_summary = compaction_summary
-                logger.info(
-                    f"Post-compaction continuation enabled at turn {stream_ctx.total_iterations}"
-                )
-
-        time_limit = getattr(orch.settings, "stream_idle_timeout_seconds", 300)
-        if stream_ctx.is_over_time_limit(time_limit):
-            logger.warning(f"Stream time limit exceeded: {stream_ctx.elapsed_time():.1f}s")
-            yield StreamChunk(
-                content=f"\n\n[Session exceeded {time_limit}s idle timeout - providing summary]\n",
-                is_final=False,
-            )
-            stream_ctx.force_completion = True
-
-        stream_ctx.increment_iteration()
-
-        if stream_ctx.pending_grounding_feedback:
-            logger.info("Injecting pending grounding feedback as system message")
-            from victor.agent.conversation.types import MessageSource
-
-            orch.add_message(
-                "user",
-                f"[GROUNDING-FEEDBACK: {stream_ctx.pending_grounding_feedback}]",
-                metadata=build_internal_history_metadata(
-                    "grounding_feedback", source=MessageSource.AGENT_GROUNDING
-                ),
-            )
-            stream_ctx.pending_grounding_feedback = ""
-
-    async def _run_context_service_pre_iteration_compaction(
-        self,
-        stream_ctx: "StreamingChatContext",
-    ) -> bool:
-        """Run context-service compaction before legacy compactor fallback."""
-        orch = self._orchestrator
-        context_service = getattr(orch, "_context_service", None)
-        if context_service is None:
-            return False
-
-        strategy = str(
-            getattr(getattr(orch, "settings", None), "context_compaction_strategy", "tiered")
-            or "tiered"
-        )
-        result = await compact_context_if_recommended(
-            context_service,
-            strategy=strategy,
-            min_messages=6,
-        )
-        if not result.handled:
-            return False
-        if result.messages_removed <= 0:
-            return True
-
-        logger.info(
-            "ContextService compacted root context: %s messages removed",
-            result.messages_removed,
-        )
-        if hasattr(stream_ctx, "record_compaction_event"):
-            stream_ctx.record_compaction_event(
-                summary=f"Compacted {result.messages_removed} messages via ContextService",
-                messages_removed=result.messages_removed,
-                strategy=strategy,
-                reason="pre_iteration",
-                policy_reason="context_service",
-            )
-        else:
-            stream_ctx.compaction_occurred = True
-            stream_ctx.last_compaction_turn = stream_ctx.total_iterations
-            stream_ctx.compaction_message_removed_count = result.messages_removed
-            stream_ctx.compaction_summary = (
-                f"Compacted {result.messages_removed} messages via ContextService"
-            )
-        return True
-
-    async def _run_lifecycle_pre_iteration_compaction(
-        self,
-        stream_ctx: "StreamingChatContext",
-        user_message: str,
-    ) -> bool:
-        """Run service-owned root context compaction before legacy compactor fallback."""
-        orch = self._orchestrator
-        lifecycle = getattr(orch, "_context_lifecycle_service", None)
-        if lifecycle is None:
-            return False
-        after_agent_turn = getattr(lifecycle, "after_agent_turn", None)
-        if not callable(after_agent_turn):
-            return False
-
-        runtime_context = self._root_runtime_context(orch)
-        result = await after_agent_turn(
-            runtime_context,
-            messages=self._root_runtime_messages(orch),
-            min_messages=6,
-        )
-        if not isinstance(result, dict) or not result.get("compacted"):
-            return True
-
-        removed = int(result.get("messages_removed", 0) or 0)
-        summary = str(
-            result.get("summary")
-            or f"Compacted {removed} messages for {runtime_context.display_name}"
-        )
-        strategy = str(
-            result.get("strategy")
-            or getattr(orch.settings, "context_compaction_strategy", "tiered")
-        )
-        logger.info(
-            "Lifecycle compacted root context: %s messages removed, %s tokens freed",
-            removed,
-            int(result.get("tokens_freed", 0) or 0),
-        )
-        if hasattr(stream_ctx, "record_compaction_event"):
-            stream_ctx.record_compaction_event(
-                summary=summary,
-                messages_removed=removed,
-                strategy=strategy,
-                reason="pre_iteration",
-                policy_reason="context_lifecycle",
-            )
-        else:
-            stream_ctx.compaction_occurred = True
-            stream_ctx.last_compaction_turn = stream_ctx.total_iterations
-            stream_ctx.compaction_message_removed_count = removed
-            stream_ctx.compaction_summary = summary
-        return True
-
-    @staticmethod
-    def _root_runtime_context(orch: Any) -> AgentRuntimeContext:
-        existing = getattr(orch, "_agent_runtime_context", None) or getattr(
-            orch,
-            "agent_runtime_context",
-            None,
-        )
-        if isinstance(existing, AgentRuntimeContext):
-            return existing
-        session_id = (
-            getattr(orch, "active_session_id", None)
-            or getattr(orch, "session_id", None)
-            or getattr(orch, "_memory_session_id", None)
-            or "session_root"
-        )
-        return AgentRuntimeContext(
-            agent_id=str(getattr(orch, "agent_id", None) or "root_agent"),
-            display_name=str(getattr(orch, "display_name", None) or "Root Agent"),
-            role=str(getattr(orch, "role", None) or "manager"),
-            session_id=str(session_id),
-        )
-
-    @staticmethod
-    def _root_runtime_messages(orch: Any) -> List[Any]:
-        get_messages = getattr(orch, "get_messages", None)
-        if callable(get_messages):
-            try:
-                return list(get_messages() or [])
-            except Exception as exc:
-                logger.debug("Failed to collect root messages for lifecycle: %s", exc)
-        controller = getattr(orch, "conversation_controller", None) or getattr(
-            orch,
-            "_conversation_controller",
-            None,
-        )
-        return list(getattr(controller, "messages", None) or [])
-
     async def _stream_provider_response(
         self,
         tools: Any,
@@ -1162,11 +844,7 @@ class ChatStreamHelperMixin:
 
     def _get_rate_limit_wait_time(self, exc: Exception, attempt: int) -> float:
         """Get wait time for rate limit retry."""
-        orch = self._orchestrator
-        base_wait = orch._provider_service.get_rate_limit_wait_time(exc)
-        backoff_multiplier = 2**attempt
-        wait_time = base_wait * backoff_multiplier
-        return min(wait_time, 300.0)
+        return self.services.stream_lifecycle.rate_limit_wait_time(exc, attempt)
 
     async def _stream_with_rate_limit_retry(
         self,
@@ -1534,7 +1212,7 @@ class ChatStreamHelperMixin:
                 full_content += chunk.content
                 stream_ctx.stream_metrics.total_chunks += 1
                 if chunk.content:
-                    orch._metrics_collector.record_first_token()
+                    self.services.metrics.record_first_token()
                     # Rough chars/4 ESTIMATE for the live "~N tokens (est.)" readout and
                     # confidence monitoring only — NOT billing. The authoritative counts are
                     # the provider's usage accumulated into stream_ctx.cumulative_usage above

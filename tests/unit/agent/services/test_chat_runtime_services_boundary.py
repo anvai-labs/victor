@@ -12,31 +12,63 @@ import pytest
 
 CLUSTER_CAPS = {
     "chat_stream_runtime.py": {
-        "private_attributes": 48,
-        "private_probes": 5,
+        "private_attributes": 41,
+        "private_probes": 3,
         "dynamic_probes": 0,
         "delivery_accesses": 0,
-        "raw_state": 11,
+        "planning_accesses": 0,
+        "execution_control_accesses": 0,
+        "metrics_accesses": 0,
+        "task_state_accesses": 0,
+        "context_lifecycle_accesses": 0,
+        "intelligence_accesses": 0,
+        "stream_context_accesses": 0,
+        "provider_state_accesses": 0,
+        "raw_state": 5,
     },
     "chat_stream_executor.py": {
-        "private_attributes": 87,
-        "private_probes": 16,
+        "private_attributes": 76,
+        "private_probes": 5,
         "dynamic_probes": 4,
         "delivery_accesses": 0,
+        "planning_accesses": 0,
+        "execution_control_accesses": 0,
+        "metrics_accesses": 0,
+        "task_state_accesses": 0,
+        "context_lifecycle_accesses": 0,
+        "intelligence_accesses": 0,
+        "stream_context_accesses": 0,
+        "provider_state_accesses": 0,
         "raw_state": 0,
     },
     "chat_stream_helpers.py": {
-        "private_attributes": 97,
-        "private_probes": 26,
+        "private_attributes": 56,
+        "private_probes": 13,
         "dynamic_probes": 0,
         "delivery_accesses": 0,
-        "raw_state": 8,
+        "planning_accesses": 0,
+        "execution_control_accesses": 0,
+        "metrics_accesses": 0,
+        "task_state_accesses": 0,
+        "context_lifecycle_accesses": 0,
+        "intelligence_accesses": 0,
+        "stream_context_accesses": 0,
+        "provider_state_accesses": 0,
+        "raw_state": 6,
     },
     "streaming_act_adapter.py": {
-        "private_attributes": 14,
-        "private_probes": 1,
+        "private_attributes": 12,
+        "private_probes": 0,
         "dynamic_probes": 0,
         "delivery_accesses": 0,
+        "planning_accesses": 0,
+        "execution_control_accesses": 0,
+        "metrics_accesses": 0,
+        "task_state_accesses": 0,
+        "context_lifecycle_accesses": 0,
+        "intelligence_accesses": 0,
+        "stream_context_accesses": 0,
+        "provider_state_accesses": 0,
         "raw_state": 0,
     },
 }
@@ -52,6 +84,14 @@ ROOT = Path(__file__).resolve().parents[4]
 def inventory(source):
     tree = ast.parse(source)
     builtins = {"getattr", "setattr", "hasattr", "delattr", "vars"}
+    capability_calls = {
+        "get_capability_value",
+        "has_capability",
+        "_get_runtime_capability_value",
+        "_has_runtime_capability",
+        "_resolve_runtime_capability_presence",
+        "_resolve_runtime_capability_value",
+    }
     names = {name: name for name in builtins}
     constants = {}
     for node in ast.walk(tree):
@@ -85,21 +125,115 @@ def inventory(source):
                         constants[key] = literal(node.value)
                     if ast.unparse(node.value) in names:
                         names[key] = names[ast.unparse(node.value)]
-                    elif isinstance(node.value, ast.Attribute) and node.value.attr in builtins:
+                    elif isinstance(node.value, ast.Attribute) and node.value.attr in (
+                        builtins | capability_calls
+                    ):
                         names[key] = node.value.attr
 
     counts = {"private_attributes": 0, "private_probes": 0, "dynamic_probes": 0, "raw_state": 0}
     counts["delivery_accesses"] = 0
+    counts["planning_accesses"] = 0
+    counts["execution_control_accesses"] = 0
+    counts["metrics_accesses"] = 0
+    counts["task_state_accesses"] = 0
+    counts["context_lifecycle_accesses"] = 0
+    counts["intelligence_accesses"] = 0
+    counts["stream_context_accesses"] = 0
+    counts["provider_state_accesses"] = 0
     delivery_names = {"_chunk_generator", "chunk_generator", "sanitizer"}
+    planning_names = {
+        "_tool_planner",
+        "_select_tools_for_turn",
+        "_apply_intent_guard",
+        "_apply_task_guidance",
+        "_classify_task_keywords",
+        "task_coordinator",
+        "_reminder_manager",
+        "reminder_manager",
+        "conversation_controller",
+    }
+    execution_control_names = {
+        "_cancel_event",
+        "_is_streaming",
+        "_check_cancellation",
+        "_task_completion_detector",
+        "_message_policy_gate",
+        "_current_intent",
+        "_tool_pipeline",
+        "_record_runtime_intelligence_outcome",
+        "_conversation_controller",
+        "_system_added",
+        "system_prompt_added",
+        "_parse_and_validate_tool_calls",
+    }
+    metrics_names = {
+        "_metrics_collector",
+        "_metrics_coordinator",
+        "_finalize_stream_metrics",
+        "_cumulative_token_usage",
+    }
+    task_state_names = {
+        "unified_tracker",
+        "_session_state",
+        "_pending_continuation_task_context",
+        "_current_task_type",
+        "_progress",
+        "_task_config",
+        "_last_stream_task_context",
+    }
+    context_lifecycle_names = {
+        "_context_manager",
+        "_context_lifecycle_service",
+        "_context_service",
+        "_context_compactor",
+        "_agent_runtime_context",
+        "_memory_session_id",
+        "_chat_service",
+        "_get_context_limit_runtime",
+        "_context_limit_runtime",
+        "handle_context_and_iteration_limits",
+    }
+    intelligence_names = {
+        "_runtime_intelligence",
+        "_prepare_runtime_intelligence_request",
+        "_optimization_injector",
+        "_record_runtime_intelligence_outcome",
+    }
+    stream_context_names = {"_current_stream_context", "current_stream_context"}
+    provider_state_names = {"_provider_service"}
     for node in ast.walk(tree):
         if isinstance(node, ast.Attribute) and node.attr in delivery_names:
             counts["delivery_accesses"] += 1
+        if isinstance(node, ast.Attribute) and node.attr in planning_names:
+            counts["planning_accesses"] += 1
+        if isinstance(node, ast.Attribute) and node.attr in execution_control_names:
+            counts["execution_control_accesses"] += 1
+        if isinstance(node, ast.Attribute) and node.attr in metrics_names:
+            counts["metrics_accesses"] += 1
+        if isinstance(node, ast.Attribute) and node.attr in task_state_names:
+            counts["task_state_accesses"] += 1
+        if isinstance(node, ast.Attribute) and node.attr in context_lifecycle_names:
+            counts["context_lifecycle_accesses"] += 1
+        if isinstance(node, ast.Attribute) and node.attr in intelligence_names:
+            counts["intelligence_accesses"] += 1
+        if isinstance(node, ast.Attribute) and node.attr in stream_context_names:
+            counts["stream_context_accesses"] += 1
+        if isinstance(node, ast.Attribute) and node.attr in provider_state_names:
+            counts["provider_state_accesses"] += 1
         if isinstance(node, ast.Attribute) and node.attr.startswith("_"):
             counts["private_attributes"] += 1
             counts["raw_state"] += node.attr == "__dict__"
         if isinstance(node, ast.Subscript):
             key = literal(node.slice)
             counts["delivery_accesses"] += key in delivery_names
+            counts["planning_accesses"] += key in planning_names
+            counts["execution_control_accesses"] += key in execution_control_names
+            counts["metrics_accesses"] += key in metrics_names
+            counts["task_state_accesses"] += key in task_state_names
+            counts["context_lifecycle_accesses"] += key in context_lifecycle_names
+            counts["intelligence_accesses"] += key in intelligence_names
+            counts["stream_context_accesses"] += key in stream_context_names
+            counts["provider_state_accesses"] += key in provider_state_names
             if key and key.startswith("_"):
                 counts["raw_state"] += 1
         if not isinstance(node, ast.Call):
@@ -107,11 +241,32 @@ def inventory(source):
         function = names.get(ast.unparse(node.func))
         if isinstance(node.func, ast.Attribute) and node.func.attr in builtins:
             function = node.func.attr
+        if isinstance(node.func, ast.Attribute) and node.func.attr in capability_calls:
+            function = node.func.attr
         if function == "vars":
             counts["raw_state"] += 1
+        elif function in capability_calls and node.args:
+            key = literal(node.args[0])
+            counts["delivery_accesses"] += key in delivery_names
+            counts["planning_accesses"] += key in planning_names
+            counts["execution_control_accesses"] += key in execution_control_names
+            counts["metrics_accesses"] += key in metrics_names
+            counts["task_state_accesses"] += key in task_state_names
+            counts["context_lifecycle_accesses"] += key in context_lifecycle_names
+            counts["intelligence_accesses"] += key in intelligence_names
+            counts["stream_context_accesses"] += key in stream_context_names
+            counts["provider_state_accesses"] += key in provider_state_names
         elif function in builtins and len(node.args) >= 2:
             key = literal(node.args[1])
             counts["delivery_accesses"] += key in delivery_names
+            counts["planning_accesses"] += key in planning_names
+            counts["execution_control_accesses"] += key in execution_control_names
+            counts["metrics_accesses"] += key in metrics_names
+            counts["task_state_accesses"] += key in task_state_names
+            counts["context_lifecycle_accesses"] += key in context_lifecycle_names
+            counts["intelligence_accesses"] += key in intelligence_names
+            counts["stream_context_accesses"] += key in stream_context_names
+            counts["provider_state_accesses"] += key in provider_state_names
             if key is None:
                 counts["dynamic_probes"] += 1
             elif key.startswith("_"):
@@ -120,6 +275,14 @@ def inventory(source):
         elif isinstance(node.func, ast.Attribute) and node.func.attr == "get" and node.args:
             key = literal(node.args[0])
             counts["delivery_accesses"] += key in delivery_names
+            counts["planning_accesses"] += key in planning_names
+            counts["execution_control_accesses"] += key in execution_control_names
+            counts["metrics_accesses"] += key in metrics_names
+            counts["task_state_accesses"] += key in task_state_names
+            counts["context_lifecycle_accesses"] += key in context_lifecycle_names
+            counts["intelligence_accesses"] += key in intelligence_names
+            counts["stream_context_accesses"] += key in stream_context_names
+            counts["provider_state_accesses"] += key in provider_state_names
             if key and key.startswith("_"):
                 counts["raw_state"] += 1
     return counts
@@ -135,13 +298,113 @@ def test_chat_cluster_boundary_counts_only_shrink(filename):
         )
 
 
+def test_removed_stream_compatibility_delegates_stay_deleted():
+    tree = ast.parse((ROOT / "victor/agent/services/chat_stream_helpers.py").read_text())
+    removed = {
+        "_handle_context_and_iteration_limits",
+        "_run_iteration_pre_checks",
+    }
+
+    assert not any(
+        isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in removed
+        for node in ast.walk(tree)
+    )
+
+
 @pytest.mark.parametrize(
     "source, category",
     [
+        ("renamed._cumulative_token_usage", "metrics_accesses"),
+        ("getattr(renamed, '_cumulative_token_usage')", "metrics_accesses"),
+        ("renamed.__dict__.get('_cumulative_token_usage')", "metrics_accesses"),
+        ("renamed._last_stream_task_context = {}", "task_state_accesses"),
+        ("setattr(renamed, '_last_stream_task_context', {})", "task_state_accesses"),
+        ("renamed.__dict__['_last_stream_task_context']", "task_state_accesses"),
         ("renamed._required_files = []", "private_attributes"),
         ("renamed._chunk_generator.emit()", "delivery_accesses"),
         ("renamed.chunk_generator.emit()", "delivery_accesses"),
         ("renamed.sanitizer.sanitize(text)", "delivery_accesses"),
+        ("renamed._tool_planner.plan_tools([])", "planning_accesses"),
+        ("renamed._select_tools_for_turn('x', [])", "planning_accesses"),
+        ("renamed.task_coordinator.prepare_task('x')", "planning_accesses"),
+        ("renamed.task_coordinator._reminder_manager", "planning_accesses"),
+        ("getattr(renamed, 'reminder_manager')", "planning_accesses"),
+        ("renamed.__dict__.get('conversation_controller')", "planning_accesses"),
+        ("renamed._task_completion_detector.reset()", "execution_control_accesses"),
+        ("renamed._cancel_event.set()", "execution_control_accesses"),
+        ("renamed._is_streaming = False", "execution_control_accesses"),
+        ("renamed._system_added = True", "execution_control_accesses"),
+        ("renamed._check_cancellation()", "execution_control_accesses"),
+        ("renamed._metrics_collector.record_first_token()", "metrics_accesses"),
+        ("renamed._metrics_coordinator.finalize_stream_metrics({})", "metrics_accesses"),
+        ("renamed._finalize_stream_metrics({})", "metrics_accesses"),
+        ("renamed._session_state.reset_for_new_turn()", "task_state_accesses"),
+        ("renamed.unified_tracker.reset()", "task_state_accesses"),
+        ("renamed.unified_tracker.progress.tool_budget", "task_state_accesses"),
+        ("renamed._pending_continuation_task_context = {}", "task_state_accesses"),
+        ("getattr(renamed, '_current_task_type')", "task_state_accesses"),
+        ("getattr(renamed, 'unified_tracker').set_task_type(kind)", "task_state_accesses"),
+        ("renamed.__dict__.get('unified_tracker').reset()", "task_state_accesses"),
+        ("renamed._context_manager.start_background_compaction()", "context_lifecycle_accesses"),
+        (
+            "renamed._chat_service.handle_context_and_iteration_limits()",
+            "context_lifecycle_accesses",
+        ),
+        ("getattr(renamed, '_get_context_limit_runtime')", "context_lifecycle_accesses"),
+        ("renamed.__dict__.get('_context_limit_runtime')", "context_lifecycle_accesses"),
+        (
+            "renamed.get_capability_value('handle_context_and_iteration_limits')",
+            "context_lifecycle_accesses",
+        ),
+        (
+            "read = renamed._get_runtime_capability_value\n"
+            "read('_get_context_' + 'limit_runtime')",
+            "context_lifecycle_accesses",
+        ),
+        ("getattr(renamed, '_context_lifecycle_service')", "context_lifecycle_accesses"),
+        ("renamed.__dict__.get('_context_compactor')", "context_lifecycle_accesses"),
+        ("renamed._runtime_intelligence.record_topology_outcome({})", "intelligence_accesses"),
+        ("getattr(renamed, '_optimization_injector')", "intelligence_accesses"),
+        (
+            "renamed.__dict__.get('_prepare_runtime_intelligence_request')",
+            "intelligence_accesses",
+        ),
+        ("renamed._current_stream_context = context", "stream_context_accesses"),
+        ("getattr(renamed, 'current_stream_context')", "stream_context_accesses"),
+        (
+            "renamed.__dict__.get('_current_stream_context')",
+            "stream_context_accesses",
+        ),
+        (
+            "renamed.get_capability_value('current_stream_context')",
+            "stream_context_accesses",
+        ),
+        (
+            "read = renamed.get_capability_value\n" "read('current_' + 'stream_context')",
+            "stream_context_accesses",
+        ),
+        (
+            "read = renamed._resolve_runtime_capability_value\n" "read('current_stream_context')",
+            "stream_context_accesses",
+        ),
+        (
+            "renamed._provider_service.get_rate_limit_wait_time(error)",
+            "provider_state_accesses",
+        ),
+        ("getattr(renamed, '_provider_service')", "provider_state_accesses"),
+        ("renamed.__dict__.get('_provider_service')", "provider_state_accesses"),
+        ("getattr(renamed, '_message_policy_gate')", "execution_control_accesses"),
+        ("getattr(renamed, '_system_added')", "execution_control_accesses"),
+        ("renamed.__dict__.get('_tool_pipeline')", "execution_control_accesses"),
+        ("renamed.__dict__.get('_system_added')", "execution_control_accesses"),
+        (
+            "renamed.get_capability_value('system_prompt_added')",
+            "execution_control_accesses",
+        ),
+        (
+            "read = renamed._get_runtime_capability_value\n" "read('_system_' + 'added')",
+            "execution_control_accesses",
+        ),
         ("read = getattr\nread(renamed, 'sani' + 'tizer')", "delivery_accesses"),
         ("vars(renamed).get('sanitizer')", "delivery_accesses"),
         ("alias = original\nalias._new_facade_private()", "private_attributes"),

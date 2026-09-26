@@ -25,21 +25,55 @@ from types import SimpleNamespace
 import pytest
 
 from victor.agent.services.chat_stream_executor import (
+    _StreamingCancelled,
     StreamingActResult,
     StreamingChatExecutor,
+)
+from victor.agent.services.chat_runtime_services import (
+    ChatCompletion,
+    ChatConversation,
+    ChatStreamLifecycle,
+    ChatToolCalls,
 )
 from victor.agent.streaming.tool_execution import ToolExecutionResult
 from victor.providers.base import StreamChunk
 
 
-def _executor() -> StreamingChatExecutor:
-    """A bare executor instance; sub-step helpers are stubbed per-test."""
-    return StreamingChatExecutor.__new__(StreamingChatExecutor)
+class _PassThroughToolRuntime:
+    def reset(self):
+        pass
+
+    def parse_and_validate(self, tool_calls, full_content):
+        return tool_calls, full_content
+
+
+class _StreamLifecycle:
+    def __init__(self):
+        self.cancelled = False
+
+    def begin(self):
+        self.cancelled = False
+
+    def is_cancelled(self):
+        return self.cancelled
+
+    def finish(self):
+        pass
+
+
+def _executor(*, detector=None, lifecycle=None) -> StreamingChatExecutor:
+    """Build an executor with explicit ACT capabilities; sub-steps are stubbed per test."""
+    services = SimpleNamespace(
+        tool_calls=ChatToolCalls(runtime=_PassThroughToolRuntime()),
+        completion=ChatCompletion(detector=detector),
+        conversation=ChatConversation(),
+        stream_lifecycle=ChatStreamLifecycle(lifecycle or _StreamLifecycle()),
+    )
+    return StreamingChatExecutor(SimpleNamespace(services=services))
 
 
 def _orch() -> SimpleNamespace:
-    # ACT only parses tool calls via the orchestrator; pass them through unchanged.
-    return SimpleNamespace(_parse_and_validate_tool_calls=lambda tc, fc: (tc, fc))
+    return SimpleNamespace()
 
 
 async def _drain(executor, orch, stream_ctx, result):
@@ -177,6 +211,26 @@ async def test_execute_turn_streaming_surfaces_garbage_flag():
     assert result.garbage_detected is True
 
 
+async def test_cancellation_after_provider_prevents_emit_and_tool_dispatch():
+    lifecycle = _StreamLifecycle()
+    ex = _executor(lifecycle=lifecycle)
+
+    async def fake_provider(orch, runtime_owner, stream_ctx, goals):
+        lifecycle.cancelled = True
+        return (None, "", [{"name": "write_file", "arguments": {}}], False)
+
+    async def must_not_run(*_args, **_kwargs):
+        raise AssertionError("post-provider work must not run after cancellation")
+        yield  # pragma: no cover
+
+    ex._stream_provider_turn = fake_provider
+    ex._emit_assistant_turn = must_not_run
+    ex._execute_tools_turn = must_not_run
+
+    with pytest.raises(_StreamingCancelled):
+        await _drain(ex, _orch(), SimpleNamespace(is_qa_task=False), StreamingActResult())
+
+
 @pytest.mark.parametrize("is_qa", [True, False])
 def test_build_streaming_turn_result_maps_fields(is_qa):
     turn = StreamingChatExecutor._build_streaming_turn_result(
@@ -236,19 +290,25 @@ class _FakeCompletionDetector:
     def get_completion_confidence(self):
         return self._confidence
 
+    def get_state(self):
+        return self._state
+
+    def clear_active_signal(self):
+        self.cleared = True
+
+    def reset(self):
+        self._state = SimpleNamespace(last_summary="")
+
 
 def test_detect_high_confidence_completion_high_no_tools_forces_stop():
     from victor.agent.task_completion import CompletionConfidence
 
-    ex = _executor()
-    orch = SimpleNamespace(
-        _task_completion_detector=_FakeCompletionDetector(CompletionConfidence.HIGH)
-    )
+    ex = _executor(detector=_FakeCompletionDetector(CompletionConfidence.HIGH))
     stream_ctx = SimpleNamespace(force_completion=False, skip_continuation=False)
 
     assert (
         ex._detect_high_confidence_completion(
-            orch, stream_ctx, full_content="The answer is 42.", tool_calls=None
+            stream_ctx, full_content="The answer is 42.", tool_calls=None
         )
         is True
     )
@@ -259,16 +319,12 @@ def test_detect_high_confidence_completion_high_no_tools_forces_stop():
 def test_detect_high_confidence_completion_defers_when_tools_pending():
     from victor.agent.task_completion import CompletionConfidence
 
-    ex = _executor()
-    ex._clear_deferred_active_completion_signal = lambda detector: None  # isolate from internals
-    orch = SimpleNamespace(
-        _task_completion_detector=_FakeCompletionDetector(CompletionConfidence.HIGH)
-    )
+    detector = _FakeCompletionDetector(CompletionConfidence.HIGH)
+    ex = _executor(detector=detector)
     stream_ctx = SimpleNamespace(force_completion=False, skip_continuation=False)
 
     assert (
         ex._detect_high_confidence_completion(
-            orch,
             stream_ctx,
             full_content="x",
             tool_calls=[{"name": "read", "arguments": {}}],
@@ -276,25 +332,19 @@ def test_detect_high_confidence_completion_defers_when_tools_pending():
         is False
     )
     assert stream_ctx.force_completion is False
+    assert detector.cleared is True
 
 
 def test_detect_high_confidence_completion_non_high_and_no_detector_return_false():
     from victor.agent.task_completion import CompletionConfidence
 
-    ex = _executor()
-    medium = SimpleNamespace(
-        _task_completion_detector=_FakeCompletionDetector(CompletionConfidence.MEDIUM)
-    )
+    ex = _executor(detector=_FakeCompletionDetector(CompletionConfidence.MEDIUM))
     assert (
-        ex._detect_high_confidence_completion(
-            medium, SimpleNamespace(), full_content="x", tool_calls=None
-        )
+        ex._detect_high_confidence_completion(SimpleNamespace(), full_content="x", tool_calls=None)
         is False
     )
-    none = SimpleNamespace(_task_completion_detector=None)
+    ex = _executor()
     assert (
-        ex._detect_high_confidence_completion(
-            none, SimpleNamespace(), full_content="x", tool_calls=None
-        )
+        ex._detect_high_confidence_completion(SimpleNamespace(), full_content="x", tool_calls=None)
         is False
     )

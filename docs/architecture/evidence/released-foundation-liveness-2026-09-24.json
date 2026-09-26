@@ -1,0 +1,153 @@
+{
+  "date": "2026-09-24",
+  "new_evidence": true,
+  "scope": "Released foundation synthetic liveness only; no formation/member/C5 acceptance",
+  "origin": {
+    "new_evidence": true,
+    "scope": "synthetic released-origin liveness only; not actual-member, C5, tokenizer, cache-reuse or cancellation acceptance",
+    "source": "276e199918414b2e701bf1636d3bbecf1e107e56",
+    "binary_sha256": "3316f921224b9efecdb8428ccb19413de07b74d7cad2b0b5f6cff7ab81ae8dab",
+    "config_sha256": "f465314c096d82a30390c702b8c192e62bacbacea0526c56988ed885af7f35b9",
+    "process_start_ticks": "78119625",
+    "pid": 912276,
+    "release_tag": "v0.3.0",
+    "client_deadline_seconds": 120,
+    "authentication": "existing private loopback service API key; not origin OIDC acceptance",
+    "configured_placement": [
+      {
+        "id": "qwen3-coder-30b",
+        "backend": "llama_cpp_rocm",
+        "device": "rocm:0",
+        "embedding_batch_size": null
+      },
+      {
+        "id": "qwen2.5-coder-14b",
+        "backend": "llama_cpp_cuda",
+        "device": "cuda:0",
+        "embedding_batch_size": null
+      },
+      {
+        "id": "bge-small-en-v1.5",
+        "backend": "llama_cpp_cuda",
+        "device": "cuda:0",
+        "embedding_batch_size": 1
+      }
+    ],
+    "checks": [
+      {
+        "kind": "discovery",
+        "status": 200,
+        "elapsed_seconds": 0.006143992999568582,
+        "models": [
+          "bge-small-en-v1.5",
+          "qwen2.5-coder-14b",
+          "qwen3-coder-30b"
+        ],
+        "passed": true
+      },
+      {
+        "kind": "chat",
+        "model": "qwen3-coder-30b",
+        "status": 200,
+        "elapsed_seconds": 0.404283020994626,
+        "nonempty_content": true,
+        "usage": {
+          "prompt_tokens": 15,
+          "completion_tokens": 1,
+          "total_tokens": 16,
+          "prompt_tokens_details": {
+            "cached_tokens": 0
+          }
+        },
+        "passed": true
+      },
+      {
+        "kind": "chat",
+        "model": "qwen2.5-coder-14b",
+        "status": 200,
+        "elapsed_seconds": 0.40442819497548044,
+        "nonempty_content": true,
+        "usage": {
+          "prompt_tokens": 15,
+          "completion_tokens": 1,
+          "total_tokens": 16,
+          "prompt_tokens_details": {
+            "cached_tokens": 0
+          }
+        },
+        "passed": true
+      },
+      {
+        "kind": "embeddings",
+        "model": "bge-small-en-v1.5",
+        "status": 200,
+        "elapsed_seconds": 0.06537134002428502,
+        "ordered_finite_384d_vectors": true,
+        "usage": {
+          "prompt_tokens": 2,
+          "total_tokens": 2
+        },
+        "passed": true
+      }
+    ],
+    "passed": true
+  },
+  "gateway": {
+    "new_evidence": true,
+    "scope": "synthetic released gateway chat liveness and strict wire/SQLite/C4/dashboard joins; not member, C5, streaming, cancellation, tokenizer or executed cache-reuse acceptance",
+    "gateway_source": "bdbf41f95d1395403ebbeeb6ca18bbf32e147bac",
+    "gateway_binary_sha256": "3573ddcbc528bb1b75ddd5cec355a4ec56bac03fb36f4871025c51d94a92ec1f",
+    "gateway_release": "v0.10.1",
+    "gateway_pid": 62342,
+    "client_deadline_seconds": 120,
+    "acceptance_deadline_seconds": 120,
+    "authentication": "existing OIDC inference and separate accounting principals",
+    "checks": [
+      {
+        "model": "qwen3-coder-30b",
+        "session_id": "release_liveness_0940f9c0b096420dbd384440fa4be93e",
+        "passed": true,
+        "http_status": 200,
+        "nonempty_content": true,
+        "elapsed_seconds": 6.098750084172934
+      },
+      {
+        "model": "qwen2.5-coder-14b",
+        "session_id": "release_liveness_4e60b625050343039d782a578b90b842",
+        "passed": true,
+        "http_status": 200,
+        "nonempty_content": true,
+        "elapsed_seconds": 0.21220387471839786
+      }
+    ],
+    "passed": true,
+    "accounting": {
+      "failures": [],
+      "totals": {
+        "tokens_in": 30,
+        "tokens_out": 2,
+        "cache_read_tokens": 0,
+        "cache_creation_tokens": 0
+      },
+      "requests": 2,
+      "verified_joins": 2
+    }
+  },
+  "homebrew": {
+    "inferflux": "0.3.0",
+    "sandhi": "0.10.1",
+    "inferflux_pr": 74,
+    "actual_upgrade_test_style": "passed",
+    "installed_binary_archive_hash_comparison": "passed",
+    "inferflux_version_flags": "unsupported; no version-output claim"
+  },
+  "limitations": [
+    "Origin uses existing private loopback API key; gateway uses OIDC. Origin OIDC is not accepted.",
+    "Standard published Linux archives are CPU-only. Deployed mixed-GPU runtime is the exact published-tag source build, separately hashed.",
+    "Shared cache preserved; explicit reported zero cache is not proof of zero executed reuse.",
+    "No streaming, cancellation, tokenizer-equivalence, session-lease, full mixed-team or formation acceptance from these probes.",
+    "Gateway initial 25-second startup bound failed; later readiness and OIDC role checks passed.",
+    "Import-shadowing and sandbox-permission failures before gateway requests are preserved in private logs.",
+    "Sandhi durable intent/settlement library primitives are not full HTTP durable settlement ownership or crash recovery."
+  ]
+}

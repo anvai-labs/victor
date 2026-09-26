@@ -40,6 +40,7 @@ except (ImportError, AttributeError):
 from victor.core.utils.capability_loader import load_coding_analyze_app
 from victor.ui.commands.benchmark import benchmark_app
 from victor.ui.commands.bayesian import bayesian_app
+from victor.ui.commands.review import review_app
 from victor.ui.commands.capabilities import capabilities_app
 from victor.ui.commands.chat import (
     chat_app,
@@ -424,6 +425,7 @@ def tui_command(
 
 
 app.add_typer(chat_app)
+app.add_typer(review_app, name="review", help="Independent multi-provider PR review (agent panel).")
 app.add_typer(auth_app, name="auth", help="Manage authentication and provider accounts.")
 app.add_typer(init_app)
 app.add_typer(models_app)

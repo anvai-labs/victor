@@ -1,0 +1,266 @@
+{
+  "schema_version": 1,
+  "date": "2026-09-23",
+  "scope": "Published Sandhi 0.9.0 least-privilege OIDC and actual-member browser lookup; InferFlux deployment identity, not C5 acceptance",
+  "sandhi": {
+    "release": "v0.9.0",
+    "source": "d755c262386e6cd041a300532ea34411d012a2d8",
+    "proxy_sha256": "7169fd4850189a2521ef7f19b06f9cb358e5646100cbf28196fd4d13938aceac",
+    "homebrew_pr": 66,
+    "history_sync_pr": 290,
+    "published_release_workflow": 35828383194,
+    "main_ci": 35826835965,
+    "homebrew_ci": 35843994076,
+    "independent_published_verification": [
+      "GitHub archives",
+      "PyPI platform wheels",
+      "four crates",
+      "npm root and platform packages"
+    ],
+    "installed_commands": {
+      "sandhi": "0.9.0",
+      "sandhi-proxy": "0.9.0"
+    }
+  },
+  "authentication": {
+    "default": "oidc",
+    "inference_role": "scoped grants only",
+    "accounting_role": "viewer plus explicit read-only diagnostics",
+    "distinct_subjects": true,
+    "bootstrap_credentials_transferred": false,
+    "checks": [
+      {
+        "identity": "accounting",
+        "method": "GET",
+        "path": "/admin/version",
+        "status": 200,
+        "expected": 200
+      },
+      {
+        "identity": "accounting",
+        "method": "GET",
+        "path": "/dashboard/api/usage",
+        "status": 200,
+        "expected": 200
+      },
+      {
+        "identity": "accounting",
+        "method": "POST",
+        "path": "/admin/usage/diagnostics",
+        "status": 200,
+        "expected": 200
+      },
+      {
+        "identity": "member",
+        "method": "GET",
+        "path": "/dashboard/api/usage",
+        "status": 403,
+        "expected": 403
+      },
+      {
+        "identity": "member",
+        "method": "GET",
+        "path": "/admin/config",
+        "status": 403,
+        "expected": 403
+      },
+      {
+        "identity": "accounting",
+        "method": "GET",
+        "path": "/admin/config",
+        "status": 403,
+        "expected": 403
+      },
+      {
+        "identity": "accounting",
+        "method": "POST",
+        "path": "/admin/budget",
+        "status": 403,
+        "expected": 403
+      },
+      {
+        "identity": "accounting",
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "status": 403,
+        "expected": 403
+      }
+    ],
+    "passed": true
+  },
+  "browser": {
+    "run_id": "matrix-4365f88eeb-sequential-executor_3ebeda5e",
+    "tls_verified": true,
+    "dashboard_run_visible": true,
+    "logout_verified": true,
+    "totals": {
+      "billable_tokens": 10353,
+      "cache_creation_tokens": 0,
+      "cache_read_coverage": {
+        "absent": 0,
+        "malformed": 0,
+        "reported": 3,
+        "unknown": 0,
+        "unsupported": 0
+      },
+      "cache_read_tokens": 6208,
+      "calls": 3,
+      "key": "matrix-4365f88eeb-sequential-executor_3ebeda5e",
+      "reasoning_tokens": 179,
+      "tokens_in": 3679,
+      "tokens_out": 466
+    }
+  },
+  "inferflux": {
+    "source": "02cf22addb9f78309bb5b2807427f215353a7085",
+    "binary_sha256": "5c806f3b652e5f1e50f293fc00eefd3763b9ee9be252c915ecb1ed5f051353c4",
+    "bind": "127.0.0.1:8080",
+    "models": [
+      {
+        "id": "bge-small-en-v1.5",
+        "backend": "llama_cpp_cuda",
+        "ready": true,
+        "placement": {
+          "context_size": 16384,
+          "cpu_weight_bytes": 13242480,
+          "device_name": "NVIDIA RTX 4000 Ada Generation",
+          "effective": "cuda:0",
+          "gpu_layer_count": 12,
+          "gpu_weight_bytes": 22803456,
+          "kv_cache_type": "f16",
+          "max_parallel_sequences": 32,
+          "requested": "cuda:0",
+          "requested_gpu_layers": -1,
+          "stable_id": "0000:12:00.0",
+          "state": "verified_weights",
+          "vendor": "cuda"
+        },
+        "runtime": {
+          "cache_reuse": {
+            "full_generate": {
+              "prefix": false,
+              "reason": "sampler_grammar_continuity",
+              "session": false
+            },
+            "phased": {
+              "prefix": false,
+              "session": false
+            }
+          },
+          "context_tokens_per_sequence": 512,
+          "sequence_capacity": 32,
+          "session_handles_enabled": false
+        }
+      },
+      {
+        "id": "qwen2.5-coder-14b",
+        "backend": "llama_cpp_cuda",
+        "ready": true,
+        "placement": {
+          "context_size": 32768,
+          "cpu_weight_bytes": 437944320,
+          "device_name": "NVIDIA RTX 4000 Ada Generation",
+          "effective": "cuda:0",
+          "gpu_layer_count": 48,
+          "gpu_weight_bytes": 8544198656,
+          "kv_cache_type": "f16",
+          "max_parallel_sequences": 2,
+          "requested": "cuda:0",
+          "requested_gpu_layers": -1,
+          "stable_id": "0000:12:00.0",
+          "state": "verified_weights",
+          "vendor": "cuda"
+        },
+        "runtime": {
+          "cache_reuse": {
+            "full_generate": {
+              "prefix": false,
+              "reason": "sampler_grammar_continuity",
+              "session": false
+            },
+            "phased": {
+              "prefix": true,
+              "session": false
+            }
+          },
+          "context_tokens_per_sequence": 16384,
+          "sequence_capacity": 2,
+          "session_handles_enabled": false
+        }
+      },
+      {
+        "id": "qwen3-coder-30b",
+        "backend": "llama_cpp_rocm",
+        "ready": true,
+        "placement": {
+          "context_size": 65536,
+          "cpu_weight_bytes": 175030272,
+          "device_name": "AMD Radeon AI PRO R9700",
+          "effective": "rocm:0",
+          "gpu_layer_count": 48,
+          "gpu_weight_bytes": 17484331008,
+          "kv_cache_type": "f16",
+          "max_parallel_sequences": 2,
+          "requested": "rocm:0",
+          "requested_gpu_layers": -1,
+          "stable_id": "0000:03:00.0",
+          "state": "verified_weights",
+          "vendor": "rocm"
+        },
+        "runtime": {
+          "cache_reuse": {
+            "full_generate": {
+              "prefix": false,
+              "reason": "sampler_grammar_continuity",
+              "session": false
+            },
+            "phased": {
+              "prefix": true,
+              "session": false
+            }
+          },
+          "context_tokens_per_sequence": 32768,
+          "sequence_capacity": 2,
+          "session_handles_enabled": false
+        }
+      }
+    ]
+  },
+  "model_files": [
+    {
+      "model": "qwen3-coder-30b",
+      "sha256": "2841aa314d916434860cfb8990347528dcdfe5c350dbcb9d1461dbee88ff2533",
+      "bytes": 17665334432,
+      "backend": "llama_cpp_rocm",
+      "device": "rocm:0",
+      "context_size": 65536,
+      "max_parallel_sequences": 2
+    },
+    {
+      "model": "qwen2.5-coder-14b",
+      "sha256": "c1e659736d89ac1065fb495330fb824d94001974a4bfa78e7270e43476a8d940",
+      "bytes": 8988110272,
+      "backend": "llama_cpp_cuda",
+      "device": "cuda:0",
+      "context_size": 32768,
+      "max_parallel_sequences": 2
+    },
+    {
+      "model": "bge-small-en-v1.5",
+      "sha256": "f046db1dc724cf4f6f0a0c5917e922823b73eb1d27b8f9a9c2797f7866974804",
+      "bytes": 36685152,
+      "backend": "llama_cpp_cuda",
+      "device": "cuda:0",
+      "context_size": 16384,
+      "max_parallel_sequences": 32
+    }
+  ],
+  "limitations": [
+    "Inference credential renewal was not observed in either ZAI cohort; only the standard cohort accounting identity renewed.",
+    "Loopback member capabilities do not provide OS isolation from unrestricted same-user tools.",
+    "InferFlux uses existing private origin API keys; direct-origin Kanidm/OIDC acceptance remains open.",
+    "InferFlux readiness and GPU placement do not establish actual-member liveness or C5 acceptance.",
+    "Full-generation cache reuse and session handles are disabled; explicit cache reporting does not prove executed reuse.",
+    "Streaming/cancellation, tokenizer equivalence, session leases and full mixed-team acceptance remain open."
+  ]
+}

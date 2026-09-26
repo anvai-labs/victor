@@ -146,8 +146,15 @@ class MCPServer:
                     "array": MCPParameterType.ARRAY,
                 }
 
+                # Legacy export cannot represent boolean schemas or union types.
+                # Retain its existing string fallback without crashing discovery.
+                param_def = param_def if isinstance(param_def, dict) else {}
                 param_type = param_def.get("type", "string")
-                mcp_type = type_map.get(param_type.lower(), MCPParameterType.STRING)
+                mcp_type = (
+                    type_map.get(param_type.lower(), MCPParameterType.STRING)
+                    if isinstance(param_type, str)
+                    else MCPParameterType.STRING
+                )
 
                 mcp_params.append(
                     MCPParameter(

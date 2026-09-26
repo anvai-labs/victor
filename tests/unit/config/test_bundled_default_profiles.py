@@ -44,7 +44,7 @@ class TestBundledResource:
         raw = Settings._parse_profiles_yaml(text)
         assert "default" in raw
         assert "local" in raw
-        assert raw["default"]["provider"] == "ollama"
+        assert raw["default"]["provider"] == "inferflux"
 
 
 class TestSeedOnFirstRun:
@@ -54,7 +54,7 @@ class TestSeedOnFirstRun:
         seeded = tmp_path / "profiles.yaml"
         assert seeded.exists()
         assert "default" in profiles
-        assert profiles["default"].provider == "ollama"
+        assert profiles["default"].provider == "inferflux"
 
     def test_existing_user_file_never_overwritten(self, tmp_path):
         user_yaml = "profiles:\n  mine:\n    provider: zai\n    model: glm-5.2\n"

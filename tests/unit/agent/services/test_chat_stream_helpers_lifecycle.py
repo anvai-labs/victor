@@ -4,7 +4,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from victor.agent.services.chat_stream_helpers import ChatStreamHelperMixin
-from victor.agent.streaming.context import StreamingChatContext
+from victor.agent.services.chat_planning import ChatPlanning
+from victor.agent.unified_task_tracker import TrackerTaskType
 
 
 class _Helper(ChatStreamHelperMixin):
@@ -13,87 +14,47 @@ class _Helper(ChatStreamHelperMixin):
 
 
 @pytest.mark.asyncio
-async def test_pre_iteration_uses_context_lifecycle_before_legacy_compactor():
-    lifecycle = SimpleNamespace(
-        after_agent_turn=AsyncMock(
-            return_value={
-                "compacted": True,
-                "messages_removed": 2,
-                "tokens_freed": 80,
-                "strategy": "tiered",
-            }
-        )
+async def test_stream_preparation_delegates_task_preparation_to_planning(monkeypatch):
+    from victor.agent.services import chat_stream_helpers
+
+    monkeypatch.setattr(
+        chat_stream_helpers,
+        "extract_prompt_requirements",
+        lambda _message: SimpleNamespace(has_explicit_requirements=lambda: False),
     )
-    legacy_compactor = MagicMock()
+    monkeypatch.setattr(
+        chat_stream_helpers,
+        "classify_direct_response_prompt",
+        lambda _message: SimpleNamespace(is_direct_response=True),
+    )
+    classification = object()
+    guidance = SimpleNamespace(
+        prepare_task=MagicMock(return_value=(classification, 17)),
+    )
+    task_state = MagicMock()
+    task_state.max_total_iterations.return_value = 50
+    task_state.detect_task_type.return_value = TrackerTaskType.EDIT
+    task_state.max_exploration_iterations.return_value = 8
     orch = SimpleNamespace(
-        _check_cancellation=MagicMock(return_value=False),
-        _is_streaming=True,
+        cancelled=False,
+        add_message=MagicMock(),
         _record_runtime_intelligence_outcome=MagicMock(),
-        _context_lifecycle_service=lifecycle,
-        _context_compactor=legacy_compactor,
-        get_messages=MagicMock(return_value=[{"role": "user", "content": "hello"}]),
-        active_session_id="session_root",
-        agent_id="root_agent",
-        display_name="Root Agent",
-        settings=SimpleNamespace(
-            context_compaction_strategy="tiered", stream_idle_timeout_seconds=300
-        ),
-        tool_calls_used=0,
     )
-    stream_ctx = StreamingChatContext(user_message="investigate runtime", total_iterations=1)
     helper = _Helper(orch)
-
-    chunks = [chunk async for chunk in helper._run_iteration_pre_checks(stream_ctx, "hello")]
-
-    assert chunks == []
-    lifecycle.after_agent_turn.assert_awaited_once()
-    runtime_context = lifecycle.after_agent_turn.await_args.args[0]
-    assert runtime_context.agent_id == "root_agent"
-    assert runtime_context.session_id == "session_root"
-    assert lifecycle.after_agent_turn.await_args.kwargs["messages"] == [
-        {"role": "user", "content": "hello"}
-    ]
-    legacy_compactor.check_and_compact.assert_not_called()
-    assert stream_ctx.compaction_occurred is True
-    assert stream_ctx.last_compaction_reason == "pre_iteration"
-    assert stream_ctx.last_compaction_policy_reason == "context_lifecycle"
-    assert stream_ctx.total_iterations == 2
-
-
-@pytest.mark.asyncio
-async def test_pre_iteration_uses_context_service_before_legacy_compactor():
-    context_service = SimpleNamespace(
-        get_compaction_recommendation=MagicMock(return_value={"should_compact": True}),
-        compact_context=AsyncMock(return_value=3),
+    helper.services = SimpleNamespace(
+        stream_lifecycle=SimpleNamespace(begin=MagicMock()),
+        metrics=SimpleNamespace(begin=MagicMock(return_value=SimpleNamespace(start_time=1.0))),
+        conversation=SimpleNamespace(ensure_system_prompt=MagicMock()),
+        task_state=task_state,
+        context_lifecycle=SimpleNamespace(start_background_compaction=AsyncMock()),
+        planning=ChatPlanning(guidance=guidance),
+        intelligence=SimpleNamespace(prepare_request=AsyncMock()),
     )
-    legacy_compactor = MagicMock()
-    orch = SimpleNamespace(
-        _check_cancellation=MagicMock(return_value=False),
-        _is_streaming=True,
-        _record_runtime_intelligence_outcome=MagicMock(),
-        _context_lifecycle_service=None,
-        _context_service=context_service,
-        _context_compactor=legacy_compactor,
-        active_session_id="session_root",
-        agent_id="root_agent",
-        display_name="Root Agent",
-        settings=SimpleNamespace(
-            context_compaction_strategy="semantic", stream_idle_timeout_seconds=300
-        ),
-        tool_calls_used=0,
-    )
-    stream_ctx = StreamingChatContext(user_message="investigate runtime", total_iterations=1)
-    helper = _Helper(orch)
+    helper._get_runtime_capability_value = MagicMock(return_value=None)
+    helper._has_runtime_capability = MagicMock(return_value=False)
+    helper._resolve_continuation_task_context = MagicMock(return_value=None)
 
-    chunks = [chunk async for chunk in helper._run_iteration_pre_checks(stream_ctx, "hello")]
+    prepared = await helper._prepare_stream("update app.py")
 
-    assert chunks == []
-    context_service.get_compaction_recommendation.assert_called_once()
-    context_service.compact_context.assert_awaited_once_with(
-        strategy="semantic",
-        min_messages=6,
-    )
-    legacy_compactor.check_and_compact.assert_not_called()
-    assert stream_ctx.compaction_occurred is True
-    assert stream_ctx.last_compaction_policy_reason == "context_service"
-    assert stream_ctx.total_iterations == 2
+    assert prepared[9:] == (classification, 17)
+    guidance.prepare_task.assert_called_once_with("update app.py", TrackerTaskType.EDIT)

@@ -32,7 +32,11 @@ from dataclasses import dataclass
 from typing import Any, Optional
 
 from victor.framework.policies.engine import PolicyEngine
-from victor.framework.policies.middleware import ContextProvider, resolve_policy_ask
+from victor.framework.policies.middleware import (
+    ContextProvider,
+    _resolve_policy_context,
+    resolve_policy_ask,
+)
 from victor.framework.policies.types import (
     UNSET,
     Phase,
@@ -104,11 +108,21 @@ class MessagePolicyGate:
     # -- internals ----------------------------------------------------------
 
     async def _gate(self, phase: Phase, text: str, label: str) -> GateResult:
+        try:
+            context = self._safe_context()
+        except Exception:
+            logger.error("Configured policy context failed; withholding message")
+            return GateResult(
+                allowed=False,
+                content="",
+                reason="Policy context unavailable.",
+                blocked_by="policy_context",
+            )
         event = PolicyEvent(
             phase=phase,
             tool_name="",
             content=text,
-            context=self._safe_context(),
+            context=context,
         )
         verdict = await self._engine.evaluate(event)
 
@@ -143,14 +157,8 @@ class MessagePolicyGate:
         return GateResult(allowed=True, content=new_text)
 
     def _safe_context(self) -> PolicyContext:
-        """Resolve the session snapshot, degrading to empty on any failure."""
-        if self._context_provider is None:
-            return PolicyContext()
-        try:
-            return self._context_provider()
-        except Exception:  # pragma: no cover - provider must not break the gate
-            logger.debug("Policy context provider failed; using empty context", exc_info=True)
-            return PolicyContext()
+        """Resolve context without replacing configured failures with zero usage."""
+        return _resolve_policy_context(self._context_provider)
 
 
 __all__ = ["MessagePolicyGate", "GateResult"]

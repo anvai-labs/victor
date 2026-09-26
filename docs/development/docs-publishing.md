@@ -5,6 +5,23 @@ It is built from `docs/` by the existing
 [Deploy Documentation workflow](https://github.com/anvai-labs/victor/blob/develop/.github/workflows/docs.yml).
 MkDocs Material supplies navigation, search, API rendering and Mermaid diagrams.
 
+| Deployment fact | Current value |
+| --- | --- |
+| Last successful Pages source | `main` `e7bbb9427` (v0.9.5), 2026-09-18 |
+| Workflow run | [35384958940](https://github.com/anvai-labs/victor/actions/runs/35384958940) |
+| Develop preview | Built in pull-request CI; published after the next main promotion |
+
+!!! tip "Page shape"
+
+    Lead with the outcome. Follow with a diagram, table or checklist. Put focused
+    details and evidence below it. Link to canonical material instead of repeating it.
+
+| Label | Use for |
+| --- | --- |
+| **Current** | Behavior verified in the source tree |
+| **Target** | Proposed behavior with an owning FEP or ADR |
+| **Historical** | Dated evidence retained for provenance |
+
 ## Build and review
 
 From the repository root, in a virtual environment:

@@ -125,7 +125,6 @@ def test_terminal_plaintext_recovery_uses_bound_sanitizer():
     executor = StreamingChatExecutor(runtime)
     del facade.sanitizer
     content, source = executor._resolve_terminal_visible_output(
-        facade,
         SimpleNamespace(compaction_summary=""),
         full_content="<b>answer</b>",
         user_message="q",

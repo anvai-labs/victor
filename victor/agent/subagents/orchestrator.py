@@ -321,6 +321,8 @@ class SubAgentOrchestrator:
         model: Optional[str] = None,
         temperature: Optional[float] = None,
         reasoning_effort: Optional[str] = None,
+        working_directory: Optional[str] = None,
+        capture_usage: bool = False,
     ) -> SubAgentResult:
         """Spawn a sub-agent to execute a task.
 
@@ -423,12 +425,16 @@ class SubAgentOrchestrator:
             model_override=model_override,
             temperature_override=temperature,
             reasoning_effort_override=reasoning_effort,
+            working_directory=working_directory,
+            capture_usage=capture_usage,
         )
 
         # Create and execute sub-agent
         subagent = SubAgent(config, self.parent, context_lifecycle=self._context_lifecycle)
         self.active_subagents.add(subagent)
 
+        result: Optional[SubAgentResult] = None
+        primary_error: BaseException | None = None
         try:
             result = await asyncio.wait_for(
                 subagent.execute(),
@@ -438,7 +444,7 @@ class SubAgentOrchestrator:
             return result
         except asyncio.TimeoutError:
             logger.warning(f"{role.value} sub-agent timed out after {timeout_seconds}s")
-            timeout_result = SubAgentResult(
+            result = SubAgentResult(
                 success=False,
                 summary=f"Sub-agent timed out after {timeout_seconds} seconds",
                 details={"role": role.value, "task": task[:200]},
@@ -447,19 +453,24 @@ class SubAgentOrchestrator:
                 duration_seconds=float(timeout_seconds),
                 error=f"Timeout after {timeout_seconds}s",
             )
-            self._attach_identity_metadata(timeout_result, config)
-            return timeout_result
+            self._attach_identity_metadata(result, config)
+            return result
+        except BaseException as error:
+            primary_error = error
+            raise
         finally:
-            self.active_subagents.discard(subagent)
             # Deactivate constraints after spawn completes
-            if constraints:
-                from victor.agent.constraint_activation_service import (
-                    get_constraint_activator,
-                )
+            try:
+                self._release_subagent(subagent, result, primary_error)
+            finally:
+                if constraints:
+                    from victor.agent.constraint_activation_service import (
+                        get_constraint_activator,
+                    )
 
-                activator = get_constraint_activator()
-                activator.deactivate_constraints()
-                logger.debug(f"SubAgent constraints deactivated for role: {role.value}")
+                    activator = get_constraint_activator()
+                    activator.deactivate_constraints()
+                    logger.debug(f"SubAgent constraints deactivated for role: {role.value}")
 
     async def _resolve_override_provider(
         self, provider: str, model: Optional[str]
@@ -468,8 +479,9 @@ class SubAgentOrchestrator:
 
         Builds a managed provider for ``provider``/``model`` via the shared
         factory, resolving the API key the same way the main provider does.
-        Returns None on any failure so the caller inherits the parent provider
-        rather than blocking the run.
+        Direct-provider failures retain the legacy warned parent inheritance.
+        Explicit gateway configuration uses the canonical gateway resolver and
+        fails closed; it must never bypass the gateway or require an upstream key.
 
         Args:
             provider: Provider name (e.g. "openai", "anthropic").
@@ -478,18 +490,43 @@ class SubAgentOrchestrator:
         Returns:
             A provider instance, or None to inherit the parent provider.
         """
+        from victor.config.provider_config_registry import resolve_provider_gateway
+
+        gateway_settings: Dict[str, Any] = {}
+        settings = getattr(self.parent, "settings", None)
+        configured = getattr(settings, "providers", {})
+        if isinstance(configured, dict) and provider in configured:
+            entry = configured[provider]
+            gateway = (
+                entry.get("gateway") if isinstance(entry, dict) else getattr(entry, "gateway", None)
+            )
+            if gateway is not None:
+                gateway_settings["gateway"] = gateway
+        resolve_provider_gateway(gateway_settings, provider)
+        gateway = gateway_settings.get("gateway")
         try:
             from victor.config.api_keys import get_api_key
             from victor.providers.factory import ManagedProviderFactory
 
             effective_model = model or getattr(self.parent, "model", None) or ""
-            api_key = get_api_key(provider)
+            if gateway is not None:
+                api_key = gateway["virtual_key"]
+                if not api_key:
+                    raise ValueError("Member gateway requires a virtual key")
+            else:
+                api_key = get_api_key(provider)
             return await ManagedProviderFactory.create(
                 provider_name=provider,
                 model=effective_model,
                 api_key=api_key,
+                **gateway_settings,
             )
         except Exception as exc:
+            if gateway is not None:
+                logger.warning(
+                    "Per-member gateway resolution failed for %s: %s", provider, type(exc).__name__
+                )
+                raise ValueError(f"Per-member gateway resolution failed for {provider}") from exc
             logger.warning(
                 "Per-member provider override '%s' could not be resolved (%s); "
                 "inheriting parent provider.",
@@ -674,9 +711,12 @@ class SubAgentOrchestrator:
 
         start_time = time.time()
 
+        stream = None
+        primary_error: BaseException | None = None
         try:
+            stream = subagent.stream_execute()
             # Stream with manual timeout checking per chunk
-            async for chunk in subagent.stream_execute():
+            async for chunk in stream:
                 # Check timeout before yielding each chunk
                 elapsed = time.time() - start_time
                 if elapsed > timeout_seconds:
@@ -718,8 +758,44 @@ class SubAgentOrchestrator:
                 },
             )
 
+        except BaseException as error:
+            primary_error = error
+            raise
         finally:
-            self.active_subagents.discard(subagent)
+            try:
+                if stream is not None:
+                    await stream.aclose()
+            except BaseException as close_error:
+                if primary_error is None or isinstance(primary_error, GeneratorExit):
+                    primary_error = close_error
+                    raise
+                primary_error.add_note(
+                    f"Member stream cleanup failed: {type(close_error).__name__}"
+                )
+            finally:
+                self._release_subagent(subagent, primary_error=primary_error)
+
+    def _release_subagent(
+        self,
+        subagent: SubAgent,
+        result: Optional[SubAgentResult] = None,
+        primary_error: BaseException | None = None,
+    ) -> None:
+        """End the spawned member's cache lifetime without shutting down its parent."""
+        self.active_subagents.discard(subagent)
+        if subagent.orchestrator is not None:
+            try:
+                subagent.orchestrator._lifecycle_manager.close_tool_cache()
+            except Exception as cleanup_error:
+                message = f"Tool cache cleanup failed: {type(cleanup_error).__name__}"
+                if result is not None:
+                    result.success = False
+                    result.error = result.error or message
+                    result.details["cache_cleanup_error"] = type(cleanup_error).__name__
+                elif primary_error is not None and not isinstance(primary_error, GeneratorExit):
+                    primary_error.add_note(message)
+                else:
+                    raise
 
     def get_active_count(self) -> int:
         """Get number of currently active sub-agents.

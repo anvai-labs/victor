@@ -76,7 +76,7 @@ docker run -it \
 
 | Requirement | Minimum | Recommended |
 |-------------|---------|-------------|
-| **Python** | 3.10 | 3.11+ |
+| **Python** | 3.12 | 3.12+ |
 | **RAM** | 4 GB | 8 GB+ |
 | **Disk** | 500 MB | 1 GB (local models: 8-32 GB) |
 | **OS** | Linux, macOS, Windows (WSL2) | Linux or macOS |

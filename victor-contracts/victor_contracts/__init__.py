@@ -14,13 +14,13 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from victor_contracts.workflow_runtime import (
-        BaseYAMLWorkflowProvider,
-        WorkflowBuilder,
-        WorkflowDefinition,
-        workflow,
+        BaseYAMLWorkflowProvider as BaseYAMLWorkflowProvider,
+        WorkflowBuilder as WorkflowBuilder,
+        WorkflowDefinition as WorkflowDefinition,
+        workflow as workflow,
     )
 
-_MIN_SUPPORTED_PYTHON = (3, 10)
+_MIN_SUPPORTED_PYTHON = (3, 12)
 
 
 def _ensure_supported_python() -> None:
@@ -33,7 +33,7 @@ def _ensure_supported_python() -> None:
     running = ".".join(str(part) for part in current)
     raise RuntimeError(
         f"victor-contracts requires Python {required}+; current interpreter is Python {running}. "
-        "Use Python 3.10 or newer."
+        f"Use Python {required} or newer."
     )
 
 
@@ -254,7 +254,6 @@ from victor_contracts.skills import SkillDefinition, SkillProvider
 from victor_contracts.runtime_evaluation import RuntimeEvaluationFeedback
 
 # Phase 4 promotions: types heavily used by external verticals
-from victor_contracts.multi_agent import TeamFormation, TeamMemberSpec
 from victor_contracts.rl import RLOutcome, RLRecommendation
 from victor_contracts.safety import SafetyLevel
 

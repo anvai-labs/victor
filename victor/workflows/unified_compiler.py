@@ -25,7 +25,7 @@ implementation modules — not alternatives. This module consolidates:
 .. note::
     The DI-based ``WorkflowCompiler`` in ``victor.workflows.compiler.unified_compiler``
     is deprecated. All code should use this ``UnifiedWorkflowCompiler`` directly.
-    The DI facade remains only for backward compatibility and will be removed in 0.10.0.
+    The DI facade remains only for backward compatibility and will be removed in 0.11.0.
 
 Key Features:
 - Single entry point for all workflow types

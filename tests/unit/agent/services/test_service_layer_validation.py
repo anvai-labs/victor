@@ -237,10 +237,10 @@ class TestDelegationPointCoverage:
         ), "Old-style _use_service_layer guards still present"
 
     def test_chat_delegation_points_exist(self):
-        """Chat delegation calls onto _chat_service must not regress."""
+        """The four supported facade calls must still delegate to ChatService."""
         tree = _get_orchestrator_ast()
         count = sum(1 for _ in _iter_self_service_calls(tree, "_chat_service"))
-        assert count >= 5, f"Expected >= 5 chat delegation calls, found {count}"
+        assert count >= 4, f"Expected >= 4 chat delegation calls, found {count}"
 
     def test_tool_delegation_points_exist(self):
         """Tool delegation calls onto _tool_service must not regress."""
@@ -314,13 +314,9 @@ class TestChatServiceHandlerInjectionRatchet:
     keyword-only parameter count.
 
     This method is a prerequisite guard for item 27 (ChatService inversion,
-    Stage C) — its kwarg list has grown incrementally as new handlers were
-    wired in (confirmed via git history: task_report_start_handler alone was
-    touched across two separate commits), which is exactly the pattern of
-    business-specific handler wiring leaking into what should stay a thin
-    binding method. Audited at 8 kwargs on 2026-09-06; this cap may only be
-    lowered, never raised — growing it further should route through item 27's
-    redesign instead.
+    Stage C). Setup, reporting, and teardown now travel through one
+    ``ChatTurnRuntime`` capability instead of four callback arguments. The cap
+    dropped from 8 to 6 on 2026-09-19 and may only shrink.
     """
 
     def test_bind_runtime_components_kwarg_count_has_not_grown(self) -> None:
@@ -332,7 +328,7 @@ class TestChatServiceHandlerInjectionRatchet:
         assert isinstance(func_def, (ast.FunctionDef, ast.AsyncFunctionDef))
 
         kwarg_count = len(func_def.args.kwonlyargs)
-        cap = 8
+        cap = 6
         assert kwarg_count <= cap, (
             f"ChatService.bind_runtime_components has {kwarg_count} keyword-only "
             f"params (ratchet cap {cap}). This method's growing handler-injection "

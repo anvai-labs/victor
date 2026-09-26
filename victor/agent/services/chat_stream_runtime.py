@@ -8,10 +8,10 @@
 from __future__ import annotations
 
 import logging
-from contextlib import aclosing
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, AsyncGenerator, AsyncIterator, Dict, Mapping, Optional
 
+from victor.core.async_utils import aclosing_if_supported
 from victor.agent.services.chat_stream_helpers import ChatStreamHelperMixin
 
 if TYPE_CHECKING:
@@ -22,7 +22,6 @@ if TYPE_CHECKING:
     from victor.agent.streaming.tool_execution import ToolExecutionHandler
 
 from victor.agent.services.chat_runtime_services import ChatRuntimeServices
-from victor.providers.usage_accounting import accumulate_usage
 
 logger = logging.getLogger(__name__)
 
@@ -149,27 +148,12 @@ class ServiceStreamingRuntime(ChatStreamHelperMixin):
             from victor.agent.services.chat_stream_executor import (
                 create_streaming_chat_executor,
             )
-            from victor.agent.services.runtime_intelligence import (
-                RuntimeIntelligenceService,
-            )
 
             bindings = self._get_runtime_bindings()
-            orch = bindings.runtime_owner
-            state_host = bindings.state_host
-            state_dict = bindings.state_dict
             perception = bindings.get_capability_value("perception_integration")
             fulfillment = bindings.get_capability_value("fulfillment_detector")
-            runtime_intelligence = state_dict.get("_runtime_intelligence")
-            if runtime_intelligence is None:
-                runtime_intelligence = RuntimeIntelligenceService.from_orchestrator(
-                    orch,
-                    perception_integration=perception,
-                    optimization_injector=state_dict.get("_optimization_injector"),
-                )
-                state_host._runtime_intelligence = runtime_intelligence
             self._streaming_executor = create_streaming_chat_executor(
                 self,
-                runtime_intelligence=runtime_intelligence,
                 perception=perception,
                 fulfillment=fulfillment,
             )
@@ -403,9 +387,21 @@ class ServiceStreamingRuntime(ChatStreamHelperMixin):
         # and finalization in one critical section so overlapping callers cannot replace
         # or clear another turn's state.
         async with self.services.stream_turn_lock:
-            async with aclosing(self._stream_chat_exclusive(user_message, **kwargs)) as stream:
+            async with aclosing_if_supported(
+                self.stream_chat_under_turn_lock(user_message, **kwargs)
+            ) as stream:
                 async for chunk in stream:
                     yield chunk
+
+    async def stream_chat_under_turn_lock(
+        self, user_message: str, **kwargs: Any
+    ) -> AsyncIterator["StreamChunk"]:
+        """Stream for a ChatService caller that already owns the session turn lock."""
+        async with aclosing_if_supported(
+            self._stream_chat_exclusive(user_message, **kwargs)
+        ) as stream:
+            async for chunk in stream:
+                yield chunk
 
     async def _stream_chat_exclusive(
         self, user_message: str, **kwargs: Any
@@ -421,8 +417,6 @@ class ServiceStreamingRuntime(ChatStreamHelperMixin):
             )
             kwargs["_fallback_iteration"] = fallback_iteration
 
-        bindings = self._get_runtime_bindings()
-        state_host = bindings.state_host
         executor = self.get_executor()
         stream_failed = False
 
@@ -430,33 +424,21 @@ class ServiceStreamingRuntime(ChatStreamHelperMixin):
             # FEP-0007 cutover: drive the unified loop (AgenticLoop.run_streaming via run_unified)
             # so the streaming UI path runs the same PERCEIVE/PLAN/ACT/EVALUATE/DECIDE loop as the
             # buffered path. The legacy run() is now dead and removed in the follow-up step.
-            async for chunk in executor.run_unified(user_message, **kwargs):
-                yield chunk
+            async with aclosing_if_supported(
+                executor.run_unified(user_message, **kwargs)
+            ) as stream:
+                async for chunk in stream:
+                    yield chunk
         except Exception:
             stream_failed = True
             raise
         finally:
-            ctx = None
-            current_stream_context = bindings.get_capability_value("current_stream_context")
-            if current_stream_context is not None:
-                ctx = current_stream_context
-            else:
-                ctx = bindings.state_dict.get("_current_stream_context")
+            self.services.stream_lifecycle.finish()
+            ctx = self.services.stream_lifecycle.current_context()
 
             if ctx is not None:
-                state_dict = bindings.state_dict
                 if hasattr(ctx, "cumulative_usage"):
-                    # Fold this turn's usage into the orchestrator's session-cumulative dict —
-                    # the SAME object the metrics service snapshots for task-report token deltas
-                    # (orchestrator passes it as `cumulative_token_usage=`). The prior code
-                    # accumulated into `state_dict["_cumulative_token_usage"]`, which is absent
-                    # (None) on the service path, so the loop was a silent no-op and every task
-                    # report read total_tokens=0 despite real usage on `ctx.cumulative_usage`.
-                    cumulative_usage = getattr(state_host, "_cumulative_token_usage", None)
-                    if not isinstance(cumulative_usage, dict):
-                        cumulative_usage = state_dict.get("_cumulative_token_usage")
-                    if isinstance(cumulative_usage, dict):
-                        accumulate_usage(cumulative_usage, ctx.cumulative_usage)
+                    self.services.metrics.accumulate_usage(ctx.cumulative_usage)
 
                     # Close the cost-measurement wire (C0): the service streaming runtime
                     # never finalized stream metrics, so per-turn tokens/cost stayed 0 and the
@@ -465,28 +447,18 @@ class ServiceStreamingRuntime(ChatStreamHelperMixin):
                     # once here (this finally runs once per turn; the continuation runtime owns
                     # its own finalize on the legacy path), reusing the existing pipeline.
                     try:
-                        # Route through the metrics service directly so the turn's
-                        # aggregated Sandhi diagnostics ride along (the orchestrator
-                        # wrapper predates that parameter); fall back to the wrapper.
+                        # Keep Sandhi diagnostics on the same typed capability as
+                        # initialization and first-token timing.
                         diagnostics = getattr(ctx, "provider_diagnostics", None) or None
-                        metrics_owner = getattr(self._orchestrator, "_metrics_coordinator", None)
-                        if metrics_owner is not None:
-                            metrics_owner.finalize_stream_metrics(
-                                ctx.cumulative_usage, provider_diagnostics=diagnostics
-                            )
-                        else:
-                            self._orchestrator._finalize_stream_metrics(ctx.cumulative_usage)
+                        self.services.metrics.finalize(
+                            ctx.cumulative_usage,
+                            provider_diagnostics=diagnostics,
+                        )
                     except Exception:
                         logger.debug("C0 stream-metrics finalize failed", exc_info=True)
 
                     prompt_tokens = ctx.cumulative_usage.get("prompt_tokens", 0)
-                    if prompt_tokens > 0:
-                        try:
-                            ctrl = state_dict.get("_conversation_controller")
-                            total_chars = sum(len(m.content) for m in ctrl.messages)
-                            ctrl.record_actual_usage(prompt_tokens, total_chars)
-                        except Exception:
-                            pass
+                    self.services.conversation.record_actual_usage(prompt_tokens)
 
                 topology_feedback_payload = self._build_stream_topology_feedback_payload(
                     ctx,
@@ -494,17 +466,7 @@ class ServiceStreamingRuntime(ChatStreamHelperMixin):
                 )
                 if topology_feedback_payload is not None:
                     ctx.topology_events = list(topology_feedback_payload["topology_events"])
-                    runtime_intelligence = state_dict.get("_runtime_intelligence")
-                    if runtime_intelligence is not None and hasattr(
-                        runtime_intelligence, "record_topology_outcome"
-                    ):
-                        try:
-                            runtime_intelligence.record_topology_outcome(topology_feedback_payload)
-                        except Exception as exc:
-                            logger.debug(
-                                "Failed to record streaming topology runtime outcome: %s",
-                                exc,
-                            )
+                    self.services.intelligence.record_topology_outcome(topology_feedback_payload)
 
                 degradation_feedback_payload = self._build_stream_degradation_feedback_payload(
                     ctx,
@@ -534,31 +496,33 @@ class ServiceStreamingRuntime(ChatStreamHelperMixin):
                 )
                 provider_status_events = list(getattr(ctx, "provider_status_events", []) or [])
 
-                state_host._last_stream_task_context = {
-                    "unified_task_type": getattr(ctx, "unified_task_type", None),
-                    "task_classification": getattr(ctx, "task_classification", None),
-                    "complexity_tool_budget": getattr(ctx, "complexity_tool_budget", None),
-                    "coarse_task_type": getattr(ctx, "coarse_task_type", None),
-                    "is_analysis_task": bool(getattr(ctx, "is_analysis_task", False)),
-                    "is_action_task": bool(getattr(ctx, "is_action_task", False)),
-                    "needs_execution": bool(getattr(ctx, "needs_execution", False)),
-                    "tool_calls_used": int(getattr(ctx, "tool_calls_used", 0) or 0),
-                    "task_intent": str(getattr(ctx, "task_intent", "") or ""),
-                    "plan_steps": list(getattr(ctx, "plan_steps", []) or [])[:8],
-                    "intent_log": list(getattr(ctx, "intent_log", []) or [])[-12:],
-                    "last_compaction_policy_reason": str(
-                        getattr(ctx, "last_compaction_policy_reason", "") or ""
-                    ),
-                    "resume_recent_resources": resume_recent_resources,
-                    "resume_recent_tools": resume_recent_tools,
-                    "provider_status_events": provider_status_events[-6:],
-                    "degraded_resume_state": degraded_resume_state,
-                    "resume_summary": resume_summary,
-                }
+                self.services.task_state.record_stream_context(
+                    {
+                        "unified_task_type": getattr(ctx, "unified_task_type", None),
+                        "task_classification": getattr(ctx, "task_classification", None),
+                        "complexity_tool_budget": getattr(ctx, "complexity_tool_budget", None),
+                        "coarse_task_type": getattr(ctx, "coarse_task_type", None),
+                        "is_analysis_task": bool(getattr(ctx, "is_analysis_task", False)),
+                        "is_action_task": bool(getattr(ctx, "is_action_task", False)),
+                        "needs_execution": bool(getattr(ctx, "needs_execution", False)),
+                        "tool_calls_used": int(getattr(ctx, "tool_calls_used", 0) or 0),
+                        "task_intent": str(getattr(ctx, "task_intent", "") or ""),
+                        "plan_steps": list(getattr(ctx, "plan_steps", []) or [])[:8],
+                        "intent_log": list(getattr(ctx, "intent_log", []) or [])[-12:],
+                        "last_compaction_policy_reason": str(
+                            getattr(ctx, "last_compaction_policy_reason", "") or ""
+                        ),
+                        "resume_recent_resources": resume_recent_resources,
+                        "resume_recent_tools": resume_recent_tools,
+                        "provider_status_events": provider_status_events[-6:],
+                        "degraded_resume_state": degraded_resume_state,
+                        "resume_summary": resume_summary,
+                    }
+                )
 
                 runtime_snapshot = getattr(ctx, "runtime_override_snapshot", None)
                 self._restore_stream_runtime_overrides(runtime_snapshot)
                 ctx.runtime_override_snapshot = None
 
-            if "_current_stream_context" in bindings.state_dict:
-                state_host._current_stream_context = None
+            if ctx is not None:
+                self.services.stream_lifecycle.clear_context(ctx)

@@ -5,7 +5,7 @@
 **A contract-first agentic AI framework for building reliable agents across local and cloud models.**
 
 [![PyPI version](https://badge.fury.io/py/victor-ai.svg)](https://pypi.org/project/victor-ai/)
-[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![Fast Checks](https://github.com/anvai-labs/victor/actions/workflows/ci-fast.yml/badge.svg)](https://github.com/anvai-labs/victor/actions/workflows/ci-fast.yml)
 [![Tests](https://github.com/anvai-labs/victor/actions/workflows/ci-test.yml/badge.svg)](https://github.com/anvai-labs/victor/actions/workflows/ci-test.yml)
 [![Documentation](https://github.com/anvai-labs/victor/actions/workflows/docs.yml/badge.svg)](https://anvai-labs.github.io/victor/)
@@ -112,7 +112,8 @@ print(result.state["findings"])
 
 ## Architecture
 
-The core rule is simple: interfaces compose framework APIs, framework APIs delegate to the service-first runtime, and domain packages plug in through SDK/public extension contracts.
+Each box below owns a different concern. Items inside one box are complementary entry points or
+services, not competing implementations.
 
 ```mermaid
 ---
@@ -120,23 +121,43 @@ title: Victor system overview
 ---
 %%{init: {"theme":"base","themeVariables":{"primaryColor":"#E8EFF7","primaryTextColor":"#17324D","primaryBorderColor":"#456987","lineColor":"#456987","fontFamily":"Arial"}}}%%
 flowchart TB
-  C["Clients<br/>CLI · TUI · HTTP · MCP · VS Code"]
-  F["Framework<br/>VictorClient · AgentFactory<br/>Agent · WorkflowEngine · StateGraph"]
-  R["Runtime<br/>AgentOrchestrator facade<br/>chat, tool and session services"]
-  I["Infrastructure<br/>providers · tools · storage · core"]
+  subgraph C["Clients"]
+    CS["CLI · TUI · HTTP · MCP · VS Code"]
+  end
+  subgraph F["Framework · public API"]
+    VC["VictorClient<br/>application/session API"]
+    AG["Agent · AgentFactory<br/>agent lifecycle"]
+    WF["WorkflowEngine · StateGraph<br/>workflow authoring"]
+  end
+  subgraph R["Runtime · internal implementation"]
+    OR["AgentOrchestrator<br/>composition facade"]
+    SV["Chat · tool · session services<br/>owned behavior"]
+    WR["Workflow runtime<br/>compiler · executor · CompiledGraph"]
+  end
+  subgraph I["Infrastructure"]
+    IN["providers · tools · storage · core"]
+  end
   V["External vertical definitions"]
-  S["victor_contracts"]
-  C -->|"call public APIs"| F
-  F -->|"construct and delegate"| R
-  R -->|"perform effectful operations"| I
-  V -->|"declare capabilities"| S
-  F -.->|"consume contracts"| S
+  S["victor_contracts<br/>portable definitions"]
+  CS -->|"call"| VC
+  CS -->|"create or embed"| AG
+  CS -->|"submit workflows"| WF
+  VC -->|"delegate"| OR
+  AG -->|"construct and delegate"| OR
+  WF -->|"compile and execute"| WR
+  OR -->|"delegate behavior"| SV
+  SV -->|"use"| IN
+  WR -->|"use"| IN
+  V -->|"import only"| S
+  AG -.->|"consume contracts"| S
+  WF -.->|"consume contracts"| S
 ```
 
 The [canonical architecture guide](docs/architecture.md) explains the boundaries and execution paths.
 Workflow execution and streaming share `CompiledGraph`; the former BFS walker has been removed.
-The unified streaming chat loop is implemented. Further chat ownership inversion, expanded
-interrupt/resume semantics and RL package relocation remain explicitly labelled proposal targets.
+The unified streaming chat loop is implemented. `ChatService` now owns the turn frame and the
+streaming cluster consumes typed planning and execution-control capabilities. Broader runtime-state
+inversion, expanded interrupt/resume semantics and RL relocation remain proposal targets.
 
 The framework/plugin split is:
 

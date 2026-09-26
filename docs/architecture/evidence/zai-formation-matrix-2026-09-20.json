@@ -1,0 +1,385 @@
+{
+  "schema_version": 1,
+  "evidence_kind": "new actual-member experiment; not historical replay",
+  "date": "2026-09-20",
+  "run_id": "matrix-66d4dcef85",
+  "verdict": "FAIL",
+  "original_failures": [
+    {
+      "check": "matrix_incomplete"
+    },
+    {
+      "case": "reflection",
+      "check": "case_failed"
+    },
+    {
+      "case": "multi_level_hierarchy",
+      "check": "case_failed"
+    },
+    {
+      "case": "ensemble_judge",
+      "check": "case_failed"
+    },
+    {
+      "check": "provenance",
+      "error_type": "OSError"
+    },
+    {
+      "case": "ensemble_synthesizer",
+      "check": "case_failed"
+    },
+    {
+      "check": "provenance",
+      "error_type": "OSError"
+    },
+    {
+      "case": "ensemble_vote",
+      "check": "case_failed"
+    },
+    {
+      "check": "provenance",
+      "error_type": "OSError"
+    },
+    {
+      "check": "accounting",
+      "error_type": "OperationalError"
+    }
+  ],
+  "victor_commit": "307a52fca8d4180c371a1fe6613baed8872599ca",
+  "source_clean_at_launch": true,
+  "harness_sha256": "d6e3f8f7f6d46ff3918c9e7d23fec88eb35f0c6ce4713af79189357c6de09b41",
+  "provider": "zai",
+  "model": "glm-5.3",
+  "case_contract_version": 1,
+  "cases": [
+    {
+      "case": "sequential",
+      "passed": true,
+      "failures": [],
+      "elapsed_seconds": 51.352,
+      "calls": 6,
+      "member_usage_checks_passed": 2,
+      "member_usage_checks": 2,
+      "missing_artifacts": {},
+      "independent_pytest_exit_codes": [
+        0,
+        0
+      ],
+      "private_report_sha256": "9adf21be2beea54d025e9bd06d1f012fe509b148a1f594e35ff160edab1effff"
+    },
+    {
+      "case": "parallel",
+      "passed": true,
+      "failures": [],
+      "elapsed_seconds": 19.311,
+      "calls": 6,
+      "member_usage_checks_passed": 2,
+      "member_usage_checks": 2,
+      "missing_artifacts": {},
+      "independent_pytest_exit_codes": [
+        0,
+        0
+      ],
+      "private_report_sha256": "0829e0c813cb880c6c2f6cdc3ba9e8c8bb7850ebc732fb216b96c69ca5709a9b"
+    },
+    {
+      "case": "hierarchical",
+      "passed": true,
+      "failures": [],
+      "elapsed_seconds": 32.268,
+      "calls": 6,
+      "member_usage_checks_passed": 2,
+      "member_usage_checks": 2,
+      "missing_artifacts": {},
+      "independent_pytest_exit_codes": [
+        0,
+        0
+      ],
+      "private_report_sha256": "67a58159528d212bdea567731bcaa2edb435e0e92ff869c44de6792ed438e3b6"
+    },
+    {
+      "case": "pipeline",
+      "passed": true,
+      "failures": [],
+      "elapsed_seconds": 43.353,
+      "calls": 8,
+      "member_usage_checks_passed": 2,
+      "member_usage_checks": 2,
+      "missing_artifacts": {},
+      "independent_pytest_exit_codes": [
+        0,
+        0
+      ],
+      "private_report_sha256": "e00518275ebfc0eeaa0adcb3e77357fc656058608155aa123d12c365f2ecf4cf"
+    },
+    {
+      "case": "consensus",
+      "passed": true,
+      "failures": [],
+      "elapsed_seconds": 17.702,
+      "calls": 6,
+      "member_usage_checks_passed": 2,
+      "member_usage_checks": 2,
+      "missing_artifacts": {},
+      "independent_pytest_exit_codes": [
+        0,
+        0
+      ],
+      "private_report_sha256": "95b9cd4f737c0f357dca76acb736f40cb54aecd1c63625f9168d781e51b29c97"
+    },
+    {
+      "case": "reflection",
+      "passed": false,
+      "failures": [
+        "missing_artifacts:second",
+        "formation_contract:FileNotFoundError"
+      ],
+      "elapsed_seconds": 34.577,
+      "calls": 7,
+      "member_usage_checks_passed": 2,
+      "member_usage_checks": 2,
+      "missing_artifacts": {
+        "second": [
+          "review.json"
+        ]
+      },
+      "independent_pytest_exit_codes": [
+        0
+      ],
+      "private_report_sha256": "975a074f9cd81f37b146dd0ffb5ad40658e87c6155302ce7c2cac77d763a0bb7"
+    },
+    {
+      "case": "group_chat",
+      "passed": true,
+      "failures": [],
+      "elapsed_seconds": 30.747,
+      "calls": 6,
+      "member_usage_checks_passed": 2,
+      "member_usage_checks": 2,
+      "missing_artifacts": {},
+      "independent_pytest_exit_codes": [
+        0,
+        0
+      ],
+      "private_report_sha256": "35ffa4624d1b5075d9e6381983dc938408b8b90b03f758ffdd88720f624fce32"
+    },
+    {
+      "case": "debate",
+      "passed": true,
+      "failures": [],
+      "elapsed_seconds": 50.926,
+      "calls": 10,
+      "member_usage_checks_passed": 3,
+      "member_usage_checks": 3,
+      "missing_artifacts": {},
+      "independent_pytest_exit_codes": [
+        0,
+        0
+      ],
+      "private_report_sha256": "1379221cefc959170249fb1f4807fc9e699ff533086d8ca4a1e3902d18249640"
+    },
+    {
+      "case": "handoff",
+      "passed": true,
+      "failures": [],
+      "elapsed_seconds": 26.017,
+      "calls": 6,
+      "member_usage_checks_passed": 2,
+      "member_usage_checks": 2,
+      "missing_artifacts": {},
+      "independent_pytest_exit_codes": [
+        0,
+        0
+      ],
+      "private_report_sha256": "4ae3653ddc42ee64bb16c499847d51c7de28a42614c48d24626389dd53fa6da4"
+    },
+    {
+      "case": "adaptive",
+      "passed": true,
+      "failures": [],
+      "elapsed_seconds": 24.11,
+      "calls": 6,
+      "member_usage_checks_passed": 2,
+      "member_usage_checks": 2,
+      "missing_artifacts": {},
+      "independent_pytest_exit_codes": [
+        0,
+        0
+      ],
+      "private_report_sha256": "8ec90fbabdbda28d5a742fea44f6c91310b786b3e7097b89b7af2e411247fe1e"
+    },
+    {
+      "case": "dynamic_router",
+      "passed": true,
+      "failures": [],
+      "elapsed_seconds": 14.002,
+      "calls": 3,
+      "member_usage_checks_passed": 1,
+      "member_usage_checks": 1,
+      "missing_artifacts": {},
+      "independent_pytest_exit_codes": [
+        0
+      ],
+      "private_report_sha256": "f1334eb53423da3b874441f7449c4fa7115b11bbce088970cb1beca369c9c862"
+    },
+    {
+      "case": "multi_level_hierarchy",
+      "passed": false,
+      "failures": [
+        "missing_artifacts:second",
+        "pytest:second",
+        "missing_artifacts:third",
+        "pytest:third"
+      ],
+      "elapsed_seconds": 61.928,
+      "calls": 13,
+      "member_usage_checks_passed": 3,
+      "member_usage_checks": 3,
+      "missing_artifacts": {
+        "second": [
+          "second.py",
+          "test_second.py"
+        ],
+        "third": [
+          "third.py",
+          "test_third.py"
+        ]
+      },
+      "independent_pytest_exit_codes": [
+        0,
+        4,
+        4
+      ],
+      "private_report_sha256": "fa0e41e1e9c595392a0c8b7f138f810f10e7900940d75a1e1c77c45f3e9c7a66"
+    },
+    {
+      "case": "ensemble_judge",
+      "passed": false,
+      "failures": [
+        "member_outcomes",
+        "distinct_member_sessions",
+        "wire_routes_or_attempts",
+        "missing_artifacts:first",
+        "pytest:first",
+        "missing_artifacts:second",
+        "pytest:second",
+        "missing_worktree:judge",
+        "member_usage:executor_2fc125da",
+        "member_usage:executor_815f9f99",
+        "ensemble_contract",
+        "decision_contract:KeyError",
+        {
+          "check": "provenance",
+          "error_type": "OSError"
+        }
+      ],
+      "elapsed_seconds": 7.253,
+      "calls": 0,
+      "member_usage_checks_passed": 0,
+      "member_usage_checks": 2,
+      "missing_artifacts": {
+        "first": [
+          "member.py",
+          "test_member.py"
+        ],
+        "second": [
+          "member.py",
+          "test_member.py"
+        ]
+      },
+      "independent_pytest_exit_codes": [
+        null,
+        null
+      ],
+      "private_report_sha256": "2126dc05054ed7011d494397e8e0d2de088c4a6b39efa7a1f80a4f96f5483f6a"
+    },
+    {
+      "case": "ensemble_synthesizer",
+      "passed": false,
+      "failures": [
+        "execution:OSError",
+        {
+          "check": "provenance",
+          "error_type": "OSError"
+        }
+      ],
+      "elapsed_seconds": 0.0,
+      "calls": 0,
+      "member_usage_checks_passed": 0,
+      "member_usage_checks": 0,
+      "missing_artifacts": {},
+      "independent_pytest_exit_codes": [],
+      "private_report_sha256": "9d07ce525ab64e97fd7d2fc39e8fa219e0fed6bc97f7e52c250c97820df3ee02"
+    },
+    {
+      "case": "ensemble_vote",
+      "passed": false,
+      "failures": [
+        "execution:OSError",
+        {
+          "check": "provenance",
+          "error_type": "OSError"
+        }
+      ],
+      "elapsed_seconds": 0.0,
+      "calls": 0,
+      "member_usage_checks_passed": 0,
+      "member_usage_checks": 0,
+      "missing_artifacts": {},
+      "independent_pytest_exit_codes": [],
+      "private_report_sha256": "e178f63b1c3e6e59a732707dc2b902c6b241a3940acf0764c68af161ac380039"
+    }
+  ],
+  "progress": {
+    "case_passes": 10,
+    "planned_zai_cases": 15,
+    "deliverable_failures": 2,
+    "resource_blocked_ensemble_cases": 3,
+    "new_matched_qwen_cases_run": 0,
+    "planned_matched_cases": 30
+  },
+  "supplemental_accounting": {
+    "verdict": "PASS",
+    "new_model_calls": 0,
+    "original_verdict_changed": false,
+    "original_before_snapshot_verified_at_boundary": true,
+    "calls": 83,
+    "distinct_sessions": 25,
+    "totals": {
+      "tokens_in": 37280,
+      "tokens_out": 12594,
+      "cache_read_tokens": 212608,
+      "cache_creation_tokens": 0
+    },
+    "inclusive_input_tokens": 249888,
+    "total_tokens": 262482,
+    "unrelated_new_rows": 0,
+    "failures": [],
+    "report_sha256": "28912dc5673d1da4be4669f24c21317d630cfdbf98179b17212135fdbecffdf8"
+  },
+  "sandhi": {
+    "source_commit": "eb38ff4b4c90121ac3f2e2e033ac5d5b2d057e2d",
+    "binary_sha256": "5933e8c702d482d075d9b88a579a8bb0d6feaa50b8e8e2ed69ccd5ad23c23826",
+    "pid": 47910,
+    "gateway_url": "http://127.0.0.1:18788",
+    "inferflux_upstream": "http://127.0.0.1:18081/v1",
+    "rollback_upstream": "http://127.0.0.1:18080/v1"
+  },
+  "timeouts": {
+    "buffered_gateway_seconds": 120,
+    "case_seconds": 240,
+    "observed_http_errors": 0,
+    "observed_deadline_failures": 0,
+    "max_request_seconds": 7.535
+  },
+  "limitations": [
+    "Original overall verdict remains FAIL; resource exhaustion prevented its final accounting. Supplemental reconciliation is a separate read-only result.",
+    "ZAI case passes do not establish matched Qwen or full mixed-team C5 acceptance.",
+    "No inference calls were repeated to obtain this evidence summary or supplemental reconciliation.",
+    "Request/response bodies and credentials are not exported.",
+    "Buffered calls only; no streaming, cancellation, tokenizer-unit, executed-cache-reuse or session-lease acceptance.",
+    "File-descriptor exhaustion root cause is not established by this run.",
+    "The separately ready InferFlux runtime was partial CUDA offload, not R9700/full-GPU acceptance; no InferFlux calls belong to this experiment.",
+    "Historical failed reports and passing five-call streaming evidence remain unchanged."
+  ]
+}

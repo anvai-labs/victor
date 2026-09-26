@@ -8,7 +8,7 @@ Before you begin, ensure you have the following installed:
 
 | Requirement | Minimum Version | Check Command |
 |-------------|-----------------|---------------|
-| Python | 3.11+ | `python --version` |
+| Python | 3.12+ | `python --version` |
 | pip | 21.0+ | `pip --version` |
 | Git | 2.0+ | `git --version` |
 
@@ -154,7 +154,7 @@ CI builds and installs the wheel before running its required native-parity job.
 
 ## VS Code extension build
 
-Extension development requires Node.js 22.12+ within Node 22, or Node 24+.
+Extension development requires Node.js 24 or newer.
 Install and compile its dependencies
 from the repository root:
 

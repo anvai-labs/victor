@@ -10,7 +10,7 @@ name = "victor-research"
 version = "0.8.2"
 description = "Research vertical for Victor AI - Web research, information gathering, and knowledge synthesis"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 license = {text = "Apache-2.0"}
 authors = [
     { name = "Vijaykumar Singh", email = "vijay@anvaiops.com" },
@@ -29,7 +29,6 @@ classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
@@ -46,7 +45,7 @@ dev = [
     "pytest-asyncio>=0.23",
     "pytest-cov>=4.1",
     "pytest-xdist>=3.0",
-    "black==26.3.1",
+    "black==26.5.1",
     "ruff>=0.5",
     "mypy>=1.10",
 ]
@@ -99,13 +98,12 @@ packages = [
 [tool.black]
 line-length = 100
 target-version = [
-    "py311",
     "py312",
 ]
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "W", "F", "B", "C4"]
@@ -130,5 +128,5 @@ ignore = [
 "__init__.py" = ["F401"]
 "tests/**/*.py" = ["B017", "B018", "E741", "F841"]
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.12"
 warn_return_any = true

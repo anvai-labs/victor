@@ -74,7 +74,7 @@ def __getattr__(name: str):
         _warnings.warn(
             "Direct import of ToolRegistry from victor.tools.base is deprecated. "
             "Use 'from victor.tools.registry import ToolRegistry' instead. "
-            "This re-export will be removed in version 0.10.0.",
+            "This re-export will be removed in version 0.11.0.",
             DeprecationWarning,
             stacklevel=2,
         )
@@ -88,7 +88,7 @@ def __getattr__(name: str):
         _warnings.warn(
             "Direct import of ToolMetadataRegistry from victor.tools.base is deprecated. "
             "Use 'from victor.tools.metadata_registry import ToolMetadataRegistry' instead. "
-            "This re-export will be removed in version 0.10.0.",
+            "This re-export will be removed in version 0.11.0.",
             DeprecationWarning,
             stacklevel=2,
         )
@@ -363,6 +363,11 @@ class BaseTool(ABC):
         from victor.tools.contract import resolve_contract
 
         return resolve_contract(self)
+
+    @property
+    def preserve_arguments(self) -> bool:
+        """Require unchanged arguments and strict validation of an authoritative contract."""
+        return False
 
     @property
     def cost_tier(self) -> CostTier:

@@ -13,7 +13,7 @@ A complete LLM provider integration that:
 
 ## Prerequisites
 
-- Python 3.11+
+- Python 3.12+
 - Victor development environment set up (`pip install -e ./victor-contracts -e ".[dev]"`)
 - API access to the LLM provider you want to integrate
 - Basic understanding of async/await in Python

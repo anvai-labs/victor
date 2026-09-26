@@ -358,6 +358,29 @@ async def test_execute_tool_calls_requires_canonical_tool_context_method():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("pruning_enabled", [False, True])
+@pytest.mark.parametrize("curated,expected", [({"read"}, ["read"]), ({"missing"}, [])])
+async def test_curated_supply_precedes_pruning_and_hydration(
+    monkeypatch, pruning_enabled, curated, expected
+):
+    monkeypatch.delenv("VICTOR_TOOL_SELECTION", raising=False)
+    executor = _make_executor()
+    executor._chat_context.settings = SimpleNamespace(
+        tools=SimpleNamespace(tool_selection_enabled=pruning_enabled)
+    )
+    tools = {
+        name: SimpleNamespace(name=name, description=name, parameters={"type": "object"})
+        for name in ("read", "shell", "gh")
+    }
+    registry = SimpleNamespace(get=tools.get, list_tools=lambda **kwargs: list(tools.values()))
+    executor._tool_context.tool_selector = SimpleNamespace(_enabled_tools=curated, tools=registry)
+    with patch("victor.agent.services.tool_selection_runtime.hydrate_demand_tools") as hydrate:
+        result = await executor._select_tools_for_turn("use gh and shell", intent="read_only")
+    assert [tool.name for tool in result] == expected
+    hydrate.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_select_tools_for_turn_delegates_intent_filtering_to_tool_planner():
     executor = _make_executor()
     executor._chat_context.messages = []
@@ -380,7 +403,7 @@ async def test_select_tools_for_turn_delegates_intent_filtering_to_tool_planner(
 
     executor._tool_context._tool_planner.filter_tools_by_intent.assert_called_once_with(
         [{"name": "shell"}, {"name": "write"}],
-        current_intent=ANY,
+        ANY,
         user_message="use shell tool with sqlite commands to inspect the database",
     )
     assert result == [{"name": "shell"}]
@@ -632,7 +655,8 @@ async def test_execute_via_agentic_loop_synthesizes_after_tool_evidence_spin():
     response_completer = SimpleNamespace(
         ensure_response=AsyncMock(
             return_value=SimpleNamespace(
-                content="Cargo.toml defines a Rust workspace with clients/rust included."
+                content="Cargo.toml defines a Rust workspace with clients/rust included.",
+                provider_responses=(),
             )
         )
     )
@@ -1535,3 +1559,85 @@ def test_iteration_budget_override_does_not_mutate_settings():
     assert executor._chat_context.settings.chat_max_iterations == 9
     # and chat_max_iterations is no longer snapshotted for restore.
     assert "chat_max_iterations" not in (snapshot or {})
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", [False, True])
+async def test_recovery_provider_usage_is_counted_once_including_empty_attempts(failure):
+    from victor.agent.response_completer import ResponseCompleter, ToolFailureContext
+    from victor.agent.services.metrics_service import AgentMetricsService
+    from victor.agent.session_cost_tracker import SessionCostTracker
+
+    responses = [
+        CompletionResponse(
+            content="",
+            role="assistant",
+            usage={"prompt_tokens": 7, "completion_tokens": 2, "total_tokens": 9},
+        ),
+        CompletionResponse(
+            content="A complete answer from the model.",
+            role="assistant",
+            usage={"prompt_tokens": 11, "completion_tokens": 5, "total_tokens": 16},
+        ),
+    ]
+    provider = SimpleNamespace(chat=AsyncMock(side_effect=responses))
+    executor = _make_executor()
+    executor._chat_context._cumulative_token_usage = {
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+    }
+    metrics = AgentMetricsService(
+        MagicMock(), SessionCostTracker(), executor._chat_context._cumulative_token_usage
+    )
+    metrics.start_task_report("recover a response")
+    executor._chat_context.messages = []
+    executor._provider_context.response_completer = ResponseCompleter(provider)
+    executor._provider_context.temperature = 0.2
+    executor._provider_context.max_tokens = 100
+    context = (
+        ToolFailureContext(failed_tools=[{"name": "write", "error": "blocked"}])
+        if failure
+        else ToolFailureContext()
+    )
+    response = await executor._ensure_complete_response(None, context)
+    assert response.content
+    expected = 9 if failure else 25
+    assert executor._chat_context._cumulative_token_usage["total_tokens"] == expected
+    # Reusing an already complete response does not re-account its generation.
+    await executor._ensure_complete_response(response, context)
+    assert executor._chat_context._cumulative_token_usage["total_tokens"] == expected
+    assert metrics.finish_task_report(not failure)["api_total_tokens"] == expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failed_tools", [False, True])
+async def test_empty_recovery_records_one_fallback_message(failed_tools):
+    from victor.agent.conversation.types import MESSAGE_SOURCE_METADATA_KEY, MessageSource
+
+    from victor.agent.response_completer import (
+        CompletionResult,
+        CompletionStatus,
+        ToolFailureContext,
+    )
+
+    executor = _make_executor()
+    executor._provider_context.temperature = 0.2
+    executor._provider_context.max_tokens = 100
+    executor._provider_context.response_completer = SimpleNamespace(
+        ensure_response=AsyncMock(return_value=CompletionResult(status=CompletionStatus.EMPTY)),
+        format_tool_failure_message=lambda context: "The write tool failed.",
+    )
+    context = ToolFailureContext(failed_tools=[{"name": "write"}] if failed_tools else [])
+    response = await executor._ensure_complete_response(None, context)
+    expected = (
+        "The write tool failed."
+        if failed_tools
+        else "I was unable to generate a complete response. Please try rephrasing your request."
+    )
+    assert response.content == expected
+    executor._chat_context.add_message.assert_called_once_with(
+        "assistant",
+        expected,
+        metadata={MESSAGE_SOURCE_METADATA_KEY: MessageSource.AGENT_RESPONSE.value},
+    )

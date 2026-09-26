@@ -23,7 +23,7 @@ from victor.agent.tool_executor import (
     ToolExecutor,
 )
 from victor.tools.base import BaseTool, ToolResult
-from victor.tools.enums import ExecutionCategory
+from victor.tools.enums import AccessMode, ExecutionCategory
 from victor.tools.decorators import tool
 from victor.tools.registry import ToolRegistry
 
@@ -347,6 +347,37 @@ class TestToolExecutorCache:
 class TestToolExecutorRetry:
     """Tests for ToolExecutor retry logic."""
 
+    @pytest.mark.parametrize(
+        "mode,idempotent,expected",
+        [
+            (None, True, True),
+            (None, "true", False),
+            (AccessMode.READONLY, False, True),
+            (AccessMode.WRITE, True, False),
+            ("readonly", True, False),
+            (AccessMode.NETWORK, True, False),
+        ],
+    )
+    def test_retry_capability_is_explicit(self, mode, idempotent, expected):
+        from types import SimpleNamespace
+        from victor.agent.tool_retry_safety import allows_tool_retry
+
+        assert (
+            allows_tool_retry(SimpleNamespace(access_mode=mode, is_idempotent=idempotent))
+            is expected
+        )
+
+    def test_broken_retry_capability_does_not_authorize_replay(self):
+        from victor.agent.tool_retry_safety import allows_tool_retry
+
+        class BrokenMetadata:
+            @property
+            def access_mode(self):
+                raise RuntimeError("metadata unavailable")
+
+        assert allows_tool_retry(BrokenMetadata()) is False
+        assert allows_tool_retry(None) is False
+
     @pytest.mark.asyncio
     async def test_retry_on_failure(self):
         """Test retry logic on failure."""
@@ -367,6 +398,7 @@ class TestToolExecutorRetry:
 
         mock_tool = MagicMock(spec=BaseTool)
         mock_tool.name = "flaky_tool"
+        mock_tool.is_idempotent = True
         mock_tool.execute = make_execute_func()
         registry.register(mock_tool)
 
@@ -389,6 +421,7 @@ class TestToolExecutorRetry:
 
         mock_tool = MagicMock(spec=BaseTool)
         mock_tool.name = "failing_tool"
+        mock_tool.is_idempotent = True
         mock_tool.execute = AsyncMock(side_effect=ValueError("Always fails"))
         registry.register(mock_tool)
 
@@ -402,6 +435,86 @@ class TestToolExecutorRetry:
 
         assert result.success is False
         assert "Always fails" in result.error
+        assert mock_tool.execute.await_count == 2
+
+    @pytest.mark.parametrize(
+        "failure,access_mode",
+        [
+            (TimeoutError, AccessMode.WRITE),
+            (ConnectionError, AccessMode.MIXED),
+            (ValueError, None),
+        ],
+    )
+    async def test_committed_effect_is_not_replayed(self, failure, access_mode):
+        """A backend commits, then loses its reply; retry would duplicate the effect."""
+        registry = ToolRegistry()
+        committed = []
+        candidate = MagicMock(spec=BaseTool)
+        candidate.name = "submit_record"
+        candidate.access_mode = access_mode
+        candidate.is_idempotent = False
+
+        async def submit(_exec_ctx=None, **kwargs):
+            committed.append("receipt-1")
+            raise failure("reply lost")
+
+        candidate.execute = submit
+        registry.register(candidate)
+        executor = ToolExecutor(tool_registry=registry, max_retries=3, retry_delay=0)
+
+        result = await executor.execute(candidate.name, {})
+
+        assert committed == ["receipt-1"]
+        assert result.success is False and result.retries == 0
+        details = result.to_dict()["error_details"]
+        assert details["details"]["execution_outcome"] == "unknown"
+        assert details["details"]["retryable"] is False
+        assert details["details"]["reconciliation_required"] is True
+        assert "reconcile" in result.error.lower()
+        assert "try again" not in details["recovery_hint"].lower()
+
+    async def test_read_permission_failure_does_not_retry(self):
+        candidate = MagicMock(spec=BaseTool)
+        candidate.name = "read"
+        candidate.access_mode = AccessMode.READONLY
+        candidate.parameters = {"type": "object", "properties": {"path": {"type": "string"}}}
+        candidate.execute = AsyncMock(
+            side_effect=[
+                PermissionError(
+                    "File not found: /tmp/reports.py\nDid you mean:\n - /tmp/report.py"
+                ),
+                "must not execute",
+            ]
+        )
+        registry = ToolRegistry()
+        registry.register(candidate)
+        executor = ToolExecutor(tool_registry=registry, retry_delay=0)
+        result = await executor.execute(candidate.name, {"path": "/tmp/reports.py"})
+        candidate.execute.assert_awaited_once()
+        assert result.success is False
+        assert result.error_info.details["retryable"] is False
+        assert executor._failed_path_redirects == {}
+
+    async def test_effect_named_read_cannot_use_path_recovery(self):
+        candidate = MagicMock(spec=BaseTool)
+        candidate.name = "read"
+        candidate.access_mode = AccessMode.WRITE
+        candidate.parameters = {"type": "object", "properties": {"path": {"type": "string"}}}
+        candidate.execution_category = ExecutionCategory.READ_ONLY
+        candidate.execute = AsyncMock(
+            return_value=ToolResult(
+                success=False,
+                output=None,
+                error="File not found: wrong.py\nDid you mean:\n - right.py",
+            )
+        )
+        registry = ToolRegistry()
+        registry.register(candidate)
+        result = await ToolExecutor(tool_registry=registry, retry_delay=0).execute(
+            "read", {"path": "wrong.py"}
+        )
+        candidate.execute.assert_awaited_once()
+        assert result.error_info.details["reconciliation_required"] is True
 
 
 class TestToolExecutorToolResult:
@@ -1325,6 +1438,20 @@ class TestToolExecutorUnknownArguments:
 class TestToolExecutorHooks:
     """Tests for ToolExecutor hook execution."""
 
+    async def test_critical_after_hook_preserves_uncertain_effect(self, registry_with_hooks):
+        from victor.tools.registry import Hook
+
+        registry, candidate = registry_with_hooks
+        candidate.access_mode = AccessMode.WRITE
+        hook = MagicMock(side_effect=RuntimeError("observer failed"))
+        registry._after_hooks.append(Hook(callback=hook, name="audit", critical=True))
+        result = await ToolExecutor(tool_registry=registry, retry_delay=0).execute(
+            candidate.name, {}
+        )
+        candidate.execute.assert_awaited_once()
+        assert result.success is False and result.retries == 0
+        assert result.error_info.details["execution_outcome"] == "unknown"
+
     @pytest.fixture
     def registry_with_hooks(self):
         """Create a registry with before/after hooks."""
@@ -1924,6 +2051,7 @@ class TestToolExecutorTimeoutHandling:
 
         mock_tool = MagicMock(spec=BaseTool)
         mock_tool.name = "timeout_tool"
+        mock_tool.access_mode = AccessMode.READONLY
         mock_tool.execute = sometimes_timeout
         registry.register(mock_tool)
 
@@ -2169,6 +2297,7 @@ class TestFailedPathRedirects:
         registry = ToolRegistry()
         mock_tool = MagicMock(spec=BaseTool)
         mock_tool.name = "read"
+        mock_tool.access_mode = AccessMode.READONLY
         mock_tool.parameters = {
             "type": "object",
             "properties": {"path": {"type": "string"}},
@@ -2205,6 +2334,7 @@ class TestFailedPathRedirects:
         registry = ToolRegistry()
         mock_tool = MagicMock(spec=BaseTool)
         mock_tool.name = "read"
+        mock_tool.access_mode = AccessMode.READONLY
         mock_tool.parameters = {
             "type": "object",
             "properties": {"path": {"type": "string"}},
@@ -2240,6 +2370,7 @@ class TestFailedPathRedirects:
         registry = ToolRegistry()
         mock_tool = MagicMock(spec=BaseTool)
         mock_tool.name = "read"
+        mock_tool.access_mode = AccessMode.READONLY
         mock_tool.parameters = {
             "type": "object",
             "properties": {"path": {"type": "string"}},
@@ -2276,6 +2407,7 @@ class TestFailedPathRedirects:
         registry = ToolRegistry()
         mock_tool = MagicMock(spec=BaseTool)
         mock_tool.name = "read"
+        mock_tool.access_mode = AccessMode.READONLY
         mock_tool.parameters = {
             "type": "object",
             "properties": {"path": {"type": "string"}},
@@ -2315,6 +2447,7 @@ class TestFailedPathRedirects:
         registry = ToolRegistry()
         mock_tool = MagicMock(spec=BaseTool)
         mock_tool.name = "read"
+        mock_tool.access_mode = AccessMode.READONLY
         mock_tool.parameters = {
             "type": "object",
             "properties": {"path": {"type": "string"}},

@@ -10,7 +10,7 @@ name = "victor-rag"
 version = "0.8.2"
 description = "RAG vertical for Victor AI - Document ingestion, vector search, and knowledge management"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 license = {text = "Apache-2.0"}
 authors = [
     { name = "Vijaykumar Singh", email = "vijay@anvaiops.com" },
@@ -30,7 +30,6 @@ classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Topic :: Software Development",
@@ -41,7 +40,7 @@ dependencies = [
     "torch>=2.13.0",  # Patched floor for the embeddings backend
     "lancedb>=0.6.0",
     "pyarrow>=14.0",
-    "fsspec>=2023.1.0,<=2026.2.0",  # Keep datasets/huggingface stack compatible
+    "fsspec>=2023.1.0,<=2026.6.0",  # Keep datasets/huggingface stack compatible
 ]
 
 [project.optional-dependencies]
@@ -53,7 +52,7 @@ dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
     "pytest-cov>=4.1",
-    "black==26.3.1",
+    "black==26.5.1",
     "ruff>=0.5",
     "mypy>=1.10",
 ]
@@ -100,13 +99,12 @@ packages = [
 [tool.black]
 line-length = 100
 target-version = [
-    "py311",
     "py312",
 ]
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "W", "F", "B", "C4"]
@@ -131,5 +129,5 @@ ignore = [
 "__init__.py" = ["F401"]
 "tests/**/*.py" = ["B017", "B018", "E741", "F841"]
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.12"
 warn_return_any = true

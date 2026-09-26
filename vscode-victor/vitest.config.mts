@@ -10,7 +10,7 @@ export default defineConfig({
     include: ['src/test-unit/**/*.unit.test.ts'],
     environment: 'node',
     alias: {
-      vscode: path.resolve(__dirname, 'src/test-unit/_mocks/vscode.ts'),
+      vscode: path.resolve(import.meta.dirname, 'src/test-unit/_mocks/vscode.ts'),
     },
     coverage: {
       provider: 'v8',
@@ -23,6 +23,15 @@ export default defineConfig({
         '**/*.d.ts',
         'src/extension.ts',
       ],
+      thresholds: {
+        // Re-measured with the complete src/** denominator under Node 24 and
+        // Vitest 5 (2026-09-17): statements 5.33%, lines 5.41%, functions
+        // 5.28%, branches 4.98%. Ratchet these floors upward as tests are added.
+        statements: 5,
+        lines: 5,
+        functions: 5,
+        branches: 4,
+      },
     },
   },
 });

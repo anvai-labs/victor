@@ -42,14 +42,36 @@ cyclic edges, checkpointing, and human-in-the-loop interrupts, with a streaming 
 ## Multi-agent teams
 
 Teams are **formations over a StateGraph** (not a separate graph): `SEQUENTIAL`, `PARALLEL`,
-`HIERARCHICAL`, `PIPELINE`, plus reflection. Use `UnifiedTeamCoordinator` directly as a StateGraph
-node.
+`HIERARCHICAL`, `PIPELINE`, `CONSENSUS`, `REFLECTION`, `ADAPTIVE`, `DYNAMIC_ROUTER`,
+`MULTI_LEVEL_HIERARCHY`, `GROUP_CHAT`, `DEBATE`, and `HANDOFF`. Use `UnifiedTeamCoordinator` directly as a StateGraph node.
+`AgentTeam.create_adaptive_team`, `create_router_team`, and
+`create_multi_level_hierarchy_team` expose bounded topology retries, single-member
+routing, and recursive task splitting/synthesis. These three opt-in formations retain
+member outcomes but do **not** support durable mid-run pause/resume; approval stays
+inline. See [formation contracts and examples](architecture/multiagent-formations-inferflux.md#additional-formations-unit-validated).
 
 **Heterogeneous teams** — each member can run a different **provider / model / temperature /
 reasoning_effort** (capability-gated, e.g. OpenAI o-series / GPT-5 reasoning effort), so a single
 team can mix a high-reasoning model for planning with a fast model for execution. Built-in
 **review** and **reflection** presets are included (reflection critiques against the original task
 and judges satisfaction via a VERDICT).
+
+**Capacity admission** — opt-in `capacity_aware_parallelism` queues every PARALLEL
+member under the provider's declared sequence limit, with per-member throttle
+warnings. InferFlux deployments that do not expose capacity through their admin API
+must declare the verified `max_parallel_sequences` provider option.
+
+Team coordination uses canonical roles: supervisor, member, subagent, one-pass
+reviewer, iterative critic, one-shot judge, synthesizer, and router. Domain roles
+remain separate. `explicit_supervisor_id` is canonical; the old manager key is a
+warning-emitting input alias and is no longer emitted alongside it.
+
+**Outcome contracts** — consensus defaults to three rounds and compares explicit
+`metadata.consensus_key` values (or exact output values). `create_consensus_team`
+exposes rounds, agreement threshold, and an optional supervisor tie-break. Reflection
+supports an opt-in JSON verdict with `create_reflection_team(..., verdict_format="json")`;
+malformed verdicts stop refinement with an explicit failure. Parallel output names
+failed members, and `parallel_member_retries` enables bounded per-member retries.
 
 ## Web Chat UI (Chainlit, optional extra)
 
@@ -107,7 +129,7 @@ same framework through `VictorClient`.
 
 | Surface | Support level | Release evidence / boundary |
 | --- | --- | --- |
-| Python SDK and CLI | Core | Package tests run on Python 3.11/3.12; built-wheel import and CLI help smoke are blocking. |
+| Python SDK and CLI | Core | Package tests run on Python 3.12/3.13; built-wheel import and CLI help smoke are blocking. |
 | HTTP API and MCP | Core | Import/factory smoke is required for release; full deployment validation remains an integration concern. |
 | First-party domain verticals | Core extension | Source is monorepo-owned; compatibility and discovery coverage are blocking. |
 | Textual TUI | Supported optional surface | Selected with `victor tui` or `victor chat --tui`; terminal capability fallback remains available. |
@@ -115,3 +137,18 @@ same framework through `VictorClient`.
 | Docker image | Release candidate | Advertised, but a fresh image build/run smoke is required before the release tag. |
 | VS Code extension and native Rust extensions | Preview | Their CI checks are currently advisory; do not represent them as release-blocking guarantees. |
 | Observability dashboard/API | Experimental | Product support decision remains tracked by TD-5. |
+
+**Ensemble aggregation** — independently sample one task, then choose a strict
+majority, a one-shot judge verdict, or a synthesizer pass. Opt in with
+`create_ensemble_team` or `create_consensus_team(..., mode="vote")`; all output
+contracts are JSON and malformed proposals or unresolved ties fail explicitly.
+
+**Conversation-native teams** — `create_group_chat_team`, `create_debate_team`, and
+`create_handoff_team` share a bounded transcript, structured speaker/peer decisions,
+and explicit termination. Each is registered and tested through the coordinator;
+initial transcript modes reject durable partial resume. See FEP-0035 for consumer
+and compatibility decisions.
+
+**Parallel workspace isolation** — `parallel_worktree_isolation` gives each member
+its own git worktree and binds file/shell paths to that directory. Worktrees remain
+available for review after execution; unsupported tool adapters fail explicitly.

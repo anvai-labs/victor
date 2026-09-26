@@ -20,6 +20,7 @@ to the matcher. Dropping any of these fails CI.
 
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 from typing import Any, List
 from unittest.mock import MagicMock
@@ -168,6 +169,8 @@ class TestInitializeSkillMatcherUsesRegistry:
         # Patch SkillMatcher so initialize() records the registry it received
         # (avoids the real embedding cost).
         captured: dict = {}
+        started = asyncio.Event()
+        release = asyncio.Event()
 
         class _RecordingMatcher:
             def __init__(self, *args: Any, **kwargs: Any) -> None:
@@ -175,13 +178,28 @@ class TestInitializeSkillMatcherUsesRegistry:
 
             async def initialize(self, registry: Any) -> None:
                 captured["registry"] = registry
+                started.set()
+                await release.wait()
 
         monkeypatch.setattr(matcher_mod, "SkillMatcher", _RecordingMatcher)
 
         factory = AgentFactory.__new__(AgentFactory)
         factory._orchestrator = SimpleNamespace()
 
-        await factory._initialize_skill_matcher()
+        # Bootstrap must attach the matcher and return without waiting for the
+        # expensive embedding initialization. Await its retained task explicitly.
+        try:
+            await asyncio.wait_for(factory._initialize_skill_matcher(), timeout=1)
+            task = factory._skill_matcher_init_task
+            assert isinstance(task, asyncio.Task)
+            await asyncio.wait_for(started.wait(), timeout=1)
+            assert not task.done()
+            assert isinstance(factory._orchestrator._skill_matcher, _RecordingMatcher)
+        finally:
+            release.set()
+            task = getattr(factory, "_skill_matcher_init_task", None)
+            if task is not None:
+                await asyncio.wait_for(task, timeout=1)
 
         assert "registry" in captured, "matcher.initialize was not called"
         # The matcher received a registry that exposes list_all() AND contains

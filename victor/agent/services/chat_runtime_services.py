@@ -3,18 +3,27 @@
 
 """Enumerated service capabilities consumed by the chat runtime.
 
-FEP-0031 phase 1 is incremental: task requirements and response delivery have migrated.
-The view freezes its bindings while preserving the session owner's live state.
+FEP-0031 phase 1 is incremental: task requirements, response delivery,
+planning/guidance, stream execution controls, lifecycle, metrics, task
+classification, context lifecycle, and runtime intelligence have migrated. The
+view keeps an explicit capability shape while resolving mutable state at its
+canonical owners.
 """
 
 from __future__ import annotations
 
 import asyncio
+import logging
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import Any, Protocol
 
 from victor.agent.session_state_accessor import SessionStateAccessor
 from victor.agent.services.chat_delivery import ChatDelivery
+from victor.agent.services.chat_planning import ChatPlanning
+from victor.agent.unified_task_tracker import TrackerTaskType
+from victor.framework.policies.gate import GateResult
+
+logger = logging.getLogger(__name__)
 
 
 class TaskRequirementState(Protocol):
@@ -79,13 +88,472 @@ class SessionTaskRequirementState:
         self._accessor.all_files_read_nudge_sent = value
 
 
+class MessagePolicyGate(Protocol):
+    """Request/response policy checks used by chat delivery."""
+
+    async def gate_request(self, content: str) -> GateResult: ...
+
+    async def gate_response(self, content: str) -> GateResult: ...
+
+
+@dataclass(frozen=True, slots=True)
+class ChatGovernance:
+    """Optional message governance without exposing its composition owner."""
+
+    gate: MessagePolicyGate | None = None
+
+    @staticmethod
+    def _require_result(result: Any, phase: str) -> GateResult:
+        if not isinstance(result, GateResult):
+            raise TypeError(f"Configured chat governance gate returned an invalid {phase} result")
+        return result
+
+    async def check_request(self, content: str) -> GateResult | None:
+        if self.gate is None:
+            return None
+        return self._require_result(await self.gate.gate_request(content), "request")
+
+    async def check_response(self, content: str) -> GateResult | None:
+        if self.gate is None:
+            return None
+        return self._require_result(await self.gate.gate_response(content), "response")
+
+
+class CompletionDetector(Protocol):
+    """Completion signals consumed by the streaming execution path."""
+
+    def analyze_response(self, content: str) -> Any: ...
+
+    def get_completion_confidence(self) -> Any: ...
+
+    def get_state(self) -> Any: ...
+
+    def clear_active_signal(self) -> None: ...
+
+    def reset(self) -> None: ...
+
+
+@dataclass(frozen=True, slots=True)
+class ChatCompletion:
+    """Detect terminal responses and expose their sanitized summary."""
+
+    detector: CompletionDetector | None = None
+
+    def reset(self) -> None:
+        if self.detector is not None:
+            self.detector.reset()
+
+    def terminal_summary(self) -> str:
+        if self.detector is None:
+            return ""
+        from victor.core.completion_markers import strip_active_completion_markers
+
+        summary = getattr(self.detector.get_state(), "last_summary", "")
+        return strip_active_completion_markers(summary).strip()
+
+    def detect_high_confidence(self, content: str, *, has_pending_tools: bool) -> bool:
+        if self.detector is None or not content:
+            return False
+
+        from victor.agent.task_completion import CompletionConfidence
+
+        self.detector.analyze_response(content)
+        if self.detector.get_completion_confidence() != CompletionConfidence.HIGH:
+            return False
+        if has_pending_tools:
+            self.detector.clear_active_signal()
+            return False
+
+        return True
+
+
+class ConversationRuntime(Protocol):
+    """Conversation history and accounting operations used by streaming chat."""
+
+    def ensure_system_prompt(self) -> None: ...
+
+    def messages(self) -> list[Any]: ...
+
+    def record_actual_usage(self, prompt_tokens: int) -> None: ...
+
+    def persist_terminal_summary(self, summary: str) -> None: ...
+
+
+@dataclass(frozen=True, slots=True)
+class ChatConversation:
+    """Conversation startup, history, accounting, and summary capability."""
+
+    runtime: ConversationRuntime | None = None
+
+    def ensure_system_prompt(self) -> None:
+        if self.runtime is None:
+            raise TypeError("Chat conversation processing requires a runtime")
+        self.runtime.ensure_system_prompt()
+
+    def messages(self) -> list[Any]:
+        if self.runtime is None:
+            return []
+        try:
+            return self.runtime.messages()
+        except Exception as exc:
+            logger.debug("Failed to read chat conversation messages: %s", exc)
+            return []
+
+    def record_actual_usage(self, prompt_tokens: int) -> None:
+        if self.runtime is None or prompt_tokens <= 0:
+            return
+        try:
+            self.runtime.record_actual_usage(prompt_tokens)
+        except Exception as exc:
+            logger.debug("Failed to record actual chat usage: %s", exc)
+
+    def persist_terminal_summary(self, summary: str) -> None:
+        if self.runtime is None or not summary:
+            return
+        try:
+            self.runtime.persist_terminal_summary(summary)
+            logger.info("VICTOR_SUMMARY persisted for next-turn context injection")
+        except Exception as exc:
+            logger.debug("Failed to persist VICTOR_SUMMARY: %s", exc)
+
+
+class ToolCallRuntime(Protocol):
+    """Tool parsing and reset operations required by streaming chat."""
+
+    def reset(self) -> None: ...
+
+    def parse_and_validate(
+        self,
+        tool_calls: list[dict[str, Any]] | None,
+        full_content: str,
+    ) -> tuple[list[dict[str, Any]] | None, str]: ...
+
+
+@dataclass(frozen=True, slots=True)
+class ChatToolCalls:
+    """Tool-call parsing and per-turn pipeline reset capability."""
+
+    runtime: ToolCallRuntime | None = None
+
+    def reset(self) -> None:
+        if self.runtime is not None:
+            self.runtime.reset()
+
+    def parse_and_validate(
+        self,
+        tool_calls: list[dict[str, Any]] | None,
+        full_content: str,
+    ) -> tuple[list[dict[str, Any]] | None, str]:
+        if self.runtime is None:
+            raise TypeError("Chat tool-call processing requires a runtime")
+        return self.runtime.parse_and_validate(tool_calls, full_content)
+
+
+@dataclass(frozen=True, slots=True)
+class ChatRoutingIntelligence:
+    """Learned routing additions and their optional serialized policy."""
+
+    context: dict[str, Any] = field(default_factory=dict)
+    structured_policy: dict[str, Any] | None = None
+
+
+class RuntimeIntelligenceRuntime(Protocol):
+    """Learning and routing operations consumed by streaming chat."""
+
+    def executor_runtime(self) -> Any: ...
+
+    async def prepare_request(
+        self,
+        *,
+        task: str,
+        task_type: str,
+    ) -> dict[str, Any] | None: ...
+
+    def routing_context(
+        self,
+        *,
+        query: str,
+        scope_context: dict[str, Any],
+    ) -> ChatRoutingIntelligence: ...
+
+    def record_topology_outcome(self, payload: dict[str, Any]) -> None: ...
+
+    def record_outcome(
+        self,
+        *,
+        success: bool,
+        quality_score: float,
+        user_satisfied: bool,
+        completed: bool,
+    ) -> None: ...
+
+
+@dataclass(frozen=True, slots=True)
+class ChatRuntimeIntelligence:
+    """Optional request guidance, routing policy, and outcome feedback."""
+
+    runtime: RuntimeIntelligenceRuntime | None = None
+
+    def executor_runtime(self) -> Any:
+        if self.runtime is None:
+            return None
+        return self.runtime.executor_runtime()
+
+    async def prepare_request(
+        self,
+        *,
+        task: str,
+        task_type: str,
+    ) -> dict[str, Any] | None:
+        if self.runtime is None:
+            return None
+        return await self.runtime.prepare_request(task=task, task_type=task_type)
+
+    def routing_context(
+        self,
+        *,
+        query: str,
+        scope_context: dict[str, Any],
+    ) -> ChatRoutingIntelligence:
+        if self.runtime is None:
+            return ChatRoutingIntelligence()
+        return self.runtime.routing_context(query=query, scope_context=scope_context)
+
+    def record_topology_outcome(self, payload: dict[str, Any]) -> None:
+        if self.runtime is not None:
+            self.runtime.record_topology_outcome(payload)
+
+    def record_outcome(
+        self,
+        *,
+        success: bool,
+        quality_score: float = 0.5,
+        user_satisfied: bool = True,
+        completed: bool = True,
+    ) -> None:
+        if self.runtime is not None:
+            self.runtime.record_outcome(
+                success=success,
+                quality_score=quality_score,
+                user_satisfied=user_satisfied,
+                completed=completed,
+            )
+
+
+class StreamLifecycleRuntime(Protocol):
+    """Mutable stream state exposed at the chat composition boundary."""
+
+    def begin(self) -> None: ...
+
+    def bind_context(self, context: Any) -> None: ...
+
+    def current_context(self) -> Any | None: ...
+
+    def clear_context(self, context: Any) -> None: ...
+
+    def rate_limit_wait_time(self, error: Exception, attempt: int) -> float: ...
+
+    def is_cancelled(self) -> bool: ...
+
+    def finish(self) -> None: ...
+
+
+@dataclass(frozen=True, slots=True)
+class ChatStreamLifecycle:
+    """Own the start, cancellation, and terminal state of one stream."""
+
+    runtime: StreamLifecycleRuntime
+
+    def begin(self) -> None:
+        self.runtime.begin()
+
+    def bind_context(self, context: Any) -> None:
+        self.runtime.bind_context(context)
+
+    def current_context(self) -> Any | None:
+        return self.runtime.current_context()
+
+    def clear_context(self, context: Any) -> None:
+        self.runtime.clear_context(context)
+
+    def rate_limit_wait_time(self, error: Exception, attempt: int) -> float:
+        return self.runtime.rate_limit_wait_time(error, attempt)
+
+    def is_cancelled(self) -> bool:
+        return self.runtime.is_cancelled()
+
+    def finish(self) -> None:
+        self.runtime.finish()
+
+
+class StreamMetricsRuntime(Protocol):
+    """Metrics operations needed by the streaming path."""
+
+    def begin(self) -> Any: ...
+
+    def record_first_token(self) -> None: ...
+
+    def accumulate_usage(self, usage_data: dict[str, int]) -> None: ...
+
+    def finalize(
+        self,
+        usage_data: dict[str, int],
+        *,
+        provider_diagnostics: dict[str, Any] | None = None,
+    ) -> Any: ...
+
+
+@dataclass(frozen=True, slots=True)
+class ChatStreamMetrics:
+    """Own stream metric initialization, first-token timing, and finalization."""
+
+    runtime: StreamMetricsRuntime | None = None
+
+    def _require_runtime(self) -> StreamMetricsRuntime:
+        if self.runtime is None:
+            raise TypeError("Chat streaming metrics require a runtime")
+        return self.runtime
+
+    def begin(self) -> Any:
+        return self._require_runtime().begin()
+
+    def record_first_token(self) -> None:
+        self._require_runtime().record_first_token()
+
+    def accumulate_usage(self, usage_data: dict[str, int]) -> None:
+        """Fold turn usage into the live session totals before report finalization."""
+        self._require_runtime().accumulate_usage(usage_data)
+
+    def finalize(
+        self,
+        usage_data: dict[str, int],
+        *,
+        provider_diagnostics: dict[str, Any] | None = None,
+    ) -> Any:
+        return self._require_runtime().finalize(
+            usage_data,
+            provider_diagnostics=provider_diagnostics,
+        )
+
+
+class TaskStateRuntime(Protocol):
+    """Per-turn task classification and budget state used by streaming chat."""
+
+    def reset_turn(self) -> None: ...
+
+    def max_total_iterations(self) -> int: ...
+
+    def detect_task_type(self, user_message: str) -> TrackerTaskType: ...
+
+    def set_task_type(self, task_type: TrackerTaskType) -> None: ...
+
+    def publish_task_type(self, task_type: TrackerTaskType) -> None: ...
+
+    def set_continuation_context(self, context: dict[str, Any] | None) -> None: ...
+
+    def continuation_context(self) -> dict[str, Any] | None: ...
+
+    def record_stream_context(self, context: dict[str, Any]) -> None: ...
+
+    def apply_prompt_requirements(
+        self,
+        *,
+        tool_budget: int | None,
+        iteration_budget: int | None,
+    ) -> tuple[bool, bool]: ...
+
+    def max_exploration_iterations(self) -> int: ...
+
+    def set_tool_budget(self, budget: int) -> None: ...
+
+
+@dataclass(frozen=True, slots=True)
+class ChatTaskState:
+    """Expose task classification and budget updates without facade state access."""
+
+    runtime: TaskStateRuntime | None = None
+
+    def _require_runtime(self) -> TaskStateRuntime:
+        if self.runtime is None:
+            raise TypeError("Chat task state requires a runtime")
+        return self.runtime
+
+    def reset_turn(self) -> None:
+        self._require_runtime().reset_turn()
+
+    def max_total_iterations(self) -> int:
+        return self._require_runtime().max_total_iterations()
+
+    def detect_task_type(self, user_message: str) -> TrackerTaskType:
+        return self._require_runtime().detect_task_type(user_message)
+
+    def set_task_type(self, task_type: TrackerTaskType) -> None:
+        self._require_runtime().set_task_type(task_type)
+
+    def publish_task_type(self, task_type: TrackerTaskType) -> None:
+        self._require_runtime().publish_task_type(task_type)
+
+    def set_continuation_context(self, context: dict[str, Any] | None) -> None:
+        self._require_runtime().set_continuation_context(context)
+
+    def continuation_context(self) -> dict[str, Any] | None:
+        return self._require_runtime().continuation_context()
+
+    def record_stream_context(self, context: dict[str, Any]) -> None:
+        """Publish the completed stream's bounded context for resume consumers."""
+        self._require_runtime().record_stream_context(context)
+
+    def apply_prompt_requirements(
+        self,
+        *,
+        tool_budget: int | None,
+        iteration_budget: int | None,
+    ) -> tuple[bool, bool]:
+        return self._require_runtime().apply_prompt_requirements(
+            tool_budget=tool_budget,
+            iteration_budget=iteration_budget,
+        )
+
+    def max_exploration_iterations(self) -> int:
+        return self._require_runtime().max_exploration_iterations()
+
+    def set_tool_budget(self, budget: int) -> None:
+        self._require_runtime().set_tool_budget(budget)
+
+
+class ContextLifecycleRuntime(Protocol):
+    """Context startup operations used by streaming chat."""
+
+    async def start_background_compaction(self) -> None: ...
+
+
+@dataclass(frozen=True, slots=True)
+class ChatContextLifecycle:
+    """Start context lifecycle work without exposing facade-owned collaborators."""
+
+    runtime: ContextLifecycleRuntime | None = None
+
+    async def start_background_compaction(self) -> None:
+        if self.runtime is not None:
+            await self.runtime.start_background_compaction()
+
+
 @dataclass(frozen=True, slots=True)
 class ChatRuntimeServices:
     """Explicit capabilities already migrated from the chat runtime facade."""
 
     session: TaskRequirementState
+    stream_lifecycle: ChatStreamLifecycle
     stream_turn_lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False, compare=False)
+    metrics: ChatStreamMetrics = field(default_factory=ChatStreamMetrics)
+    task_state: ChatTaskState = field(default_factory=ChatTaskState)
+    context_lifecycle: ChatContextLifecycle = field(default_factory=ChatContextLifecycle)
     delivery: ChatDelivery = field(default_factory=ChatDelivery)
+    planning: ChatPlanning = field(default_factory=ChatPlanning)
+    governance: ChatGovernance = field(default_factory=ChatGovernance)
+    completion: ChatCompletion = field(default_factory=ChatCompletion)
+    conversation: ChatConversation = field(default_factory=ChatConversation)
+    tool_calls: ChatToolCalls = field(default_factory=ChatToolCalls)
+    intelligence: ChatRuntimeIntelligence = field(default_factory=ChatRuntimeIntelligence)
     # Recovery is a turn capability, not a property of the orchestrator facade.
     recovery: object | None = None
-    tool_planner: object | None = None

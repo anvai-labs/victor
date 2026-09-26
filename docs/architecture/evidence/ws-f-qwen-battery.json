@@ -1,0 +1,795 @@
+{
+  "model": "qwen3-coder-30b",
+  "provider": "inferflux",
+  "cases": [
+    {
+      "formation": "sequential",
+      "model": "qwen3-coder-30b",
+      "passed": false,
+      "result": {
+        "success": true,
+        "final_output": "I see that I need to create two files: `first.py` and `test_first.py`. Let me first check what files already exist in the directory to understand the current state.\n\nLooking at the error, it seems the file already exists, but let me check what's there and then create the test file.\n\n{\"status\":\"ready\"}",
+        "member_results": {
+          "executor_e4a7ff30": {
+            "member_id": "executor_e4a7ff30",
+            "success": true,
+            "output": "I see that I need to create two files: `first.py` and `test_first.py`. Let me first check what files already exist in the directory to understand the current state.\n\nLooking at the error, it seems the file already exists, but let me check what's there and then create the test file.",
+            "error": null,
+            "metadata": {
+              "member_id": "executor_e4a7ff30",
+              "agent_id": "agent_executor_ce99a2c62eb2",
+              "display_name": "first",
+              "team_id": "UnifiedTeam",
+              "plan_id": null,
+              "plan_step_id": null,
+              "parent_session_id": "battery-5ce2af0881-sequential",
+              "child_session_id": null,
+              "session_id": "battery-5ce2af0881-sequential-executor_e4a7ff30",
+              "task": "Complete your assigned deliverable and test."
+            },
+            "tool_calls_used": 2,
+            "duration_seconds": 16.856954336166382,
+            "discoveries": []
+          },
+          "executor_4d1366d0": {
+            "member_id": "executor_4d1366d0",
+            "success": true,
+            "output": "{\"status\":\"ready\"}",
+            "error": null,
+            "metadata": {
+              "member_id": "executor_4d1366d0",
+              "agent_id": "agent_executor_30978e188de6",
+              "display_name": "second",
+              "team_id": "UnifiedTeam",
+              "plan_id": null,
+              "plan_step_id": null,
+              "parent_session_id": "battery-5ce2af0881-sequential",
+              "child_session_id": null,
+              "session_id": "battery-5ce2af0881-sequential-executor_4d1366d0",
+              "task": "Complete your assigned deliverable and test."
+            },
+            "tool_calls_used": 3,
+            "duration_seconds": 5.873302936553955,
+            "discoveries": []
+          }
+        },
+        "formation": "sequential",
+        "total_tool_calls": 5,
+        "total_duration": 0.0,
+        "consensus_achieved": null,
+        "consensus_rounds": null,
+        "error": null
+      },
+      "missing_artifacts": [
+        "test_first.py"
+      ],
+      "pytest": {
+        "exit_code": 0,
+        "output": ".                                                                        [100%]\n1 passed in 0.09s\n"
+      },
+      "events": [
+        {
+          "kind": "member_start",
+          "member_id": "executor_e4a7ff30",
+          "formation": "sequential",
+          "index": 0,
+          "content": "",
+          "success": true,
+          "metadata": {}
+        },
+        {
+          "kind": "member_completed",
+          "member_id": "executor_e4a7ff30",
+          "formation": "sequential",
+          "index": 0,
+          "content": "",
+          "success": true,
+          "metadata": {}
+        },
+        {
+          "kind": "member_start",
+          "member_id": "executor_4d1366d0",
+          "formation": "sequential",
+          "index": 1,
+          "content": "",
+          "success": true,
+          "metadata": {}
+        },
+        {
+          "kind": "member_completed",
+          "member_id": "executor_4d1366d0",
+          "formation": "sequential",
+          "index": 1,
+          "content": "",
+          "success": true,
+          "metadata": {}
+        }
+      ],
+      "requests": [
+        {
+          "session_id": "battery-5ce2af0881-sequential-executor_e4a7ff30",
+          "model": "qwen3-coder-30b"
+        },
+        {
+          "session_id": "battery-5ce2af0881-sequential-executor_e4a7ff30",
+          "model": "qwen3-coder-30b"
+        },
+        {
+          "session_id": "battery-5ce2af0881-sequential-executor_e4a7ff30",
+          "model": "qwen3-coder-30b"
+        },
+        {
+          "session_id": "battery-5ce2af0881-sequential-executor_e4a7ff30",
+          "model": "qwen3-coder-30b"
+        },
+        {
+          "session_id": "battery-5ce2af0881-sequential-executor_4d1366d0",
+          "model": "qwen3-coder-30b"
+        },
+        {
+          "session_id": "battery-5ce2af0881-sequential-executor_4d1366d0",
+          "model": "qwen3-coder-30b"
+        }
+      ],
+      "elapsed_seconds": 30.85,
+      "post_run_artifact_check": {
+        "missing": [
+          "test_first.py"
+        ],
+        "pytest_exit_code": 0,
+        "pytest_output": ".                                                                        [100%]\n1 passed in 0.09s\n"
+      },
+      "request_model_matches": true
+    },
+    {
+      "formation": "pipeline",
+      "model": "qwen3-coder-30b",
+      "passed": false,
+      "result": {
+        "success": true,
+        "final_output": "{\"status\":\"ready\"}",
+        "member_results": {
+          "executor_c128906e": {
+            "member_id": "executor_c128906e",
+            "success": true,
+            "output": "{\"tool_call\": {\"name\": \"write\", \"arguments\": {\"content\": \"from first import first\n\ndef test_first():\n    assert first(4) == 8\", \"path\": \"/private/tmp/ws-f-qwen/battery-5ce2af0881/pipeline/test_first.py\"}}}\n",
+            "error": null,
+            "metadata": {
+              "member_id": "executor_c128906e",
+              "agent_id": "agent_executor_1cf0beff1085",
+              "display_name": "first",
+              "team_id": "UnifiedTeam",
+              "plan_id": null,
+              "plan_step_id": null,
+              "parent_session_id": "battery-5ce2af0881-pipeline",
+              "child_session_id": null,
+              "session_id": "battery-5ce2af0881-pipeline-executor_c128906e",
+              "task": "Complete your assigned deliverable and test."
+            },
+            "tool_calls_used": 1,
+            "duration_seconds": 3.606889009475708,
+            "discoveries": []
+          },
+          "executor_7dd1b0b2": {
+            "member_id": "executor_7dd1b0b2",
+            "success": true,
+            "output": "{\"status\":\"ready\"}",
+            "error": null,
+            "metadata": {
+              "member_id": "executor_7dd1b0b2",
+              "agent_id": "agent_executor_366652c97b6f",
+              "display_name": "second",
+              "team_id": "UnifiedTeam",
+              "plan_id": null,
+              "plan_step_id": null,
+              "parent_session_id": "battery-5ce2af0881-pipeline",
+              "child_session_id": null,
+              "session_id": "battery-5ce2af0881-pipeline-executor_7dd1b0b2",
+              "task": "Complete your assigned deliverable and test."
+            },
+            "tool_calls_used": 3,
+            "duration_seconds": 5.743735074996948,
+            "discoveries": []
+          }
+        },
+        "formation": "pipeline",
+        "total_tool_calls": 4,
+        "total_duration": 0.0,
+        "consensus_achieved": null,
+        "consensus_rounds": null,
+        "error": null
+      },
+      "missing_artifacts": [
+        "test_first.py"
+      ],
+      "pytest": {
+        "exit_code": 0,
+        "output": ".                                                                        [100%]\n1 passed in 0.10s\n"
+      },
+      "events": [
+        {
+          "kind": "member_start",
+          "member_id": "executor_c128906e",
+          "formation": "pipeline",
+          "index": 0,
+          "content": "",
+          "success": true,
+          "metadata": {}
+        },
+        {
+          "kind": "member_completed",
+          "member_id": "executor_c128906e",
+          "formation": "pipeline",
+          "index": 0,
+          "content": "",
+          "success": true,
+          "metadata": {}
+        },
+        {
+          "kind": "member_start",
+          "member_id": "executor_7dd1b0b2",
+          "formation": "pipeline",
+          "index": 1,
+          "content": "",
+          "success": true,
+          "metadata": {}
+        },
+        {
+          "kind": "member_completed",
+          "member_id": "executor_7dd1b0b2",
+          "formation": "pipeline",
+          "index": 1,
+          "content": "",
+          "success": true,
+          "metadata": {}
+        }
+      ],
+      "requests": [
+        {
+          "session_id": "battery-5ce2af0881-pipeline-executor_c128906e",
+          "model": "qwen3-coder-30b"
+        },
+        {
+          "session_id": "battery-5ce2af0881-pipeline-executor_c128906e",
+          "model": "qwen3-coder-30b"
+        },
+        {
+          "session_id": "battery-5ce2af0881-pipeline-executor_7dd1b0b2",
+          "model": "qwen3-coder-30b"
+        },
+        {
+          "session_id": "battery-5ce2af0881-pipeline-executor_7dd1b0b2",
+          "model": "qwen3-coder-30b"
+        }
+      ],
+      "elapsed_seconds": 10.92,
+      "post_run_artifact_check": {
+        "missing": [
+          "test_first.py"
+        ],
+        "pytest_exit_code": 0,
+        "pytest_output": ".                                                                        [100%]\n1 passed in 0.09s\n"
+      },
+      "request_model_matches": true
+    },
+    {
+      "formation": "parallel",
+      "model": "qwen3-coder-30b",
+      "passed": false,
+      "result": {
+        "success": true,
+        "final_output": "{\"status\":\"ready\"}\n\n{\"tool_call\":{\"name\":\"write\",\"arguments\":{\"content\":\"def second(x):\n    return x * 2\",\"path\":\"/private/tmp/ws-f-qwen/battery-5ce2af0881/parallel/second.py\"}}}",
+        "member_results": {
+          "executor_b6da6552": {
+            "member_id": "executor_b6da6552",
+            "success": true,
+            "output": "{\"status\":\"ready\"}",
+            "error": null,
+            "metadata": {
+              "member_id": "executor_b6da6552",
+              "agent_id": "agent_executor_f0aca04144a2",
+              "display_name": "first",
+              "team_id": "UnifiedTeam",
+              "plan_id": null,
+              "plan_step_id": null,
+              "parent_session_id": "battery-5ce2af0881-parallel",
+              "child_session_id": null,
+              "session_id": "battery-5ce2af0881-parallel-executor_b6da6552",
+              "task": "Complete your assigned deliverable and test."
+            },
+            "tool_calls_used": 3,
+            "duration_seconds": 7.826077938079834,
+            "discoveries": []
+          },
+          "executor_9039a879": {
+            "member_id": "executor_9039a879",
+            "success": true,
+            "output": "{\"tool_call\":{\"name\":\"write\",\"arguments\":{\"content\":\"def second(x):\n    return x * 2\",\"path\":\"/private/tmp/ws-f-qwen/battery-5ce2af0881/parallel/second.py\"}}}",
+            "error": null,
+            "metadata": {
+              "member_id": "executor_9039a879",
+              "agent_id": "agent_executor_30614bc34d13",
+              "display_name": "second",
+              "team_id": "UnifiedTeam",
+              "plan_id": null,
+              "plan_step_id": null,
+              "parent_session_id": "battery-5ce2af0881-parallel",
+              "child_session_id": null,
+              "session_id": "battery-5ce2af0881-parallel-executor_9039a879",
+              "task": "Complete your assigned deliverable and test."
+            },
+            "tool_calls_used": 2,
+            "duration_seconds": 9.084221124649048,
+            "discoveries": []
+          }
+        },
+        "formation": "parallel",
+        "total_tool_calls": 5,
+        "total_duration": 0.0,
+        "consensus_achieved": null,
+        "consensus_rounds": null,
+        "error": null
+      },
+      "missing_artifacts": [
+        "test_second.py"
+      ],
+      "pytest": {
+        "exit_code": 0,
+        "output": ".                                                                        [100%]\n1 passed in 0.10s\n"
+      },
+      "events": [
+        {
+          "kind": "member_start",
+          "member_id": "executor_b6da6552",
+          "formation": "parallel",
+          "index": 0,
+          "content": "",
+          "success": true,
+          "metadata": {}
+        },
+        {
+          "kind": "member_start",
+          "member_id": "executor_9039a879",
+          "formation": "parallel",
+          "index": 1,
+          "content": "",
+          "success": true,
+          "metadata": {}
+        },
+        {
+          "kind": "member_completed",
+          "member_id": "executor_b6da6552",
+          "formation": "parallel",
+          "index": 0,
+          "content": "",
+          "success": true,
+          "metadata": {}
+        },
+        {
+          "kind": "member_completed",
+          "member_id": "executor_9039a879",
+          "formation": "parallel",
+          "index": 1,
+          "content": "",
+          "success": true,
+          "metadata": {}
+        }
+      ],
+      "requests": [
+        {
+          "session_id": "battery-5ce2af0881-parallel-executor_b6da6552",
+          "model": "qwen3-coder-30b"
+        },
+        {
+          "session_id": "battery-5ce2af0881-parallel-executor_9039a879",
+          "model": "qwen3-coder-30b"
+        },
+        {
+          "session_id": "battery-5ce2af0881-parallel-executor_b6da6552",
+          "model": "qwen3-coder-30b"
+        },
+        {
+          "session_id": "battery-5ce2af0881-parallel-executor_9039a879",
+          "model": "qwen3-coder-30b"
+        }
+      ],
+      "elapsed_seconds": 11.09,
+      "post_run_artifact_check": {
+        "missing": [
+          "test_second.py"
+        ],
+        "pytest_exit_code": 0,
+        "pytest_output": ".                                                                        [100%]\n1 passed in 0.09s\n"
+      },
+      "request_model_matches": true
+    },
+    {
+      "formation": "hierarchical",
+      "model": "qwen3-coder-30b",
+      "passed": false,
+      "result": {
+        "success": true,
+        "final_output": "I'll help you complete the task by creating the required files and running the test. Let me break this down into steps:\n\n1. First, I need to verify the current state of the directory\n2. Create the first.py file with the required function\n3. Create the test_first.py file with the test\n4. Run the test to make sure it passes\n\nLet me start by checking the directory structure:\n\n{\"tool_call\":{\"name\":\"write\",\"arguments\":{\"content\":\"def second(x):\n    return x * 2\",\"path\":\"/private/tmp/ws-f-qwen/battery-5ce2af0881/hierarchical/second.py\"}}}",
+        "member_results": {
+          "executor_4d543d0e": {
+            "member_id": "executor_4d543d0e",
+            "success": true,
+            "output": "I'll help you complete the task by creating the required files and running the test. Let me break this down into steps:\n\n1. First, I need to verify the current state of the directory\n2. Create the first.py file with the required function\n3. Create the test_first.py file with the test\n4. Run the test to make sure it passes\n\nLet me start by checking the directory structure:",
+            "error": null,
+            "metadata": {
+              "member_id": "executor_4d543d0e",
+              "agent_id": "agent_executor_aa727ba3175b",
+              "display_name": "first",
+              "team_id": "UnifiedTeam",
+              "plan_id": null,
+              "plan_step_id": null,
+              "parent_session_id": "battery-5ce2af0881-hierarchical",
+              "child_session_id": null,
+              "session_id": "battery-5ce2af0881-hierarchical-executor_4d543d0e",
+              "task": "Complete your assigned deliverable and test."
+            },
+            "tool_calls_used": 7,
+            "duration_seconds": 21.613175868988037,
+            "discoveries": []
+          },
+          "executor_c7f86418": {
+            "member_id": "executor_c7f86418",
+            "success": true,
+            "output": "{\"tool_call\":{\"name\":\"write\",\"arguments\":{\"content\":\"def second(x):\n    return x * 2\",\"path\":\"/private/tmp/ws-f-qwen/battery-5ce2af0881/hierarchical/second.py\"}}}",
+            "error": null,
+            "metadata": {
+              "member_id": "executor_c7f86418",
+              "agent_id": "agent_executor_34922c3ff048",
+              "display_name": "second",
+              "team_id": "UnifiedTeam",
+              "plan_id": null,
+              "plan_step_id": null,
+              "parent_session_id": "battery-5ce2af0881-hierarchical",
+              "child_session_id": null,
+              "session_id": "battery-5ce2af0881-hierarchical-executor_c7f86418",
+              "task": "Complete your assigned deliverable and test."
+            },
+            "tool_calls_used": 2,
+            "duration_seconds": 5.8310511112213135,
+            "discoveries": []
+          }
+        },
+        "formation": "hierarchical",
+        "total_tool_calls": 9,
+        "total_duration": 0.0,
+        "consensus_achieved": null,
+        "consensus_rounds": null,
+        "error": null
+      },
+      "missing_artifacts": [
+        "test_first.py",
+        "test_second.py"
+      ],
+      "pytest": {
+        "exit_code": 5,
+        "output": "\nno tests ran in 0.09s\n"
+      },
+      "events": [
+        {
+          "kind": "member_start",
+          "member_id": "executor_c7f86418",
+          "formation": "hierarchical",
+          "index": 1,
+          "content": "",
+          "success": true,
+          "metadata": {}
+        },
+        {
+          "kind": "member_completed",
+          "member_id": "executor_c7f86418",
+          "formation": "hierarchical",
+          "index": 1,
+          "content": "",
+          "success": true,
+          "metadata": {}
+        }
+      ],
+      "requests": [
+        {
+          "session_id": "battery-5ce2af0881-hierarchical-executor_4d543d0e",
+          "model": "qwen3-coder-30b"
+        },
+        {
+          "session_id": "battery-5ce2af0881-hierarchical-executor_4d543d0e",
+          "model": "qwen3-coder-30b"
+        },
+        {
+          "session_id": "battery-5ce2af0881-hierarchical-executor_4d543d0e",
+          "model": "qwen3-coder-30b"
+        },
+        {
+          "session_id": "battery-5ce2af0881-hierarchical-executor_4d543d0e",
+          "model": "qwen3-coder-30b"
+        },
+        {
+          "session_id": "battery-5ce2af0881-hierarchical-executor_4d543d0e",
+          "model": "qwen3-coder-30b"
+        },
+        {
+          "session_id": "battery-5ce2af0881-hierarchical-executor_4d543d0e",
+          "model": "qwen3-coder-30b"
+        },
+        {
+          "session_id": "battery-5ce2af0881-hierarchical-executor_4d543d0e",
+          "model": "qwen3-coder-30b"
+        },
+        {
+          "session_id": "battery-5ce2af0881-hierarchical-executor_4d543d0e",
+          "model": "qwen3-coder-30b"
+        },
+        {
+          "session_id": "battery-5ce2af0881-hierarchical-executor_4d543d0e",
+          "model": "qwen3-coder-30b"
+        },
+        {
+          "session_id": "battery-5ce2af0881-hierarchical-executor_c7f86418",
+          "model": "qwen3-coder-30b"
+        },
+        {
+          "session_id": "battery-5ce2af0881-hierarchical-executor_c7f86418",
+          "model": "qwen3-coder-30b"
+        }
+      ],
+      "elapsed_seconds": 28.84,
+      "post_run_artifact_check": {
+        "missing": [
+          "test_first.py",
+          "test_second.py"
+        ],
+        "pytest_exit_code": 5,
+        "pytest_output": "\nno tests ran in 0.09s\n"
+      },
+      "request_model_matches": true
+    },
+    {
+      "formation": "consensus",
+      "model": "qwen3-coder-30b",
+      "passed": true,
+      "result": {
+        "success": true,
+        "final_output": "{\"status\":\"ready\"}\n\n{\"status\":\"ready\"}",
+        "member_results": {
+          "executor_9bd341a6": {
+            "member_id": "executor_9bd341a6",
+            "success": true,
+            "output": "{\"status\":\"ready\"}",
+            "error": null,
+            "metadata": {
+              "member_id": "executor_9bd341a6",
+              "agent_id": "agent_executor_b0e251043eee",
+              "display_name": "first",
+              "team_id": "UnifiedTeam",
+              "plan_id": null,
+              "plan_step_id": null,
+              "parent_session_id": "battery-5ce2af0881-consensus",
+              "child_session_id": null,
+              "session_id": "battery-5ce2af0881-consensus-executor_9bd341a6",
+              "task": "Complete your assigned deliverable and test.",
+              "round": 0,
+              "consensus_achieved": true,
+              "consensus_rounds": 1
+            },
+            "tool_calls_used": 3,
+            "duration_seconds": 8.092839002609253,
+            "discoveries": []
+          },
+          "executor_1379fca5": {
+            "member_id": "executor_1379fca5",
+            "success": true,
+            "output": "{\"status\":\"ready\"}",
+            "error": null,
+            "metadata": {
+              "member_id": "executor_1379fca5",
+              "agent_id": "agent_executor_e744f6ba1ca3",
+              "display_name": "second",
+              "team_id": "UnifiedTeam",
+              "plan_id": null,
+              "plan_step_id": null,
+              "parent_session_id": "battery-5ce2af0881-consensus",
+              "child_session_id": null,
+              "session_id": "battery-5ce2af0881-consensus-executor_1379fca5",
+              "task": "Complete your assigned deliverable and test.",
+              "round": 0,
+              "consensus_achieved": true,
+              "consensus_rounds": 1
+            },
+            "tool_calls_used": 3,
+            "duration_seconds": 8.600012063980103,
+            "discoveries": []
+          }
+        },
+        "formation": "consensus",
+        "total_tool_calls": 6,
+        "total_duration": 0.0,
+        "consensus_achieved": true,
+        "consensus_rounds": 1,
+        "error": null
+      },
+      "missing_artifacts": [],
+      "pytest": {
+        "exit_code": 0,
+        "output": "..                                                                       [100%]\n2 passed in 0.10s\n"
+      },
+      "events": [
+        {
+          "kind": "member_start",
+          "member_id": "executor_9bd341a6",
+          "formation": "consensus",
+          "index": 0,
+          "content": "",
+          "success": true,
+          "metadata": {}
+        },
+        {
+          "kind": "member_start",
+          "member_id": "executor_1379fca5",
+          "formation": "consensus",
+          "index": 0,
+          "content": "",
+          "success": true,
+          "metadata": {}
+        },
+        {
+          "kind": "member_completed",
+          "member_id": "executor_9bd341a6",
+          "formation": "consensus",
+          "index": 0,
+          "content": "",
+          "success": true,
+          "metadata": {}
+        },
+        {
+          "kind": "member_completed",
+          "member_id": "executor_1379fca5",
+          "formation": "consensus",
+          "index": 0,
+          "content": "",
+          "success": true,
+          "metadata": {}
+        }
+      ],
+      "requests": [
+        {
+          "session_id": "battery-5ce2af0881-consensus-executor_9bd341a6",
+          "model": "qwen3-coder-30b"
+        },
+        {
+          "session_id": "battery-5ce2af0881-consensus-executor_1379fca5",
+          "model": "qwen3-coder-30b"
+        },
+        {
+          "session_id": "battery-5ce2af0881-consensus-executor_9bd341a6",
+          "model": "qwen3-coder-30b"
+        },
+        {
+          "session_id": "battery-5ce2af0881-consensus-executor_1379fca5",
+          "model": "qwen3-coder-30b"
+        }
+      ],
+      "elapsed_seconds": 10.82,
+      "post_run_artifact_check": {
+        "missing": [],
+        "pytest_exit_code": 0,
+        "pytest_output": "..                                                                       [100%]\n2 passed in 0.09s\n"
+      },
+      "request_model_matches": true
+    },
+    {
+      "formation": "reflection",
+      "model": "qwen3-coder-30b",
+      "passed": false,
+      "result": {
+        "success": false,
+        "final_output": "",
+        "member_results": {
+          "executor_187c5cd5": {
+            "member_id": "executor_187c5cd5",
+            "success": false,
+            "output": "{\"status\":\"ready\"}",
+            "error": "Critic must return a JSON verdict object",
+            "metadata": {
+              "iterations": 1,
+              "verdict_contract_error": true
+            },
+            "tool_calls_used": 0,
+            "duration_seconds": 0.0,
+            "discoveries": []
+          }
+        },
+        "formation": "reflection",
+        "total_tool_calls": 0,
+        "total_duration": 0.0,
+        "consensus_achieved": null,
+        "consensus_rounds": null,
+        "error": null
+      },
+      "missing_artifacts": [
+        "review.json"
+      ],
+      "pytest": {
+        "exit_code": 0,
+        "output": ".                                                                        [100%]\n1 passed in 0.10s\n"
+      },
+      "error": "FileNotFoundError: [Errno 2] No such file or directory: '/private/tmp/ws-f-qwen/battery-5ce2af0881/reflection/review.json'",
+      "events": [
+        {
+          "kind": "member_start",
+          "member_id": "executor_55022856",
+          "formation": "reflection",
+          "index": 0,
+          "content": "",
+          "success": true,
+          "metadata": {}
+        },
+        {
+          "kind": "member_completed",
+          "member_id": "executor_55022856",
+          "formation": "reflection",
+          "index": 0,
+          "content": "",
+          "success": true,
+          "metadata": {}
+        },
+        {
+          "kind": "member_start",
+          "member_id": "executor_187c5cd5",
+          "formation": "reflection",
+          "index": 0,
+          "content": "",
+          "success": true,
+          "metadata": {}
+        },
+        {
+          "kind": "member_completed",
+          "member_id": "executor_187c5cd5",
+          "formation": "reflection",
+          "index": 0,
+          "content": "",
+          "success": true,
+          "metadata": {}
+        }
+      ],
+      "requests": [
+        {
+          "session_id": "battery-5ce2af0881-reflection-executor_55022856",
+          "model": "qwen3-coder-30b"
+        },
+        {
+          "session_id": "battery-5ce2af0881-reflection-executor_55022856",
+          "model": "qwen3-coder-30b"
+        },
+        {
+          "session_id": "battery-5ce2af0881-reflection-executor_187c5cd5",
+          "model": "qwen3-coder-30b"
+        },
+        {
+          "session_id": "battery-5ce2af0881-reflection-executor_187c5cd5",
+          "model": "qwen3-coder-30b"
+        },
+        {
+          "session_id": "battery-5ce2af0881-reflection-executor_187c5cd5",
+          "model": "qwen3-coder-30b"
+        }
+      ],
+      "elapsed_seconds": 14.46,
+      "post_run_artifact_check": {
+        "missing": [
+          "review.json"
+        ],
+        "pytest_exit_code": 0,
+        "pytest_output": ".                                                                        [100%]\n1 passed in 0.09s\n"
+      },
+      "request_model_matches": true
+    }
+  ],
+  "worktree_commit": "af93ee6f6fb6ae72860f6c5592256554a7fbe85b",
+  "working_tree_dirty": true,
+  "classifier_changes": false,
+  "executed_harness_sha256": "6a6710e63ab892f20306eb867c1fa45e48eb9b7888d3edc478b5be65af123d4e",
+  "backend": "llama_cpp_rocm"
+}

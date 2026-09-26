@@ -116,7 +116,7 @@ markdown_extensions:
           format: !!python/name:pymdownx.superfences.fence_code_format
         - name: math
           class: arithmatex
-          format: !!python/name:pymdownx.arithmatex.fence_mathjax_format
+          format: !!python/name:pymdownx.arithmatex.arithmatex_fenced_format
   - pymdownx.tabbed:
       alternate_style: true
   - pymdownx.tasklist:
@@ -140,14 +140,15 @@ nav:
   - Tech Stack: tech-stack.md
   - Roadmap: roadmap.md
   - Architecture Deep-Dives:
-      - architecture/orchestrator_decomposition.md
+      - Orchestrator History: architecture/orchestrator_decomposition.md
       - SDK Boundary: architecture/CONTRACTS_BOUNDARY.md
       - State-Passed Coordinators: architecture/state-passed-architecture.md
-      - Streaming Pipeline: architecture/streaming-pipeline.md
+      - Streaming Runtime: architecture/streaming-pipeline.md
       - Smart Routing: architecture/smart_routing.md
       - Edge Provider Strategy: architecture/edge-provider-tool-strategy.md
       - InferFlux Reasoning Contract: architecture/inferflux-reasoning-separation-handoff.md
       - Unified Prompt Architecture: architecture/unified_prompt_architecture.md
+      - Native Acceleration Strategy: architecture/native-acceleration-strategy.md
       - ADRs: architecture/adr/README.md
       - Framework Proposals: https://github.com/anvai-labs/victor/tree/develop/feps
   - Getting Started:
@@ -192,7 +193,7 @@ nav:
       - development/index.md
       - Setup: development/setup.md
       - Dependencies and Containers: development/dependencies.md
-      - Security 0.9.4 Candidate: development/security-remediation-0.9.4.md
+      - Security 0.9.4 Release: development/security-remediation-0.9.4.md
       - Code Style: development/code-style.md
       - Exception Handling: development/exception-handling.md
       - Testing: development/testing.md

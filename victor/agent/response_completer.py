@@ -34,7 +34,7 @@ from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 
 from victor.core.errors import ProviderRateLimitError
-from victor.providers.base import BaseProvider, Message
+from victor.providers.base import CompletionResponse, BaseProvider, Message
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +83,7 @@ class CompletionResult:
     retries_used: int = 0
     error: Optional[str] = None
     recovery_context: Optional[str] = None
+    provider_responses: Tuple[CompletionResponse, ...] = ()
 
     @property
     def is_complete(self) -> bool:
@@ -222,7 +223,8 @@ class ResponseCompleter:
         # Create modified messages with error prompt
         modified_messages = list(messages) + [Message(role="system", content=error_prompt)]
 
-        # Generate response
+        # Retain each structured response so callers can account for recovery usage.
+        responses: List[CompletionResponse] = []
         try:
             response = await self.provider.chat(
                 messages=modified_messages,
@@ -232,11 +234,14 @@ class ResponseCompleter:
                 tools=None,  # No tools - force text response
             )
 
+            if response is not None:
+                responses.append(response)
             if response and response.content and len(response.content.strip()) > 10:
                 return CompletionResult(
                     status=CompletionStatus.SUCCESS,
                     content=response.content,
                     recovery_context=context,
+                    provider_responses=tuple(responses),
                 )
 
         except Exception as e:
@@ -253,6 +258,7 @@ class ResponseCompleter:
             content=fallback_content,
             error=failure_context.last_error,
             recovery_context=context,
+            provider_responses=tuple(responses),
         )
 
     async def _generate_response_with_retry(
@@ -286,6 +292,7 @@ class ResponseCompleter:
         # provider. 60s covers the common 15-30s 429 cooldowns with headroom.
         _MAX_RATE_LIMIT_WAIT_SECONDS = 60
 
+        responses: List[CompletionResponse] = []
         for attempt in range(self.config.max_recovery_attempts):
             current_temp = min(
                 temperature + (attempt * self.config.retry_temperature_increment),
@@ -311,6 +318,8 @@ class ResponseCompleter:
                     tools=None,  # Force text response
                 )
 
+                if response is not None:
+                    responses.append(response)
                 if response and response.content:
                     content = response.content.strip()
                     if len(content) >= self.config.min_response_length:
@@ -318,6 +327,7 @@ class ResponseCompleter:
                             status=CompletionStatus.SUCCESS,
                             content=content,
                             retries_used=attempt,
+                            provider_responses=tuple(responses),
                         )
 
                 logger.debug(f"Recovery attempt {attempt + 1}: insufficient response")
@@ -342,6 +352,7 @@ class ResponseCompleter:
                         status=CompletionStatus.EMPTY,
                         content="",
                         retries_used=attempt + 1,
+                        provider_responses=tuple(responses),
                         error=f"Provider rate-limited; gave up after waiting bound exceeded ({wait_seconds}s)",
                     )
                 logger.warning(
@@ -359,6 +370,7 @@ class ResponseCompleter:
             status=CompletionStatus.EMPTY,
             content="",
             retries_used=self.config.max_recovery_attempts,
+            provider_responses=tuple(responses),
             error="Failed to generate response after multiple attempts",
         )
 

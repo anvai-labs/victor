@@ -379,7 +379,41 @@ class TestVictorAgentAdapter:
             assert trace.completion_signals["agentic_loop_success"] is True
             assert trace.completion_signals["agentic_loop_iterations"] >= 3
             assert "outer_completion_claimed" in trace.completion_signals
+            assert trace.completion_signals["tool_supply_pipeline"] == "fep-0034-stage-c"
             mock_orchestrator.chat.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_benchmark_chat_reaches_unified_tool_selection(self, adapter, mock_orchestrator):
+        from types import SimpleNamespace
+
+        from victor.agent.services.tool_selection_runtime import ToolSelectionRuntime
+        from victor.agent.services.turn_execution_runtime import TurnExecutor
+
+        executor = TurnExecutor(SimpleNamespace(), SimpleNamespace(), SimpleNamespace(), None)
+        response = mock_orchestrator.chat.return_value
+
+        async def chat(message):
+            await executor._select_tools_for_turn(message, "write_allowed")
+            return response
+
+        mock_orchestrator.chat.side_effect = chat
+        task = BenchmarkTask(
+            task_id="test/unified-supply",
+            benchmark=BenchmarkType.CUSTOM,
+            description="Unified tool supply",
+            prompt="Create a hello world function",
+            complexity_override="action",
+        )
+        with (
+            tempfile.TemporaryDirectory() as tmpdir,
+            patch.object(
+                ToolSelectionRuntime, "select_tools_for_turn", new_callable=AsyncMock
+            ) as select,
+        ):
+            await adapter.execute_task(task, Path(tmpdir))
+            assert select.await_count == mock_orchestrator.chat.await_count
+            assert select.await_count > 0
+            assert select.await_args.kwargs == {"goals": None}
 
     @pytest.mark.asyncio
     async def test_execute_task_enables_graph_and_mentions_it_in_prompt(

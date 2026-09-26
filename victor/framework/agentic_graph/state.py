@@ -73,7 +73,7 @@ def __getattr__(name: str) -> Any:
             "Use AgenticLoopStateModel instead. "
             "The TypedDict provided no runtime validation; "
             "AgenticLoopStateModel is a full Pydantic model with "
-            "the same dict-like interface. Will be removed in v0.10.0.",
+            "the same dict-like interface. Will be removed in v0.11.0.",
             DeprecationWarning,
             stacklevel=2,
         )

@@ -38,6 +38,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import logging
+import json
 import time
 from contextvars import ContextVar
 from dataclasses import dataclass, field
@@ -57,14 +58,7 @@ from typing import (
 from victor.coordination.formations.base import BaseFormationStrategy, TeamContext
 from victor.framework.graph_checkpoint import CheckpointerProtocol, WorkflowCheckpoint
 from victor.framework.member_event_sink import MemberEvent, MemberEventSink, current_member_sink
-from victor.coordination.formations import (
-    SequentialFormation,
-    ParallelFormation,
-    HierarchicalFormation,
-    PipelineFormation,
-    ConsensusFormation,
-    ReflectionFormation,
-)
+from victor.coordination.formations import create_formation_registry
 from victor.teams.mixins.observability import ObservabilityMixin
 from victor.teams.mixins.rl import RLMixin
 from victor.teams.types import (
@@ -74,6 +68,7 @@ from victor.teams.types import (
     TeamFormation,
     TeamParticipant,
     TeamResult,
+    normalize_supervisor_context,
 )
 from victor.teams.workspace_isolation import (
     WorkspaceIsolationService,
@@ -131,6 +126,7 @@ class _CoordinatorExecutionState:
     formation: TeamFormation
     supervisor: Optional["ITeamMember"]
     shared_context: Dict[str, Any]
+    team_goal: str = ""
     message_history: List[AgentMessage] = field(default_factory=list)
 
 
@@ -205,7 +201,7 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
         _orchestrator: Agent orchestrator (optional, for SubAgent spawning)
         _members: List of team members
         _formation: Current team formation
-        _manager: Supervisor member for HIERARCHICAL formation
+        _supervisor: Supervisor member for HIERARCHICAL formation
         _message_history: Log of inter-agent messages
         _shared_context: Shared context dictionary
     """
@@ -247,7 +243,7 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
         self._checkpointer: Optional["CheckpointerProtocol"] = checkpointer
         self._members: List[ITeamMember] = []
         self._formation = TeamFormation.SEQUENTIAL
-        self._manager: Optional[ITeamMember] = None
+        self._supervisor: Optional[ITeamMember] = None
         self._lightweight_mode = lightweight_mode
 
         # Communication
@@ -264,14 +260,7 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
         self._lsp: Optional[Any] = None
 
         # Formation strategies (composition over inheritance)
-        self._formations: Dict[TeamFormation, BaseFormationStrategy] = {
-            TeamFormation.SEQUENTIAL: SequentialFormation(),
-            TeamFormation.PARALLEL: ParallelFormation(),
-            TeamFormation.HIERARCHICAL: HierarchicalFormation(),
-            TeamFormation.PIPELINE: PipelineFormation(),
-            TeamFormation.CONSENSUS: ConsensusFormation(),
-            TeamFormation.REFLECTION: ReflectionFormation(),
-        }
+        self._formations: Dict[TeamFormation, BaseFormationStrategy] = create_formation_registry()
 
         # StateGraph node config (used when the coordinator is invoked as a
         # graph node via ``__call__``). Default preserves historical keys.
@@ -326,7 +315,7 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
         Returns:
             Self for fluent chaining
         """
-        self._manager = supervisor
+        self._supervisor = supervisor
         if supervisor not in self._members:
             self._members.insert(0, supervisor)
         return self
@@ -353,7 +342,7 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
             context=context,
             formation=self._formation,
             members=list(self._members),
-            supervisor=self._manager,
+            supervisor=self._supervisor,
             persist_execution_state=True,
         )
 
@@ -501,7 +490,7 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
         state = self._current_execution_state()
         if state is not None:
             return state.supervisor
-        return self._manager
+        return self._supervisor
 
     def _active_manager(self) -> Optional["ITeamMember"]:
         """Compatibility alias for _active_supervisor()."""
@@ -797,6 +786,17 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
             delegate_reentry_contract=delegate_reentry_contract,
         )
 
+        parallel_isolation = bool(
+            active_formation == TeamFormation.PARALLEL
+            and effective_context.get("parallel_worktree_isolation", False)
+        )
+        if parallel_isolation:
+            effective_context = dict(effective_context)
+            effective_context.update(worktree_isolation=True, materialize_worktrees=True)
+            # Preserve deliverables for review; merging/cleanup remain explicit.
+            effective_context.setdefault("cleanup_worktrees", False)
+            effective_context.setdefault("auto_merge_worktrees", False)
+
         # Wrap team members with participants
         shared_state_with_supervisor = self._active_shared_context()
         context_shared_state = effective_context.get("shared_state")
@@ -805,19 +805,44 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
         active_supervisor = self._active_supervisor()
         if active_supervisor is not None:
             shared_state_with_supervisor["explicit_supervisor_id"] = active_supervisor.id
-            shared_state_with_supervisor["explicit_manager_id"] = active_supervisor.id
+        normalize_supervisor_context(shared_state_with_supervisor)
 
         max_workers = self._extract_max_workers(effective_context, shared_state_with_supervisor)
         candidate_members = self._filter_execution_members(
             self._active_members(),
             member_ids=self._extract_delegate_reentry_member_ids(delegate_reentry_contract),
         )
-        execution_members = self._limit_execution_members(
-            candidate_members,
-            active_formation,
-            max_workers,
-            supervisor=active_supervisor,
-        )
+        admission_limit = None
+        if active_formation == TeamFormation.PARALLEL and effective_context.get(
+            "capacity_aware_parallelism",
+            shared_state_with_supervisor.get("capacity_aware_parallelism", False),
+        ):
+            provider = getattr(self._orchestrator, "provider", None)
+            capacity_query = getattr(provider, "get_parallel_capacity", None)
+            if not callable(capacity_query):
+                raise ValueError(
+                    "Capacity-aware parallelism requires a provider capacity declaration"
+                )
+            admission_limit = await capacity_query(getattr(self._orchestrator, "model", ""))
+            if (
+                not isinstance(admission_limit, int)
+                or isinstance(admission_limit, bool)
+                or admission_limit < 1
+            ):
+                raise ValueError("Provider parallel capacity must be a positive integer")
+            if max_workers is not None:
+                admission_limit = min(admission_limit, max_workers)
+            # Admission queues every member. Legacy max_workers truncation is
+            # preserved only when the additive admission contract is disabled.
+            execution_members = list(candidate_members)
+            shared_state_with_supervisor["member_concurrency_limit"] = admission_limit
+        else:
+            execution_members = self._limit_execution_members(
+                candidate_members,
+                active_formation,
+                max_workers,
+                supervisor=active_supervisor,
+            )
         member_context_overrides = self._extract_delegate_reentry_member_context_overrides(
             delegate_reentry_contract
         )
@@ -849,6 +874,9 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
                 if worktree_overrides_source
                 else {}
             )
+        if parallel_isolation and (worktree_session is None or not worktree_session.materialized):
+            logger.warning("PARALLEL workspace isolation could not be materialized")
+            raise ValueError("PARALLEL workspace isolation requires materialized git worktrees")
         participants = [
             TeamParticipant(
                 member=m,
@@ -974,7 +1002,16 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
             )
 
             # Build final output
-            success = all(r.success for r in member_results_list) if member_results_list else False
+            if not member_results_list:
+                success = False
+            elif active_formation == TeamFormation.PARALLEL:
+                # PARALLEL members are independent by contract (redundancy,
+                # diverse perspectives): the team succeeds when at least one
+                # member delivered. Failed members stay visible in
+                # member_results instead of failing the whole team.
+                success = any(r.success for r in member_results_list)
+            else:
+                success = all(r.success for r in member_results_list)
             final_outputs = [r.output for r in member_results_list if r.success]
             total_tool_calls = sum(r.tool_calls_used for r in member_results_list)
 
@@ -985,6 +1022,50 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
                 final_output = final_outputs[-1]  # Last stage's output only
             else:
                 final_output = "\n\n".join(final_outputs)
+
+            if active_formation == TeamFormation.PARALLEL:
+                failed = [result for result in member_results_list if not result.success]
+                if failed:
+                    summary = "Member failures:\n" + "\n".join(
+                        f"- {result.member_id}: {result.error or 'execution failed'}"
+                        for result in failed
+                    )
+                    final_output = f"{final_output}\n\n{summary}" if final_output else summary
+            if active_formation == TeamFormation.CONSENSUS and member_results_list:
+                metadata = member_results_list[0].metadata
+                success = success and bool(
+                    metadata.get("consensus_achieved") or "consensus_decision" in metadata
+                )
+                if "consensus_decision" in metadata:
+                    final_output = metadata["consensus_decision"]
+
+            if member_results_list and "ensemble_success" in member_results_list[0].metadata:
+                metadata = member_results_list[0].metadata
+                success = bool(metadata["ensemble_success"]) and all(
+                    r.success for r in member_results_list
+                )
+                final_output = (
+                    metadata["ensemble_decision"] if success else metadata["ensemble_error"]
+                )
+
+            if member_results_list and "conversation_success" in member_results_list[0].metadata:
+                metadata = member_results_list[0].metadata
+                success = bool(metadata["conversation_success"]) and all(
+                    r.success for r in member_results_list
+                )
+                final_output = metadata["conversation_output"]
+
+            if (
+                active_formation == TeamFormation.REFLECTION
+                and effective_context.get("capture_member_usage", False)
+                and member_results_list
+                and "reflection_success" in member_results_list[0].metadata
+            ):
+                metadata = member_results_list[0].metadata
+                success = bool(metadata["reflection_success"]) and all(
+                    r.success for r in member_results_list
+                )
+                final_output = metadata["reflection_output"]
 
             # Extract consensus metadata if present (from ConsensusFormation)
             result_dict = {
@@ -2908,7 +2989,7 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
             Self for fluent chaining
         """
         self._members.clear()
-        self._manager = None
+        self._supervisor = None
         self._message_history.clear()
         self._shared_context.clear()
         return self
@@ -2931,7 +3012,7 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
     @property
     def supervisor(self) -> Optional["ITeamMember"]:
         """Get team supervisor (for hierarchical formation)."""
-        return self._manager
+        return self._supervisor
 
     # =========================================================================
     # Parameterised execution & TeamConfig adapter
@@ -2974,6 +3055,7 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
             formation=formation,
             supervisor=supervisor,
             shared_context=copy.deepcopy(dict(effective_context)),
+            team_goal=(task or "").strip(),
         )
         token = self._execution_state.set(execution_state)
         try:
@@ -2982,6 +3064,7 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
                 effective_context,
                 default_formation=formation,
             )
+            execution_state.formation = effective_formation
 
             self._emit_team_event(
                 "started",
@@ -3120,15 +3203,72 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
 
         def _make_executor(team_member):
             async def executor(task: str, context: Dict[str, Any]) -> Dict[str, Any]:
+                # The formation passes the TEAM goal to every member; a
+                # member's own spec.goal is its actual assignment. Lead with
+                # it (team goal as context) so parallel members each know
+                # what - and only what - they are responsible for.
+                # HIERARCHICAL is exempt: its `task` is the supervisor's
+                # dynamic delegation, which outranks the static spec.goal.
+                member_goal = (getattr(team_member, "goal", "") or "").strip()
+                team_task = (task or "").strip()
+                execution_state = self._current_execution_state()
+                binding_context = execution_state.shared_context if execution_state else context
+                binding = binding_context.get("member_task_binding")
+                if binding is not None and binding != "structured-v1":
+                    raise ValueError("member_task_binding must be 'structured-v1' or absent")
+                is_dynamic_delegation = self._active_formation() == TeamFormation.HIERARCHICAL or (
+                    team_task != (execution_state.team_goal if execution_state else "")
+                )
+                if binding == "structured-v1":
+                    # Keep the formation's task opaque: it owns delegation and
+                    # the response contract. Bind identity/assignment once here,
+                    # never infer either from a rewritten task or role string.
+                    effective_task = json.dumps(
+                        {
+                            "version": 1,
+                            "member": {
+                                "id": team_member.id,
+                                "name": team_member.name,
+                                "role": getattr(team_member.role, "value", team_member.role),
+                                "assignment": team_member.goal,
+                            },
+                            "formation_task": task,
+                            "instruction_priority": ["formation_task", "member.assignment"],
+                            "instructions": (
+                                "Execute formation_task for this member. Its active delegation "
+                                "and response contract take priority over the declared assignment. "
+                                "Use member.assignment to identify your own deliverables when "
+                                "formation_task does not replace them. Return the formation's "
+                                "response, not this input envelope."
+                            ),
+                        }
+                    )
+                elif member_goal and member_goal != team_task and not is_dynamic_delegation:
+                    effective_task = (
+                        f"{member_goal}\n\n(Team objective, for context: {team_task})"
+                        if team_task
+                        else member_goal
+                    )
+                else:
+                    effective_task = task
                 spawn_result = await sub_orchestrator.spawn(
                     role=team_member.role,
-                    task=task,
+                    task=effective_task,
                     tool_budget=team_member.tool_budget,
                     allowed_tools=team_member.allowed_tools,
                     provider=getattr(team_member, "provider", None),
                     model=getattr(team_member, "model", None),
                     temperature=getattr(team_member, "temperature", None),
                     reasoning_effort=getattr(team_member, "reasoning_effort", None),
+                    member_id=team_member.id,
+                    display_name=getattr(team_member, "name", None),
+                    team_id=context.get("team_id"),
+                    plan_id=context.get("plan_id"),
+                    plan_step_id=context.get("plan_step_id"),
+                    parent_session_id=context.get("parent_session_id"),
+                    child_session_id=context.get("child_session_id"),
+                    working_directory=context.get("worktree_path"),
+                    capture_usage=bool(context.get("capture_member_usage", False)),
                 )
                 return {
                     "success": getattr(spawn_result, "success", False),
@@ -3136,6 +3276,25 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
                     "error": getattr(spawn_result, "error", None),
                     "tool_calls_used": getattr(spawn_result, "tool_calls_used", 0),
                     "duration_seconds": getattr(spawn_result, "duration_seconds", 0.0),
+                    "metadata": {
+                        key: value
+                        for key, value in (getattr(spawn_result, "details", {}) or {}).items()
+                        if key
+                        in {
+                            "member_id",
+                            "agent_id",
+                            "display_name",
+                            "team_id",
+                            "plan_id",
+                            "plan_step_id",
+                            "parent_session_id",
+                            "child_session_id",
+                            "session_id",
+                            "usage",
+                            "awaiting_approval",
+                            "approval_request",
+                        }
+                    },
                 }
 
             return executor
@@ -3149,11 +3308,20 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
         formation: TeamFormation,
     ) -> TeamResult:
         """Convert ``execute_task``'s dict result into a ``TeamResult``."""
+        raw_formation = result.get("formation")
+        try:
+            effective_formation = (
+                raw_formation
+                if isinstance(raw_formation, TeamFormation)
+                else TeamFormation(str(raw_formation))
+            )
+        except (TypeError, ValueError):
+            effective_formation = formation
         return TeamResult(
             success=bool(result.get("success", False)),
             final_output=str(result.get("final_output", "")),
             member_results=dict(result.get("member_results", {})),
-            formation=formation,
+            formation=effective_formation,
             total_tool_calls=int(result.get("total_tool_calls", 0)),
             total_duration=float(result.get("total_duration", 0.0)),
             communication_log=list(result.get("communication_log", [])),
@@ -3161,6 +3329,10 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
             consensus_achieved=result.get("consensus_achieved"),
             consensus_rounds=result.get("consensus_rounds"),
             error=result.get("error"),
+            status=result.get("status"),
+            paused_member_id=result.get("paused_member_id"),
+            approval_request=result.get("approval_request"),
+            thread_id=result.get("thread_id"),
         )
 
     async def execute_team_config(
@@ -3370,8 +3542,31 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
         if callable(config.formation_strategy):
             try:
                 selected_formation = config.formation_strategy(strategy_state)
+                if selected_formation is not None and not asyncio.iscoroutine(selected_formation):
+                    selected_formation = TeamFormation(
+                        getattr(
+                            selected_formation, "value", str(selected_formation).strip().lower()
+                        )
+                    )
             except Exception as exc:
-                logger.debug("Formation strategy failed; keeping default formation: %s", exc)
+                logger.warning("Formation strategy failed; keeping default formation: %s", exc)
+                sink = current_member_sink.get()
+                if sink is not None:
+                    from victor.framework.member_event_sink import (
+                        TEAM_FORMATION_WARNING,
+                        MemberEvent,
+                    )
+
+                    await sink.emit(
+                        MemberEvent(
+                            kind=TEAM_FORMATION_WARNING,
+                            member_id="coordinator",
+                            formation=self._formation.value,
+                            success=False,
+                            content="Formation strategy failed; using configured default",
+                            metadata={"reason": type(exc).__name__, "level": "warning"},
+                        )
+                    )
             else:
                 if asyncio.iscoroutine(selected_formation):
                     close_coro = getattr(selected_formation, "close", None)

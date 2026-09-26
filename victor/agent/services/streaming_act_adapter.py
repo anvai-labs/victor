@@ -35,6 +35,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, AsyncIterator
 
+from victor.core.async_utils import aclosing_if_supported
 from victor.providers.base import StreamChunk
 
 
@@ -88,13 +89,13 @@ class StreamingActAdapter:
 
         executor._reset_streaming_turn_state(orch)
         stream_ctx = await runtime_owner._create_stream_context(user_message, **kwargs)
-        orch._current_stream_context = stream_ctx
+        services.stream_lifecycle.bind_context(stream_ctx)
 
         await executor._extract_task_requirements(executor.services.session, user_message)
         executor._apply_run_guidance(
             orch, stream_ctx, user_message, stream_ctx.max_exploration_iterations
         )
-        goals = executor._initialize_task_intent(orch, stream_ctx, user_message)
+        goals = executor._initialize_task_intent(stream_ctx, user_message)
 
         return cls(
             executor,
@@ -133,16 +134,19 @@ class StreamingActAdapter:
         session.stream_ctx.total_iterations = turn_index
 
         act_result = StreamingActResult()
-        async for chunk in self._executor.execute_turn_streaming(
-            session.orch,
-            session.runtime_owner,
-            session.stream_ctx,
-            user_message=query,
-            goals=session.goals,
-            recovery=session.recovery,
-            create_recovery_context=session.create_recovery_context,
-            result=act_result,
-        ):
-            yield chunk
+        async with aclosing_if_supported(
+            self._executor.execute_turn_streaming(
+                session.orch,
+                session.runtime_owner,
+                session.stream_ctx,
+                user_message=query,
+                goals=session.goals,
+                recovery=session.recovery,
+                create_recovery_context=session.create_recovery_context,
+                result=act_result,
+            )
+        ) as stream:
+            async for chunk in stream:
+                yield chunk
 
         outcome.turn_result = act_result.turn_result

@@ -29,6 +29,7 @@ Type Consolidation:
 
 from __future__ import annotations
 
+import logging
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -40,6 +41,38 @@ if TYPE_CHECKING:
     from victor.core.shared_types import SubAgentRole
     from victor.agent.protocols import UnifiedMemoryCoordinatorProtocol
     from victor.agent.presentation import PresentationProtocol
+
+
+class FormationRole(str, Enum):
+    """Canonical coordination roles, separate from domain-specific SubAgentRole.
+
+    Reviewer is one-pass, critic is iterative, judge gives a one-shot verdict,
+    and synthesizer composes candidate outputs. Generator is reflection's producer.
+    """
+
+    SUPERVISOR = "supervisor"
+    MEMBER = "member"
+    SUBAGENT = "subagent"
+    REVIEWER = "reviewer"
+    CRITIC = "critic"
+    JUDGE = "judge"
+    SYNTHESIZER = "synthesizer"
+    ROUTER = "router"
+    GENERATOR = "generator"
+
+
+def normalize_supervisor_context(shared_state: Dict[str, Any]) -> None:
+    """Consume the deprecated manager alias once; emit only the canonical key.
+
+    Canonical input wins if both keys are present, including a deliberate None.
+    Mutates coordinator-owned state, never the caller's original context mapping.
+    """
+    if "explicit_manager_id" in shared_state:
+        legacy = shared_state.pop("explicit_manager_id")
+        logging.getLogger(__name__).warning(
+            "explicit_manager_id is deprecated; use explicit_supervisor_id (canonical value wins)"
+        )
+        shared_state.setdefault("explicit_supervisor_id", legacy)
 
 
 class TeamFormation(str, Enum):
@@ -56,6 +89,9 @@ class TeamFormation(str, Enum):
         PIPELINE: Output of one member feeds into the next
         CONSENSUS: All members must agree (multiple rounds if needed)
         REFLECTION: Generator → critic → refine loop with early-exit on satisfaction
+        ADAPTIVE: Bounded switching between registered formations
+        DYNAMIC_ROUTER: Route a task to one member
+        MULTI_LEVEL_HIERARCHY: Split tasks down a tree and synthesize upward
     """
 
     SEQUENTIAL = "sequential"
@@ -64,6 +100,12 @@ class TeamFormation(str, Enum):
     PIPELINE = "pipeline"
     CONSENSUS = "consensus"
     REFLECTION = "reflection"
+    GROUP_CHAT = "group_chat"
+    DEBATE = "debate"
+    HANDOFF = "handoff"
+    ADAPTIVE = "adaptive"
+    DYNAMIC_ROUTER = "dynamic_router"
+    MULTI_LEVEL_HIERARCHY = "multi_level_hierarchy"
 
 
 class TeamAgentCategory(str, Enum):
@@ -912,10 +954,14 @@ class TeamResult:
     consensus_achieved: Optional[bool] = None
     consensus_rounds: Optional[int] = None
     error: Optional[str] = None
+    status: Optional[str] = None
+    paused_member_id: Optional[str] = None
+    approval_request: Optional[Dict[str, Any]] = None
+    thread_id: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
-        return {
+        result = {
             "success": self.success,
             "final_output": self.final_output,
             "member_results": {k: v.to_dict() for k, v in self.member_results.items()},
@@ -926,6 +972,14 @@ class TeamResult:
             "consensus_rounds": self.consensus_rounds,
             "error": self.error,
         }
+        if self.status is not None:
+            result.update(
+                status=self.status,
+                paused_member_id=self.paused_member_id,
+                approval_request=self.approval_request,
+                thread_id=self.thread_id,
+            )
+        return result
 
 
 def normalize_member_execution_result(

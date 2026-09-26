@@ -16,8 +16,15 @@
 
 from types import SimpleNamespace
 
+import pytest
+
 from victor.agent.services import chat_stream_executor
 from victor.agent.services.chat_delivery import ChatDelivery
+from victor.agent.services.chat_planning import ChatPlanning
+from victor.agent.services.chat_runtime_services import (
+    ChatRuntimeIntelligence,
+    ChatStreamLifecycle,
+)
 from victor.agent.services.chat_stream_executor import StreamingChatExecutor
 from victor.agent.turn_policy import (
     NudgePolicy,
@@ -44,13 +51,23 @@ async def test_extract_task_requirements_clears_session_state():
 
 
 def _guidance_orch(messages):
-    return SimpleNamespace(
-        _apply_intent_guard=lambda msg: messages.setdefault("intent", []).append(msg),
-        _apply_task_guidance=lambda *a: messages.setdefault("task_guidance", []).append(a),
+    class _Guidance:
+        def apply_intent_guard(self, message):
+            messages.setdefault("intent", []).append(message)
+
+        def apply_task_guidance(self, **kwargs):
+            messages.setdefault("task_guidance", []).append(kwargs)
+
+    orch = SimpleNamespace(
         add_message=lambda role, content, metadata=None: messages.setdefault("msg", []).append(
             content
         ),
     )
+    executor = StreamingChatExecutor.__new__(StreamingChatExecutor)
+    executor._runtime_owner = SimpleNamespace(
+        services=SimpleNamespace(planning=ChatPlanning(guidance=_Guidance()))
+    )
+    return executor, orch
 
 
 def test_apply_run_guidance_action_task_injects_guidance():
@@ -62,9 +79,8 @@ def test_apply_run_guidance_action_task_injects_guidance():
         is_action_task=True,
         needs_execution=True,
     )
-    StreamingChatExecutor._apply_run_guidance(
-        _guidance_orch(messages), stream_ctx, "build a script", 12
-    )
+    executor, orch = _guidance_orch(messages)
+    executor._apply_run_guidance(orch, stream_ctx, "build a script", 12)
     assert messages["intent"] == ["build a script"]
     assert len(messages["task_guidance"]) == 1
     assert any("ACTION-GUIDANCE" in c for c in messages.get("msg", []))
@@ -79,16 +95,17 @@ def test_apply_run_guidance_non_action_skips_message():
         is_action_task=False,
         needs_execution=False,
     )
-    StreamingChatExecutor._apply_run_guidance(
-        _guidance_orch(messages), stream_ctx, "explain the code", 50
-    )
+    executor, orch = _guidance_orch(messages)
+    executor._apply_run_guidance(orch, stream_ctx, "explain the code", 50)
     assert messages.get("msg", []) == []  # no action-guidance for non-action tasks
 
 
 def test_initialize_task_intent_returns_goals_and_seeds_ctx():
     seen = {}
-    orch = SimpleNamespace(
-        _tool_planner=SimpleNamespace(infer_goals_from_message=lambda m: ["goal1"]),
+    planner = SimpleNamespace(infer_goals_from_message=lambda m: ["goal1"])
+    executor = StreamingChatExecutor.__new__(StreamingChatExecutor)
+    executor._runtime_owner = SimpleNamespace(
+        services=SimpleNamespace(planning=ChatPlanning(planner=planner))
     )
     stream_ctx = SimpleNamespace(
         coarse_task_type="analysis",
@@ -96,17 +113,98 @@ def test_initialize_task_intent_returns_goals_and_seeds_ctx():
         extend_plan_steps=lambda g: seen.__setitem__("steps", g),
         record_intent_event=lambda *a, **k: seen.__setitem__("event", True),
     )
-    goals = StreamingChatExecutor._initialize_task_intent(orch, stream_ctx, "do the thing")
+    goals = executor._initialize_task_intent(stream_ctx, "do the thing")
     assert goals == ["goal1"]  # returned for downstream tool planning
     assert seen["intent"] == "do the thing"
     assert seen["steps"] == ["goal1"]
     assert seen["event"] is True
 
 
-def _provider_turn_executor():
+def _provider_turn_executor(lifecycle=None):
     # Build an executor instance without running __init__ (we only exercise the
     # extracted ACT provider sub-step, which depends on no constructor state).
-    return StreamingChatExecutor.__new__(StreamingChatExecutor)
+    executor = StreamingChatExecutor.__new__(StreamingChatExecutor)
+    lifecycle = lifecycle or SimpleNamespace(
+        begin=lambda: None, is_cancelled=lambda: False, finish=lambda: None
+    )
+    executor._runtime_owner = SimpleNamespace(
+        services=SimpleNamespace(stream_lifecycle=ChatStreamLifecycle(lifecycle))
+    )
+    return executor
+
+
+@pytest.mark.parametrize("streaming", [False, True], ids=["buffered", "streamed"])
+@pytest.mark.parametrize("cancel_after_yield", [False, True], ids=["during-await", "after-yield"])
+async def test_cancelled_completed_tool_preserves_accounting_once(streaming, cancel_after_yield):
+    cancelled = False
+    recorded = []
+
+    class _Lifecycle:
+        def is_cancelled(self):
+            return cancelled
+
+    class _Handler:
+        def update_observed_files(self, files):
+            pass
+
+        async def execute_tools(self, **kwargs):
+            nonlocal cancelled
+            if not cancel_after_yield:
+                cancelled = True
+            return _FakeToolExecResult(tool_calls_executed=1, chunks=["hidden-result"])
+
+        async def execute_tools_streaming(self, **kwargs):
+            nonlocal cancelled
+            kwargs["result"].tool_calls_executed = 1
+            if not cancel_after_yield:
+                cancelled = True
+            yield "hidden-result"
+
+    handler = _Handler()
+    if not streaming:
+        delattr(_Handler, "execute_tools_streaming")
+    runtime_owner = SimpleNamespace(_tool_execution_handler=handler)
+    orch = SimpleNamespace(
+        observed_files=set(),
+        tool_calls_used=0,
+        tool_budget=5,
+    )
+    stream_ctx = SimpleNamespace(
+        tool_calls_used=0,
+        record_iteration_tool_count=recorded.append,
+    )
+    executor = _provider_turn_executor(_Lifecycle())
+    executor._maybe_inject_write_action_guard = lambda *args, **kwargs: pytest.fail(
+        "cancelled execution must not inject a continuation guard"
+    )
+    holder = chat_stream_executor._ToolTurnOutcome()
+    execution = executor._execute_tools_turn(
+        orch,
+        runtime_owner,
+        stream_ctx,
+        user_message="write",
+        tool_calls=[{"name": "write_file"}],
+        full_content="",
+        result_holder=holder,
+    )
+
+    if cancel_after_yield:
+        assert await anext(execution) == "hidden-result"
+        cancelled = True
+        await execution.aclose()
+    else:
+        with pytest.raises(chat_stream_executor._StreamingCancelled):
+            async for _ in execution:
+                pytest.fail("cancelled result chunks must not escape")
+
+    if not cancel_after_yield:
+        with pytest.raises(StopAsyncIteration):
+            await anext(execution)
+
+    assert orch.tool_calls_used == 1
+    assert stream_ctx.tool_calls_used == 1
+    assert recorded == [1]
+    assert holder.result.tool_calls_executed == 1
 
 
 async def test_stream_provider_turn_plans_tools_and_streams(monkeypatch):
@@ -137,10 +235,10 @@ async def test_stream_provider_turn_plans_tools_and_streams(monkeypatch):
 
     executor = _provider_turn_executor()
     executor._runtime_owner = SimpleNamespace(
-        services=SimpleNamespace(tool_planner=orch._tool_planner)
+        services=SimpleNamespace(planning=ChatPlanning(planner=orch._tool_planner))
     )
 
-    async def _fake_get_tools_cached(self, o, ctx_msg, g, planned_tools=None):
+    async def _fake_get_tools_cached(self, ctx_msg, g, planned_tools=None):
         seen["tools_cached"] = (ctx_msg, g, planned_tools)
         return ["resolved_tool"]
 
@@ -330,7 +428,7 @@ def _emit_executor():
     executor = _provider_turn_executor()
     executor._prepare_visible_content = lambda fc, *, user_message: fc
 
-    async def _govern(orch, text):
+    async def _govern(text):
         return text, False
 
     executor._govern_final_response = _govern
@@ -351,7 +449,10 @@ async def _collect_emit(
 ):
     executor._runtime_owner = SimpleNamespace(
         services=SimpleNamespace(
-            delivery=ChatDelivery(chunks=orch._chunk_generator, sanitizer=orch.sanitizer)
+            delivery=ChatDelivery(chunks=orch._chunk_generator, sanitizer=orch.sanitizer),
+            intelligence=ChatRuntimeIntelligence(
+                runtime=SimpleNamespace(record_outcome=orch._record_runtime_intelligence_outcome)
+            ),
         )
     )
     decision = chat_stream_executor._EmitDecision()

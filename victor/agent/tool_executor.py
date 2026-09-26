@@ -38,6 +38,11 @@ from victor.core.constants import DEFAULT_VERTICAL
 from victor.agent.argument_normalizer import ArgumentNormalizer, NormalizationStrategy
 from victor.agent.error_recovery import is_confident_path_suggestion, recover_from_error
 from victor.agent.safety import SafetyChecker, get_safety_checker
+from victor.agent.tool_retry_safety import (
+    allows_tool_retry,
+    blocks_tool_retry,
+    mark_unknown_tool_outcome,
+)
 from victor.storage.cache.tool_cache import ToolCache
 from victor.core.errors import (
     ErrorCategory,
@@ -477,7 +482,7 @@ class ToolExecutor:
         properties = schema.get("properties", {})
         for key, value in list(arguments.items()):
             prop_schema = properties.get(key)
-            if not prop_schema:
+            if not isinstance(prop_schema, dict):
                 continue
 
             expected = prop_schema.get("type")
@@ -572,10 +577,14 @@ class ToolExecutor:
         # not be rejected by STRICT for a recoverable serialization (real-agent calibration
         # saw the edit tool's `ops` sent as a JSON string). ``arguments`` is the same dict
         # that flows to execution, so the coerced values are used downstream too.
-        self._coerce_arg_types(tool, arguments)
+        preserve_arguments = getattr(tool, "preserve_arguments", False) is True
+        if not preserve_arguments:
+            self._coerce_arg_types(tool, arguments)
 
         # First check for unknown/hallucinated arguments (provides clearer errors)
-        valid, unknown_args = self._check_unknown_arguments(tool, arguments)
+        valid, unknown_args = (
+            (True, []) if preserve_arguments else self._check_unknown_arguments(tool, arguments)
+        )
         if not valid:
             # Get valid parameters for helpful error message
             schema = tool.parameters
@@ -634,6 +643,10 @@ class ToolExecutor:
 
     def _get_effective_validation_mode(self, tool: BaseTool) -> ValidationMode:
         """Elevate validation for stateful tools even when global mode is lenient."""
+        # An authoritative external contract is not a repair hint. OFF/LENIENT
+        # must not bypass it or defer refusal into execution error logging.
+        if getattr(tool, "preserve_arguments", False) is True:
+            return ValidationMode.STRICT
         if self.validation_mode != ValidationMode.LENIENT:
             return self.validation_mode
         access_mode = getattr(tool, "access_mode", AccessMode.READONLY)
@@ -732,7 +745,8 @@ class ToolExecutor:
         self._stats[tool_name]["calls"] += 1
 
         # Normalize arguments (skip if already normalized by caller)
-        if skip_normalization:
+        preserve_arguments = getattr(self.tools.get(tool_name), "preserve_arguments", False) is True
+        if skip_normalization or preserve_arguments:
             normalized_args = arguments
             strategy = None
         else:
@@ -743,7 +757,7 @@ class ToolExecutor:
         # substitution is announced in the result so the model can tell the
         # requested path from the served one.
         path_redirect_note: Optional[str] = None
-        if self._failed_path_redirects:
+        if self._failed_path_redirects and not preserve_arguments:
             for _path_key in ("path", "file_path", "filename", "root"):
                 _bad = str(normalized_args.get(_path_key, ""))
                 if _bad and _bad in self._failed_path_redirects:
@@ -765,7 +779,11 @@ class ToolExecutor:
         # Code correction middleware - validate and fix executable-code arguments.
         # Gated on the tool's access_mode contract (executable code only); file content is
         # never auto-corrected. Single ``process()`` entry shared with ToolPipeline.
-        if self.enable_code_correction and self.code_correction_middleware is not None:
+        if (
+            self.enable_code_correction
+            and self.code_correction_middleware is not None
+            and not preserve_arguments
+        ):
             try:
                 tool_obj = self.get_tool_function(tool_name)
                 normalized_args, correction_result = self.code_correction_middleware.process(
@@ -780,6 +798,11 @@ class ToolExecutor:
                     )
             except (AttributeError, TypeError, ValueError, RuntimeError) as e:
                 logger.warning("Code correction middleware failed: %s", str(e))
+
+        from victor.framework.approval_binding import current_approval_grant
+
+        if current_approval_grant.get() is not None:
+            skip_cache = True
 
         # Check cache first
         if not skip_cache and self.cache:
@@ -823,7 +846,9 @@ class ToolExecutor:
             return result
 
         # Check for missing required arguments before schema validation
-        missing = self._check_missing_required_args(tool, normalized_args)
+        missing = (
+            [] if preserve_arguments else self._check_missing_required_args(tool, normalized_args)
+        )
         if missing:
             error_msg = f"Error: Missing required arguments: {', '.join(missing)}"
             result = ToolExecutionResult(
@@ -890,7 +915,7 @@ class ToolExecutor:
             tool, normalized_args, exec_context
         )
         recovered_execution = None
-        if not success:
+        if not success and allows_tool_retry(tool) and not blocks_tool_retry(error_info):
             recovered_execution = await self._retry_with_recovered_path_if_safe(
                 tool,
                 normalized_args,
@@ -943,7 +968,11 @@ class ToolExecutor:
             # Only typo-class (high basename similarity) suggestions are recorded;
             # a weak fuzzy match must surface as an honest not-found error, not a
             # silent substitute (session proximaDB-5b2726a3 spiral).
-            if self._is_safe_read_only_path_retry(tool, normalized_args, error):
+            if (
+                not blocks_tool_retry(error_info)
+                and allows_tool_retry(tool)
+                and self._is_safe_read_only_path_retry(tool, normalized_args, error)
+            ):
                 import re as _re
 
                 for _path_key in ("path", "file_path", "filename", "root"):
@@ -1171,6 +1200,7 @@ class ToolExecutor:
 
         while True:
             retry_context.attempt += 1
+            execution_started = False
 
             try:
                 # Run before hooks - critical hooks can block execution
@@ -1180,6 +1210,12 @@ class ToolExecutor:
                 arguments.pop("_exec_ctx", None)
                 # Per-tool timeout: tool-level override then executor default
                 per_attempt_timeout = self._get_tool_timeout(tool)
+                from victor.framework.approval_binding import current_approval_grant
+
+                grant = current_approval_grant.get()
+                if grant is not None:
+                    grant.dispatch(tool, arguments, self.current_user)
+                execution_started = True
                 result = await asyncio.wait_for(
                     tool.execute(_exec_ctx=context, **arguments),
                     timeout=per_attempt_timeout,
@@ -1212,6 +1248,9 @@ class ToolExecutor:
                             context={"tool": tool.name, "arguments": arguments},
                         )
                         self._track_error_category(error_info.category)
+                        if not allows_tool_retry(tool):
+                            mark_unknown_tool_outcome(error_info)
+                            error = error_info.to_user_message()
                         return (
                             result.output,
                             False,
@@ -1238,6 +1277,16 @@ class ToolExecutor:
                 self._track_error_category(last_error_info.category)
                 retry_context.record_exception(e)
 
+                if not allows_tool_retry(tool):
+                    mark_unknown_tool_outcome(last_error_info)
+                    self.retry_strategy.on_failure(retry_context)
+                    return (
+                        None,
+                        False,
+                        last_error_info.to_user_message(),
+                        retry_context.attempt - 1,
+                        last_error_info,
+                    )
                 if self.retry_strategy.should_retry(retry_context):
                     self.retry_strategy.on_retry(retry_context)
                     delay = self.retry_strategy.get_delay(retry_context)
@@ -1253,44 +1302,6 @@ class ToolExecutor:
                         retry_context.attempt - 1,
                         last_error_info,
                     )
-
-            except (TimeoutError, asyncio.TimeoutError) as timeout_error:
-                retry_context.record_exception(timeout_error)
-
-                # Use centralized error handler for structured logging
-                last_error_info = self.error_handler.handle(
-                    timeout_error,
-                    context={
-                        "tool": tool.name,
-                        "attempt": retry_context.attempt,
-                        "max_attempts": retry_context.max_attempts,
-                        "arguments": arguments,
-                    },
-                )
-                self._track_error_category(last_error_info.category)
-
-                if self.retry_strategy.should_retry(retry_context):
-                    self.retry_strategy.on_retry(retry_context)
-                    delay = self.retry_strategy.get_delay(retry_context)
-                    logger.warning(
-                        "[%s] Tool %s timeout - retrying in %.2fs " "(attempt %d/%d): %s",
-                        last_error_info.correlation_id,
-                        tool.name,
-                        delay,
-                        retry_context.attempt,
-                        retry_context.max_attempts,
-                        str(timeout_error),
-                    )
-                    await asyncio.sleep(delay)
-                    continue
-
-                return (
-                    None,
-                    False,
-                    str(timeout_error),
-                    retry_context.attempt - 1,
-                    last_error_info,
-                )
 
             except (
                 ToolExecutionError,
@@ -1314,6 +1325,19 @@ class ToolExecutor:
                 )
                 self._track_error_category(last_error_info.category)
 
+                if not allows_tool_retry(tool) or isinstance(e, PermissionError):
+                    if not allows_tool_retry(tool):
+                        mark_unknown_tool_outcome(last_error_info)
+                    else:
+                        last_error_info.details["retryable"] = False
+                    self.retry_strategy.on_failure(retry_context)
+                    return (
+                        None,
+                        False,
+                        last_error_info.to_user_message(),
+                        retry_context.attempt - 1,
+                        last_error_info,
+                    )
                 logger.warning(
                     "[%s] Tool %s failed (attempt %d/%d): %s",
                     last_error_info.correlation_id,
@@ -1343,6 +1367,23 @@ class ToolExecutor:
                         retry_context.attempt - 1,
                         last_error_info,
                     )
+
+            except Exception as e:
+                if not execution_started or allows_tool_retry(tool):
+                    raise
+                # Includes critical after-hook failures following a committed effect.
+                # Cancellation and durable approval pauses are BaseException signals.
+                last_error_info = self.error_handler.handle(e, context={"tool": tool.name})
+                mark_unknown_tool_outcome(last_error_info)
+                self._track_error_category(last_error_info.category)
+                self.retry_strategy.on_failure(retry_context)
+                return (
+                    None,
+                    False,
+                    last_error_info.to_user_message(),
+                    retry_context.attempt - 1,
+                    last_error_info,
+                )
 
     def _track_error_category(self, category: ErrorCategory) -> None:
         """Track error occurrences by category for metrics.

@@ -83,6 +83,7 @@ suite('ChatViewProvider Test Suite', () => {
                 { role: 'assistant', content: 'Hi' }
             ];
 
+            assert.strictEqual(messages.length, 2);
             messages = [];
             assert.strictEqual(messages.length, 0);
         });

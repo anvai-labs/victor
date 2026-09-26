@@ -13,16 +13,16 @@ mirrored layout (``tests/unit`` mirrors ``victor``):
 - A changed **source** file (``victor/<rel>/<name>.py``) -> run its mirror tests
   ``tests/unit/<rel>/test_<name>.py`` and ``tests/unit/<rel>/test_<name>_*.py`` (when they exist).
 
-Prints existing pytest targets (one per line, deduped, sorted). Empty output means "nothing
-relevant to run" — the caller should treat that as a pass (the full sharded suite at
-develop->main is the safety net). This keeps the per-PR gate proportional to the change instead
-of running the ~7h single-process suite.
+Prints existing pytest targets (one per line, deduped, sorted). Empty output is valid only when
+no core Python source changed. A changed ``victor/**.py`` file without a mirror test is an error:
+silently deferring it to the later develop-to-main promotion leaves develop untested.
 
 Usage: ``select_changed_tests.py <changed_file> [<changed_file> ...]``
 """
 
 from __future__ import annotations
 
+import argparse
 import sys
 from pathlib import Path
 
@@ -45,20 +45,104 @@ MCP_LIFECYCLE_TESTS = (
     "tests/unit/integrations/mcp/test_client_response_correlation.py",
     "tests/unit/security/test_mcp_factory_lifecycle.py",
 )
+MCP_SCHEMA_TESTS = ("tests/unit/tools/test_mcp_schema_fidelity.py",)
+DEPRECATION_NOTICE_TESTS = ("tests/unit/test_release_deprecation_targets.py",)
+DEPRECATION_NOTICE_FILES = (
+    "victor/runtime/context.py",
+    "victor/framework/config.py",
+    "victor/core/verticals/registry_manager.py",
+    "victor/framework/agentic_graph/state.py",
+    "victor/agent/session_context_linker.py",
+    "victor/workflows/compute_registry.py",
+    "victor/workflows/executor.py",
+    "victor/agent/coordinators/__init__.py",
+    "victor/agent/resilience.py",
+    "victor/tools/metadata.py",
+    "victor/workflows/unified_compiler.py",
+    "victor/tools/base.py",
+    "victor/agent/sqlite_session_persistence.py",
+)
 RELATED_TESTS = {
-    "victor/integrations/mcp/client.py": MCP_LIFECYCLE_TESTS,
+    "scripts/ci/release_contract.py": ("tests/unit/scripts/test_security_workflow_contract.py",),
+    "scripts/check_version_sync.py": ("tests/unit/scripts/test_security_workflow_contract.py",),
+    ".github/workflows/release.yml": ("tests/unit/scripts/test_security_workflow_contract.py",),
+    "victor/agent/paused_run_store.py": (
+        "tests/unit/agent/test_paused_run_persistence.py",
+        "tests/unit/agent/test_paused_run_expiry.py",
+        "tests/unit/agent/test_durable_resume.py",
+    ),
+    "victor/framework/approval_binding.py": (
+        "tests/unit/agent/test_durable_resume.py",
+        "tests/unit/agent/test_paused_run_persistence.py",
+        "tests/unit/framework/test_client_resume.py",
+        "tests/unit/framework/policies/test_middleware.py",
+    ),
+    "victor/agent/tool_retry_safety.py": (
+        "tests/unit/tools/test_tool_executor_unit.py",
+        "tests/unit/agent/test_tool_pipeline.py",
+        "tests/unit/agent/services/test_tool_retry.py",
+    ),
+    "victor/agent/factory/coordination_builders.py": (
+        "tests/unit/framework/policies/test_builder_wiring.py",
+    ),
+    "victor/agent/middleware_chain.py": (
+        "tests/unit/agent/test_continuation_loop_fix.py",
+        "tests/unit/agent/test_tool_pipeline.py",
+    ),
+    "victor/framework/policies/gate.py": (
+        "tests/unit/framework/policies/test_message_phases.py",
+        "tests/unit/agent/services/test_chat_stream_governance.py",
+        "tests/unit/agent/services/test_turn_execution_runtime.py",
+    ),
+    "scripts/ci/check_no_agent_attribution.py": (
+        "tests/unit/scripts/test_check_no_agent_attribution.py",
+    ),
+    # Keep rename/deletion coverage explicit: the changed-file list contains
+    # paths but no status, so the retired origin maps to its replacement suite.
+    "victor/agent/services/chat_turn_lifecycle.py": (
+        "tests/unit/agent/services/test_chat_turn_runtime.py",
+    ),
+    "victor/integrations/mcp/client.py": (*MCP_LIFECYCLE_TESTS, *MCP_SCHEMA_TESTS),
+    "victor/integrations/mcp/protocol.py": (
+        "tests/unit/agent/test_mcp_protocol.py",
+        *MCP_SCHEMA_TESTS,
+    ),
+    "victor/integrations/mcp/server.py": (
+        "tests/unit/agent/test_mcp_server.py",
+        *MCP_SCHEMA_TESTS,
+    ),
+    "victor/tools/mcp_adapter_tool.py": MCP_SCHEMA_TESTS,
+    "victor/agent/tool_executor.py": (
+        "tests/unit/tools/test_tool_executor_unit.py",
+        *MCP_SCHEMA_TESTS,
+    ),
     "victor/integrations/mcp/stdio_transport.py": MCP_LIFECYCLE_TESTS,
+    "victor/ui/cli_group.py": ("tests/unit/ui/test_cli_command_resolution.py",),
     "scripts/ci/select_changed_tests.py": ("tests/unit/scripts/test_select_changed_tests.py",),
+    **dict.fromkeys(DEPRECATION_NOTICE_FILES, DEPRECATION_NOTICE_TESTS),
+    "victor/tools/base.py": (
+        *DEPRECATION_NOTICE_TESTS,
+        "tests/unit/core/test_tool_base.py",
+        *MCP_SCHEMA_TESTS,
+    ),
 }
+
+
+class SelectionError(ValueError):
+    """The changed core source cannot be covered safely by the fast gate."""
 
 
 def select(changed: list[str]) -> list[str]:
     targets: set[str] = set()
+    unmapped_sources: list[str] = []
     for raw in changed:
         p = raw.strip()
         if not p.endswith(".py"):
             continue
-        targets.update(target for target in RELATED_TESTS.get(p, ()) if (ROOT / target).exists())
+        existing_related = tuple(
+            target for target in RELATED_TESTS.get(p, ()) if (ROOT / target).exists()
+        )
+        targets.update(existing_related)
         path = Path(p)
         name = path.name
         # Changed test file -> run it directly.
@@ -70,24 +154,56 @@ def select(changed: list[str]) -> list[str]:
         if p.startswith("victor/"):
             rel = path.relative_to("victor")
             test_dir = ROOT / "tests" / "unit" / rel.parent
-            if not test_dir.is_dir():
-                continue
-            for cand in list(test_dir.glob(f"test_{rel.stem}.py")) + list(
-                test_dir.glob(f"test_{rel.stem}_*.py")
-            ):
+            candidates: list[Path] = []
+            if test_dir.is_dir():
+                candidates = list(test_dir.glob(f"test_{rel.stem}.py")) + list(
+                    test_dir.glob(f"test_{rel.stem}_*.py")
+                )
+            # Some older suites flatten one source directory level (for
+            # example benchmarks/deep_research.py is covered by
+            # evaluation/test_deep_research_benchmark.py). Preserve those
+            # explicit stem matches before declaring the source untested.
+            if not candidates:
+                unit_root = ROOT / "tests" / "unit"
+                candidates = list(unit_root.rglob(f"test_{rel.stem}.py")) + list(
+                    unit_root.rglob(f"test_{rel.stem}_*.py")
+                )
+            for cand in candidates:
                 targets.add(str(cand.relative_to(ROOT)))
+            # Fail-closed only when NOTHING covers the source: an explicit
+            # RELATED_TESTS entry (e.g. the MCP lifecycle contracts for
+            # transport-only changes) is coverage, even without a mirror file.
+            if not candidates and not existing_related:
+                unmapped_sources.append(p)
+    if unmapped_sources:
+        joined = "\n  - ".join(unmapped_sources)
+        raise SelectionError(
+            "changed core source has no mirrored unit test; add a test target before merging:\n"
+            f"  - {joined}"
+        )
     result = sorted(targets)
     if len(result) > MAX_SELECTED_TARGETS:
-        print(
+        raise SelectionError(
             f"select_changed_tests: {len(result)} targets exceed the "
             f"{MAX_SELECTED_TARGETS} cap — treating as a sweeping/mechanical change; "
-            "selecting nothing and deferring to the develop->main full suite.",
-            file=sys.stderr,
+            "split the change or run it through an explicitly sharded full-suite gate."
         )
-        return []
     return result
 
 
 if __name__ == "__main__":
-    for target in select(sys.argv[1:]):
-        print(target)
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("files", nargs="*")
+    parser.add_argument(
+        "--stdin",
+        action="store_true",
+        help="read one changed path per line from stdin (safe for spaces and leading dashes)",
+    )
+    args = parser.parse_args()
+    changed = [line.rstrip("\n") for line in sys.stdin] if args.stdin else args.files
+    try:
+        for target in select(changed):
+            print(target)
+    except SelectionError as exc:
+        print(f"select_changed_tests: {exc}", file=sys.stderr)
+        raise SystemExit(2) from exc

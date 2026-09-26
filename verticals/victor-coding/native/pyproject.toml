@@ -7,7 +7,7 @@ name = "victor-coding-native"
 version = "0.1.0"
 description = "Native chunking and regex helpers for victor-coding"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 license = {text = "Apache-2.0"}
 
 [tool.maturin]

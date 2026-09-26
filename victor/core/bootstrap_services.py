@@ -347,6 +347,7 @@ def _create_tool_service(
         Configured ToolService instance
     """
     from victor.agent.services.tool_service import ToolService, ToolServiceConfig
+    from victor.config.settings import Settings
 
     config = ToolServiceConfig(
         default_max_tools=10,
@@ -361,12 +362,14 @@ def _create_tool_service(
 
     # Create default tool registrar
     tool_registrar = _create_default_tool_registrar(container)
+    settings = container.get_optional(Settings)
 
     return ToolService(
         config=config,
         tool_selector=tool_selector,
         tool_executor=tool_executor,
         tool_registrar=tool_registrar,
+        settings=settings,
     )
 
 

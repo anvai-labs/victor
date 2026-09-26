@@ -213,6 +213,25 @@ provider_defaults:
     # Slightly more exploration turns for local models
     exploration_multiplier: 1.3
 
+  # InferFlux - the server extracts tool calls from model output into OpenAI
+  # tool_calls (preamble-convention JSON, <tool_call> XML, and Mistral formats;
+  # multiple calls per completion supported) on both streaming and
+  # non-streaming paths, for any GGUF model, so tools are enabled
+  # provider-wide like lmstudio. parallel_tool_calls stays false until
+  # multi-call turns are exercised through Victor's loop end to end; the
+  # server already returns them with per-call indices.
+  inferflux:
+    native_tool_calls: true
+    streaming_tool_calls: false
+    parallel_tool_calls: false
+    tool_choice_param: true
+    requires_strict_prompting: false
+    recommended_max_tools: 25
+    recommended_tool_budget: 15
+    # Self-hosted local inference: same generous timeouts as lmstudio
+    timeout_multiplier: 1.5
+    exploration_multiplier: 1.3
+
   # vLLM - guided decoding via Outlines for all models
   vllm:
     native_tool_calls: true

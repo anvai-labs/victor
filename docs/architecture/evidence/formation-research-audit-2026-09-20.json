@@ -1,0 +1,277 @@
+{
+  "schema_version": 1,
+  "date": "2026-09-20",
+  "evidence_kind": "research retrieval and offline validation-predicate audit; not actual-member acceptance",
+  "victor_source": "5a5777295",
+  "search_service": "dataserver3 arXive API",
+  "selection": "Four semantic searches, five hits each; rank-interleave and deduplicate; first twelve unique papers retrieved. Targeted sample, not a systematic review.",
+  "queries": [
+    {
+      "query": "Why Do Multi-Agent LLM Systems Fail coordination task specification verification",
+      "request_id": "578fea72270d",
+      "top_k": 5,
+      "hits": [
+        {
+          "arxiv_id": "2607.05775",
+          "score": 0.899
+        },
+        {
+          "arxiv_id": "2605.03310",
+          "score": 0.8793
+        },
+        {
+          "arxiv_id": "2605.15207",
+          "score": 0.8629
+        },
+        {
+          "arxiv_id": "2605.29378",
+          "score": 0.8536
+        },
+        {
+          "arxiv_id": "2609.07741",
+          "score": 0.8516
+        }
+      ]
+    },
+    {
+      "query": "LLM multi agent topology debate reflection ensemble adaptive routing empirical evaluation",
+      "request_id": "5e60fcef35bf",
+      "top_k": 5,
+      "hits": [
+        {
+          "arxiv_id": "2604.05149",
+          "score": 0.854
+        },
+        {
+          "arxiv_id": "2608.25992",
+          "score": 0.8489
+        },
+        {
+          "arxiv_id": "2605.08686",
+          "score": 0.8484
+        },
+        {
+          "arxiv_id": "2605.23273",
+          "score": 0.8474
+        },
+        {
+          "arxiv_id": "2605.25929",
+          "score": 0.8313
+        }
+      ]
+    },
+    {
+      "query": "heterogeneous language model agents cost efficiency routing small large model",
+      "request_id": "c19a0995061a",
+      "top_k": 5,
+      "hits": [
+        {
+          "arxiv_id": "2604.06696",
+          "score": 0.8524
+        },
+        {
+          "arxiv_id": "2604.19299",
+          "score": 0.8431
+        },
+        {
+          "arxiv_id": "2604.02211",
+          "score": 0.8378
+        },
+        {
+          "arxiv_id": "2603.04445",
+          "score": 0.8372
+        },
+        {
+          "arxiv_id": "2605.08686",
+          "score": 0.8295
+        }
+      ]
+    },
+    {
+      "query": "multi agent coding task completion executable tests verification failure",
+      "request_id": "116fd4170c2a",
+      "top_k": 5,
+      "hits": [
+        {
+          "arxiv_id": "2609.09133",
+          "score": 0.8104
+        },
+        {
+          "arxiv_id": "2609.08149",
+          "score": 0.8099
+        },
+        {
+          "arxiv_id": "2609.01985",
+          "score": 0.808
+        },
+        {
+          "arxiv_id": "2606.26978",
+          "score": 0.8032
+        },
+        {
+          "arxiv_id": "2607.17937",
+          "score": 0.7962
+        }
+      ]
+    }
+  ],
+  "papers": [
+    {
+      "arxiv_id": "2604.02211",
+      "title": "Multi-Agent Video Recommenders: Evolution, Patterns, and Open Challenges",
+      "source_url": "https://arxiv.org/abs/2604.02211",
+      "request_id": "06a08ee13742",
+      "indexed_at": "2026-04-13T15:00:30.653013",
+      "fulltext_characters": 49862,
+      "fulltext_truncated": false,
+      "retrieved_response_sha256": "2ba7f75c437464dfd8986efe2f22f6d98b0ea7679582c9a4859c09533577084c",
+      "review_scope": "abstract only; excluded as domain mismatch"
+    },
+    {
+      "arxiv_id": "2604.05149",
+      "title": "EvolveRouter: Co-Evolving Routing and Prompt for Multi-Agent Question Answering",
+      "source_url": "https://arxiv.org/abs/2604.05149",
+      "request_id": "3002fd42cca3",
+      "indexed_at": "2026-04-13T02:25:54.018674",
+      "fulltext_characters": 96919,
+      "fulltext_truncated": false,
+      "retrieved_response_sha256": "c000a86b8299ac110892ac467baac057622171be9c55d845772460096cd46557",
+      "review_scope": "abstract and/or fulltext methods, evaluation and limitations"
+    },
+    {
+      "arxiv_id": "2604.06696",
+      "title": "AgentGate: A Lightweight Structured Routing Engine for the Internet of Agents",
+      "source_url": "https://arxiv.org/abs/2604.06696",
+      "request_id": "831e3c1ddaa9",
+      "indexed_at": "2026-04-13T01:31:02.167603",
+      "fulltext_characters": 56052,
+      "fulltext_truncated": false,
+      "retrieved_response_sha256": "844a37ad662755a6b73b9dd5b8c81851005ec7c688830c482a603505ae30179e",
+      "review_scope": "abstract and/or fulltext methods, evaluation and limitations"
+    },
+    {
+      "arxiv_id": "2604.19299",
+      "title": "Rethinking Scale: Deployment Trade-offs of Small Language Models under Agent Paradigms",
+      "source_url": "https://arxiv.org/abs/2604.19299",
+      "request_id": "4d211e129cd7",
+      "indexed_at": "2026-04-22T17:05:23.526621",
+      "fulltext_characters": 0,
+      "fulltext_truncated": false,
+      "retrieved_response_sha256": "96dd9ec1661e7c40ffe980c44284378099be9879e5b3382458a961e0aa6a2934",
+      "review_scope": "public arXiv abstract only; LAN abstract/fulltext absent"
+    },
+    {
+      "arxiv_id": "2605.03310",
+      "title": "Coordination as an Architectural Layer for LLM-Based Multi-Agent Systems",
+      "source_url": "https://arxiv.org/abs/2605.03310",
+      "request_id": "2b36ee74ec97",
+      "indexed_at": "2026-05-08T02:13:49.150725+00:00",
+      "fulltext_characters": 100454,
+      "fulltext_truncated": false,
+      "retrieved_response_sha256": "750bb68c97397b769d6ecfdcda3276aedf90f92fda5e05ab2fcd73e34d9b7a86",
+      "review_scope": "abstract and/or fulltext methods, evaluation and limitations"
+    },
+    {
+      "arxiv_id": "2605.08686",
+      "title": "Iterative Critique-and-Routing Controller for Multi-Agent Systems with Heterogeneous LLMs",
+      "source_url": "https://arxiv.org/abs/2605.08686",
+      "request_id": "afa72ee3fd25",
+      "indexed_at": "2026-05-25T00:12:17.953777+00:00",
+      "fulltext_characters": 73236,
+      "fulltext_truncated": false,
+      "retrieved_response_sha256": "a318e2e1eb09fc84dfd67dd9993cf12e217d601f33fb982f7955d44dbeac561e",
+      "review_scope": "abstract and/or fulltext methods, evaluation and limitations"
+    },
+    {
+      "arxiv_id": "2605.15207",
+      "title": "TeamTR: Trust-Region Fine-Tuning for Multi-Agent LLM Coordination",
+      "source_url": "https://arxiv.org/abs/2605.15207",
+      "request_id": "12ffe04c4c9f",
+      "indexed_at": "2026-05-18T16:20:14.402033+00:00",
+      "fulltext_characters": 125107,
+      "fulltext_truncated": false,
+      "retrieved_response_sha256": "749d67e42e642d47580bdb88279154b57ddbfc723a099443ff6e7dfcb1c679b1",
+      "review_scope": "abstract and/or fulltext methods, evaluation and limitations"
+    },
+    {
+      "arxiv_id": "2607.05775",
+      "title": "Beyond the Leaderboard: A Synthesis of Tool-Use, Planning, and Reasoning Failures in Large Language Model Agents",
+      "source_url": "https://arxiv.org/abs/2607.05775",
+      "request_id": "7a7ddee80294",
+      "indexed_at": "2026-07-09T03:41:15.892893+00:00",
+      "fulltext_characters": 61527,
+      "fulltext_truncated": false,
+      "retrieved_response_sha256": "b2c0645fbdc07c62efab0a72849e6159281388f7a5cb1b29358106f81cb62123",
+      "review_scope": "abstract and/or fulltext methods, evaluation and limitations"
+    },
+    {
+      "arxiv_id": "2608.25992",
+      "title": "ProgRouter: Online Progress-Guided Orchestration for Multi-Agent LLM Workflows under Quality-Cost Tradeoffs",
+      "source_url": "https://arxiv.org/abs/2608.25992",
+      "request_id": "802825ebd930",
+      "indexed_at": "2026-08-27T11:37:17.590574+00:00",
+      "fulltext_characters": 63110,
+      "fulltext_truncated": false,
+      "retrieved_response_sha256": "d211cdb714cf528c1f1af8995cde1457ea452ebfb587c35b4d1d6834a3ad3f58",
+      "review_scope": "abstract and/or fulltext methods, evaluation and limitations"
+    },
+    {
+      "arxiv_id": "2609.01985",
+      "title": "When Agents Implement Systems: A Case Study in Defects, Detection, and Evaluation Rigor",
+      "source_url": "https://arxiv.org/abs/2609.01985",
+      "request_id": "f82cf5a3c26e",
+      "indexed_at": "2026-09-20T21:58:25.306165+00:00",
+      "fulltext_characters": 19355,
+      "fulltext_truncated": false,
+      "retrieved_response_sha256": "37f83737c59dfc5b1e5732dd102ccfbc4e8822a184af9e6a1a1fe21935e3e6b9",
+      "review_scope": "abstract and/or fulltext methods, evaluation and limitations"
+    },
+    {
+      "arxiv_id": "2609.08149",
+      "title": "SWE-Bench Pro Verified: A Reliable Benchmark for Software Engineering Agents",
+      "source_url": "https://arxiv.org/abs/2609.08149",
+      "request_id": "91a4bb3c563c",
+      "indexed_at": "2026-09-20T15:31:52.193920+00:00",
+      "fulltext_characters": 100431,
+      "fulltext_truncated": false,
+      "retrieved_response_sha256": "0c3a1fa74eb6229717ef911553b2b438c24605a80043e7da9750c8467dff7b88",
+      "review_scope": "abstract and/or fulltext methods, evaluation and limitations"
+    },
+    {
+      "arxiv_id": "2609.09133",
+      "title": "ExecCritic: Learn to Test, Test to Improve for Coding Agents",
+      "source_url": "https://arxiv.org/abs/2609.09133",
+      "request_id": "0d506e03ca78",
+      "indexed_at": "2026-09-09T14:04:07.879357+00:00",
+      "fulltext_characters": 133083,
+      "fulltext_truncated": false,
+      "retrieved_response_sha256": "d3ed432922ba8d84d8269cbf11d41548a38717376e89155e7b293fd59035b78d",
+      "review_scope": "abstract and/or fulltext methods, evaluation and limitations"
+    }
+  ],
+  "public_metadata_caveat": "LAN indexed metadata can lag public revisions; Rethinking Scale required public abstract fallback. No paper fulltext or credentials are committed.",
+  "existing_component_tests": {
+    "command": ".venv-codesign/bin/python -m pytest tests/unit/agent/test_decision_trees.py tests/unit/agent/test_prompt_section_allocator.py -q",
+    "passed": 43,
+    "meaning": "local heuristic regression tests, not AgentGate benchmark reproduction"
+  },
+  "oracle_counterexample": {
+    "evidence_kind": "offline validation-predicate counterexample; no inference or actual-member replay",
+    "candidate": "def first(x): return 8",
+    "current_check": "first(4) == 8",
+    "pytest_returncode": 0,
+    "independent_counterexample": {
+      "input": 5,
+      "expected": 10,
+      "actual": 8
+    },
+    "live_evidence_changed": false,
+    "model_calls": 0
+  },
+  "live_acceptance_changed": false,
+  "public_abstract_fallback": {
+    "url": "https://arxiv.org/abs/2604.19299",
+    "retrieved_html_sha256": "7d3cd1b09655979f7b53ecacc1f4b22f05f5f827eadcf1b302671dc4b4780c12",
+    "scope": "abstract only; missing LAN abstract/fulltext"
+  }
+}

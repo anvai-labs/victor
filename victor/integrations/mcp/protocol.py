@@ -18,10 +18,11 @@ Implements the MCP specification for tool and resource definitions.
 Based on the Model Context Protocol by Anthropic.
 """
 
+from copy import deepcopy
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class MCPMessageType(str, Enum):
@@ -69,6 +70,19 @@ class MCPParameter(BaseModel):
 
 class MCPTool(BaseModel):
     """MCP tool definition."""
+
+    model_config = ConfigDict(populate_by_name=True, hide_input_in_errors=True)
+
+    # Captured client metadata, excluded from the legacy server's model_dump wire format.
+    input_schema: Optional[Dict[str, Any]] = Field(default=None, alias="inputSchema", exclude=True)
+
+    @field_validator("input_schema", mode="before")
+    @classmethod
+    def capture_input_schema(cls, value: Any) -> Dict[str, Any]:
+        """Preserve the server contract without flattening or interpreting its dialect."""
+        if not isinstance(value, dict) or value.get("type") != "object":
+            raise ValueError("MCP inputSchema must be an object schema")
+        return deepcopy(value)
 
     name: str = Field(description="Tool name")
     description: str = Field(description="Tool description")

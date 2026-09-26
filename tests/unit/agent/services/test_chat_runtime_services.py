@@ -2,17 +2,29 @@
 
 from dataclasses import fields, FrozenInstanceError
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from victor.agent.factory.chat_runtime_bindings import bind_chat_runtime_services
 from victor.agent.factory.runtime_builders import RuntimeBuildersMixin
 from victor.agent.orchestrator import AgentOrchestrator
-from victor.agent.services.chat_runtime_services import ChatRuntimeServices
+from victor.agent.services.chat_runtime_services import (
+    ChatCompletion,
+    ChatConversation,
+    ChatGovernance,
+    ChatRuntimeServices,
+    ChatRuntimeIntelligence,
+    ChatStreamLifecycle,
+    ChatStreamMetrics,
+    ChatTaskState,
+    ChatToolCalls,
+)
 from victor.agent.services.chat_stream_executor import StreamingChatExecutor
 from victor.agent.services.orchestrator_protocol_adapter import OrchestratorProtocolAdapter
 from victor.agent.services.streaming_act_adapter import StreamingActAdapter
+from victor.agent.services.task_guidance_runtime import TaskGuidanceRuntime
+from victor.agent.services.tool_selection_runtime import ToolSelectionRuntime
 from victor.agent.session_state_accessor import SessionStateAccessor
 from victor.agent.session_state_manager import SessionStateManager
 
@@ -21,6 +33,7 @@ def owner():
     # Exercise the real facade's existing session properties without provider setup.
     result = object.__new__(AgentOrchestrator)
     result._session_accessor = SessionStateAccessor(SessionStateManager())
+    result._tool_planner = SimpleNamespace()
     return result
 
 
@@ -41,6 +54,9 @@ async def test_factory_view_updates_existing_requirement_owner(
     runtime = RuntimeBuildersMixin().create_streaming_chat_adapter(supplied)
     executor = StreamingChatExecutor(runtime)
     assert executor.services is runtime.services
+    assert isinstance(executor.services.planning.guidance, TaskGuidanceRuntime)
+    assert isinstance(executor.services.planning.selection, ToolSelectionRuntime)
+    assert executor.services.planning.planner is orchestrator._tool_planner
     session = executor.services.session
     assert session.required_files is accessor.required_files
     assert session.read_files is original_read_set
@@ -134,10 +150,19 @@ def test_view_is_enumerated_and_does_not_retain_or_forward_facade():
     view = bind_chat_runtime_services(orchestrator)
     assert [field.name for field in fields(view)] == [
         "session",
+        "stream_lifecycle",
         "stream_turn_lock",
+        "metrics",
+        "task_state",
+        "context_lifecycle",
         "delivery",
+        "planning",
+        "governance",
+        "completion",
+        "conversation",
+        "tool_calls",
+        "intelligence",
         "recovery",
-        "tool_planner",
     ]
     assert not hasattr(view, "__dict__")
     assert not hasattr(view.session, "__dict__")
@@ -145,6 +170,7 @@ def test_view_is_enumerated_and_does_not_retain_or_forward_facade():
         assert not hasattr(view, name)
         assert not hasattr(view.session, name)
     assert view.stream_turn_lock is orchestrator._session_accessor.stream_turn_lock
+    assert isinstance(view.stream_lifecycle, ChatStreamLifecycle)
     assert view.session._accessor is orchestrator._session_accessor
     with pytest.raises(FrozenInstanceError):
         view.session = object()
@@ -155,3 +181,136 @@ def test_view_is_enumerated_and_does_not_retain_or_forward_facade():
 def test_missing_session_owner_requires_explicit_binding():
     with pytest.raises(TypeError, match="SessionStateAccessor"):
         bind_chat_runtime_services(SimpleNamespace())
+
+
+class _CompletionDetector:
+    def __init__(self, confidence, summary=""):
+        self.confidence = confidence
+        self.state = SimpleNamespace(last_summary=summary)
+        self.clear_active_signal = MagicMock()
+        self.reset = MagicMock()
+
+    def analyze_response(self, content):
+        self.content = content
+
+    def get_completion_confidence(self):
+        return self.confidence
+
+    def get_state(self):
+        return self.state
+
+
+def test_completion_and_conversation_capabilities_persist_sanitized_summary():
+    from victor.agent.task_completion import CompletionConfidence
+
+    detector = _CompletionDetector(
+        CompletionConfidence.HIGH,
+        "VICTOR_SUMMARY:: changed app.py",
+    )
+    runtime = SimpleNamespace(persist_terminal_summary=MagicMock())
+    completion = ChatCompletion(detector=detector)
+    conversation = ChatConversation(runtime=runtime)
+
+    assert completion.detect_high_confidence("done", has_pending_tools=False) is True
+    assert completion.terminal_summary() == "changed app.py"
+    conversation.persist_terminal_summary(completion.terminal_summary())
+    runtime.persist_terminal_summary.assert_called_once_with("changed app.py")
+
+
+def test_completion_capability_defers_pending_tools_without_persisting():
+    from victor.agent.task_completion import CompletionConfidence
+
+    detector = _CompletionDetector(CompletionConfidence.HIGH, "VICTOR_SUMMARY:: premature")
+    completion = ChatCompletion(detector=detector)
+
+    assert completion.detect_high_confidence("done", has_pending_tools=True) is False
+    detector.clear_active_signal.assert_called_once_with()
+
+
+def test_conversation_capability_delegates_history_and_usage():
+    runtime = SimpleNamespace(
+        messages=MagicMock(return_value=["first", "second"]),
+        record_actual_usage=MagicMock(),
+    )
+    conversation = ChatConversation(runtime=runtime)
+
+    assert conversation.messages() == ["first", "second"]
+    conversation.record_actual_usage(17)
+
+    runtime.messages.assert_called_once_with()
+    runtime.record_actual_usage.assert_called_once_with(17)
+
+
+def test_conversation_capability_requires_runtime_for_system_prompt():
+    with pytest.raises(TypeError, match="requires a runtime"):
+        ChatConversation().ensure_system_prompt()
+
+
+def test_conversation_capability_delegates_system_prompt():
+    runtime = SimpleNamespace(ensure_system_prompt=MagicMock())
+
+    ChatConversation(runtime=runtime).ensure_system_prompt()
+
+    runtime.ensure_system_prompt.assert_called_once_with()
+
+
+@pytest.mark.parametrize("invalid_result", [None, object()], ids=["none", "malformed"])
+@pytest.mark.parametrize("method_name", ["check_request", "check_response"])
+async def test_governance_rejects_invalid_result_from_configured_gate(method_name, invalid_result):
+    gate = SimpleNamespace(
+        gate_request=AsyncMock(return_value=invalid_result),
+        gate_response=AsyncMock(return_value=invalid_result),
+    )
+
+    with pytest.raises(TypeError, match=f"invalid {method_name.removeprefix('check_')} result"):
+        await getattr(ChatGovernance(gate=gate), method_name)("sensitive content")
+
+
+def test_tool_call_capability_fails_closed_without_runtime():
+    with pytest.raises(TypeError, match="requires a runtime"):
+        ChatToolCalls().parse_and_validate(None, "tool content")
+
+
+def test_stream_metrics_capability_requires_explicit_runtime():
+    metrics = ChatStreamMetrics()
+
+    with pytest.raises(TypeError, match="require a runtime"):
+        metrics.begin()
+    with pytest.raises(TypeError, match="require a runtime"):
+        metrics.record_first_token()
+    with pytest.raises(TypeError, match="require a runtime"):
+        metrics.finalize({})
+    with pytest.raises(TypeError, match="require a runtime"):
+        metrics.accumulate_usage({})
+
+
+def test_task_state_capability_requires_explicit_runtime():
+    task_state = ChatTaskState()
+
+    with pytest.raises(TypeError, match="requires a runtime"):
+        task_state.reset_turn()
+    with pytest.raises(TypeError, match="requires a runtime"):
+        task_state.record_stream_context({})
+    with pytest.raises(TypeError, match="requires a runtime"):
+        task_state.detect_task_type("inspect")
+    with pytest.raises(TypeError, match="requires a runtime"):
+        task_state.apply_prompt_requirements(tool_budget=10, iteration_budget=5)
+
+
+def test_runtime_intelligence_capability_delegates_only_declared_outcome_fields():
+    recorder = SimpleNamespace(record_outcome=MagicMock())
+    intelligence = ChatRuntimeIntelligence(runtime=recorder)
+
+    intelligence.record_outcome(
+        success=False,
+        quality_score=0.3,
+        user_satisfied=False,
+        completed=False,
+    )
+
+    recorder.record_outcome.assert_called_once_with(
+        success=False,
+        quality_score=0.3,
+        user_satisfied=False,
+        completed=False,
+    )
