@@ -141,3 +141,27 @@ Package-query snapshots include the exact version and distinguish missing covera
 from a completed clean query. Legacy score and versionless query caches refresh
 online. Offline mode uses the same `cve.db`; missing, invalid or expired coverage
 reports an incomplete scan, so an empty cache cannot establish a clean result.
+
+## September 2026 dependency PR reconciliation
+
+PRs #1145, #1146 and #1171 are consolidated into one tested maintenance candidate:
+smallvec 1.16.1, Ruff 0.16.7, Vite 8.3.1 (manifest floor 8.3.0),
+mkdocs-git-revision-date-localized-plugin 1.6.0 and pymdown-extensions 12.0.1.
+The pymdown major upgrade requires a real documentation build and syntax-highlighting
+check. The webview lock retains Linux glibc/musl selectors; regenerate from a clean
+directory with compatible Node/npm versions rather than an older installed graph.
+
+The remaining proposed upgrades are deliberately deferred, not represented as merged:
+
+| Proposed migration | Reason to retain current constraints | Completion gate |
+| --- | --- | --- |
+| pydantic-core 2.49.0 | Pydantic 2.13.5 requires exactly 2.46.5; #1171 failed resolution | Upgrade Pydantic and core together; regenerate all three runtime snapshots and run validation/serialization suites |
+| fsspec 2026.7 | Conflicts with the documented datasets bound and the CPU embeddings snapshot | Resolve datasets/RAG and embeddings together; regenerate all affected snapshots |
+| peewee 4, OTel 1.44/0.65b0, wrapt 2 | Semgrep's current coupled toolchain uses peewee 3, OTel 1.37/0.58b0 and wrapt 1 | Upgrade or isolate the scanner toolchain; validate scanning plus all OTel packages as one family |
+| NumPy 2.5 | Requires an explicit supported-range change across core/ML/embeddings and resolved snapshots | Differential numerical/native parity and supported-platform embedding validation |
+| tree-sitter-language-pack 1.20 floor | Raises the package's minimum grammar bundle independently of this runtime repair | Validate supported grammars and codegraph packaging before raising the floor |
+| TypeScript 7 and Node 26 types | #1146 failed peer resolution: typescript-eslint 8.70 requires TypeScript <6.1; the extension targets Node 24 | Upgrade the compiler/linter as one compatible set; keep type definitions aligned with the supported runtime |
+
+The original bot CI failures are evidence of incompatibility, not reasons to disable
+security alerts. Future routine updates still follow the existing grouped schedule;
+reopening any deferred migration requires resolving its listed completion gate.
