@@ -82,7 +82,7 @@ jobs:
           cache: pip
 
       - name: Install Ruff
-        run: pip install ruff==0.15.20
+        run: python -m pip install "$(python scripts/ci/release_contract.py ruff)"
 
       - name: Lint with Ruff
         run: ruff check victor
