@@ -2737,6 +2737,25 @@ class ToolPipeline:
             pass  # Intent logging is non-critical
 
     async def _execute_single_call(
+        self, tool_call: Dict[str, Any], context: Dict[str, Any]
+    ) -> ToolCallResult:
+        from victor.framework.approval_binding import (
+            ApprovalCall,
+            current_approval_call,
+            current_approval_grant,
+            proposal,
+        )
+        from victor.framework.approval_pause import current_durable_pause_enabled
+
+        if not current_durable_pause_enabled.get() and current_approval_grant.get() is None:
+            return await self._execute_single_call_inner(tool_call, context)
+        token = current_approval_call.set(ApprovalCall(proposal(tool_call)))
+        try:
+            return await self._execute_single_call_inner(tool_call, context)
+        finally:
+            current_approval_call.reset(token)
+
+    async def _execute_single_call_inner(
         self,
         tool_call: Dict[str, Any],
         context: Dict[str, Any],
@@ -2850,9 +2869,13 @@ class ToolPipeline:
         normalization_applied = None if strategy == NormalizationStrategy.DIRECT else strategy.value
         steering_user_message: Optional[str] = None
 
+        from victor.framework.approval_binding import current_approval_grant
+
+        bound_resume = current_approval_grant.get() is not None
+
         # Check idempotent cache for read-only tools
         # This prevents DeepSeek/Ollama from re-reading the same file multiple times
-        cached_result = self.get_cached_result(tool_name, normalized_args)
+        cached_result = None if bound_resume else self.get_cached_result(tool_name, normalized_args)
         if cached_result is not None:
             logger.info(f"[Pipeline] Returning cached result for {tool_name}")
             # Still count as a tool call for tracking, but don't execute
@@ -2872,7 +2895,7 @@ class ToolPipeline:
 
         # Cross-turn dedup: cache "effectively idempotent" tools (web_search, etc.)
         # These produce identical results for identical args within a session window.
-        if self._cross_turn_enabled and tool_name in CROSS_TURN_DEDUP_TOOLS:
+        if not bound_resume and self._cross_turn_enabled and tool_name in CROSS_TURN_DEDUP_TOOLS:
             signature = self._get_call_signature(tool_name, normalized_args)
             cross_cached = self._cross_turn_cache.get(signature)
             if cross_cached is not None:
@@ -2897,7 +2920,11 @@ class ToolPipeline:
 
         # Check semantic cache (FAISS-based with mtime invalidation)
         # This catches similar-but-not-identical queries that would return same results
-        if self.config.enable_semantic_caching and self.semantic_cache is not None:
+        if (
+            not bound_resume
+            and self.config.enable_semantic_caching
+            and self.semantic_cache is not None
+        ):
             try:
                 semantic_result = await self.semantic_cache.get(tool_name, normalized_args)
                 if semantic_result is not None:
@@ -3101,6 +3128,13 @@ class ToolPipeline:
                 logger.warning(f"Deduplication tracker check failed (data error): {e}")
             except AttributeError as e:
                 logger.debug(f"Deduplication tracker not properly initialized: {e}")
+
+        from victor.framework.approval_binding import current_approval_call, tool_contract, digest
+
+        approval_call = current_approval_call.get()
+        if approval_call is not None:
+            approval_call.contract = tool_contract(self.tools.get(tool_name))
+            approval_call.authority = digest(self.executor.current_user)
 
         # Process through middleware chain (before execution)
         if self.middleware_chain is not None:

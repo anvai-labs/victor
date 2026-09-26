@@ -1393,14 +1393,18 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   TOOL_RESULT/after-middleware result withholding after a tool already executed;
   do not claim full G60 or external-write acceptance from the pre-dispatch repair.
 
-- **G61 — resumed approval is not bound to the exact action payload.** Resume
-  selects by tool name/position and executes conversation arguments through the raw
-  tool service, without comparing the approved arguments. Lower schema, safety,
-  budget and optional RBAC checks remain, but do not bind the approval. The
-  [audit](agentic-workflow-safety-audit.md#g61--durable-approval-is-not-bound-to-the-dispatched-payload-high-priority)
-  calls for one canonical dispatch with payload/version/scope binding and current
-  authorization, extending the existing durable-resume test owner.
-
+- **G61 — exact approval binding remains partial.** The bounded single-agent repair
+  ([#1188](https://github.com/anvai-labs/victor/pull/1188))
+  rejects changed/legacy/ambiguous calls and uses the service-owned tool runtime,
+  current policy and final executor checks. One-use grants bind call/proposal/payload,
+  schema/access contract, request/session/expiry, policy scope and local RBAC identity.
+  Every participating policy scope is freshly resolved at final dispatch; changed
+  scope or resolver failure blocks execution. Atomic policy-version/budget checks
+  remain outside this repair.
+  Authenticated principal ownership, implementation/data versions, inline/member
+  approval and whole-member replay remain open; do not treat local RBAC defaults or
+  model names as authenticated identities. See the FEP-0029 amendment and
+  `agentic-workflow-safety-audit.md`. Full G61 and C5 are not closed.
 - **G62 — potentially committed tool effects lack a complete recovery contract.**
   Generic timeout retry does not first establish effect/idempotency safety. A
   consumed approval or completed node can precede persistence of its result.
@@ -1487,6 +1491,17 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   credentials or OIDC policy; persistent reconnect/reboot supervision remains open.
   This is an operational identity/ownership gap, not a model-quality or formation failure.
 
+- **G70 — parallel tool control signals and sibling results need durable ownership.**
+  `ToolPipeline._dispatch_unique_calls` currently converts gathered `BaseException`
+  outcomes (including approval pauses and cancellation) into ordinary tool failures, even
+  for one parallel-eligible read.
+  Sequential batch execution can also commit earlier siblings before turn-level
+  transcript persistence. Missing transcript results therefore do not prove a call
+  never ran. Bound single-agent resume rejects unresolved siblings; complete repair
+  must retain joined outcomes, propagate control signals and reconcile uncertain
+  effects before any sibling or whole-member replay. Cover both sequential and
+  parallel batches in the existing pipeline/member checkpoint owners.
+
 Validation-test audit: neither live harness had direct tests before this follow-up.
 The new mixed-harness suite covers rejected/malformed/missing reviews, inclusive
 cache accounting, missing artifacts, bad member usage, pytest timeout, startup and
@@ -1548,6 +1563,8 @@ remains open pending review and follow-up. This buffered run does not certify
 R9700/full Qwen GPU execution, enabled-session leases, origin cancellation,
 completed-cache diagnostics or full lifecycle behavior. The earlier five-call
 stream pass and original failed evidence were preserved and not repeated.
+
+
 
 ## 4. Suggested follow-up session plan
 
