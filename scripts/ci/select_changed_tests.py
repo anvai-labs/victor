@@ -63,6 +63,9 @@ DEPRECATION_NOTICE_FILES = (
     "victor/agent/sqlite_session_persistence.py",
 )
 RELATED_TESTS = {
+    "scripts/ci/release_contract.py": ("tests/unit/scripts/test_security_workflow_contract.py",),
+    "scripts/check_version_sync.py": ("tests/unit/scripts/test_security_workflow_contract.py",),
+    ".github/workflows/release.yml": ("tests/unit/scripts/test_security_workflow_contract.py",),
     "victor/agent/paused_run_store.py": (
         "tests/unit/agent/test_paused_run_persistence.py",
         "tests/unit/agent/test_paused_run_expiry.py",

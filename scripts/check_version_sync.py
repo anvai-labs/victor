@@ -7,12 +7,15 @@ Checks:
   1. VERSION file exists and matches victor-ai pyproject.toml
   2. victor-contracts/VERSION exists and matches victor-contracts pyproject.toml
   3. victor-ai's dependency on victor-contracts uses a compatible range
+  4. Native manifests, lock and installation extra agree on the independent version
 
 Exit code 0 on success, 1 on mismatch.
 """
 
 import re
 import sys
+import tomllib
+from typing import Any
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -45,8 +48,30 @@ def extract_sdk_dependency(toml_path: Path) -> str:
     return match.group(1)
 
 
-def main():
+def native_version_errors(root: Path) -> list[str]:
+    """Reject partial native-version bumps before any artifacts are published."""
+
+    def read(relative: str) -> dict[str, Any]:
+        return tomllib.loads((root / relative).read_text())
+
+    version = read("rust/pyproject.toml")["project"]["version"]
+    cargo = read("rust/crates/python-bindings/Cargo.toml")["package"]["version"]
+    locked = [
+        package["version"]
+        for package in read("rust/Cargo.lock")["package"]
+        if package["name"] == "victor_native"
+    ]
+    extra = read("pyproject.toml")["project"]["optional-dependencies"]["native"]
     errors = []
+    if cargo != version or locked != [version]:
+        errors.append("native Python, Cargo manifest and lock versions must agree")
+    if f"victor-native>={version}" not in extra:
+        errors.append("the native extra must require the current native artifact version")
+    return errors
+
+
+def main() -> None:
+    errors = native_version_errors(ROOT)
 
     # Check victor-ai version
     ai_version = read_version(ROOT / "VERSION")

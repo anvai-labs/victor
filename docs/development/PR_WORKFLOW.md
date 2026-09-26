@@ -138,6 +138,25 @@ AI version source; update it on `develop`, run `python scripts/sync_version.py
 5. Independently tag a contracts release `sdk-vX.Y.Z` to invoke
    `release-contracts.yml`.
 
+The native wheel has an independent immutable version in `rust/pyproject.toml`;
+update its Cargo manifest, Cargo lock and root native extra together. The version
+check rejects a partial bump. Rebuilding changed native dependencies or metadata
+requires a new version; publication does not silently reuse existing PyPI wheels.
+
+A release run resolves its destinations before building. Production publication
+requires a tag matching `VERSION`. For a rehearsal, dispatch with **Publish to
+TestPyPI only**: builds and security checks still run, but production PyPI, Docker
+and GitHub Release publication are disabled. This rehearsal publishes the core
+package only; it does not publish native wheels to TestPyPI. Prerelease tags use TestPyPI and a
+GitHub prerelease without replacing Docker `latest`. Tags use the package's
+three-part version, optionally followed by a PEP 440 `aN`, `bN` or `rcN` suffix.
+
+Release completion includes the extension and SBOM. All public assets are listed
+in `checksums.txt` by their download filenames, including VSIX and SBOM files.
+Download those assets together and run `sha256sum -c checksums.txt` (or
+`shasum -a 256 -c checksums.txt` on macOS). Both fast CI and release lint read the
+Ruff pin from the project's CI extra.
+
 For an older squash-merged promotion, reconcile main's ancestry into develop
 with a reviewed sync merge. Do not routinely rebase or force-push shared
 integration branches. The September 2026 promotion sync used an `ours` merge only

@@ -44,11 +44,29 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
+  release-plan:
+    name: Validate Release Destinations
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.plan.outputs.version }}
+      production: ${{ steps.plan.outputs.production }}
+      github_release: ${{ steps.plan.outputs.github_release }}
+      testpypi: ${{ steps.plan.outputs.testpypi }}
+      prerelease: ${{ steps.plan.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - id: plan
+        run: python scripts/ci/release_contract.py plan
+
   # ==========================================================================
   # Smoke test before release (full testing done by CI shards on PR)
   # ==========================================================================
   test:
     name: Smoke Test
+    needs: release-plan
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -76,7 +94,7 @@ jobs:
 
       - name: Lint
         run: |
-          pip install ruff==0.15.20
+          python -m pip install "$(python scripts/ci/release_contract.py ruff)"
           ruff check victor
 
   # ==========================================================================
@@ -124,6 +142,7 @@ jobs:
       - name: Upload victor-ai artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
+          if-no-files-found: error
           name: python-package
           path: dist/
 
@@ -202,6 +221,7 @@ jobs:
       - name: Upload wheels
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
+          if-no-files-found: error
           name: native-wheels-${{ matrix.target }}
           path: rust/dist/*.whl
 
@@ -263,6 +283,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
+          if-no-files-found: error
           name: binary-${{ matrix.platform }}-${{ matrix.arch }}
           path: victor-${{ matrix.platform }}-${{ matrix.arch }}.*
 
@@ -271,7 +292,7 @@ jobs:
   # ==========================================================================
   build-docker:
     name: Build Docker Image
-    needs: test
+    needs: [test, release-plan]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -299,7 +320,7 @@ jobs:
 
       - name: Extract version
         id: version
-        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+        run: echo "VERSION=${{ needs.release-plan.outputs.version }}" >> "$GITHUB_OUTPUT"
 
       - name: Build Docker image (without push)
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
@@ -316,6 +337,7 @@ jobs:
       - name: Upload Docker image artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
+          if-no-files-found: error
           name: docker-image
           path: /tmp/victor-docker.tar
           retention-days: 1
@@ -325,7 +347,7 @@ jobs:
   # ==========================================================================
   security-scan:
     name: Security Scan (Trivy)
-    needs: build-docker
+    needs: [build-docker, release-plan]
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
@@ -342,7 +364,7 @@ jobs:
         run: docker load -i /tmp/victor-docker.tar
       - name: Extract version
         id: version
-        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+        run: echo "VERSION=${{ needs.release-plan.outputs.version }}" >> "$GITHUB_OUTPUT"
       - uses: ./.github/actions/security-scan
         with:
           scope: container
@@ -372,24 +394,24 @@ jobs:
         run: npm ci
 
       - name: Run ESLint
-        run: npm run lint || true  # Don't fail on lint warnings
+        run: npm run lint
 
       - name: Compile TypeScript
         run: npm run compile
 
       - name: Run tests
-        run: npm test || true  # Tests may need VS Code runtime
+        run: xvfb-run -a npm test
         env:
           CI: true
 
       - name: Package extension (VSIX)
         run: |
-          npm install -g @vscode/vsce
-          vsce package --no-dependencies
+          npx --no-install vsce package --no-dependencies
 
       - name: Upload VSIX artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
+          if-no-files-found: error
           name: vscode-extension
           path: vscode-victor/*.vsix
 
@@ -403,8 +425,8 @@ jobs:
   # ==========================================================================
   publish-testpypi:
     name: Publish to TestPyPI
-    needs: [build-python, generate-checksums, create-release]
-    if: github.event.inputs.publish_testpypi == 'true' || contains(github.ref, 'alpha') || contains(github.ref, 'beta') || contains(github.ref, 'rc')
+    needs: [release-plan, build-python, generate-checksums, security-scan]
+    if: needs.release-plan.outputs.testpypi == 'true'
     runs-on: ubuntu-24.04
     environment:
       name: testpypi
@@ -432,8 +454,8 @@ jobs:
   # ==========================================================================
   publish-pypi:
     name: Publish victor-ai to PyPI
-    needs: [build-python, generate-checksums, create-release]
-    if: "!contains(github.ref, 'alpha') && !contains(github.ref, 'beta') && !contains(github.ref, 'rc')"
+    needs: [release-plan, build-python, generate-checksums, create-release, publish-native-pypi]
+    if: needs.release-plan.outputs.production == 'true'
     runs-on: ubuntu-24.04
     # Uniform with release-contracts/-codegraph/-verticals: the trusted publisher for
     # victor-ai on PyPI must be registered with environment = pypi (matches this claim).
@@ -463,8 +485,8 @@ jobs:
   # ==========================================================================
   publish-native-pypi:
     name: Publish Native Wheels to PyPI
-    needs: [build-native, create-release]
-    if: "!contains(github.ref, 'alpha') && !contains(github.ref, 'beta') && !contains(github.ref, 'rc')"
+    needs: [release-plan, build-native, create-release]
+    if: needs.release-plan.outputs.production == 'true'
     runs-on: ubuntu-24.04
     environment:
       name: pypi
@@ -485,7 +507,6 @@ jobs:
         with:
           packages-dir: dist/
           verbose: true
-          skip-existing: true
 
   # ==========================================================================
   # Publish Docker image to Docker Hub
@@ -495,7 +516,8 @@ jobs:
     name: Publish Docker Image
     # build-docker is required: it uploads the `docker-image` artifact this job downloads.
     # Without it, publish can start before the artifact exists ("Artifact not found").
-    needs: [build-docker, build-python, generate-checksums, create-release]
+    needs: [release-plan, build-docker, build-python, generate-checksums, create-release]
+    if: needs.release-plan.outputs.production == 'true'
     runs-on: ubuntu-24.04
 
     steps:
@@ -516,7 +538,7 @@ jobs:
 
       - name: Extract version
         id: version
-        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+        run: echo "VERSION=${{ needs.release-plan.outputs.version }}" >> "$GITHUB_OUTPUT"
 
       - name: Push Docker image
         run: |
@@ -553,6 +575,7 @@ jobs:
       - name: Upload SBOM
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
+          if-no-files-found: error
           name: sbom
           path: |
             sbom.json
@@ -560,24 +583,28 @@ jobs:
 
   generate-checksums:
     name: Generate Checksums
-    needs: [build-python, build-native, build-binary]
+    needs: [build-python, build-native, build-binary, build-vscode, generate-sbom]
     runs-on: ubuntu-24.04
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
       - name: Download release artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          pattern: '{python-package,native-wheels-*,binary-*,checksums}'
+          pattern: '{python-package,native-wheels-*,binary-*,vscode-extension,sbom}'
           path: artifacts/
 
       - name: Generate SHA256 checksums
         run: |
-          cd artifacts
-          find . -type f \( -name "*.whl" -o -name "*.tar.gz" -o -name "*.zip" \) -exec sha256sum {} \; > ../checksums.txt
-          cat ../checksums.txt
+          python scripts/ci/release_contract.py checksums artifacts checksums.txt
+          cat checksums.txt
 
       - name: Upload checksums
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
+          if-no-files-found: error
           name: checksums
           path: checksums.txt
 
@@ -586,23 +613,26 @@ jobs:
   # ==========================================================================
   create-release:
     name: Create GitHub Release
-    needs: [build-python, generate-checksums, security-scan]
+    needs: [release-plan, build-python, generate-checksums, security-scan]
+    if: needs.release-plan.outputs.github_release == 'true'
     runs-on: ubuntu-24.04
     permissions:
       contents: write
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
 
       - name: Download release artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          pattern: '{python-package,native-wheels-*,binary-*,checksums}'
+          pattern: '{python-package,native-wheels-*,binary-*,vscode-extension,sbom,checksums}'
           path: artifacts/
 
       - name: Extract version
         id: version
-        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+        run: echo "VERSION=${{ needs.release-plan.outputs.version }}" >> "$GITHUB_OUTPUT"
 
       - name: Generate changelog
         id: changelog
@@ -612,7 +642,11 @@ jobs:
 
           RELEASE_NOTES
           # Get commits since last tag
-          git log --oneline $(git describe --tags --abbrev=0 HEAD^)..HEAD >> CHANGELOG.md || echo "- Initial release" >> CHANGELOG.md
+          if previous_tag=$(git describe --tags --match 'v[0-9]*' --abbrev=0 HEAD^); then
+            git log --oneline "${previous_tag}..HEAD" >> CHANGELOG.md
+          else
+            git log --oneline HEAD >> CHANGELOG.md
+          fi
           cat >> CHANGELOG.md << RELEASE_NOTES
 
           ## Installation
@@ -660,11 +694,13 @@ jobs:
           name: Victor v${{ steps.version.outputs.VERSION }}
           body_path: CHANGELOG.md
           draft: false
-          prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') || contains(github.ref, 'rc') }}
+          prerelease: ${{ needs.release-plan.outputs.prerelease == 'true' }}
           files: |
             artifacts/python-package/*
             artifacts/binary-*/*
             artifacts/native-wheels-*/*
+            artifacts/vscode-extension/*
+            artifacts/sbom/*
             artifacts/checksums/checksums.txt
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
