@@ -191,7 +191,7 @@ async def test_classify_retries_unparseable_then_422(monkeypatch, tmp_path):
         )
     assert response.status_code == 422
     body = response.json()
-    assert body["error"] and "parseable JSON" in body["error"]
+    assert body["error"] and "JSON object after retry" in body["error"]
     assert body["latency_ms"] >= 0
     assert len(provider.calls) == 2  # retried exactly once
 
@@ -262,7 +262,8 @@ async def test_classify_managed_provider_override_is_closed(monkeypatch, tmp_pat
                 model="managed-model",
             )
 
-    def fake_factory(provider_name, model, api_key):
+    async def fake_factory(provider_name, model, api_key):
+        # REAL signature: ManagedProviderFactory.create is async (P1 finding).
         p = _Managed([json.dumps(_TRIAGE_RESULT)])
         p.managed_model = model
         created.append(p)
@@ -323,3 +324,68 @@ async def test_classify_rejects_bad_key(monkeypatch, tmp_path):
         )
     assert response.status_code == 401
     assert provider.calls == []
+
+
+@pytest.mark.asyncio
+async def test_classify_schema_violation_retries_then_422(monkeypatch, tmp_path):
+    """FEP-0037: the output schema is ENFORCED — a shape-valid JSON object
+    that violates required fields is a retry, then a 422."""
+    provider = _FakeProvider(
+        [
+            json.dumps({"sensitive": True}),  # missing required 'category'/'reason'
+            json.dumps({"sensitive": True}),  # still violating after the retry
+        ]
+    )
+    server = _make_server(monkeypatch, tmp_path, provider)
+    async with _client(server) as client:
+        response = await client.post(
+            "/v1/classify",
+            json={"input": "x", "preset": "triage.v1", "timeout_ms": 20000},
+        )
+    assert response.status_code == 422
+    assert len(provider.calls) == 2  # retried exactly once
+    assert "schema-conformant" in response.json()["error"]
+
+
+@pytest.mark.asyncio
+async def test_classify_schema_conforming_second_attempt_passes(monkeypatch, tmp_path):
+    provider = _FakeProvider(
+        [
+            json.dumps({"unexpected": "shape"}),
+            json.dumps({"sensitive": False, "category": "none", "reason": "ok"}),
+        ]
+    )
+    server = _make_server(monkeypatch, tmp_path, provider)
+    async with _client(server) as client:
+        response = await client.post(
+            "/v1/classify",
+            json={"input": "x", "preset": "triage.v1", "timeout_ms": 20000},
+        )
+    assert response.status_code == 200
+    assert response.json()["result"]["sensitive"] is False
+
+
+@pytest.mark.asyncio
+async def test_classify_schema_and_preset_are_mutually_exclusive(monkeypatch, tmp_path):
+    provider = _FakeProvider([])
+    server = _make_server(monkeypatch, tmp_path, provider)
+    async with _client(server) as client:
+        response = await client.post(
+            "/v1/classify",
+            json={"input": "x", "preset": "triage.v1", "schema": {"type": "object"}},
+        )
+    assert response.status_code == 422
+    assert "mutually exclusive" in response.json()["error"]
+
+
+@pytest.mark.asyncio
+async def test_classify_error_responses_carry_request_id_header(monkeypatch, tmp_path):
+    provider = _FakeProvider(["garbage", "more garbage"])
+    server = _make_server(monkeypatch, tmp_path, provider)
+    async with _client(server) as client:
+        response = await client.post(
+            "/v1/classify",
+            json={"input": "x", "preset": "triage.v1", "timeout_ms": 20000},
+        )
+    assert response.status_code == 422
+    assert response.headers.get("x-victor-request-id", "").startswith("cls-")

@@ -79,14 +79,16 @@ class ClassifyRequest(BaseModel):
         default=None, alias="schema", description="JSON Schema the output object must satisfy"
     )
     preset: Optional[str] = Field(default=None, description="Server-side schema preset name")
-    sender: Optional[str] = Field(default=None)
-    source: Optional[str] = Field(default=None)
+    sender: Optional[str] = Field(default=None, max_length=512)
+    source: Optional[str] = Field(default=None, max_length=512)
     provider: Optional[str] = Field(
-        default=None, description="Provider override (creates a managed provider)"
+        default=None,
+        max_length=128,
+        description="Provider override (creates a managed provider)",
     )
-    model: Optional[str] = Field(default=None, description="Model override")
+    model: Optional[str] = Field(default=None, max_length=256, description="Model override")
     max_tokens: int = Field(default=512, ge=1, le=_MAX_TOKENS_CAP)
-    timeout_ms: int = Field(default=120_000, ge=250)
+    timeout_ms: int = Field(default=120_000, ge=250, le=600_000)
     temperature: float = Field(default=0.1, ge=0.0, le=2.0)
 
 
@@ -114,7 +116,32 @@ def _extract_json_object(text: str) -> Optional[dict[str, Any]]:
     return data if isinstance(data, dict) else None
 
 
+def _schema_conforms(result: dict[str, Any], schema: dict[str, Any]) -> bool:
+    """Validate the parsed result against the caller's schema.
+
+    Grammar-constrained decoding is a serving-stack feature (llama.cpp
+    grammars); without it the schema is enforced here so a
+    prompt-hope-shaped answer cannot pass as structured output.
+    """
+    try:
+        import jsonschema
+
+        jsonschema.validate(instance=result, schema=schema)
+        return True
+    except ImportError:
+        # jsonschema is a hard victor dependency; unreachable in practice.
+        logger.warning("jsonschema unavailable — skipping /v1/classify validation")
+        return True
+    except Exception:
+        return False
+
+
 def _resolve_schema(request: ClassifyRequest) -> dict[str, Any]:
+    if request.preset and request.output_schema is not None:
+        raise HTTPException(
+            status_code=422,
+            detail="'schema' and 'preset' are mutually exclusive; supply exactly one",
+        )
     if request.preset:
         preset = _PRESETS.get(request.preset)
         if preset is None:
@@ -123,7 +150,9 @@ def _resolve_schema(request: ClassifyRequest) -> dict[str, Any]:
                 detail=f"unknown preset {request.preset!r}; available: {sorted(_PRESETS)}",
             )
         return preset
-    if request.output_schema:
+    if request.output_schema is not None:
+        if not isinstance(request.output_schema, dict) or not request.output_schema:
+            raise HTTPException(status_code=422, detail="schema must be a non-empty object")
         return request.output_schema
     raise HTTPException(status_code=422, detail="one of 'schema' or 'preset' is required")
 
@@ -159,11 +188,13 @@ async def _resolve_provider(
 
     # FEP-0037: per-request provider override via the same managed-provider
     # factory the subagent runtime uses (credentials from the keyring/config).
+    # NOTE: ManagedProviderFactory.create is ASYNC — an un-awaited call yields
+    # a coroutine object that 500s at chat time (promotion-review P1).
     from victor.config.api_keys import get_api_key
     from victor.providers.factory import ManagedProviderFactory
 
     api_key = get_api_key(request.provider)
-    provider = ManagedProviderFactory.create(request.provider, request.model, api_key)
+    provider = await ManagedProviderFactory.create(request.provider, request.model, api_key)
     return provider, provider
 
 
@@ -186,6 +217,7 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
         if not request.input.strip():
             return JSONResponse(
                 status_code=422,
+                headers={"X-Victor-Request-Id": request_id},
                 content=ClassifyResponse(error="input is empty", latency_ms=0.0).model_dump(),
             )
         try:
@@ -193,6 +225,7 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
         except HTTPException as exc:
             return JSONResponse(
                 status_code=422,
+                headers={"X-Victor-Request-Id": request_id},
                 content=ClassifyResponse(error=str(exc.detail), latency_ms=0.0).model_dump(),
             )
 
@@ -204,6 +237,7 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
         except Exception as exc:
             return JSONResponse(
                 status_code=503,
+                headers={"X-Victor-Request-Id": request_id},
                 content=ClassifyResponse(
                     error=f"provider override unavailable: {exc}",
                     latency_ms=(time.perf_counter() - start) * 1000,
@@ -229,7 +263,11 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
             return round((time.perf_counter() - start) * 1000, 2)
 
         async def _finish(status_code: int, payload: ClassifyResponse) -> JSONResponse:
-            return JSONResponse(status_code=status_code, content=payload.model_dump())
+            return JSONResponse(
+                status_code=status_code,
+                headers={"X-Victor-Request-Id": request_id},
+                content=payload.model_dump(),
+            )
 
         try:
             with request_correlation_id(request_id), bind_attribution(subject_id=client_id):
@@ -253,11 +291,24 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
                                 latency_ms=_latency(),
                             ),
                         )
+                    except Exception as exc:
+                        # Non-timeout provider failures (upstream auth, rate
+                        # limits, connection errors) must carry the same
+                        # response shape — a bare 500 hides whether tokens
+                        # were consumed, violating the FEP-0037 contract.
+                        return await _finish(
+                            502,
+                            ClassifyResponse(
+                                error=f"provider call failed: {exc}",
+                                model=model,
+                                latency_ms=_latency(),
+                            ),
+                        )
                     usage = _usage_of(completion)
                     used_model = _model_of(completion, model)
                     content = getattr(completion, "content", "") or ""
                     parsed = _extract_json_object(content)
-                    if parsed is not None:
+                    if parsed is not None and _schema_conforms(parsed, schema):
                         return ClassifyResponse(
                             result=parsed,
                             usage=usage,
@@ -281,7 +332,7 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
                 return await _finish(
                     422,
                     ClassifyResponse(
-                        error="model did not return a parseable JSON object after retry",
+                        error="model did not return a schema-conformant JSON object after retry",
                         usage=usage,
                         model=used_model,
                         latency_ms=_latency(),
