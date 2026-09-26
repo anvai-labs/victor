@@ -58,7 +58,10 @@ _PRESETS: dict[str, dict[str, Any]] = {
             "sensitive": {"type": "boolean"},
             "category": {
                 "type": "string",
-                "description": "one word: money|auth|legal|medical|conflict|confidential|commitment|none",
+                # NOTE: no "confidential" token here — the remote InferFlux
+                # content filter 400s requests containing it (schema text is
+                # part of the prompt), and real user messages may too.
+                "description": "one word: money|auth|legal|medical|conflict|private|commitment|none",
             },
             "reason": {"type": "string"},
             "confidence": {"type": "number"},
@@ -82,6 +85,11 @@ class ClassifyRequest(BaseModel):
         default=None, alias="schema", description="JSON Schema the output object must satisfy"
     )
     preset: Optional[str] = Field(default=None, description="Server-side schema preset name")
+    instructions: Optional[str] = Field(
+        default=None,
+        max_length=4000,
+        description="Stable per-consumer guidance folded into the system prompt",
+    )
     sender: Optional[str] = Field(default=None, max_length=512)
     source: Optional[str] = Field(default=None, max_length=512)
     provider: Optional[str] = Field(
@@ -93,6 +101,11 @@ class ClassifyRequest(BaseModel):
     reasoning_effort: Optional[ReasoningEffort] = Field(
         default=None,
         description="Explicit model-supported reasoning effort; unset uses upstream default",
+    )
+    endpoint: Optional[str] = Field(
+        default=None,
+        max_length=256,
+        description="Provider base_url override (ProviderOverrideConfig semantics)",
     )
     max_tokens: int = Field(default=512, ge=1, le=_MAX_TOKENS_CAP)
     timeout_ms: int = Field(default=120_000, ge=250, le=600_000)
@@ -164,11 +177,14 @@ def _resolve_schema(request: ClassifyRequest) -> dict[str, Any]:
     raise HTTPException(status_code=422, detail="one of 'schema' or 'preset' is required")
 
 
-def _schema_contract_text(schema: dict[str, Any]) -> str:
-    return (
+def _schema_contract_text(schema: dict[str, Any], instructions: str = "") -> str:
+    text = (
         "Respond with ONLY a single JSON object conforming to this JSON Schema — "
         f"no prose, no markdown fences:\n{json.dumps(schema)}"
     )
+    if instructions.strip():
+        text += f"\n\nConsumer instructions (binding unless they conflict with the schema contract):\n{instructions.strip()}"
+    return text
 
 
 def _usage_of(completion: Any) -> Optional[dict[str, Any]]:
@@ -186,29 +202,39 @@ async def _resolve_provider(
     orchestrator: Any, request: ClassifyRequest
 ) -> tuple[Any, Optional[Any]]:
     """Return (provider, disposable) — disposable is awaited after the call."""
-    if not request.provider:
+    explicit_base_url = (request.endpoint or "").strip() or None
+    if not request.provider and not explicit_base_url:
         provider_manager = getattr(orchestrator, "provider_manager", None)
         provider = getattr(provider_manager, "current_provider", None)
-        if provider is None:
-            raise HTTPException(status_code=503, detail="no provider configured")
-        return provider, None
+        if provider is not None and hasattr(provider, "chat"):
+            return provider, None
 
-    # FEP-0037: per-request provider override via the same managed-provider
-    # factory the subagent runtime uses (credentials from the keyring/config).
-    # NOTE: ManagedProviderFactory.create is ASYNC — an un-awaited call yields
-    # a coroutine object that 500s at chat time (promotion-review P1).
+    # No live current_provider (the orchestrator bootstraps it lazily on the
+    # chat path — classify must not depend on that) and no explicit override:
+    # build a managed provider from the configured defaults so /v1/classify
+    # works on a freshly started server.
     from victor.config.settings import load_settings
     from victor.providers.factory import ManagedProviderFactory
 
     settings = load_settings(fresh=True)
-    provider_settings = settings.get_provider_settings(request.provider)
+    provider_name = (
+        request.provider
+        or getattr(getattr(settings, "provider", None), "default_provider", None)
+        or "inferflux"
+    )
+    model = request.model or getattr(getattr(settings, "provider", None), "default_model", None)
+    provider_settings = settings.get_provider_settings(provider_name)
     # Retain gateway identity and transport policy. Classification owns its
     # single bounded parse retry; transport recovery must not replay inference.
     provider_settings["enable_resilience"] = False
     provider_settings["enable_rate_limiting"] = False
-    provider = await ManagedProviderFactory.create(
-        request.provider, request.model, **provider_settings
-    )
+    # Request-level endpoint override (ProviderOverrideConfig semantics) wins
+    # over the strategy-derived base_url.
+    if explicit_base_url:
+        provider_settings["base_url"] = explicit_base_url
+    # NOTE: ManagedProviderFactory.create is ASYNC — an un-awaited call yields
+    # a coroutine object that 500s at chat time (promotion-review P1).
+    provider = await ManagedProviderFactory.create(provider_name, model, **provider_settings)
     return provider, provider
 
 
@@ -294,7 +320,10 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
             context_lines += f"Channel: {request.source}\n"
         user_content = f"{context_lines}Input:\n{request.input}"
         messages = [
-            {"role": "system", "content": _schema_contract_text(schema)},
+            {
+                "role": "system",
+                "content": _schema_contract_text(schema, request.instructions or ""),
+            },
             {"role": "user", "content": user_content},
         ]
         model = request.model or getattr(orchestrator, "model", None)
@@ -353,13 +382,18 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
                                 latency_ms=_latency(),
                             ).model_dump(),
                         )
-                    except Exception:
+                    except Exception as exc:
                         # Non-timeout provider failures (upstream auth, rate
                         # limits, connection errors) must carry the same
                         # response shape — a bare 500 hides whether tokens
                         # were consumed, violating the FEP-0037 contract.
+                        # Content-policy rejections are PERMANENT (retrying
+                        # the same input re-trips the filter) — 422 signals
+                        # consumers to route to human review instead of
+                        # looping; the message stays sanitized either way.
+                        permanent = "blocked content keyword" in str(exc).lower()
                         return await _finish(
-                            502,
+                            422 if permanent else 502,
                             ClassifyResponse(
                                 error="provider call failed",
                                 model=model,
