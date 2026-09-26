@@ -847,8 +847,8 @@ class VictorClient:
         ``status="awaiting_approval"`` + a ``run_id``), this replays the **exact** persisted gated
         tool call — it does not re-sample the model — and continues the turn:
 
-        - ``decision.approved`` → executes the gated call (bypassing the ASK, since the human
-          approved), appends its result, and drives the model to a final answer.
+        - ``decision.approved`` → executes the exact bound call through current policy and
+          final dispatch checks, records its result, and continues the model turn.
         - not approved → skips the call with a tool-error result and continues.
 
         Single-use: a second ``resume`` on the same ``run_id`` raises. Returns the continued turn's
@@ -871,6 +871,8 @@ class VictorClient:
             get_paused_run_store,
         )
 
+        if type(getattr(decision, "approved", None)) is not bool:
+            raise ValueError("Approval decision must be a boolean")
         store = get_paused_run_store()
         # FEP-0029 expiry/GC: opportunistically expire any stale pending pauses (a day-old approval
         # should not silently execute), so this and other stragglers drop out before we resume.
@@ -885,7 +887,8 @@ class VictorClient:
             raise ValueError(f"Paused run already resumed or not pending: {run_id}")
 
         if paused.session_id:
-            await self.resume_session(paused.session_id)
+            if await self.resume_session(paused.session_id) is None:
+                raise ValueError("Paused session could not be restored; no action dispatched")
 
         agent = self._agent
         orchestrator = getattr(agent, "_orchestrator", None) if agent is not None else None

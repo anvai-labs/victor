@@ -191,7 +191,10 @@ class TestMCPDefaultSchemaLevel:
     def test_mcp_adapter_defaults_to_stub(self):
         from victor.tools.mcp_adapter_tool import MCPAdapterTool
 
-        fake_tool = MagicMock(name="search", description="Search", parameters=[])
+        # input_schema must be explicitly None: a MagicMock auto-attribute would
+        # be read as a present schema and route the adapter to the full-schema
+        # path instead of the parameters-derived stub path under test.
+        fake_tool = MagicMock(name="search", description="Search", parameters=[], input_schema=None)
         fake_registry = MagicMock()
         adapter = MCPAdapterTool(fake_tool, fake_registry, "server")
         assert adapter.default_schema_level == "stub"

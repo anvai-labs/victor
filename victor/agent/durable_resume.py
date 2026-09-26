@@ -12,29 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Faithful replay of a durably-paused single-agent turn (FEP-0029 Phase 3a/3b).
+"""Bound single-action durable resume through the canonical execution runtime.
 
-When a turn paused on a policy ASK, the assistant had already produced a message with ``tool_calls``;
-one of those calls was gated and never ran. On resume with a human decision this module — *without
-re-calling the LLM for that message* — resolves **every** unresolved tool_call in that message and
-drives one or more continuation turns so the model sees the results and proceeds.
-
-The **gated** call (matched by the pause's ``pending_tool``) is handled per the human's decision:
-approve → ``ToolService.execute_tool`` (the raw tool executor, which does *not* re-run the ASK
-middleware since the human already decided); reject → a tool-error result. A parallel-tool pause
-aborts the *whole* batch, so any **sibling** calls that never ran are also unresolved; those are
-executed through the normal ``ToolService.execute_tool_call`` pipeline (reused, policy-honoring) so
-the conversation has a result for every tool_call before continuing (providers reject a dangling
-tool_call). The continuation reuses the turn executor's ``execute_turn`` primitive (which adds no
-user message), so there is no spurious user turn.
-
-This is the single shared replay used by every surface (``VictorClient.resume``, the HTTP
-``/chat/resume`` route, and the ``victor session resume`` CLI) — hardening here improves all of them.
-
-Chained pauses: the continuation *re-arms* durable pause, so a **new** ASK mid-continuation raises
-``ApprovalPause`` again — caught here, recorded as a fresh ``paused_run`` (via the shared
-``record_pause_from_approval``), and surfaced as an awaiting outcome with a new ``run_id`` (which the
-API/CLI already render). Deferred: streaming resume.
+Missing results do not prove a sibling never executed. Ambiguous batches and
+legacy unbound approvals require reconciliation/new approval, never guessed replay.
+The store's single-use claim is not a durable external-effect receipt (G62).
 """
 
 from __future__ import annotations
@@ -72,14 +54,6 @@ def _tool_call_id(tc: Dict[str, Any]) -> Optional[str]:
     return tc.get("id") or tc.get("tool_call_id")
 
 
-def _tool_call_name(tc: Dict[str, Any]) -> Optional[str]:
-    return tc.get("name") or (tc.get("function") or {}).get("name")
-
-
-def _tool_call_args(tc: Dict[str, Any]) -> Any:
-    return tc.get("arguments") if "arguments" in tc else (tc.get("function") or {}).get("arguments")
-
-
 def _msg_attr(msg: Any, name: str) -> Any:
     """Read a field off a conversation Message, looking through its metadata."""
     value = getattr(msg, name, None)
@@ -92,9 +66,8 @@ def _msg_attr(msg: Any, name: str) -> Any:
 def _find_unresolved_calls(messages: List[Any]) -> List[Tuple[Dict[str, Any], str]]:
     """Return every ``(tool_call, id)`` in the last assistant message that has no result yet.
 
-    When a paused turn requested several tool_calls in parallel, the ``ApprovalPause`` aborts the
-    whole batch — so *all* of them are unresolved on resume (not just the gated one). Order is
-    preserved. Raises :class:`ResumeError` if none is found or a call lacks an id.
+    Transcript absence is not evidence of nonexecution. The caller rejects ambiguous
+    unresolved batches. Raises if none is found or an ID is missing/duplicated.
     """
     resolved_ids = {
         _msg_attr(m, "tool_call_id") for m in messages if getattr(m, "role", None) == "tool"
@@ -109,6 +82,9 @@ def _find_unresolved_calls(messages: List[Any]) -> List[Tuple[Dict[str, Any], st
                 assistant_calls = list(calls)
                 break
 
+    ids = [_tool_call_id(tc) for tc in assistant_calls]
+    if len(ids) != len(set(ids)):
+        raise ResumeError("duplicate tool_call IDs cannot be approved")
     unresolved: List[Tuple[Dict[str, Any], str]] = []
     for tc in assistant_calls:
         tc_id = _tool_call_id(tc)
@@ -123,49 +99,6 @@ def _find_unresolved_calls(messages: List[Any]) -> List[Tuple[Dict[str, Any], st
     return unresolved
 
 
-def _pick_gated_index(
-    unresolved: List[Tuple[Dict[str, Any], str]], pending_tool: Optional[Dict[str, Any]]
-) -> int:
-    """Index of the gated call among the unresolved ones — the one the human decided on.
-
-    Disambiguated by the ``pending_tool`` (name recorded at pause time); defaults to the first.
-    """
-    if pending_tool and len(unresolved) > 1:
-        want = pending_tool.get("tool_name")
-        for i, (tc, _id) in enumerate(unresolved):
-            if _tool_call_name(tc) == want:
-                return i
-    return 0
-
-
-def _format_tool_result(result: Any) -> str:
-    """Render a tool result (ToolService.execute_tool object *or* execute_tool_call dict) to text."""
-    if result is None:
-        return ""
-    if isinstance(result, dict):
-        for key in ("result", "output", "content", "error"):
-            if result.get(key) is not None:
-                return str(result[key])
-        return str(result)
-    for attr in ("output", "result", "content"):
-        val = getattr(result, attr, None)
-        if val is not None:
-            return str(val)
-    return str(result)
-
-
-def _parse_args(arguments: Any) -> Dict[str, Any]:
-    """Coerce tool_call arguments (dict or JSON string) into a dict."""
-    if isinstance(arguments, str):
-        import json
-
-        try:
-            arguments = json.loads(arguments)
-        except Exception:
-            return {}
-    return arguments or {}
-
-
 def _last_user_message(messages: List[Any]) -> str:
     for m in reversed(messages):
         if getattr(m, "role", None) == "user":
@@ -174,49 +107,106 @@ def _last_user_message(messages: List[Any]) -> str:
 
 
 async def resume_paused_run(orchestrator: Any, paused_run: Any, decision: Any) -> ResumeResult:
-    """Replay a paused turn's gated tool call under ``decision`` and continue (FEP-0029 Phase 3a).
+    """Resolve one bound pending call; never replay unresolved siblings."""
+    from copy import deepcopy
+    import math
+    import time
 
-    ``orchestrator`` must expose ``_conversation_controller`` (``.messages`` + ``.add_tool_result``),
-    ``_tool_service`` (``.execute_tool``), and ``turn_executor`` (``.execute_turn``). Assumes the
-    conversation was already rehydrated (``VictorClient.resume_session``).
-    """
+    from victor.framework.approval_binding import (
+        ApprovalBindingError,
+        ApprovalGrant,
+        current_approval_grant,
+        digest,
+        proposal,
+    )
+
     controller = getattr(orchestrator, "_conversation_controller", None)
-    tool_service = getattr(orchestrator, "_tool_service", None)
+    runtime_factory = getattr(orchestrator, "_get_tool_execution_runtime", None)
     turn_executor = getattr(orchestrator, "turn_executor", None)
-    if controller is None or tool_service is None or turn_executor is None:
-        raise ResumeError("orchestrator is missing the conversation/tool/turn runtime surface")
-
+    if controller is None or not callable(runtime_factory) or turn_executor is None:
+        raise ResumeError("orchestrator is missing the canonical conversation/tool/turn runtime")
+    approved = getattr(decision, "approved", None)
+    if type(approved) is not bool:
+        raise ResumeError("approval decision must be a boolean")
+    session_id = getattr(paused_run, "session_id", None)
+    if not session_id or getattr(orchestrator, "active_session_id", None) != session_id:
+        raise ResumeError("approval requires the restored original session")
     messages = list(controller.messages)
-    pending_tool = getattr(paused_run, "pending_tool", None)
     unresolved = _find_unresolved_calls(messages)
-    gated_idx = _pick_gated_index(unresolved, pending_tool)
-    gated_tool = _tool_call_name(unresolved[gated_idx][0]) or (pending_tool or {}).get("tool_name")
-    approved = bool(getattr(decision, "approved", False))
+    if len(unresolved) != 1:
+        raise ResumeError("unresolved siblings require reconciliation before approval resume")
+    tc, tc_id = unresolved[0]
+    try:
+        request = paused_run.approval_request
+        pending = paused_run.pending_tool
+        binding = deepcopy(pending["binding"])
+        ctx = request["context"]
+        if ctx.get("member_id") is not None or ctx.get("member_role") is not None:
+            raise ApprovalBindingError("Member approval requires member-owned resume")
+        timeout = request["timeout_seconds"]
+        created = request["created_at"]
+        if (
+            type(timeout) not in (int, float)
+            or type(created) not in (int, float)
+            or not math.isfinite(timeout)
+            or not math.isfinite(created)
+            or timeout <= 0
+            or created <= 0
+            or created > time.time()
+        ):
+            raise ApprovalBindingError("Invalid approval lifetime")
+        expected = {
+            **ctx["action_binding"],
+            "session_id": session_id,
+            "agent_id": getattr(paused_run, "agent_id", None),
+            "request_id": request["id"],
+            "expires_at": created + timeout,
+        }
+        call = proposal(tc)
+        if (
+            binding != expected
+            or type(binding["version"]) is not int
+            or binding["version"] != 1
+            or not request["id"]
+            or binding["call_id"] != tc_id
+            or binding["proposal"] != digest(call)
+            or pending["tool_name"] != binding["tool_name"]
+            or ctx["tool_name"] != binding["tool_name"]
+            or digest(pending["arguments"]) != binding["payload"]
+            or digest(ctx["arguments"]) != binding["payload"]
+            or time.time() >= binding["expires_at"]
+        ):
+            raise ApprovalBindingError("Approval payload, identity or expiry changed")
+    except (KeyError, TypeError, ValueError, AttributeError, ApprovalBindingError) as exc:
+        raise ResumeError(
+            "Approval is unbound, changed or expired; request a new approval"
+        ) from exc
 
-    # Resolve EVERY unresolved call so the conversation is consistent before continuing (a
-    # parallel-tool pause aborts the whole batch, so siblings need results too — else providers
-    # reject an assistant tool_call with no matching result). The gated call is handled per the
-    # human's decision; siblings run through the normal tool pipeline (reused, policy-honoring).
+    gated_tool = binding["tool_name"]
     sibling_count = 0
-    for i, (tc, tc_id) in enumerate(unresolved):
-        name = _tool_call_name(tc) or (pending_tool or {}).get("tool_name") or "unknown"
-        args = _parse_args(_tool_call_args(tc))
-        if i == gated_idx:
-            if approved:
-                # Raw executor: the human already approved, so bypass the ASK middleware.
-                content = _format_tool_result(await tool_service.execute_tool(name, args))
-            else:
-                note = getattr(decision, "response", None) or ""
-                content = f"Tool call rejected by human approval: {note}".strip()
-        else:
-            # Sibling that never ran (batch aborted at the gate) — execute via the existing
-            # pipeline path so its policy is honored, and record its result.
-            sibling_count += 1
-            res = await tool_service.execute_tool_call(
-                {"id": tc_id, "name": name, "arguments": args}
+    if approved:
+        grant = ApprovalGrant(
+            binding, binding["expires_at"], lambda: orchestrator.active_session_id == session_id
+        )
+        token = current_approval_grant.set(grant)
+        try:
+            await runtime_factory().execute_tool_calls([call])
+        finally:
+            current_approval_grant.reset(token)
+        if not grant.dispatched:
+            raise ResumeError("Approved action did not pass current policy and dispatch checks")
+        results = [
+            m
+            for m in controller.messages
+            if getattr(m, "role", None) == "tool" and _msg_attr(m, "tool_call_id") == tc_id
+        ]
+        if len(results) != 1:
+            raise ResumeError(
+                "Dispatched action has no unique recorded result; reconcile without replay"
             )
-            content = _format_tool_result(res)
-        controller.add_tool_result(tc_id, content)
+    else:
+        note = getattr(decision, "response", None) or ""
+        controller.add_tool_result(tc_id, f"Tool call rejected by human approval: {note}".strip())
 
     # Continuation: drive the turn primitive (adds no user message) until the model stops calling
     # tools. Durable pause is ARMED here (FEP-0029 chained pauses): a *new* ASK during the

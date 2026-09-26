@@ -27,7 +27,7 @@ as follows:
 | Supervisor plus specialists (pp. 2–3) | Conditional, not universally optimal. Keep HIERARCHICAL for decomposition, PARALLEL for independent work, PIPELINE for fixed stages, and single-agent execution as the baseline. Require measured improvement in verified outcome, separate permissions or domain expertise before adding members. A supervisor model is not the workflow's authorization authority. |
 | Durable admission, queue and workers (pp. 2, 4) | Appropriate for long waits, restarts and shared services. Do not impose a queue on every synchronous local read. Preserve one coordinator/StateGraph dispatch and declare each formation's actual durability. At-least-once queue delivery does not establish exactly-once external effects. |
 | Runtime → MCP client → MCP server → business API (pp. 2–3) | A useful interoperability option, not a mandatory extra network hop. Preserve typed local/API adapters where simpler. Neither MCP transport nor Sandhi model identity replaces per-tool authority, exact approval or business receipts. |
-| Approval of exact payload, followed by current authorization (pp. 3–5) | Adopt. A supervisor, reviewer, critic, judge or synthesizer cannot approve its own sensitive write by emitting text or a verdict. G61 remains open: current durable resume can select by name/position and bypass policy middleware. |
+| Approval of exact payload, followed by current authorization (pp. 3–5) | Adopt. A supervisor, reviewer, critic, judge or synthesizer cannot approve its own sensitive write by emitting text or a verdict. G61 remains partially open; bound single-agent resume now uses current policy and final dispatch checks. |
 | Reconcile unknown writes before retry (pp. 3–5) | Adopt. Current generic retries can duplicate committed effects. The repair below limits automatic replay; a backend action ledger and receipt lookup are still required for durable recovery (G62). |
 | Scoped evidence and live authoritative facts (pp. 3, 6) | Adopt for protected data. Retrieval is evidence, never authority to grant tools; preserve ACLs, provenance and explicit unavailable status (G65). A second model or majority vote is not independent business verification. |
 | Per-task and whole-workflow budgets (pp. 3–6) | Adopt as runtime controls. Member limits, retry counts and endpoint requests/minute are different quantities; neither summed counters nor a faster model proves atomic team-wide admission (G64). The PDF's example traffic estimates are illustrative, not capacity targets. |
@@ -138,8 +138,8 @@ recovery guarantee cannot be averaged away by unrelated successful tests.
 | Prefer one bounded agent; justify specialists | Supported architecture; effectiveness remains workload-specific | Existing coordinator/preset dispatch and single-agent operation are usable. Formation count is not evidence of benefit; compare verified outcomes with a single-agent baseline. |
 | Durable admission and reliable dispatch | Gap in workflow HTTP surface | `workflow_routes.py:148–171,254–262` creates an in-memory record and background task before returning success; no durable admission/deduplication is established there (G63). |
 | Saved progress and approval waits | Partial | Paused-run persistence, expiry, single-use claim and graph checkpoints exist. Node completion can precede checkpoint persistence; approval claim precedes execution (G62). |
-| Checked tool boundary | Partial | Stateful tools elevate lenient validation to strict; safety and optional RBAC run. Resume bypasses policy middleware; final dispatch is not approval-bound (G61). |
-| Exact sensitive-action approval | Gap | Pending tool arguments are not compared to the executed conversation arguments; name/position selects the call (G61). |
+| Checked tool boundary | Partial | Stateful tools elevate lenient validation to strict; safety and optional RBAC run. Single-agent resume now uses policy and final binding; inline/member and ownership gaps remain (G61). |
+| Exact sensitive-action approval | Gap | Bound single-agent calls reject payload changes; full principal/member and precondition binding remains open (G61). |
 | Recovery before retries | Gap for generic effectful tools | Bounded retry exists, but an early timeout can trigger another attempt without effect classification or reconciliation (G62). |
 | Current facts and scoped retrieval evidence | Partial | Retrieval adapters and session filters exist. The inspected gateway contract lacks authenticated scope, source version/time, and explicit unavailable status (G65). This is not a demonstrated data leak. |
 | Runtime limits and backpressure | Partial | Tool counters, timeouts and cost policy exist; atomic reservation across concurrent dispatch and a complete hard spend contract are not established (G64). |
@@ -213,31 +213,32 @@ context or failed policy installation must not silently remove enforcement.
 Extend the existing policy engine/middleware test owners, including a failing guard
 followed by an otherwise allowed action and confirmation that dispatch never occurs.
 
-### G61 — durable approval is not bound to the dispatched payload (high priority)
+### G61 — exact approval binding (high priority, partial repair)
 
-`victor/agent/durable_resume.py:129–141` selects an unresolved call by tool name or
-defaults to the first. At `:204–213` it executes arguments from the conversation via
-raw `ToolService.execute_tool`, without comparing them to `pending_tool.arguments`
-and without the policy middleware. A mocked resume approved one disposable argument
-but dispatched a different one. No shell command or real tool was executed.
+The single-agent resume repair removes name/position selection and raw execution.
+New pipeline approvals bind the exact call ID and source proposal, effective JSON
+payload, tool schema/access contract, request expiry, original session, policy scope
+and configured local RBAC identity. Resume enters the canonical service-owned tool
+runtime, reruns current policy, and uses a one-use runtime grant for only the matching
+ASK. The executor checks final arguments after transformations and hooks, and freshly
+resolves every participating policy scope; changed labels/session or failed resolution
+block dispatch. Legacy or
+malformed records, stale approvals, unknown session hydration, duplicate call IDs,
+ambiguous unresolved siblings and missing recorded results fail without replay.
+In-memory pause records now snapshot nested objects rather than exposing mutable aliases.
 
-Lower controls still apply: tool budget, schema validation, safety and optional
-RBAC. Stateful tools receive strict validation under the normal lenient default.
-They do not check that this is the exact payload the reviewer approved. Single-use
-pause claiming and a 24-hour expiry reduce replay risk but do not solve binding.
+Existing `test_durable_resume.py` was revised rather than supplemented with a competing
+mock-only suite. The original regression approved one argument but executed a different
+transcript argument. Composed policy/pipeline/executor cases now reject that mismatch,
+changed policy/identity/schema, later normalization/hook changes and missing results;
+positive cases retain one dispatch and one injected result. Store and client owners
+cover alias mutation and failed restoration.
 
-Repair: normalize once before approval; bind the exact call/action ID, canonical
-payload hash, tool/schema version, principal/scope, relevant data preconditions and
-expiry. At dispatch, recheck current authority and versions through the canonical
-tool pipeline; satisfy only the matching ASK, never skip DENY or other guards.
-Reject changed or ambiguous calls and require renewed approval. Preserve explicit
-legacy-record behavior rather than guessing which call was approved.
-
-Existing owner: `tests/unit/agent/test_durable_resume.py`. Its current approval test
-already supplies mismatched pending/conversation arguments and expects conversation
-arguments to execute: correct that expectation when implementing the repair, instead
-of adding a contradictory duplicate suite. Extend client-resume and expiry owners
-for stale approvals, competing claims and interrupted execution.
+**Still open:** authenticated principal/session ownership (neither a model name nor
+`decision.responder` is an identity proof), tool implementation-version and external
+precondition binding, atomic policy-version/budget checks, inline and member approval paths, parallel pause/result retention
+(G70), and durable claim-to-effect reconciliation (G62). This bounded single-agent
+repair does not close the complete G61 acceptance gate or C5.
 
 ### G62 — durable external-action recovery is incomplete (high priority)
 

@@ -54,6 +54,10 @@ logger = logging.getLogger(__name__)
 ContextProvider = Callable[[], PolicyContext]
 
 
+def _approval_scope(context: PolicyContext) -> Dict[str, Any]:
+    return {"session_id": context.session_id, "labels": context.labels}
+
+
 def _resolve_policy_context(provider: Optional[ContextProvider]) -> PolicyContext:
     """Keep optional absence distinct from a failed configured context source."""
     if provider is None:
@@ -201,8 +205,25 @@ class PolicyEngineMiddleware(MiddlewareProtocol):
                 error_message=self._block_message(tool_name, verdict, asked=False),
             )
 
+        from victor.framework.approval_binding import current_approval_grant, current_approval_call
+
+        grant = current_approval_grant.get()
+        effective_args = (
+            verdict.modified_arguments if verdict.modified_arguments is not None else arguments
+        )
+        scope = _approval_scope(context)
+        if grant is not None:
+            grant.check_policy(
+                tool_name, effective_args, scope, lambda: _approval_scope(self._safe_context())
+            )
+
         if verdict.is_ask:
-            approved = await self._resolve_ask(tool_name, verdict, arguments)
+            approved = await self._resolve_ask(
+                tool_name,
+                verdict,
+                effective_args if current_approval_call.get() is not None else arguments,
+                scope,
+            )
             if not approved:
                 return MiddlewareResult(
                     proceed=False,
@@ -248,23 +269,33 @@ class PolicyEngineMiddleware(MiddlewareProtocol):
         tool_name: str,
         verdict: PolicyVerdict,
         arguments: Optional[Dict[str, Any]] = None,
+        scope: Optional[Dict[str, Any]] = None,
     ) -> bool:
         """Resolve an ASK verdict to a boolean approval decision.
 
         Includes the tool ``arguments`` in the approval context so surfaces can show the
         exact command/diff being approved (informed approval) rather than just the name.
         """
+        from victor.framework.approval_binding import current_approval_grant, request_binding
+
+        grant = current_approval_grant.get()
+        if grant is not None:
+            return grant.approve_ask(verdict.policy_name)
+        context = {
+            "tool_name": tool_name,
+            "policy": verdict.policy_name,
+            "arguments": arguments or {},
+        }
+        binding = request_binding(tool_name, arguments or {}, verdict.policy_name, scope or {})
+        if binding is not None:
+            context["action_binding"] = binding
         return await resolve_policy_ask(
             self._approval_handler,
             ask_fallback=self._ask_fallback,
             ask_timeout_seconds=self._ask_timeout_seconds,
             title=f"Approve tool: {tool_name}",
             description=verdict.reason or f"Policy requests approval to run '{tool_name}'.",
-            context={
-                "tool_name": tool_name,
-                "policy": verdict.policy_name,
-                "arguments": arguments or {},
-            },
+            context=context,
         )
 
     @staticmethod
