@@ -68,6 +68,55 @@ def test_selector_changes_select_its_own_regressions():
     [
         ("victor/ui/cli_group.py", ["tests/unit/ui/test_cli_command_resolution.py"]),
         (
+            "victor/agent/strategies/provider_strategies.py",
+            ["tests/unit/providers/test_provider_components.py"],
+        ),
+        ("victor/agent/tool_selection/selector.py", ["tests/unit/tools/test_tool_selection.py"]),
+        (
+            "victor/agent/unified_task_tracker.py",
+            ["tests/unit/classification/test_tracker_classifier_integration.py"],
+        ),
+        (
+            "victor/config/api_keys.py",
+            [
+                "tests/unit/providers/test_provider_kinds.py",
+                "tests/unit/config/test_account_scoped_credentials.py",
+                "tests/unit/security/test_secure_paths.py",
+            ],
+        ),
+        (
+            "victor/config/groups/provider_config.py",
+            [
+                "tests/unit/config/test_inferflux_default.py",
+                "tests/unit/config/test_settings_stratification.py",
+            ],
+        ),
+        (
+            "victor/config/provider_settings.py",
+            [
+                "tests/unit/config/test_inferflux_default.py",
+                "tests/unit/config/test_settings_stratification.py",
+            ],
+        ),
+        (
+            "victor/config/tool_settings.py",
+            [
+                "tests/unit/config/test_tool_selection_access.py",
+                "tests/unit/config/test_settings_stratification.py",
+            ],
+        ),
+        (
+            "victor/framework/agent_factory.py",
+            [
+                "tests/unit/framework/test_skill_registry_wiring.py",
+                "tests/unit/agent/test_runtime_provider_hardcodes.py",
+            ],
+        ),
+        (
+            "victor/framework/enhanced_completion_evaluation.py",
+            ["tests/unit/framework/test_enhanced_completion_evaluator.py"],
+        ),
+        (
             "victor/agent/factory/coordination_builders.py",
             ["tests/unit/framework/policies/test_builder_wiring.py"],
         ),

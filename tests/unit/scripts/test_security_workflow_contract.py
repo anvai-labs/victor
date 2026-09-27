@@ -109,6 +109,24 @@ def test_both_python_pipelines_use_the_same_checker():
         assert all('report.get("vulnerabilities"' not in s.get("run", "") for s in steps)
 
 
+def test_changed_file_gate_defers_only_main_promotion_and_protected_merge_to_full_shards():
+    quick = workflow("ci-fast.yml")["jobs"]["quick-tests"]
+    assert quick["if"] == (
+        "${{ github.base_ref != 'main' && "
+        "!(github.event_name == 'push' && github.ref == 'refs/heads/main') }}"
+    )
+    full = workflow("ci-test.yml")
+    # PyYAML's YAML 1.1 loader interprets the unquoted GitHub `on` key as True.
+    trigger = full[True]["pull_request"]
+    assert trigger == {"branches": ["main"]}
+    test = full["jobs"]["test"]
+    assert "if" not in test
+    assert not test.get("continue-on-error")
+    matrix = test["strategy"]["matrix"]
+    assert matrix["python-version"] == ["3.12", "3.13"]
+    assert matrix["shard"] == list(range(1, 13))
+
+
 @pytest.fixture
 def release_contract():
     spec = importlib.util.spec_from_file_location(

@@ -450,7 +450,7 @@ class ServiceStreamingRuntime(ChatStreamHelperMixin):
                     "[ServiceStreamingRuntime] usage fold skipped: stream "
                     "context %s lacks cumulative_usage; per-turn tokens will "
                     "be missing from task reports",
-                    type(ctx).__name__,
+                    type(ctx),
                 )
 
             if ctx is not None:
