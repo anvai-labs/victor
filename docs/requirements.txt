@@ -13,7 +13,7 @@ sphinx>=9.1.0
 
 # Third-party Sphinx extensions loaded in conf.py:
 #   sphinx_autodoc_typehints, myst_parser (Markdown source support)
-sphinx-autodoc-typehints>=3.13.6
+sphinx-autodoc-typehints>=3.13.7
 myst-parser>=5.1.0
 
 # HTML theme (html_theme = "furo")
