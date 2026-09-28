@@ -385,6 +385,15 @@ class ProviderConfig(BaseSettings):
     api_key: Optional[SecretStr] = None
     base_url: Optional[Union[str, List[str]]] = None
     timeout: int = 300  # 5 minutes - increased for CPU-only inference
+    stream_idle_timeout_secs: float = Field(default=90.0, gt=0, le=600, allow_inf_nan=False)
+
+    @field_validator("stream_idle_timeout_secs", mode="before")
+    @classmethod
+    def reject_boolean_stream_idle(cls, value: Any) -> Any:
+        if isinstance(value, bool):
+            raise ValueError("stream idle timeout must be a number, not a boolean")
+        return value
+
     max_retries: int = 3
     organization: Optional[str] = None  # For OpenAI
     gateway: Optional[ProviderGatewayConfig] = Field(
