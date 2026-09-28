@@ -992,6 +992,15 @@ class ChatStreamHelperMixin:
             model=orch.model,
             base_temperature=orch.temperature,
         )
+        reasoning_effort = getattr(orch, "reasoning_effort", None)
+        supports_reasoning = getattr(orch.provider, "supports_reasoning_effort", None)
+        if (
+            reasoning_effort
+            and "reasoning_effort" not in provider_kwargs
+            and callable(supports_reasoning)
+            and supports_reasoning(orch.model)
+        ):
+            provider_kwargs = {**provider_kwargs, "reasoning_effort": reasoning_effort}
         provider_stream = orch.provider.stream(
             messages=assembled,
             model=orch.model,

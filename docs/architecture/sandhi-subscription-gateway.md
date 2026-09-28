@@ -304,3 +304,42 @@ evaluator's no-replay contract remains separate and strict.
 
 See `docs/development/GATEWAY-SECURITY-REVIEW-2026-09-27.md` for final review evidence
 and deployment limits. This change does not activate a production gateway route.
+
+
+## Profile reasoning effort (2026-09-28)
+
+Victor profiles accept a first-class `reasoning_effort` default:
+
+```yaml
+profiles:
+  default:
+    provider: openai
+    model: gpt-6-sol
+    reasoning_effort: medium
+  sol-high:
+    provider: openai
+    model: gpt-6-sol
+    reasoning_effort: high
+```
+
+The profile value reaches the orchestrator and both buffered and streaming
+requests when the provider reports reasoning support. An explicit per-request
+value takes precedence; explicit `None` suppresses the profile default. Leaving
+it unset preserves the upstream default. GPT-6 models are recognized by the
+OpenAI capability check. The profile schema accepts a cross-provider vocabulary;
+the selected upstream model remains authoritative for the supported subset.
+
+[OpenAI documents GPT-6 Sol](https://developers.openai.com/api/docs/models/gpt-6-sol)
+with `none`, `low`, `medium` (default), `high`, `xhigh`, and `max`. Values such as
+`minimal` or `ultra` used by other models are not claimed to work with Sol.
+Reasoning effort controls model deliberation, not tool permissions or policy.
+
+Sandhi already preserves the typed request's `reasoning_effort` and maps it to
+`reasoning.effort` for the subscription Responses backend. No gateway-wide
+effort default or override is introduced: Victor selects the default, Sandhi
+forwards it, and admission still enforces identity, model grants and budgets.
+This route uses Responses upstream, including when Victor supplies tools.
+
+TDD reproduced dropped profile values, omitted streaming defaults, missing
+GPT-6 capability recognition and unvalidated labels. Regression coverage also
+checks unsupported providers and per-request overrides (including `None`).

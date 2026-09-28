@@ -455,6 +455,12 @@ class ProfileConfig(BaseSettings):
         "Highest precedence in the ADR-013 resolution chain; absent keys defer to settings/constants.",
     )
     max_tokens: int = Field(4096, gt=0)
+    reasoning_effort: Optional[str] = Field(
+        None,
+        pattern=r"^(none|minimal|low|medium|high|xhigh|max|ultra)$",
+        description="Default reasoning effort for capable models; explicit requests override it. "
+        "Allowed levels depend on the selected provider and model.",
+    )
     description: Optional[str] = Field(None, description="Optional profile description")
     tool_selection: Optional[Dict[str, Any]] = Field(
         None, description="Tool selection configuration for adaptive thresholds"

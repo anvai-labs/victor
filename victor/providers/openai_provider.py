@@ -309,10 +309,12 @@ class OpenAIProvider(BaseProvider):
         return any(model_lower.startswith(prefix) for prefix in ["o1", "o3", "gpt-5", "gpt5"])
 
     def supports_reasoning_effort(self, model: Optional[str] = None) -> bool:
-        """OpenAI reasoning models (o-series, GPT-5.x) accept ``reasoning_effort``."""
+        """OpenAI reasoning models (o-series, GPT-5/6) accept ``reasoning_effort``."""
         if not model:
             return False
-        return self._uses_max_completion_tokens(model)
+        return self._uses_max_completion_tokens(model) or model.lower().startswith(
+            ("gpt-6", "gpt6")
+        )
 
     @property
     def name(self) -> str:
