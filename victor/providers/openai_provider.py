@@ -14,9 +14,16 @@
 
 """OpenAI GPT provider implementation."""
 
+import asyncio
+import math
+import re
+import time
+
 from typing import Any, AsyncIterator, Dict, List, Optional
+from urllib.parse import urlsplit
 
 from openai import AsyncOpenAI
+from victor.core.identity.protocols import TokenCredential
 
 from victor.providers.base import (
     BaseProvider,
@@ -75,7 +82,66 @@ class OpenAIProvider(BaseProvider):
         self._oauth_manager: Optional[OAuthTokenManager] = None
         self._auth_mode = auth_mode
 
-        if auth_mode == "oauth":
+        self._gateway_credential: Optional[TokenCredential] = None
+        self._gateway_audience = ""
+        gateway = kwargs.get("gateway")
+        if gateway is not None:
+            if not isinstance(gateway, dict):
+                raise ValueError("gateway requires a URL and virtual key")
+            key = gateway.get("virtual_key")
+            if hasattr(key, "get_secret_value"):
+                key = key.get_secret_value()
+            oidc = gateway.get("oidc")
+            credential = gateway.get("credential")
+            if sum((bool(key), oidc is not None, credential is not None)) != 1:
+                raise ValueError("gateway requires exactly one virtual key or OIDC credential")
+            if oidc is not None:
+                from victor.core.identity.gateway import GatewayTokenFileCredential
+
+                if not isinstance(oidc, dict):
+                    raise ValueError("gateway oidc must be an identity configuration")
+                credential = GatewayTokenFileCredential(oidc)
+                self._gateway_audience = oidc["audience"]
+            elif credential is not None:
+                self._gateway_audience = gateway.get("audience", "")
+            if credential is not None:
+                if not isinstance(credential, TokenCredential) or not self._gateway_audience:
+                    raise ValueError("gateway credential requires TokenCredential and audience")
+                self._gateway_credential = credential
+                key = "gateway-pending"
+            elif not isinstance(key, str) or not key.strip():
+                raise ValueError("gateway requires a non-empty virtual key")
+            grant = gateway.get("grant")
+            if grant is not None:
+                if not isinstance(grant, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", grant):
+                    raise ValueError("gateway grant must be an unambiguous policy name")
+                self._wire_headers = {"x-sandhi-grant": grant}
+            url = str(gateway.get("url") or "").strip().rstrip("/")
+            parsed = urlsplit(url)
+            if (
+                not parsed.hostname
+                or parsed.username is not None
+                or parsed.password is not None
+                or parsed.query
+                or parsed.fragment
+                or parsed.path not in ("", "/v1")
+                or not (
+                    parsed.scheme == "https"
+                    or (
+                        parsed.scheme == "http"
+                        and parsed.hostname in ("127.0.0.1", "::1", "localhost")
+                    )
+                )
+            ):
+                raise ValueError("gateway URL must use HTTPS or loopback HTTP and a root path")
+            # Gateway authentication is complete in itself. Never consult the local
+            # subscription cache, refresh a token, or fall back to an upstream key.
+            self._api_key = key
+            self._auth_mode = auth_mode = "gateway"
+            base_url = url if url.endswith("/v1") else url + "/v1"
+            organization = None
+            max_retries = 0
+        elif auth_mode == "oauth":
             # OAuth mode uses ChatGPT subscription via Codex API.
             if base_url is None:
                 base_url = "https://chatgpt.com/backend-api/codex"
@@ -177,6 +243,33 @@ class OpenAIProvider(BaseProvider):
 
     async def _ensure_valid_token(self) -> None:
         """Refresh OAuth token if needed. No-op for api_key mode."""
+        if self._gateway_credential is not None:
+            try:
+                token = await asyncio.wait_for(
+                    self._gateway_credential.get_token(self._gateway_audience), timeout=20
+                )
+                if (
+                    not isinstance(token.token, str)
+                    or not 0 < len(token.token) <= 16384
+                    or not re.fullmatch(r"[A-Za-z0-9._~+/-]+=*", token.token)
+                    or type(token.expires_on) not in (int, float)
+                    or not math.isfinite(token.expires_on)
+                    or token.expires_on <= time.time() + 30
+                ):
+                    raise ValueError("invalid gateway token")
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                raise ProviderError("gateway credential unavailable", provider="openai") from None
+            if token.token != self._api_key:
+                self._api_key = token.token
+                self.client.api_key = token.token
+                # Retire cached handles containing old access tokens. In-flight
+                # calls retain their own handle; no inference request is replayed.
+                cached = getattr(self, "_sandhi_typed_providers", None)
+                if cached is not None:
+                    cached.clear()
+            return
         if self._oauth_manager is None:
             return
         token = await self._oauth_manager.get_valid_token()

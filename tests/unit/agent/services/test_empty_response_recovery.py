@@ -200,3 +200,23 @@ async def test_no_diagnostics_keeps_base_max_tokens():
     await helper._handle_empty_response_recovery(_stream_ctx(), tools=[])
 
     assert stream_kwargs[0]["max_tokens"] == 4096
+
+
+@pytest.mark.asyncio
+async def test_recovery_policy_denial_stops_temperature_ladder():
+    from victor.core.errors import ProviderPolicyError
+
+    error = ProviderPolicyError("policy_quarantined", receipt="a" * 32)
+    calls = []
+
+    async def denied(**kwargs):
+        calls.append(kwargs)
+        raise error
+        yield
+
+    orch = _recovery_orch([], [])
+    orch.provider.stream = denied
+    with pytest.raises(ProviderPolicyError) as caught:
+        await _Helper(orch)._handle_empty_response_recovery(_stream_ctx(), tools=[])
+    assert caught.value is error
+    assert len(calls) == 1

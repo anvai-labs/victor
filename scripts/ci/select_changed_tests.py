@@ -58,6 +58,21 @@ DEPRECATION_NOTICE_FILES = (
     "victor/agent/sqlite_session_persistence.py",
 )
 RELATED_TESTS = {
+    "victor/config/provider_config_registry.py": (
+        "tests/unit/providers/test_subscription_gateway.py",
+        "tests/unit/providers/test_sandhi_transport.py",
+    ),
+    "victor/core/identity/gateway.py": (
+        "tests/unit/providers/test_subscription_gateway.py",
+    ),
+    "victor/framework/graph_runtime.py": (
+        "tests/unit/framework/test_graph.py",
+        "tests/unit/providers/test_gateway_policy_resilience.py",
+    ),
+    "victor/providers/gateway_boundary.py": (
+        "tests/unit/providers/test_gateway_policy_resilience.py",
+        "tests/unit/agent/services/test_stream_connection_retry.py",
+    ),
     # Descriptive suites own these modules; provider_settings is the retired
     # path whose replacement is the grouped ProviderSettings contract.
     "victor/agent/strategies/provider_strategies.py": (

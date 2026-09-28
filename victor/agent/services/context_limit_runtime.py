@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+from victor.core.errors import ProviderPolicyError
+
 import logging
 from typing import Any, Optional
 
@@ -174,6 +176,8 @@ class ContextLimitRuntime:
                         completed=True,
                     )
                     return True, chunk
+        except ProviderPolicyError:
+            raise
         except (ProviderRateLimitError, ProviderTimeoutError) as exc:
             logger.error("Rate limit/timeout during final response: %s", exc)
             chunk = StreamChunk(

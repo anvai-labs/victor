@@ -11,12 +11,14 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import uuid
 from json import JSONDecodeError
 from typing import Any, AsyncIterator, Dict, List, Optional, Tuple, Type
 
 logger = logging.getLogger(__name__)
 
+from victor.core.errors import ProviderPolicyError
 from victor.providers.anthropic_provider import AnthropicProvider
 from victor.providers.base import (
     BaseProvider,
@@ -250,6 +252,33 @@ def map_sandhi_error(exc: BaseException, provider_name: str, timeout: float) -> 
         return ProviderConnectionError(
             f"sandhi binding failure: {exc}", provider=provider_name, raw_error=exc
         )
+    candidates = [typed]
+    details = typed.get("details")
+    raw = details.get("upstream_body") if isinstance(details, dict) else None
+    if isinstance(raw, str) and len(raw) <= 8192:
+        try:
+            envelope = json.loads(raw)
+            if isinstance(envelope, dict) and isinstance(envelope.get("error"), dict):
+                candidates.append(envelope["error"])
+        except (ValueError, TypeError):
+            pass
+    for candidate in candidates:
+        code = candidate.get("code")
+        if isinstance(code, str) and code in {
+            "policy_blocked",
+            "policy_quarantined",
+            "policy_unavailable",
+        }:
+            receipt = candidate.get("request_id")
+            if not isinstance(receipt, str) or not re.fullmatch(r"[0-9a-f]{32}", receipt):
+                receipt = None
+            status = typed.get("http_status")
+            return ProviderPolicyError(
+                code,
+                provider=provider_name,
+                receipt=receipt,
+                status_code=status if isinstance(status, int) else None,
+            )
     detail = str(typed.get("message") or exc)
     # Sandhi carries the full (capped) upstream error body in details["upstream_body"]
     # (the message holds only a short display snippet). Append it so provider
@@ -733,7 +762,11 @@ class SandhiTypedProviderMixin:
         url = str(gateway.get("url") or "").strip()
         if not url:
             return None
-        virtual_key = gateway.get("virtual_key")
+        virtual_key = (
+            getattr(self, "_api_key", None)
+            if getattr(self, "_gateway_credential", None) is not None
+            else gateway.get("virtual_key")
+        )
         # Duck-type SecretStr without importing pydantic into the transport layer.
         if hasattr(virtual_key, "get_secret_value"):
             virtual_key = virtual_key.get_secret_value()
@@ -805,7 +838,9 @@ class SandhiTypedProviderMixin:
                 "base_url": explicit_base_url or None,
                 "timeout_secs": self._sandhi_timeout(),
                 "stream_idle_timeout_secs": 90.0,
-                "max_retries": max(0, int(getattr(self, "max_retries", 0) or 0)),
+                "max_retries": (
+                    0 if gateway is not None else max(0, int(getattr(self, "max_retries", 0) or 0))
+                ),
             }
             wire_headers = dict(getattr(self, "_wire_headers", None) or {})
             if run_id:
@@ -846,7 +881,10 @@ class SandhiTypedProviderMixin:
         except (asyncio.CancelledError, KeyboardInterrupt, SystemExit):
             raise
         except BaseException as exc:  # pyo3 panics may subclass BaseException
-            raise map_sandhi_error(exc, self._sandhi_slug(), timeout) from exc
+            mapped = map_sandhi_error(exc, self._sandhi_slug(), timeout)
+            if isinstance(mapped, ProviderPolicyError):
+                raise mapped from None
+            raise mapped from exc
 
     def _completion_from_typed(self, response: Dict[str, Any], model: str) -> CompletionResponse:
         output = response.get("output") or {}
@@ -984,7 +1022,10 @@ class SandhiTypedProviderMixin:
         except ProviderError:
             raise
         except BaseException as exc:
-            raise map_sandhi_error(exc, self._sandhi_slug(), timeout) from exc
+            mapped = map_sandhi_error(exc, self._sandhi_slug(), timeout)
+            if isinstance(mapped, ProviderPolicyError):
+                raise mapped from None
+            raise mapped from exc
 
 
 class SandhiHttpxTransportMixin(SandhiTypedProviderMixin):

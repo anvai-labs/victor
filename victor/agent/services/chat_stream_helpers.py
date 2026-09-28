@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+from victor.providers.gateway_boundary import uses_gateway
+
 import asyncio
 import contextlib
 import logging
@@ -28,6 +30,7 @@ from victor.agent.unified_task_tracker import TrackerTaskType
 from victor.core.loop_thresholds import DEFAULT_BLOCKED_CONSECUTIVE_THRESHOLD
 from victor.core.errors import (
     ProviderAuthError,
+    ProviderPolicyError,
     ProviderConnectionError,
     ProviderRateLimitError,
     ProviderTimeoutError,
@@ -854,6 +857,8 @@ class ChatStreamHelperMixin:
         max_retries: int = 3,
     ) -> tuple[str, Any, float, bool]:
         """Stream provider response with automatic rate limit retry."""
+        if uses_gateway(getattr(getattr(self, "_orchestrator", None), "provider", None)):
+            max_retries = 0
         last_exception = None
 
         for attempt in range(max_retries + 1):
@@ -861,6 +866,8 @@ class ChatStreamHelperMixin:
                 return await self._stream_provider_response_inner(
                     tools, provider_kwargs, stream_ctx
                 )
+            except ProviderPolicyError:
+                raise
             except ProviderRateLimitError as exc:
                 last_exception = exc
                 if attempt < max_retries:
@@ -1585,7 +1592,11 @@ class ChatStreamHelperMixin:
                     )
                     return True, None, final_chunk
 
+            except ProviderPolicyError:
+                raise
             except Exception as exc:
+                if uses_gateway(orch.provider):
+                    raise
                 logger.warning(f"Recovery attempt at temperature {temp} failed: {exc}")
                 continue
 

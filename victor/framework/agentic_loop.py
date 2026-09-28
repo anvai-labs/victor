@@ -56,6 +56,8 @@ Example:
 
 from __future__ import annotations
 
+from victor.core.errors import ProviderPolicyError
+
 import inspect
 import logging
 from dataclasses import dataclass, field
@@ -1452,6 +1454,9 @@ class AgenticLoop:
                     "progress_scores": list(self._progress_scores),
                 },
             )
+        except ProviderPolicyError:
+            # A denial must not become an empty result that triggers LLM recovery.
+            raise
         except Exception as e:
             logger.error(f"Agentic loop error: {e}", exc_info=True)
             duration = time.time() - start_time
@@ -4156,6 +4161,8 @@ class AgenticLoop:
                 metadata=self._stategraph_metadata(graph_result, final_state),
             )
 
+        except ProviderPolicyError:
+            raise
         except Exception as e:
             logger.error(f"StateGraph executor error: {e}", exc_info=True)
             duration = time.time() - start_time

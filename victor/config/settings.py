@@ -332,6 +332,15 @@ def reset_project_paths() -> None:
     _current_project_paths = None
 
 
+class GatewayOidcConfig(BaseModel):
+    """Identity-pinned access-token file maintained by the operator's OIDC broker."""
+
+    token_file: str
+    issuer: str
+    audience: str
+    subject: str
+
+
 class ProviderGatewayConfig(BaseModel):
     """Per-provider Sandhi gateway mode (TD-0003 P3).
 
@@ -360,6 +369,9 @@ class ProviderGatewayConfig(BaseModel):
             "or SANDHI_GATEWAY_VIRTUAL_KEY)."
         ),
     )
+
+    oidc: Optional[GatewayOidcConfig] = None
+    grant: Optional[str] = None
 
     @property
     def virtual_key_value(self) -> Optional[str]:

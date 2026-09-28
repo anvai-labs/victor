@@ -226,6 +226,28 @@ class ProviderAuthError(ProviderError):
         )
 
 
+class ProviderPolicyError(ProviderError):
+    """Terminal gateway policy decision; never retry or select another provider."""
+
+    def __init__(
+        self,
+        code: str,
+        *,
+        provider: Optional[str] = None,
+        status_code: Optional[int] = None,
+        receipt: Optional[str] = None,
+    ):
+        super().__init__(
+            "Request stopped by gateway policy",
+            provider=provider,
+            status_code=status_code,
+            category=ErrorCategory.PROVIDER_AUTH,
+            recovery_hint="Review the gateway policy decision before explicitly resubmitting.",
+        )
+        self.details["policy_code"] = code
+        self.details["policy_receipt"] = receipt
+
+
 class ProviderRateLimitError(ProviderError):
     """Provider rate limit exceeded."""
 

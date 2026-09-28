@@ -82,3 +82,27 @@ async def test_member_gateway_honors_provider_profile_block(monkeypatch):
             await SubAgentOrchestrator(parent)._resolve_override_provider("zai", None)
             assert create.call_args.kwargs["gateway"] == configured
             assert create.call_args.kwargs["api_key"] == "vk-profile"
+
+
+async def test_member_oidc_credential_preserves_identity_without_upstream_resolution(monkeypatch):
+    from types import SimpleNamespace
+
+    oidc = {
+        "token_file": "/private/access.json",
+        "issuer": "https://sso.example.test",
+        "audience": "sandhi",
+        "subject": "user-one",
+    }
+    gateway = {"url": "https://gateway.example.test", "oidc": oidc, "grant": "cloud"}
+    parent = SimpleNamespace(
+        model="allowed", settings=SimpleNamespace(providers={"openai": {"gateway": gateway}})
+    )
+    key = MagicMock(side_effect=AssertionError("must not resolve upstream key"))
+    monkeypatch.setattr("victor.config.api_keys.get_api_key", key)
+    with patch(
+        "victor.providers.factory.ManagedProviderFactory.create", new_callable=AsyncMock
+    ) as create:
+        await SubAgentOrchestrator(parent)._resolve_override_provider("openai", None)
+        assert create.call_args.kwargs["gateway"]["oidc"] == oidc
+        assert create.call_args.kwargs["api_key"] is None
+        key.assert_not_called()

@@ -20,6 +20,8 @@ loop graph with proper service injection and result handling.
 
 from __future__ import annotations
 
+from victor.core.errors import ProviderPolicyError
+
 import logging
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Dict, List, Mapping, Optional, TYPE_CHECKING
@@ -243,6 +245,8 @@ class AgenticLoopGraphExecutor:
 
             return result
 
+        except ProviderPolicyError:
+            raise
         except Exception as e:
             logger.error(f"Agentic loop execution failed: {e}")
             return LoopResult(
@@ -297,6 +301,8 @@ class AgenticLoopGraphExecutor:
                     event["execution_checkpoint"] = checkpoint_metadata
                 yield event
 
+        except ProviderPolicyError:
+            raise
         except Exception as e:
             yield {
                 "node_name": "error",

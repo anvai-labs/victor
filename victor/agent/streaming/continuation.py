@@ -54,6 +54,8 @@ Usage:
 
 from __future__ import annotations
 
+from victor.core.errors import ProviderPolicyError
+
 import logging
 import time
 from dataclasses import dataclass, field
@@ -515,6 +517,8 @@ class ContinuationHandler:
 
             result.add_chunk(self._chunk_generator.generate_final_marker_chunk())
 
+        except ProviderPolicyError:
+            raise
         except Exception as e:
             logger.warning(f"Error forcing final response: {e}")
             result.add_chunk(self._chunk_generator.generate_final_marker_chunk())
