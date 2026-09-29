@@ -47,6 +47,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import List, Optional
 
+from victor.core.model_parameters import ReasoningEffort, validate_reasoning_effort
+
 from victor.framework.bayesian_config import BayesianConfig
 
 DEFAULT_PROVIDER_MODELS = {
@@ -138,6 +140,10 @@ class ProviderOverrideConfig:
     auth_mode: Optional[str] = None
     timeout: Optional[int] = None
     coding_plan: bool = False
+    reasoning_effort: Optional[ReasoningEffort] = None
+
+    def __post_init__(self) -> None:
+        validate_reasoning_effort(self.reasoning_effort)
 
     @property
     def is_active(self) -> bool:
@@ -150,6 +156,7 @@ class ProviderOverrideConfig:
                 self.auth_mode is not None,
                 self.timeout is not None,
                 self.coding_plan,
+                self.reasoning_effort is not None,
             )
         )
 
@@ -163,6 +170,7 @@ class ProviderOverrideConfig:
         auth_mode: Optional[str] = None,
         timeout: Optional[int] = None,
         coding_plan: bool = False,
+        reasoning_effort: Optional[ReasoningEffort] = None,
     ) -> "ProviderOverrideConfig":
         """Normalize provider override flags from CLI-friendly inputs."""
         normalized_provider = provider.lower() if provider else None
@@ -199,11 +207,14 @@ class ProviderOverrideConfig:
             auth_mode=normalized_auth_mode,
             timeout=timeout,
             coding_plan=coding_plan,
+            reasoning_effort=reasoning_effort,
         )
 
     def to_profile_overrides(self) -> dict[str, object]:
         """Return extra profile payload fields for AgentFactory synthesis."""
         overrides: dict[str, object] = {}
+        if self.reasoning_effort is not None:
+            overrides["reasoning_effort"] = self.reasoning_effort
         if self.endpoint:
             overrides["base_url"] = self.endpoint
         if self.auth_mode:
@@ -417,6 +428,7 @@ class SessionConfig:
         auth_mode: Optional[str] = None,
         provider_timeout: Optional[int] = None,
         coding_plan: bool = False,
+        reasoning_effort: Optional[ReasoningEffort] = None,
         # Bayesian orchestration flags
         enable_bayesian: bool = True,
         force_bayesian: bool = False,
@@ -517,6 +529,7 @@ class SessionConfig:
                 auth_mode=auth_mode,
                 timeout=provider_timeout,
                 coding_plan=coding_plan,
+                reasoning_effort=reasoning_effort,
             ),
             bayesian=BayesianConfig.from_cli_flags(
                 enable_bayesian=enable_bayesian,

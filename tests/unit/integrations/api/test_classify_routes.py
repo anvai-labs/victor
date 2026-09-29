@@ -262,20 +262,24 @@ async def test_classify_managed_provider_override_is_closed(monkeypatch, tmp_pat
                 model="managed-model",
             )
 
-    async def fake_factory(provider_name, model, api_key):
+    async def fake_factory(provider_name, model, **kwargs):
         # REAL signature: ManagedProviderFactory.create is async (P1 finding).
         p = _Managed([json.dumps(_TRIAGE_RESULT)])
         p.managed_model = model
         created.append(p)
         return p
 
-    import victor.config.api_keys as api_keys_mod
     import victor.providers.factory as factory_mod
 
-    monkeypatch.setattr(api_keys_mod, "get_api_key", lambda name: "sk-test")
-    monkeypatch.setattr(factory_mod.ManagedProviderFactory, "create", staticmethod(fake_factory))
-
     server = _make_server(monkeypatch, tmp_path, _FakeProvider([]))
+    monkeypatch.setattr(
+        "victor.config.settings.load_settings",
+        lambda **kwargs: SimpleNamespace(get_provider_settings=lambda name: {"api_key": "sk-test"}),
+    )
+    monkeypatch.setattr(factory_mod.ManagedProviderFactory, "create", staticmethod(fake_factory))
+    server._get_orchestrator = AsyncMock(
+        side_effect=AssertionError("No agent needed for explicit classify route")
+    )
     async with _client(server) as client:
         response = await client.post(
             "/v1/classify",
@@ -389,3 +393,196 @@ async def test_classify_error_responses_carry_request_id_header(monkeypatch, tmp
         )
     assert response.status_code == 422
     assert response.headers.get("x-victor-request-id", "").startswith("cls-")
+
+
+@pytest.mark.asyncio
+async def test_classify_forwards_reasoning_effort_on_both_parse_attempts(monkeypatch, tmp_path):
+    class Provider(_FakeProvider):
+        async def chat(self, messages, **kwargs):
+            self.calls.append(kwargs)
+            content = "invalid" if len(self.calls) == 1 else json.dumps(_TRIAGE_RESULT)
+            return SimpleNamespace(content=content, model="gpt-6-luna", usage={})
+
+    provider = Provider([])
+    server = _make_server(monkeypatch, tmp_path, provider)
+    async with _client(server) as client:
+        result = await client.post(
+            "/v1/classify",
+            json={
+                "input": "hello",
+                "preset": "triage.v1",
+                "model": "gpt-6-luna",
+                "reasoning_effort": "medium",
+            },
+        )
+    assert result.status_code == 200
+    assert len(provider.calls) == 2
+    assert all(call.get("reasoning_effort") == "medium" for call in provider.calls)
+
+
+@pytest.mark.asyncio
+async def test_classify_invalid_effort_rejected_without_provider_call(monkeypatch, tmp_path):
+    provider = _FakeProvider([])
+    server = _make_server(monkeypatch, tmp_path, provider)
+    async with _client(server) as client:
+        result = await client.post(
+            "/v1/classify",
+            json={"input": "hello", "preset": "triage.v1", "reasoning_effort": "typo"},
+        )
+    assert result.status_code == 422
+    assert not provider.calls
+
+
+@pytest.mark.asyncio
+async def test_classify_override_keeps_configured_gateway(monkeypatch):
+    from victor.integrations.api.routes.classify_routes import ClassifyRequest, _resolve_provider
+
+    configured = {
+        "api_key": "synthetic-key",
+        "gateway": {"url": "https://gateway.example", "virtual_key": "synthetic-key"},
+        "timeout": 45,
+    }
+    settings = SimpleNamespace(get_provider_settings=lambda name: dict(configured))
+    monkeypatch.setattr("victor.config.settings.load_settings", lambda **kwargs: settings)
+    created = AsyncMock(return_value=object())
+    monkeypatch.setattr("victor.providers.factory.ManagedProviderFactory.create", created)
+    provider, disposable = await _resolve_provider(
+        None,
+        ClassifyRequest(input="hello", preset="triage.v1", provider="openai", model="gpt-6-luna"),
+    )
+    assert provider is disposable
+    assert created.call_args.kwargs["gateway"] == configured["gateway"]
+    assert created.call_args.kwargs["enable_resilience"] is False
+    assert created.call_args.kwargs["enable_rate_limiting"] is False
+
+
+@pytest.mark.asyncio
+async def test_classify_gateway_policy_denial_is_terminal_and_sanitized(monkeypatch, tmp_path):
+    from victor.core.errors import ProviderPolicyError
+
+    class Provider(_FakeProvider):
+        async def chat(self, **kwargs):
+            self.calls.append(kwargs)
+            raise ProviderPolicyError("policy_blocked", receipt="a" * 32)
+
+    provider = Provider([])
+    server = _make_server(monkeypatch, tmp_path, provider)
+    async with _client(server) as client:
+        result = await client.post(
+            "/v1/classify", json={"input": "synthetic", "preset": "triage.v1"}
+        )
+    assert result.status_code == 403
+    assert len(provider.calls) == 1
+    assert result.headers["x-sandhi-policy-receipt"] == "a" * 32
+    assert result.json()["latency_ms"] >= 0
+
+
+@pytest.mark.asyncio
+async def test_classify_schema_requires_key_and_exposes_only_request_contract(
+    monkeypatch, tmp_path
+):
+    provider = _FakeProvider([])
+    server = _make_server(
+        monkeypatch, tmp_path, provider, api_keys={"synthetic-key": "message-hub"}
+    )
+    async with _client(server) as client:
+        denied = await client.get("/v1/classify/schema")
+        allowed = await client.get(
+            "/v1/classify/schema", headers={"Authorization": "Bearer synthetic-key"}
+        )
+    assert denied.status_code == 401
+    assert allowed.status_code == 200
+    assert "reasoning_effort" in allowed.json()["properties"]
+    assert "paths" not in allowed.json()
+    assert not provider.calls
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("outcome", ["success", "timeout", "cancel"])
+async def test_real_managed_classify_owns_dispatch_and_cleanup(monkeypatch, tmp_path, outcome):
+    import asyncio
+    from victor.providers.factory import ManagedProviderFactory
+
+    started = asyncio.Event()
+    cancelled = []
+
+    class Provider(_FakeProvider):
+        name = "openai"
+
+        async def chat(self, **kwargs):
+            self.calls.append(kwargs)
+            started.set()
+            if outcome == "success":
+                return SimpleNamespace(
+                    content=json.dumps(_TRIAGE_RESULT), model="gpt-6-luna", usage={}
+                )
+            try:
+                await asyncio.sleep(3600)
+            finally:
+                cancelled.append(True)
+
+    base = Provider([])
+    server = _make_server(monkeypatch, tmp_path, base)
+    monkeypatch.setattr(
+        "victor.config.settings.load_settings",
+        lambda **k: SimpleNamespace(get_provider_settings=lambda name: {"api_key": "synthetic"}),
+    )
+    monkeypatch.setattr("victor.providers.factory.ProviderRegistry.create", lambda *a, **k: base)
+    created = []
+    original = ManagedProviderFactory.create_from_config
+
+    async def create(config):
+        managed = await original(config)
+        created.append(managed)
+        return managed
+
+    monkeypatch.setattr(ManagedProviderFactory, "create_from_config", create)
+    try:
+        async with _client(server) as client:
+            task = asyncio.create_task(
+                client.post(
+                    "/v1/classify",
+                    json={
+                        "input": "hello",
+                        "preset": "triage.v1",
+                        "provider": "openai",
+                        "model": "gpt-6-luna",
+                        "timeout_ms": 250,
+                    },
+                )
+            )
+            if outcome == "cancel":
+                await asyncio.wait_for(started.wait(), 3)
+                task.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await task
+            else:
+                result = await asyncio.wait_for(task, 3)
+                assert result.status_code == (200 if outcome == "success" else 504)
+        assert created and created[0]._request_manager is None
+        assert base.closed
+        if outcome != "success":
+            assert cancelled
+    finally:
+        for managed in created:
+            await managed.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_parse_retry_shares_operation_deadline(monkeypatch, tmp_path):
+    import asyncio
+
+    class Provider(_FakeProvider):
+        async def chat(self, **kwargs):
+            self.calls.append(kwargs)
+            await asyncio.sleep(0.20)
+            return SimpleNamespace(content="invalid", model="fake-model", usage={})
+
+    base = Provider([])
+    server = _make_server(monkeypatch, tmp_path, base)
+    async with _client(server) as client:
+        result = await client.post(
+            "/v1/classify", json={"input": "hello", "preset": "triage.v1", "timeout_ms": 300}
+        )
+    assert result.status_code == 504
+    assert len(base.calls) == 2

@@ -26,6 +26,8 @@ from typing import Annotated, Any, Callable, ClassVar, Dict, Optional, Union, Li
 logger = logging.getLogger(__name__)
 
 import yaml
+from victor.core.model_parameters import ReasoningEffort
+
 from pydantic import BaseModel, Field, SecretStr, computed_field, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 from victor.config.model_capabilities import _load_tool_capable_patterns_from_yaml
@@ -455,9 +457,8 @@ class ProfileConfig(BaseSettings):
         "Highest precedence in the ADR-013 resolution chain; absent keys defer to settings/constants.",
     )
     max_tokens: int = Field(4096, gt=0)
-    reasoning_effort: Optional[str] = Field(
+    reasoning_effort: Optional[ReasoningEffort] = Field(
         None,
-        pattern=r"^(none|minimal|low|medium|high|xhigh|max|ultra)$",
         description="Default reasoning effort for capable models; explicit requests override it. "
         "Allowed levels depend on the selected provider and model.",
     )
