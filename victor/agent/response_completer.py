@@ -27,13 +27,15 @@ Design Principles:
 
 from __future__ import annotations
 
+from victor.providers.gateway_boundary import uses_gateway
+
 import asyncio
 import logging
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 
-from victor.core.errors import ProviderRateLimitError
+from victor.core.errors import ProviderRateLimitError, ProviderPolicyError
 from victor.providers.base import CompletionResponse, BaseProvider, Message
 
 logger = logging.getLogger(__name__)
@@ -244,6 +246,8 @@ class ResponseCompleter:
                     provider_responses=tuple(responses),
                 )
 
+        except ProviderPolicyError:
+            raise
         except Exception as e:
             logger.warning(f"Failed to generate error response: {e}")
 
@@ -332,7 +336,11 @@ class ResponseCompleter:
 
                 logger.debug(f"Recovery attempt {attempt + 1}: insufficient response")
 
+            except ProviderPolicyError:
+                raise
             except ProviderRateLimitError as e:
+                if uses_gateway(self.provider):
+                    raise
                 # The provider (or its circuit breaker) is in cooldown. Retrying
                 # in a tight loop just re-hits the suppression check and burns
                 # all our recovery attempts in milliseconds. Sleep for the
@@ -363,6 +371,8 @@ class ResponseCompleter:
                 await asyncio.sleep(wait_seconds)
 
             except Exception as e:
+                if uses_gateway(self.provider):
+                    raise
                 logger.warning(f"Recovery attempt {attempt + 1} failed: {e}")
 
         # All attempts failed

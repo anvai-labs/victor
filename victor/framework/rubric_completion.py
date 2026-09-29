@@ -40,6 +40,8 @@ heuristic judge. Rubrics are cached per task family (>95% cost cut, AdaRubric).
 
 from __future__ import annotations
 
+from victor.core.errors import ProviderPolicyError
+
 import logging
 import math
 import re
@@ -378,6 +380,8 @@ class LLMRubricJudge:
     ) -> tuple[RubricDimensionScore, ...]:
         try:
             text = await self.complete_fn(_build_rubric_prompt(rubric, content))
+        except ProviderPolicyError:
+            raise
         except Exception as exc:  # degrade, don't crash the loop's completion check
             logger.warning("LLM rubric judge call failed (%s); using neutral fallback", exc)
             return tuple(

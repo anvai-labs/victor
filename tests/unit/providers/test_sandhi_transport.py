@@ -468,13 +468,23 @@ def test_resolve_provider_gateway_env_fallback_per_provider_then_global(monkeypa
     assert base["gateway"]["virtual_key"] == "vk_global"
 
 
-def test_resolve_provider_gateway_drops_block_without_url():
+def test_resolve_provider_gateway_rejects_credentials_without_url(monkeypatch):
     from victor.config.provider_config_registry import resolve_provider_gateway
 
-    base: dict = {"gateway": {"virtual_key": "vk_orphan"}, "api_key": "k"}
-    resolve_provider_gateway(base, "deepseek")
-    assert "gateway" not in base
-    assert base["api_key"] == "k"
+    monkeypatch.delenv("SANDHI_GATEWAY_URL", raising=False)
+    settings = {"gateway": {"virtual_key": "vk_test"}}
+    with pytest.raises(ValueError, match="gateway URL"):
+        resolve_provider_gateway(settings, "openai")
+    assert settings["gateway"]["virtual_key"] == "vk_test"
+
+
+def test_resolve_provider_gateway_drops_only_empty_block_without_url(monkeypatch):
+    from victor.config.provider_config_registry import resolve_provider_gateway
+
+    monkeypatch.delenv("SANDHI_GATEWAY_URL", raising=False)
+    settings = {"gateway": {}}
+    resolve_provider_gateway(settings, "openai")
+    assert "gateway" not in settings
 
 
 class TestWireContractHandshake:

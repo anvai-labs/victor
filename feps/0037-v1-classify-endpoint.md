@@ -121,3 +121,40 @@ artifact for this FEP.
   and the unattributed `/completions` gap this FEP addresses).
 - FEP-0020 (usage attribution), FEP-0009 (SDK tool contract),
   TD-0008 (Victor–Sandhi consumer-decision rule).
+
+
+## Additive model/effort and gateway integration (2026-09-28)
+
+`reasoning_effort` is an optional request field sharing Victor's foundational
+model-control vocabulary with profiles and immutable session overrides. It is
+forwarded on every parse attempt. `None`/absence delegates to the upstream
+model default; the string `none` explicitly requests disabled reasoning where
+supported. Effort is independent of temperature, output-token limits and tool
+permissions. Per-model/provider support and native encoding remain adapter
+responsibilities; not every value applies to every model.
+
+Explicit provider+model requests resolve all configured provider settings,
+including Sandhi gateway credentials, without bootstrapping an agent. They
+never accept an arbitrary endpoint URL from the caller. Transport resilience
+is disabled on this stateless route; only the existing one parse-repair retry
+is allowed. Gateway policy denials return terminal HTTP 403 and a validated
+opaque `X-Sandhi-Policy-Receipt`, without upstream error text or retries.
+
+Keyed servers retain disabled full OpenAPI/docs. Authenticated
+`GET /v1/classify/schema` exposes only `ClassifyRequest` JSON Schema so a
+consumer can validate and pin the additive contract without exposing the full
+server surface. Authentication is identical to POST classification.
+
+Consumer decision: message-hub opts WhatsApp/Facebook into `gpt-6-luna` with
+medium effort and a 60-second inference/network deadline. Other sources keep the existing local
+model. Hub sends the configured effort only if the discovered contract declares
+it, otherwise quarantines via its fail-safe path. A dedicated model-limited
+Sandhi key meters this classifier separately from Victor's coding profiles.
+
+
+The deadline is shared by provider resolution and parse attempts; per-request
+managed queueing is disabled so cancellation reaches the active provider.
+Cleanup uses the actual `shutdown()` contract with a separate one-second
+allowance. Hub lock wait, schema discovery and synchronous JSON Schema
+validation are outside this deadline; this is not a CPU-sandbox guarantee.
+See FEP-0038 for the common profile/session/model-control contract.

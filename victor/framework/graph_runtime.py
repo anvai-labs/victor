@@ -16,6 +16,8 @@
 
 from __future__ import annotations
 
+from victor.core.errors import ProviderPolicyError
+
 import asyncio
 import logging
 import time
@@ -399,6 +401,8 @@ async def _run_graph_execution_loop(
             node_history=node_history,
             state_history=state_history,
         )
+    except ProviderPolicyError:
+        raise
     except Exception as error:
         await report_node_error(str(error))
         logger.error("Graph execution failed: %s", error, exc_info=True)

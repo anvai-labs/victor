@@ -94,6 +94,7 @@ async def create_orchestrator_from_settings(
         model=profile.model,
         temperature=profile.temperature,
         max_tokens=profile.max_tokens,
+        reasoning_effort=getattr(profile, "reasoning_effort", None),
         tool_selection=profile.tool_selection,
         thinking=thinking,
         provider_name=profile.provider,

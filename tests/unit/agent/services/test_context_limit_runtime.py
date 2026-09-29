@@ -75,3 +75,16 @@ async def test_context_limit_runtime_forces_summary_on_iteration_limit():
         user_satisfied=True,
         completed=True,
     )
+
+
+@pytest.mark.asyncio
+async def test_final_summary_denial_is_not_recorded_as_success():
+    from victor.core.errors import ProviderPolicyError
+
+    host = _make_runtime_host()
+    error = ProviderPolicyError("policy_blocked", receipt="a" * 32)
+    host.provider.chat.side_effect = error
+    with pytest.raises(ProviderPolicyError) as caught:
+        await ContextLimitRuntime(host).handle_limits("hello", 5, 1000, 6, 0.8)
+    assert caught.value is error
+    host._record_runtime_intelligence_outcome.assert_not_called()

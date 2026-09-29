@@ -66,6 +66,14 @@ def test_selector_changes_select_its_own_regressions():
 @pytest.mark.parametrize(
     ("source", "owners"),
     [
+        (
+            "victor/agent/orchestrator_creation.py",
+            ["tests/unit/agent/test_profile_reasoning.py"],
+        ),
+        (
+            "victor/core/model_parameters.py",
+            ["tests/unit/framework/test_model_effort.py"],
+        ),
         ("victor/ui/cli_group.py", ["tests/unit/ui/test_cli_command_resolution.py"]),
         (
             "victor/agent/strategies/provider_strategies.py",

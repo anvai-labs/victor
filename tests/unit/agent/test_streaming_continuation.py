@@ -98,3 +98,21 @@ class TestContinuationSkipRules:
                 "prompt_tool_call", source=MessageSource.AGENT_CONTINUATION
             ),
         )
+
+
+@pytest.mark.asyncio
+async def test_forced_summary_preserves_policy_denial(continuation_handler):
+    from unittest.mock import AsyncMock
+    from types import SimpleNamespace
+    from victor.core.errors import ProviderPolicyError
+
+    error = ProviderPolicyError("policy_blocked", receipt="a" * 32)
+    continuation_handler._provider = SimpleNamespace(chat=AsyncMock(side_effect=error))
+    continuation_handler._messages_getter = lambda: []
+    with pytest.raises(ProviderPolicyError) as caught:
+        await continuation_handler._force_summary_response(
+            StreamingChatContext(user_message="test")
+        )
+    assert caught.value is error
+    continuation_handler._provider.chat.assert_awaited_once()
+    continuation_handler._chunk_generator.generate_final_marker_chunk.assert_not_called()

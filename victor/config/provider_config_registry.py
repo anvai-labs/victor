@@ -425,16 +425,17 @@ def resolve_provider_gateway(base_settings: Dict[str, Any], provider: str) -> No
     """Normalize and env-resolve a per-provider Sandhi gateway block in place.
 
     The ``gateway`` block (loaded from ``profiles.yaml`` providers section as a
-    ``ProviderGatewayConfig``) is normalized to a plain dict ``{"url", "virtual_key"}``
+    ``ProviderGatewayConfig``) is normalized to a plain dict retaining its credential and grant
     so it can flow through ``**kwargs`` into the provider's ``extra_config`` and be
     read by the Sandhi transport. The URL falls back to ``SANDHI_GATEWAY_URL`` when
     the block omits it, and is canonicalized to the proxy ROOT (a trailing ``/v1``
     or ``/v1beta`` is accepted and stripped — the transport derives the per-family
     prefix). The virtual key is resolved from the block, else from a per-provider
     env var (``SANDHI_GATEWAY_VIRTUAL_KEY_<PROVIDER>``), else the global
-    ``SANDHI_GATEWAY_VIRTUAL_KEY``. A block with no URL anywhere is dropped
-    (gateway mode stays off); a URL with no resolvable key is kept as an empty
-    string so the transport can fail closed with a clear error.
+    ``SANDHI_GATEWAY_VIRTUAL_KEY``. An empty block with no URL is dropped; explicit credentials or scope without
+    a URL are rejected; a URL with no resolvable key is kept as an empty
+    string so the transport can fail closed with a clear error. Explicit OIDC
+    configuration suppresses environment virtual-key fallback.
     """
     gateway = base_settings.get("gateway")
     if gateway is None:
@@ -454,10 +455,22 @@ def resolve_provider_gateway(base_settings: Dict[str, Any], provider: str) -> No
         # "take the env".
         url = os.environ.get("SANDHI_GATEWAY_URL", "").strip()
     if not url:
-        if isinstance(gateway, dict) and gateway:
-            base_settings.pop("gateway", None)
-        else:
-            base_settings.pop("gateway", None)
+        credential_fields = (
+            "oidc",
+            "credential",
+            "virtual_key",
+            "virtual_key_value",
+            "grant",
+            "audience",
+        )
+        has_identity = any(
+            (gateway.get(name) if isinstance(gateway, dict) else getattr(gateway, name, None))
+            is not None
+            for name in credential_fields
+        )
+        if has_identity:
+            raise ValueError("Gateway credentials and scope require an explicit gateway URL")
+        base_settings.pop("gateway", None)
         return
     url = _normalize_gateway_root(url)
     if isinstance(gateway, dict):
@@ -466,14 +479,21 @@ def resolve_provider_gateway(base_settings: Dict[str, Any], provider: str) -> No
         virtual_key = getattr(gateway, "virtual_key_value", getattr(gateway, "virtual_key", None))
     if isinstance(virtual_key, SecretStr):
         virtual_key = virtual_key.get_secret_value()
+    extra = {}
+    for name in ("oidc", "grant", "credential", "audience"):
+        value = gateway.get(name) if isinstance(gateway, dict) else getattr(gateway, name, None)
+        if value is not None:
+            extra[name] = value.model_dump() if hasattr(value, "model_dump") else value
+    if provider != "openai" and ("oidc" in extra or "credential" in extra):
+        raise ValueError("Renewable gateway credentials currently require the OpenAI provider")
     virtual_key = str(virtual_key or "").strip()
-    if not virtual_key:
+    if not virtual_key and "oidc" not in extra and "credential" not in extra:
         virtual_key = (
             os.environ.get(f"SANDHI_GATEWAY_VIRTUAL_KEY_{provider.upper()}")
             or os.environ.get("SANDHI_GATEWAY_VIRTUAL_KEY")
             or ""
         ).strip()
-    base_settings["gateway"] = {"url": url, "virtual_key": virtual_key}
+    base_settings["gateway"] = {"url": url, "virtual_key": virtual_key, **extra}
 
 
 @dataclass

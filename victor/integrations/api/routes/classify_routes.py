@@ -33,9 +33,12 @@ from typing import TYPE_CHECKING, Any, Optional
 
 from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
+from victor.core.model_parameters import ReasoningEffort
+
 from pydantic import BaseModel, ConfigDict, Field
 
 from victor.core.context import bind_attribution
+from victor.core.errors import ProviderPolicyError
 from victor.observability.request_correlation import request_correlation_id
 
 if TYPE_CHECKING:
@@ -87,6 +90,10 @@ class ClassifyRequest(BaseModel):
         description="Provider override (creates a managed provider)",
     )
     model: Optional[str] = Field(default=None, max_length=256, description="Model override")
+    reasoning_effort: Optional[ReasoningEffort] = Field(
+        default=None,
+        description="Explicit model-supported reasoning effort; unset uses upstream default",
+    )
     max_tokens: int = Field(default=512, ge=1, le=_MAX_TOKENS_CAP)
     timeout_ms: int = Field(default=120_000, ge=250, le=600_000)
     temperature: float = Field(default=0.1, ge=0.0, le=2.0)
@@ -190,17 +197,30 @@ async def _resolve_provider(
     # factory the subagent runtime uses (credentials from the keyring/config).
     # NOTE: ManagedProviderFactory.create is ASYNC — an un-awaited call yields
     # a coroutine object that 500s at chat time (promotion-review P1).
-    from victor.config.api_keys import get_api_key
+    from victor.config.settings import load_settings
     from victor.providers.factory import ManagedProviderFactory
 
-    api_key = get_api_key(request.provider)
-    provider = await ManagedProviderFactory.create(request.provider, request.model, api_key)
+    settings = load_settings(fresh=True)
+    provider_settings = settings.get_provider_settings(request.provider)
+    # Retain gateway identity and transport policy. Classification owns its
+    # single bounded parse retry; transport recovery must not replay inference.
+    provider_settings["enable_resilience"] = False
+    provider_settings["enable_rate_limiting"] = False
+    provider = await ManagedProviderFactory.create(
+        request.provider, request.model, **provider_settings
+    )
     return provider, provider
 
 
 def create_router(server: "VictorFastAPIServer") -> APIRouter:
     """Create the /v1 classify router bound to *server*."""
     router = APIRouter()
+
+    @router.get("/v1/classify/schema", include_in_schema=False)
+    async def classify_schema(http_request: Request) -> dict[str, Any]:
+        """Expose only the pinned request contract to an authenticated consumer."""
+        await server._verify_api_key(http_request)
+        return ClassifyRequest.model_json_schema(by_alias=True)
 
     @router.post("/v1/classify", response_model=ClassifyResponse, tags=["Classify"])
     async def classify(request: ClassifyRequest, response: Response, http_request: Request) -> Any:
@@ -229,17 +249,40 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
                 content=ClassifyResponse(error=str(exc.detail), latency_ms=0.0).model_dump(),
             )
 
-        orchestrator = await server._get_orchestrator()
+        deadline = start + request.timeout_ms / 1000
+
+        def _remaining() -> float:
+            return max(0.0, deadline - time.perf_counter())
+
+        # Explicit routing does not bootstrap an agent. One network/inference
+        # deadline is shared by resolution and both possible parse attempts.
         try:
-            provider, disposable = await _resolve_provider(orchestrator, request)
+            orchestrator = (
+                None
+                if request.provider and request.model
+                else await asyncio.wait_for(server._get_orchestrator(), timeout=_remaining())
+            )
+            provider, disposable = await asyncio.wait_for(
+                _resolve_provider(orchestrator, request), timeout=_remaining()
+            )
+        except asyncio.TimeoutError:
+            return JSONResponse(
+                status_code=504,
+                headers={"X-Victor-Request-Id": request_id},
+                content=ClassifyResponse(
+                    error=f"classify exceeded timeout_ms={request.timeout_ms}",
+                    model=request.model,
+                    latency_ms=(time.perf_counter() - start) * 1000,
+                ).model_dump(),
+            )
         except HTTPException:
             raise
-        except Exception as exc:
+        except Exception:
             return JSONResponse(
                 status_code=503,
                 headers={"X-Victor-Request-Id": request_id},
                 content=ClassifyResponse(
-                    error=f"provider override unavailable: {exc}",
+                    error="provider override unavailable",
                     latency_ms=(time.perf_counter() - start) * 1000,
                 ).model_dump(),
             )
@@ -279,8 +322,13 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
                                 model=model or "default",
                                 temperature=request.temperature,
                                 max_tokens=request.max_tokens,
+                                **(
+                                    {"reasoning_effort": request.reasoning_effort}
+                                    if request.reasoning_effort is not None
+                                    else {}
+                                ),
                             ),
-                            timeout=request.timeout_ms / 1000,
+                            timeout=_remaining(),
                         )
                     except asyncio.TimeoutError:
                         return await _finish(
@@ -291,7 +339,21 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
                                 latency_ms=_latency(),
                             ),
                         )
-                    except Exception as exc:
+                    except ProviderPolicyError as exc:
+                        receipt = exc.details.get("policy_receipt")
+                        headers = {"X-Victor-Request-Id": request_id}
+                        if isinstance(receipt, str) and re.fullmatch(r"[0-9a-f]{32}", receipt):
+                            headers["X-Sandhi-Policy-Receipt"] = receipt
+                        return JSONResponse(
+                            status_code=403,
+                            headers=headers,
+                            content=ClassifyResponse(
+                                error="Request stopped by gateway policy",
+                                model=model,
+                                latency_ms=_latency(),
+                            ).model_dump(),
+                        )
+                    except Exception:
                         # Non-timeout provider failures (upstream auth, rate
                         # limits, connection errors) must carry the same
                         # response shape — a bare 500 hides whether tokens
@@ -299,7 +361,7 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
                         return await _finish(
                             502,
                             ClassifyResponse(
-                                error=f"provider call failed: {exc}",
+                                error="provider call failed",
                                 model=model,
                                 latency_ms=_latency(),
                             ),
@@ -341,13 +403,15 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
                 )
         finally:
             if disposable is not None:
-                close = getattr(disposable, "close", None)
+                close = getattr(disposable, "shutdown", None) or getattr(disposable, "close", None)
                 if close is not None:
                     try:
                         result = close()
                         if hasattr(result, "__await__"):
-                            await result
+                            # A separate bounded cleanup allowance also applies
+                            # after timeout/cancellation; never leave queue workers.
+                            await asyncio.wait_for(result, timeout=1.0)
                     except Exception:
-                        logger.debug("managed provider close failed", exc_info=True)
+                        logger.debug("managed provider cleanup failed")
 
     return router

@@ -510,9 +510,9 @@ class SubAgentOrchestrator:
 
             effective_model = model or getattr(self.parent, "model", None) or ""
             if gateway is not None:
-                api_key = gateway["virtual_key"]
-                if not api_key:
-                    raise ValueError("Member gateway requires a virtual key")
+                api_key = gateway.get("virtual_key") or None
+                if not api_key and not (gateway.get("oidc") or gateway.get("credential")):
+                    raise ValueError("Member gateway requires a virtual key or OIDC credential")
             else:
                 api_key = get_api_key(provider)
             return await ManagedProviderFactory.create(

@@ -472,7 +472,9 @@ providers:
         """Test getting settings for OpenAI provider."""
         settings = Settings(openai_api_key="test_openai_key")
 
-        provider_settings = settings.get_provider_settings("openai")
+        # Exercise defaults independently of developer gateway profiles.
+        with patch.object(Settings, "load_provider_config", return_value=None):
+            provider_settings = settings.get_provider_settings("openai")
 
         assert provider_settings["api_key"] == "test_openai_key"
         assert provider_settings["base_url"] == "https://api.openai.com/v1"
