@@ -118,6 +118,11 @@ RELATED_TESTS = {
         "tests/unit/agent/test_paused_run_expiry.py",
         "tests/unit/agent/test_durable_resume.py",
     ),
+    "victor/agent/services/chat_persistence.py": (
+        "tests/unit/agent/services/test_chat_service.py",
+        "tests/unit/agent/test_orchestrator_core.py",
+        "tests/unit/runtime/test_hotspot_size_guard.py",
+    ),
     "victor/framework/approval_pause.py": (
         "tests/unit/agent/services/test_tool_execution_runtime.py",
         "tests/unit/tools/test_search_router_pipeline.py",

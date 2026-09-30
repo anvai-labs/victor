@@ -1502,12 +1502,13 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   credentials or OIDC policy; persistent reconnect/reboot supervision remains open.
   This is an operational identity/ownership gap, not a model-quality or formation failure.
 
-- **G70 — partially implemented: interrupted tool batches retain owned outcomes.**
+- **G70 — partially implemented: interrupted tool batches retain owned outcomes ([PR #1208](https://github.com/anvai-labs/victor/pull/1208)).**
   The shared dispatcher now propagates original approval/cancellation controls, stops
   queued/later calls, and joins started siblings before exposing partial results.
   Sequential and parallel paths reuse one result/duplicate assembly; per-call copies
   preserve distinct provider IDs even when cache objects are shared. Known completed
   results use the canonical strict persistence path before the pause boundary.
+  The chat service owns publication and history mutation; the facade delegates.
   Unknown outcomes, bookkeeping/publication failures and member pauses with retained
   results carry a versioned resume barrier. Both single-agent and member checkpoint
   loaders reject that barrier instead of inferring safety from transcript presence.

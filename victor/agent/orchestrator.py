@@ -3003,46 +3003,14 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
 
         from victor.agent.services.chat_service import ChatService
 
-        def persist() -> None:
-            ChatService.persist_message(
-                role=role,
-                content=content,
-                memory_manager=self.memory_manager,
-                memory_session_id=self._memory_session_id,
-                usage_logger=self.usage_logger,
-                tool_name=kwargs.get("name"),
-                tool_call_id=kwargs.get("tool_call_id"),
-                tool_calls=kwargs.get("tool_calls"),
-                metadata=kwargs.get("metadata"),
-                persist_synchronously=persist_synchronously,
-                **({"require_persistence": True} if require_persistence else {}),
-            )
-
-        if require_persistence:
-            persist()  # Before trimming or resolving any in-memory tool-call ID.
-
-        max_history = getattr(self.settings, "max_conversation_history", 100)
-        # Trim oldest non-system message when history exceeds limit.
-        # Note: Only protect the root system message (index 0).
-        if len(self.conversation._messages) >= max_history:
-            for i, msg in enumerate(self.conversation._messages):
-                # Don't pop the root system prompt (index 0)
-                if i == 0 and getattr(msg, "role", None) == "system":
-                    continue
-                self.conversation._messages.pop(i)
-                break
-
-        if role == "tool":
-            logger.debug(
-                "add_message(role=tool): name=%s tool_call_id=%s content_len=%d",
-                kwargs.get("name"),
-                kwargs.get("tool_call_id"),
-                len(content),
-            )
-        self.conversation.add_message(role, content, **kwargs)
-
-        if not require_persistence:
-            persist()
+        ChatService.publish_message(
+            self,
+            role,
+            content,
+            persist_synchronously=persist_synchronously,
+            require_persistence=require_persistence,
+            **kwargs,
+        )
 
     async def chat(
         self,
