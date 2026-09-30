@@ -1398,6 +1398,7 @@ class ChatService(ChatEvidenceMixin):
         tool_calls: Optional[list] = None,
         metadata: Optional[Dict[str, Any]] = None,
         persist_synchronously: bool = False,
+        require_persistence: bool = False,
     ) -> None:
         """Persist a message to memory and emit usage analytics.
 
@@ -1405,6 +1406,8 @@ class ChatService(ChatEvidenceMixin):
         writes. It preserves the legacy logging behavior expected by existing
         analytics flows while keeping ownership on ``ChatService``.
         """
+        if require_persistence and (not memory_manager or not memory_session_id):
+            raise RuntimeError("Durable message persistence requires a store and session")
         if memory_manager and memory_session_id:
             try:
                 from victor.agent.conversation.types import MessageRole
@@ -1471,12 +1474,18 @@ class ChatService(ChatEvidenceMixin):
                     except asyncio.CancelledError:
                         logger.debug("Background message persistence was cancelled")
 
-                if loop is not None and loop.is_running() and not persist_synchronously:
+                if (
+                    loop is not None
+                    and loop.is_running()
+                    and not (persist_synchronously or require_persistence)
+                ):
                     future = loop.run_in_executor(None, _persist_background_message)
                     future.add_done_callback(_consume_background_result)
                 else:
                     memory_manager.add_message(**add_kwargs)
             except Exception as e:
+                if require_persistence:
+                    raise
                 logger.debug("Failed to persist message: %s", e)
 
         if not usage_logger:

@@ -118,7 +118,15 @@ RELATED_TESTS = {
         "tests/unit/agent/test_paused_run_expiry.py",
         "tests/unit/agent/test_durable_resume.py",
     ),
+    "victor/framework/approval_pause.py": (
+        "tests/unit/agent/services/test_tool_execution_runtime.py",
+        "tests/unit/tools/test_search_router_pipeline.py",
+        "tests/unit/agent/test_durable_resume.py",
+        "tests/unit/teams/test_member_pause_resume.py",
+        "tests/unit/teams/test_durable_pause_gating.py",
+    ),
     "victor/framework/approval_binding.py": (
+        "tests/unit/teams/test_member_pause_resume.py",
         "tests/unit/agent/test_durable_resume.py",
         "tests/unit/agent/test_paused_run_persistence.py",
         "tests/unit/framework/test_client_resume.py",

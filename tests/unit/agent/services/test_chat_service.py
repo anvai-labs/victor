@@ -1432,3 +1432,25 @@ class TestToolService:
         assert stats["successful_calls"] == 3
         assert stats["failed_calls"] == 1
         assert stats["success_rate"] == 0.75
+
+
+@pytest.mark.parametrize("missing", ["store", "session", "failure"])
+def test_required_message_persistence_fails_closed(missing):
+    memory = mock.Mock()
+    memory.add_message.side_effect = RuntimeError("storage unavailable")
+    with pytest.raises(RuntimeError):
+        ChatService.persist_message(
+            "tool",
+            "result",
+            None if missing == "store" else memory,
+            None if missing == "session" else "session",
+            None,
+            require_persistence=True,
+        )
+    assert memory.add_message.call_count == (1 if missing == "failure" else 0)
+
+
+async def test_required_message_persistence_is_synchronous_in_running_loop():
+    memory = mock.Mock()
+    ChatService.persist_message("tool", "result", memory, "session", None, require_persistence=True)
+    memory.add_message.assert_called_once()

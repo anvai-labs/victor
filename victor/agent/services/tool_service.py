@@ -83,6 +83,7 @@ class ToolResultContext:
     presentation: Optional[Any] = None
     stream_context: Optional[Any] = None
     task_type: str = "unknown"
+    require_persistence: bool = False
 
 
 def normalize_tool_result_arguments(arguments: Any) -> Dict[str, Any]:
@@ -168,6 +169,18 @@ def _persist_tool_result_message(
     persist_synchronously: bool = False,
 ) -> bool:
     """Persist a tool result message for provider-visible tool-call pairing."""
+    if ctx.require_persistence:
+        if not callable(ctx.add_message):
+            raise RuntimeError("Interrupted tool results require durable message persistence")
+        ctx.add_message(
+            "tool",
+            content,
+            name=tool_name,
+            tool_call_id=tool_call_id,
+            persist_synchronously=True,
+            require_persistence=True,
+        )
+        return True
     if not ctx.add_message:
         return False
 
@@ -542,6 +555,8 @@ def process_tool_results_with_context(
                 }
             )
         except Exception as exc:
+            if ctx.require_persistence:
+                raise  # No synthetic response or retry after an uncertain persistence failure.
             logger.exception(
                 "Failed to post-process tool result for %s (tool_call_id=%s)",
                 tool_name,

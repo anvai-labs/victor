@@ -75,6 +75,16 @@ def test_selector_changes_select_its_own_regressions():
             ["tests/unit/framework/test_model_effort.py"],
         ),
         (
+            "victor/framework/approval_pause.py",
+            [
+                "tests/unit/agent/services/test_tool_execution_runtime.py",
+                "tests/unit/tools/test_search_router_pipeline.py",
+                "tests/unit/agent/test_durable_resume.py",
+                "tests/unit/teams/test_member_pause_resume.py",
+                "tests/unit/teams/test_durable_pause_gating.py",
+            ],
+        ),
+        (
             "victor/framework/policies/types.py",
             [
                 "tests/unit/framework/policies/test_engine.py",

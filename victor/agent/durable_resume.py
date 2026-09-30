@@ -118,6 +118,7 @@ async def resume_paused_run(orchestrator: Any, paused_run: Any, decision: Any) -
         current_approval_grant,
         digest,
         proposal,
+        require_complete_batch_evidence,
     )
 
     controller = getattr(orchestrator, "_conversation_controller", None)
@@ -141,6 +142,7 @@ async def resume_paused_run(orchestrator: Any, paused_run: Any, decision: Any) -
         pending = paused_run.pending_tool
         binding = deepcopy(pending["binding"])
         ctx = request["context"]
+        require_complete_batch_evidence(request)
         if ctx.get("member_id") is not None or ctx.get("member_role") is not None:
             raise ApprovalBindingError("Member approval requires member-owned resume")
         timeout = request["timeout_seconds"]

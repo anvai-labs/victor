@@ -57,6 +57,7 @@ from typing import (
 
 from victor.coordination.formations.base import BaseFormationStrategy, TeamContext
 from victor.framework.graph_checkpoint import CheckpointerProtocol, WorkflowCheckpoint
+from victor.framework.approval_binding import require_complete_batch_evidence
 from victor.framework.member_event_sink import MemberEvent, MemberEventSink, current_member_sink
 from victor.coordination.formations import create_formation_registry
 from victor.teams.mixins.observability import ObservabilityMixin
@@ -556,6 +557,9 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
             return None
         latest = max(relevant, key=lambda c: c.timestamp)
         state = latest.state or {}
+        require_complete_batch_evidence(state.get("approval_request"))
+        for pending in state.get("awaiting_approvals") or []:
+            require_complete_batch_evidence(pending.get("approval_request"))
         member_results = [MemberResult.from_dict(r) for r in state.get("member_results") or []]
         return {
             "member_ids": state.get("completed_member_ids")

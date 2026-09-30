@@ -2978,6 +2978,7 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
             **kwargs: Additional fields (name, tool_call_id, tool_calls)
         """
         persist_synchronously = bool(kwargs.pop("persist_synchronously", False))
+        require_persistence = bool(kwargs.pop("require_persistence", False))
         preview_keys = {
             "preview_body",
             "preview_kind",
@@ -3000,6 +3001,26 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
                     log_dropped_system_nudge(content)
                     return
 
+        from victor.agent.services.chat_service import ChatService
+
+        def persist() -> None:
+            ChatService.persist_message(
+                role=role,
+                content=content,
+                memory_manager=self.memory_manager,
+                memory_session_id=self._memory_session_id,
+                usage_logger=self.usage_logger,
+                tool_name=kwargs.get("name"),
+                tool_call_id=kwargs.get("tool_call_id"),
+                tool_calls=kwargs.get("tool_calls"),
+                metadata=kwargs.get("metadata"),
+                persist_synchronously=persist_synchronously,
+                **({"require_persistence": True} if require_persistence else {}),
+            )
+
+        if require_persistence:
+            persist()  # Before trimming or resolving any in-memory tool-call ID.
+
         max_history = getattr(self.settings, "max_conversation_history", 100)
         # Trim oldest non-system message when history exceeds limit.
         # Note: Only protect the root system message (index 0).
@@ -3020,20 +3041,8 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
             )
         self.conversation.add_message(role, content, **kwargs)
 
-        from victor.agent.services.chat_service import ChatService
-
-        ChatService.persist_message(
-            role=role,
-            content=content,
-            memory_manager=self.memory_manager,
-            memory_session_id=self._memory_session_id,
-            usage_logger=self.usage_logger,
-            tool_name=kwargs.get("name"),
-            tool_call_id=kwargs.get("tool_call_id"),
-            tool_calls=kwargs.get("tool_calls"),
-            metadata=kwargs.get("metadata"),
-            persist_synchronously=persist_synchronously,
-        )
+        if not require_persistence:
+            persist()
 
     async def chat(
         self,

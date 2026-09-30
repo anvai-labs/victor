@@ -18,6 +18,9 @@ from victor.agent.tool_execution.categorization import (
 )
 from victor.agent.tool_output_formatter import FormattingContext
 from victor.framework.execution_checkpoint import ExecutionCheckpoint
+from victor.framework.approval_pause import mark_batch_publication_incomplete
+from victor.agent.tool_pipeline import PipelineExecutionResult, ToolCallResult
+from victor.agent.member_approval_context import MemberApprovalPause
 
 logger = logging.getLogger(__name__)
 
@@ -62,17 +65,67 @@ class ToolExecutionRuntime:
 
         await self._maybe_create_execution_checkpoint(runtime, tool_calls)
 
-        pipeline_result = await runtime._tool_pipeline.execute_tool_calls(
-            tool_calls=tool_calls,
-            context=runtime._get_tool_context(),
-        )
+        interrupted_results: List[ToolCallResult] = []
+        try:
+            pipeline_result = await runtime._tool_pipeline.execute_tool_calls(
+                tool_calls=tool_calls,
+                context=runtime._get_tool_context(),
+                interrupted_results=interrupted_results,
+            )
+        except BaseException as control:
+            try:
+                runtime.tool_calls_used = runtime._tool_pipeline.calls_used
+                if interrupted_results and isinstance(control, MemberApprovalPause):
+                    mark_batch_publication_incomplete(
+                        control, reason="member_continuation_required"
+                    )
+                known_results = []
+                for result in interrupted_results:
+                    details = result.error_info.details if result.error_info else {}
+                    if (
+                        details.get("execution_outcome") == "unknown"
+                        or details.get("reconciliation_required")
+                        or not (
+                            result.success
+                            or details.get("execution_outcome") in {"succeeded", "failed"}
+                        )
+                    ):
+                        mark_batch_publication_incomplete(control)
+                        continue
+                    known_results.append(result)
+                if known_results:
+                    # No compaction await or missing-response backfill at this boundary.
+                    self._process_pipeline_result(
+                        PipelineExecutionResult(results=known_results),
+                        tool_calls,
+                        require_persistence=True,
+                    )
+            except BaseException:
+                # A failed receipt write is not permission to resume from an
+                # in-memory/cached transcript. Never replay publication here.
+                mark_batch_publication_incomplete(control)
+                logger.error("Interrupted tool batch result publication failed")
+            raise
+
         runtime.tool_calls_used = runtime._tool_pipeline.calls_used
         self._record_tool_intents(runtime, tool_calls)
         await self._compact_before_tool_result_injection(runtime, pipeline_result)
 
+        return self._process_pipeline_result(pipeline_result, tool_calls)
+
+    def _process_pipeline_result(
+        self,
+        pipeline_result: Any,
+        tool_calls: List[Dict[str, Any]],
+        *,
+        require_persistence: bool = False,
+    ) -> List[Dict[str, Any]]:
+        """Publish through the canonical result service; interrupted batches are strict."""
+        runtime = self._runtime
         from victor.agent.services.tool_service import ToolResultContext
 
         ctx = ToolResultContext(
+            require_persistence=require_persistence,
             executed_tools=runtime.executed_tools,
             observed_files=runtime.observed_files,
             failed_tool_signatures=runtime.failed_tool_signatures,
@@ -99,7 +152,8 @@ class ToolExecutionRuntime:
         )
 
         results = runtime._tool_service.process_tool_results(pipeline_result, ctx)
-        results = self._ensure_tool_response_coverage(runtime, tool_calls, results)
+        if not require_persistence:
+            results = self._ensure_tool_response_coverage(runtime, tool_calls, results)
         self._annotate_tool_results_with_execution_checkpoint(runtime, results)
         self._record_tool_results(runtime, results)
         runtime._continuation_prompts = ctx.continuation_prompts

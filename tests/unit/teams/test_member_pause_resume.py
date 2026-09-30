@@ -161,3 +161,30 @@ async def test_no_checkpointer_does_not_pause() -> None:
     assert all(m.calls == 1 for m in members)  # all ran; no pause
     assert result.get("status") != "awaiting_approval"
     assert set(result["member_results"].keys()) == {"m0", "m1", "m2"}
+
+
+async def test_incomplete_batch_publication_blocks_member_resume() -> None:
+    import pytest
+    from victor.framework.graph_checkpoint import WorkflowCheckpoint
+    from victor.framework.approval_binding import ApprovalBindingError
+
+    request = {
+        "context": {"batch_result_publication": {"schema_version": 1, "status": "incomplete"}}
+    }
+    for state in (
+        {"approval_request": request},
+        {"awaiting_approvals": [{"member_id": "m1", "approval_request": request}]},
+    ):
+        cp = MemoryCheckpointer()
+        await cp.save(
+            WorkflowCheckpoint(
+                checkpoint_id="pause",
+                thread_id="t1",
+                node_id="team:m1",
+                state=state,
+                timestamp=1,
+                metadata={"team_node_id": "team"},
+            )
+        )
+        with pytest.raises(ApprovalBindingError, match="reconciliation"):
+            await _coordinator([], cp)._load_member_resume(cp, "t1", "team")
