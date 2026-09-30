@@ -205,6 +205,22 @@ class TestCompletionParity:
 
 
 class TestStreamParity:
+    async def test_stream_without_numeric_usage_does_not_invent_zero(
+        self, fixture_server, make_pair
+    ):
+        body = (
+            b'data: {"id":"r1","choices":[{"delta":{"content":"Hello"},"finish_reason":"stop"}],"usage":null}\n\n'
+            b"data: [DONE]\n\n"
+        )
+        srv = fixture_server(body=body, content_type="text/event-stream")
+        _, provider = make_pair(srv.url)
+        chunks = await run_stream(provider)
+        assert "".join(c.content for c in chunks) == "Hello"
+        assert chunks[-1].usage is None
+        assert chunks[-1].metadata["sandhi_usage"]["completeness"] == "unavailable"
+        assert chunks[-1].metadata["sandhi_usage"]["cache_read_observation"]["status"] == "absent"
+        assert len(srv.requests) == 1
+
     async def test_stream_chunk_sequence_parity(self, fixture_server, make_pair):
         native_srv = fixture_server(body=STREAM_SSE, content_type="text/event-stream")
         sandhi_srv = fixture_server(body=STREAM_SSE, content_type="text/event-stream")

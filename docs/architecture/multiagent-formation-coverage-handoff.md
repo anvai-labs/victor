@@ -1513,6 +1513,18 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   effects before any sibling or whole-member replay. Cover both sequential and
   parallel batches in the existing pipeline/member checkpoint owners.
 
+- **G71 — ✅ metadata-only cache observations preserve measured streaming usage.**
+  Upgrading Victor's Python binding from Sandhi 0.7.0 to the published 0.10.1
+  exposed a consumer defect: minor-9 cache observations use `completeness=unavailable`
+  without supplying a new numeric verdict. Victor previously invented zero token
+  usage for an unmeasured stream and could downgrade earlier measured completeness.
+  The stream consumer now retains prior measured counts and diagnostics, while
+  preserving cache-read observations separately. Explicit measured zero remains
+  distinct from absent usage. Existing event-conformance and real-binding loopback
+  suites own the regressions; all deployment locks share the released pin. This
+  repairs the Python consumer only; it neither redeploys the standalone gateway nor
+  closes G31's paired workload replay or mixed-team C5 acceptance.
+
 Validation-test audit: neither live harness had direct tests before this follow-up.
 The new mixed-harness suite covers rejected/malformed/missing reviews, inclusive
 cache accounting, missing artifacts, bad member usage, pytest timeout, startup and
