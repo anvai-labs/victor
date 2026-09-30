@@ -483,9 +483,7 @@ Q8DdskD5L69EkmDFx9mfIFg=
             .not_valid_before(now - datetime.timedelta(minutes=1))
             .not_valid_after(now + datetime.timedelta(hours=1))
             .add_extension(
-                x509.SubjectAlternativeName(
-                    [x509.IPAddress(ipaddress.ip_address("127.0.0.1"))]
-                ),
+                x509.SubjectAlternativeName([x509.IPAddress(ipaddress.ip_address("127.0.0.1"))]),
                 critical=False,
             )
             .sign(key, hashes.SHA256())
@@ -538,6 +536,7 @@ Q8DdskD5L69EkmDFx9mfIFg=
         thread.join(timeout=5)
         assert diagnosis is None
         assert state["handshakes"] == 1
+
 
 def test_pilot_and_raw_bridge_symbols_are_gone():
     for obsolete in (
@@ -777,7 +776,9 @@ class TestUpstreamBodySurfacing:
 
     async def test_upstream_body_appended_to_message(self):
         body = '{"error":{"message":"tool call id call_9 not found"}}'
-        err = await st.map_sandhi_error(self._typed_error({"upstream_body": body}), "moonshot", 30.0)
+        err = await st.map_sandhi_error(
+            self._typed_error({"upstream_body": body}), "moonshot", 30.0
+        )
         assert "tool call id call_9 not found" in str(err)
 
     async def test_no_details_keeps_prior_message(self):

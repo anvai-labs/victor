@@ -270,9 +270,7 @@ def _diagnose_endpoint_tls(url: str, connect_timeout: float = 1.5) -> Optional[s
             port = 443
         # One connection for both the reachability check and the handshake:
         # create_connection's timeout also bounds the wrap_socket handshake.
-        with socket.create_connection(
-            (parsed.hostname, port), timeout=connect_timeout
-        ) as sock:
+        with socket.create_connection((parsed.hostname, port), timeout=connect_timeout) as sock:
             context = ssl.create_default_context()
             try:
                 with context.wrap_socket(sock, server_hostname=parsed.hostname):
@@ -370,9 +368,7 @@ async def map_sandhi_error(exc: BaseException, provider_name: str, timeout: floa
             if url_match:
                 try:
                     diagnosis = await asyncio.wait_for(
-                        asyncio.to_thread(
-                            _diagnose_endpoint_tls, url_match.group(0)
-                        ),
+                        asyncio.to_thread(_diagnose_endpoint_tls, url_match.group(0)),
                         timeout=_TLS_PROBE_DEADLINE_SECS,
                     )
                 except Exception:
