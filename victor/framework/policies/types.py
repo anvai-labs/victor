@@ -36,6 +36,13 @@ from typing import Any, Dict, Optional
 UNSET: Any = object()
 
 
+@dataclass(frozen=True)
+class _ToolResultReplacement:
+    """Internal bridge for explicit None replacement through legacy middleware."""
+
+    value: Any
+
+
 class Phase(str, Enum):
     """Lifecycle points where policies may intercept agent actions.
 

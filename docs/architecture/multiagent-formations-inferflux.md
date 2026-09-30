@@ -16,6 +16,18 @@ using InferFlux (self-hosted, Qwen3-Coder-30B on AMD Radeon AI PRO R9700).
 - Per-member session ids (the provider's session-KV cache keys on
   `x-inferflux-session-id`; members sharing a handle cross-contaminate)
 
+## Sandhi binding release baseline
+
+Victor pins the published `sandhi-gateway==0.10.1` Python wheel in project metadata
+and all three deployment locks. The wheel retains wire major 1 and adds contract
+minor 9 (cache-read observation). Victor preserves these observations separately
+from measured counts: metadata-only stream updates neither invent zero usage nor
+replace a prior numeric verdict. Existing
+schema, provider construction, usage and local HTTP parity tests own compatibility;
+upgrading the binding does not redeploy `sandhi-proxy` or establish live C5 acceptance.
+The standalone gateway binary and InferFlux runtime still require separate identity
+and readiness checks before a formation run.
+
 ## Quick Start
 
 ```python

@@ -74,6 +74,31 @@ def test_selector_changes_select_its_own_regressions():
             "victor/core/model_parameters.py",
             ["tests/unit/framework/test_model_effort.py"],
         ),
+        (
+            "victor/agent/services/chat_persistence.py",
+            [
+                "tests/unit/agent/services/test_chat_service.py",
+                "tests/unit/agent/test_orchestrator_core.py",
+                "tests/unit/runtime/test_hotspot_size_guard.py",
+            ],
+        ),
+        (
+            "victor/framework/approval_pause.py",
+            [
+                "tests/unit/agent/services/test_tool_execution_runtime.py",
+                "tests/unit/tools/test_search_router_pipeline.py",
+                "tests/unit/agent/test_durable_resume.py",
+                "tests/unit/teams/test_member_pause_resume.py",
+                "tests/unit/teams/test_durable_pause_gating.py",
+            ],
+        ),
+        (
+            "victor/framework/policies/types.py",
+            [
+                "tests/unit/framework/policies/test_engine.py",
+                "tests/unit/framework/policies/test_middleware.py",
+            ],
+        ),
         ("victor/ui/cli_group.py", ["tests/unit/ui/test_cli_command_resolution.py"]),
         (
             "victor/agent/strategies/provider_strategies.py",

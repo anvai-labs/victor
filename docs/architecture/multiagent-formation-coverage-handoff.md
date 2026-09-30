@@ -115,7 +115,8 @@ Implementation delivery and live acceptance have different denominators:
 | OIDC Qwen14/CUDA single-file cohort | 0/15; not started | Held for consolidated-origin liveness investigation |
 | Current six-Qwen/one-ZAI C5 acceptance | Open; historical failed run retained | Released-origin short liveness now passes; full run remains held for foundation acceptance and reviewed verdict on InferFlux #184 |
 | G53 operator deadline policy | ✅ Buffered #297, stream body owner #298 and standalone streaming policy [Sandhi #301](https://github.com/anvai-labs/sandhi/pull/301) released in 0.10.1 | Bounded durable HTTP settlement/recovery and changed-deadline live evidence remain open |
-| G60 pre-dispatch enforcement repair | ✅ [Victor #1180](https://github.com/anvai-labs/victor/pull/1180); all CI green including Vertical Py3.12 | Post-execution result withholding remains open; G61–G65 unchanged |
+| G60 pre-dispatch enforcement repair | ✅ [Victor #1180](https://github.com/anvai-labs/victor/pull/1180); all CI green including Vertical Py3.12 | Result-publication follow-up is described in G60 below; broader G60 and G61–G65 remain open |
+| G60 result-publication boundary | [Victor #1204](https://github.com/anvai-labs/victor/pull/1204): typed withholding, cache/result publication checks and retry vetoes | Executor/observer disclosure and cached pre-action authorization remain open; this does not close G60 or C5 |
 
 The [PDF recheck and critique](agentic-workflow-safety-audit.md#pdf-recheck-and-design-critique--2026-09-25)
 maps the local Agentic Workflow Automation guide to formation-specific acceptance
@@ -1389,9 +1390,19 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   decisions, configured-context failures and broken governance wiring. Invalid
   content regexes and failed configured approval handlers also stop execution.
   Existing test owners provide red/green regressions with executor-not-called
-  assertions; optional absence and no-policy behavior remain. **Still open:**
-  TOOL_RESULT/after-middleware result withholding after a tool already executed;
-  do not claim full G60 or external-write acceptance from the pre-dispatch repair.
+  assertions; optional absence and no-policy behavior remain.
+  The result-publication follow-up enforces TOOL_RESULT DENY/ASK and configured
+  failures before pipeline result events, completion callbacks and fresh/cached
+  returns. Explicit null redaction is distinct from no transformation. Withheld
+  results are non-retryable and preserve known execution success/failure or unknown
+  outcome/reconciliation status; successful writes still invalidate caches.
+  Action approval never authorizes a later result-disclosure ASK. The chain retains
+  cancellation cleanup, and batch duplicates retain the original retry veto.
+  **Still open:** executor-side tracing/storage and earlier middleware observers
+  can see raw data before this boundary; direct executor calls do not acquire a
+  policy gate. Cached returns still require a separate pre-action authorization
+  contract. This is result-publication enforcement, not universal redaction,
+  durable receipt reconciliation, full G60 or external-write/C5 acceptance.
 
 - **G61 — exact approval binding remains partial.** The bounded single-agent repair
   ([#1188](https://github.com/anvai-labs/victor/pull/1188))
@@ -1491,16 +1502,36 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   credentials or OIDC policy; persistent reconnect/reboot supervision remains open.
   This is an operational identity/ownership gap, not a model-quality or formation failure.
 
-- **G70 — parallel tool control signals and sibling results need durable ownership.**
-  `ToolPipeline._dispatch_unique_calls` currently converts gathered `BaseException`
-  outcomes (including approval pauses and cancellation) into ordinary tool failures, even
-  for one parallel-eligible read.
-  Sequential batch execution can also commit earlier siblings before turn-level
-  transcript persistence. Missing transcript results therefore do not prove a call
-  never ran. Bound single-agent resume rejects unresolved siblings; complete repair
-  must retain joined outcomes, propagate control signals and reconcile uncertain
-  effects before any sibling or whole-member replay. Cover both sequential and
-  parallel batches in the existing pipeline/member checkpoint owners.
+- **G70 — partially implemented: interrupted tool batches retain owned outcomes ([PR #1208](https://github.com/anvai-labs/victor/pull/1208)).**
+  The shared dispatcher now propagates original approval/cancellation controls, stops
+  queued/later calls, and joins started siblings before exposing partial results.
+  Sequential and parallel paths reuse one result/duplicate assembly; per-call copies
+  preserve distinct provider IDs even when cache objects are shared. Known completed
+  results use the canonical strict persistence path before the pause boundary.
+  The chat service owns publication and history mutation; the facade delegates.
+  Unknown outcomes, bookkeeping/publication failures and member pauses with retained
+  results carry a versioned resume barrier. Both single-agent and member checkpoint
+  loaders reject that barrier instead of inferring safety from transcript presence.
+  Existing owners cover cancellation (including repeated parent cancellation), multiple
+  controls, joined siblings, cache aliasing, synchronous persistence failure and member
+  checkpoint roundtrip. Two shadowed `TestAddMessage` classes were removed; the same
+  353 existing test IDs remained collected before adding the new persistence cases.
+  **Open:** G62 action/receipt reconciliation across crashes, conversation cache/DB
+  atomicity, noncooperative/origin cancellation, multiple-approval continuation, and
+  G61 whole-member replay across prior batches/turns. Only known completed siblings
+  can support exact single-action resume; absent results do not prove nonexecution.
+
+- **G71 — ✅ metadata-only cache observations preserve measured streaming usage ([PR #1206](https://github.com/anvai-labs/victor/pull/1206)).**
+  Upgrading Victor's Python binding from Sandhi 0.7.0 to the published 0.10.1
+  exposed a consumer defect: minor-9 cache observations use `completeness=unavailable`
+  without supplying a new numeric verdict. Victor previously invented zero token
+  usage for an unmeasured stream and could downgrade earlier measured completeness.
+  The stream consumer now retains prior measured counts and diagnostics, while
+  preserving cache-read observations separately. Explicit measured zero remains
+  distinct from absent usage. Existing event-conformance and real-binding loopback
+  suites own the regressions; all deployment locks share the released pin. This
+  repairs the Python consumer only; it neither redeploys the standalone gateway nor
+  closes G31's paired workload replay or mixed-team C5 acceptance.
 
 Validation-test audit: neither live harness had direct tests before this follow-up.
 The new mixed-harness suite covers rejected/malformed/missing reviews, inclusive

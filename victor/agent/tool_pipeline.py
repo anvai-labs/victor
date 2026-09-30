@@ -40,8 +40,9 @@ import re
 import threading
 import time
 import traceback
+from uuid import uuid4
 from collections import OrderedDict
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Callable, Dict, List, Mapping, Optional, Set, TYPE_CHECKING
 
 from victor.agent.argument_normalizer import ArgumentNormalizer, NormalizationStrategy
@@ -76,6 +77,7 @@ from victor.tools.core_tool_aliases import (
     normalize_model_tool_name,
 )
 from victor.agent.safety import get_write_tool_names
+from victor.framework.approval_pause import ApprovalPause, mark_batch_publication_incomplete
 
 # Import native compute_signature for 10-20x faster signature generation
 try:
@@ -2327,8 +2329,11 @@ class ToolPipeline:
         )
 
     async def _dispatch_unique_calls(
-        self, unique_calls_iter: List[Any], context: Dict[str, Any]
-    ) -> List[ToolCallResult]:
+        self,
+        unique_calls_iter: List[Any],
+        context: Dict[str, Any],
+        results: List[Optional[ToolCallResult]],
+    ) -> None:
         """Compute call results for every entry in ``unique_calls_iter``, in
         order (co-design review item 16).
 
@@ -2367,7 +2372,6 @@ class ToolPipeline:
         true remaining budget, never overshoot it.
         """
         n = len(unique_calls_iter)
-        results: List[Optional[ToolCallResult]] = [None] * n
         self._last_dispatch_used_parallelism = False
         self._last_dispatch_speedup = 1.0
 
@@ -2396,15 +2400,26 @@ class ToolPipeline:
                     continue
                 results[idx] = await self._compute_one_call_result(tool_call, context)
                 admitted += 1
-            return results  # type: ignore[return-value]
+            return
 
         eligible_tools = _compute_parallel_eligible_tools()
         semaphore = asyncio.Semaphore(max(1, self.config.max_concurrent_tools))
         admitted = 0
 
+        halted = False
+        controls: Dict[int, BaseException] = {}
+
         async def _run(idx: int, tool_call: Any) -> None:
-            async with semaphore:
-                results[idx] = await self._compute_one_call_result(tool_call, context)
+            nonlocal halted
+            try:
+                async with semaphore:
+                    if not halted:
+                        results[idx] = await self._compute_one_call_result(tool_call, context)
+            except Exception:
+                raise  # Ordinary failures retain the existing per-call conversion below.
+            except BaseException as control:
+                halted = True
+                controls[idx] = control
 
         i = 0
         parallel_calls_run = 0
@@ -2431,12 +2446,28 @@ class ToolPipeline:
                 # try/except only wraps the actual tool invocation) must not
                 # propagate and orphan its still-running siblings in this
                 # same gather group as abandoned, unawaited background tasks.
-                gather_outcomes = await asyncio.gather(
-                    *(_run(idx, unique_calls_iter[idx]) for idx in batch_indices),
-                    return_exceptions=True,
-                )
+                tasks = [
+                    asyncio.create_task(_run(idx, unique_calls_iter[idx])) for idx in batch_indices
+                ]
+                group = asyncio.gather(*tasks, return_exceptions=True)
+                parent_cancel: Optional[asyncio.CancelledError] = None
+                try:
+                    gather_outcomes = await asyncio.shield(group)
+                except asyncio.CancelledError as control:
+                    parent_cancel = control
+                    halted = True
+                    for task in tasks:
+                        task.cancel()
+                    # Own cleanup through repeated parent cancellation. Never return
+                    # a partial snapshot while sibling tasks can still mutate it.
+                    while not group.done():
+                        try:
+                            await asyncio.shield(group)
+                        except asyncio.CancelledError:
+                            continue
+                    gather_outcomes = group.result()
                 for idx, outcome in zip(batch_indices, gather_outcomes):
-                    if isinstance(outcome, BaseException):
+                    if isinstance(outcome, Exception):
                         tool_call = unique_calls_iter[idx]
                         tool_name = (
                             self._normalize_valid_tool_name(tool_call.get("name", ""))
@@ -2454,6 +2485,21 @@ class ToolPipeline:
                             success=False,
                             error=str(outcome),
                         )
+                if parent_cancel is not None:
+                    raise parent_cancel
+                if controls:
+                    # Cancellation wins over approval; fatal controls win over
+                    # pauses. Within each class use original provider call order.
+                    def priority(idx: int) -> tuple[int, int]:
+                        control = controls[idx]
+                        rank = (
+                            0
+                            if isinstance(control, asyncio.CancelledError)
+                            else 2 if isinstance(control, ApprovalPause) else 1
+                        )
+                        return rank, idx
+
+                    raise controls[min(controls, key=priority)]
                 if len(batch_indices) > 1:
                     parallel_calls_run += len(batch_indices)
                     parallel_rounds += 1
@@ -2466,51 +2512,29 @@ class ToolPipeline:
             self._last_dispatch_used_parallelism = True
             self._last_dispatch_speedup = parallel_calls_run / parallel_rounds
 
-        return results  # type: ignore[return-value]
+        return
 
-    async def execute_tool_calls(
+    def _assemble_call_results(
         self,
         tool_calls: List[Dict[str, Any]],
-        context: Optional[Dict[str, Any]] = None,
-    ) -> PipelineExecutionResult:
-        """Execute multiple tool calls.
-
-        Args:
-            tool_calls: List of tool call requests
-            context: Execution context passed to tools
-
-        Returns:
-            PipelineExecutionResult with all results
-        """
-        context = context or {}
-        result = PipelineExecutionResult(total_calls=len(tool_calls))
-        start_time = time.monotonic()
-
-        # Batch-level deduplication to handle providers that send duplicate calls
-        unique_calls, duplicate_info = self.deduplicate_tool_calls(tool_calls)
-
-        # Track results by signature for duplicate resolution
+        unique_calls_iter: List[Any],
+        duplicate_info: List[tuple],
+        call_results: List[Optional[ToolCallResult]],
+        result: PipelineExecutionResult,
+        *,
+        aggregate: bool = True,
+    ) -> List[Dict[str, Any]]:
+        """Assign IDs and resolve completed duplicates once for either batch outcome."""
         results_by_signature: Dict[tuple, ToolCallResult] = {}
-
-        # Build tool history for synthesis checkpoint
         tool_history: List[Dict[str, Any]] = []
-
-        unique_calls_iter = list(unique_calls)
-
-        # Compute every call's result up front (co-design review item 16):
-        # sequential and byte-identical to the prior inline per-iteration
-        # logic when parallel_tool_execution is off (the default); when on,
-        # contiguous runs of read-only-allowlisted calls dispatch
-        # concurrently. See _dispatch_unique_calls for the full contract.
-        call_results = await self._dispatch_unique_calls(unique_calls_iter, context)
-        result.parallel_execution_used = self._last_dispatch_used_parallelism
-        result.parallel_speedup = self._last_dispatch_speedup
-
         for unique_call_idx, tool_call in enumerate(unique_calls_iter):
             # Capture tool_call_id BEFORE execution so it's set even if the call fails
             tc_id = tool_call.get("id") if isinstance(tool_call, dict) else None
 
             call_result = call_results[unique_call_idx]
+            if call_result is None:
+                continue  # A pending/unknown call is not a completed result.
+            call_result = replace(call_result)  # Cached/shared results do not own this call's ID.
             # Propagate tool_call_id from provider's tool_calls[].id per OpenAI spec.
             # Only auto-generate an ID for executed calls — internally-skipped calls
             # without a provider ID have no corresponding tool_call entry, so they
@@ -2540,7 +2564,7 @@ class ToolPipeline:
                 results_by_signature[signature] = call_result
 
             # Add to output aggregator
-            if self._output_aggregator and tool_name:
+            if aggregate and self._output_aggregator and tool_name:
                 self._output_aggregator.add_result(
                     tool_name=tool_name,
                     result=call_result.result,
@@ -2612,8 +2636,80 @@ class ToolPipeline:
                     ),
                     tool_call_id=dup_tc_id,
                 )
+                if blocks_tool_retry(original_result):
+                    dup_result = replace(
+                        dup_result,
+                        retryable=False,
+                        outcome_kind=original_result.outcome_kind,
+                        block_source=original_result.block_source,
+                        error_info=original_result.error_info,
+                        user_message=original_result.user_message,
+                    )
                 result.results.append(dup_result)
                 result.skipped_calls += 1
+
+        return tool_history
+
+    async def execute_tool_calls(
+        self,
+        tool_calls: List[Dict[str, Any]],
+        context: Optional[Dict[str, Any]] = None,
+        *,
+        interrupted_results: Optional[List[ToolCallResult]] = None,
+    ) -> PipelineExecutionResult:
+        """Execute multiple tool calls.
+
+        Args:
+            tool_calls: List of tool call requests
+            context: Execution context passed to tools
+            interrupted_results: Invocation-owned sink populated with completed outcomes
+                before an interruption is re-raised. Absence is not proof of nonexecution.
+
+        Returns:
+            PipelineExecutionResult with all results
+        """
+        context = context or {}
+        result = PipelineExecutionResult(total_calls=len(tool_calls))
+        start_time = time.monotonic()
+
+        # Batch-level deduplication to handle providers that send duplicate calls
+        unique_calls, duplicate_info = self.deduplicate_tool_calls(tool_calls)
+
+        unique_calls_iter = list(unique_calls)
+
+        # Compute every call's result up front (co-design review item 16):
+        # sequential and byte-identical to the prior inline per-iteration
+        # logic when parallel_tool_execution is off (the default); when on,
+        # contiguous runs of read-only-allowlisted calls dispatch
+        # concurrently. See _dispatch_unique_calls for the full contract.
+        call_results: List[Optional[ToolCallResult]] = [None] * len(unique_calls_iter)
+        try:
+            await self._dispatch_unique_calls(unique_calls_iter, context, call_results)
+        except BaseException as control:
+            try:
+                self._assemble_call_results(
+                    tool_calls,
+                    unique_calls_iter,
+                    duplicate_info,
+                    call_results,
+                    result,
+                    aggregate=False,
+                )
+            except BaseException:
+                # Bookkeeping failure must not turn a control signal into a retryable
+                # tool failure. Retain the prefix already assembled; no synthetic tail.
+                mark_batch_publication_incomplete(control)
+                logger.error("Interrupted tool batch result bookkeeping failed")
+            finally:
+                if interrupted_results is not None:
+                    interrupted_results.extend(result.results)
+            raise
+        result.parallel_execution_used = self._last_dispatch_used_parallelism
+        result.parallel_speedup = self._last_dispatch_speedup
+
+        tool_history = self._assemble_call_results(
+            tool_calls, unique_calls_iter, duplicate_info, call_results, result
+        )
 
         # Track whether ALL tool calls in this batch were skipped.
         # Some skipped batches still return actionable recovery content and should
@@ -2735,6 +2831,54 @@ class ToolPipeline:
             )
         except Exception:
             pass  # Intent logging is non-critical
+
+    async def _process_tool_result(self, call_result: ToolCallResult) -> ToolCallResult:
+        """Release fresh/cached output only after configured result enforcement."""
+        if self.middleware_chain is None:
+            return call_result
+        try:
+            output = await self.middleware_chain.process_after(
+                call_result.tool_name,
+                call_result.arguments,
+                call_result.result,
+                call_result.success,
+            )
+            return (
+                call_result if output is call_result.result else replace(call_result, result=output)
+            )
+        except Exception:
+            previous = call_result.error_info
+            unknown = (
+                previous is not None and previous.details.get("execution_outcome") == "unknown"
+            )
+            message = "Tool result withheld after execution; do not repeat the action."
+            info = ErrorInfo(
+                message=message,
+                correlation_id=previous.correlation_id if previous else f"result_{uuid4().hex}",
+                category=ErrorCategory.TOOL_EXECUTION,
+                severity=ErrorSeverity.ERROR,
+                details={
+                    "retryable": False,
+                    "result_withheld": True,
+                    "execution_outcome": (
+                        "unknown" if unknown else ("succeeded" if call_result.success else "failed")
+                    ),
+                    "reconciliation_required": unknown,
+                },
+            )
+            return replace(
+                call_result,
+                success=False,
+                result=None,
+                error=message,
+                user_message=message,
+                error_info=info,
+                skipped=False,
+                skip_reason=None,
+                outcome_kind="result_withheld",
+                block_source="middleware_chain",
+                retryable=False,
+            )
 
     async def _execute_single_call(
         self, tool_call: Dict[str, Any], context: Dict[str, Any]
@@ -2877,6 +3021,7 @@ class ToolPipeline:
         # This prevents DeepSeek/Ollama from re-reading the same file multiple times
         cached_result = None if bound_resume else self.get_cached_result(tool_name, normalized_args)
         if cached_result is not None:
+            cached_result = await self._process_tool_result(cached_result)
             logger.info(f"[Pipeline] Returning cached result for {tool_name}")
             # Still count as a tool call for tracking, but don't execute
             self._executed_tools.append(tool_name)
@@ -2899,6 +3044,7 @@ class ToolPipeline:
             signature = self._get_call_signature(tool_name, normalized_args)
             cross_cached = self._cross_turn_cache.get(signature)
             if cross_cached is not None:
+                cross_cached = await self._process_tool_result(cross_cached)
                 self._cross_turn_hits += 1
                 logger.info(
                     "[Pipeline] Cross-turn dedup hit for %s (hits=%d)",
@@ -2939,6 +3085,7 @@ class ToolPipeline:
                         cached=True,
                         normalization_applied=normalization_applied,
                     )
+                    sem_cached_result = await self._process_tool_result(sem_cached_result)
                     if self.on_tool_start:
                         try:
                             self.on_tool_start(tool_name, normalized_args)
@@ -3352,16 +3499,6 @@ class ToolPipeline:
                             error_info=recovered_exec_result.error_info,
                         )
 
-        # Log tool result returned to LLM
-        result_preview = str(exec_result.result)[:500] if exec_result.result else "(empty)"
-        logger.debug(
-            "[ToolResult→LLM] tool=%s success=%s time=%.0fms result_preview=%s",
-            tool_name,
-            exec_result.success,
-            execution_time_ms,
-            result_preview,
-        )
-
         # Attempt error recovery fallback on failure
         if (
             not exec_result.success
@@ -3439,47 +3576,55 @@ class ToolPipeline:
             except Exception as e:
                 logger.debug(f"[Pipeline] Error recovery fallback failed: {e}")
 
+        # Invalidate caches when files are modified (write/edit tools)
+        if call_result.success and canonicalize_core_tool_name(tool_name.lower()) in (
+            "write",
+            "edit",
+        ):
+            file_path = normalized_args.get("path") or normalized_args.get("file_path")
+            if file_path:
+                self._invalidate_post_edit_freshness_state(file_path, context=context)
+                logger.debug(f"Invalidated caches for modified file: {file_path}")
+
+        original_result = call_result
+        call_result = await self._process_tool_result(call_result)
+        if call_result is not original_result and self.on_tool_event:
+            try:
+                self.on_tool_event(
+                    "tool.middleware_adjusted",
+                    {
+                        "tool_name": call_result.tool_name,
+                        "description": "Result processed by middleware chain",
+                    },
+                )
+            except Exception:
+                logger.debug("Middleware notification failed")
+
+        # Log tool result returned to LLM
+        result_preview = str(call_result.result)[:500] if call_result.result else "(empty)"
+        logger.debug(
+            "[ToolResult→LLM] tool=%s success=%s time=%.0fms result_preview=%s",
+            tool_name,
+            call_result.success,
+            execution_time_ms,
+            result_preview,
+        )
+
         if self.on_tool_event:
             try:
                 payload = {
                     "tool_name": tool_name,
-                    "success": exec_result.success,
+                    "success": call_result.success,
                     "execution_time_ms": execution_time_ms,
                     "arguments": normalized_args,
                 }
-                if exec_result.error:
-                    payload["error"] = exec_result.error
-                if exec_result.result is not None:
-                    payload["result"] = exec_result.result
+                if call_result.error:
+                    payload["error"] = call_result.error
+                if call_result.result is not None:
+                    payload["result"] = call_result.result
                 self.on_tool_event("tool.raw_result", payload)
             except Exception as e:
                 logger.debug(f"on_tool_event callback failed for raw result: {e}")
-
-        # Process through middleware chain (after execution)
-        if self.middleware_chain is not None:
-            try:
-                modified_result = await self.middleware_chain.process_after(
-                    tool_name, normalized_args, call_result.result, call_result.success
-                )
-                if modified_result is not None and modified_result != call_result.result:
-                    from dataclasses import replace
-
-                    call_result = replace(call_result, result=modified_result)
-                    if self.on_tool_event:
-                        try:
-                            self.on_tool_event(
-                                "tool.middleware_adjusted",
-                                {
-                                    "tool_name": call_result.tool_name,
-                                    "description": "Result modified by middleware chain",
-                                },
-                            )
-                        except Exception as e:
-                            logger.debug(f"on_tool_event middleware notification failed: {e}")
-            except (ValueError, TypeError, KeyError) as e:
-                logger.warning(f"Middleware chain process_after failed (data error): {e}")
-            except AttributeError as e:
-                logger.debug(f"Middleware chain not properly configured: {e}")
 
         # Record file read for deduplication (prompting loop fix)
         # Include capitalized variants for tool name normalization
@@ -3535,16 +3680,6 @@ class ToolPipeline:
                     logger.debug(f"Semantic cache store failed (I/O error): {e}")
                 except (ValueError, TypeError) as e:
                     logger.debug(f"Semantic cache store failed (data error): {e}")
-
-        # Invalidate caches when files are modified (write/edit tools)
-        if call_result.success and canonicalize_core_tool_name(tool_name.lower()) in (
-            "write",
-            "edit",
-        ):
-            file_path = normalized_args.get("path") or normalized_args.get("file_path")
-            if file_path:
-                self._invalidate_post_edit_freshness_state(file_path, context=context)
-                logger.debug(f"Invalidated caches for modified file: {file_path}")
 
         # Record successful tool call in deduplication tracker
         if call_result.success and self.deduplication_tracker is not None:

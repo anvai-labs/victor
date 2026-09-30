@@ -97,7 +97,7 @@ async def test_gateway_disables_client_transport_retries():
 
 
 @pytest.mark.parametrize("code", ["policy_blocked", "policy_quarantined", "policy_unavailable"])
-def test_policy_error_mapping_preserves_safe_code_and_receipt(code):
+async def test_policy_error_mapping_preserves_safe_code_and_receipt(code):
     import json
     from victor.providers.sandhi_transport import map_sandhi_error
 
@@ -121,14 +121,14 @@ def test_policy_error_mapping_preserves_safe_code_and_receipt(code):
             }
         )
     )
-    mapped = map_sandhi_error(error, "openai", 30)
+    mapped = await map_sandhi_error(error, "openai", 30)
     assert mapped.details["policy_code"] == code
     assert mapped.details["policy_receipt"] == "a" * 32
     assert "sensitive" not in str(mapped)
     assert mapped.raw_error is None
 
 
-def test_malformed_upstream_policy_code_is_not_interpreted_as_a_decision():
+async def test_malformed_upstream_policy_code_is_not_interpreted_as_a_decision():
     import json
     from victor.core.errors import ProviderPolicyError
     from victor.providers.sandhi_transport import map_sandhi_error
@@ -142,7 +142,7 @@ def test_malformed_upstream_policy_code_is_not_interpreted_as_a_decision():
             }
         )
     )
-    assert not isinstance(map_sandhi_error(error, "openai", 30), ProviderPolicyError)
+    assert not isinstance(await map_sandhi_error(error, "openai", 30), ProviderPolicyError)
 
 
 @pytest.mark.asyncio

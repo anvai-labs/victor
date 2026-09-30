@@ -22,6 +22,17 @@ class ApprovalBindingError(PermissionError):
     """Approval no longer authorizes this exact execution."""
 
 
+def require_complete_batch_evidence(request: Any) -> None:
+    """Reject resume after interrupted publication, even with cached transcript rows."""
+    if request is None:
+        return
+    if not isinstance(request, dict):
+        raise ApprovalBindingError("Malformed approval evidence requires reconciliation")
+    context = request.get("context")
+    if isinstance(context, dict) and "batch_result_publication" in context:
+        raise ApprovalBindingError("Interrupted batch evidence requires reconciliation")
+
+
 def parse_arguments(value: Any) -> dict[str, Any]:
     if isinstance(value, str):
 

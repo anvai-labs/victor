@@ -58,6 +58,10 @@ DEPRECATION_NOTICE_FILES = (
     "victor/agent/sqlite_session_persistence.py",
 )
 RELATED_TESTS = {
+    "victor/framework/policies/types.py": (
+        "tests/unit/framework/policies/test_engine.py",
+        "tests/unit/framework/policies/test_middleware.py",
+    ),
     "victor/agent/orchestrator_creation.py": ("tests/unit/agent/test_profile_reasoning.py",),
     "victor/core/model_parameters.py": ("tests/unit/framework/test_model_effort.py",),
     "victor/config/provider_config_registry.py": (
@@ -114,7 +118,20 @@ RELATED_TESTS = {
         "tests/unit/agent/test_paused_run_expiry.py",
         "tests/unit/agent/test_durable_resume.py",
     ),
+    "victor/agent/services/chat_persistence.py": (
+        "tests/unit/agent/services/test_chat_service.py",
+        "tests/unit/agent/test_orchestrator_core.py",
+        "tests/unit/runtime/test_hotspot_size_guard.py",
+    ),
+    "victor/framework/approval_pause.py": (
+        "tests/unit/agent/services/test_tool_execution_runtime.py",
+        "tests/unit/tools/test_search_router_pipeline.py",
+        "tests/unit/agent/test_durable_resume.py",
+        "tests/unit/teams/test_member_pause_resume.py",
+        "tests/unit/teams/test_durable_pause_gating.py",
+    ),
     "victor/framework/approval_binding.py": (
+        "tests/unit/teams/test_member_pause_resume.py",
         "tests/unit/agent/test_durable_resume.py",
         "tests/unit/agent/test_paused_run_persistence.py",
         "tests/unit/framework/test_client_resume.py",
@@ -206,7 +223,7 @@ def select(changed: list[str]) -> list[str]:
             # example benchmarks/deep_research.py is covered by
             # evaluation/test_deep_research_benchmark.py). Preserve those
             # explicit stem matches before declaring the source untested.
-            if not candidates:
+            if not candidates and not existing_related:
                 unit_root = ROOT / "tests" / "unit"
                 candidates = list(unit_root.rglob(f"test_{rel.stem}.py")) + list(
                     unit_root.rglob(f"test_{rel.stem}_*.py")

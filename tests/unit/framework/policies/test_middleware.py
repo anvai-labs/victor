@@ -242,3 +242,39 @@ async def test_no_context_provider_uses_empty_context():
     mw = PolicyEngineMiddleware(PolicyEngine([]))
     result = await mw.before_tool_call("read_file", {})
     assert result.proceed is True
+
+
+@pytest.mark.parametrize("mode", ["deny", "ask", "raises", "context"])
+async def test_result_enforcement_withholds_without_reusing_action_approval(mode):
+    class ResultPolicy(_RedactResultPolicy):
+        async def evaluate(self, event):
+            if mode == "raises":
+                raise RuntimeError("private-result")
+            return (
+                PolicyVerdict.ask("private-result")
+                if mode == "ask"
+                else PolicyVerdict.deny("private-result")
+            )
+
+    def context():
+        if mode == "context":
+            raise RuntimeError("private-result")
+        return PolicyContext()
+
+    mw = PolicyEngineMiddleware(PolicyEngine([ResultPolicy()]), context, ask_fallback="allow")
+    with pytest.raises(PermissionError) as exc:
+        await mw.after_tool_call("submit", {}, "private-result", True)
+    assert "private-result" not in str(exc.value)
+
+
+@pytest.mark.parametrize("replacement", [None, "", False, 0])
+async def test_chain_preserves_explicit_empty_policy_replacement(replacement):
+    from victor.agent.middleware_chain import MiddlewareChain
+
+    class ResultPolicy(_RedactResultPolicy):
+        async def evaluate(self, event):
+            return PolicyVerdict.allow(modified_result=replacement)
+
+    chain = MiddlewareChain()
+    chain.add(PolicyEngineMiddleware(PolicyEngine([ResultPolicy()])))
+    assert await chain.process_after("read", {}, "private-result", True) is replacement
