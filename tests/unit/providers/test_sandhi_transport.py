@@ -307,6 +307,242 @@ async def test_binding_failure_is_mapped_and_never_replayed(monkeypatch):
         await provider.chat([Message(role="user", content="hi")], model="deepseek-chat")
 
 
+class TestTransportErrorTlsDiagnosis:
+    """Transport errors must say WHY when the endpoint is a self-signed or
+    private-CA gateway: the default recovery hint ("check network") is wrong
+    when TCP connects but TLS trust fails (T8 installed-harness finding F2).
+    """
+
+    def test_transport_error_with_untrusted_cert_carries_tls_diagnosis(self, monkeypatch):
+        exc = RuntimeError(
+            "error sending request for url (https://aiserver1:18788/v1/chat/completions)"
+        )
+        monkeypatch.setattr(
+            st,
+            "_typed_error_payload",
+            lambda _s: {"code": "transport_error", "message": str(exc)},
+        )
+        monkeypatch.setattr(
+            st,
+            "_diagnose_endpoint_tls",
+            lambda _url: "the endpoint's TLS certificate is not trusted by this machine's trust store",
+        )
+        err = st.map_sandhi_error(exc, "zai", 60.0)
+        assert isinstance(err, ProviderConnectionError)
+        assert "TLS certificate is not trusted" in str(err)
+
+    def test_transport_error_without_tls_problem_keeps_default_detail(self, monkeypatch):
+        exc = RuntimeError(
+            "error sending request for url (https://aiserver1:18788/v1/chat/completions)"
+        )
+        monkeypatch.setattr(
+            st,
+            "_typed_error_payload",
+            lambda _s: {"code": "transport_error", "message": str(exc)},
+        )
+        monkeypatch.setattr(st, "_diagnose_endpoint_tls", lambda _url: None)
+        err = st.map_sandhi_error(exc, "zai", 60.0)
+        assert isinstance(err, ProviderConnectionError)
+        assert "TLS diagnosis" not in str(err)
+
+    def test_probe_returns_none_for_plain_http_urls(self):
+        assert st._diagnose_endpoint_tls("http://aiserver1:18788/v1") is None
+
+    def test_probe_returns_none_when_endpoint_unreachable(self):
+        # Port 1 on loopback: nothing listens; the network hint is correct.
+        assert st._diagnose_endpoint_tls("https://127.0.0.1:1/v1") is None
+
+    def test_probe_classifies_self_signed_listener(self):
+        import socket as socket_mod
+        import ssl as ssl_mod
+        import threading
+
+        SERVER_CERT = """-----BEGIN CERTIFICATE-----
+MIIDDzCCAfegAwIBAgIUZ0U5BzFXhRO4OO7DfAY5l4aMqkowDQYJKoZIhvcNAQEL
+BQAwFzEVMBMGA1UEAwwMdDgtbG9jYWxob3N0MB4XDTI2MDkzMDAxNDYyOVoXDTI2
+MTAwMTAxNDYyOVowFzEVMBMGA1UEAwwMdDgtbG9jYWxob3N0MIIBIjANBgkqhkiG
+9w0BAQEFAAOCAQ8AMIIBCgKCAQEA8K6/7NOwPl808O5cFZmu5oA+CHenf1czcD6a
+wpLIQyQQbeR4KaV9KVTJV0rROEBoiRysawpP7CaAax+T9pMEf9huMK5+LStmmIdQ
+UWUO6tnMQIcUOk+9uQAm8AeFPkFS5iuwRvGdAIcEE86/FMQaDOmuzWVmKtH1wrTd
+1LwsAhLdGxnCnwTRhz0iztrXnfMz5ZFPwOgpPGh5ewQr0HPxDST+cvsKscKgmfip
+QYeR70kLeCA1Dyo/mfnTma8PRvlDWDzOAp66DXwWGIh4OFyx1toCGhHH/X2m8aBH
+CaUBKuDt5VPtegGNCMNIQogB1/psS7gWsprO3FgtZvPEMKoFOwIDAQABo1MwUTAd
+BgNVHQ4EFgQUqNWXJrzxpxeaKm9vcwhxoTkMoOMwHwYDVR0jBBgwFoAUqNWXJrzx
+pxeaKm9vcwhxoTkMoOMwDwYDVR0TAQH/BAUwAwEB/zANBgkqhkiG9w0BAQsFAAOC
+AQEAgDPsOPgCX112GWVaMgRFPHNCQYPV8p/FOER3GAG6sYWINJaX2MMs/bYUUDoj
+NXg+M1kC8otwVtOIG2Z6l7WSg0cJzf11BFNZh1bWBrgKxJYn2OmXAdrREbcrTzcH
+iVn2pAXJ7neO8IgT8pFVocwesPlsOfSKcbXGVjeAJbyWJOViIjKop0ywViNOMIJL
+KlLpYOAFpHD21DwKrhjhzz32d6xu99JkKEJqSNNMOc/bIR7d48TSHGhTzyzbg7YJ
+W14QPqIWLOK/zjyiUmaaLob5D79GRXLWAOvipnHsAc6v59POPyTSW378GBrQes5G
+6mcd0MRcdFqKgLl6kGtMVcF94Q==
+-----END CERTIFICATE-----
+"""
+        SERVER_KEY = """-----BEGIN PRIVATE KEY-----
+MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDwrr/s07A+XzTw
+7lwVma7mgD4Id6d/VzNwPprCkshDJBBt5HgppX0pVMlXStE4QGiJHKxrCk/sJoBr
+H5P2kwR/2G4wrn4tK2aYh1BRZQ7q2cxAhxQ6T725ACbwB4U+QVLmK7BG8Z0AhwQT
+zr8UxBoM6a7NZWYq0fXCtN3UvCwCEt0bGcKfBNGHPSLO2ted8zPlkU/A6Ck8aHl7
+BCvQc/ENJP5y+wqxwqCZ+KlBh5HvSQt4IDUPKj+Z+dOZrw9G+UNYPM4CnroNfBYY
+iHg4XLHW2gIaEcf9fabxoEcJpQEq4O3lU+16AY0Iw0hCiAHX+mxLuBayms7cWC1m
+88QwqgU7AgMBAAECggEAQaD9D6iHmfJfHsV4UaGG+i6E+80Y3NXb3mML0zuwJPK8
+EiMnCwAnuXH3tvhdRY/2kVDCyStWMMgs40kIkUd0hiHvphGmsU1w2+2l3pQGdc6u
+7feHcgEVdFFQzMnYMOoiH0ZRen7et2qZl4ccPp7claHQ+wwHyGxZLd8g0CYBgAy6
+YnGUFzyvT0n922k3cypsLMx5k+1pAwe9E5DG6tZ4kW2T872jWqGlXPhwDPQuc3VP
+MGdeqcnWmfJEKpk/s2z2AXcSHCyf4Va6u6jPFpSNmd+GOHphBI4YgnEtY7+O1ml7
+pdzGWoRJ/qP5Cz/VJExEjI+6KIqu5zB+YSELs/rsNQKBgQD6U0o9LLUlP32qKHx4
+FjO3arRniozuup4c7KeHs+4eat+NMnExHZuc0+86vbYeKSiunOrUziq4paIUtfLV
+C6D/NXJnM+rNO5GTav/gezErPGbgiSL8ONrYi8lK85S8YTdg8DsfPMKD1/czVr74
+COMtxJntVvXdrVpY8pAcTQd7RwKBgQD2I4AJdOhFu6vFnSY2f0bDHzUlO3anuUwg
+KAYuWUj4Z2gVKE5TtlUgvqtZn3+bKMfqksHtdLoLQGXIZ0zFwBv1KzhPrtNh84Hc
+/G3xtAzJzeWukeQjVRVWAfCSc93DgKJzmpdCTGv9DQqwD4krrAuXwy/bd7ILG2OL
+rFv3LeU4bQKBgBGX1PnjsH+DrNNOsSDHfq7/Ytp8FFea6g3iXAvfi3a70CZeSzJG
+gG9PPdsFBk2sWt2aza5TJxF/IpsOBpkOjiwhl37FWVU/QIX52S3vuo7tWdWiDcFo
+RYk+mdEYuXVb58Z6W81gOdOGVCtZh2ZrSXwn+yGBIRqJWnYx5gr3JvV1AoGAPxHf
+qAyty9iH7k4TUZmRb0Qa4Rx4jge8Cu1WkB/Ow9/zWqCGWYr6CzbwPznQf9iWSXQr
+fwYO+f0ZV52onW9ZepwFhN1+SrYTy6VfIrUJJdi9htrZQ3h0zCIZG93WsFbQyaCO
+K63bae8ikvSYKHmgStX3+FuWYqQ1AMA8nHzFJI0CgYEA7zDiY7T0FztVlgi+ULoy
+p1A8lJIXqbTpoqe67juk4pP6cP0oymKbGiinevt4I7iUfawi1vGLd0ZOdO1uFYeL
+FfwJ3n72lmGwchK90mq6DEwz82e4XQu0+QQe+QMaajO2i9MjAtsxVypYrzbecaVG
+Q8DdskD5L69EkmDFx9mfIFg=
+-----END PRIVATE KEY-----
+"""
+
+        context = ssl_mod.SSLContext(ssl_mod.PROTOCOL_TLS_SERVER)
+        from tempfile import NamedTemporaryFile
+
+        cert_file = NamedTemporaryFile(mode="w", suffix=".pem", delete=False)
+        key_file = NamedTemporaryFile(mode="w", suffix=".pem", delete=False)
+        cert_file.write(SERVER_CERT)
+        key_file.write(SERVER_KEY)
+        cert_file.close()
+        key_file.close()
+        context.load_cert_chain(cert_file.name, key_file.name)
+
+        server = socket_mod.socket()
+        server.bind(("127.0.0.1", 0))
+        server.listen(1)
+        port = server.getsockname()[1]
+
+        def serve_twice():
+            # The probe opens two connections: a raw TCP reachability check,
+            # then the TLS handshake. Serve both.
+            for expect_tls in (False, True):
+                conn, _ = server.accept()
+                try:
+                    if expect_tls:
+                        tls = context.wrap_socket(conn, server_side=True)
+                        tls.recv(1024)
+                        tls.close()
+                    else:
+                        conn.close()
+                except ssl_mod.SSLError:
+                    pass
+            server.close()
+
+        thread = threading.Thread(target=serve_twice)
+        thread.start()
+        diagnosis = st._diagnose_endpoint_tls(f"https://127.0.0.1:{port}/v1")
+        thread.join(timeout=5)
+        assert diagnosis is not None
+        assert "not trusted by this machine's trust store" in diagnosis
+
+    def test_probe_returns_none_for_trusted_handshake(self):
+        import socket as socket_mod
+        import ssl as ssl_mod
+        import threading
+        from tempfile import NamedTemporaryFile
+
+        SERVER_CERT = """-----BEGIN CERTIFICATE-----
+MIIDDzCCAfegAwIBAgIUZ0U5BzFXhRO4OO7DfAY5l4aMqkowDQYJKoZIhvcNAQEL
+BQAwFzEVMBMGA1UEAwwMdDgtbG9jYWxob3N0MB4XDTI2MDkzMDAxNDYyOVoXDTI2
+MTAwMTAxNDYyOVowFzEVMBMGA1UEAwwMdDgtbG9jYWxob3N0MIIBIjANBgkqhkiG
+9w0BAQEFAAOCAQ8AMIIBCgKCAQEA8K6/7NOwPl808O5cFZmu5oA+CHenf1czcD6a
+wpLIQyQQbeR4KaV9KVTJV0rROEBoiRysawpP7CaAax+T9pMEf9huMK5+LStmmIdQ
+UWUO6tnMQIcUOk+9uQAm8AeFPkFS5iuwRvGdAIcEE86/FMQaDOmuzWVmKtH1wrTd
+1LwsAhLdGxnCnwTRhz0iztrXnfMz5ZFPwOgpPGh5ewQr0HPxDST+cvsKscKgmfip
+QYeR70kLeCA1Dyo/mfnTma8PRvlDWDzOAp66DXwWGIh4OFyx1toCGhHH/X2m8aBH
+CaUBKuDt5VPtegGNCMNIQogB1/psS7gWsprO3FgtZvPEMKoFOwIDAQABo1MwUTAd
+BgNVHQ4EFgQUqNWXJrzxpxeaKm9vcwhxoTkMoOMwHwYDVR0jBBgwFoAUqNWXJrzx
+pxeaKm9vcwhxoTkMoOMwDwYDVR0TAQH/BAUwAwEB/zANBgkqhkiG9w0BAQsFAAOC
+AQEAgDPsOPgCX112GWVaMgRFPHNCQYPV8p/FOER3GAG6sYWINJaX2MMs/bYUUDoj
+NXg+M1kC8otwVtOIG2Z6l7WSg0cJzf11BFNZh1bWBrgKxJYn2OmXAdrREbcrTzcH
+iVn2pAXJ7neO8IgT8pFVocwesPlsOfSKcbXGVjeAJbyWJOViIjKop0ywViNOMIJL
+KlLpYOAFpHD21DwKrhjhzz32d6xu99JkKEJqSNNMOc/bIR7d48TSHGhTzyzbg7YJ
+W14QPqIWLOK/zjyiUmaaLob5D79GRXLWAOvipnHsAc6v59POPyTSW378GBrQes5G
+6mcd0MRcdFqKgLl6kGtMVcF94Q==
+-----END CERTIFICATE-----
+"""
+        SERVER_KEY = """-----BEGIN PRIVATE KEY-----
+MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDwrr/s07A+XzTw
+7lwVma7mgD4Id6d/VzNwPprCkshDJBBt5HgppX0pVMlXStE4QGiJHKxrCk/sJoBr
+H5P2kwR/2G4wrn4tK2aYh1BRZQ7q2cxAhxQ6T725ACbwB4U+QVLmK7BG8Z0AhwQT
+zr8UxBoM6a7NZWYq0fXCtN3UvCwCEt0bGcKfBNGHPSLO2ted8zPlkU/A6Ck8aHl7
+BCvQc/ENJP5y+wqxwqCZ+KlBh5HvSQt4IDUPKj+Z+dOZrw9G+UNYPM4CnroNfBYY
+iHg4XLHW2gIaEcf9fabxoEcJpQEq4O3lU+16AY0Iw0hCiAHX+mxLuBayms7cWC1m
+88QwqgU7AgMBAAECggEAQaD9D6iHmfJfHsV4UaGG+i6E+80Y3NXb3mML0zuwJPK8
+EiMnCwAnuXH3tvhdRY/2kVDCyStWMMgs40kIkUd0hiHvphGmsU1w2+2l3pQGdc6u
+7feHcgEVdFFQzMnYMOoiH0ZRen7et2qZl4ccPp7claHQ+wwHyGxZLd8g0CYBgAy6
+YnGUFzyvT0n922k3cypsLMx5k+1pAwe9E5DG6tZ4kW2T872jWqGlXPhwDPQuc3VP
+MGdeqcnWmfJEKpk/s2z2AXcSHCyf4Va6u6jPFpSNmd+GOHphBI4YgnEtY7+O1ml7
+pdzGWoRJ/qP5Cz/VJExEjI+6KIqu5zB+YSELs/rsNQKBgQD6U0o9LLUlP32qKHx4
+FjO3arRniozuup4c7KeHs+4eat+NMnExHZuc0+86vbYeKSiunOrUziq4paIUtfLV
+C6D/NXJnM+rNO5GTav/gezErPGbgiSL8ONrYi8lK85S8YTdg8DsfPMKD1/czVr74
+COMtxJntVvXdrVpY8pAcTQd7RwKBgQD2I4AJdOhFu6vFnSY2f0bDHzUlO3anuUwg
+KAYuWUj4Z2gVKE5TtlUgvqtZn3+bKMfqksHtdLoLQGXIZ0zFwBv1KzhPrtNh84Hc
+/G3xtAzJzeWukeQjVRVWAfCSc93DgKJzmpdCTGv9DQqwD4krrAuXwy/bd7ILG2OL
+rFv3LeU4bQKBgBGX1PnjsH+DrNNOsSDHfq7/Ytp8FFea6g3iXAvfi3a70CZeSzJG
+gG9PPdsFBk2sWt2aza5TJxF/IpsOBpkOjiwhl37FWVU/QIX52S3vuo7tWdWiDcFo
+RYk+mdEYuXVb58Z6W81gOdOGVCtZh2ZrSXwn+yGBIRqJWnYx5gr3JvV1AoGAPxHf
+qAyty9iH7k4TUZmRb0Qa4Rx4jge8Cu1WkB/Ow9/zWqCGWYr6CzbwPznQf9iWSXQr
+fwYO+f0ZV52onW9ZepwFhN1+SrYTy6VfIrUJJdi9htrZQ3h0zCIZG93WsFbQyaCO
+K63bae8ikvSYKHmgStX3+FuWYqQ1AMA8nHzFJI0CgYEA7zDiY7T0FztVlgi+ULoy
+p1A8lJIXqbTpoqe67juk4pP6cP0oymKbGiinevt4I7iUfawi1vGLd0ZOdO1uFYeL
+FfwJ3n72lmGwchK90mq6DEwz82e4XQu0+QQe+QMaajO2i9MjAtsxVypYrzbecaVG
+Q8DdskD5L69EkmDFx9mfIFg=
+-----END PRIVATE KEY-----
+"""
+        context = ssl_mod.SSLContext(ssl_mod.PROTOCOL_TLS_SERVER)
+        cert_file = NamedTemporaryFile(mode="w", suffix=".pem", delete=False)
+        key_file = NamedTemporaryFile(mode="w", suffix=".pem", delete=False)
+        cert_file.write(SERVER_CERT)
+        key_file.write(SERVER_KEY)
+        cert_file.close()
+        key_file.close()
+        context.load_cert_chain(cert_file.name, key_file.name)
+        # Trust the throwaway server cert for THIS client only.
+        client_context = ssl_mod.SSLContext(ssl_mod.PROTOCOL_TLS_CLIENT)
+        client_context.load_verify_locations(cert_file.name)
+
+        server = socket_mod.socket()
+        server.bind(("127.0.0.1", 0))
+        server.listen(1)
+        port = server.getsockname()[1]
+
+        def serve_once():
+            conn, _ = server.accept()
+            try:
+                tls = context.wrap_socket(conn, server_side=True)
+                tls.recv(1024)
+                tls.close()
+            except ssl_mod.SSLError:
+                pass
+            finally:
+                server.close()
+
+        thread = threading.Thread(target=serve_once)
+        thread.start()
+
+        # Probe with a client context that trusts the server: the probe
+        # honors custom trust via monkeypatched default context factory.
+        original = ssl_mod.create_default_context
+        ssl_mod.create_default_context = lambda **_kwargs: client_context
+        try:
+            diagnosis = st._diagnose_endpoint_tls(f"https://127.0.0.1:{port}/v1")
+        finally:
+            ssl_mod.create_default_context = original
+        thread.join(timeout=5)
+        assert diagnosis is None
+
 def test_pilot_and_raw_bridge_symbols_are_gone():
     for obsolete in (
         "SandhiTransportUnavailable",

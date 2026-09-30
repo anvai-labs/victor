@@ -13,9 +13,12 @@ import json
 import logging
 import math
 import re
+import socket
+import ssl
 import uuid
 from json import JSONDecodeError
 from typing import Any, AsyncIterator, Dict, List, Optional, Tuple, Type
+from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
@@ -237,6 +240,42 @@ def _verify_wire_contract() -> None:
         )
 
 
+def _diagnose_endpoint_tls(url: str, connect_timeout: float = 1.5) -> Optional[str]:
+    """Classify a transport error against an https endpoint.
+
+    Returns TLS-trust guidance only when the signature matches: TCP connects
+    but the default-context handshake fails certificate verification (the
+    self-signed/private-CA gateway case). Unreachable endpoints return None —
+    the default "check network" hint is then correct — and so do healthy
+    handshakes. Bounded to ~3s total; runs once on the surfaced error path.
+    """
+    parsed = urlparse(url)
+    if parsed.scheme != "https" or not parsed.hostname:
+        return None
+    port = parsed.port or 443
+    try:
+        with socket.create_connection((parsed.hostname, port), timeout=connect_timeout):
+            pass
+    except OSError:
+        return None
+    try:
+        context = ssl.create_default_context()
+        with socket.create_connection((parsed.hostname, port), timeout=connect_timeout) as sock:
+            with context.wrap_socket(sock, server_hostname=parsed.hostname):
+                return None
+    except ssl.SSLCertVerificationError:
+        return (
+            "the endpoint's TLS certificate is not trusted by this machine's "
+            "trust store (private/self-signed CA). Import the issuing CA into "
+            "the system trust store (macOS: sudo security add-trusted-cert "
+            "-d -r trustRoot -k /Library/Keychains/System.keychain <ca.pem>) "
+            "or serve a publicly-trusted certificate; the sandhi binding does "
+            "not read SSL_CERT_FILE"
+        )
+    except OSError:
+        return None
+
+
 def map_sandhi_error(exc: BaseException, provider_name: str, timeout: float) -> ProviderError:
     """Map `ProviderErrorV1` from the FFI without changing retry ownership."""
     if isinstance(exc, (asyncio.TimeoutError, TimeoutError)):
@@ -298,6 +337,16 @@ def map_sandhi_error(exc: BaseException, provider_name: str, timeout: float) -> 
     if code == "timeout":
         return ProviderTimeoutError(detail, provider=provider_name, timeout=timeout)
     if code in {"circuit_open", "transport_error"}:
+        # "error sending request" wraps both real network failures and TLS
+        # trust failures; the default recovery hint is wrong for the latter.
+        # Classify once, bounded, so a self-signed/private-CA gateway tells
+        # the operator what actually happened.
+        if code == "transport_error":
+            url_match = re.search(r"https?://[^\s')]+", str(exc))
+            if url_match:
+                diagnosis = _diagnose_endpoint_tls(url_match.group(0))
+                if diagnosis:
+                    detail = f"{detail} | TLS diagnosis: {diagnosis}"
         return ProviderConnectionError(detail, provider=provider_name, raw_error=exc)
     return ProviderError(
         detail,
