@@ -116,6 +116,7 @@ Implementation delivery and live acceptance have different denominators:
 | Current six-Qwen/one-ZAI C5 acceptance | Open; historical failed run retained | Released-origin short liveness now passes; full run remains held for foundation acceptance and reviewed verdict on InferFlux #184 |
 | G53 operator deadline policy | ✅ Buffered #297, stream body owner #298 and standalone streaming policy [Sandhi #301](https://github.com/anvai-labs/sandhi/pull/301) released in 0.10.1 | Bounded durable HTTP settlement/recovery and changed-deadline live evidence remain open |
 | G60 pre-dispatch enforcement repair | ✅ [Victor #1180](https://github.com/anvai-labs/victor/pull/1180); all CI green including Vertical Py3.12 | Result-publication follow-up is described in G60 below; broader G60 and G61–G65 remain open |
+| G60 result-publication boundary | [Victor #1204](https://github.com/anvai-labs/victor/pull/1204): typed withholding, cache/result publication checks and retry vetoes | Executor/observer disclosure and cached pre-action authorization remain open; this does not close G60 or C5 |
 
 The [PDF recheck and critique](agentic-workflow-safety-audit.md#pdf-recheck-and-design-critique--2026-09-25)
 maps the local Agentic Workflow Automation guide to formation-specific acceptance

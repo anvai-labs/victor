@@ -198,7 +198,8 @@ in the PR alongside their repairs.
 
 ### Follow-up: tool-result publication enforcement
 
-The existing middleware/pipeline path now withholds output on TOOL_RESULT DENY,
+[Victor #1204](https://github.com/anvai-labs/victor/pull/1204) updates the existing
+middleware/pipeline path to withhold output on TOOL_RESULT DENY,
 ASK, context failures or after-hook failures. Result disclosure does not reuse an
 approval for the action, and allow-on-absence ASK configuration does not authorize
 result disclosure. Explicit null replacements pass through the legacy middleware
