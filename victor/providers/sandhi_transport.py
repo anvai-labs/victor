@@ -240,6 +240,9 @@ def _verify_wire_contract() -> None:
         )
 
 
+_TLS_PROBE_DEADLINE_SECS = 4.0
+
+
 def _diagnose_endpoint_tls(url: str, connect_timeout: float = 1.5) -> Optional[str]:
     """Classify a transport error against an https endpoint.
 
@@ -247,37 +250,58 @@ def _diagnose_endpoint_tls(url: str, connect_timeout: float = 1.5) -> Optional[s
     but the default-context handshake fails certificate verification (the
     self-signed/private-CA gateway case). Unreachable endpoints return None —
     the default "check network" hint is then correct — and so do healthy
-    handshakes. Bounded to ~3s total; runs once on the surfaced error path.
+    handshakes.
+
+    Never raises: every failure mode (unresolvable host, out-of-range port,
+    non-OSError resolver errors) classifies as None. Callers must run this
+    OFF the event loop (asyncio.to_thread) and cap it (asyncio.wait_for) —
+    the socket timeouts bound each operation but DNS resolution is
+    unbounded, so the caller owns the hard deadline.
     """
-    parsed = urlparse(url)
-    if parsed.scheme != "https" or not parsed.hostname:
-        return None
-    port = parsed.port or 443
     try:
-        with socket.create_connection((parsed.hostname, port), timeout=connect_timeout):
-            pass
-    except OSError:
-        return None
-    try:
-        context = ssl.create_default_context()
-        with socket.create_connection((parsed.hostname, port), timeout=connect_timeout) as sock:
-            with context.wrap_socket(sock, server_hostname=parsed.hostname):
+        parsed = urlparse(url)
+        if parsed.scheme != "https" or not parsed.hostname:
+            return None
+        try:
+            port = parsed.port
+        except ValueError:
+            return None
+        if port is None:
+            port = 443
+        # One connection for both the reachability check and the handshake:
+        # create_connection's timeout also bounds the wrap_socket handshake.
+        with socket.create_connection(
+            (parsed.hostname, port), timeout=connect_timeout
+        ) as sock:
+            context = ssl.create_default_context()
+            try:
+                with context.wrap_socket(sock, server_hostname=parsed.hostname):
+                    return None
+            except ssl.SSLCertVerificationError:
+                return (
+                    "the endpoint's TLS certificate is not trusted by this "
+                    "machine's trust store (private/self-signed CA). Import "
+                    "the issuing CA into the system trust store (macOS: sudo "
+                    "security add-trusted-cert -d -r trustRoot -k "
+                    "/Library/Keychains/System.keychain <ca.pem>) or serve a "
+                    "publicly-trusted certificate; the sandhi binding does "
+                    "not read SSL_CERT_FILE"
+                )
+            except OSError:
                 return None
-    except ssl.SSLCertVerificationError:
-        return (
-            "the endpoint's TLS certificate is not trusted by this machine's "
-            "trust store (private/self-signed CA). Import the issuing CA into "
-            "the system trust store (macOS: sudo security add-trusted-cert "
-            "-d -r trustRoot -k /Library/Keychains/System.keychain <ca.pem>) "
-            "or serve a publicly-trusted certificate; the sandhi binding does "
-            "not read SSL_CERT_FILE"
-        )
-    except OSError:
+    except Exception:
+        # A diagnosis probe must never replace the original transport error
+        # with a worse one (unresolvable host, odd URL shapes, resolver
+        # errors): no classification is the honest fallback.
         return None
 
 
-def map_sandhi_error(exc: BaseException, provider_name: str, timeout: float) -> ProviderError:
-    """Map `ProviderErrorV1` from the FFI without changing retry ownership."""
+async def map_sandhi_error(exc: BaseException, provider_name: str, timeout: float) -> ProviderError:
+    """Map `ProviderErrorV1` from the FFI without changing retry ownership.
+
+    Async so the optional TLS diagnosis probe runs off the event loop with a
+    hard deadline instead of stalling it while the network is degraded.
+    """
     if isinstance(exc, (asyncio.TimeoutError, TimeoutError)):
         return ProviderTimeoutError(
             f"sandhi transport timed out: {exc}", provider=provider_name, timeout=timeout
@@ -344,7 +368,17 @@ def map_sandhi_error(exc: BaseException, provider_name: str, timeout: float) -> 
         if code == "transport_error":
             url_match = re.search(r"https?://[^\s')]+", str(exc))
             if url_match:
-                diagnosis = _diagnose_endpoint_tls(url_match.group(0))
+                try:
+                    diagnosis = await asyncio.wait_for(
+                        asyncio.to_thread(
+                            _diagnose_endpoint_tls, url_match.group(0)
+                        ),
+                        timeout=_TLS_PROBE_DEADLINE_SECS,
+                    )
+                except Exception:
+                    # The probe is best-effort; never delay or replace the
+                    # surfaced transport error with a diagnosis failure.
+                    diagnosis = None
                 if diagnosis:
                     detail = f"{detail} | TLS diagnosis: {diagnosis}"
         return ProviderConnectionError(detail, provider=provider_name, raw_error=exc)
@@ -940,7 +974,7 @@ class SandhiTypedProviderMixin:
         except (asyncio.CancelledError, KeyboardInterrupt, SystemExit):
             raise
         except BaseException as exc:  # pyo3 panics may subclass BaseException
-            mapped = map_sandhi_error(exc, self._sandhi_slug(), timeout)
+            mapped = await map_sandhi_error(exc, self._sandhi_slug(), timeout)
             if isinstance(mapped, ProviderPolicyError):
                 raise mapped from None
             raise mapped from exc
@@ -1051,7 +1085,7 @@ class SandhiTypedProviderMixin:
                     # A typed error EVENT (as opposed to an iterator error) must
                     # surface as the mapped ProviderError, never vanish mid-stream.
                     payload = event.get("error")
-                    raise map_sandhi_error(
+                    raise await map_sandhi_error(
                         RuntimeError(
                             json.dumps(
                                 payload if isinstance(payload, dict) else {"code": "unknown"}
@@ -1081,7 +1115,7 @@ class SandhiTypedProviderMixin:
         except ProviderError:
             raise
         except BaseException as exc:
-            mapped = map_sandhi_error(exc, self._sandhi_slug(), timeout)
+            mapped = await map_sandhi_error(exc, self._sandhi_slug(), timeout)
             if isinstance(mapped, ProviderPolicyError):
                 raise mapped from None
             raise mapped from exc
