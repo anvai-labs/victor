@@ -170,8 +170,8 @@ their contracts; absent optional context still uses the documented default, and
 absent approval handlers retain the configured fallback. Best-effort observers stay
 separate from enforcement. Cancellation and durable approval pauses propagate.
 
-This does **not** close all of G60: the TOOL_RESULT adapter/after-middleware path
-still needs an explicit result-withholding contract after a tool has executed.
+This pre-dispatch repair did **not** close G60. The subsequent result-publication
+repair below covers the TOOL_RESULT adapter and its pipeline release boundary.
 Streaming checks cannot retract tokens already emitted. G61–G65 are unchanged;
 missing pricing remains separate from a configured context source raising an error.
 The original findings below remain the historical audit of the pinned base.
@@ -195,6 +195,30 @@ The selected cohort passed **250 tests with 94% changed-line coverage**, the ver
 middleware owner passed **26 tests with two existing skips**, and the final candidate
 collected **33,475 tests**. Initial selector and Vertical failures remain recorded
 in the PR alongside their repairs.
+
+### Follow-up: tool-result publication enforcement
+
+[Victor #1204](https://github.com/anvai-labs/victor/pull/1204) updates the existing
+middleware/pipeline path to withhold output on TOOL_RESULT DENY,
+ASK, context failures or after-hook failures. Result disclosure does not reuse an
+approval for the action, and allow-on-absence ASK configuration does not authorize
+result disclosure. Explicit null replacements pass through the legacy middleware
+protocol with an internal typed envelope; ordinary None still means unchanged.
+
+A single pipeline result processor gates executed results and all three pipeline
+cache paths, plus the retry service cache, before pipeline events/callbacks return
+payloads. Raw cache values keep their legacy shape without policy. A withheld
+result distinguishes disclosure failure from execution outcome, blocks retries,
+retains unknown-outcome reconciliation and preserves successful-write cache
+invalidation. Batch duplicates keep the same veto. Cancellation still runs chain
+cleanup and propagates. Existing policy, pipeline and retry owners hold these
+regressions; no parallel test suite or new formation was introduced.
+
+This is deliberately a bounded publication repair: executor tracing/internal caches
+and earlier after-middleware observers already see raw data. Direct executor calls
+and pre-action authorization on cache retrieval remain separate boundaries. It does
+not establish durable receipt reconciliation, exactly-once effects, a durable
+result-approval workflow, full G60 closure or C5 acceptance.
 
 ### G60 — configured policy failures can allow execution (high priority)
 

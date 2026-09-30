@@ -42,6 +42,7 @@ from victor.core.verticals.protocols import (
 from victor.framework.policies.engine import PolicyEngine
 from victor.framework.policies.types import (
     UNSET,
+    _ToolResultReplacement,
     Phase,
     PolicyContext,
     PolicyEvent,
@@ -245,18 +246,26 @@ class PolicyEngineMiddleware(MiddlewareProtocol):
         Returns the (possibly redacted) result, or None to leave it unchanged
         per the middleware-chain contract.
         """
-        event = PolicyEvent(
-            phase=Phase.TOOL_RESULT,
-            tool_name=tool_name,
-            arguments=arguments,
-            result=result,
-            success=success,
-            context=self._safe_context(),
-        )
-        verdict = await self._engine.evaluate(event)
-        if verdict.modified_result is not UNSET:
-            return verdict.modified_result
-        return None
+        try:
+            event = PolicyEvent(
+                phase=Phase.TOOL_RESULT,
+                tool_name=tool_name,
+                arguments=arguments,
+                result=result,
+                success=success,
+                context=self._safe_context(),
+            )
+            verdict = await self._engine.evaluate(event)
+            if not verdict.is_allow:
+                # Action approval is not authority to disclose a later result.
+                raise PermissionError("Tool result withheld by policy.")
+            if verdict.modified_result is not UNSET:
+                if verdict.modified_result is None:
+                    return _ToolResultReplacement(None)
+                return verdict.modified_result
+            return None
+        except Exception:
+            raise PermissionError("Tool result withheld by policy.") from None
 
     # -- internals ----------------------------------------------------------
 

@@ -129,3 +129,56 @@ async def test_post_success_failure_never_repeats_action(failing_component):
     executor._pipeline._execute_single_call.assert_awaited_once()
     assert result.success is True  # preserve evidence of the completed execution
     assert success is False and "do not repeat" in error
+
+
+async def test_withheld_successful_effect_still_invalidates_cache_without_retry():
+    from victor.core.errors import ErrorInfo, ErrorCategory, ErrorSeverity
+
+    cache = MagicMock()
+    executor = _make_executor(cache)
+    withheld = ToolCallResult(
+        "write",
+        {"path": "/tmp/written"},
+        False,
+        error="Result withheld",
+        outcome_kind="result_withheld",
+        retryable=False,
+        error_info=ErrorInfo(
+            message="Result withheld",
+            category=ErrorCategory.TOOL_EXECUTION,
+            severity=ErrorSeverity.ERROR,
+            correlation_id="receipt",
+            details={"execution_outcome": "succeeded", "result_withheld": True, "retryable": False},
+        ),
+    )
+    executor._pipeline._execute_single_call.return_value = withheld
+    callback = MagicMock()
+    result, success, _ = await executor.execute_tool_with_retry(
+        "write", {"path": "/tmp/written"}, {}, on_success=callback
+    )
+    assert result is withheld and not success
+    cache.invalidate_paths.assert_called_once_with(["/tmp/written"])
+    cache.set.assert_not_called()
+    callback.assert_not_called()
+    executor._pipeline._execute_single_call.assert_awaited_once()
+
+
+@pytest.mark.parametrize("cached", ["cached text", {"key": "cached data"}])
+@pytest.mark.parametrize("governed", [False, True])
+async def test_raw_cache_result_keeps_legacy_shape_or_is_withheld(cached, governed):
+    from victor.agent.tool_pipeline import ToolPipeline, ToolPipelineConfig
+    from victor.agent.middleware_chain import MiddlewareChain
+
+    pipeline = ToolPipeline(MagicMock(), MagicMock(), config=ToolPipelineConfig())
+    if governed:
+        pipeline.middleware_chain = MiddlewareChain()
+        pipeline.middleware_chain.process_after = AsyncMock(side_effect=PermissionError("withheld"))
+    cache = MagicMock()
+    cache.get.return_value = cached
+    executor = ToolRetryExecutor(_Config(), pipeline, cache)
+    result, success, error = await executor.execute_tool_with_retry("read", {}, {})
+    if governed:
+        assert not success and result.retryable is False
+        assert result.result is None and result.outcome_kind == "result_withheld"
+    else:
+        assert result is cached and success and error is None

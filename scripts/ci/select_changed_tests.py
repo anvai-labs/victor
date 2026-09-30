@@ -58,6 +58,10 @@ DEPRECATION_NOTICE_FILES = (
     "victor/agent/sqlite_session_persistence.py",
 )
 RELATED_TESTS = {
+    "victor/framework/policies/types.py": (
+        "tests/unit/framework/policies/test_engine.py",
+        "tests/unit/framework/policies/test_middleware.py",
+    ),
     "victor/agent/orchestrator_creation.py": ("tests/unit/agent/test_profile_reasoning.py",),
     "victor/core/model_parameters.py": ("tests/unit/framework/test_model_effort.py",),
     "victor/config/provider_config_registry.py": (
@@ -206,7 +210,7 @@ def select(changed: list[str]) -> list[str]:
             # example benchmarks/deep_research.py is covered by
             # evaluation/test_deep_research_benchmark.py). Preserve those
             # explicit stem matches before declaring the source untested.
-            if not candidates:
+            if not candidates and not existing_related:
                 unit_root = ROOT / "tests" / "unit"
                 candidates = list(unit_root.rglob(f"test_{rel.stem}.py")) + list(
                     unit_root.rglob(f"test_{rel.stem}_*.py")

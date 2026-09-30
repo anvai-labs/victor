@@ -74,6 +74,13 @@ def test_selector_changes_select_its_own_regressions():
             "victor/core/model_parameters.py",
             ["tests/unit/framework/test_model_effort.py"],
         ),
+        (
+            "victor/framework/policies/types.py",
+            [
+                "tests/unit/framework/policies/test_engine.py",
+                "tests/unit/framework/policies/test_middleware.py",
+            ],
+        ),
         ("victor/ui/cli_group.py", ["tests/unit/ui/test_cli_command_resolution.py"]),
         (
             "victor/agent/strategies/provider_strategies.py",

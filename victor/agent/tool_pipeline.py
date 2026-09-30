@@ -40,8 +40,9 @@ import re
 import threading
 import time
 import traceback
+from uuid import uuid4
 from collections import OrderedDict
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Callable, Dict, List, Mapping, Optional, Set, TYPE_CHECKING
 
 from victor.agent.argument_normalizer import ArgumentNormalizer, NormalizationStrategy
@@ -2612,6 +2613,15 @@ class ToolPipeline:
                     ),
                     tool_call_id=dup_tc_id,
                 )
+                if blocks_tool_retry(original_result):
+                    dup_result = replace(
+                        dup_result,
+                        retryable=False,
+                        outcome_kind=original_result.outcome_kind,
+                        block_source=original_result.block_source,
+                        error_info=original_result.error_info,
+                        user_message=original_result.user_message,
+                    )
                 result.results.append(dup_result)
                 result.skipped_calls += 1
 
@@ -2735,6 +2745,54 @@ class ToolPipeline:
             )
         except Exception:
             pass  # Intent logging is non-critical
+
+    async def _process_tool_result(self, call_result: ToolCallResult) -> ToolCallResult:
+        """Release fresh/cached output only after configured result enforcement."""
+        if self.middleware_chain is None:
+            return call_result
+        try:
+            output = await self.middleware_chain.process_after(
+                call_result.tool_name,
+                call_result.arguments,
+                call_result.result,
+                call_result.success,
+            )
+            return (
+                call_result if output is call_result.result else replace(call_result, result=output)
+            )
+        except Exception:
+            previous = call_result.error_info
+            unknown = (
+                previous is not None and previous.details.get("execution_outcome") == "unknown"
+            )
+            message = "Tool result withheld after execution; do not repeat the action."
+            info = ErrorInfo(
+                message=message,
+                correlation_id=previous.correlation_id if previous else f"result_{uuid4().hex}",
+                category=ErrorCategory.TOOL_EXECUTION,
+                severity=ErrorSeverity.ERROR,
+                details={
+                    "retryable": False,
+                    "result_withheld": True,
+                    "execution_outcome": (
+                        "unknown" if unknown else ("succeeded" if call_result.success else "failed")
+                    ),
+                    "reconciliation_required": unknown,
+                },
+            )
+            return replace(
+                call_result,
+                success=False,
+                result=None,
+                error=message,
+                user_message=message,
+                error_info=info,
+                skipped=False,
+                skip_reason=None,
+                outcome_kind="result_withheld",
+                block_source="middleware_chain",
+                retryable=False,
+            )
 
     async def _execute_single_call(
         self, tool_call: Dict[str, Any], context: Dict[str, Any]
@@ -2877,6 +2935,7 @@ class ToolPipeline:
         # This prevents DeepSeek/Ollama from re-reading the same file multiple times
         cached_result = None if bound_resume else self.get_cached_result(tool_name, normalized_args)
         if cached_result is not None:
+            cached_result = await self._process_tool_result(cached_result)
             logger.info(f"[Pipeline] Returning cached result for {tool_name}")
             # Still count as a tool call for tracking, but don't execute
             self._executed_tools.append(tool_name)
@@ -2899,6 +2958,7 @@ class ToolPipeline:
             signature = self._get_call_signature(tool_name, normalized_args)
             cross_cached = self._cross_turn_cache.get(signature)
             if cross_cached is not None:
+                cross_cached = await self._process_tool_result(cross_cached)
                 self._cross_turn_hits += 1
                 logger.info(
                     "[Pipeline] Cross-turn dedup hit for %s (hits=%d)",
@@ -2939,6 +2999,7 @@ class ToolPipeline:
                         cached=True,
                         normalization_applied=normalization_applied,
                     )
+                    sem_cached_result = await self._process_tool_result(sem_cached_result)
                     if self.on_tool_start:
                         try:
                             self.on_tool_start(tool_name, normalized_args)
@@ -3352,16 +3413,6 @@ class ToolPipeline:
                             error_info=recovered_exec_result.error_info,
                         )
 
-        # Log tool result returned to LLM
-        result_preview = str(exec_result.result)[:500] if exec_result.result else "(empty)"
-        logger.debug(
-            "[ToolResult→LLM] tool=%s success=%s time=%.0fms result_preview=%s",
-            tool_name,
-            exec_result.success,
-            execution_time_ms,
-            result_preview,
-        )
-
         # Attempt error recovery fallback on failure
         if (
             not exec_result.success
@@ -3439,47 +3490,55 @@ class ToolPipeline:
             except Exception as e:
                 logger.debug(f"[Pipeline] Error recovery fallback failed: {e}")
 
+        # Invalidate caches when files are modified (write/edit tools)
+        if call_result.success and canonicalize_core_tool_name(tool_name.lower()) in (
+            "write",
+            "edit",
+        ):
+            file_path = normalized_args.get("path") or normalized_args.get("file_path")
+            if file_path:
+                self._invalidate_post_edit_freshness_state(file_path, context=context)
+                logger.debug(f"Invalidated caches for modified file: {file_path}")
+
+        original_result = call_result
+        call_result = await self._process_tool_result(call_result)
+        if call_result is not original_result and self.on_tool_event:
+            try:
+                self.on_tool_event(
+                    "tool.middleware_adjusted",
+                    {
+                        "tool_name": call_result.tool_name,
+                        "description": "Result processed by middleware chain",
+                    },
+                )
+            except Exception:
+                logger.debug("Middleware notification failed")
+
+        # Log tool result returned to LLM
+        result_preview = str(call_result.result)[:500] if call_result.result else "(empty)"
+        logger.debug(
+            "[ToolResult→LLM] tool=%s success=%s time=%.0fms result_preview=%s",
+            tool_name,
+            call_result.success,
+            execution_time_ms,
+            result_preview,
+        )
+
         if self.on_tool_event:
             try:
                 payload = {
                     "tool_name": tool_name,
-                    "success": exec_result.success,
+                    "success": call_result.success,
                     "execution_time_ms": execution_time_ms,
                     "arguments": normalized_args,
                 }
-                if exec_result.error:
-                    payload["error"] = exec_result.error
-                if exec_result.result is not None:
-                    payload["result"] = exec_result.result
+                if call_result.error:
+                    payload["error"] = call_result.error
+                if call_result.result is not None:
+                    payload["result"] = call_result.result
                 self.on_tool_event("tool.raw_result", payload)
             except Exception as e:
                 logger.debug(f"on_tool_event callback failed for raw result: {e}")
-
-        # Process through middleware chain (after execution)
-        if self.middleware_chain is not None:
-            try:
-                modified_result = await self.middleware_chain.process_after(
-                    tool_name, normalized_args, call_result.result, call_result.success
-                )
-                if modified_result is not None and modified_result != call_result.result:
-                    from dataclasses import replace
-
-                    call_result = replace(call_result, result=modified_result)
-                    if self.on_tool_event:
-                        try:
-                            self.on_tool_event(
-                                "tool.middleware_adjusted",
-                                {
-                                    "tool_name": call_result.tool_name,
-                                    "description": "Result modified by middleware chain",
-                                },
-                            )
-                        except Exception as e:
-                            logger.debug(f"on_tool_event middleware notification failed: {e}")
-            except (ValueError, TypeError, KeyError) as e:
-                logger.warning(f"Middleware chain process_after failed (data error): {e}")
-            except AttributeError as e:
-                logger.debug(f"Middleware chain not properly configured: {e}")
 
         # Record file read for deduplication (prompting loop fix)
         # Include capitalized variants for tool name normalization
@@ -3535,16 +3594,6 @@ class ToolPipeline:
                     logger.debug(f"Semantic cache store failed (I/O error): {e}")
                 except (ValueError, TypeError) as e:
                     logger.debug(f"Semantic cache store failed (data error): {e}")
-
-        # Invalidate caches when files are modified (write/edit tools)
-        if call_result.success and canonicalize_core_tool_name(tool_name.lower()) in (
-            "write",
-            "edit",
-        ):
-            file_path = normalized_args.get("path") or normalized_args.get("file_path")
-            if file_path:
-                self._invalidate_post_edit_freshness_state(file_path, context=context)
-                logger.debug(f"Invalidated caches for modified file: {file_path}")
 
         # Record successful tool call in deduplication tracker
         if call_result.success and self.deduplication_tracker is not None:
