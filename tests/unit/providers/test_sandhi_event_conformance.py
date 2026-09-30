@@ -219,3 +219,84 @@ class TestEveryVariantHasAConsumptionDecision:
         assert any(
             "no victor consumption decision" in record.getMessage() for record in caplog.records
         ), "an unconsumed variant must trip the contract-drift alarm"
+
+
+@pytest.mark.parametrize("prior_completeness", [None, "partial", "final"])
+@pytest.mark.parametrize("has_observation", [False, True])
+async def test_cache_observation_does_not_replace_numeric_usage(
+    prior_completeness, has_observation
+):
+    measured = {
+        "tokens_in": 5,
+        "tokens_out": 2,
+        "cache_read_tokens": 4,
+        "attempts": 2,
+        "completeness": prior_completeness,
+        "outcome": "success",
+        "upstream_request_id": "request-1",
+        "duration_ms": 12,
+    }
+    observation = {"status": "malformed", "source": "origin_usage"}
+    events = []
+    if prior_completeness is not None:
+        events.append({"event": "usage", "usage": measured})
+    events.append(
+        {
+            "event": "usage",
+            "usage": {
+                **measured,
+                "tokens_in": 0,
+                "tokens_out": 0,
+                "cache_read_tokens": 0,
+                "completeness": "unavailable",
+                "attempts": 7,
+                "upstream_request_id": "correction",
+                "duration_ms": 99,
+                **({"cache_read_observation": observation} if has_observation else {}),
+            },
+        }
+    )
+    final = (await _collect(events))[-1]
+    if prior_completeness is None:
+        assert final.usage is None
+    else:
+        assert final.usage == {
+            "prompt_tokens": 9,
+            "completion_tokens": 2,
+            "total_tokens": 11,
+            "cache_read_input_tokens": 4,
+        }
+    assert final.metadata["sandhi_usage"]["completeness"] == (prior_completeness or "unavailable")
+    diagnostics = final.metadata["sandhi_usage"]
+    assert diagnostics.get("cache_read_observation") == (observation if has_observation else None)
+    assert diagnostics["upstream_request_id"] == (
+        "request-1" if prior_completeness else "correction"
+    )
+    assert diagnostics["attempts"] == (2 if prior_completeness else 7)
+    assert diagnostics["duration_ms"] == (12 if prior_completeness else 99)
+
+
+async def test_explicit_zero_numeric_usage_after_observation_is_measured():
+    observation = {"status": "reported", "source": "origin_usage"}
+    final = (
+        await _collect(
+            [
+                {
+                    "event": "usage",
+                    "usage": {"completeness": "unavailable", "cache_read_observation": observation},
+                },
+                {
+                    "event": "usage",
+                    "usage": {
+                        "tokens_in": 0,
+                        "tokens_out": 0,
+                        "completeness": "final",
+                        "cache_read_observation": observation,
+                    },
+                },
+            ]
+        )
+    )[-1]
+    assert final.usage == {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+    assert final.metadata["sandhi_usage"]["cache_read_observation"] == observation
+    assert final.metadata["sandhi_usage"]["completeness"] == "final"

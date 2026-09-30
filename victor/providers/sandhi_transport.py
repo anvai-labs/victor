@@ -129,11 +129,12 @@ EXPECTED_WIRE_CONTRACT = "1"
 # thinking typed request fields (W3d/G7); 5 = UsageV2.basis measured-vs-estimated
 # (TD-0013 D5); 6 = RunCostTreeV1 server-side run cost tree (ADR-0005 D7,
 # sandhi PR #149); 7 = explicit reasoning inclusion; 8 = origin/boundary timing
-# provenance. The installed runtime's minor is read once by the handshake
+# provenance; 9 = cache-read observations (metadata-only stream corrections).
+# The installed runtime's minor is read once by the handshake
 # below; bindings predating chat_contract_minor() report 0 — their documents
 # simply never carry the newer fields, which every consumer tolerates by
 # construction. installed_minor > KNOWN stays valid forward-compat.
-KNOWN_CONTRACT_MINOR = 8
+KNOWN_CONTRACT_MINOR = 9
 
 # The typed request fields land at minor 4 (W3d/G7). Below it, the runtime has
 # no such fields, so Victor dual-writes into extensions and only drops the
@@ -654,8 +655,10 @@ def _usage_diagnostics(usage: Any) -> Optional[Dict[str, Any]]:
     attempts = int(usage.get("attempts", 1) or 1)
     completeness = usage.get("completeness")
     outcome = usage.get("outcome")
+    observation = usage.get("cache_read_observation")
     if (
-        attempts <= 1
+        not isinstance(observation, dict)
+        and attempts <= 1
         and completeness not in {"partial", "unavailable"}
         and outcome
         not in {
@@ -664,12 +667,16 @@ def _usage_diagnostics(usage: Any) -> Optional[Dict[str, Any]]:
         }
     ):
         return None
-    return {
+    diagnostics = {
         "attempts": attempts,
         "completeness": completeness,
         "outcome": outcome,
         "upstream_request_id": usage.get("upstream_request_id"),
     }
+    if isinstance(observation, dict):
+        # Sandhi owns validation of the typed status/source contract.
+        diagnostics["cache_read_observation"] = dict(observation)
+    return diagnostics
 
 
 class SandhiTypedProviderMixin:
@@ -984,12 +991,22 @@ class SandhiTypedProviderMixin:
                 elif kind == "finish":
                     finish_reason = str(event.get("reason", "unknown"))
                 elif kind == "usage":
-                    usage = usage_dict_from_neutral(
-                        event.get("usage"), None, slug=self._sandhi_slug()
-                    )
-                    usage_diagnostics = dict(_usage_diagnostics(event.get("usage")) or {})
-                    usage_diagnostics.update(_latency_fields(event.get("usage")))
-                    usage_diagnostics = usage_diagnostics or None
+                    neutral = event.get("usage")
+                    incoming = dict(_usage_diagnostics(neutral) or {})
+                    incoming.update(_latency_fields(neutral))
+                    if isinstance(neutral, dict) and neutral.get("completeness") == "unavailable":
+                        # Minor 9 emits metadata-only cache corrections. These are
+                        # neither measured zeros nor a replacement numeric verdict.
+                        if usage is None:
+                            usage_diagnostics = incoming or None
+                        elif "cache_read_observation" in incoming:
+                            usage_diagnostics = {
+                                **(usage_diagnostics or {}),
+                                "cache_read_observation": incoming["cache_read_observation"],
+                            }
+                    else:
+                        usage = usage_dict_from_neutral(neutral, None, slug=self._sandhi_slug())
+                        usage_diagnostics = incoming or None
                 elif kind == "response_start":
                     # Deliberately ignored (TD-0008 consumer-decision row): victor
                     # derives model/id from the request and final chunk.

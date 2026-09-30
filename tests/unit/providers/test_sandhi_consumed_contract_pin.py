@@ -106,6 +106,7 @@ class TestConsumedContractPin:
                 "tokens_out",
                 "cache_creation_tokens",
                 "cache_read_tokens",
+                "cache_read_observation",
                 "reasoning_tokens",
                 "completeness",
                 "attempts",
