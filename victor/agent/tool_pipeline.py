@@ -77,6 +77,7 @@ from victor.tools.core_tool_aliases import (
     normalize_model_tool_name,
 )
 from victor.agent.safety import get_write_tool_names
+from victor.framework.approval_pause import ApprovalPause, mark_batch_publication_incomplete
 
 # Import native compute_signature for 10-20x faster signature generation
 try:
@@ -2328,8 +2329,11 @@ class ToolPipeline:
         )
 
     async def _dispatch_unique_calls(
-        self, unique_calls_iter: List[Any], context: Dict[str, Any]
-    ) -> List[ToolCallResult]:
+        self,
+        unique_calls_iter: List[Any],
+        context: Dict[str, Any],
+        results: List[Optional[ToolCallResult]],
+    ) -> None:
         """Compute call results for every entry in ``unique_calls_iter``, in
         order (co-design review item 16).
 
@@ -2368,7 +2372,6 @@ class ToolPipeline:
         true remaining budget, never overshoot it.
         """
         n = len(unique_calls_iter)
-        results: List[Optional[ToolCallResult]] = [None] * n
         self._last_dispatch_used_parallelism = False
         self._last_dispatch_speedup = 1.0
 
@@ -2397,15 +2400,26 @@ class ToolPipeline:
                     continue
                 results[idx] = await self._compute_one_call_result(tool_call, context)
                 admitted += 1
-            return results  # type: ignore[return-value]
+            return
 
         eligible_tools = _compute_parallel_eligible_tools()
         semaphore = asyncio.Semaphore(max(1, self.config.max_concurrent_tools))
         admitted = 0
 
+        halted = False
+        controls: Dict[int, BaseException] = {}
+
         async def _run(idx: int, tool_call: Any) -> None:
-            async with semaphore:
-                results[idx] = await self._compute_one_call_result(tool_call, context)
+            nonlocal halted
+            try:
+                async with semaphore:
+                    if not halted:
+                        results[idx] = await self._compute_one_call_result(tool_call, context)
+            except Exception:
+                raise  # Ordinary failures retain the existing per-call conversion below.
+            except BaseException as control:
+                halted = True
+                controls[idx] = control
 
         i = 0
         parallel_calls_run = 0
@@ -2432,12 +2446,28 @@ class ToolPipeline:
                 # try/except only wraps the actual tool invocation) must not
                 # propagate and orphan its still-running siblings in this
                 # same gather group as abandoned, unawaited background tasks.
-                gather_outcomes = await asyncio.gather(
-                    *(_run(idx, unique_calls_iter[idx]) for idx in batch_indices),
-                    return_exceptions=True,
-                )
+                tasks = [
+                    asyncio.create_task(_run(idx, unique_calls_iter[idx])) for idx in batch_indices
+                ]
+                group = asyncio.gather(*tasks, return_exceptions=True)
+                parent_cancel: Optional[asyncio.CancelledError] = None
+                try:
+                    gather_outcomes = await asyncio.shield(group)
+                except asyncio.CancelledError as control:
+                    parent_cancel = control
+                    halted = True
+                    for task in tasks:
+                        task.cancel()
+                    # Own cleanup through repeated parent cancellation. Never return
+                    # a partial snapshot while sibling tasks can still mutate it.
+                    while not group.done():
+                        try:
+                            await asyncio.shield(group)
+                        except asyncio.CancelledError:
+                            continue
+                    gather_outcomes = group.result()
                 for idx, outcome in zip(batch_indices, gather_outcomes):
-                    if isinstance(outcome, BaseException):
+                    if isinstance(outcome, Exception):
                         tool_call = unique_calls_iter[idx]
                         tool_name = (
                             self._normalize_valid_tool_name(tool_call.get("name", ""))
@@ -2455,6 +2485,21 @@ class ToolPipeline:
                             success=False,
                             error=str(outcome),
                         )
+                if parent_cancel is not None:
+                    raise parent_cancel
+                if controls:
+                    # Cancellation wins over approval; fatal controls win over
+                    # pauses. Within each class use original provider call order.
+                    def priority(idx: int) -> tuple[int, int]:
+                        control = controls[idx]
+                        rank = (
+                            0
+                            if isinstance(control, asyncio.CancelledError)
+                            else 2 if isinstance(control, ApprovalPause) else 1
+                        )
+                        return rank, idx
+
+                    raise controls[min(controls, key=priority)]
                 if len(batch_indices) > 1:
                     parallel_calls_run += len(batch_indices)
                     parallel_rounds += 1
@@ -2467,51 +2512,29 @@ class ToolPipeline:
             self._last_dispatch_used_parallelism = True
             self._last_dispatch_speedup = parallel_calls_run / parallel_rounds
 
-        return results  # type: ignore[return-value]
+        return
 
-    async def execute_tool_calls(
+    def _assemble_call_results(
         self,
         tool_calls: List[Dict[str, Any]],
-        context: Optional[Dict[str, Any]] = None,
-    ) -> PipelineExecutionResult:
-        """Execute multiple tool calls.
-
-        Args:
-            tool_calls: List of tool call requests
-            context: Execution context passed to tools
-
-        Returns:
-            PipelineExecutionResult with all results
-        """
-        context = context or {}
-        result = PipelineExecutionResult(total_calls=len(tool_calls))
-        start_time = time.monotonic()
-
-        # Batch-level deduplication to handle providers that send duplicate calls
-        unique_calls, duplicate_info = self.deduplicate_tool_calls(tool_calls)
-
-        # Track results by signature for duplicate resolution
+        unique_calls_iter: List[Any],
+        duplicate_info: List[tuple],
+        call_results: List[Optional[ToolCallResult]],
+        result: PipelineExecutionResult,
+        *,
+        aggregate: bool = True,
+    ) -> List[Dict[str, Any]]:
+        """Assign IDs and resolve completed duplicates once for either batch outcome."""
         results_by_signature: Dict[tuple, ToolCallResult] = {}
-
-        # Build tool history for synthesis checkpoint
         tool_history: List[Dict[str, Any]] = []
-
-        unique_calls_iter = list(unique_calls)
-
-        # Compute every call's result up front (co-design review item 16):
-        # sequential and byte-identical to the prior inline per-iteration
-        # logic when parallel_tool_execution is off (the default); when on,
-        # contiguous runs of read-only-allowlisted calls dispatch
-        # concurrently. See _dispatch_unique_calls for the full contract.
-        call_results = await self._dispatch_unique_calls(unique_calls_iter, context)
-        result.parallel_execution_used = self._last_dispatch_used_parallelism
-        result.parallel_speedup = self._last_dispatch_speedup
-
         for unique_call_idx, tool_call in enumerate(unique_calls_iter):
             # Capture tool_call_id BEFORE execution so it's set even if the call fails
             tc_id = tool_call.get("id") if isinstance(tool_call, dict) else None
 
             call_result = call_results[unique_call_idx]
+            if call_result is None:
+                continue  # A pending/unknown call is not a completed result.
+            call_result = replace(call_result)  # Cached/shared results do not own this call's ID.
             # Propagate tool_call_id from provider's tool_calls[].id per OpenAI spec.
             # Only auto-generate an ID for executed calls — internally-skipped calls
             # without a provider ID have no corresponding tool_call entry, so they
@@ -2541,7 +2564,7 @@ class ToolPipeline:
                 results_by_signature[signature] = call_result
 
             # Add to output aggregator
-            if self._output_aggregator and tool_name:
+            if aggregate and self._output_aggregator and tool_name:
                 self._output_aggregator.add_result(
                     tool_name=tool_name,
                     result=call_result.result,
@@ -2624,6 +2647,69 @@ class ToolPipeline:
                     )
                 result.results.append(dup_result)
                 result.skipped_calls += 1
+
+        return tool_history
+
+    async def execute_tool_calls(
+        self,
+        tool_calls: List[Dict[str, Any]],
+        context: Optional[Dict[str, Any]] = None,
+        *,
+        interrupted_results: Optional[List[ToolCallResult]] = None,
+    ) -> PipelineExecutionResult:
+        """Execute multiple tool calls.
+
+        Args:
+            tool_calls: List of tool call requests
+            context: Execution context passed to tools
+            interrupted_results: Invocation-owned sink populated with completed outcomes
+                before an interruption is re-raised. Absence is not proof of nonexecution.
+
+        Returns:
+            PipelineExecutionResult with all results
+        """
+        context = context or {}
+        result = PipelineExecutionResult(total_calls=len(tool_calls))
+        start_time = time.monotonic()
+
+        # Batch-level deduplication to handle providers that send duplicate calls
+        unique_calls, duplicate_info = self.deduplicate_tool_calls(tool_calls)
+
+        unique_calls_iter = list(unique_calls)
+
+        # Compute every call's result up front (co-design review item 16):
+        # sequential and byte-identical to the prior inline per-iteration
+        # logic when parallel_tool_execution is off (the default); when on,
+        # contiguous runs of read-only-allowlisted calls dispatch
+        # concurrently. See _dispatch_unique_calls for the full contract.
+        call_results: List[Optional[ToolCallResult]] = [None] * len(unique_calls_iter)
+        try:
+            await self._dispatch_unique_calls(unique_calls_iter, context, call_results)
+        except BaseException as control:
+            try:
+                self._assemble_call_results(
+                    tool_calls,
+                    unique_calls_iter,
+                    duplicate_info,
+                    call_results,
+                    result,
+                    aggregate=False,
+                )
+            except BaseException:
+                # Bookkeeping failure must not turn a control signal into a retryable
+                # tool failure. Retain the prefix already assembled; no synthetic tail.
+                mark_batch_publication_incomplete(control)
+                logger.error("Interrupted tool batch result bookkeeping failed")
+            finally:
+                if interrupted_results is not None:
+                    interrupted_results.extend(result.results)
+            raise
+        result.parallel_execution_used = self._last_dispatch_used_parallelism
+        result.parallel_speedup = self._last_dispatch_speedup
+
+        tool_history = self._assemble_call_results(
+            tool_calls, unique_calls_iter, duplicate_info, call_results, result
+        )
 
         # Track whether ALL tool calls in this batch were skipped.
         # Some skipped batches still return actionable recovery content and should

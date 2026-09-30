@@ -1502,18 +1502,26 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   credentials or OIDC policy; persistent reconnect/reboot supervision remains open.
   This is an operational identity/ownership gap, not a model-quality or formation failure.
 
-- **G70 — parallel tool control signals and sibling results need durable ownership.**
-  `ToolPipeline._dispatch_unique_calls` currently converts gathered `BaseException`
-  outcomes (including approval pauses and cancellation) into ordinary tool failures, even
-  for one parallel-eligible read.
-  Sequential batch execution can also commit earlier siblings before turn-level
-  transcript persistence. Missing transcript results therefore do not prove a call
-  never ran. Bound single-agent resume rejects unresolved siblings; complete repair
-  must retain joined outcomes, propagate control signals and reconcile uncertain
-  effects before any sibling or whole-member replay. Cover both sequential and
-  parallel batches in the existing pipeline/member checkpoint owners.
+- **G70 — partially implemented: interrupted tool batches retain owned outcomes ([PR #1208](https://github.com/anvai-labs/victor/pull/1208)).**
+  The shared dispatcher now propagates original approval/cancellation controls, stops
+  queued/later calls, and joins started siblings before exposing partial results.
+  Sequential and parallel paths reuse one result/duplicate assembly; per-call copies
+  preserve distinct provider IDs even when cache objects are shared. Known completed
+  results use the canonical strict persistence path before the pause boundary.
+  The chat service owns publication and history mutation; the facade delegates.
+  Unknown outcomes, bookkeeping/publication failures and member pauses with retained
+  results carry a versioned resume barrier. Both single-agent and member checkpoint
+  loaders reject that barrier instead of inferring safety from transcript presence.
+  Existing owners cover cancellation (including repeated parent cancellation), multiple
+  controls, joined siblings, cache aliasing, synchronous persistence failure and member
+  checkpoint roundtrip. Two shadowed `TestAddMessage` classes were removed; the same
+  353 existing test IDs remained collected before adding the new persistence cases.
+  **Open:** G62 action/receipt reconciliation across crashes, conversation cache/DB
+  atomicity, noncooperative/origin cancellation, multiple-approval continuation, and
+  G61 whole-member replay across prior batches/turns. Only known completed siblings
+  can support exact single-action resume; absent results do not prove nonexecution.
 
-- **G71 — ✅ metadata-only cache observations preserve measured streaming usage.**
+- **G71 — ✅ metadata-only cache observations preserve measured streaming usage ([PR #1206](https://github.com/anvai-labs/victor/pull/1206)).**
   Upgrading Victor's Python binding from Sandhi 0.7.0 to the published 0.10.1
   exposed a consumer defect: minor-9 cache observations use `completeness=unavailable`
   without supplying a new numeric verdict. Victor previously invented zero token

@@ -525,3 +525,21 @@ def test_tool_result_event_existing_outcome_kind_not_clobbered():
     )
     event = _logged_tool_result_event(ctx)
     assert event["outcome_kind"] == "duplicate_read"
+
+
+def test_interrupted_publication_requires_a_persistence_callback():
+    import pytest
+
+    ctx = _make_ctx(add_message=None, require_persistence=True)
+    ctx.format_tool_output.return_value = "result"
+    with pytest.raises(RuntimeError, match="durable message persistence"):
+        _make_service().process_tool_results(
+            FakePipelineResult(
+                results=[
+                    FakeCallResult(
+                        tool_name="write", success=True, result="done", tool_call_id="done"
+                    )
+                ]
+            ),
+            ctx,
+        )

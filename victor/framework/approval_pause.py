@@ -21,8 +21,9 @@ the single-agent generalization of ADR-023's team member pause; :class:`MemberAp
 
 ``ApprovalPause`` is deliberately a :class:`BaseException` (not :class:`Exception`) so it rides
 *through* every ``except Exception:`` on the policy-ASK → tool-pipeline → orchestrator → AgenticLoop
-path untouched (audited: no ``except BaseException``/bare ``except:`` on that path), and is caught
-only at the turn boundary (``victor.framework.message_execution``), which converts it into an
+path without conversion to an ordinary tool failure. Batch owners join siblings and preserve
+completed evidence before re-raising the signal to the turn boundary
+(``victor.framework.message_execution``), which converts it into an
 ``awaiting_approval`` result. Distinct from :class:`asyncio.CancelledError`.
 """
 
@@ -72,3 +73,29 @@ class ApprovalPause(BaseException):
         self.request = request
         title = getattr(request, "title", "")
         super().__init__(f"Run paused awaiting approval: {title}")
+
+
+def mark_batch_publication_incomplete(control: BaseException, *, reason: str | None = None) -> None:
+    """Record the resume barrier on the canonical mutable approval request.
+
+    Adapter notes preserve diagnostics only; unsupported immutable contexts cannot
+    supply durable resume safety and must not be used for durable approvals.
+    """
+    if not isinstance(control, ApprovalPause):
+        return
+    try:
+        context = getattr(control.request, "context", None)
+        if not isinstance(context, dict):
+            context = {}
+            control.request.context = context
+        previous = context.get("batch_result_publication")
+        if reason is None and isinstance(previous, dict):
+            reason = previous.get("reason")
+        context["batch_result_publication"] = {
+            "schema_version": 1,
+            "status": "incomplete",
+            **({"reason": reason} if reason is not None else {}),
+        }
+    except Exception:
+        # Nonconforming approval adapters must not replace the pending control.
+        control.add_note("Interrupted batch evidence marker could not be recorded")

@@ -4,7 +4,7 @@ title: "Single-Agent Durable Chat Continuation (pause/resume on approval)"
 type: Standards Track
 status: Draft
 created: 2026-08-01
-modified: 2026-09-25
+modified: 2026-09-30
 authors:
   - name: Vijaykumar Singh
     email: vijay@anvaiops.com
@@ -472,3 +472,40 @@ member approval/replay safety, durable action
 receipts, or exactly-once external effects. Configured RBAC identity is a local runtime
 value, not proof of SSO identity. Parallel control-signal/result retention (G70) and
 G62 action reconciliation remain required before claiming the broader acceptance gates.
+
+
+## Interrupted batch evidence (G70)
+
+The tool batch owns all tasks it starts. An approval pause closes admission for queued
+and later calls and joins already-started siblings. Parent cancellation closes admission,
+cancels started tasks once and joins their cooperative cleanup; repeated parent cancellation
+does not abandon that cleanup. Cancellation takes precedence over approval; other fatal
+controls take precedence over approval; ties use original tool-call order. The selected
+original control object is re-raised. This is cooperative ownership, not a hard cleanup
+deadline or proof of cancellation at an external origin.
+
+An invocation-owned result sink retains completed outcomes, with copied per-call envelopes
+so cached results cannot share or overwrite provider IDs. Normal return and interruption
+use the same ID/duplicate assembly. The canonical tool service publishes known outcomes
+before the pause reaches its durable turn boundary. Interrupted publication requires
+synchronous persistence, with no compaction await, fallback response, persistence retry,
+or invented result for pending calls. Normal non-interrupted publication remains unchanged.
+
+Unknown outcomes are not converted into resolved transcript entries. Publication failure
+or uncertain evidence adds `context.batch_result_publication` with `schema_version=1` and
+`status=incomplete` to the original approval request. Resume rejects marker presence,
+including malformed values, through one shared binding guard. This remains necessary
+because the conversation store can mutate its cached session before a database write, or
+fail after the message commits but before session activity updates. The marker prevents
+cached or ambiguously committed rows from authorizing resume; it does not repair storage
+atomicity or authorize replay/rollback. This contract uses the canonical mutable
+`ApprovalRequest`. Adapters must preserve its writable context and serialize it; exception
+notes on unsupported immutable adapters are diagnostics, not durable resume protection.
+
+A member pause with retained outcomes also carries `reason=member_continuation_required`:
+persisted receipts do not make whole-member rerun safe. Both single and concurrent member
+checkpoint envelopes preserve the guard. Exact single-action resume can use known sibling
+receipts; multiple pending calls remain blocked. Cross-batch member effects, complete
+member continuation, multiple-approval recovery, and process-crash action reconciliation
+remain separate G61/G70/G62 work. Absence of a current-batch result is never evidence that
+an earlier action did not execute.
