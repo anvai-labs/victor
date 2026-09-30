@@ -115,7 +115,7 @@ Implementation delivery and live acceptance have different denominators:
 | OIDC Qwen14/CUDA single-file cohort | 0/15; not started | Held for consolidated-origin liveness investigation |
 | Current six-Qwen/one-ZAI C5 acceptance | Open; historical failed run retained | Released-origin short liveness now passes; full run remains held for foundation acceptance and reviewed verdict on InferFlux #184 |
 | G53 operator deadline policy | ✅ Buffered #297, stream body owner #298 and standalone streaming policy [Sandhi #301](https://github.com/anvai-labs/sandhi/pull/301) released in 0.10.1 | Bounded durable HTTP settlement/recovery and changed-deadline live evidence remain open |
-| G60 pre-dispatch enforcement repair | ✅ [Victor #1180](https://github.com/anvai-labs/victor/pull/1180); all CI green including Vertical Py3.12 | Post-execution result withholding remains open; G61–G65 unchanged |
+| G60 pre-dispatch enforcement repair | ✅ [Victor #1180](https://github.com/anvai-labs/victor/pull/1180); all CI green including Vertical Py3.12 | Result-publication follow-up is described in G60 below; broader G60 and G61–G65 remain open |
 
 The [PDF recheck and critique](agentic-workflow-safety-audit.md#pdf-recheck-and-design-critique--2026-09-25)
 maps the local Agentic Workflow Automation guide to formation-specific acceptance
@@ -1389,9 +1389,19 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   decisions, configured-context failures and broken governance wiring. Invalid
   content regexes and failed configured approval handlers also stop execution.
   Existing test owners provide red/green regressions with executor-not-called
-  assertions; optional absence and no-policy behavior remain. **Still open:**
-  TOOL_RESULT/after-middleware result withholding after a tool already executed;
-  do not claim full G60 or external-write acceptance from the pre-dispatch repair.
+  assertions; optional absence and no-policy behavior remain.
+  The result-publication follow-up enforces TOOL_RESULT DENY/ASK and configured
+  failures before pipeline result events, completion callbacks and fresh/cached
+  returns. Explicit null redaction is distinct from no transformation. Withheld
+  results are non-retryable and preserve known execution success/failure or unknown
+  outcome/reconciliation status; successful writes still invalidate caches.
+  Action approval never authorizes a later result-disclosure ASK. The chain retains
+  cancellation cleanup, and batch duplicates retain the original retry veto.
+  **Still open:** executor-side tracing/storage and earlier middleware observers
+  can see raw data before this boundary; direct executor calls do not acquire a
+  policy gate. Cached returns still require a separate pre-action authorization
+  contract. This is result-publication enforcement, not universal redaction,
+  durable receipt reconciliation, full G60 or external-write/C5 acceptance.
 
 - **G61 — exact approval binding remains partial.** The bounded single-agent repair
   ([#1188](https://github.com/anvai-labs/victor/pull/1188))

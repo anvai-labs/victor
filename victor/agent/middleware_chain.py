@@ -295,27 +295,24 @@ class MiddlewareChain:
         if not self._enabled:
             return result
 
-        applicable = self._get_applicable_middleware(tool_name)
-        current_result = result
+        from victor.framework.policies.types import _ToolResultReplacement
 
-        # Process in reverse order for after calls
-        for middleware in reversed(applicable):
-            try:
+        try:
+            applicable = self._get_applicable_middleware(tool_name)
+            current_result = result
+            # Reverse ordering preserves established transformation semantics.
+            for middleware in reversed(applicable):
                 modified = await middleware.after_tool_call(
                     tool_name, arguments, current_result, success
                 )
-                if modified is not None:
+                if isinstance(modified, _ToolResultReplacement):
+                    current_result = modified.value
+                elif modified is not None:
                     current_result = modified
-            except Exception as e:
-                logger.error(
-                    "Middleware %s failed in after_tool_call: %s",
-                    type(middleware).__name__,
-                    e,
-                )
-                # Continue with other middleware on error
-                continue
-
-        return current_result
+            return current_result
+        except Exception:
+            logger.error("After-tool enforcement failed; withholding result")
+            raise PermissionError("Tool result withheld by middleware.") from None
 
     async def process_tool_call(
         self,
@@ -349,20 +346,22 @@ class MiddlewareChain:
 
         # Execute tool with potentially modified arguments
         exec_args = before_result.modified_arguments or arguments
-        success = True
-        result = None
-
         try:
             result = await executor(**exec_args)
-        except Exception as e:
-            success = False
-            result = str(e)
+        except Exception as exc:
+            original = str(exc)
+            sanitized = await self.process_after(tool_name, exec_args, original, False)
+            if sanitized != original:
+                raise PermissionError("Tool failed; result withheld by middleware.") from None
             raise
-        finally:
-            # Always process after, even on error
-            result = await self.process_after(tool_name, exec_args, result, success)
-
-        return result
+        except BaseException:
+            # Preserve control signals while giving after hooks their cleanup turn.
+            try:
+                await self.process_after(tool_name, exec_args, None, False)
+            except Exception:
+                logger.error("After-tool enforcement failed during control-signal cleanup")
+            raise
+        return await self.process_after(tool_name, exec_args, result, True)
 
     def get_middleware_info(self) -> List[Dict[str, Any]]:
         """Get information about registered middleware.

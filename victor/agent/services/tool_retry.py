@@ -40,6 +40,7 @@ if TYPE_CHECKING:
     from victor.agent.tool_pipeline import ToolPipeline
     from victor.storage.cache.tool_cache import ToolCache
 
+from victor.core.errors import ErrorInfo
 from victor.core.utils.log_helpers import truncate_for_log
 from victor.agent.tool_retry_safety import allows_tool_retry, blocks_tool_retry
 from victor.tools.core_tool_aliases import canonicalize_core_tool_name
@@ -128,7 +129,22 @@ class ToolRetryExecutor:
             cached = effective_cache.get(tool_name, tool_args)
             if cached is not None:
                 logger.debug(f"Cache hit for tool '{tool_name}'")
-                return cached, True, None
+                if self._pipeline.middleware_chain is None:
+                    return cached, True, None
+                from victor.agent.tool_pipeline import ToolCallResult
+
+                raw = not isinstance(cached, ToolCallResult)
+                candidate = (
+                    ToolCallResult(tool_name, tool_args, True, result=cached, cached=True)
+                    if raw
+                    else cached
+                )
+                released = await self._pipeline._process_tool_result(candidate)
+                return (
+                    released.result if raw and released.success else released,
+                    released.success,
+                    released.error,
+                )
 
         if retry_config:
             retry_enabled = retry_config.get("retry_enabled", self._config.retry_enabled)
@@ -164,11 +180,17 @@ class ToolRetryExecutor:
                         {"name": tool_name, "arguments": tool_args}, context
                     )
 
-                if result.success:
-                    execution_succeeded = True
+                info = getattr(result, "error_info", None)
+                execution_succeeded = result.success or (
+                    isinstance(info, ErrorInfo)
+                    and info.details.get("result_withheld") is True
+                    and info.details.get("execution_outcome") == "succeeded"
+                )
+                if execution_succeeded:
                     # Cache successful result
                     if effective_cache:
-                        effective_cache.set(tool_name, tool_args, result)
+                        if result.success:
+                            effective_cache.set(tool_name, tool_args, result)
                         # Invalidate related cache entries
                         canonical_tool_name = _canonical_retry_tool_name(tool_name)
                         invalidating_tools = {
@@ -198,6 +220,9 @@ class ToolRetryExecutor:
                                         ["code_search", "semantic_code_search"]
                                     )
                                 effective_cache.clear_namespaces(namespaces_to_clear)
+
+                    if not result.success:
+                        return result, False, result.error
 
                     if attempt > 0:
                         logger.info(
