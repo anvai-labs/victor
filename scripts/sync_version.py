@@ -9,6 +9,11 @@ Updates:
   - pyproject.toml (victor-ai) version
   - victor-contracts/pyproject.toml version
   - victor-ai's victor-contracts dependency lower bound
+  - the victor_native artifact line (rust/pyproject.toml, the
+    python-bindings crate manifest, Cargo.lock, and the root ``native``
+    extra) — the native wheel version rides the victor-ai release so a
+    release never re-uploads an already-published native version
+    (0.11.0's publish 400'd exactly that way on a stale 0.8.2 wheel)
 
 Usage:
   python scripts/sync_version.py          # Sync both packages
@@ -23,9 +28,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 
 
-def sync_ai():
-    """Sync victor-ai version from root VERSION file."""
-    version_file = ROOT / "VERSION"
+def sync_ai(root: Path = ROOT):
+    """Sync victor-ai version (and the native artifact line) from VERSION."""
+    version_file = root / "VERSION"
     if not version_file.exists():
         print("ERROR: VERSION file not found")
         sys.exit(1)
@@ -33,7 +38,7 @@ def sync_ai():
     version = version_file.read_text().strip()
     print(f"Syncing victor-ai to version {version}")
 
-    ai_toml = ROOT / "pyproject.toml"
+    ai_toml = root / "pyproject.toml"
     text = ai_toml.read_text()
     text = re.sub(
         r'^(version\s*=\s*)"[^"]+"',
@@ -44,6 +49,64 @@ def sync_ai():
     )
     ai_toml.write_text(text)
     print(f"  Updated {ai_toml}")
+
+    sync_native(root, version)
+
+
+def sync_native(root: Path, version: str) -> None:
+    """Point every victor_native version reference at the release version.
+
+    Synchronized by policy: the native wheel version tracks the victor-ai
+    release. Four spots must agree (check_version_sync.py enforces this):
+    rust/pyproject.toml, the python-bindings crate manifest, Cargo.lock's
+    victor_native entry, and the root ``native`` extra's lower bound.
+    """
+    rust_pyproject = root / "rust" / "pyproject.toml"
+    text = rust_pyproject.read_text()
+    new = re.sub(
+        r'^(version\s*=\s*)"[^"]+"',
+        rf'\g<1>"{version}"',
+        text,
+        count=1,
+        flags=re.MULTILINE,
+    )
+    assert new != text or f'version = "{version}"' in text, f"no version line in {rust_pyproject}"
+    rust_pyproject.write_text(new)
+
+    crate = root / "rust" / "crates" / "python-bindings" / "Cargo.toml"
+    text = crate.read_text()
+    new = re.sub(
+        r'^(version\s*=\s*)"[^"]+"',
+        rf'\g<1>"{version}"',
+        text,
+        count=1,
+        flags=re.MULTILINE,
+    )
+    assert new != text or f'version = "{version}"' in text, f"no version line in {crate}"
+    crate.write_text(new)
+
+    lock = root / "rust" / "Cargo.lock"
+    text = lock.read_text()
+    new = re.sub(
+        r'(name = "victor_native"\nversion = )"[^"]+"',
+        rf'\g<1>"{version}"',
+        text,
+        count=1,
+    )
+    assert new != text, f"no victor_native lock entry in {lock}"
+    lock.write_text(new)
+
+    extra = root / "pyproject.toml"
+    text = extra.read_text()
+    new = re.sub(
+        r'("victor-native>=)[^"]+(")',
+        rf'\g<1>{version}\g<2>',
+        text,
+        count=1,
+    )
+    assert new != text, f"no victor-native extra bound in {extra}"
+    extra.write_text(new)
+    print(f"  Synced native artifact line to {version}")
 
 
 def sync_sdk():
