@@ -34,7 +34,7 @@ These plugins support embedding-based indexing for:
 
 import logging
 from pathlib import Path
-from typing import List, Optional, TYPE_CHECKING
+from typing import Any, List, Optional, TYPE_CHECKING
 
 from victor_coding.languages.base import (
     BaseLanguagePlugin,
@@ -2233,6 +2233,23 @@ class ElixirPlugin(BaseLanguagePlugin):
         )
 
 
+def _haskell_type_class_node(language: Any) -> str:
+    """Return the haskell class-declaration node spelling for this grammar.
+
+    tree-sitter-haskell shipped the node as ``type_synomym`` (an upstream
+    typo) and renamed it to ``type_synonym`` in later releases. Probe the
+    installed grammar so one plugin serves both eras; defaults to the legacy
+    spelling when probing is impossible.
+    """
+    try:
+        from tree_sitter import Query
+
+        Query(language, "(type_synonym (name) @name)")
+        return "type_synonym"
+    except Exception:
+        return "type_synomym"
+
+
 class HaskellPlugin(BaseLanguagePlugin):
     """Haskell language plugin."""
 
@@ -2281,15 +2298,27 @@ class HaskellPlugin(BaseLanguagePlugin):
         )
 
     def _create_tree_sitter_queries(self) -> TreeSitterQueries:
-        # tree-sitter-haskell: nodes are `type_synomym` (the grammar's own
-        # typo for "synonym"), `newtype`, `data_type`; their child holding
+        # tree-sitter-haskell: `newtype`, `data_type`; their child holding
         # the type name is `(name)`, not `name: (type)`. Function
         # application is `(apply . (variable))` — the leading anchor `.`
         # captures only the function position, not argument variables.
+        # The class-declaration node spelling is grammar-era dependent and
+        # resolved by _haskell_type_class_node.
+        try:
+            from victor_coding.codebase.tree_sitter_service import (
+                get_tree_sitter_service,
+            )
+
+            language = get_tree_sitter_service().get_language("haskell")
+        except Exception:
+            language = None
+        type_class_node = (
+            _haskell_type_class_node(language) if language is not None else "type_synomym"
+        )
         return TreeSitterQueries(
             symbols=[
                 QueryPattern("function", "(function name: (variable) @name)"),
-                QueryPattern("class", "(type_synomym (name) @name)"),
+                QueryPattern("class", f"({type_class_node} (name) @name)"),
                 QueryPattern("class", "(newtype (name) @name)"),
                 QueryPattern("class", "(data_type (name) @name)"),
             ],

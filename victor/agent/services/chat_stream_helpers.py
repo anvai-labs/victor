@@ -857,7 +857,8 @@ class ChatStreamHelperMixin:
         max_retries: int = 3,
     ) -> tuple[str, Any, float, bool]:
         """Stream provider response with automatic rate limit retry."""
-        if uses_gateway(getattr(getattr(self, "_orchestrator", None), "provider", None)):
+        # Gateway-routed providers enforce their own rate limits upstream.
+        if uses_gateway(self._orchestrator.provider):
             max_retries = 0
         last_exception = None
 
