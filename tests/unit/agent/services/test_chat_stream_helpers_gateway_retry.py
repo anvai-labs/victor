@@ -44,9 +44,7 @@ class _Helper(ChatStreamHelperMixin):
                 ),
             ),
             metrics=ChatStreamMetrics(orchestrator._metrics_collector),
-            stream_lifecycle=SimpleNamespace(
-                rate_limit_wait_time=MagicMock(return_value=0.0)
-            ),
+            stream_lifecycle=SimpleNamespace(rate_limit_wait_time=MagicMock(return_value=0.0)),
         )
 
     async def _stream_provider_response_inner(self, tools, provider_kwargs, stream_ctx):
