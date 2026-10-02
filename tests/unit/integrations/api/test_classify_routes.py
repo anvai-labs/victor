@@ -586,3 +586,161 @@ async def test_parse_retry_shares_operation_deadline(monkeypatch, tmp_path):
         )
     assert result.status_code == 504
     assert len(base.calls) == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("raised", "expected_status"),
+    [
+        ("provider error: Blocked content keyword: secret", 422),
+        ("provider error: connection reset by peer", 502),
+    ],
+)
+async def test_classify_provider_failure_status_triage(
+    monkeypatch, tmp_path, raised, expected_status
+):
+    """Permanent content-policy rejections return 422 (route to human
+    review, never retry); transient provider failures keep 502. The
+    response body stays sanitized in both cases."""
+
+    class Provider(_FakeProvider):
+        async def chat(self, **kwargs):
+            self.calls.append(kwargs)
+            raise RuntimeError(raised)
+
+    provider = Provider([])
+    server = _make_server(monkeypatch, tmp_path, provider)
+    async with _client(server) as client:
+        result = await client.post(
+            "/v1/classify", json={"input": "synthetic", "preset": "triage.v1"}
+        )
+    assert result.status_code == expected_status
+    assert result.json()["error"] == "provider call failed"
+    assert raised not in result.json()["error"]
+
+
+@pytest.mark.asyncio
+async def test_classify_falls_back_to_managed_default_provider(monkeypatch, tmp_path):
+    """A freshly started server has no bootstrapped current_provider — classify
+    must build a managed provider from the configured defaults instead of 503."""
+    import victor.config.settings as settings_mod
+    import victor.providers.factory as factory_mod
+    from victor.integrations.api import fastapi_server as fs_mod
+
+    created: list = []
+
+    class _Managed(_FakeProvider):
+        async def chat(self, messages, *, model, temperature, max_tokens, **kwargs):
+            return SimpleNamespace(
+                content=json.dumps(_TRIAGE_RESULT),
+                usage={"prompt_tokens": 3, "completion_tokens": 4, "total_tokens": 7},
+                model="managed-default",
+            )
+
+    async def fake_factory(provider_name, model, **kwargs):
+        # REAL call shape: create(provider_name, model, **provider_settings).
+        p = _Managed([])
+        created.append((provider_name, model, p))
+        return p
+
+    class _NoCurrentManager:
+        current_provider = None  # lazy bootstrap has not run
+
+    class _Orch:
+        provider_manager = _NoCurrentManager()
+        model = None
+
+    # Server bootstraps with REAL settings; the defaults stub is applied only
+    # for the request, after bootstrap has completed.
+    monkeypatch.setattr(fs_mod, "load_fastapi_router_registrations", lambda *, workspace_root: [])
+    server = fs_mod.VictorFastAPIServer(workspace_root=str(tmp_path), enable_graphql=False)
+    server._orchestrator = _Orch()
+
+    class _ProviderCfg:
+        default_provider = "zai"
+        default_model = "glm-x"
+
+    class _Settings:
+        provider = _ProviderCfg()
+
+        def get_provider_settings(self, name):
+            return {"api_key": "sk-test"}
+
+    def fake_load_settings(fresh=False):
+        return _Settings()
+
+    async with _client(server) as client:
+        monkeypatch.setattr(settings_mod, "load_settings", fake_load_settings)
+        monkeypatch.setattr(
+            factory_mod.ManagedProviderFactory, "create", staticmethod(fake_factory)
+        )
+        response = await client.post(
+            "/v1/classify",
+            json={"input": "x", "preset": "triage.v1", "timeout_ms": 20000},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["result"] == _TRIAGE_RESULT
+    provider_name, model, p = created[0]
+    assert (provider_name, model) == ("zai", "glm-x")
+    assert p.closed is True
+
+
+@pytest.mark.asyncio
+async def test_classify_endpoint_override_reaches_factory_and_instructions_reach_prompt(
+    monkeypatch, tmp_path
+):
+    """Additive /v1 fields: `endpoint` overrides the provider base_url;
+    `instructions` fold into the system prompt."""
+    import victor.config.settings as settings_mod
+    import victor.providers.factory as factory_mod
+
+    server = _make_server(monkeypatch, tmp_path, _FakeProvider([]))
+    captured: dict = {}
+
+    class _RecordingManaged(_FakeProvider):
+        async def chat(self, messages, *, model, temperature, max_tokens, **kwargs):
+            captured["system"] = messages[0]["content"]
+            return SimpleNamespace(
+                content=json.dumps(_TRIAGE_RESULT),
+                usage={"total_tokens": 7},
+                model="managed",
+            )
+
+    async def spy_factory(cls, provider_name, model, **kwargs):
+        captured["factory"] = (provider_name, model, kwargs.get("base_url"))
+        return _RecordingManaged([])
+
+    monkeypatch.setattr(factory_mod.ManagedProviderFactory, "create", classmethod(spy_factory))
+
+    class _ProviderCfg:
+        default_provider = "inferflux"
+        default_model = "qwen3-coder-30b"
+
+    class _Settings:
+        provider = _ProviderCfg()
+
+        def get_provider_settings(self, name):
+            return {"api_key": "sk-test"}
+
+    monkeypatch.setattr(settings_mod, "load_settings", lambda fresh=False: _Settings())
+
+    instruction = "Treat the private category as confidential matters."
+    async with _client(server) as client:
+        response = await client.post(
+            "/v1/classify",
+            json={
+                "input": "x",
+                "preset": "triage.v1",
+                "endpoint": "http://127.0.0.1:18081/v1",
+                "instructions": instruction,
+            },
+        )
+
+    assert response.status_code == 200
+    assert captured["factory"] == (
+        "inferflux",
+        "qwen3-coder-30b",
+        "http://127.0.0.1:18081/v1",
+    )
+    assert instruction in captured["system"]
