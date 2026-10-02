@@ -3,6 +3,15 @@
 All notable changes to Victor are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Deprecated
+- **`FrameworkShim` compatibility surface**, **`TeamNode*` workflow
+  compatibility aliases**, and the **`WorkflowGraph` alias from
+  `victor.workflows.graph`** remain warning-backed shims — full
+  deprecation inventory (replacement paths and target removal dates) in
+  the 0.7.0 entries below.
+
 ## [0.11.0] - 2026-10-02
 
 ### Added
