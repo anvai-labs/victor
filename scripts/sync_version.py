@@ -93,18 +93,22 @@ def sync_native(root: Path, version: str) -> None:
         text,
         count=1,
     )
-    assert new != text, f"no victor_native lock entry in {lock}"
+    assert (
+        new != text or f'name = "victor_native"\nversion = "{version}"' in text
+    ), f"no victor_native lock entry in {lock}"
     lock.write_text(new)
 
     extra = root / "pyproject.toml"
     text = extra.read_text()
     new = re.sub(
         r'("victor-native>=)[^"]+(")',
-        rf'\g<1>{version}\g<2>',
+        rf"\g<1>{version}\g<2>",
         text,
         count=1,
     )
-    assert new != text, f"no victor-native extra bound in {extra}"
+    assert (
+        new != text or f"victor-native>={version}" in text
+    ), f"no victor-native extra bound in {extra}"
     extra.write_text(new)
     print(f"  Synced native artifact line to {version}")
 
