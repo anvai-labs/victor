@@ -502,12 +502,10 @@ jobs:
     # mirror-test set that legitimately needs ~15-20m — observed a 228-file formatting PR pass
     # all tests but get cancelled at 61% under the old 12m cap.
     #
-    # SKIP on develop -> main release PRs: there base_ref=main, so `git diff origin/main...HEAD`
-    # spans the entire release delta (thousands of files) and maps to the whole mirror-test set,
-    # which blows the 25m cap every time. That exact gate is redundant here — the full sharded
-    # suite already runs on the promotion via ci-test.yml — so skipping keeps it green without
-    # losing coverage.
-    if: ${{ github.base_ref != 'main' }}
+    # The full sharded suite owns promotion PRs and their protected main merge.
+    # Repeating that release-wide diff in this bounded quick gate exceeds its
+    # target/time cap. All other main lint/security/import gates still run.
+    if: ${{ github.base_ref != 'main' && !(github.event_name == 'push' && github.ref == 'refs/heads/main') }}
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

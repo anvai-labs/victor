@@ -30,6 +30,9 @@ if TYPE_CHECKING:
 from victor.integrations.api.routes.system_routes import (
     create_router as create_system_router,
 )
+from victor.integrations.api.routes.classify_routes import (
+    create_router as create_classify_router,
+)
 from victor.integrations.api.routes.chat_routes import (
     create_router as create_chat_router,
 )
@@ -77,6 +80,7 @@ from victor.integrations.api.routes.observability_routes import (
 _ROUTER_FACTORIES = [
     create_system_router,
     create_chat_router,
+    create_classify_router,
     create_search_router,
     create_config_router,
     create_tool_router,

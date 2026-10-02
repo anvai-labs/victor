@@ -16,6 +16,8 @@
 
 from __future__ import annotations
 
+from victor.core.errors import ProviderPolicyError
+
 import asyncio
 import copy
 import logging
@@ -218,6 +220,8 @@ class NodeExecutor:
             return NodeExecutionResult.ok(state=state)
         except asyncio.TimeoutError as exc:
             return NodeExecutionResult.fail(error=exc, state=state)
+        except ProviderPolicyError:
+            raise
         except Exception as exc:
             # Node adapters may attach their completed failure state so that
             # diagnostics survive copy-on-write execution. Keep this generic:

@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+from victor.providers.gateway_boundary import uses_gateway
+
 import asyncio
 import contextlib
 import logging
@@ -28,6 +30,7 @@ from victor.agent.unified_task_tracker import TrackerTaskType
 from victor.core.loop_thresholds import DEFAULT_BLOCKED_CONSECUTIVE_THRESHOLD
 from victor.core.errors import (
     ProviderAuthError,
+    ProviderPolicyError,
     ProviderConnectionError,
     ProviderRateLimitError,
     ProviderTimeoutError,
@@ -854,6 +857,13 @@ class ChatStreamHelperMixin:
         max_retries: int = 3,
     ) -> tuple[str, Any, float, bool]:
         """Stream provider response with automatic rate limit retry."""
+        # Gateway-routed providers enforce their own rate limits upstream.
+        # The orchestrator is optional on this helper's harnesses (the
+        # rate-limit retry tests exercise it without one), so the access
+        # stays defensive: this getattr probe is the reviewed form
+        # (boundary registry: private_probes 14).
+        if uses_gateway(getattr(getattr(self, "_orchestrator", None), "provider", None)):
+            max_retries = 0
         last_exception = None
 
         for attempt in range(max_retries + 1):
@@ -861,6 +871,8 @@ class ChatStreamHelperMixin:
                 return await self._stream_provider_response_inner(
                     tools, provider_kwargs, stream_ctx
                 )
+            except ProviderPolicyError:
+                raise
             except ProviderRateLimitError as exc:
                 last_exception = exc
                 if attempt < max_retries:
@@ -985,6 +997,15 @@ class ChatStreamHelperMixin:
             model=orch.model,
             base_temperature=orch.temperature,
         )
+        reasoning_effort = getattr(orch, "reasoning_effort", None)
+        supports_reasoning = getattr(orch.provider, "supports_reasoning_effort", None)
+        if (
+            reasoning_effort
+            and "reasoning_effort" not in provider_kwargs
+            and callable(supports_reasoning)
+            and supports_reasoning(orch.model)
+        ):
+            provider_kwargs = {**provider_kwargs, "reasoning_effort": reasoning_effort}
         provider_stream = orch.provider.stream(
             messages=assembled,
             model=orch.model,
@@ -1585,7 +1606,11 @@ class ChatStreamHelperMixin:
                     )
                     return True, None, final_chunk
 
+            except ProviderPolicyError:
+                raise
             except Exception as exc:
+                if uses_gateway(orch.provider):
+                    raise
                 logger.warning(f"Recovery attempt at temperature {temp} failed: {exc}")
                 continue
 

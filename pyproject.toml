@@ -18,7 +18,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "victor-ai"
-version = "0.10.0"
+version = "0.11.0"
 description = "Open-source agentic AI framework with multi-provider support, workflow orchestration, and extensible tool system"
 readme = "README.md"
 license = {text = "Apache-2.0"}
@@ -58,7 +58,7 @@ dependencies = [
     "typing-extensions>=4.9",  # Shared typing helpers used by runtime and contracts
     "orjson>=3.9.0",  # Fast JSON serialization (Rust-backed, 5-10x faster than stdlib)
     # Typed provider runtime and wire transport; Sandhi is a core boundary, not an extra.
-    "sandhi-gateway==0.7.0",
+    "sandhi-gateway==0.10.1",
     # Imported on the `import victor` path (core.verticals.version_matrix) and for
     # vertical version gating. Previously satisfied only transitively via dev tools —
     # a bare `pip install victor-ai` could land in an env without it.
@@ -192,6 +192,7 @@ dev = [
     "pytest-asyncio>=0.23",
     "pytest-cov>=4.1",
     "pytest-mock>=3.12",
+    "cryptography>=42.0",  # runtime-generated certificates in TLS-probe tests
     "pytest-json-report>=1.5.0",
     "pytest-benchmark>=5.0",  # For performance tests
     "pytest-timeout>=2.3",  # ci-fast quick-tests run with --timeout=120
@@ -259,6 +260,7 @@ ci = [
     # Core test dependencies
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
+    "cryptography>=42.0",  # runtime-generated certificates in TLS-probe tests
     "pytest-cov>=4.1",
     "pytest-mock>=3.12",
     "pytest-json-report>=1.5.0",

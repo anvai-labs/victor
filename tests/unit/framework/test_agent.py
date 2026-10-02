@@ -1672,6 +1672,7 @@ class TestAgentCreate:
             model="glm-4.7",
             auth_mode="oauth",
             coding_plan=True,
+            reasoning_effort="medium",
         )
 
         with (
@@ -1694,7 +1695,11 @@ class TestAgentCreate:
             thinking=False,
             session_id=None,
             enable_observability=True,
-            profile_overrides={"auth_mode": "oauth", "coding_plan": True},
+            profile_overrides={
+                "reasoning_effort": "medium",
+                "auth_mode": "oauth",
+                "coding_plan": True,
+            },
         )
 
     @pytest.mark.asyncio

@@ -873,26 +873,6 @@ class TestChatMethod:
             assert response.content == "Thought response"
 
 
-class TestAddMessage:
-    """Tests for add_message method."""
-
-    def test_add_message_user(self, orchestrator):
-        """Test add_message adds user message (covers lines 984-986)."""
-        orchestrator.add_message("user", "Test user message")
-        assert any(
-            m.role == "user" and "Test user message" in m.content
-            for m in orchestrator.conversation.messages
-        )
-
-    def test_add_message_assistant(self, orchestrator):
-        """Test add_message adds assistant message (covers lines 987-988)."""
-        orchestrator.add_message("assistant", "Test assistant response")
-        assert any(
-            m.role == "assistant" and "Test assistant response" in m.content
-            for m in orchestrator.conversation.messages
-        )
-
-
 class TestFromSettings:
     """Tests for from_settings factory method."""
 
@@ -1089,6 +1069,36 @@ class TestExecuteToolCalls:
 
 class TestServiceFirstDelegation:
     """Focused tests for service-first orchestrator wiring."""
+
+    @pytest.mark.parametrize("fail", [False, True])
+    def test_required_persistence_precedes_history_changes(self, orchestrator, fail):
+        orchestrator.settings.max_conversation_history = 1
+        before = list(orchestrator.conversation._messages)
+
+        def persist(**kwargs):
+            assert kwargs["require_persistence"] is True
+            assert orchestrator.conversation._messages == before
+            if fail:
+                raise RuntimeError("storage unavailable")
+
+        with patch(
+            "victor.agent.services.chat_service.ChatService.persist_message", side_effect=persist
+        ) as writer:
+            if fail:
+                with pytest.raises(RuntimeError, match="storage unavailable"):
+                    orchestrator.add_message(
+                        "tool", "receipt", tool_call_id="done", require_persistence=True
+                    )
+                assert orchestrator.conversation._messages == before
+            else:
+                orchestrator.add_message(
+                    "tool", "receipt", tool_call_id="done", require_persistence=True
+                )
+                assert any(
+                    m.role == "tool" and m.tool_call_id == "done"
+                    for m in orchestrator.conversation._messages
+                )
+        writer.assert_called_once()
 
     def test_add_message_uses_chat_service_persist_message(self, orchestrator):
         """Message persistence should go through ChatService, not ChatCoordinator."""
@@ -2176,26 +2186,6 @@ class TestApplyTaskGuidance:
         )
         # Should not raise
 
-
-class TestAddMessage:
-    """Tests for add_message method."""
-
-    def test_add_user_message(self, orchestrator):
-        """add_message adds user messages."""
-        orchestrator.add_message("user", "test message")
-        messages = orchestrator.messages
-        # Should have at least one message
-        assert len(messages) >= 1
-
-    def test_add_assistant_message(self, orchestrator):
-        """add_message adds assistant messages."""
-        orchestrator.add_message("assistant", "response")
-        messages = orchestrator.messages
-        assert len(messages) >= 1
-
-    def test_add_system_message(self, orchestrator):
-        """add_message adds system messages."""
-        orchestrator.add_message("system", "system instruction")
         # Should not raise
 
 
@@ -5175,3 +5165,44 @@ class TestRateLimitRetry:
         # attempt=2: 120 * 2^2 = 480, capped at 300
         wait_time = cc._get_rate_limit_wait_time(exc, attempt=2)
         assert wait_time == 300.0
+
+
+class TestTaskUsageAccumulatorIdentity:
+    """Promotion-audit guard (2026-09-25, #1186 feedback).
+
+    Every task-report token delta is read from the session accumulator dict.
+    If any path (metrics service, streaming fold, buffered TurnExecutor) ever
+    holds a COPY instead of this exact instance, task reports silently
+    undercount — the failure mode the v0.10.0 promotion audit measured as
+    "0 instead of 26" / "15 instead of 41".
+    """
+
+    def test_metrics_service_reads_the_session_accumulator(self, orchestrator):
+        assert (
+            orchestrator._metrics_coordinator._cumulative_token_usage
+            is orchestrator._cumulative_token_usage
+        )
+
+    def test_session_state_execution_state_is_the_same_dict(self, orchestrator):
+        assert (
+            orchestrator._session_state.execution_state.token_usage
+            is orchestrator._cumulative_token_usage
+        )
+
+    def test_buffered_accumulation_is_visible_to_the_task_report_reader(self, orchestrator):
+        """A fold through the real shared dict must move the value the task
+        report snapshot reads — no per-path copy in between."""
+        from victor.providers.base import CompletionResponse
+        from victor.agent.services.turn_execution_runtime import TurnExecutor
+
+        executor = TurnExecutor.__new__(TurnExecutor)
+        executor._chat_context = orchestrator.protocol_adapter
+        executor._accumulate_token_usage(
+            CompletionResponse(
+                content="",
+                usage={"prompt_tokens": 26, "completion_tokens": 0, "total_tokens": 26},
+            )
+        )
+        assert orchestrator._cumulative_token_usage.get("total_tokens") >= 26
+        snapshot = orchestrator._metrics_coordinator._snapshot_task_usage()
+        assert snapshot.total_tokens >= 26

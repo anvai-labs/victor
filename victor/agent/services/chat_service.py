@@ -33,6 +33,7 @@ from typing import TYPE_CHECKING, Any, AsyncIterator, Callable, Dict, List, Opti
 
 from victor.core.async_utils import aclosing_if_supported
 from victor.agent.services.chat_evidence import ChatEvidenceMixin
+from victor.agent.services.chat_persistence import ChatPersistenceMixin
 from victor.agent.services.chat_turn_runtime import ChatTurnRuntime
 
 if TYPE_CHECKING:
@@ -70,7 +71,7 @@ class ChatServiceConfig:
         self.enable_response_caching = enable_response_caching
 
 
-class ChatService(ChatEvidenceMixin):
+class ChatService(ChatEvidenceMixin, ChatPersistenceMixin):
     """[CANONICAL] Service for managing chat operations.
 
     The target implementation for chat operations following the
@@ -1381,121 +1382,6 @@ class ChatService(ChatEvidenceMixin):
 
         # Fallback to exponential backoff
         return min(60.0 * (2**attempt), 300.0)
-
-    # ==========================================================================
-    # Message Persistence
-    # ==========================================================================
-
-    @staticmethod
-    def persist_message(
-        role: str,
-        content: str,
-        memory_manager: Any,
-        memory_session_id: Optional[str],
-        usage_logger: Any,
-        tool_name: Optional[str] = None,
-        tool_call_id: Optional[str] = None,
-        tool_calls: Optional[list] = None,
-        metadata: Optional[Dict[str, Any]] = None,
-        persist_synchronously: bool = False,
-    ) -> None:
-        """Persist a message to memory and emit usage analytics.
-
-        This is the canonical persistence helper for orchestrator message
-        writes. It preserves the legacy logging behavior expected by existing
-        analytics flows while keeping ownership on ``ChatService``.
-        """
-        if memory_manager and memory_session_id:
-            try:
-                from victor.agent.conversation.types import MessageRole
-
-                role_map = {
-                    "user": MessageRole.USER,
-                    "assistant": MessageRole.ASSISTANT,
-                    "system": MessageRole.SYSTEM,
-                    "tool": MessageRole.TOOL,
-                    "tool_result": MessageRole.TOOL,
-                    "tool_call": MessageRole.TOOL_CALL,
-                }
-                msg_role = role_map.get(role, MessageRole.USER)
-
-                add_kwargs: Dict[str, Any] = {
-                    "session_id": memory_session_id,
-                    "role": msg_role,
-                    "content": content,
-                }
-                if tool_name:
-                    add_kwargs["tool_name"] = tool_name
-                if tool_call_id:
-                    add_kwargs["tool_call_id"] = tool_call_id
-                if tool_calls:
-                    add_kwargs["tool_calls"] = tool_calls
-                if metadata:
-                    add_kwargs["metadata"] = metadata
-
-                try:
-                    loop = asyncio.get_running_loop()
-                except RuntimeError:
-                    loop = None
-
-                def _persist_background_message() -> None:
-                    primary_error: BaseException | None = None
-                    try:
-                        memory_manager.add_message(**add_kwargs)
-                    except Exception as exc:
-                        logger.debug("Failed to persist message in background: %s", exc)
-                    except BaseException as exc:
-                        primary_error = exc
-                        raise
-                    finally:
-                        # The worker owns this thread-local handle. Do not close
-                        # the caller's connection or shut down a shared store.
-                        close = getattr(memory_manager, "close_thread_connection", None)
-                        if callable(close):
-                            try:
-                                close()
-                            except Exception as exc:
-                                logger.warning(
-                                    "Background persistence connection cleanup failed: %s",
-                                    type(exc).__name__,
-                                )
-                                if primary_error is None:
-                                    raise
-                                primary_error.add_note(
-                                    f"Background persistence cleanup failed: {type(exc).__name__}"
-                                )
-
-                def _consume_background_result(future: asyncio.Future) -> None:
-                    try:
-                        future.exception()
-                    except asyncio.CancelledError:
-                        logger.debug("Background message persistence was cancelled")
-
-                if loop is not None and loop.is_running() and not persist_synchronously:
-                    future = loop.run_in_executor(None, _persist_background_message)
-                    future.add_done_callback(_consume_background_result)
-                else:
-                    memory_manager.add_message(**add_kwargs)
-            except Exception as e:
-                logger.debug("Failed to persist message: %s", e)
-
-        if not usage_logger:
-            return
-
-        try:
-            if hasattr(usage_logger, "log_event"):
-                if role == "user":
-                    usage_logger.log_event("user_prompt", {"content": content})
-                elif role == "assistant":
-                    usage_logger.log_event("assistant_response", {"content": content})
-                    if hasattr(usage_logger, "set_reasoning_context") and content:
-                        usage_logger.set_reasoning_context(content)
-                return
-
-            if hasattr(usage_logger, "log_message"):
-                usage_logger.log_message(role, content)
-        except Exception as e:
-            logger.debug("Failed to log message: %s", e)
 
     # ==========================================================================
     # Context Management Helpers

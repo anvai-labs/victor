@@ -56,3 +56,21 @@ class TestStreamConnectionRetry:
             await harness._stream_with_rate_limit_retry(None, {}, None, max_retries=2)
         # max_retries + 1 attempts, then give up.
         assert harness.calls == 3
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("wrapped", [False, True])
+async def test_gateway_disconnect_is_not_replayed(wrapped):
+    from types import SimpleNamespace
+
+    harness = _RetryHarness(fail_times=99)
+    harness._orchestrator = SimpleNamespace(
+        provider=SimpleNamespace(extra_config={"gateway": {"url": "https://gateway.test"}})
+    )
+    if wrapped:
+        from victor.providers.factory import ManagedProvider
+
+        harness._orchestrator.provider = ManagedProvider(harness._orchestrator.provider)
+    with pytest.raises(ProviderConnectionError):
+        await harness._stream_with_rate_limit_retry(None, {}, None)
+    assert harness.calls == 1

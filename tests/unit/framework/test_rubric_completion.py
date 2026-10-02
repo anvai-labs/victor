@@ -159,3 +159,19 @@ def test_evaluator_default_construction_runs_without_llm():
     ev = RubricCompletionEvaluator()  # default generator + heuristic judge
     result = ev.evaluate(task_family="qa", content="x" * 500 + "\n- point", context={})
     assert isinstance(result.complete, bool) and 0.0 <= result.aggregate <= 1.0
+
+
+@pytest.mark.asyncio
+async def test_llm_judge_preserves_terminal_gateway_policy_decision():
+    from unittest.mock import AsyncMock
+    from victor.framework.rubric_completion import LLMRubricJudge
+    from victor.core.errors import ProviderPolicyError
+
+    error = ProviderPolicyError("policy_blocked", receipt="f" * 32)
+    complete = AsyncMock(side_effect=error)
+    with pytest.raises(ProviderPolicyError) as caught:
+        await LLMRubricJudge(complete).score_rubric(
+            Rubric("test", (RubricDimension("accuracy"),)), "sample", {}
+        )
+    assert caught.value is error
+    complete.assert_awaited_once()

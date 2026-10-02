@@ -29,6 +29,8 @@ Each node is a pure function that receives state and returns updated state.
 
 from __future__ import annotations
 
+from victor.core.errors import ProviderPolicyError
+
 import logging
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
@@ -118,6 +120,8 @@ async def perceive_node(
             }
         )
 
+    except ProviderPolicyError:
+        raise
     except Exception as e:
         logger.warning(f"Perception failed: {e}, using fallback")
 
@@ -261,6 +265,8 @@ async def plan_node(
                 }
             )
 
+        except ProviderPolicyError:
+            raise
         except Exception as e:
             logger.warning(f"LLM planning failed: {e}, falling back to fast path")
 
@@ -404,6 +410,8 @@ async def act_node(
                 }
             )
 
+    except ProviderPolicyError:
+        raise
     except Exception as e:
         logger.warning(f"Action execution failed: {e}")
 
@@ -504,6 +512,8 @@ async def evaluate_node(
 
         return state.model_copy(update=update_dict)
 
+    except ProviderPolicyError:
+        raise
     except Exception as e:
         logger.warning(f"Evaluation failed: {e}")
 

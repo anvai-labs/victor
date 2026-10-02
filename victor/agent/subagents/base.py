@@ -47,6 +47,8 @@ Example Usage:
 
 from __future__ import annotations
 
+from victor.providers.gateway_boundary import uses_gateway
+
 import asyncio
 import logging
 import re
@@ -594,6 +596,7 @@ class SubAgent(IAgent):  # type: ignore[misc]
         """
         from victor.core.errors import (
             ProviderAuthError,
+            ProviderPolicyError,
             ProviderConnectionError,
             ProviderError,
             ProviderRateLimitError,
@@ -629,7 +632,7 @@ class SubAgent(IAgent):  # type: ignore[misc]
 
                 return response
 
-            except ProviderAuthError:
+            except (ProviderAuthError, ProviderPolicyError):
                 # Preserve the provider layer's non-retryable auth contract.
                 # Replaying chat can repeat completed tool work and conceal a denial.
                 raise
@@ -642,6 +645,8 @@ class SubAgent(IAgent):  # type: ignore[misc]
                 TimeoutError,
                 OSError,  # Network-level errors
             ) as e:
+                if uses_gateway(getattr(self.orchestrator, "provider", None)):
+                    raise
                 last_exception = e
 
                 if attempt >= max_attempts:

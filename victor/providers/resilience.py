@@ -73,6 +73,7 @@ from victor.core.circuit_breaker import (
     CircuitBreakerError as CanonicalCircuitBreakerError,
 )
 from victor.core.context import bind_call_id_once, call_id
+from victor.core.errors import ProviderPolicyError
 
 # Import the canonical CircuitBreaker for composition
 from victor.providers import failure_taxonomy
@@ -517,6 +518,8 @@ class ProviderRetryStrategy:
         Returns:
             True if error should be retried
         """
+        if isinstance(error, ProviderPolicyError):
+            return False
         if self._is_hard_rate_limit(error):
             return False
 
@@ -653,6 +656,12 @@ class ProviderUnavailableError(Exception):
             errors_summary.append(f"Fallback {i + 1}: {err}")
 
         super().__init__(f"All providers failed. {'; '.join(errors_summary)}")
+
+
+def _uses_gateway(provider: Any) -> bool:
+    from victor.providers.gateway_boundary import uses_gateway
+
+    return uses_gateway(provider)
 
 
 class ResilientProvider:
@@ -820,11 +829,14 @@ class ResilientProvider:
 
         # Try primary provider with circuit breaker and retry
         try:
-            result = await self.circuit_breaker.execute(
-                self.retry_strategy.execute,
-                _execute_primary,
-                retry_event_callback=primary_retry_events.append,
-            )
+            if _uses_gateway(self.provider):
+                result = await self.circuit_breaker.execute(_execute_primary)
+            else:
+                result = await self.circuit_breaker.execute(
+                    self.retry_strategy.execute,
+                    _execute_primary,
+                    retry_event_callback=primary_retry_events.append,
+                )
             self._stats["retry_attempts"] += len(primary_retry_events)
             self._stats["primary_successes"] += 1
             self._attach_provider_retry_diagnostics(
@@ -835,11 +847,17 @@ class ResilientProvider:
             )
             return result
 
+        except ProviderPolicyError:
+            raise
         except CircuitOpenError as e:
+            if _uses_gateway(self.provider):
+                raise
             self._stats["retry_attempts"] += len(primary_retry_events)
             logger.warning(f"Primary provider circuit open: {e}")
             primary_error = e
         except Exception as e:
+            if _uses_gateway(self.provider):
+                raise
             self._stats["retry_attempts"] += len(primary_retry_events)
             logger.warning(f"Primary provider failed: {e}")
             primary_error = e
@@ -886,9 +904,13 @@ class ResilientProvider:
                 return result
 
             except CircuitOpenError as e:
+                if _uses_gateway(fallback):
+                    raise
                 logger.warning(f"Fallback '{fb_name}' circuit open: {e}")
                 fallback_errors.append(e)
             except Exception as e:
+                if _uses_gateway(fallback) or isinstance(e, ProviderPolicyError):
+                    raise
                 logger.warning(f"Fallback provider '{fb_name}' failed: {e}")
                 fallback_errors.append(e)
                 continue
@@ -978,10 +1000,12 @@ class ResilientProvider:
             return self.provider.stream(messages, model=model, **kwargs)
 
         try:
-            stream = await self.circuit_breaker.execute(
-                self.retry_strategy.execute,
-                _start_stream,
-            )
+            if _uses_gateway(self.provider):
+                stream = await self.circuit_breaker.execute(_start_stream)
+            else:
+                stream = await self.circuit_breaker.execute(
+                    self.retry_strategy.execute, _start_stream
+                )
 
             # aclosing the inner stream is load-bearing: aclose() on THIS generator does not
             # cascade GeneratorExit into a sub-generator iterated via `async for`, so an early
@@ -996,6 +1020,8 @@ class ResilientProvider:
             self._stats["primary_successes"] += 1
 
         except (CircuitOpenError, Exception) as primary_err:
+            if _uses_gateway(self.provider) or isinstance(primary_err, ProviderPolicyError):
+                raise
             # Build augmented messages for fallback with partial content
             fallback_messages = list(messages)
             if partial_content:
@@ -1035,6 +1061,8 @@ class ResilientProvider:
                         )
                     return
                 except Exception as e:
+                    if _uses_gateway(fallback) or isinstance(e, ProviderPolicyError):
+                        raise
                     logger.warning(f"Fallback stream '{fb_name}' failed: {e}")
                     continue
 

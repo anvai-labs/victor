@@ -1,5 +1,5 @@
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import ANY, AsyncMock, MagicMock
 
 import pytest
 
@@ -85,6 +85,7 @@ async def test_tool_execution_runtime_executes_pipeline_and_syncs_mutable_state(
     host._tool_pipeline.execute_tool_calls.assert_awaited_once_with(
         tool_calls=[{"name": "read", "arguments": {}}],
         context={"provider": "mock"},
+        interrupted_results=ANY,
     )
     assert host.tool_calls_used == 4
     assert host._continuation_prompts == 5
@@ -404,3 +405,186 @@ def test_tool_execution_runtime_formats_output_with_runtime_context():
     assert context.remaining_tokens == 6400
     assert context.max_tokens == 16000
     assert context.response_token_reserve == 2048
+
+
+@pytest.mark.parametrize("cancel", [False, True])
+@pytest.mark.parametrize("withheld", [False, True])
+async def test_interrupted_batch_publishes_only_known_results(cancel, withheld):
+    import asyncio
+    from victor.agent.tool_pipeline import ToolCallResult
+    from victor.agent.services.tool_service import process_tool_results_with_context
+    from victor.agent.durable_resume import _find_unresolved_calls
+    from victor.framework.approval_pause import ApprovalPause
+    from victor.framework.hitl import ApprovalRequest
+    from victor.core.errors import ErrorInfo, ErrorCategory, ErrorSeverity
+
+    control = (
+        asyncio.CancelledError("stop")
+        if cancel
+        else ApprovalPause(ApprovalRequest(id="approval", title="Review", description="read"))
+    )
+    info = ErrorInfo(
+        message="uncertain",
+        category=ErrorCategory.TOOL_EXECUTION,
+        severity=ErrorSeverity.ERROR,
+        correlation_id="test",
+        details={"execution_outcome": "unknown", "reconciliation_required": True},
+    )
+    calls = [
+        {"id": name, "name": "write" if name != "pending" else "read", "arguments": {}}
+        for name in ("done", "unknown", "pending")
+    ]
+    messages = [SimpleNamespace(role="assistant", tool_calls=calls)]
+    host = _make_runtime_host()
+    host._tool_service.process_tool_results.side_effect = process_tool_results_with_context
+    host._tool_output_formatter.format_tool_output.return_value = "confirmed result"
+    host.add_message.side_effect = lambda role, content, **kw: messages.append(
+        SimpleNamespace(role=role, content=content, **kw)
+    )
+
+    async def interrupted(**kwargs):
+        kwargs["interrupted_results"].extend(
+            [
+                ToolCallResult(
+                    tool_name="write",
+                    arguments={},
+                    success=True,
+                    result="done",
+                    tool_call_id="done",
+                ),
+                ToolCallResult(
+                    tool_name="write",
+                    arguments={},
+                    success=False,
+                    tool_call_id="unknown",
+                    error_info=info,
+                    outcome_kind="result_withheld" if withheld else None,
+                ),
+            ]
+        )
+        raise control
+
+    host._tool_pipeline.execute_tool_calls.side_effect = interrupted
+    runtime = ToolExecutionRuntime(OrchestratorProtocolAdapter(host))
+    runtime._compact_before_tool_result_injection = AsyncMock()
+    with pytest.raises(type(control)) as caught:
+        await runtime.execute_tool_calls(calls)
+    assert caught.value is control
+    assert [m.tool_call_id for m in messages if m.role == "tool"] == ["done"]
+    assert [call_id for _, call_id in _find_unresolved_calls(messages)] == ["unknown", "pending"]
+    assert host.tool_calls_used == 4
+    runtime._compact_before_tool_result_injection.assert_not_awaited()
+    assert host.add_message.call_args.kwargs["require_persistence"] is True
+
+
+@pytest.mark.parametrize("failure", ["format", "persist"])
+@pytest.mark.parametrize("readonly_context", [False, True])
+async def test_interrupted_publication_failure_preserves_control_without_fallback(
+    failure, readonly_context
+):
+    from victor.agent.tool_pipeline import ToolCallResult
+    from victor.agent.services.tool_service import process_tool_results_with_context
+    from victor.framework.approval_pause import ApprovalPause
+    from victor.framework.hitl import ApprovalRequest
+
+    pause = ApprovalPause(ApprovalRequest(id="a", title="Review", description="read"))
+    if readonly_context:
+        request = pause.request
+
+        class ReadOnlyContextAdapter:
+            @property
+            def context(self):
+                return request.context
+
+        pause.request = ReadOnlyContextAdapter()
+    host = _make_runtime_host()
+    host._tool_service.process_tool_results.side_effect = process_tool_results_with_context
+    host._tool_output_formatter.format_tool_output.return_value = "known result"
+    messages = []
+
+    def persist(role, content, **kwargs):
+        messages.append((role, content, kwargs))
+        raise TypeError("failure after append must not trigger another append")
+
+    if failure == "persist":
+        host.add_message.side_effect = persist
+    else:
+        host._tool_output_formatter.format_tool_output.side_effect = RuntimeError("format failed")
+
+    async def interrupted(**kwargs):
+        kwargs["interrupted_results"].append(
+            ToolCallResult(
+                tool_name="write", arguments={}, success=True, result="done", tool_call_id="done"
+            )
+        )
+        raise pause
+
+    host._tool_pipeline.execute_tool_calls.side_effect = interrupted
+    runtime = ToolExecutionRuntime(OrchestratorProtocolAdapter(host))
+    with pytest.raises(ApprovalPause) as caught:
+        await runtime.execute_tool_calls([{"id": "pending", "name": "read", "arguments": {}}])
+    assert caught.value is pause
+    assert pause.request.context["batch_result_publication"] == {
+        "schema_version": 1,
+        "status": "incomplete",
+    }
+    assert host.add_message.call_count == (1 if failure == "persist" else 0)
+    assert all(content == "known result" for _, content, _ in messages)
+
+
+@pytest.mark.parametrize("member", [False, True])
+async def test_completed_receipt_allows_exact_action_but_blocks_whole_member_replay(member):
+    from victor.agent.member_approval_context import MemberApprovalPause
+    from victor.agent.tool_pipeline import ToolCallResult
+    from victor.agent.services.tool_service import process_tool_results_with_context
+    from victor.framework.approval_pause import ApprovalPause
+    from victor.framework.hitl import ApprovalRequest
+    from victor.framework.graph_checkpoint import MemoryCheckpointer
+    from victor.teams import UnifiedTeamCoordinator, TeamFormation
+    from victor.teams.types import MemberResult
+    from victor.framework.approval_binding import ApprovalBindingError
+
+    pause_type = MemberApprovalPause if member else ApprovalPause
+    pause = pause_type(ApprovalRequest(id="a", title="Review", description="read"))
+    host = _make_runtime_host()
+    host._tool_service.process_tool_results.side_effect = process_tool_results_with_context
+    host._tool_output_formatter.format_tool_output.return_value = "receipt"
+
+    async def interrupted(**kwargs):
+        kwargs["interrupted_results"].append(
+            ToolCallResult(
+                tool_name="write", arguments={}, success=True, result="done", tool_call_id="done"
+            )
+        )
+        raise pause
+
+    host._tool_pipeline.execute_tool_calls.side_effect = interrupted
+    runtime = ToolExecutionRuntime(OrchestratorProtocolAdapter(host))
+    with pytest.raises(pause_type) as caught:
+        await runtime.execute_tool_calls([{"id": "pending", "name": "read", "arguments": {}}])
+    assert caught.value is pause
+    host.add_message.assert_called_once()
+    if member:
+        assert (
+            pause.request.context["batch_result_publication"]["reason"]
+            == "member_continuation_required"
+        )
+        cp = MemoryCheckpointer()
+        coord = UnifiedTeamCoordinator(lightweight_mode=True, checkpointer=cp)
+        hook = coord._make_member_pause_hook(cp, "thread", "team", TeamFormation.SEQUENTIAL.value)
+        # Persist through the coordinator's actual pause-hook envelope.
+        await hook(
+            0,
+            MemberResult(
+                member_id="member",
+                success=False,
+                output="",
+                metadata={"approval_request": pause.request.to_dict()},
+            ),
+            [],
+            {},
+        )
+        with pytest.raises(ApprovalBindingError, match="reconciliation"):
+            await coord._load_member_resume(cp, "thread", "team")
+    else:
+        assert "batch_result_publication" not in pause.request.context

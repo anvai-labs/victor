@@ -26,6 +26,8 @@ from typing import Annotated, Any, Callable, ClassVar, Dict, Optional, Union, Li
 logger = logging.getLogger(__name__)
 
 import yaml
+from victor.core.model_parameters import ReasoningEffort
+
 from pydantic import BaseModel, Field, SecretStr, computed_field, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 from victor.config.model_capabilities import _load_tool_capable_patterns_from_yaml
@@ -332,6 +334,15 @@ def reset_project_paths() -> None:
     _current_project_paths = None
 
 
+class GatewayOidcConfig(BaseModel):
+    """Identity-pinned access-token file maintained by the operator's OIDC broker."""
+
+    token_file: str
+    issuer: str
+    audience: str
+    subject: str
+
+
 class ProviderGatewayConfig(BaseModel):
     """Per-provider Sandhi gateway mode (TD-0003 P3).
 
@@ -361,6 +372,9 @@ class ProviderGatewayConfig(BaseModel):
         ),
     )
 
+    oidc: Optional[GatewayOidcConfig] = None
+    grant: Optional[str] = None
+
     @property
     def virtual_key_value(self) -> Optional[str]:
         """Return the plain virtual key for provider construction."""
@@ -373,6 +387,15 @@ class ProviderConfig(BaseSettings):
     api_key: Optional[SecretStr] = None
     base_url: Optional[Union[str, List[str]]] = None
     timeout: int = 300  # 5 minutes - increased for CPU-only inference
+    stream_idle_timeout_secs: float = Field(default=90.0, gt=0, le=600, allow_inf_nan=False)
+
+    @field_validator("stream_idle_timeout_secs", mode="before")
+    @classmethod
+    def reject_boolean_stream_idle(cls, value: Any) -> Any:
+        if isinstance(value, bool):
+            raise ValueError("stream idle timeout must be a number, not a boolean")
+        return value
+
     max_retries: int = 3
     organization: Optional[str] = None  # For OpenAI
     gateway: Optional[ProviderGatewayConfig] = Field(
@@ -434,6 +457,11 @@ class ProfileConfig(BaseSettings):
         "Highest precedence in the ADR-013 resolution chain; absent keys defer to settings/constants.",
     )
     max_tokens: int = Field(4096, gt=0)
+    reasoning_effort: Optional[ReasoningEffort] = Field(
+        None,
+        description="Default reasoning effort for capable models; explicit requests override it. "
+        "Allowed levels depend on the selected provider and model.",
+    )
     description: Optional[str] = Field(None, description="Optional profile description")
     tool_selection: Optional[Dict[str, Any]] = Field(
         None, description="Tool selection configuration for adaptive thresholds"

@@ -852,3 +852,172 @@ class TestNavigationHintLoopDetection:
         # Expired hint should be cleared
         assert result is None
         assert normalized_path not in pipeline._recent_code_navigation_hints
+
+
+@pytest.mark.parametrize("source", ["execution", "cache", "cross_turn", "semantic", "retry_cache"])
+async def test_result_policy_guards_publication_and_cached_returns(pipeline, source, caplog):
+    from types import SimpleNamespace
+    from victor.agent.middleware_chain import MiddlewareChain
+    from victor.agent.services.tool_retry import ToolRetryExecutor
+    from victor.framework.policies import (
+        Policy,
+        PolicyEngine,
+        PolicyEngineMiddleware,
+        PolicyVerdict,
+        Phase,
+    )
+
+    class DenyResult(Policy):
+        name = "deny_result"
+
+        def phases(self):
+            return {Phase.TOOL_RESULT}
+
+        async def evaluate(self, event):
+            return PolicyVerdict.deny("private-result")
+
+    chain = MiddlewareChain()
+    chain.add(PolicyEngineMiddleware(PolicyEngine([DenyResult()])))
+    pipeline.middleware_chain = chain
+    pipeline.executor.execute.return_value.result = "private-result"
+    pipeline.on_tool_event = MagicMock()
+    pipeline.on_tool_complete = MagicMock()
+    cached = ToolCallResult("web_search", {}, True, result="private-result", cached=True)
+    if source == "cache":
+        pipeline.get_cached_result = MagicMock(return_value=cached)
+    if source == "cross_turn":
+        pipeline._cross_turn_enabled = True
+        pipeline._cross_turn_cache.set(pipeline._get_call_signature("web_search", {}), cached)
+    if source == "semantic":
+        pipeline.config.enable_semantic_caching = True
+        pipeline.semantic_cache = SimpleNamespace(get=AsyncMock(return_value="private-result"))
+    with caplog.at_level(logging.DEBUG, logger="victor.agent.tool_pipeline"):
+        if source == "retry_cache":
+            retry = ToolRetryExecutor(
+                SimpleNamespace(
+                    retry_enabled=True, max_retry_attempts=3, retry_base_delay=0, retry_max_delay=0
+                ),
+                pipeline,
+                MagicMock(get=MagicMock(return_value=cached)),
+            )
+            result, success, _ = await retry.execute_tool_with_retry("web_search", {}, {})
+            assert not success
+        else:
+            result = await pipeline._execute_single_call(
+                {"name": "web_search", "arguments": {}}, {}
+            )
+    assert result.success is False
+    assert result.retryable is False
+    assert result.outcome_kind == "result_withheld"
+    assert result.skipped is False
+    assert "private-result" not in repr(result)
+    assert "private-result" not in caplog.text
+    assert "private-result" not in repr(pipeline.on_tool_event.call_args_list)
+    assert "private-result" not in repr(pipeline.on_tool_complete.call_args_list)
+    assert pipeline.executor.execute.await_count == (1 if source == "execution" else 0)
+    assert cached.result == "private-result"  # no mutation of another cache owner's object
+
+
+@pytest.mark.parametrize("failure", [RuntimeError, ValueError, AttributeError])
+async def test_after_failure_is_terminal_and_preserves_write_invalidation(pipeline, failure):
+    from victor.core.verticals.protocols import MiddlewareResult
+    from victor.agent.middleware_chain import MiddlewareChain
+
+    middleware = MagicMock()
+    from victor.core.verticals.protocols import MiddlewarePriority
+
+    middleware.get_priority.return_value = MiddlewarePriority.CRITICAL
+    middleware.get_applicable_tools.return_value = None
+    middleware.before_tool_call = AsyncMock(return_value=MiddlewareResult())
+    middleware.after_tool_call = AsyncMock(side_effect=failure("private-result"))
+    chain = MiddlewareChain()
+    chain.add(middleware)
+    pipeline.middleware_chain = chain
+    pipeline.tools.get.return_value.access_mode = AccessMode.WRITE
+    pipeline._invalidate_post_edit_freshness_state = MagicMock()
+    result = await pipeline._execute_single_call(
+        {"name": "write", "arguments": {"path": "/tmp/written", "content": "ok"}}, {}
+    )
+    assert not result.success and result.retryable is False
+    assert result.error_info.details["execution_outcome"] == "succeeded"
+    pipeline.executor.execute.assert_awaited_once()
+    pipeline._invalidate_post_edit_freshness_state.assert_called_once()
+    assert "private-result" not in repr(result)
+
+
+async def test_result_withholding_keeps_unknown_outcome_and_duplicate_veto(pipeline):
+    from victor.core.verticals.protocols import MiddlewareResult
+    from victor.core.errors import ErrorInfo, ErrorCategory, ErrorSeverity
+
+    pipeline.executor.execute.return_value = ToolExecutionResult(
+        tool_name="submit",
+        success=False,
+        result="private-result",
+        error="private-result",
+        error_info=ErrorInfo(
+            message="private-result",
+            category=ErrorCategory.TOOL_EXECUTION,
+            severity=ErrorSeverity.ERROR,
+            correlation_id="original",
+            details={
+                "execution_outcome": "unknown",
+                "retryable": False,
+                "reconciliation_required": True,
+                "sensitive": "private-result",
+            },
+        ),
+    )
+    chain = MagicMock()
+    chain.process_before = AsyncMock(return_value=MiddlewareResult())
+    chain.process_after = AsyncMock(side_effect=RuntimeError("private-result"))
+    pipeline.middleware_chain = chain
+    pipeline.tools.get.return_value.access_mode = AccessMode.WRITE
+    batch = await pipeline.execute_tool_calls(
+        [
+            {"name": "submit", "arguments": {}, "id": "a"},
+            {"name": "submit", "arguments": {}, "id": "b"},
+        ],
+        {},
+    )
+    assert len(batch.results) == 2
+    for result in batch.results:
+        assert not result.success and result.retryable is False
+        assert result.outcome_kind == "result_withheld"
+        assert result.error_info.correlation_id == "original"
+        assert result.error_info.details["execution_outcome"] == "unknown"
+        assert result.error_info.details["reconciliation_required"] is True
+        assert "private-result" not in repr(result)
+    pipeline.executor.execute.assert_awaited_once()
+
+
+@pytest.mark.parametrize("mode", ["redact", "raise", "selection"])
+async def test_chain_convenience_withholds_executor_exception(mode):
+    from victor.agent.middleware_chain import MiddlewareChain
+    from victor.core.verticals.protocols import MiddlewareResult
+
+    chain = MiddlewareChain()
+    chain.process_before = AsyncMock(return_value=MiddlewareResult())
+    if mode == "selection":
+        chain._get_applicable_middleware = MagicMock(side_effect=RuntimeError("private-result"))
+    else:
+        chain.process_after = AsyncMock(return_value="redacted")
+        if mode == "raise":
+            chain.process_after.side_effect = PermissionError("Tool result withheld.")
+    with pytest.raises(PermissionError) as error:
+        await chain.process_tool_call(
+            "submit", {}, AsyncMock(side_effect=RuntimeError("private-result"))
+        )
+    assert "private-result" not in str(error.value)
+
+
+async def test_chain_convenience_preserves_cancellation_and_after_cleanup():
+    import asyncio
+    from victor.agent.middleware_chain import MiddlewareChain
+    from victor.core.verticals.protocols import MiddlewareResult
+
+    chain = MiddlewareChain()
+    chain.process_before = AsyncMock(return_value=MiddlewareResult())
+    chain.process_after = AsyncMock(side_effect=PermissionError("withheld"))
+    with pytest.raises(asyncio.CancelledError):
+        await chain.process_tool_call("submit", {}, AsyncMock(side_effect=asyncio.CancelledError()))
+    chain.process_after.assert_awaited_once()

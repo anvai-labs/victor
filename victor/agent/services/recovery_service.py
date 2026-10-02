@@ -45,6 +45,7 @@ from victor.core.loop_thresholds import (
     DEFAULT_BLOCKED_TOTAL_THRESHOLD,
 )
 from victor.providers.base import StreamChunk
+from victor.core.errors import ProviderPolicyError
 from dataclasses import dataclass
 
 
@@ -281,6 +282,8 @@ class RecoveryService:
         Returns:
             Error type string
         """
+        if isinstance(error, ProviderPolicyError):
+            return "policy"
         error_type = type(error).__name__
 
         # Map common errors to types
@@ -305,6 +308,8 @@ class RecoveryService:
         Returns:
             Recovery action name
         """
+        if isinstance(context.error, ProviderPolicyError):
+            return "fail"
         error_type = context.error_type
 
         # Select action based on error type
@@ -440,7 +445,7 @@ class RecoveryService:
             True if operation can be retried, False otherwise
         """
         # Don't retry auth errors
-        if isinstance(error, (PermissionError, AuthError)):
+        if isinstance(error, (PermissionError, AuthError, ProviderPolicyError)):
             return False
 
         # Check attempt limit
@@ -634,6 +639,8 @@ class RecoveryService:
         for attempt in range(max_attempts):
             try:
                 return await func(*args, **kwargs)
+            except ProviderPolicyError:
+                raise
             except Exception as e:
                 last_exception = e
 
@@ -693,6 +700,8 @@ class RecoveryService:
         for attempt in range(self._max_retry_attempts):
             try:
                 return await func(*args, **kwargs)
+            except ProviderPolicyError:
+                raise
             except Exception as e:
                 last_exception = e
 
@@ -784,6 +793,7 @@ class RecoveryService:
         """
         # Don't attempt recovery for certain error types
         no_recovery_types = {
+            "policy",  # Terminal gateway decision
             "auth",  # Authentication errors
             "validation",  # Validation errors
         }
@@ -1181,7 +1191,7 @@ class RecoveryService:
             # Returns: RecoveryStrategy.RETRY, FALLBACK, BACKOFF, or GIVE_UP
         """
         # Don't retry certain errors
-        if error_type in {"auth", "validation"}:
+        if error_type in {"auth", "validation", "policy"}:
             return RecoveryStrategy.GIVE_UP
 
         # Rate limiting: backoff
@@ -1752,7 +1762,7 @@ class RecoveryService:
             return False
 
         # Certain error types don't support model fallback
-        no_fallback_errors = {"auth", "validation", "permission"}
+        no_fallback_errors = {"auth", "validation", "permission", "policy"}
         if error_type in no_fallback_errors:
             return False
 

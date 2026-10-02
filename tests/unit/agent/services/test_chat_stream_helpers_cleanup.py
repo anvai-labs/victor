@@ -239,3 +239,32 @@ async def test_repetition_guard_disabled_via_settings():
     content, _tc, _tokens, _garbage = await helper._stream_provider_response_inner({}, {}, _ctx())
 
     assert content.count("remote tracking state") == 60  # untouched when disabled
+
+
+@pytest.mark.parametrize(
+    "default,override,supported,expected",
+    [
+        ("medium", {}, True, "medium"),
+        ("high", {}, True, "high"),
+        ("high", {"reasoning_effort": "low"}, True, "low"),
+        ("high", {"reasoning_effort": None}, True, None),
+        ("medium", {}, False, None),
+        (None, {}, True, None),
+    ],
+)
+async def test_stream_inherits_reasoning_without_overriding_request(
+    default, override, supported, expected
+):
+    captured = {}
+
+    async def stream(**kwargs):
+        captured.update(kwargs)
+        yield StreamChunk(content="ok")
+
+    original_override = dict(override)
+    orch = _make_orch(stream)
+    orch.reasoning_effort = default
+    orch.provider.supports_reasoning_effort = lambda model: supported
+    await _Helper(orch)._stream_provider_response_inner({}, override, _ctx())
+    assert captured.get("reasoning_effort") == expected
+    assert override == original_override

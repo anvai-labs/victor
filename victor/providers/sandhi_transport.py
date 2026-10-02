@@ -11,12 +11,18 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
+import re
+import socket
+import ssl
 import uuid
 from json import JSONDecodeError
 from typing import Any, AsyncIterator, Dict, List, Optional, Tuple, Type
+from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
+from victor.core.errors import ProviderPolicyError
 from victor.providers.anthropic_provider import AnthropicProvider
 from victor.providers.base import (
     BaseProvider,
@@ -126,11 +132,12 @@ EXPECTED_WIRE_CONTRACT = "1"
 # thinking typed request fields (W3d/G7); 5 = UsageV2.basis measured-vs-estimated
 # (TD-0013 D5); 6 = RunCostTreeV1 server-side run cost tree (ADR-0005 D7,
 # sandhi PR #149); 7 = explicit reasoning inclusion; 8 = origin/boundary timing
-# provenance. The installed runtime's minor is read once by the handshake
+# provenance; 9 = cache-read observations (metadata-only stream corrections).
+# The installed runtime's minor is read once by the handshake
 # below; bindings predating chat_contract_minor() report 0 — their documents
 # simply never carry the newer fields, which every consumer tolerates by
 # construction. installed_minor > KNOWN stays valid forward-compat.
-KNOWN_CONTRACT_MINOR = 8
+KNOWN_CONTRACT_MINOR = 9
 
 # The typed request fields land at minor 4 (W3d/G7). Below it, the runtime has
 # no such fields, so Victor dual-writes into extensions and only drops the
@@ -234,8 +241,66 @@ def _verify_wire_contract() -> None:
         )
 
 
-def map_sandhi_error(exc: BaseException, provider_name: str, timeout: float) -> ProviderError:
-    """Map `ProviderErrorV1` from the FFI without changing retry ownership."""
+_TLS_PROBE_DEADLINE_SECS = 4.0
+
+
+def _diagnose_endpoint_tls(url: str, connect_timeout: float = 1.5) -> Optional[str]:
+    """Classify a transport error against an https endpoint.
+
+    Returns TLS-trust guidance only when the signature matches: TCP connects
+    but the default-context handshake fails certificate verification (the
+    self-signed/private-CA gateway case). Unreachable endpoints return None —
+    the default "check network" hint is then correct — and so do healthy
+    handshakes.
+
+    Never raises: every failure mode (unresolvable host, out-of-range port,
+    non-OSError resolver errors) classifies as None. Callers must run this
+    OFF the event loop (asyncio.to_thread) and cap it (asyncio.wait_for) —
+    the socket timeouts bound each operation but DNS resolution is
+    unbounded, so the caller owns the hard deadline.
+    """
+    try:
+        parsed = urlparse(url)
+        if parsed.scheme != "https" or not parsed.hostname:
+            return None
+        try:
+            port = parsed.port
+        except ValueError:
+            return None
+        if port is None:
+            port = 443
+        # One connection for both the reachability check and the handshake:
+        # create_connection's timeout also bounds the wrap_socket handshake.
+        with socket.create_connection((parsed.hostname, port), timeout=connect_timeout) as sock:
+            context = ssl.create_default_context()
+            try:
+                with context.wrap_socket(sock, server_hostname=parsed.hostname):
+                    return None
+            except ssl.SSLCertVerificationError:
+                return (
+                    "the endpoint's TLS certificate is not trusted by this "
+                    "machine's trust store (private/self-signed CA). Import "
+                    "the issuing CA into the system trust store (macOS: sudo "
+                    "security add-trusted-cert -d -r trustRoot -k "
+                    "/Library/Keychains/System.keychain <ca.pem>) or serve a "
+                    "publicly-trusted certificate; the sandhi binding does "
+                    "not read SSL_CERT_FILE"
+                )
+            except OSError:
+                return None
+    except Exception:
+        # A diagnosis probe must never replace the original transport error
+        # with a worse one (unresolvable host, odd URL shapes, resolver
+        # errors): no classification is the honest fallback.
+        return None
+
+
+async def map_sandhi_error(exc: BaseException, provider_name: str, timeout: float) -> ProviderError:
+    """Map `ProviderErrorV1` from the FFI without changing retry ownership.
+
+    Async so the optional TLS diagnosis probe runs off the event loop with a
+    hard deadline instead of stalling it while the network is degraded.
+    """
     if isinstance(exc, (asyncio.TimeoutError, TimeoutError)):
         return ProviderTimeoutError(
             f"sandhi transport timed out: {exc}", provider=provider_name, timeout=timeout
@@ -250,6 +315,33 @@ def map_sandhi_error(exc: BaseException, provider_name: str, timeout: float) -> 
         return ProviderConnectionError(
             f"sandhi binding failure: {exc}", provider=provider_name, raw_error=exc
         )
+    candidates = [typed]
+    details = typed.get("details")
+    raw = details.get("upstream_body") if isinstance(details, dict) else None
+    if isinstance(raw, str) and len(raw) <= 8192:
+        try:
+            envelope = json.loads(raw)
+            if isinstance(envelope, dict) and isinstance(envelope.get("error"), dict):
+                candidates.append(envelope["error"])
+        except (ValueError, TypeError):
+            pass
+    for candidate in candidates:
+        code = candidate.get("code")
+        if isinstance(code, str) and code in {
+            "policy_blocked",
+            "policy_quarantined",
+            "policy_unavailable",
+        }:
+            receipt = candidate.get("request_id")
+            if not isinstance(receipt, str) or not re.fullmatch(r"[0-9a-f]{32}", receipt):
+                receipt = None
+            status = typed.get("http_status")
+            return ProviderPolicyError(
+                code,
+                provider=provider_name,
+                receipt=receipt,
+                status_code=status if isinstance(status, int) else None,
+            )
     detail = str(typed.get("message") or exc)
     # Sandhi carries the full (capped) upstream error body in details["upstream_body"]
     # (the message holds only a short display snippet). Append it so provider
@@ -268,6 +360,24 @@ def map_sandhi_error(exc: BaseException, provider_name: str, timeout: float) -> 
     if code == "timeout":
         return ProviderTimeoutError(detail, provider=provider_name, timeout=timeout)
     if code in {"circuit_open", "transport_error"}:
+        # "error sending request" wraps both real network failures and TLS
+        # trust failures; the default recovery hint is wrong for the latter.
+        # Classify once, bounded, so a self-signed/private-CA gateway tells
+        # the operator what actually happened.
+        if code == "transport_error":
+            url_match = re.search(r"https?://[^\s')]+", str(exc))
+            if url_match:
+                try:
+                    diagnosis = await asyncio.wait_for(
+                        asyncio.to_thread(_diagnose_endpoint_tls, url_match.group(0)),
+                        timeout=_TLS_PROBE_DEADLINE_SECS,
+                    )
+                except Exception:
+                    # The probe is best-effort; never delay or replace the
+                    # surfaced transport error with a diagnosis failure.
+                    diagnosis = None
+                if diagnosis:
+                    detail = f"{detail} | TLS diagnosis: {diagnosis}"
         return ProviderConnectionError(detail, provider=provider_name, raw_error=exc)
     return ProviderError(
         detail,
@@ -624,8 +734,10 @@ def _usage_diagnostics(usage: Any) -> Optional[Dict[str, Any]]:
     attempts = int(usage.get("attempts", 1) or 1)
     completeness = usage.get("completeness")
     outcome = usage.get("outcome")
+    observation = usage.get("cache_read_observation")
     if (
-        attempts <= 1
+        not isinstance(observation, dict)
+        and attempts <= 1
         and completeness not in {"partial", "unavailable"}
         and outcome
         not in {
@@ -634,12 +746,16 @@ def _usage_diagnostics(usage: Any) -> Optional[Dict[str, Any]]:
         }
     ):
         return None
-    return {
+    diagnostics = {
         "attempts": attempts,
         "completeness": completeness,
         "outcome": outcome,
         "upstream_request_id": usage.get("upstream_request_id"),
     }
+    if isinstance(observation, dict):
+        # Sandhi owns validation of the typed status/source contract.
+        diagnostics["cache_read_observation"] = dict(observation)
+    return diagnostics
 
 
 class SandhiTypedProviderMixin:
@@ -671,6 +787,15 @@ class SandhiTypedProviderMixin:
             except Exception:
                 pass
         return declared
+
+    def _sandhi_stream_idle_timeout(self) -> float:
+        value = (getattr(self, "extra_config", None) or {}).get("stream_idle_timeout_secs", 90.0)
+        if isinstance(value, bool):
+            raise ValueError("stream idle timeout must be finite and between 0 and 600 seconds")
+        value = float(value)
+        if not math.isfinite(value) or not 0 < value <= 600:
+            raise ValueError("stream idle timeout must be finite and between 0 and 600 seconds")
+        return value
 
     def _sandhi_timeout(self) -> float:
         try:
@@ -733,7 +858,11 @@ class SandhiTypedProviderMixin:
         url = str(gateway.get("url") or "").strip()
         if not url:
             return None
-        virtual_key = gateway.get("virtual_key")
+        virtual_key = (
+            getattr(self, "_api_key", None)
+            if getattr(self, "_gateway_credential", None) is not None
+            else gateway.get("virtual_key")
+        )
         # Duck-type SecretStr without importing pydantic into the transport layer.
         if hasattr(virtual_key, "get_secret_value"):
             virtual_key = virtual_key.get_secret_value()
@@ -804,8 +933,10 @@ class SandhiTypedProviderMixin:
             kwargs: Dict[str, Any] = {
                 "base_url": explicit_base_url or None,
                 "timeout_secs": self._sandhi_timeout(),
-                "stream_idle_timeout_secs": 90.0,
-                "max_retries": max(0, int(getattr(self, "max_retries", 0) or 0)),
+                "stream_idle_timeout_secs": self._sandhi_stream_idle_timeout(),
+                "max_retries": (
+                    0 if gateway is not None else max(0, int(getattr(self, "max_retries", 0) or 0))
+                ),
             }
             wire_headers = dict(getattr(self, "_wire_headers", None) or {})
             if run_id:
@@ -846,7 +977,10 @@ class SandhiTypedProviderMixin:
         except (asyncio.CancelledError, KeyboardInterrupt, SystemExit):
             raise
         except BaseException as exc:  # pyo3 panics may subclass BaseException
-            raise map_sandhi_error(exc, self._sandhi_slug(), timeout) from exc
+            mapped = await map_sandhi_error(exc, self._sandhi_slug(), timeout)
+            if isinstance(mapped, ProviderPolicyError):
+                raise mapped from None
+            raise mapped from exc
 
     def _completion_from_typed(self, response: Dict[str, Any], model: str) -> CompletionResponse:
         output = response.get("output") or {}
@@ -936,12 +1070,22 @@ class SandhiTypedProviderMixin:
                 elif kind == "finish":
                     finish_reason = str(event.get("reason", "unknown"))
                 elif kind == "usage":
-                    usage = usage_dict_from_neutral(
-                        event.get("usage"), None, slug=self._sandhi_slug()
-                    )
-                    usage_diagnostics = dict(_usage_diagnostics(event.get("usage")) or {})
-                    usage_diagnostics.update(_latency_fields(event.get("usage")))
-                    usage_diagnostics = usage_diagnostics or None
+                    neutral = event.get("usage")
+                    incoming = dict(_usage_diagnostics(neutral) or {})
+                    incoming.update(_latency_fields(neutral))
+                    if isinstance(neutral, dict) and neutral.get("completeness") == "unavailable":
+                        # Minor 9 emits metadata-only cache corrections. These are
+                        # neither measured zeros nor a replacement numeric verdict.
+                        if usage is None:
+                            usage_diagnostics = incoming or None
+                        elif "cache_read_observation" in incoming:
+                            usage_diagnostics = {
+                                **(usage_diagnostics or {}),
+                                "cache_read_observation": incoming["cache_read_observation"],
+                            }
+                    else:
+                        usage = usage_dict_from_neutral(neutral, None, slug=self._sandhi_slug())
+                        usage_diagnostics = incoming or None
                 elif kind == "response_start":
                     # Deliberately ignored (TD-0008 consumer-decision row): victor
                     # derives model/id from the request and final chunk.
@@ -954,7 +1098,7 @@ class SandhiTypedProviderMixin:
                     # A typed error EVENT (as opposed to an iterator error) must
                     # surface as the mapped ProviderError, never vanish mid-stream.
                     payload = event.get("error")
-                    raise map_sandhi_error(
+                    raise await map_sandhi_error(
                         RuntimeError(
                             json.dumps(
                                 payload if isinstance(payload, dict) else {"code": "unknown"}
@@ -984,7 +1128,10 @@ class SandhiTypedProviderMixin:
         except ProviderError:
             raise
         except BaseException as exc:
-            raise map_sandhi_error(exc, self._sandhi_slug(), timeout) from exc
+            mapped = await map_sandhi_error(exc, self._sandhi_slug(), timeout)
+            if isinstance(mapped, ProviderPolicyError):
+                raise mapped from None
+            raise mapped from exc
 
 
 class SandhiHttpxTransportMixin(SandhiTypedProviderMixin):

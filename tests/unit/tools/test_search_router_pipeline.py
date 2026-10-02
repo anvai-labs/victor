@@ -1103,6 +1103,231 @@ class TestToolPipelineParallelExecution:
         )
         return ToolPipeline(tool_registry=registry, tool_executor=executor, config=config)
 
+    @pytest.mark.parametrize("member", [False, True])
+    async def test_approval_control_stops_semaphore_waiters(self, registry, member):
+        from victor.agent.member_approval_context import MemberApprovalPause
+        from victor.framework.approval_pause import ApprovalPause
+        from victor.framework.hitl import ApprovalRequest
+
+        pause_type = MemberApprovalPause if member else ApprovalPause
+        pause = pause_type(ApprovalRequest(id="approval", title="Review", description="read"))
+        pipeline = self._make_pipeline(registry, MagicMock(), max_concurrent=1)
+        pipeline._compute_one_call_result = AsyncMock(side_effect=pause)
+        calls = [
+            {"id": "first", "name": "read", "arguments": {"path": "/a"}},
+            {"id": "queued", "name": "grep", "arguments": {"path": "/b"}},
+            {"id": "later-write", "name": "write", "arguments": {"path": "/c"}},
+        ]
+        with pytest.raises(pause_type) as caught:
+            await pipeline.execute_tool_calls(calls)
+        assert caught.value is pause
+        pipeline._compute_one_call_result.assert_awaited_once()
+
+    @pytest.mark.parametrize("parallel", [False, True])
+    @pytest.mark.parametrize("cancel", [False, True])
+    async def test_interruption_retains_completed_ids_and_duplicates(
+        self, registry, parallel, cancel
+    ):
+        from victor.framework.approval_pause import ApprovalPause
+        from victor.framework.hitl import ApprovalRequest
+
+        control = (
+            asyncio.CancelledError("stop")
+            if cancel
+            else ApprovalPause(ApprovalRequest(id="approval", title="Review", description="read"))
+        )
+        pipeline = self._make_pipeline(registry, MagicMock(), max_concurrent=1)
+        pipeline.config.parallel_tool_execution = parallel
+        completed = ToolCallResult(
+            tool_name="write", arguments={"path": "/a"}, success=True, result="committed"
+        )
+        pipeline._compute_one_call_result = AsyncMock(side_effect=[completed, control])
+        calls = [
+            {"id": "written", "name": "write", "arguments": {"path": "/a"}},
+            {"id": "duplicate", "name": "write", "arguments": {"path": "/a"}},
+            {"id": "pending", "name": "read", "arguments": {"path": "/b"}},
+            {"id": "unstarted", "name": "write", "arguments": {"path": "/c"}},
+        ]
+        interrupted = []
+        with pytest.raises(type(control)) as caught:
+            await pipeline.execute_tool_calls(calls, interrupted_results=interrupted)
+        assert caught.value is control
+        assert [r.tool_call_id for r in interrupted] == ["written", "duplicate"]
+        assert all(r.success and r.result == "committed" for r in interrupted)
+        assert pipeline._compute_one_call_result.await_count == 2
+
+    @pytest.mark.parametrize("cancel", [False, True])
+    async def test_control_joins_started_sibling_before_propagating(self, registry, cancel):
+        from victor.framework.approval_pause import ApprovalPause
+        from victor.framework.hitl import ApprovalRequest
+
+        pipeline = self._make_pipeline(registry, MagicMock(), max_concurrent=2)
+        started, control_seen, finish = asyncio.Event(), asyncio.Event(), asyncio.Event()
+        control = (
+            asyncio.CancelledError("child")
+            if cancel
+            else ApprovalPause(ApprovalRequest(id="approval", title="Review", description="read"))
+        )
+
+        async def compute(call, context):
+            if call["id"] == "pending":
+                await started.wait()
+                control_seen.set()
+                raise control
+            started.set()
+            await finish.wait()
+            return ToolCallResult(tool_name="grep", arguments={}, success=True, result="done")
+
+        pipeline._compute_one_call_result = AsyncMock(side_effect=compute)
+        interrupted = []
+        task = asyncio.create_task(
+            pipeline.execute_tool_calls(
+                [
+                    {"id": "pending", "name": "read", "arguments": {}},
+                    {"id": "done", "name": "grep", "arguments": {}},
+                ],
+                interrupted_results=interrupted,
+            )
+        )
+        try:
+            await asyncio.wait_for(control_seen.wait(), 1)
+            assert not task.done()
+        finally:
+            finish.set()
+        with pytest.raises(type(control)) as caught:
+            await task
+        assert caught.value is control
+        assert [r.tool_call_id for r in interrupted] == ["done"]
+
+    @pytest.mark.parametrize("repeat_cancel", [False, True])
+    async def test_parent_cancellation_joins_cleanup_and_keeps_prior_write(
+        self, registry, repeat_cancel
+    ):
+        pipeline = self._make_pipeline(registry, MagicMock(), max_concurrent=1)
+        started, cleaned = asyncio.Event(), asyncio.Event()
+        cleaning, finish_cleanup = asyncio.Event(), asyncio.Event()
+        calls_seen = []
+
+        async def compute(call, context):
+            calls_seen.append(call["id"])
+            if call["id"] == "written":
+                return ToolCallResult(tool_name="write", arguments={}, success=True, result="done")
+            started.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cleaning.set()
+                await finish_cleanup.wait()
+                cleaned.set()
+
+        pipeline._compute_one_call_result = AsyncMock(side_effect=compute)
+        interrupted = []
+        task = asyncio.create_task(
+            pipeline.execute_tool_calls(
+                [
+                    {"id": "written", "name": "write", "arguments": {}},
+                    {"id": "running", "name": "read", "arguments": {}},
+                    {"id": "queued", "name": "grep", "arguments": {}},
+                ],
+                interrupted_results=interrupted,
+            )
+        )
+        await asyncio.wait_for(started.wait(), 1)
+        task.cancel()
+        await asyncio.wait_for(cleaning.wait(), 1)
+        if repeat_cancel:
+            task.cancel()
+        assert not task.done()
+        finish_cleanup.set()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert cleaned.is_set()
+        assert calls_seen == ["written", "running"]
+        assert [r.tool_call_id for r in interrupted] == ["written"]
+
+    @pytest.mark.parametrize("second_cancels", [False, True])
+    async def test_multiple_controls_select_cancel_then_original_order(
+        self, registry, second_cancels
+    ):
+        from victor.framework.approval_pause import ApprovalPause
+        from victor.framework.hitl import ApprovalRequest
+
+        controls = [
+            ApprovalPause(ApprovalRequest(id=str(i), title="Review", description="read"))
+            for i in range(2)
+        ]
+        if second_cancels:
+            controls[1] = asyncio.CancelledError("child")
+        pipeline = self._make_pipeline(registry, MagicMock(), max_concurrent=2)
+        both_started = asyncio.Event()
+        entered = 0
+
+        async def compute(call, context):
+            nonlocal entered
+            entered += 1
+            if entered == 2:
+                both_started.set()
+            await both_started.wait()
+            raise controls[int(call["id"])]
+
+        pipeline._compute_one_call_result = AsyncMock(side_effect=compute)
+        expected = controls[1] if second_cancels else controls[0]
+        with pytest.raises(type(expected)) as caught:
+            await pipeline.execute_tool_calls(
+                [
+                    {"id": "0", "name": "read", "arguments": {}},
+                    {"id": "1", "name": "grep", "arguments": {}},
+                ]
+            )
+        assert caught.value is expected
+
+    async def test_interrupted_shared_cached_result_keeps_distinct_ids(self, registry):
+        from victor.framework.approval_pause import ApprovalPause
+        from victor.framework.hitl import ApprovalRequest
+
+        pipeline = self._make_pipeline(registry, MagicMock())
+        pipeline.config.parallel_tool_execution = False
+        shared = ToolCallResult(tool_name="read", arguments={}, success=True, result="cached")
+        pause = ApprovalPause(ApprovalRequest(id="a", title="Review", description="read"))
+        pipeline._compute_one_call_result = AsyncMock(side_effect=[shared, shared, pause])
+        interrupted = []
+        with pytest.raises(ApprovalPause):
+            await pipeline.execute_tool_calls(
+                [
+                    {"id": "one", "name": "read", "arguments": {"path": "a"}},
+                    {"id": "two", "name": "read", "arguments": {"path": "b"}},
+                    {"id": "pending", "name": "read", "arguments": {"path": "c"}},
+                ],
+                interrupted_results=interrupted,
+            )
+        assert [r.tool_call_id for r in interrupted] == ["one", "two"]
+        assert shared.tool_call_id is None
+
+    async def test_interrupted_bookkeeping_failure_marks_evidence_incomplete(self, registry):
+        from victor.framework.approval_pause import ApprovalPause
+        from victor.framework.hitl import ApprovalRequest
+
+        pipeline = self._make_pipeline(registry, MagicMock())
+        pipeline.config.parallel_tool_execution = False
+        pause = ApprovalPause(ApprovalRequest(id="a", title="Review", description="read"))
+        pipeline._compute_one_call_result = AsyncMock(
+            side_effect=[
+                ToolCallResult(tool_name="write", arguments={}, success=True),
+                pause,
+            ]
+        )
+        pipeline._generate_tool_call_id = MagicMock(side_effect=RuntimeError("bookkeeping failed"))
+        with pytest.raises(ApprovalPause) as caught:
+            await pipeline.execute_tool_calls(
+                [
+                    {"name": "write", "arguments": {}},
+                    {"id": "pending", "name": "read", "arguments": {}},
+                ],
+                interrupted_results=[],
+            )
+        assert caught.value is pause
+        assert pause.request.context["batch_result_publication"]["status"] == "incomplete"
+
     @pytest.mark.asyncio
     async def test_default_off_in_fresh_settings(self):
         """The flag ships OFF: fresh Settings/AgentConfig must not enable it."""

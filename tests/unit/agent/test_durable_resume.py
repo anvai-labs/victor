@@ -206,6 +206,8 @@ async def test_reject_skips_execution_and_appends_error(store):
         "malformed",
         "non_bool",
         "resolved",
+        "incomplete_evidence",
+        "malformed_evidence",
         "surface",
     ],
 )
@@ -240,6 +242,12 @@ async def test_invalid_binding_never_dispatches(store, change):
         calls[0]["arguments"] = '{"payload": broken}'
     elif change == "non_bool":
         decision = ApprovalDecision("yes")
+    elif change in {"incomplete_evidence", "malformed_evidence"}:
+        state.paused.approval_request["context"]["batch_result_publication"] = (
+            {"schema_version": 1, "status": "incomplete"}
+            if change == "incomplete_evidence"
+            else False
+        )
     elif change == "resolved":
         state.controller.add_tool_result("call_1", "previous receipt")
     else:
