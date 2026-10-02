@@ -42,7 +42,11 @@ CLUSTER_CAPS = {
         "raw_state": 0,
     },
     "chat_stream_helpers.py": {
-        "private_attributes": 56,
+        # 57: #1203's gateway rate-limit check reads self._orchestrator.provider
+        # (intra-object access; the runtime owns _orchestrator). Reviewed and
+        # accepted — every getattr/hasattr migration would either re-add a
+        # probe or silently break gateway detection.
+        "private_attributes": 57,
         "private_probes": 13,
         "dynamic_probes": 0,
         "delivery_accesses": 0,
