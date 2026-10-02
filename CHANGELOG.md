@@ -3,13 +3,21 @@
 All notable changes to Victor are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased] (develop)
+## [0.11.0] - 2026-10-02
+
+### Added
+
+- Add FEP-0037: `POST /v1/classify` on `victor serve` — one structured
+  completion with a pinned contract, bearer auth and per-request
+  provider/model/endpoint overrides; additive request fields, explicit
+  default-provider fallback and 422-vs-502 triage for policy vs
+  infrastructure failures (#1196, #1197, #1213).
+- Preserve interrupted tool batch evidence and block unsafe resume; batch
+  publication requires complete evidence to fail closed (#1208).
+- Add the `ProviderPolicyError` class so policy denials surface distinctly
+  from connection and timeout failures.
 
 ### Changed
-
-- Require Python 3.12+ across core, contracts, codegraph, native extensions and
-  verticals. CI tests 3.12/3.13; Python 3.10/3.11 installations must upgrade
-  before installing the next release. Previously published releases are unchanged.
 
 - Route chat planning, task guidance, and tool selection through explicit
   runtime capabilities; route streaming governance, completion, tool-call
@@ -18,6 +26,35 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   service-owned chat turn frame.
 - Preserve configured request/response governance during runtime bootstrap and
   reject invalid configured-gate results instead of treating them as disabled.
+- Preserve gateway identity and terminal policy decisions across the streaming
+  path; harden the sandhi transport's TLS trust diagnosis and classify TLS
+  trust failures distinctly (#1203, #1205).
+- Adopt the Sandhi 0.10.1 accounting contract (`sandhi-gateway`
+  0.7.0 → 0.10.1) across the proxy and all requirement files (#1206).
+- Withhold denied tool results without replay so denied calls cannot be
+  re-executed by a resumed turn (#1204).
+- Haskell language plugin: emit the class-declaration query spelling that the
+  installed grammar era supports (the upstream `type_synomym` rename) so
+  query compilation holds across grammar wheels.
+
+### Fixed
+
+- Finalize buffered task reports on cancellation before turn teardown releases
+  the shared chat lock.
+- Close nested streaming generators before releasing per-turn locks, metrics,
+  and task reports so early client disconnects and cancellations cannot leak
+  one turn's state into the next.
+- Restore the defensive orchestrator probe in the streaming gateway
+  rate-limit check — the direct-access form broke every rate-limit retry
+  harness — and ratchet the streaming boundary registry to the reviewed
+  counts (probes 14, attributes 56) with the justification recorded
+  in-registry (#1215, #1211).
+
+## [0.10.0] - 2026-09-25
+
+- Require Python 3.12+ across core, contracts, codegraph, native extensions and
+  verticals. CI tests 3.12/3.13; Python 3.10/3.11 installations must upgrade
+  before installing the next release. Previously published releases are unchanged.
 - Headless and benchmark turns now use the shared per-turn tool-selection
   runtime (FEP-0034 Stage C), including capability/Q&A gates, intent projection,
   and KV policy. Curated schemas remain stable, pruning remains opt-in, and
@@ -35,24 +72,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Add 77 code-search tests covering filters, cache invalidation, index integrity
   and recovery, literal retrieval, and semantic dispatch/fallback without model
   downloads or a live vector database.
-
 ### Fixed
 
 - Permit the exact Dependabot co-author trailer in the attribution gate while
   retaining checks for altered identities, appended text and other bot trailers.
 
-- Finalize buffered task reports on cancellation before turn teardown releases
-  the shared chat lock.
-- Close nested streaming generators before releasing per-turn locks, metrics,
-  and task reports so early client disconnects and cancellations cannot leak
-  one turn's state into the next.
 - Preserve full-path CLI suggestions with Typer's vendored Click runtime and
   keep unrelated usage errors on their native exception path.
 - Resolve tool-pruning settings at each policy call and isolate team goals in
   per-execution context so concurrent and hierarchical runs cannot overwrite
   one another's assignments.
-
-## [0.10.0] - Unreleased candidate
 
 Version metadata is prepared on `develop`; no `v0.10.0` release tag has been published.
 
