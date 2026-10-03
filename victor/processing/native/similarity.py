@@ -12,18 +12,40 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Similarity computation functions with native acceleration."""
+"""Similarity computation functions with native acceleration.
 
-from typing import List, Tuple
+numpy is an OPTIONAL accelerator here, never a requirement: the dispatch is
+``victor_native`` (primary engine) → numpy (only for the two batch operations
+where BLAS wins, and only when importable) → pure-Python ``victor.core.vecmath``
+(final fallback). A bare ``pip install victor-ai`` (no numpy, no native wheel)
+gets correct results through vecmath.
+"""
 
-import numpy as np
+import math
+from typing import List, Optional, Tuple
 
+from victor.core import vecmath
 from victor.processing.native._base import (
     _NATIVE_AVAILABLE,
     _native,
     should_use_native_for_operation,
 )
 from victor.processing.native.observability import dispatch_with_observability
+
+_numpy_module: Optional[object] = None  # cached module; False sentinel = absent
+
+
+def _ensure_numpy():
+    """Return the numpy module when importable, else None (cached)."""
+    global _numpy_module
+    if _numpy_module is None:
+        try:
+            import numpy as np
+
+            _numpy_module = np
+        except ImportError:
+            _numpy_module = False
+    return _numpy_module or None
 
 
 @dispatch_with_observability("cosine_similarity")
@@ -43,19 +65,7 @@ def cosine_similarity(a: List[float], b: List[float]) -> float:
     if _NATIVE_AVAILABLE:
         return _native.cosine_similarity(a, b)
 
-    # Pure Python fallback using NumPy
-    a_arr = np.array(a, dtype=np.float32)
-    b_arr = np.array(b, dtype=np.float32)
-
-    if len(a_arr) != len(b_arr):
-        raise ValueError(f"Vectors must have same length: {len(a_arr)} vs {len(b_arr)}")
-
-    if len(a_arr) == 0:
-        return 0.0
-
-    norm_a = np.linalg.norm(a_arr) + 1e-9
-    norm_b = np.linalg.norm(b_arr) + 1e-9
-    return float(np.dot(a_arr, b_arr) / (norm_a * norm_b))
+    return vecmath.cosine(a, b)
 
 
 @dispatch_with_observability("batch_cosine_similarity")
@@ -75,11 +85,24 @@ def batch_cosine_similarity(query: List[float], corpus: List[List[float]]) -> Li
     Raises:
         ValueError: If query dimension doesn't match corpus dimensions
     """
-    # Benchmark-aware dispatch: prefer Python (NumPy+BLAS) for batch operations
+    # Benchmark-aware dispatch: when numpy is importable it still wins the two
+    # batch operations (BLAS matmul); without numpy the policy sends batches to
+    # the native engine, and vecmath is the last resort.
     if should_use_native_for_operation("batch_cosine_similarity"):
         return _native.batch_cosine_similarity(query, corpus)
 
-    # NumPy+BLAS fallback (actually faster for this operation)
+    np = _ensure_numpy()
+    if np is not None:
+        return _batch_cosine_numpy(np, query, corpus)
+
+    if _NATIVE_AVAILABLE:
+        return _native.batch_cosine_similarity(query, corpus)
+
+    return vecmath.batch_cosine(query, corpus)
+
+
+def _batch_cosine_numpy(np, query: List[float], corpus: List[List[float]]) -> List[float]:
+    """NumPy+BLAS batch body (fastest for this operation when numpy exists)."""
     if not corpus:
         return []
 
@@ -118,7 +141,7 @@ def top_k_similar(
     if _NATIVE_AVAILABLE:
         return _native.top_k_similar(query, corpus, k)
 
-    # Pure Python fallback
+    # Fallback reuses the dispatched batch path (native / numpy / vecmath).
     similarities = batch_cosine_similarity(query, corpus)
     indexed = list(enumerate(similarities))
     indexed.sort(key=lambda x: x[1], reverse=True)
@@ -140,14 +163,7 @@ def batch_normalize_vectors(vectors: List[List[float]]) -> List[List[float]]:
     if _NATIVE_AVAILABLE:
         return _native.batch_normalize_vectors(vectors)
 
-    # Pure Python fallback using NumPy
-    if not vectors:
-        return []
-
-    arr = np.array(vectors, dtype=np.float32)
-    norms = np.linalg.norm(arr, axis=1, keepdims=True) + 1e-9
-    normalized = arr / norms
-    return normalized.tolist()
+    return vecmath.normalize_rows(vectors)
 
 
 def batch_cosine_similarity_normalized(
@@ -169,19 +185,11 @@ def batch_cosine_similarity_normalized(
     if _NATIVE_AVAILABLE:
         return _native.batch_cosine_similarity_normalized(query, normalized_corpus)
 
-    # Pure Python fallback using NumPy
     if not normalized_corpus:
         return []
 
-    query_arr = np.array(query, dtype=np.float32)
-    corpus_arr = np.array(normalized_corpus, dtype=np.float32)
-
-    # Normalize query
-    query_normalized = query_arr / (np.linalg.norm(query_arr) + 1e-9)
-
-    # For pre-normalized corpus, similarity is just dot product
-    similarities = np.dot(corpus_arr, query_normalized)
-    return similarities.tolist()
+    query_norm = math.sqrt(sum(x * x for x in query)) + 1e-9
+    return [sum(x * y for x, y in zip(query, row)) / query_norm for row in normalized_corpus]
 
 
 def top_k_similar_normalized(
