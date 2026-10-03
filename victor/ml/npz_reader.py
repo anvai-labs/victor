@@ -193,7 +193,7 @@ def as_scalar_float(a: NpyArray) -> float:
     if a.shape == ():
         (value,) = struct.unpack("<%s" % ("f" if a.descr == "<f4" else "d"), a.data)
         return value
-    values = as_float_vector(a) if len(a.shape) == 1 else None
-    if not values:
+    if a.descr not in ("<f4", "<f8") or a.size() != 1 or len(a.shape) > 1:
         raise ValueError(f"expected single-element float array, got shape {a.shape}")
-    return values[0]
+    (value,) = struct.unpack("<%s" % ("f" if a.descr == "<f4" else "d"), a.data)
+    return value

@@ -23,6 +23,8 @@ from __future__ import annotations
 
 import math
 
+import sys
+
 import pytest
 
 import victor.agent.tool_result_cache as trc
@@ -59,3 +61,18 @@ def test_normalize_pure_path_matches_numpy_path(monkeypatch):
     pure_result = list(cache._normalize([3.0, 4.0]))
 
     assert pure_result == pytest.approx([float(x) for x in numpy_result], rel=1e-6)
+
+
+def test_module_import_survives_without_numpy(monkeypatch):
+    """Bare-install simulation: reload with numpy poisoned takes the guard."""
+    import importlib
+
+    monkeypatch.setitem(sys.modules, "numpy", None)
+    monkeypatch.delitem(sys.modules, "victor.agent.tool_result_cache", raising=False)
+    reloaded = importlib.import_module("victor.agent.tool_result_cache")
+    try:
+        assert reloaded.NUMPY_AVAILABLE is False
+        assert reloaded.np is None
+    finally:
+        monkeypatch.undo()
+        importlib.reload(importlib.import_module("victor.agent.tool_result_cache"))

@@ -44,6 +44,8 @@ Design:
 - TTL expiry: Automatic cleanup of stale entries
 """
 
+from __future__ import annotations
+
 import hashlib
 import heapq
 import math

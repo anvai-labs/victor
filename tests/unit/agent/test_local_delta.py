@@ -316,3 +316,74 @@ def test_update_distinct_sessions_both_applied(monkeypatch):
     n1 = ld.update_delta_from_session("sess-A", reward=1.0, decisions=_decisions())
     n2 = ld.update_delta_from_session("sess-B", reward=1.0, decisions=_decisions())
     assert n1 > 0 and n2 > 0
+
+
+def test_default_predict_real_artifact_numpy_blocked(monkeypatch):
+    """The real artifact-backed predict path, with numpy BLOCKED: exercises
+    the pure-Python score/softmax body end-to-end and the head-labels map."""
+    import sys
+
+    from victor.ml.features import extract_features
+
+    monkeypatch.setitem(sys.modules, "numpy", None)
+    from victor.agent.decisions import local_delta
+
+    local_delta._reset_predict_cache_for_tests()
+    monkeypatch.setattr(local_delta, "_model_cache", None)
+    try:
+        predict_fn, head_labels = local_delta._get_default_predict()
+        assert predict_fn is not None
+        assert set(head_labels) == {"stage_detection", "task_completion"}
+
+        text = "implement the parser and add regression tests"
+        features = {h: 1.0 for h in extract_features(text)}
+        probs = predict_fn("task_completion", features)
+        assert probs is not None
+        assert len(probs) == len(head_labels["task_completion"])
+        assert abs(sum(float(p) for p in probs) - 1.0) < 1e-6
+
+        # Unknown head -> None.
+        assert predict_fn("nonexistent_head", features) is None
+        # Empty features -> None.
+        assert predict_fn("task_completion", {}) is None
+    finally:
+        local_delta._reset_predict_cache_for_tests()
+
+
+def test_load_delta_builds_per_label_lists(monkeypatch, tmp_path):
+    """load_delta returns {hash: [w_per_label]} lists (no numpy containers)."""
+    import sqlite3
+
+    from victor.agent.decisions import local_delta
+
+    db = tmp_path / "delta.sqlite"
+    conn = sqlite3.connect(db)
+    conn.execute(
+        "CREATE TABLE local_classifier_delta (decision_type TEXT, feature_hash INTEGER,"
+        " label TEXT, weight REAL, feature_spec_version TEXT)"
+    )
+    conn.execute(
+        "INSERT INTO local_classifier_delta VALUES ('task_completion', 111, 'pass', 0.4, '1'),"
+        " ('task_completion', 111, 'fail', -0.2, '1'),"
+        " ('task_completion', 222, 'partial', 0.9, '1')"
+    )
+    conn.commit()
+
+    class _Cursor:
+        def __init__(self, rows):
+            self._rows = rows
+
+        def fetchall(self):
+            return self._rows
+
+    class _DB:
+        def execute(self, query, params=None):
+            return _Cursor(conn.execute(query, params or ()).fetchall())
+
+    import victor.core.database as db_mod
+
+    monkeypatch.setattr(db_mod, "get_project_database", lambda: _DB())
+
+    out = local_delta.load_delta("task_completion", ["fail", "partial", "pass"])
+    assert out[111] == pytest.approx([-0.2, 0.0, 0.4])
+    assert out[222][1] == pytest.approx(0.9)

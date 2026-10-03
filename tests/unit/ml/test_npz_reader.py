@@ -30,6 +30,7 @@ import pytest
 
 from victor.ml.npz_reader import (
     NpyArray,
+    NpyArray,
     as_float_rows,
     as_float_vector,
     as_int_vector,
@@ -189,3 +190,93 @@ def test_reader_matches_np_load_on_shipped_artifact():
                 assert as_float_rows(got) == arr.tolist()
         elif arr.dtype.kind == "i":
             assert as_int_vector(got) == arr.tolist()
+
+
+def test_reader_rejects_bad_magic_and_malformed_header_and_truncation(tmp_path: Path):
+    def one(name, payload):
+        p = tmp_path / name
+        with zipfile.ZipFile(p, "w") as zf:
+            with zf.open("x.npy", "w") as fh:
+                fh.write(payload)
+        return p
+
+    bad_magic = one("bad_magic.npy", b"\x00NOPE!" + bytes(58))
+    malformed = one(
+        "malformed.npy",
+        b"\x93NUMPY" + bytes([1, 0]) + struct.pack("<H", 12) + b"{'descr':",
+    )
+    header = "{'descr': '<f8', 'fortran_order': False, 'shape': (4, )}"
+    header = header + " " * max(0, 64 - len(header) - 10) + "\n"
+    truncated = one(
+        "truncated.npy",
+        b"\x93NUMPY"
+        + bytes([1, 0])
+        + struct.pack("<H", len(header))
+        + header.encode()
+        + b"\x00" * 8,
+    )
+
+    with pytest.raises(ValueError, match="bad magic"):
+        read_npz(bad_magic)
+    with pytest.raises(ValueError, match="malformed .npy header"):
+        read_npz(malformed)
+    with pytest.raises(ValueError, match="truncated payload"):
+        read_npz(truncated)
+
+
+def test_reader_rejects_unsupported_dtype(tmp_path: Path):
+    path = tmp_path / "dtype.npz"
+    with zipfile.ZipFile(path, "w") as zf:
+        with zf.open("x.npy", "w") as fh:
+            header = "{'descr': '<f16', 'fortran_order': False, 'shape': (1, )}"
+            header = header + " " * max(0, 64 - len(header) - 10) + "\n"
+            fh.write(
+                b"\x93NUMPY"
+                + bytes([1, 0])
+                + struct.pack("<H", len(header))
+                + header.encode()
+                + b"\x00\x01"
+            )
+    with pytest.raises(ValueError, match="unsupported dtype"):
+        read_npz(path)
+
+
+def test_converters_reject_wrong_dtype_and_shape(tmp_path: Path):
+    arrays = {
+        "f": ("<f8", (2,), [1.0, 2.0]),
+        "f2d": ("<f8", (1, 2), [1.0, 2.0]),
+        "i": ("<i8", (1,), [5]),
+        "u": ("<U3", (1,), ["abc"]),
+    }
+    path = tmp_path / "conv.npz"
+    _write_npz(path, arrays)
+    data = read_npz(path)
+
+    with pytest.raises(ValueError, match="expected float array"):
+        as_float_vector(data["i"])
+    with pytest.raises(ValueError, match="expected 1-D array"):
+        as_float_vector(data["f2d"])
+    with pytest.raises(ValueError, match="expected float array"):
+        as_float_rows(data["u"])
+    with pytest.raises(ValueError, match="expected 2-D array"):
+        as_float_rows(data["f"])
+    with pytest.raises(ValueError, match="expected int array"):
+        as_int_vector(data["f"])
+    with pytest.raises(ValueError, match="expected 1-D array"):
+        as_int_vector(NpyArray(shape=(1, 1), descr="<i8", fortran_order=False, data=b"\x00" * 8))
+    with pytest.raises(ValueError, match="expected unicode array"):
+        as_str_list(data["f"])
+    with pytest.raises(ValueError, match="expected 1-D array"):
+        as_str_list(NpyArray(shape=(1, 1), descr="<U1", fortran_order=False, data=b"\x00" * 4))
+    with pytest.raises(ValueError, match="expected single-element unicode array"):
+        as_scalar_str(NpyArray(shape=(2,), descr="<U1", fortran_order=False, data=b"\x00" * 8))
+    with pytest.raises(ValueError, match="expected float array"):
+        as_scalar_float(data["u"])
+
+
+def test_scalar_float_rejects_multi_element(tmp_path: Path):
+    arrays = {"x": ("<f8", (2,), [1.0, 2.0])}
+    path = tmp_path / "multi.npz"
+    _write_npz(path, arrays)
+    with pytest.raises(ValueError, match="expected single-element float array"):
+        as_scalar_float(read_npz(path)["x"])
