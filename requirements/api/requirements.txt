@@ -110,10 +110,6 @@ multidict==6.8.0
     # via
     #   aiohttp
     #   yarl
-numpy==2.4.6
-    # via
-    #   -c constraints.txt
-    #   victor-ai (pyproject.toml)
 openai==3.14.1
     # via victor-ai (pyproject.toml)
 orjson==3.12.0
@@ -162,6 +158,7 @@ referencing==0.37.0
     # via
     #   jsonschema
     #   jsonschema-specifications
+    #   victor-ai (pyproject.toml)
 regex==2026.9.10
     # via tiktoken
 requests==2.34.2
