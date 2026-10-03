@@ -35,7 +35,7 @@ classifiers = [
 dependencies = [
     "victor-contracts[yaml]>=0.6.0,<1.0",
     "pandas>=2.0",
-    "numpy>=1.24,<2.5",
+    "numpy>=1.24,<2.6",
 ]
 
 [project.optional-dependencies]
