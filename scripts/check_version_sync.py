@@ -7,7 +7,9 @@ Checks:
   1. VERSION file exists and matches victor-ai pyproject.toml
   2. victor-contracts/VERSION exists and matches victor-contracts pyproject.toml
   3. victor-ai's dependency on victor-contracts uses a compatible range
-  4. Native manifests, lock and installation extra agree on the independent version
+  4. Native manifests, lock and installation extra agree with each other AND with
+     the victor-ai release version (the native wheel version is synchronized —
+     a drift re-uploads an already-published wheel and 400s the release)
 
 Exit code 0 on success, 1 on mismatch.
 """
@@ -48,8 +50,13 @@ def extract_sdk_dependency(toml_path: Path) -> str:
     return match.group(1)
 
 
-def native_version_errors(root: Path) -> list[str]:
-    """Reject partial native-version bumps before any artifacts are published."""
+def native_version_errors(root: Path, ai_version: str | None = None) -> list[str]:
+    """Reject partial native-version bumps before any artifacts are published.
+
+    The native wheel version is synchronized with the victor-ai release
+    version (a drift shipped a stale already-published wheel in 0.11.0 and
+    failed the PyPI upload with 400 File already exists).
+    """
 
     def read(relative: str) -> dict[str, Any]:
         return tomllib.loads((root / relative).read_text())
@@ -67,15 +74,19 @@ def native_version_errors(root: Path) -> list[str]:
         errors.append("native Python, Cargo manifest and lock versions must agree")
     if f"victor-native>={version}" not in extra:
         errors.append("the native extra must require the current native artifact version")
+    if ai_version is not None and version != ai_version:
+        errors.append(
+            f"native artifact version ({version}) must equal the victor-ai "
+            f"release version ({ai_version}); run 'make sync-version'"
+        )
     return errors
 
 
 def main() -> None:
-    errors = native_version_errors(ROOT)
-
-    # Check victor-ai version
+    # Check victor-ai version first: the native gate compares against it.
     ai_version = read_version(ROOT / "VERSION")
     ai_toml_version = extract_toml_version(ROOT / "pyproject.toml")
+    errors = native_version_errors(ROOT, ai_toml_version)
     print(f"victor-ai VERSION file: {ai_version}")
     print(f"victor-ai pyproject.toml: {ai_toml_version}")
     if ai_version != ai_toml_version:

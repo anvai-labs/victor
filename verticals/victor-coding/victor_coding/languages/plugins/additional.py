@@ -34,7 +34,7 @@ These plugins support embedding-based indexing for:
 
 import logging
 from pathlib import Path
-from typing import List, Optional, TYPE_CHECKING
+from typing import Any, List, Optional, TYPE_CHECKING
 
 from victor_coding.languages.base import (
     BaseLanguagePlugin,
@@ -2233,6 +2233,23 @@ class ElixirPlugin(BaseLanguagePlugin):
         )
 
 
+def _haskell_type_class_node(language: Any) -> str:
+    """Return the haskell class-declaration node spelling for this grammar.
+
+    tree-sitter-haskell shipped the node as ``type_synomym`` (an upstream
+    typo) and renamed it to ``type_synonym`` in later releases. Probe the
+    installed grammar so one plugin serves both eras; defaults to the legacy
+    spelling when probing is impossible.
+    """
+    try:
+        from tree_sitter import Query
+
+        Query(language, "(type_synonym (name) @name)")
+        return "type_synonym"
+    except Exception:
+        return "type_synomym"
+
+
 class HaskellPlugin(BaseLanguagePlugin):
     """Haskell language plugin."""
 
@@ -2281,30 +2298,31 @@ class HaskellPlugin(BaseLanguagePlugin):
         )
 
     def _create_tree_sitter_queries(self) -> TreeSitterQueries:
-        from victor_coding.codebase.tree_sitter_service import get_tree_sitter_service
-
-        # 0.24 corrected the grammar's historical type_synomym spelling.
-        # Select against the canonical loaded grammar, keeping optional grammar
-        # absence compatible with metadata-only plugin inspection.
-        synonym_node = "type_synomym"
-        grammar = get_tree_sitter_service().get_language("haskell")
-        if grammar is not None:
-            for candidate in ("type_synonym", "type_synomym"):
-                if grammar.id_for_node_kind(candidate, True) is not None:
-                    synonym_node = candidate
-                    break
-            else:
-                raise ValueError("Haskell grammar has no supported type-synonym node")
-        # Type declarations are the synonym node, `newtype`, `data_type`; their child holding
-        # the type name is `(name)`, not `name: (type)`. Function
+        # tree-sitter-haskell: the declared name is the `name:`-field child of
+        # the declaration node. The field qualifier is load-bearing: an
+        # unfielded `(name)` capture also matches right-hand-side type and
+        # constructor names, emitting them as phantom class symbols. Function
         # application is `(apply . (variable))` — the leading anchor `.`
         # captures only the function position, not argument variables.
+        # The type-synonym node spelling is grammar-era dependent and
+        # resolved by _haskell_type_class_node.
+        try:
+            from victor_coding.codebase.tree_sitter_service import (
+                get_tree_sitter_service,
+            )
+
+            language = get_tree_sitter_service().get_language("haskell")
+        except Exception:
+            language = None
+        type_class_node = (
+            _haskell_type_class_node(language) if language is not None else "type_synomym"
+        )
         return TreeSitterQueries(
             symbols=[
                 QueryPattern("function", "(function name: (variable) @name)"),
-                QueryPattern("class", f"({synonym_node} name: (name) @name)"),
-                QueryPattern("class", "(newtype (name) @name)"),
-                QueryPattern("class", "(data_type (name) @name)"),
+                QueryPattern("class", f"({type_class_node} name: (name) @name)"),
+                QueryPattern("class", "(newtype name: (name) @name)"),
+                QueryPattern("class", "(data_type name: (name) @name)"),
             ],
             calls="""
                 (apply . (variable) @callee)
