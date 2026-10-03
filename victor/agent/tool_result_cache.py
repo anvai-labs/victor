@@ -46,6 +46,7 @@ Design:
 
 import hashlib
 import heapq
+import math
 from victor.core.json_utils import json_dumps
 import logging
 import threading
@@ -234,8 +235,16 @@ class ToolResultCache:
                 logger.warning("FAISS not available, falling back to numpy search")
                 self._embedding_dim = dim
 
-    def _normalize(self, vec: np.ndarray) -> np.ndarray:
-        """Normalize vector for cosine similarity."""
+    def _normalize(self, vec):
+        """Normalize vector for cosine similarity (numpy-optional).
+
+        With numpy absent (bare install), falls back to pure math on lists;
+        the cache is only *populated* under the embeddings extra, which ships
+        numpy — this path exists so absence degrades instead of crashing.
+        """
+        if np is None:
+            norm = math.sqrt(sum(float(x) * float(x) for x in vec))
+            return [x / norm for x in vec] if norm > 0 else list(vec)
         norm = np.linalg.norm(vec)
         if norm > 0:
             return vec / norm
