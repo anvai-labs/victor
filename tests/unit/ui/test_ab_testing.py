@@ -47,9 +47,9 @@ def test_ab_testing_command_import_keeps_numpy_and_scipy_off_the_chain():
         text=True,
         timeout=120,
     )
-    assert result.returncode == 0 and "LAZY_OK" in result.stdout, (
-        f"ab_testing CLI module eagerly imports heavy deps:\n{result.stderr[-1200:]}"
-    )
+    assert (
+        result.returncode == 0 and "LAZY_OK" in result.stdout
+    ), f"ab_testing CLI module eagerly imports heavy deps:\n{result.stderr[-1200:]}"
 
 
 def test_list_experiments_lazily_imports_the_paths_helper(monkeypatch):
@@ -73,5 +73,5 @@ def test_list_experiments_lazily_imports_the_paths_helper(monkeypatch):
     try:
         _list_experiments(None)
     except (SystemExit, click.exceptions.Exit):
-        pass  # 'No experiments found' exits 0
+        pass  # 'No experiments found' exits 0 (typer.Exit is click's Exit)
     assert called.get("hit") is True
