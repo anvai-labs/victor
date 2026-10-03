@@ -53,7 +53,9 @@ class ToolExecutionRuntime:
     def __init__(self, runtime_host: Any) -> None:
         self._runtime = runtime_host
 
-    async def execute_tool_calls(self, tool_calls: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    async def execute_tool_calls(
+        self, tool_calls: List[Dict[str, Any]], *, require_persistence: bool = False
+    ) -> List[Dict[str, Any]]:
         """Execute tool calls and post-process results through the canonical services."""
         runtime = self._runtime
         if not tool_calls:
@@ -109,9 +111,12 @@ class ToolExecutionRuntime:
 
         runtime.tool_calls_used = runtime._tool_pipeline.calls_used
         self._record_tool_intents(runtime, tool_calls)
-        await self._compact_before_tool_result_injection(runtime, pipeline_result)
+        if not require_persistence:
+            await self._compact_before_tool_result_injection(runtime, pipeline_result)
 
-        return self._process_pipeline_result(pipeline_result, tool_calls)
+        return self._process_pipeline_result(
+            pipeline_result, tool_calls, require_persistence=require_persistence
+        )
 
     def _process_pipeline_result(
         self,

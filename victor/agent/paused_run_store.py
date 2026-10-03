@@ -39,7 +39,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Protocol, Tuple, runtime_checkable
+from typing import Any, Callable, Dict, List, Optional, Protocol, Tuple, runtime_checkable
 
 #: FEP-0029: a pending pause older than this (seconds) is considered stale — the resume seam expires
 #: it (opportunistic GC) rather than acting on a day-old approval. Generous by default (24h).
@@ -60,6 +60,7 @@ class PausedRun:
     status: str = "awaiting_approval"  # 'awaiting_approval' | 'resumed' | 'cancelled'
     created_at: float = 0.0
     metadata: Dict[str, Any] = field(default_factory=dict)
+    action: Optional[Dict[str, Any]] = None
 
 
 @runtime_checkable
@@ -152,7 +153,7 @@ class InMemoryPausedRunStore:
         return expired
 
     def purge(self, *, before: float) -> int:
-        """Delete terminal (non-pending) runs created before ``before``. Returns the count."""
+        """Purge old terminal approvals, retaining all durable action evidence."""
         with self._lock:
             drop = [
                 rid
@@ -179,7 +180,8 @@ CREATE TABLE IF NOT EXISTS paused_run (
     status           TEXT NOT NULL DEFAULT 'awaiting_approval',
     created_at       REAL,
     resumed_at       REAL,
-    metadata         TEXT
+    metadata         TEXT,
+    action_record    TEXT
 )
 """
 
@@ -199,6 +201,49 @@ class ProjectDbPausedRunStore:
     metadata. Accepts an explicit ``db_path`` so tests can point at a temporary database.
     """
 
+    durable_actions = True
+
+    def _change_action(
+        self, run_id: str, change: Callable[[PausedRun], Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        from victor.agent.action_observation import ActionStateError
+
+        with self._write_lock:
+            conn = self._conn()
+            try:
+                conn.execute("BEGIN IMMEDIATE")
+                row = conn.execute(
+                    "SELECT * FROM paused_run WHERE run_id = ?", (run_id,)
+                ).fetchone()
+                if row is None:
+                    raise ActionStateError("Unknown action approval")
+                action = change(self._row_to_run(row))
+                conn.execute(
+                    "UPDATE paused_run SET action_record = ? WHERE run_id = ?",
+                    (json.dumps(action, allow_nan=False), run_id),
+                )
+                conn.commit()
+                return action
+            except BaseException:
+                conn.rollback()
+                raise
+
+    def begin_action(self, run_id: str, binding: Dict[str, Any]) -> Dict[str, Any]:
+        """Atomically persist intent; an existing intent never authorizes replay."""
+        from victor.agent.action_observation import begin_record
+
+        return self._change_action(run_id, lambda run: begin_record(run, binding))
+
+    def observe_action(
+        self, run_id: str, action_id: str, state: str, reported_success: Optional[bool]
+    ) -> Dict[str, Any]:
+        """Settle an invocation observation once; this is not a backend receipt."""
+        from victor.agent.action_observation import observe_record
+
+        return self._change_action(
+            run_id, lambda run: observe_record(run.action, action_id, state, reported_success)
+        )
+
     def __init__(self, db_path: Optional[Path] = None) -> None:
         if db_path is None:
             from victor.config.settings import get_project_paths
@@ -214,10 +259,18 @@ class ProjectDbPausedRunStore:
             self.db_path.parent.mkdir(parents=True, exist_ok=True)
             conn = sqlite3.connect(str(self.db_path), timeout=60.0, check_same_thread=False)
             conn.row_factory = sqlite3.Row
-            conn.execute(_PAUSED_RUN_DDL)
-            for index_sql in _PAUSED_RUN_INDEXES:
-                conn.execute(index_sql)
-            conn.commit()
+            try:
+                conn.execute("BEGIN IMMEDIATE")
+                conn.execute(_PAUSED_RUN_DDL)
+                columns = {row[1] for row in conn.execute("PRAGMA table_info(paused_run)")}
+                if "action_record" not in columns:
+                    conn.execute("ALTER TABLE paused_run ADD COLUMN action_record TEXT")
+                for index_sql in _PAUSED_RUN_INDEXES:
+                    conn.execute(index_sql)
+                conn.commit()
+            except BaseException:
+                conn.close()  # Rolls back schema changes and releases the SQLite lock.
+                raise
             self._local.conn = conn
         return conn
 
@@ -232,6 +285,7 @@ class ProjectDbPausedRunStore:
             status=row["status"],
             created_at=row["created_at"] or 0.0,
             metadata=json.loads(row["metadata"]) if row["metadata"] else {},
+            action=json.loads(row["action_record"]) if row["action_record"] else None,
         )
 
     def save(
@@ -306,11 +360,12 @@ class ProjectDbPausedRunStore:
             return cur.rowcount
 
     def purge(self, *, before: float) -> int:
-        """Delete terminal (non-pending) runs created before ``before``. Returns the count."""
+        """Purge old terminal approvals, retaining all durable action evidence."""
         with self._write_lock:
             conn = self._conn()
             cur = conn.execute(
-                "DELETE FROM paused_run WHERE status != 'awaiting_approval' AND created_at < ?",
+                "DELETE FROM paused_run WHERE status != 'awaiting_approval' "
+                "AND action_record IS NULL AND created_at < ?",
                 (before,),
             )
             conn.commit()
