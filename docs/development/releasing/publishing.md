@@ -164,9 +164,12 @@ When a tag matching `v*` is pushed, GitHub Actions automatically:
 
 **Standalone Binaries:**
 - `victor-macos-arm64.tar.gz`
-- `victor-macos-x64.tar.gz`
+- `victor-linux-x64.tar.gz`
+- `victor-linux-arm64.tar.gz`
 - `victor-windows-x64.zip`
-- Linux: Use `pip install victor-ai` (PyInstaller + PyTorch too complex)
+
+Each artifact is smoke-tested in CI (cold/warm `--version`, `--help`, size
+tripwire) before it reaches the release.
 
 **Docker Images:**
 - `vjsingh1984/victor-ai:<version>`

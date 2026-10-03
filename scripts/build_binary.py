@@ -124,22 +124,19 @@ def get_hidden_imports() -> list[str]:
         "tiktoken",
         "tiktoken_ext",
         "tiktoken_ext.openai_public",
-        # Sentence transformers
-        "sentence_transformers",
-        "transformers",
-        "torch",
         # Async
         "asyncio",
         "aiofiles",
-        # Vector storage
-        "lancedb",
-        "pyarrow",
         # Other
-        "git",
-        "docker",
         "jsonschema",
         "pygments",
     ]
+    # NOTE: sentence_transformers/transformers/torch/lancedb/pyarrow/docker
+    # were pruned — none are core deps any more (lean-default move), so these
+    # hidden imports only produced "not found" warnings that masked real
+    # misses. numpy is intentionally NOT excluded: the bytecode scan pulls it
+    # via the numpy-optional lazy sites, and bundling ~30MB is safer than a
+    # crash in an unexercised optional path.
 
 
 def get_data_files() -> list[tuple[str, str]]:
