@@ -240,14 +240,14 @@ jobs:
           - os: macos-latest
             platform: macos
             arch: arm64
-          # Linux x64 + ARM64 (native runners; core is ML-free since the
-          # lean-default move, so PyInstaller no longer drags torch)
+          # Linux x64 (native runner; core is ML-free since the lean-default
+          # move, so PyInstaller no longer drags torch). ARM64 is pending
+          # sandhi-gateway publishing a manylinux-aarch64 wheel — until then
+          # the pinned sandhi-gateway cannot install on that platform (which
+          # also affects pip installs there, independent of binaries).
           - os: ubuntu-24.04
             platform: linux
             arch: x64
-          - os: ubuntu-24.04-arm
-            platform: linux
-            arch: arm64
           # Windows x64
           - os: windows-latest
             platform: windows
@@ -276,11 +276,13 @@ jobs:
       - name: Smoke test binary (Unix)
         if: runner.os != 'Windows'
         run: |
-          # Cold run exercises the onefile extraction; a broken archive fails here.
-          timeout 120 dist/victor --version
+          # Cold run exercises the onefile extraction; a broken archive fails
+          # here. No GNU `timeout` on macOS runners — the job timeout bounds a
+          # hang, and a broken archive fails fast on its own.
+          dist/victor --version
           # Warm run asserts the extraction cache reuse.
-          timeout 60 dist/victor --version
-          timeout 60 dist/victor --help | head -5 | grep -q "Usage"
+          dist/victor --version
+          dist/victor --help | head -5 | grep -q "Usage"
           # Tripwire: accidental ML-stack bundling would blow past this.
           size_mb=$(du -m dist/victor | cut -f1)
           echo "binary size: ${size_mb}MB"
@@ -786,7 +788,7 @@ jobs:
           |----------|--------------|----------|
           | macOS | ARM64 (M1/M2/M3/M4) | \`victor-macos-arm64.tar.gz\` |
           | Windows | x64 | \`victor-windows-x64.zip\` |
-          | Linux | x64 / ARM64 | \`victor-linux-x64.tar.gz\` / \`victor-linux-arm64.tar.gz\`, or \`pip install victor-ai\` |
+          | Linux | x64 (ARM64: pip, pending a sandhi aarch64 wheel) | \`victor-linux-x64.tar.gz\`, or \`pip install victor-ai\` |
 
           ## Verification
 

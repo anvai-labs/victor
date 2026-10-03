@@ -165,7 +165,8 @@ When a tag matching `v*` is pushed, GitHub Actions automatically:
 **Standalone Binaries:**
 - `victor-macos-arm64.tar.gz`
 - `victor-linux-x64.tar.gz`
-- `victor-linux-arm64.tar.gz`
+- (`victor-linux-arm64.tar.gz` — pending sandhi-gateway publishing a
+  manylinux-aarch64 wheel; the pinned exact version cannot install there yet)
 - `victor-windows-x64.zip`
 
 Each artifact is smoke-tested in CI (cold/warm `--version`, `--help`, size
