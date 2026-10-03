@@ -55,7 +55,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 
-import numpy as np
+try:
+    import numpy as np
+
+    NUMPY_AVAILABLE = True
+except ImportError:  # bare install: these caches require victor-ai[embeddings]
+    np = None
+    NUMPY_AVAILABLE = False
 
 if TYPE_CHECKING:
     from victor.storage.embeddings.service import EmbeddingService

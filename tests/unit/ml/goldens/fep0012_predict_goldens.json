@@ -1,0 +1,3038 @@
+{
+ "feature_spec_version": "1",
+ "goldens": [
+  {
+   "decision_type": "stage_detection",
+   "text": "implement the feature and add tests for the parser",
+   "delta": null,
+   "expected_label": "fail",
+   "expected_confidence": 0.5753917867697298,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "stage_detection",
+   "text": "implement the feature and add tests for the parser",
+   "delta": {
+    "154688": [
+     0.05,
+     0.05
+    ],
+    "76675": [
+     0.05,
+     0.05
+    ],
+    "83138": [
+     0.05,
+     0.05
+    ],
+    "10415": [
+     0.05,
+     0.05
+    ],
+    "213226": [
+     0.05,
+     0.05
+    ],
+    "103584": [
+     0.05,
+     0.05
+    ],
+    "176277": [
+     0.05,
+     0.05
+    ],
+    "71428": [
+     0.05,
+     0.05
+    ],
+    "189675": [
+     0.05,
+     0.05
+    ],
+    "155062": [
+     0.05,
+     0.05
+    ]
+   },
+   "expected_label": "fail",
+   "expected_confidence": 0.5753917867697298,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "stage_detection",
+   "text": "run the full test suite and report failures",
+   "delta": null,
+   "expected_label": "pass",
+   "expected_confidence": 0.5663888658813933,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "stage_detection",
+   "text": "run the full test suite and report failures",
+   "delta": {
+    "56193": [
+     0.05,
+     0.05
+    ],
+    "76675": [
+     0.05,
+     0.05
+    ],
+    "189401": [
+     0.05,
+     0.05
+    ],
+    "155516": [
+     0.05,
+     0.05
+    ],
+    "229468": [
+     0.05,
+     0.05
+    ],
+    "10415": [
+     0.05,
+     0.05
+    ],
+    "118407": [
+     0.05,
+     0.05
+    ],
+    "1926": [
+     0.05,
+     0.05
+    ],
+    "18997": [
+     0.05,
+     0.05
+    ],
+    "172492": [
+     0.05,
+     0.05
+    ]
+   },
+   "expected_label": "pass",
+   "expected_confidence": 0.5663888658813933,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "stage_detection",
+   "text": "fix the race condition in the connection pool",
+   "delta": null,
+   "expected_label": "pass",
+   "expected_confidence": 0.5364715662787676,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "stage_detection",
+   "text": "fix the race condition in the connection pool",
+   "delta": {
+    "4898": [
+     0.05,
+     0.05
+    ],
+    "76675": [
+     0.05,
+     0.05
+    ],
+    "111066": [
+     0.05,
+     0.05
+    ],
+    "183180": [
+     0.05,
+     0.05
+    ],
+    "114568": [
+     0.05,
+     0.05
+    ],
+    "98589": [
+     0.05,
+     0.05
+    ],
+    "174546": [
+     0.05,
+     0.05
+    ],
+    "117909": [
+     0.05,
+     0.05
+    ],
+    "12113": [
+     0.05,
+     0.05
+    ],
+    "123694": [
+     0.05,
+     0.05
+    ]
+   },
+   "expected_label": "pass",
+   "expected_confidence": 0.5364715662787676,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "stage_detection",
+   "text": "refactor the storage layer to use the repository pattern",
+   "delta": null,
+   "expected_label": "fail",
+   "expected_confidence": 0.5237956369517159,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "stage_detection",
+   "text": "refactor the storage layer to use the repository pattern",
+   "delta": {
+    "181268": [
+     0.05,
+     0.05
+    ],
+    "76675": [
+     0.05,
+     0.05
+    ],
+    "51468": [
+     0.05,
+     0.05
+    ],
+    "73439": [
+     0.05,
+     0.05
+    ],
+    "43094": [
+     0.05,
+     0.05
+    ],
+    "200834": [
+     0.05,
+     0.05
+    ],
+    "241642": [
+     0.05,
+     0.05
+    ],
+    "60427": [
+     0.05,
+     0.05
+    ],
+    "63056": [
+     0.05,
+     0.05
+    ],
+    "141530": [
+     0.05,
+     0.05
+    ]
+   },
+   "expected_label": "fail",
+   "expected_confidence": 0.5237956369517159,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "stage_detection",
+   "text": "write documentation for the public API",
+   "delta": null,
+   "expected_label": "pass",
+   "expected_confidence": 0.5628305447900641,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "stage_detection",
+   "text": "write documentation for the public API",
+   "delta": {
+    "8729": [
+     0.05,
+     0.05
+    ],
+    "68459": [
+     0.05,
+     0.05
+    ],
+    "176277": [
+     0.05,
+     0.05
+    ],
+    "76675": [
+     0.05,
+     0.05
+    ],
+    "124562": [
+     0.05,
+     0.05
+    ],
+    "2070": [
+     0.05,
+     0.05
+    ],
+    "22402": [
+     0.05,
+     0.05
+    ],
+    "213398": [
+     0.05,
+     0.05
+    ],
+    "197710": [
+     0.05,
+     0.05
+    ],
+    "255088": [
+     0.05,
+     0.05
+    ]
+   },
+   "expected_label": "pass",
+   "expected_confidence": 0.5628305447900642,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "stage_detection",
+   "text": "review the pull request and flag security issues",
+   "delta": null,
+   "expected_label": "pass",
+   "expected_confidence": 0.6168944949569873,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "stage_detection",
+   "text": "review the pull request and flag security issues",
+   "delta": {
+    "3640": [
+     0.05,
+     0.05
+    ],
+    "76675": [
+     0.05,
+     0.05
+    ],
+    "139885": [
+     0.05,
+     0.05
+    ],
+    "223491": [
+     0.05,
+     0.05
+    ],
+    "10415": [
+     0.05,
+     0.05
+    ],
+    "245609": [
+     0.05,
+     0.05
+    ],
+    "111653": [
+     0.05,
+     0.05
+    ],
+    "170500": [
+     0.05,
+     0.05
+    ],
+    "159770": [
+     0.05,
+     0.05
+    ],
+    "203573": [
+     0.05,
+     0.05
+    ]
+   },
+   "expected_label": "pass",
+   "expected_confidence": 0.6168944949569873,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "stage_detection",
+   "text": "deploy the service to staging and run smoke tests",
+   "delta": null,
+   "expected_label": "pass",
+   "expected_confidence": 0.5273349970408094,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "stage_detection",
+   "text": "deploy the service to staging and run smoke tests",
+   "delta": {
+    "135840": [
+     0.05,
+     0.05
+    ],
+    "76675": [
+     0.05,
+     0.05
+    ],
+    "243969": [
+     0.05,
+     0.05
+    ],
+    "43094": [
+     0.05,
+     0.05
+    ],
+    "14086": [
+     0.05,
+     0.05
+    ],
+    "10415": [
+     0.05,
+     0.05
+    ],
+    "56193": [
+     0.05,
+     0.05
+    ],
+    "119317": [
+     0.05,
+     0.05
+    ],
+    "103584": [
+     0.05,
+     0.05
+    ],
+    "250881": [
+     0.05,
+     0.05
+    ]
+   },
+   "expected_label": "pass",
+   "expected_confidence": 0.5273349970408094,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "stage_detection",
+   "text": "debug why the scheduler skips every second task",
+   "delta": null,
+   "expected_label": "fail",
+   "expected_confidence": 0.5241041949014367,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "stage_detection",
+   "text": "debug why the scheduler skips every second task",
+   "delta": {
+    "255711": [
+     0.05,
+     0.05
+    ],
+    "10101": [
+     0.05,
+     0.05
+    ],
+    "76675": [
+     0.05,
+     0.05
+    ],
+    "27249": [
+     0.05,
+     0.05
+    ],
+    "181239": [
+     0.05,
+     0.05
+    ],
+    "97601": [
+     0.05,
+     0.05
+    ],
+    "248234": [
+     0.05,
+     0.05
+    ],
+    "70967": [
+     0.05,
+     0.05
+    ],
+    "249098": [
+     0.05,
+     0.05
+    ],
+    "188049": [
+     0.05,
+     0.05
+    ]
+   },
+   "expected_label": "fail",
+   "expected_confidence": 0.5241041949014367,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "stage_detection",
+   "text": "add retry logic with exponential backoff to the client",
+   "delta": null,
+   "expected_label": "pass",
+   "expected_confidence": 0.530822279868704,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "stage_detection",
+   "text": "add retry logic with exponential backoff to the client",
+   "delta": {
+    "213226": [
+     0.05,
+     0.05
+    ],
+    "80142": [
+     0.05,
+     0.05
+    ],
+    "96723": [
+     0.05,
+     0.05
+    ],
+    "242912": [
+     0.05,
+     0.05
+    ],
+    "137100": [
+     0.05,
+     0.05
+    ],
+    "184860": [
+     0.05,
+     0.05
+    ],
+    "43094": [
+     0.05,
+     0.05
+    ],
+    "76675": [
+     0.05,
+     0.05
+    ],
+    "74585": [
+     0.05,
+     0.05
+    ],
+    "179572": [
+     0.05,
+     0.05
+    ]
+   },
+   "expected_label": "pass",
+   "expected_confidence": 0.530822279868704,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "stage_detection",
+   "text": "extract the validation logic into a shared module",
+   "delta": null,
+   "expected_label": "fail",
+   "expected_confidence": 0.5919763742646634,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "stage_detection",
+   "text": "extract the validation logic into a shared module",
+   "delta": {
+    "139023": [
+     0.05,
+     0.05
+    ],
+    "76675": [
+     0.05,
+     0.05
+    ],
+    "216219": [
+     0.05,
+     0.05
+    ],
+    "96723": [
+     0.05,
+     0.05
+    ],
+    "82232": [
+     0.05,
+     0.05
+    ],
+    "131509": [
+     0.05,
+     0.05
+    ],
+    "7357": [
+     0.05,
+     0.05
+    ],
+    "163354": [
+     0.05,
+     0.05
+    ],
+    "204395": [
+     0.05,
+     0.05
+    ],
+    "49345": [
+     0.05,
+     0.05
+    ]
+   },
+   "expected_label": "fail",
+   "expected_confidence": 0.5919763742646634,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "stage_detection",
+   "text": "migrate the database schema and backfill rows",
+   "delta": null,
+   "expected_label": "fail",
+   "expected_confidence": 0.5526432867576133,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "stage_detection",
+   "text": "migrate the database schema and backfill rows",
+   "delta": {
+    "6993": [
+     0.05,
+     0.05
+    ],
+    "76675": [
+     0.05,
+     0.05
+    ],
+    "74508": [
+     0.05,
+     0.05
+    ],
+    "127605": [
+     0.05,
+     0.05
+    ],
+    "10415": [
+     0.05,
+     0.05
+    ],
+    "125235": [
+     0.05,
+     0.05
+    ],
+    "83095": [
+     0.05,
+     0.05
+    ],
+    "132422": [
+     0.05,
+     0.05
+    ],
+    "56803": [
+     0.05,
+     0.05
+    ],
+    "145091": [
+     0.05,
+     0.05
+    ]
+   },
+   "expected_label": "fail",
+   "expected_confidence": 0.5526432867576133,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "stage_detection",
+   "text": "profile the hot loop and reduce allocations",
+   "delta": null,
+   "expected_label": "fail",
+   "expected_confidence": 0.6823251177943089,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "stage_detection",
+   "text": "profile the hot loop and reduce allocations",
+   "delta": {
+    "226221": [
+     0.05,
+     0.05
+    ],
+    "76675": [
+     0.05,
+     0.05
+    ],
+    "186998": [
+     0.05,
+     0.05
+    ],
+    "103973": [
+     0.05,
+     0.05
+    ],
+    "10415": [
+     0.05,
+     0.05
+    ],
+    "22304": [
+     0.05,
+     0.05
+    ],
+    "59014": [
+     0.05,
+     0.05
+    ],
+    "72476": [
+     0.05,
+     0.05
+    ],
+    "170532": [
+     0.05,
+     0.05
+    ],
+    "214918": [
+     0.05,
+     0.05
+    ]
+   },
+   "expected_label": "fail",
+   "expected_confidence": 0.6823251177943089,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "stage_detection",
+   "text": "update dependencies and fix breaking changes",
+   "delta": null,
+   "expected_label": "fail",
+   "expected_confidence": 0.5678371475072821,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "stage_detection",
+   "text": "update dependencies and fix breaking changes",
+   "delta": {
+    "229266": [
+     0.05,
+     0.05
+    ],
+    "140045": [
+     0.05,
+     0.05
+    ],
+    "10415": [
+     0.05,
+     0.05
+    ],
+    "4898": [
+     0.05,
+     0.05
+    ],
+    "79276": [
+     0.05,
+     0.05
+    ],
+    "251646": [
+     0.05,
+     0.05
+    ],
+    "71520": [
+     0.05,
+     0.05
+    ],
+    "4346": [
+     0.05,
+     0.05
+    ],
+    "197612": [
+     0.05,
+     0.05
+    ],
+    "80437": [
+     0.05,
+     0.05
+    ]
+   },
+   "expected_label": "fail",
+   "expected_confidence": 0.5678371475072821,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "stage_detection",
+   "text": "search the codebase for all usages of the config loader",
+   "delta": null,
+   "expected_label": "fail",
+   "expected_confidence": 0.5561669831470146,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "stage_detection",
+   "text": "search the codebase for all usages of the config loader",
+   "delta": {
+    "112498": [
+     0.05,
+     0.05
+    ],
+    "76675": [
+     0.05,
+     0.05
+    ],
+    "87374": [
+     0.05,
+     0.05
+    ],
+    "176277": [
+     0.05,
+     0.05
+    ],
+    "23403": [
+     0.05,
+     0.05
+    ],
+    "25152": [
+     0.05,
+     0.05
+    ],
+    "133774": [
+     0.05,
+     0.05
+    ],
+    "142104": [
+     0.05,
+     0.05
+    ],
+    "75169": [
+     0.05,
+     0.05
+    ],
+    "57371": [
+     0.05,
+     0.05
+    ]
+   },
+   "expected_label": "fail",
+   "expected_confidence": 0.5561669831470146,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "stage_detection",
+   "text": "draft the migration plan for the auth service",
+   "delta": null,
+   "expected_label": "fail",
+   "expected_confidence": 0.631291832960821,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "stage_detection",
+   "text": "draft the migration plan for the auth service",
+   "delta": {
+    "170866": [
+     0.05,
+     0.05
+    ],
+    "76675": [
+     0.05,
+     0.05
+    ],
+    "104395": [
+     0.05,
+     0.05
+    ],
+    "12949": [
+     0.05,
+     0.05
+    ],
+    "176277": [
+     0.05,
+     0.05
+    ],
+    "217343": [
+     0.05,
+     0.05
+    ],
+    "243969": [
+     0.05,
+     0.05
+    ],
+    "237628": [
+     0.05,
+     0.05
+    ],
+    "31298": [
+     0.05,
+     0.05
+    ],
+    "129955": [
+     0.05,
+     0.05
+    ]
+   },
+   "expected_label": "fail",
+   "expected_confidence": 0.631291832960821,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "stage_detection",
+   "text": "the build failed on CI after the dependency bump",
+   "delta": null,
+   "expected_label": "pass",
+   "expected_confidence": 0.5410668546496136,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "stage_detection",
+   "text": "the build failed on CI after the dependency bump",
+   "delta": {
+    "76675": [
+     0.05,
+     0.05
+    ],
+    "107337": [
+     0.05,
+     0.05
+    ],
+    "101033": [
+     0.05,
+     0.05
+    ],
+    "51569": [
+     0.05,
+     0.05
+    ],
+    "98452": [
+     0.05,
+     0.05
+    ],
+    "235378": [
+     0.05,
+     0.05
+    ],
+    "90130": [
+     0.05,
+     0.05
+    ],
+    "256346": [
+     0.05,
+     0.05
+    ],
+    "93082": [
+     0.05,
+     0.05
+    ],
+    "210103": [
+     0.05,
+     0.05
+    ]
+   },
+   "expected_label": "pass",
+   "expected_confidence": 0.5410668546496136,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "stage_detection",
+   "text": "tests are flaky: the websocket test times out intermittently",
+   "delta": null,
+   "expected_label": "pass",
+   "expected_confidence": 0.6612285387004664,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "stage_detection",
+   "text": "tests are flaky: the websocket test times out intermittently",
+   "delta": {
+    "103584": [
+     0.05,
+     0.05
+    ],
+    "261610": [
+     0.05,
+     0.05
+    ],
+    "31131": [
+     0.05,
+     0.05
+    ],
+    "76675": [
+     0.05,
+     0.05
+    ],
+    "88075": [
+     0.05,
+     0.05
+    ],
+    "155516": [
+     0.05,
+     0.05
+    ],
+    "157861": [
+     0.05,
+     0.05
+    ],
+    "122070": [
+     0.05,
+     0.05
+    ],
+    "138875": [
+     0.05,
+     0.05
+    ],
+    "239172": [
+     0.05,
+     0.05
+    ]
+   },
+   "expected_label": "pass",
+   "expected_confidence": 0.6612285387004664,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "stage_detection",
+   "text": "the parser crashes on empty input files",
+   "delta": null,
+   "expected_label": "pass",
+   "expected_confidence": 0.5078125370999984,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "stage_detection",
+   "text": "the parser crashes on empty input files",
+   "delta": {
+    "76675": [
+     0.05,
+     0.05
+    ],
+    "71428": [
+     0.05,
+     0.05
+    ],
+    "147392": [
+     0.05,
+     0.05
+    ],
+    "51569": [
+     0.05,
+     0.05
+    ],
+    "26878": [
+     0.05,
+     0.05
+    ],
+    "138138": [
+     0.05,
+     0.05
+    ],
+    "213691": [
+     0.05,
+     0.05
+    ],
+    "226836": [
+     0.05,
+     0.05
+    ],
+    "182166": [
+     0.05,
+     0.05
+    ],
+    "38955": [
+     0.05,
+     0.05
+    ]
+   },
+   "expected_label": "pass",
+   "expected_confidence": 0.5078125370999984,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "stage_detection",
+   "text": "memory usage grows during long indexing sessions",
+   "delta": null,
+   "expected_label": "fail",
+   "expected_confidence": 0.5035908842246108,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "stage_detection",
+   "text": "memory usage grows during long indexing sessions",
+   "delta": {
+    "232297": [
+     0.05,
+     0.05
+    ],
+    "99185": [
+     0.05,
+     0.05
+    ],
+    "117052": [
+     0.05,
+     0.05
+    ],
+    "78489": [
+     0.05,
+     0.05
+    ],
+    "90803": [
+     0.05,
+     0.05
+    ],
+    "248429": [
+     0.05,
+     0.05
+    ],
+    "218523": [
+     0.05,
+     0.05
+    ],
+    "74850": [
+     0.05,
+     0.05
+    ],
+    "52268": [
+     0.05,
+     0.05
+    ],
+    "132718": [
+     0.05,
+     0.05
+    ]
+   },
+   "expected_label": "fail",
+   "expected_confidence": 0.5035908842246108,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "stage_detection",
+   "text": "shipping the caching layer today; benchmarks look good",
+   "delta": null,
+   "expected_label": "fail",
+   "expected_confidence": 0.5357628323892869,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "stage_detection",
+   "text": "shipping the caching layer today; benchmarks look good",
+   "delta": {
+    "115852": [
+     0.05,
+     0.05
+    ],
+    "76675": [
+     0.05,
+     0.05
+    ],
+    "120936": [
+     0.05,
+     0.05
+    ],
+    "73439": [
+     0.05,
+     0.05
+    ],
+    "117848": [
+     0.05,
+     0.05
+    ],
+    "160900": [
+     0.05,
+     0.05
+    ],
+    "83802": [
+     0.05,
+     0.05
+    ],
+    "253542": [
+     0.05,
+     0.05
+    ],
+    "239831": [
+     0.05,
+     0.05
+    ],
+    "29483": [
+     0.05,
+     0.05
+    ]
+   },
+   "expected_label": "fail",
+   "expected_confidence": 0.5357628323892869,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "stage_detection",
+   "text": "still need to wire the config through the CLI flags",
+   "delta": null,
+   "expected_label": "pass",
+   "expected_confidence": 0.5074152643278456,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "stage_detection",
+   "text": "still need to wire the config through the CLI flags",
+   "delta": {
+    "12937": [
+     0.05,
+     0.05
+    ],
+    "110179": [
+     0.05,
+     0.05
+    ],
+    "43094": [
+     0.05,
+     0.05
+    ],
+    "74611": [
+     0.05,
+     0.05
+    ],
+    "76675": [
+     0.05,
+     0.05
+    ],
+    "142104": [
+     0.05,
+     0.05
+    ],
+    "41954": [
+     0.05,
+     0.05
+    ],
+    "22971": [
+     0.05,
+     0.05
+    ],
+    "53932": [
+     0.05,
+     0.05
+    ],
+    "13341": [
+     0.05,
+     0.05
+    ]
+   },
+   "expected_label": "pass",
+   "expected_confidence": 0.5074152643278456,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "stage_detection",
+   "text": "blocked: waiting on the API contract review",
+   "delta": null,
+   "expected_label": "pass",
+   "expected_confidence": 0.5863599078820204,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "stage_detection",
+   "text": "blocked: waiting on the API contract review",
+   "delta": {
+    "125756": [
+     0.05,
+     0.05
+    ],
+    "247952": [
+     0.05,
+     0.05
+    ],
+    "51569": [
+     0.05,
+     0.05
+    ],
+    "76675": [
+     0.05,
+     0.05
+    ],
+    "2070": [
+     0.05,
+     0.05
+    ],
+    "179625": [
+     0.05,
+     0.05
+    ],
+    "3640": [
+     0.05,
+     0.05
+    ],
+    "88482": [
+     0.05,
+     0.05
+    ],
+    "148731": [
+     0.05,
+     0.05
+    ],
+    "136602": [
+     0.05,
+     0.05
+    ]
+   },
+   "expected_label": "pass",
+   "expected_confidence": 0.5863599078820204,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "stage_detection",
+   "text": "completed the rollout; error rate flat at 0.1 percent",
+   "delta": null,
+   "expected_label": "fail",
+   "expected_confidence": 0.5517489130022473,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "stage_detection",
+   "text": "completed the rollout; error rate flat at 0.1 percent",
+   "delta": {
+    "123456": [
+     0.05,
+     0.05
+    ],
+    "76675": [
+     0.05,
+     0.05
+    ],
+    "136133": [
+     0.05,
+     0.05
+    ],
+    "52750": [
+     0.05,
+     0.05
+    ],
+    "238006": [
+     0.05,
+     0.05
+    ],
+    "238408": [
+     0.05,
+     0.05
+    ],
+    "221379": [
+     0.05,
+     0.05
+    ],
+    "26782": [
+     0.05,
+     0.05
+    ],
+    "35375": [
+     0.05,
+     0.05
+    ],
+    "215563": [
+     0.05,
+     0.05
+    ]
+   },
+   "expected_label": "fail",
+   "expected_confidence": 0.5517489130022473,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "stage_detection",
+   "text": "TODO add pagination to the results endpoint",
+   "delta": null,
+   "expected_label": "fail",
+   "expected_confidence": 0.6363237216999866,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "stage_detection",
+   "text": "TODO add pagination to the results endpoint",
+   "delta": {
+    "145220": [
+     0.05,
+     0.05
+    ],
+    "213226": [
+     0.05,
+     0.05
+    ],
+    "249174": [
+     0.05,
+     0.05
+    ],
+    "43094": [
+     0.05,
+     0.05
+    ],
+    "76675": [
+     0.05,
+     0.05
+    ],
+    "3737": [
+     0.05,
+     0.05
+    ],
+    "227580": [
+     0.05,
+     0.05
+    ],
+    "217701": [
+     0.05,
+     0.05
+    ],
+    "208594": [
+     0.05,
+     0.05
+    ],
+    "240026": [
+     0.05,
+     0.05
+    ]
+   },
+   "expected_label": "fail",
+   "expected_confidence": 0.6363237216999866,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "stage_detection",
+   "text": "this milestone covers indexing plus query rewriting",
+   "delta": null,
+   "expected_label": "pass",
+   "expected_confidence": 0.5684487616457106,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "stage_detection",
+   "text": "this milestone covers indexing plus query rewriting",
+   "delta": {
+    "40440": [
+     0.05,
+     0.05
+    ],
+    "174251": [
+     0.05,
+     0.05
+    ],
+    "116238": [
+     0.05,
+     0.05
+    ],
+    "248429": [
+     0.05,
+     0.05
+    ],
+    "128028": [
+     0.05,
+     0.05
+    ],
+    "185313": [
+     0.05,
+     0.05
+    ],
+    "26205": [
+     0.05,
+     0.05
+    ],
+    "185279": [
+     0.05,
+     0.05
+    ],
+    "149541": [
+     0.05,
+     0.05
+    ],
+    "236763": [
+     0.05,
+     0.05
+    ]
+   },
+   "expected_label": "pass",
+   "expected_confidence": 0.5684487616457106,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "task_completion",
+   "text": "implement the feature and add tests for the parser",
+   "delta": null,
+   "expected_label": "partial",
+   "expected_confidence": 0.48823186660526985,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "task_completion",
+   "text": "implement the feature and add tests for the parser",
+   "delta": {
+    "154688": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "76675": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "83138": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "10415": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "213226": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "103584": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "176277": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "71428": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "189675": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "155062": [
+     0.05,
+     0.05,
+     0.05
+    ]
+   },
+   "expected_label": "partial",
+   "expected_confidence": 0.48823186660526996,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "task_completion",
+   "text": "run the full test suite and report failures",
+   "delta": null,
+   "expected_label": "partial",
+   "expected_confidence": 0.42151518815607736,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "task_completion",
+   "text": "run the full test suite and report failures",
+   "delta": {
+    "56193": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "76675": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "189401": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "155516": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "229468": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "10415": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "118407": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "1926": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "18997": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "172492": [
+     0.05,
+     0.05,
+     0.05
+    ]
+   },
+   "expected_label": "partial",
+   "expected_confidence": 0.42151518815607736,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "task_completion",
+   "text": "fix the race condition in the connection pool",
+   "delta": null,
+   "expected_label": "partial",
+   "expected_confidence": 0.3806969868759389,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "task_completion",
+   "text": "fix the race condition in the connection pool",
+   "delta": {
+    "4898": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "76675": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "111066": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "183180": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "114568": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "98589": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "174546": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "117909": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "12113": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "123694": [
+     0.05,
+     0.05,
+     0.05
+    ]
+   },
+   "expected_label": "partial",
+   "expected_confidence": 0.3806969868759389,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "task_completion",
+   "text": "refactor the storage layer to use the repository pattern",
+   "delta": null,
+   "expected_label": "fail",
+   "expected_confidence": 0.9385374076126263,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "task_completion",
+   "text": "refactor the storage layer to use the repository pattern",
+   "delta": {
+    "181268": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "76675": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "51468": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "73439": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "43094": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "200834": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "241642": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "60427": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "63056": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "141530": [
+     0.05,
+     0.05,
+     0.05
+    ]
+   },
+   "expected_label": "fail",
+   "expected_confidence": 0.9385374076126263,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "task_completion",
+   "text": "write documentation for the public API",
+   "delta": null,
+   "expected_label": "fail",
+   "expected_confidence": 0.769292134971762,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "task_completion",
+   "text": "write documentation for the public API",
+   "delta": {
+    "8729": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "68459": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "176277": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "76675": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "124562": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "2070": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "22402": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "213398": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "197710": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "255088": [
+     0.05,
+     0.05,
+     0.05
+    ]
+   },
+   "expected_label": "fail",
+   "expected_confidence": 0.769292134971762,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "task_completion",
+   "text": "review the pull request and flag security issues",
+   "delta": null,
+   "expected_label": "partial",
+   "expected_confidence": 0.5884164302282209,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "task_completion",
+   "text": "review the pull request and flag security issues",
+   "delta": {
+    "3640": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "76675": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "139885": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "223491": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "10415": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "245609": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "111653": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "170500": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "159770": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "203573": [
+     0.05,
+     0.05,
+     0.05
+    ]
+   },
+   "expected_label": "partial",
+   "expected_confidence": 0.5884164302282211,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "task_completion",
+   "text": "deploy the service to staging and run smoke tests",
+   "delta": null,
+   "expected_label": "partial",
+   "expected_confidence": 0.4304807240137804,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "task_completion",
+   "text": "deploy the service to staging and run smoke tests",
+   "delta": {
+    "135840": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "76675": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "243969": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "43094": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "14086": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "10415": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "56193": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "119317": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "103584": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "250881": [
+     0.05,
+     0.05,
+     0.05
+    ]
+   },
+   "expected_label": "partial",
+   "expected_confidence": 0.43048072401378057,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "task_completion",
+   "text": "add retry logic with exponential backoff to the client",
+   "delta": null,
+   "expected_label": "fail",
+   "expected_confidence": 0.3659713149680595,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "task_completion",
+   "text": "add retry logic with exponential backoff to the client",
+   "delta": {
+    "213226": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "80142": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "96723": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "242912": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "137100": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "184860": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "43094": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "76675": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "74585": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "179572": [
+     0.05,
+     0.05,
+     0.05
+    ]
+   },
+   "expected_label": "fail",
+   "expected_confidence": 0.3659713149680595,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "task_completion",
+   "text": "extract the validation logic into a shared module",
+   "delta": null,
+   "expected_label": "pass",
+   "expected_confidence": 0.642450808325306,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "task_completion",
+   "text": "extract the validation logic into a shared module",
+   "delta": {
+    "139023": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "76675": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "216219": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "96723": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "82232": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "131509": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "7357": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "163354": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "204395": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "49345": [
+     0.05,
+     0.05,
+     0.05
+    ]
+   },
+   "expected_label": "pass",
+   "expected_confidence": 0.642450808325306,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "task_completion",
+   "text": "migrate the database schema and backfill rows",
+   "delta": null,
+   "expected_label": "pass",
+   "expected_confidence": 0.4999752703074073,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "task_completion",
+   "text": "migrate the database schema and backfill rows",
+   "delta": {
+    "6993": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "76675": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "74508": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "127605": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "10415": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "125235": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "83095": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "132422": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "56803": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "145091": [
+     0.05,
+     0.05,
+     0.05
+    ]
+   },
+   "expected_label": "pass",
+   "expected_confidence": 0.4999752703074074,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "task_completion",
+   "text": "profile the hot loop and reduce allocations",
+   "delta": null,
+   "expected_label": "partial",
+   "expected_confidence": 0.7038690009565702,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "task_completion",
+   "text": "profile the hot loop and reduce allocations",
+   "delta": {
+    "226221": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "76675": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "186998": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "103973": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "10415": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "22304": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "59014": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "72476": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "170532": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "214918": [
+     0.05,
+     0.05,
+     0.05
+    ]
+   },
+   "expected_label": "partial",
+   "expected_confidence": 0.7038690009565701,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "task_completion",
+   "text": "update dependencies and fix breaking changes",
+   "delta": null,
+   "expected_label": "fail",
+   "expected_confidence": 0.4271868865082347,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "task_completion",
+   "text": "update dependencies and fix breaking changes",
+   "delta": {
+    "229266": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "140045": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "10415": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "4898": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "79276": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "251646": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "71520": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "4346": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "197612": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "80437": [
+     0.05,
+     0.05,
+     0.05
+    ]
+   },
+   "expected_label": "fail",
+   "expected_confidence": 0.42718688650823455,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "task_completion",
+   "text": "search the codebase for all usages of the config loader",
+   "delta": null,
+   "expected_label": "fail",
+   "expected_confidence": 0.5352174987018198,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "task_completion",
+   "text": "search the codebase for all usages of the config loader",
+   "delta": {
+    "112498": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "76675": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "87374": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "176277": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "23403": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "25152": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "133774": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "142104": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "75169": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "57371": [
+     0.05,
+     0.05,
+     0.05
+    ]
+   },
+   "expected_label": "fail",
+   "expected_confidence": 0.5352174987018198,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "task_completion",
+   "text": "draft the migration plan for the auth service",
+   "delta": null,
+   "expected_label": "fail",
+   "expected_confidence": 0.6237964257497657,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "task_completion",
+   "text": "draft the migration plan for the auth service",
+   "delta": {
+    "170866": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "76675": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "104395": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "12949": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "176277": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "217343": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "243969": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "237628": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "31298": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "129955": [
+     0.05,
+     0.05,
+     0.05
+    ]
+   },
+   "expected_label": "fail",
+   "expected_confidence": 0.6237964257497656,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "task_completion",
+   "text": "the build failed on CI after the dependency bump",
+   "delta": null,
+   "expected_label": "fail",
+   "expected_confidence": 0.45479957001692584,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "task_completion",
+   "text": "the build failed on CI after the dependency bump",
+   "delta": {
+    "76675": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "107337": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "101033": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "51569": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "98452": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "235378": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "90130": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "256346": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "93082": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "210103": [
+     0.05,
+     0.05,
+     0.05
+    ]
+   },
+   "expected_label": "fail",
+   "expected_confidence": 0.4547995700169258,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "task_completion",
+   "text": "tests are flaky: the websocket test times out intermittently",
+   "delta": null,
+   "expected_label": "fail",
+   "expected_confidence": 0.6796089576724895,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "task_completion",
+   "text": "tests are flaky: the websocket test times out intermittently",
+   "delta": {
+    "103584": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "261610": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "31131": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "76675": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "88075": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "155516": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "157861": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "122070": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "138875": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "239172": [
+     0.05,
+     0.05,
+     0.05
+    ]
+   },
+   "expected_label": "fail",
+   "expected_confidence": 0.6796089576724891,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "task_completion",
+   "text": "the parser crashes on empty input files",
+   "delta": null,
+   "expected_label": "fail",
+   "expected_confidence": 0.40461666068757124,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "task_completion",
+   "text": "the parser crashes on empty input files",
+   "delta": {
+    "76675": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "71428": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "147392": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "51569": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "26878": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "138138": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "213691": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "226836": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "182166": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "38955": [
+     0.05,
+     0.05,
+     0.05
+    ]
+   },
+   "expected_label": "fail",
+   "expected_confidence": 0.4046166606875712,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "task_completion",
+   "text": "memory usage grows during long indexing sessions",
+   "delta": null,
+   "expected_label": "fail",
+   "expected_confidence": 0.6562580385818509,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "task_completion",
+   "text": "memory usage grows during long indexing sessions",
+   "delta": {
+    "232297": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "99185": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "117052": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "78489": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "90803": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "248429": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "218523": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "74850": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "52268": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "132718": [
+     0.05,
+     0.05,
+     0.05
+    ]
+   },
+   "expected_label": "fail",
+   "expected_confidence": 0.6562580385818508,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "task_completion",
+   "text": "shipping the caching layer today; benchmarks look good",
+   "delta": null,
+   "expected_label": "partial",
+   "expected_confidence": 0.45054083838754844,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "task_completion",
+   "text": "shipping the caching layer today; benchmarks look good",
+   "delta": {
+    "115852": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "76675": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "120936": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "73439": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "117848": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "160900": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "83802": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "253542": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "239831": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "29483": [
+     0.05,
+     0.05,
+     0.05
+    ]
+   },
+   "expected_label": "partial",
+   "expected_confidence": 0.45054083838754844,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "task_completion",
+   "text": "still need to wire the config through the CLI flags",
+   "delta": null,
+   "expected_label": "fail",
+   "expected_confidence": 0.6168536883933687,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "task_completion",
+   "text": "still need to wire the config through the CLI flags",
+   "delta": {
+    "12937": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "110179": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "43094": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "74611": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "76675": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "142104": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "41954": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "22971": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "53932": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "13341": [
+     0.05,
+     0.05,
+     0.05
+    ]
+   },
+   "expected_label": "fail",
+   "expected_confidence": 0.6168536883933686,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "task_completion",
+   "text": "blocked: waiting on the API contract review",
+   "delta": null,
+   "expected_label": "fail",
+   "expected_confidence": 0.46945311873715045,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "task_completion",
+   "text": "blocked: waiting on the API contract review",
+   "delta": {
+    "125756": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "247952": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "51569": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "76675": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "2070": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "179625": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "3640": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "88482": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "148731": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "136602": [
+     0.05,
+     0.05,
+     0.05
+    ]
+   },
+   "expected_label": "fail",
+   "expected_confidence": 0.46945311873715045,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "task_completion",
+   "text": "completed the rollout; error rate flat at 0.1 percent",
+   "delta": null,
+   "expected_label": "fail",
+   "expected_confidence": 0.5459738377429544,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "task_completion",
+   "text": "completed the rollout; error rate flat at 0.1 percent",
+   "delta": {
+    "123456": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "76675": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "136133": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "52750": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "238006": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "238408": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "221379": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "26782": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "35375": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "215563": [
+     0.05,
+     0.05,
+     0.05
+    ]
+   },
+   "expected_label": "fail",
+   "expected_confidence": 0.5459738377429544,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "task_completion",
+   "text": "TODO add pagination to the results endpoint",
+   "delta": null,
+   "expected_label": "pass",
+   "expected_confidence": 0.5774426230034839,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "task_completion",
+   "text": "TODO add pagination to the results endpoint",
+   "delta": {
+    "145220": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "213226": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "249174": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "43094": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "76675": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "3737": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "227580": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "217701": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "208594": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "240026": [
+     0.05,
+     0.05,
+     0.05
+    ]
+   },
+   "expected_label": "pass",
+   "expected_confidence": 0.5774426230034839,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "task_completion",
+   "text": "this milestone covers indexing plus query rewriting",
+   "delta": null,
+   "expected_label": "fail",
+   "expected_confidence": 0.8586425309037075,
+   "threshold": 0.6
+  },
+  {
+   "decision_type": "task_completion",
+   "text": "this milestone covers indexing plus query rewriting",
+   "delta": {
+    "40440": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "174251": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "116238": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "248429": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "128028": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "185313": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "26205": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "185279": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "149541": [
+     0.05,
+     0.05,
+     0.05
+    ],
+    "236763": [
+     0.05,
+     0.05,
+     0.05
+    ]
+   },
+   "expected_label": "fail",
+   "expected_confidence": 0.8586425309037075,
+   "threshold": 0.6
+  }
+ ]
+}
