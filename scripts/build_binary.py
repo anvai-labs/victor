@@ -90,12 +90,9 @@ def get_hidden_imports() -> list[str]:
         "victor.agent.tool_executor",
         "victor.agent.tool_calling",
         "victor.agent.tool_calling.adapters",
-        "victor.agent.modes",
         "victor.agent.model_switcher",
         "victor.agent.change_tracker",
         "victor.agent.conversation_embedding_store",
-        "victor.agent.conversation_memory",
-        "victor.agent.conversation_controller",
         "victor.providers",
         "victor.providers.anthropic_provider",
         "victor.providers.openai_provider",
@@ -104,11 +101,10 @@ def get_hidden_imports() -> list[str]:
         "victor.providers.xai_provider",
         "victor.tools",
         "victor.tools.filesystem",
-        "victor.tools.git_tool",
-        "victor.tools.code_search",
+        "victor.tools.code_search_tool",
         "victor.tools.semantic_selector",
-        "victor.mcp",
-        "victor.mcp.server",
+        "victor.integrations.mcp",
+        "victor.integrations.mcp.server",
         "victor.config",
         "victor.config.settings",
         "victor.evaluation",
@@ -130,6 +126,83 @@ def get_hidden_imports() -> list[str]:
         # Other
         "jsonschema",
         "pygments",
+        # Dynamically imported modules (importlib.import_module with f-string
+        # maps) — invisible to PyInstaller's static analysis. The frozen-binary
+        # smoke step caught the first of these (conversation_protocols) on the
+        # 0.12.0 rehearsal; enumerate the full lazy surfaces:
+        #   victor/agent/protocols/__init__.py (lazy __getattr__ map)
+        #   victor/agent/coordinators/__init__.py (lazy __getattr__ map)
+        #   victor/framework/rl/{credit_assignment,gepa_strategy}.py
+        #     (f"victor.providers.{name}_provider")
+        *[
+            f"victor.agent.protocols.{m}"
+            for m in (
+                "agent_factory",
+                "analysis_protocols",
+                "budget_protocols",
+                "context_protocols",
+                "conversation_protocols",
+                "coordination_protocols",
+                "infrastructure_protocols",
+                "provider_protocols",
+                "streaming_protocols",
+                "task_completion",
+                "tool_protocols",
+            )
+        ],
+        *[
+            f"victor.agent.coordinators.{m}"
+            for m in (
+                "chat_protocols",
+                "coordination_state_passed",
+                "coordinator_factory",
+                "exploration_state_passed",
+                "factory_support",
+                "planning_workflow",
+                "protocol_dependencies",
+                "protocols",
+                "safety_state_passed",
+                "stage_transition_coordinator",
+                "state_context",
+                "streaming_loop_handler",
+                "system_prompt_state_passed",
+                "transition_strategies",
+                "turn_executor",
+                "state_context",
+            )
+        ],
+        "victor.agent.services.exploration_runtime",
+        "victor.agent.services.planning_runtime",
+        *[
+            f"victor.providers.{name}_provider"
+            for name in (
+                "anthropic",
+                "azure_openai",
+                "bedrock",
+                "cerebras",
+                "deepseek",
+                "fireworks",
+                "google",
+                "groq",
+                "huggingface",
+                "inferflux",
+                "llamacpp",
+                "lmstudio",
+                "mistral",
+                "mlx",
+                "moonshot",
+                "ollama",
+                "openai",
+                "openrouter",
+                "qwen",
+                "replicate",
+                "together",
+                "vertex",
+                "vllm",
+                "xai",
+                "zai",
+            )
+        ],
     ]
     # NOTE: sentence_transformers/transformers/torch/lancedb/pyarrow/docker
     # were pruned — none are core deps any more (lean-default move), so these
