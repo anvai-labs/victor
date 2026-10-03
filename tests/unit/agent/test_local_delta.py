@@ -336,7 +336,7 @@ def test_default_predict_real_artifact_numpy_blocked(monkeypatch):
         assert set(head_labels) == {"stage_detection", "task_completion"}
 
         text = "implement the parser and add regression tests"
-        features = {h: 1.0 for h in extract_features(text)}
+        features = dict.fromkeys(extract_features(text), 1.0)
         probs = predict_fn("task_completion", features)
         assert probs is not None
         assert len(probs) == len(head_labels["task_completion"])
