@@ -30,6 +30,7 @@ from __future__ import annotations
 import hashlib
 from victor.core.json_utils import json_dumps
 import logging
+import math
 import re
 import threading
 import time
@@ -37,7 +38,13 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 from pathlib import Path
 
-import numpy as np
+try:
+    import numpy as np
+
+    NUMPY_AVAILABLE = True
+except ImportError:  # bare install: these caches require victor-ai[embeddings]
+    np = None
+    NUMPY_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -58,17 +65,22 @@ class CachedResponse:
         """Check if cache entry has expired."""
         return time.time() - self.timestamp > self.ttl
 
-    def similarity_score(self, query_embedding: np.ndarray) -> float:
-        """Calculate cosine similarity between query and cached embedding."""
-        # Normalize embeddings
-        norm_cached = np.linalg.norm(self.embedding)
-        norm_query = np.linalg.norm(query_embedding)
+    def similarity_score(self, query_embedding) -> float:
+        """Calculate cosine similarity between query and cached embedding.
+
+        Pure stdlib math (works on lists and numpy arrays alike) so the class
+        is importable in a bare install; entries only exist when the
+        embeddings extra produced them.
+        """
+        norm_cached = math.sqrt(sum(float(x) * float(x) for x in self.embedding))
+        norm_query = math.sqrt(sum(float(x) * float(x) for x in query_embedding))
 
         if norm_cached == 0 or norm_query == 0:
             return 0.0
 
         # Cosine similarity
-        return float(np.dot(self.embedding, query_embedding) / (norm_cached * norm_query))
+        dot = sum(float(a) * float(b) for a, b in zip(self.embedding, query_embedding))
+        return dot / (norm_cached * norm_query)
 
 
 class SemanticResponseCache:
@@ -137,7 +149,7 @@ class SemanticResponseCache:
 
         return self._embedding_model
 
-    def _embed(self, text: str) -> np.ndarray:
+    def _embed(self, text: str):
         """Generate embedding for text."""
         model = self._get_embedding_model()
         return model.encode(text, normalize_embeddings=True)
