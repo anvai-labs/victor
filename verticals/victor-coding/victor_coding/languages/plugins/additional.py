@@ -2281,15 +2281,28 @@ class HaskellPlugin(BaseLanguagePlugin):
         )
 
     def _create_tree_sitter_queries(self) -> TreeSitterQueries:
-        # tree-sitter-haskell: nodes are `type_synomym` (the grammar's own
-        # typo for "synonym"), `newtype`, `data_type`; their child holding
+        from victor_coding.codebase.tree_sitter_service import get_tree_sitter_service
+
+        # 0.24 corrected the grammar's historical type_synomym spelling.
+        # Select against the canonical loaded grammar, keeping optional grammar
+        # absence compatible with metadata-only plugin inspection.
+        synonym_node = "type_synomym"
+        grammar = get_tree_sitter_service().get_language("haskell")
+        if grammar is not None:
+            for candidate in ("type_synonym", "type_synomym"):
+                if grammar.id_for_node_kind(candidate, True) is not None:
+                    synonym_node = candidate
+                    break
+            else:
+                raise ValueError("Haskell grammar has no supported type-synonym node")
+        # Type declarations are the synonym node, `newtype`, `data_type`; their child holding
         # the type name is `(name)`, not `name: (type)`. Function
         # application is `(apply . (variable))` — the leading anchor `.`
         # captures only the function position, not argument variables.
         return TreeSitterQueries(
             symbols=[
                 QueryPattern("function", "(function name: (variable) @name)"),
-                QueryPattern("class", "(type_synomym (name) @name)"),
+                QueryPattern("class", f"({synonym_node} name: (name) @name)"),
                 QueryPattern("class", "(newtype (name) @name)"),
                 QueryPattern("class", "(data_type (name) @name)"),
             ],
