@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from victor.agent.paused_run_store import (
     PausedRunStoreProtocol,
     ProjectDbPausedRunStore,
@@ -106,3 +108,115 @@ def test_in_memory_store_snapshots_nested_approval_data():
     store.list_pending()[0].approval_request["context"].clear()
     assert store.get(run_id).pending_tool["binding"]["payload"] == "hash"
     assert store.get(run_id).approval_request["context"]["arguments"]["payload"] == "approved"
+
+
+def _claimed_action(store):
+    binding = {"version": 1, "session_id": "s", "tool_name": "submit", "call_id": "c1"}
+    run_id = store.save(
+        session_id="s",
+        agent_id="a",
+        approval_request={"id": "approval"},
+        pending_tool={"tool_name": "submit", "binding": binding},
+        created_at=1,
+    )
+    assert store.mark_resumed(run_id)
+    return run_id, binding
+
+
+@pytest.mark.parametrize("observation", [None, "unknown"])
+def test_action_intent_survives_restart_and_is_never_purged(tmp_path, observation):
+    import pytest
+    from victor.agent.action_observation import ActionStateError
+
+    store = _store(tmp_path)
+    run_id, binding = _claimed_action(store)
+    action = store.begin_action(run_id, binding)
+    if observation:
+        action = store.observe_action(run_id, action["action_id"], observation, None)
+    reopened = _store(tmp_path)
+    assert reopened.get(run_id).action == action
+    assert action["state"] == (observation or "pending")
+    assert reopened.purge(before=100) == 0
+    with pytest.raises(ActionStateError):
+        reopened.begin_action(run_id, binding)
+    assert reopened.get(run_id).action["state"] == (observation or "pending")
+
+
+def test_action_observation_is_compare_and_set_and_retained(tmp_path):
+    import pytest
+    from victor.agent.action_observation import ActionStateError
+
+    store = _store(tmp_path)
+    run_id, binding = _claimed_action(store)
+    action = store.begin_action(run_id, binding)
+    with pytest.raises(ActionStateError):
+        store.observe_action(run_id, "wrong-key", "returned", True)
+    store.observe_action(run_id, action["action_id"], "returned", True)
+    with pytest.raises(ActionStateError):
+        store.observe_action(run_id, action["action_id"], "unknown", None)
+    reopened = _store(tmp_path)
+    assert reopened.get(run_id).action["reported_success"] is True
+    assert reopened.get(run_id).action["state"] == "returned"
+    assert reopened.get(run_id).action["backend_receipt"] is None
+    assert reopened.purge(before=100) == 0
+
+
+def test_action_intent_rejects_changed_binding_and_competing_process_owners(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    import pytest
+    from victor.agent.action_observation import ActionStateError
+
+    store = _store(tmp_path)
+    run_id, binding = _claimed_action(store)
+    with pytest.raises(ActionStateError):
+        store.begin_action(run_id, {**binding, "session_id": "other"})
+    assert store.get(run_id).action is None
+
+    def claim(_):
+        try:
+            _store(tmp_path).begin_action(run_id, binding)
+            return True
+        except ActionStateError:
+            return False
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        assert sorted(pool.map(claim, range(2))) == [False, True]
+
+
+def test_legacy_schema_migrates_without_changing_approval_or_single_use_claim(tmp_path):
+    import sqlite3
+
+    db = tmp_path / "legacy.db"
+    with sqlite3.connect(db) as connection:
+        connection.execute("""CREATE TABLE paused_run (
+            run_id TEXT PRIMARY KEY, session_id TEXT, agent_id TEXT,
+            approval_request TEXT NOT NULL, pending_tool TEXT,
+            status TEXT NOT NULL DEFAULT 'awaiting_approval', created_at REAL,
+            resumed_at REAL, metadata TEXT)""")
+        connection.execute(
+            "INSERT INTO paused_run (run_id, session_id, approval_request) VALUES (?, ?, ?)",
+            ("legacy", "s", '{"id":"req"}'),
+        )
+    store = ProjectDbPausedRunStore(db)
+    run = store.get("legacy")
+    assert run.approval_request == {"id": "req"} and run.action is None
+    assert store.mark_resumed("legacy")
+    reopened = ProjectDbPausedRunStore(db)
+    assert not reopened.mark_resumed("legacy")
+    assert reopened.get("legacy").action is None
+
+
+def test_schema_failure_releases_connection_and_allows_retry(tmp_path, monkeypatch):
+    from unittest.mock import MagicMock
+    from victor.agent import paused_run_store
+    import sqlite3
+
+    store = _store(tmp_path)
+    connection = MagicMock()
+    connection.execute.side_effect = sqlite3.OperationalError("schema unavailable")
+    with monkeypatch.context() as patch:
+        patch.setattr(paused_run_store.sqlite3, "connect", lambda *a, **kw: connection)
+        with pytest.raises(sqlite3.OperationalError):
+            store.get("missing")
+    connection.close.assert_called_once()
+    assert store.get("missing") is None

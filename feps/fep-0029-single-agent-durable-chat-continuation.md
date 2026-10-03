@@ -488,7 +488,7 @@ An invocation-owned result sink retains completed outcomes, with copied per-call
 so cached results cannot share or overwrite provider IDs. Normal return and interruption
 use the same ID/duplicate assembly. The canonical tool service publishes known outcomes
 before the pause reaches its durable turn boundary. Interrupted publication requires
-synchronous persistence, with no compaction await, fallback response, persistence retry,
+synchronous persistence, with no compaction await, fallback response, second publication attempt,
 or invented result for pending calls. Normal non-interrupted publication remains unchanged.
 
 Unknown outcomes are not converted into resolved transcript entries. Publication failure
@@ -509,3 +509,65 @@ receipts; multiple pending calls remain blocked. Cross-batch member effects, com
 member continuation, multiple-approval recovery, and process-crash action reconciliation
 remain separate G61/G70/G62 work. Absence of a current-batch result is never evidence that
 an earlier action did not execute.
+
+
+## Opt-in durable action observations (2026-09-30, partial G62)
+
+`await client.resume(run_id, decision, durable_actions=True)` records the approved
+single action's intent in the existing project `paused_run` row before canonical
+tool dispatch. The default remains `False`; ordinary resume keeps its existing
+behavior. An in-memory store is rejected before consuming the approval when this
+option is enabled. The option covers this one approved call, not later model turns,
+chained approvals or a whole member. Each subsequent resume must opt in explicitly.
+“Single-agent” names the execution scope; it does not require the supervisor role.
+Supervisor delegation never grants permission to bypass runtime policy or human approval.
+
+The existing single-use approval claim remains consumed on failure. A SQLite
+`BEGIN IMMEDIATE` transaction installs intent only when the persisted approval has
+been claimed, its binding still matches and no action intent exists. The action ID
+is derived once from version, run ID and exact binding; the canonical executor
+supplies it as runtime-owned `_exec_ctx["durable_action_id"]`. This is correlation
+for capable adapters, not a promise that arbitrary backends deduplicate that key.
+Policy, tool contract, authority, session and expiry are rechecked after the database
+write and immediately before the same existing tool execution call.
+
+The version-1 action snapshot contains `action_id`, `binding_digest`, `state`,
+`reported_success` and `backend_receipt`. States mean:
+
+- `pending`: intent exists, but no durable invocation observation is available.
+- `returned`: the invocation returned; `reported_success` is the tool's boolean
+  report, or null for an untyped return. This does not verify a business outcome.
+- `unknown`: execution was interrupted, or final authorization failed after intent.
+  This conservative state must not be interpreted as proof an effect occurred.
+
+`backend_receipt` remains null. Raw arguments, outputs and secrets are not copied
+into the action snapshot. After an ambiguous observation write, the runtime does
+not attempt a second settlement or retry the tool. Cancellation propagates unchanged;
+a failed interruption observation leaves the persisted intent unresolved. All rows
+with action evidence are excluded from automatic approval garbage collection,
+including `returned` observations, until receipt/continuation retention is designed.
+This trades storage growth for preserving recovery evidence.
+
+Only a successful canonical result for the exact call, a saved invocation observation
+and strict result publication permit model continuation. Result-policy denial/ASK,
+after-hook failure, observation failure and ambiguous transcript publication stop
+continuation. Strict publication reuses the tool service's synchronous persistence
+path without compaction, fallback messages or a second publication attempt. The existing
+conversation store may still retry SQLite lock contention within that one publication.
+
+After restoring the original session, `client.get_action_status(run_id)` returns
+`{version: 1, run_id, approval_status, action}`. It is read-only and never reopens
+approval or dispatches an effect. Session matching is not authenticated-principal
+ownership; shared HTTP admission/status authorization remains G61/G63 work.
+
+Existing test owners exercise legacy schema migration, competing store instances,
+restart with a pending intent, retention, a fake backend that commits then loses its
+response, cancellation, storage/publication failures, output-policy withholding and
+approval changes during persistence. No duplicate executor, test suite or formation
+is introduced. These are local fault-injection tests, not live C5 evidence.
+
+Still open: trusted backend receipt lookup, unknown-to-verified reconciliation,
+crash recovery between an observed return and transcript publication, atomic member
+continuation/checkpoint ownership, cross-turn replay protection and full mixed-team
+C5. Absence of an action record does not prove absence of an effect on paths that
+have not opted in. This increment does not close G62 or claim exactly-once execution.

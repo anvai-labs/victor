@@ -1429,6 +1429,16 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   errors through middleware; it does not implement durable action reconciliation,
   exact approval binding or whole-member replay protection. Keep G62 open until
   those boundaries have independent failure/restart evidence.
+  **Partial implementation (2026-09-30):** opt-in single-action resume now persists
+  intent and invocation observations in the existing paused-run row, exposes a
+  session-scoped versioned status snapshot, rejects prior intent on restart and
+  rechecks authority after persistence. Strict result publication is required before
+  continuation. Retained `pending`/`unknown`/`returned` evidence never authorizes replay;
+  `returned` is not a verified backend receipt. Existing owners cover commit-then-timeout,
+  cancellation, competing stores, migration and post-effect publication failures.
+  See [FEP-0029](../../feps/fep-0029-single-agent-durable-chat-continuation.md#opt-in-durable-action-observations-2026-09-30-partial-g62).
+  Backend receipt lookup, verified reconciliation, complete member continuation and
+  mixed-team C5 remain open; this is not a live acceptance result.
 
 - **G63 — workflow HTTP lifecycle is not durable admission or owned cancellation.**
   The inspected routes store in-memory records, launch a background task, expose
@@ -1532,6 +1542,19 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   suites own the regressions; all deployment locks share the released pin. This
   repairs the Python consumer only; it neither redeploys the standalone gateway nor
   closes G31's paired workload replay or mixed-team C5 acceptance.
+
+- **G72 — hierarchical supervisor selection/delegation retains permissive legacy paths (2026-09-30 code audit).**
+  `HierarchicalFormation._resolve_supervisor` accepts role-name heuristics and falls
+  back to the first agent; an unresolved explicit supervisor ID can reach that same
+  fallback. In `execute`, a failed supervisor result or absent/empty `delegated_tasks`
+  starts specialists with the original task, and a task/member count mismatch only
+  warns before dispatching the matched subset. These are logged compatibility paths,
+  not evidence of a validated supervisor plan. Add an opt-in typed delegation/selection
+  contract with explicit failure and partial-plan behavior, through the existing
+  coordinator/strategy dispatch; retain unchanged legacy defaults and test both modes.
+  A supervisor remains subject to runtime policy and human approval. Peer formations
+  need not acquire a supervisor merely to satisfy this gap. Complete member continuation
+  and action recovery remain G61/G62/G70; this finding has not been live-validated or fixed.
 
 Validation-test audit: neither live harness had direct tests before this follow-up.
 The new mixed-harness suite covers rejected/malformed/missing reviews, inclusive

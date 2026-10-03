@@ -280,6 +280,17 @@ checkpoints after execution (`graph_runtime.py:265,320`); restarting a node does
 by itself reconcile effects already committed inside it. Existing tool observability
 is not a transactional intent/receipt ledger.
 
+The opt-in single-action observation increment (2026-09-30) now records durable
+intent and invocation observations in the existing paused-run row. It excludes
+all action-bearing rows from automatic purge, blocks repeated intent and rechecks
+approval after SQLite persistence. Strict canonical result publication is required
+before continuation. Fault-injection tests include a committed backend write with
+a lost response; the stored outcome stays unknown and no second effect is issued.
+`returned` records a tool invocation, not verified business success. See the
+[FEP-0029 contract](../../feps/fep-0029-single-agent-durable-chat-continuation.md#opt-in-durable-action-observations-2026-09-30-partial-g62).
+The following recovery sequence remains the complete target; receipt lookup,
+reconciliation and whole-member continuation are not yet implemented by this increment.
+
 Repair in this order:
 
 1. Classify tools/adapters by effects and explicit retry capabilities. Default

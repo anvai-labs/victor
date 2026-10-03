@@ -106,7 +106,9 @@ def _last_user_message(messages: List[Any]) -> str:
     return ""
 
 
-async def resume_paused_run(orchestrator: Any, paused_run: Any, decision: Any) -> ResumeResult:
+async def resume_paused_run(
+    orchestrator: Any, paused_run: Any, decision: Any, *, action_store: Any = None
+) -> ResumeResult:
     """Resolve one bound pending call; never replay unresolved siblings."""
     from copy import deepcopy
     import math
@@ -190,11 +192,37 @@ async def resume_paused_run(orchestrator: Any, paused_run: Any, decision: Any) -
         grant = ApprovalGrant(
             binding, binding["expires_at"], lambda: orchestrator.active_session_id == session_id
         )
+        if action_store is not None:
+            from victor.agent.action_observation import ActionJournal
+
+            grant.action_observer = ActionJournal(action_store, paused_run.run_id, binding)
         token = current_approval_grant.set(grant)
         try:
-            await runtime_factory().execute_tool_calls([call])
+            try:
+                execution_results = await runtime_factory().execute_tool_calls(
+                    [call], **({"require_persistence": True} if action_store is not None else {})
+                )
+            except Exception as exc:
+                if action_store is not None:
+                    raise ResumeError(
+                        "Durable action publication unresolved; reconcile without replay"
+                    ) from exc
+                raise
         finally:
             current_approval_grant.reset(token)
+        if action_store is not None and (
+            len(execution_results) != 1
+            or execution_results[0].get("success") is not True
+            or execution_results[0].get("tool_call_id") != tc_id
+        ):
+            raise ResumeError(
+                "Durable action result is unsuccessful or unavailable; reconcile without replay"
+            )
+        if grant.action_observer is not None and (
+            not grant.action_observer.return_observed
+            or grant.action_observer.reported_success is False
+        ):
+            raise ResumeError("Durable action is unresolved; reconcile without replay")
         if not grant.dispatched:
             raise ResumeError("Approved action did not pass current policy and dispatch checks")
         results = [
