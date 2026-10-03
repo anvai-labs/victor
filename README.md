@@ -36,8 +36,8 @@ It is designed for teams that need agent systems to be testable, extensible, obs
 
 | Path | Commands | Best for |
 |------|----------|----------|
-| Local model | `pipx install victor-ai`<br>`ollama pull qwen2.5-coder:7b`<br>`victor chat --provider ollama --model qwen2.5-coder:7b "Explain this repo"` | Private, low-cost, air-gapped work |
-| Cloud model | `pipx install victor-ai`<br>`export ANTHROPIC_API_KEY=...`<br>`victor chat --provider anthropic "Plan this refactor"` | Hosted provider access |
+| Local model | `uv tool install victor-ai`<br>`ollama pull qwen2.5-coder:7b`<br>`victor chat --provider ollama --model qwen2.5-coder:7b "Explain this repo"` | Private, low-cost, air-gapped work |
+| Cloud model | `uv tool install victor-ai`<br>`export ANTHROPIC_API_KEY=...`<br>`victor chat --provider anthropic "Plan this refactor"` | Hosted provider access |
 | Python API | `pip install victor-ai` | Embedding Victor in applications |
 | Docker | `docker pull vjsingh1984/victor-ai:latest` | Isolated CLI/API runtime |
 

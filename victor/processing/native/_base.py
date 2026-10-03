@@ -80,7 +80,12 @@ def numpy_accelerator_available() -> bool:
     if _NUMPY_ACCELERATOR_CACHE is None:
         import importlib.util
 
-        _NUMPY_ACCELERATOR_CACHE = importlib.util.find_spec("numpy") is not None
+        try:
+            # find_spec raises ValueError when sys.modules["numpy"] is None
+            # (the bare-install simulation used by tests) — treat as absent.
+            _NUMPY_ACCELERATOR_CACHE = importlib.util.find_spec("numpy") is not None
+        except (ImportError, ValueError):
+            _NUMPY_ACCELERATOR_CACHE = False
     return _NUMPY_ACCELERATOR_CACHE
 
 

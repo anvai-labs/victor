@@ -23,12 +23,43 @@ Choose the installation method that best fits your use case:
 
 | Method | Command | Best For |
 |--------|---------|----------|
-| **pipx** (Recommended) | `pipx install --python python3.12 victor-ai` | CLI users, isolated environment |
+| **uv** (Recommended) | `uv tool install --python 3.12 victor-ai` | CLI users — no Python install needed (uv provisions one) |
+| **pipx** | `pipx install --python python3.12 victor-ai` | Equivalent, if you already use pipx |
 | **pip** | `pip install victor-ai` | Virtual environments, Python projects |
 | **Docker** | `docker pull vjsingh1984/victor-ai` | Containers, isolated deployments |
 | **Development** | `pip install -e ./victor-contracts -e ".[dev]"` | Contributors, local development |
 
-### Method 1: pipx (Recommended for CLI Users)
+### Method 1: uv (Recommended for CLI Users)
+
+[uv](https://docs.astral.sh/uv/) installs Victor in an isolated environment and
+provisions its own Python — the host needs nothing but network access.
+
+```bash
+# Install uv if not already installed (macOS/Linux)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+# Windows: powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+
+# Install Victor (uv fetches Python 3.12 if missing)
+uv tool install --python 3.12 victor-ai
+
+# Verify installation
+victor --version
+```
+
+**Why uv?**
+- No Python prerequisite — uv downloads a managed interpreter
+- Isolates Victor's dependencies from your system Python
+- Fast installs with a global wheel cache
+- Easy upgrades with `uv tool upgrade victor-ai`
+- Clean uninstalls with `uv tool uninstall victor-ai`
+
+Optional dependencies install through `--with`:
+
+```bash
+uv tool install --python 3.12 victor-ai --with "victor-ai[embeddings]"
+```
+
+### Method 2: pipx (Equivalent, If You Already Use It)
 
 pipx installs Victor in an isolated environment, preventing dependency conflicts with other Python packages.
 
@@ -50,7 +81,7 @@ victor --version
 - Easy upgrades with `pipx upgrade victor-ai`
 - Clean uninstalls with `pipx uninstall victor-ai`
 
-### Method 2: pip (Virtual Environment)
+### Method 3: pip (Virtual Environment)
 
 For use within a Python virtual environment or project:
 
@@ -66,7 +97,7 @@ pip install victor-ai
 victor --version
 ```
 
-### Method 3: Docker
+### Method 4: Docker
 
 Run Victor in a container without installing Python dependencies:
 
@@ -107,7 +138,7 @@ services:
     tty: true
 ```
 
-### Method 4: Development Installation
+### Method 5: Development Installation
 
 Follow the canonical [development setup guide](../development/setup.md), which
 installs the in-repository contracts package before Victor. Native extension
@@ -260,7 +291,7 @@ brew install pipx
 pipx ensurepath
 
 # Install Victor
-pipx install --python python3.12 victor-ai
+uv tool install --python 3.12 victor-ai   # or: pipx install --python python3.12 victor-ai
 
 # Optional: Install Ollama for local models
 brew install ollama
@@ -278,7 +309,7 @@ python3.12 -m pip install --user pipx
 python3.12 -m pipx ensurepath
 
 # Restart terminal, then install Victor
-pipx install --python python3.12 victor-ai
+uv tool install --python 3.12 victor-ai   # or: pipx install --python python3.12 victor-ai
 
 # Optional: Install Ollama for local models
 curl -fsSL https://ollama.com/install.sh | sh
@@ -301,7 +332,7 @@ python3.12 -m pip install --user pipx
 python3.12 -m pipx ensurepath
 
 # Restart terminal, then install Victor
-pipx install --python python3.12 victor-ai
+uv tool install --python 3.12 victor-ai   # or: pipx install --python python3.12 victor-ai
 ```
 
 ---
@@ -400,6 +431,11 @@ export OLLAMA_HOST=127.0.0.1:11434
 
 ## Upgrading Victor
 
+### uv
+```bash
+uv tool upgrade victor-ai
+```
+
 ### pipx
 ```bash
 pipx upgrade victor-ai
@@ -425,6 +461,11 @@ pip install -e ./victor-contracts -e ".[dev]"
 ---
 
 ## Uninstalling Victor
+
+### uv
+```bash
+uv tool uninstall victor-ai
+```
 
 ### pipx
 ```bash
