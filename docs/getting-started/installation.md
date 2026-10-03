@@ -233,6 +233,22 @@ victor keys --set google --keyring
 
 ## Platform-Specific Instructions
 
+### Standalone binaries (no Python at all)
+
+Prebuilt frozen binaries are published for macOS (arm64), Linux (x64 + arm64)
+and Windows (x64) on each release's GitHub Releases page:
+
+```bash
+curl -fsSL -o victor.tar.gz \
+  https://github.com/vijayksingh/victor/releases/latest/download/victor-linux-x64.tar.gz
+tar -xzf victor.tar.gz && ./victor --version
+```
+
+Or use the installer, which picks the right artifact:
+`curl -fsSL <installer-url> | bash -s -- --binary`. The `uv`/`pipx` methods
+below remain the recommended CLI path (smaller updates, plugin ecosystem);
+binaries are the no-Python fallback.
+
 ### macOS
 
 ```bash

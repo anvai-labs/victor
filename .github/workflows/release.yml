@@ -9,7 +9,7 @@
 #
 # Outputs:
 #   - PyPI package (and TestPyPI for pre-releases)
-#   - Standalone binaries (macOS ARM64/x64, Linux x64/ARM64, Windows)
+#   - Standalone binaries (macOS ARM64, Linux x64/ARM64, Windows x64)
 #   - Docker image (multi-arch)
 #   - GitHub Release with checksums
 #
@@ -236,11 +236,17 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Linux binaries skipped - PyInstaller + PyTorch/sentence-transformers too complex
-          # Linux users should use: pip install victor-ai
           # macOS ARM64 (M1/M2/M3/M4)
           - os: macos-latest
             platform: macos
+            arch: arm64
+          # Linux x64 + ARM64 (native runners; core is ML-free since the
+          # lean-default move, so PyInstaller no longer drags torch)
+          - os: ubuntu-24.04
+            platform: linux
+            arch: x64
+          - os: ubuntu-24.04-arm
+            platform: linux
             arch: arm64
           # Windows x64
           - os: windows-latest
@@ -266,6 +272,29 @@ jobs:
       - name: Build binary
         run: |
           python scripts/build_binary.py --onefile --output victor
+
+      - name: Smoke test binary (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          # Cold run exercises the onefile extraction; a broken archive fails here.
+          timeout 120 dist/victor --version
+          # Warm run asserts the extraction cache reuse.
+          timeout 60 dist/victor --version
+          timeout 60 dist/victor --help | head -5 | grep -q "Usage"
+          # Tripwire: accidental ML-stack bundling would blow past this.
+          size_mb=$(du -m dist/victor | cut -f1)
+          echo "binary size: ${size_mb}MB"
+          [ "$size_mb" -lt 500 ]
+
+      - name: Smoke test binary (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          dist\victor.exe --version
+          dist\victor.exe --help | Select-Object -First 5 | Out-Null
+          $size = (Get-Item dist\victor.exe).Length / 1MB
+          Write-Output "binary size: $([math]::Round($size))MB"
+          if ($size -gt 500) { exit 1 }
 
       - name: Create archive (Unix)
         if: runner.os != 'Windows'
@@ -754,7 +783,7 @@ jobs:
           |----------|--------------|----------|
           | macOS | ARM64 (M1/M2/M3/M4) | \`victor-macos-arm64.tar.gz\` |
           | Windows | x64 | \`victor-windows-x64.zip\` |
-          | Linux | x64 / ARM64 | Use \`pip install victor-ai\` (native wheels available) |
+          | Linux | x64 / ARM64 | \`victor-linux-x64.tar.gz\` / \`victor-linux-arm64.tar.gz\`, or \`pip install victor-ai\` |
 
           ## Verification
 
