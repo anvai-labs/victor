@@ -39,6 +39,10 @@ while [[ $# -gt 0 ]]; do
             INSTALL_TYPE="pipx"
             shift
             ;;
+        --uv)
+            INSTALL_TYPE="uv"
+            shift
+            ;;
         --version)
             VICTOR_VERSION="$2"
             shift 2
@@ -51,6 +55,7 @@ while [[ $# -gt 0 ]]; do
             echo "Options:"
             echo "  --dev       Include development dependencies"
             echo "  --binary    Install standalone binary (no Python required)"
+            echo "  --uv        Install via uv (recommended; provisions Python)"
             echo "  --pipx      Use pipx for isolated installation"
             echo "  --version   Specify version (default: latest)"
             echo "  --help      Show this help"
@@ -141,6 +146,26 @@ install_pip() {
 }
 
 # Install via pipx
+install_uv() {
+    print_step "Installing Victor via uv"
+
+    if ! command -v uv &> /dev/null; then
+        print_info "uv not found — installing uv..."
+        curl -LsSf https://astral.sh/uv/install.sh | sh
+        export PATH="$HOME/.local/bin:$PATH"
+        if ! command -v uv &> /dev/null; then
+            print_error "uv installation failed; install manually: https://docs.astral.sh/uv/"
+            exit 1
+        fi
+    fi
+
+    if [[ "$VICTOR_VERSION" == "latest" ]]; then
+        uv tool install --python 3.12 victor-ai
+    else
+        uv tool install --python 3.12 "victor-ai==$VICTOR_VERSION"
+    fi
+}
+
 install_pipx() {
     echo -e "${BLUE}➤ Installing Victor via pipx (isolated)...${NC}"
 
@@ -206,6 +231,9 @@ install_binary() {
 # Main installation
 main() {
     case $INSTALL_TYPE in
+        uv)
+            install_uv
+            ;;
         pip)
             if ! check_python; then
                 install_python
