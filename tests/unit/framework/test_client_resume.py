@@ -142,3 +142,44 @@ async def test_non_boolean_decision_does_not_consume_pause(_store):
     with pytest.raises(ValueError, match="boolean"):
         await _client().resume(run_id, ApprovalDecision("false"))
     assert _store.get(run_id).status == "awaiting_approval"
+
+
+async def test_durable_action_mode_rejects_memory_store_before_claim(_store):
+    run_id = _save(_store)
+    with pytest.raises(ValueError, match="persistent"):
+        await _client().resume(run_id, ApprovalDecision(True), durable_actions=True)
+    assert _store.get(run_id).status == "awaiting_approval"
+
+
+async def test_durable_action_mode_passes_same_store_to_canonical_resume(tmp_path, monkeypatch):
+    from victor.agent import durable_resume
+    from victor.agent.paused_run_store import ProjectDbPausedRunStore
+
+    persistent = ProjectDbPausedRunStore(tmp_path / "state.db")
+    set_paused_run_store(persistent)
+    run_id = _save(persistent)
+
+    async def resume(orchestrator, paused, decision, *, action_store):
+        assert action_store is persistent
+        assert paused.run_id == run_id
+        return durable_resume.ResumeResult(final_content="done")
+
+    monkeypatch.setattr(durable_resume, "resume_paused_run", resume)
+    out = await _client().resume(run_id, ApprovalDecision(True), durable_actions=True)
+    assert out.content == "done"
+
+
+def test_action_status_requires_original_restored_session(_store):
+    run_id = _store.save(session_id="original", agent_id="a", approval_request={})
+    client = _client()
+    client._agent._orchestrator = SimpleNamespace(active_session_id="other")
+    with pytest.raises(ValueError, match="original session"):
+        client.get_action_status(run_id)
+    client._agent._orchestrator.active_session_id = "original"
+    status = client.get_action_status(run_id)
+    assert status == {
+        "version": 1,
+        "run_id": run_id,
+        "approval_status": "awaiting_approval",
+        "action": None,
+    }
