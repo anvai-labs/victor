@@ -57,12 +57,14 @@ class Controller:
         self.messages.append(SimpleNamespace(role="tool", tool_call_id=call_id, content=content))
 
 
-async def paused_runtime(store, *, argument=None, empty=False):
+async def paused_runtime(store, *, argument=None, empty=False, effect_error=None):
     effects = []
 
     @tool(access_mode=AccessMode.WRITE)
     async def submit_record(payload: str, _exec_ctx=None):
         effects.append(payload)
+        if effect_error is not None:
+            raise effect_error
         return "receipt"
 
     if empty:
@@ -477,3 +479,193 @@ async def test_control_signal_resets_call_and_grant_context(store, signal):
     finally:
         current_durable_pause_enabled.reset(token)
     assert state.effects == []
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        None,
+        "timeout",
+        "reported_failure",
+        "cancel",
+        "intent",
+        "observation",
+        "cancel_observation",
+        "publication",
+        "after_hook",
+        "output_deny",
+        "output_ask",
+    ],
+)
+async def test_durable_action_observation_at_real_dispatch(tmp_path, monkeypatch, failure):
+    import asyncio
+    import sqlite3
+    from victor.agent.paused_run_store import ProjectDbPausedRunStore
+
+    durable = ProjectDbPausedRunStore(tmp_path / "actions.db")
+    set_paused_run_store(durable)
+    try:
+        error = {
+            "reported_failure": TimeoutError(),
+            "cancel": asyncio.CancelledError(),
+            "cancel_observation": asyncio.CancelledError(),
+        }.get(failure)
+        state = await paused_runtime(durable, effect_error=error)
+        if failure == "timeout":
+
+            async def committed_timeout(**kwargs):
+                with sqlite3.connect(tmp_path / "backend.db") as backend:
+                    backend.execute("CREATE TABLE receipt (action_id TEXT PRIMARY KEY)")
+                    backend.execute(
+                        "INSERT INTO receipt VALUES (?)",
+                        (kwargs["_exec_ctx"]["durable_action_id"],),
+                    )
+                state.effects.append("original")
+                raise TimeoutError()
+
+            monkeypatch.setattr(
+                state.pipeline.executor.tools.get("submit_record"), "execute", committed_timeout
+            )
+        run_id = state.paused.run_id
+        assert durable.mark_resumed(run_id)
+        observation_attempts = []
+        if failure in {"intent", "observation", "cancel_observation"}:
+            method = "begin_action" if failure == "intent" else "observe_action"
+
+            def broken(*args, **kwargs):
+                observation_attempts.append(args)
+                raise OSError("storage unavailable")
+
+            monkeypatch.setattr(durable, method, broken)
+        if failure in {"output_deny", "output_ask"}:
+            from victor.framework.policies import Policy, Phase, PolicyVerdict
+
+            class WithholdResult(Policy):
+                def phases(self):
+                    return {Phase.TOOL_RESULT}
+
+                async def evaluate(self, event):
+                    return (
+                        PolicyVerdict.ask("withhold")
+                        if failure == "output_ask"
+                        else PolicyVerdict.deny("withhold")
+                    )
+
+            state.pipeline.middleware_chain.add(
+                PolicyEngineMiddleware(
+                    PolicyEngine([WithholdResult()]), lambda: PolicyContext(**state.scope)
+                )
+            )
+        publication_attempts = []
+        if failure in {"publication", "after_hook"}:
+
+            def fail_after_effect(*args, **kwargs):
+                publication_attempts.append(kwargs)
+                raise OSError("post-effect bookkeeping unavailable")
+
+            if failure == "publication":
+                state.orch.add_message = fail_after_effect
+            else:
+                monkeypatch.setattr(state.pipeline.executor, "_run_after_hooks", fail_after_effect)
+        if failure in {"cancel", "cancel_observation"}:
+            with pytest.raises(asyncio.CancelledError) as caught:
+                await resume_paused_run(
+                    state.orch, state.paused, ApprovalDecision(True), action_store=durable
+                )
+            assert caught.value is error
+        elif failure:
+            with pytest.raises(ResumeError, match="action"):
+                await resume_paused_run(
+                    state.orch, state.paused, ApprovalDecision(True), action_store=durable
+                )
+        else:
+            result = await resume_paused_run(
+                state.orch, state.paused, ApprovalDecision(True), action_store=durable
+            )
+            assert result.final_content == "all done"
+        reopened = ProjectDbPausedRunStore(tmp_path / "actions.db")
+        action = reopened.get(run_id).action
+        assert state.effects == ([] if failure == "intent" else ["original"])
+        if failure == "intent":
+            assert action is None
+        else:
+            expected = (
+                "pending"
+                if failure in {"observation", "cancel_observation"}
+                else (
+                    "returned"
+                    if failure
+                    in {
+                        None,
+                        "reported_failure",
+                        "publication",
+                        "after_hook",
+                        "output_deny",
+                        "output_ask",
+                    }
+                    else "unknown"
+                )
+            )
+            assert action["state"] == expected
+            assert action["backend_receipt"] is None
+        if failure in {"intent", "observation", "cancel_observation"}:
+            assert len(observation_attempts) == 1
+        if failure == "publication":
+            assert len(publication_attempts) == 1
+            assert publication_attempts[0]["require_persistence"] is True
+        if failure == "timeout":
+            with sqlite3.connect(tmp_path / "backend.db") as backend:
+                assert backend.execute("SELECT action_id FROM receipt").fetchall() == [
+                    (action["action_id"],)
+                ]
+        if failure:
+            state.orch.turn_executor.execute_turn.assert_not_awaited()
+        assert reopened.mark_resumed(run_id) is False
+    finally:
+        reset_paused_run_store()
+
+
+@pytest.mark.parametrize("change", ["scope", "session", "expiry", "prior_intent"])
+async def test_durable_intent_cannot_bypass_final_authority_or_restart_guard(
+    tmp_path, monkeypatch, change
+):
+    from victor.agent.paused_run_store import ProjectDbPausedRunStore
+    from victor.framework import approval_binding
+
+    durable = ProjectDbPausedRunStore(tmp_path / "actions.db")
+    set_paused_run_store(durable)
+    try:
+        state = await paused_runtime(durable)
+        run_id = state.paused.run_id
+        assert durable.mark_resumed(run_id)
+        if change == "prior_intent":
+            durable.begin_action(run_id, state.paused.pending_tool["binding"])
+            durable = ProjectDbPausedRunStore(tmp_path / "actions.db")
+        else:
+            begin = durable.begin_action
+
+            def save_then_change(*args):
+                action = begin(*args)
+                if change == "scope":
+                    state.scope["labels"] = {"role": "revoked"}
+                elif change == "session":
+                    state.orch.active_session_id = "other"
+                else:
+                    expiry = approval_binding.current_approval_grant.get().expires_at
+                    monkeypatch.setattr(
+                        approval_binding, "time", SimpleNamespace(time=lambda: expiry + 1)
+                    )
+                return action
+
+            monkeypatch.setattr(durable, "begin_action", save_then_change)
+        with pytest.raises(ResumeError):
+            await resume_paused_run(
+                state.orch, state.paused, ApprovalDecision(True), action_store=durable
+            )
+        assert state.effects == []
+        state.orch.turn_executor.execute_turn.assert_not_awaited()
+        action = durable.get(run_id).action
+        assert action["state"] == ("pending" if change == "prior_intent" else "unknown")
+        assert not durable.mark_resumed(run_id)
+    finally:
+        reset_paused_run_store()
