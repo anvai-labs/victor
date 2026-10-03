@@ -122,3 +122,25 @@ def test_plugin_queries_compile(language: str, plugin, request) -> None:
         pytest.xfail(f"{language}: known query/grammar drift ({len(failures)} failing)")
 
     assert not failures, f"{language}: {len(failures)} query/queries failed to compile: {failures}"
+
+
+def test_haskell_type_declarations_capture_defined_names():
+    """Both supported grammar spellings must extract aliases, not RHS types."""
+    service = get_tree_sitter_service()
+    if not service.supports_language("haskell"):
+        pytest.skip("Haskell grammar not installed")
+    from victor_coding.languages.plugins.additional import HaskellPlugin
+
+    parsed = service.parse(
+        b"type UserId = Int\nnewtype SessionId = SessionId Int\ndata Flag = On | Off\n",
+        "haskell",
+    )
+    assert parsed is not None and not parsed.root_node.has_error
+    names = []
+    for pattern in HaskellPlugin().tree_sitter_queries.symbols:
+        if pattern.symbol_type == "class":
+            query = service.get_query("haskell", "symbols:class", pattern.query)
+            assert query is not None
+            captures = service.run_query(parsed, "symbols:class", pattern.query)
+            names.extend(node.text.decode() for node in captures.get("name", []))
+    assert sorted(names) == ["Flag", "SessionId", "UserId"]

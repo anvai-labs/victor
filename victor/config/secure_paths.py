@@ -38,8 +38,12 @@ from __future__ import annotations
 import logging
 import os
 import platform
-import pwd
 import tempfile
+
+try:
+    import pwd  # Unix-only stdlib module; Windows falls back to USERPROFILE
+except ImportError:  # pragma: no cover - Windows
+    pwd = None
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional, Tuple

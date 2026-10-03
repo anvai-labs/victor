@@ -52,8 +52,8 @@ import os
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-import numpy as np
 
+from victor.core import vecmath
 from victor.ml.features import FEATURE_SPEC_VERSION, extract_features
 from victor.ml.mining import _decision_text
 from victor.ml.outcome_training import _reward_label
@@ -68,7 +68,7 @@ from victor.agent.decisions.outcome import _decisions_for_session  # noqa: E402
 # the head's labels (shape ``[len(labels)]``), or ``None`` to skip that
 # decision (no head / un-featurizable). The default implementation scores
 # features with the universal artifact; tests inject a stub.
-PredictFn = Callable[[str, Dict[int, float]], Optional[np.ndarray]]
+PredictFn = Callable[[str, Dict[int, float]], Optional[List[float]]]
 
 # Cached universal model + derived (predict_fn, head_labels). ``_model_cache``
 # is either an EdgeClassifierModel, ``None`` (not yet tried), or ``False``
@@ -118,11 +118,9 @@ def _artifact_path() -> Optional[Path]:
         return None
 
 
-def _softmax(scores: np.ndarray) -> np.ndarray:
-    """Numerically stable softmax (mirrors ``victor.ml.model._softmax``)."""
-    shifted = scores - np.max(scores)
-    exp = np.exp(shifted)
-    return exp / np.sum(exp)
+def _softmax(scores: List[float]) -> List[float]:
+    """Numerically stable softmax (mirrors the model's formulation)."""
+    return vecmath.softmax(scores)
 
 
 def _get_default_predict() -> Tuple[Optional[PredictFn], Dict[str, List[str]]]:
@@ -150,16 +148,16 @@ def _get_default_predict() -> Tuple[Optional[PredictFn], Dict[str, List[str]]]:
     model = _model_cache
     head_labels = {name: list(head.labels) for name, head in model.heads.items()}
 
-    def _predict(dtype: str, features: Dict[int, float]) -> Optional[np.ndarray]:
+    def _predict(dtype: str, features: Dict[int, float]) -> Optional[List[float]]:
         head = model.heads.get(dtype)
         if head is None or not features:
             return None
-        scores = head.bias.astype(float).copy()
+        scores = list(head.bias)
         weights = head.weights
         for h, val in features.items():
             row = weights.get(int(h))
             if row is not None:
-                scores += row * val
+                scores = [s + c * val for s, c in zip(scores, row)]
         return _softmax(scores)
 
     _predict_cache = (_predict, head_labels)
@@ -382,7 +380,7 @@ def update_delta_from_session(
     return _persist_delta(acc, reward, touched, top_k, decay)
 
 
-def load_delta(decision_type: str, labels: List[str]) -> Dict[int, np.ndarray]:
+def load_delta(decision_type: str, labels: List[str]) -> Dict[int, List[float]]:
     """Load the project delta for one decision type as per-label vectors.
 
     Args:
@@ -392,7 +390,7 @@ def load_delta(decision_type: str, labels: List[str]) -> Dict[int, np.ndarray]:
             caller will blend into.
 
     Returns:
-        ``{feature_hash: np.ndarray([w_per_label in `labels` order])}``.
+        ``{feature_hash: [w_per_label in `labels` order]}``.
         Empty dict on any error or when no rows exist (→ no blend, graceful).
     """
     try:
@@ -414,13 +412,13 @@ def load_delta(decision_type: str, labels: List[str]) -> Dict[int, np.ndarray]:
         return {}
 
     idx = {lab: i for i, lab in enumerate(labels)}
-    out: Dict[int, np.ndarray] = {}
+    out: Dict[int, List[float]] = {}
     for h, label, weight in rows:
         if label not in idx:
             continue
         h = int(h)
         if h not in out:
-            out[h] = np.zeros(len(labels), dtype=float)
+            out[h] = [0.0] * len(labels)
         out[h][idx[label]] += float(weight)
     return out
 

@@ -1,5 +1,7 @@
 """Tests for semantic response cache."""
 
+import sys
+
 import pytest
 import time
 import numpy as np
@@ -208,3 +210,19 @@ class TestSemanticResponseCache:
         embedding3 = np.array([0.0, 1.0, 0.0])
         score = cached.similarity_score(embedding3)
         assert score == pytest.approx(0.0, abs=1e-5)
+
+
+def test_module_import_survives_without_numpy(monkeypatch):
+    """Bare-install simulation: reloading the module with numpy poisoned must
+    take the ImportError guard branch (NUMPY_AVAILABLE False, np None)."""
+    import importlib
+
+    monkeypatch.setitem(sys.modules, "numpy", None)
+    monkeypatch.delitem(sys.modules, "victor.agent.semantic_response_cache", raising=False)
+    reloaded = importlib.import_module("victor.agent.semantic_response_cache")
+    try:
+        assert reloaded.NUMPY_AVAILABLE is False
+        assert reloaded.np is None
+    finally:
+        monkeypatch.undo()
+        importlib.reload(importlib.import_module("victor.agent.semantic_response_cache"))

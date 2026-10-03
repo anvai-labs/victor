@@ -37,9 +37,16 @@ from __future__ import annotations
 
 import logging
 import uuid
+import math
 from typing import Any, Dict, List, Optional
 
-import numpy as np
+try:
+    import numpy as np
+
+    NUMPY_AVAILABLE = True
+except ImportError:  # bare install: this store falls back to pure-Python math
+    np = None
+    NUMPY_AVAILABLE = False
 
 from victor.framework.vertical_protocols import (
     VectorSearchResult,
@@ -110,7 +117,9 @@ class InMemoryVectorStore(VectorStoreProtocol):
             self._counter += 1
 
             self._documents[doc_id] = doc_text
-            self._embeddings[doc_id] = np.array(embedding, dtype=np.float32)
+            self._embeddings[doc_id] = (
+                np.array(embedding, dtype=np.float32) if np is not None else list(embedding)
+            )
             self._metadata[doc_id] = meta
 
             document_ids.append(doc_id)
@@ -139,7 +148,9 @@ class InMemoryVectorStore(VectorStoreProtocol):
         if not self._embeddings:
             return []
 
-        query_vec = np.array(query_embedding, dtype=np.float32)
+        query_vec = (
+            np.array(query_embedding, dtype=np.float32) if np is not None else list(query_embedding)
+        )
 
         # Calculate cosine similarity for all documents
         results: List[tuple[str, float]] = []
@@ -222,6 +233,13 @@ class InMemoryVectorStore(VectorStoreProtocol):
         Returns:
             Cosine similarity score
         """
+        if np is None:
+            norm1 = math.sqrt(sum(float(x) * float(x) for x in vec1))
+            norm2 = math.sqrt(sum(float(x) * float(x) for x in vec2))
+            if norm1 == 0 or norm2 == 0:
+                return 0.0
+            dot = sum(float(a) * float(b) for a, b in zip(vec1, vec2))
+            return dot / (norm1 * norm2)
         norm1 = np.linalg.norm(vec1)
         norm2 = np.linalg.norm(vec2)
 

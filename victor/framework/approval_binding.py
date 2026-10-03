@@ -15,7 +15,7 @@ import math
 import time
 from contextvars import ContextVar
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any, Callable, Protocol
 
 
 class ApprovalBindingError(PermissionError):
@@ -129,6 +129,17 @@ def request_binding(
     }
 
 
+class ActionObserver(Protocol):
+    """Invocation-owned durable observations; never a tool dispatcher."""
+
+    return_observed: bool
+    reported_success: bool | None
+
+    def begin(self) -> str: ...
+    def returned(self, reported_success: bool | None) -> None: ...
+    def interrupted(self, original: BaseException) -> None: ...
+
+
 @dataclass
 class ApprovalGrant:
     binding: dict[str, Any]
@@ -137,6 +148,7 @@ class ApprovalGrant:
     scope_resolvers: list[Callable[[], dict[str, Any]]] = field(default_factory=list)
     ask_consumed: bool = False
     dispatched: bool = False
+    action_observer: ActionObserver | None = None
 
     def check(self, tool_name: str, arguments: dict[str, Any]) -> None:
         call = current_approval_call.get()

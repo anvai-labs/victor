@@ -55,14 +55,44 @@ except ImportError:
 
 
 # Operations where Python is faster than Rust based on benchmarks.
-# These operations should use Python fallback even when native is available.
-# See victor/processing/native/accelerator.py for benchmark data.
+# "Python" here means NumPy+BLAS, which is no longer a core dependency: these
+# operations prefer numpy ONLY when it is importable (see
+# numpy_accelerator_available); without numpy they dispatch to the native
+# engine like everything else. See
+# victor/processing/native/accelerator.py for benchmark data.
 _PYTHON_PREFERRED_OPERATIONS = frozenset(
     {
         "batch_cosine_similarity",  # NumPy+BLAS is ~6x faster for batch operations
         "similarity_matrix",  # NumPy matmul is ~4x faster
     }
 )
+
+_NUMPY_ACCELERATOR_CACHE: bool | None = None
+
+
+def numpy_accelerator_available() -> bool:
+    """True when numpy is importable — WITHOUT importing it.
+
+    A cached ``find_spec`` probe: the accelerator decision runs per dispatch
+    call, so the check must stay import-free and O(1) after the first call.
+    """
+    global _NUMPY_ACCELERATOR_CACHE
+    if _NUMPY_ACCELERATOR_CACHE is None:
+        import importlib.util
+
+        try:
+            # find_spec raises ValueError when sys.modules["numpy"] is None
+            # (the bare-install simulation used by tests) — treat as absent.
+            _NUMPY_ACCELERATOR_CACHE = importlib.util.find_spec("numpy") is not None
+        except (ImportError, ValueError):
+            _NUMPY_ACCELERATOR_CACHE = False
+    return _NUMPY_ACCELERATOR_CACHE
+
+
+def reset_numpy_probe_for_tests() -> None:
+    """Clear the cached numpy probe (tests install/uninstall numpy fakes)."""
+    global _NUMPY_ACCELERATOR_CACHE
+    _NUMPY_ACCELERATOR_CACHE = None
 
 
 def is_native_available() -> bool:
@@ -88,7 +118,11 @@ def should_use_native_for_operation(operation_name: str) -> bool:
     """
     if not _NATIVE_AVAILABLE:
         return False
-    return operation_name not in _PYTHON_PREFERRED_OPERATIONS
+    if operation_name in _PYTHON_PREFERRED_OPERATIONS:
+        # NumPy+BLAS wins these only while numpy is importable; a bare install
+        # (no numpy) dispatches batches to the native engine instead.
+        return not numpy_accelerator_available()
+    return True
 
 
 def get_native_version() -> Optional[str]:
