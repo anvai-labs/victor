@@ -423,9 +423,85 @@ jobs:
   # ==========================================================================
   # Publish to TestPyPI (for pre-releases or manual testing)
   # ==========================================================================
+  # ==========================================================================
+  # Bare-install smoke: the wheel must work with NO extras and NO numpy.
+  # The regular smoke test installs .[embeddings], which masks bare-install
+  # breaks; this is the release gate for the numpy-optional core. Also runs
+  # the distribution-metrics gates (size / CLI timings / numpy absence).
+  # ==========================================================================
+  bare-install-smoke:
+    name: Bare Install Smoke (no extras, no numpy)
+    needs: [release-plan, build-python]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+
+      - name: Download victor-ai artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: python-package
+          path: dist/
+
+      - name: Bare install (no extras)
+        run: |
+          python -m venv .venv-bare
+          .venv-bare/bin/pip install --quiet dist/victor_ai-*.whl
+          if .venv-bare/bin/pip list | grep -qi '^numpy '; then
+            echo "::error::numpy leaked into a bare install"
+            exit 1
+          fi
+
+      - name: Prove the CLI chain works without numpy
+        run: |
+          .venv-bare/bin/victor --version
+          .venv-bare/bin/victor --help > /dev/null
+          .venv-bare/bin/python - <<'PY'
+          from importlib.resources import files
+
+          from victor.processing.native import batch_cosine_similarity
+
+          scores = batch_cosine_similarity(
+              [1.0, 0.0, 1.0], [[1.0, 0.0, 1.0], [0.0, 1.0, 0.0]]
+          )
+          assert len(scores) == 2 and abs(scores[0] - 1.0) < 1e-6, scores
+
+          from victor.ml.model import EdgeClassifierModel
+
+          artifact = files("victor") / "models" / "edge_classifier_v1.npz"
+          model = EdgeClassifierModel.load(str(artifact))
+          label, conf = model.predict("stage_detection", "run the parser tests")
+          assert conf >= 0.0
+          print("BARE_INSTALL_OK")
+          PY
+
+      - name: Distribution metrics gates (size / CLI timings / numpy absent)
+        run: |
+          python scripts/ci/dist_metrics.py \
+            --mode env \
+            --python .venv-bare/bin/python \
+            --iterations 5 \
+            --json dist-metrics-release.json \
+            --expect-no-numpy \
+            --max-help-ms 2200 \
+            --max-version-ms 1500 \
+            --max-install-mb 200
+
+      - name: Upload release distribution metrics
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dist-metrics-release
+          path: dist-metrics-release.json
+          retention-days: 90
+
   publish-testpypi:
     name: Publish to TestPyPI
-    needs: [release-plan, build-python, generate-checksums, security-scan]
+    needs: [release-plan, build-python, generate-checksums, security-scan, bare-install-smoke]
     if: needs.release-plan.outputs.testpypi == 'true'
     runs-on: ubuntu-24.04
     environment:
@@ -454,7 +530,7 @@ jobs:
   # ==========================================================================
   publish-pypi:
     name: Publish victor-ai to PyPI
-    needs: [release-plan, build-python, generate-checksums, create-release, publish-native-pypi]
+    needs: [release-plan, build-python, generate-checksums, create-release, publish-native-pypi, bare-install-smoke]
     if: needs.release-plan.outputs.production == 'true'
     runs-on: ubuntu-24.04
     # Uniform with release-contracts/-codegraph/-verticals: the trusted publisher for
@@ -613,7 +689,7 @@ jobs:
   # ==========================================================================
   create-release:
     name: Create GitHub Release
-    needs: [release-plan, build-python, generate-checksums, security-scan]
+    needs: [release-plan, build-python, generate-checksums, security-scan, bare-install-smoke]
     if: needs.release-plan.outputs.github_release == 'true'
     runs-on: ubuntu-24.04
     permissions:
