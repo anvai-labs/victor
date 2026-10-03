@@ -175,9 +175,17 @@ When a tag matching `v*` is pushed, GitHub Actions automatically:
 ### 3. Publishes to Distribution Channels
 
 - **PyPI**: Automatic via trusted publishing (OIDC, no token needed)
+- **uv**: `uv tool install --python 3.12 victor-ai` (recommended CLI path;
+  resolves straight from PyPI — no separate channel)
 - **GitHub Releases**: Creates release with artifacts and checksums
 - **Docker Hub**: Pushes images to `vjsingh1984/victor-ai`
 - **Homebrew**: Auto-updates via PyPI polling (every 6 hours)
+
+Release-engineering checklist addition: verify the uv path against the
+TestPyPI rehearsal before a stable tag
+(`uv tool install --python 3.12 --index-url https://test.pypi.org/simple/
+--extra-index-url https://pypi.org/simple/ victor-ai==<version> && victor
+--version`).
 
 ### Required Secrets
 

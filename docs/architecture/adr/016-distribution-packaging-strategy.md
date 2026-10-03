@@ -75,3 +75,25 @@ Native single-binary remains a **possible future path for a stripped-down, close
 - **Containerized polyglot eval (Phase 1, in flight):** establishes the Docker-based execution model this ADR builds on for *victor itself*.
 - **ADR-007 (vertical distribution):** the pip/Python extensibility model stays primary for verticals; the Docker image freezes a known-good matrix on top of it.
 - **ADR-014 / ADR-015 (codegraph):** the `victor:full` image bundles `[lang-all]` grammars so polyglot indexing works out-of-the-box.
+
+## Addendum (2026-10): uv as the recommended CLI install
+
+The pipx/uv rejection above reasoned that they "still build/install deps on the
+host (they don't bundle a pre-resolved matrix)" and therefore don't serve a bare
+host. `uv` has since closed that gap for the CLI case: `uv tool install
+--python 3.12 victor-ai` provisions a managed interpreter, so the host needs
+nothing but network — the same property this ADR demanded from the Docker
+channel, at CLI scale.
+
+Consequently:
+- **uv is the recommended CLI install** (`docs/getting-started/installation.md`,
+  Method 1). pipx remains documented as an equivalent for existing pipx users.
+- **Docker remains the primary full-matrix packaged artifact** (unchanged).
+- **Frozen binaries** (PyInstaller, macOS arm64 + Windows x64 + Linux x64/arm64)
+  are the no-Python fallback for air-gapped hosts — the "stripped-down, closed
+  CLI build" this ADR explicitly left open, enabled by the lean-core dependency
+  move (numpy out of core, ML stack in extras).
+- The frozen-binary channel is verification-gated (per-artifact smoke run in
+  `release.yml`), addressing rationale #1's "silent breakage" concern for the
+  stripped scope; full-capability installs stay on pip/uv/Docker, where the
+  plugin/entry-point model (rationales #1 and #4) is unaffected.
