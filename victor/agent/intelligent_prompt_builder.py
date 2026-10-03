@@ -67,9 +67,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple, TYPE_CHECKING
-
-import numpy as np
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
 
 from victor.core.grounding_texts import (
     GROUNDING_RULES as CANONICAL_GROUNDING_RULES,
@@ -81,6 +79,10 @@ if TYPE_CHECKING:
     from victor.agent.conversation_embedding_store import ConversationEmbeddingStore
     from victor.agent.tool_calling.base import ToolCallingCapabilities
     from victor.storage.embeddings.service import EmbeddingService
+
+    # Annotation-only: the cache holds embedding vectors produced by the
+    # (embeddings-extra) EmbeddingService; no numpy at runtime.
+    from numpy import ndarray as np_ndarray
 
 logger = logging.getLogger(__name__)
 
@@ -447,7 +449,7 @@ class EmbeddingScheduler:
         self._state = CacheState.COLD
         self._last_refresh: Optional[datetime] = None
         self._background_task: Optional[asyncio.Task] = None
-        self._cache: Dict[str, np.ndarray] = {}
+        self._cache: Dict[str, "np_ndarray"] = {}
         self._cache_ttl = timedelta(minutes=30)
 
     @property

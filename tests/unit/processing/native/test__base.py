@@ -88,3 +88,18 @@ def test_policy_without_native_is_always_false(monkeypatch):
     monkeypatch.setattr(native_base, "_NATIVE_AVAILABLE", False)
     monkeypatch.setattr(native_base, "numpy_accelerator_available", lambda: False)
     assert native_base.should_use_native_for_operation("batch_cosine_similarity") is False
+
+
+def test_probe_tolerates_find_spec_errors(monkeypatch):
+    """find_spec raises ValueError on a poisoned sys.modules entry; the probe
+    must treat that as 'absent' rather than crash the dispatch path."""
+    import importlib.util
+
+    def boom(name):
+        if name == "numpy":
+            raise ValueError("poisoned")
+        return importlib.util.find_spec(name)
+
+    monkeypatch.setattr(importlib.util, "find_spec", boom)
+    native_base.reset_numpy_probe_for_tests()
+    assert native_base.numpy_accelerator_available() is False

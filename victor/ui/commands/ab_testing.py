@@ -41,7 +41,6 @@ from rich.panel import Panel
 from rich.table import Table
 
 from victor.core.async_utils import run_sync
-from victor.experiments.ab_testing.paths import get_default_ab_test_db_path
 
 ab_app = typer.Typer(
     name="ab",
@@ -384,6 +383,10 @@ async def _show_results_async(experiment_id: str, detailed: bool) -> None:
 def _list_experiments(status_filter: Optional[str]) -> None:
     import sqlite3
     from datetime import datetime
+
+    # Lazy: victor.experiments.ab_testing eagerly imports metrics (numpy+scipy);
+    # keep both off the CLI cold-start import chain.
+    from victor.experiments.ab_testing.paths import get_default_ab_test_db_path
 
     storage_path = get_default_ab_test_db_path()
     if not storage_path.exists():

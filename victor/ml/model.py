@@ -2,12 +2,15 @@
 #
 # Licensed under the Apache License, Version 2.0 (the "License").
 
-"""Edge-classifier artifact + pure-numpy inference (FEP-0012).
+"""Edge-classifier artifact + pure-Python inference (FEP-0012).
 
 The shipped artifact is a set of per-DecisionType linear heads stored as sparse
-weights in an ``.npz``. Inference is pure-numpy (numpy is already a core dep) —
-no sklearn/torch at runtime. The per-project RL delta is blended in at predict
-time: ``score = bias + W·x + α·(delta·x)``.
+weights in an ``.npz``. Inference is pure-Python (numpy-optional: heads are
+2-3-label score vectors over sparse n-gram lookups — vectorized math buys
+nothing at this size), read via :mod:`victor.ml.npz_reader`; no sklearn/torch
+at runtime. numpy is used only by the dev-only ``save()`` writer. The
+per-project RL delta is blended in at predict time:
+``score = bias + W·x + α·(delta·x)``.
 
 A decision whose calibrated confidence is below the head's ``threshold`` (τ)
 returns ``(None, confidence)`` so the caller defers to the heuristic (or, if the
@@ -20,9 +23,18 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
-import numpy as np
-
+from victor.core import vecmath
 from victor.ml.features import FEATURE_SPEC_VERSION, extract_features
+from victor.ml.npz_reader import (
+    NpyArray,
+    as_float_rows,
+    as_float_vector,
+    as_int_vector,
+    as_scalar_float,
+    as_scalar_str,
+    as_str_list,
+    read_npz,
+)
 
 
 @dataclass
@@ -39,8 +51,8 @@ class DecisionHead:
 
     decision_type: str
     labels: List[str]
-    weights: Dict[int, np.ndarray]
-    bias: np.ndarray
+    weights: Dict[int, List[float]]
+    bias: List[float]
     threshold: float = 0.6
 
 
@@ -58,7 +70,7 @@ class EdgeClassifierModel:
         self,
         decision_type: str,
         text: str,
-        delta: Optional[Dict[int, np.ndarray]] = None,
+        delta: Optional[Dict[int, List[float]]] = None,
     ) -> Tuple[Optional[str], float]:
         """Predict the label for ``text`` under ``decision_type``.
 
@@ -79,19 +91,19 @@ class EdgeClassifierModel:
         if not features:
             return None, 0.0
 
-        scores = head.bias.astype(float).copy()
+        scores = list(head.bias)
         weights = head.weights
         for h, val in features.items():
             row = weights.get(h)
             if row is not None:
-                scores += row * val
+                scores = [s + c * val for s, c in zip(scores, row)]
             if delta is not None:
                 drow = delta.get(h)
                 if drow is not None:
-                    scores += self.alpha * drow * val
+                    scores = [s + self.alpha * c * val for s, c in zip(scores, drow)]
 
-        probs = _softmax(scores)
-        best = int(np.argmax(probs))
+        probs = vecmath.softmax(scores)
+        best = vecmath.argmax(probs)
         confidence = float(probs[best])
         if confidence < head.threshold:
             return None, confidence
@@ -99,7 +111,12 @@ class EdgeClassifierModel:
 
     # ------------------------------------------------------------ save / load
     def save(self, path: str) -> None:
-        """Persist the model to an ``.npz`` artifact (sparse weights)."""
+        """Persist the model to an ``.npz`` artifact (sparse weights).
+
+        Dev-only path (the [ml]/dev extras ship numpy); runtime only reads.
+        """
+        import numpy as np
+
         arrays: Dict[str, np.ndarray] = {
             "feature_spec_version": np.array(self.feature_spec_version),
             "model_version": np.array(self.model_version),
@@ -109,13 +126,13 @@ class EdgeClassifierModel:
         for name, head in self.heads.items():
             hashes = np.fromiter(head.weights.keys(), dtype=np.int64, count=len(head.weights))
             coefs = (
-                np.stack(list(head.weights.values()))
+                np.stack([np.asarray(row, dtype=float) for row in head.weights.values()])
                 if head.weights
                 else np.zeros((0, len(head.labels)), dtype=float)
             )
             arrays[f"{name}__hashes"] = hashes
             arrays[f"{name}__coefs"] = coefs
-            arrays[f"{name}__bias"] = head.bias.astype(float)
+            arrays[f"{name}__bias"] = np.asarray(head.bias, dtype=float)
             arrays[f"{name}__labels"] = np.array(head.labels)
             arrays[f"{name}__threshold"] = np.array(head.threshold)
         np.savez(path, **arrays)
@@ -127,8 +144,8 @@ class EdgeClassifierModel:
         Raises ``ValueError`` if the artifact's ``feature_spec_version`` does not
         match the current extractor (prevents silent feature-space drift).
         """
-        data = np.load(path, allow_pickle=False)
-        spec = str(data["feature_spec_version"])
+        data: Dict[str, NpyArray] = read_npz(path)
+        spec = as_scalar_str(data["feature_spec_version"])
         if spec != FEATURE_SPEC_VERSION:
             raise ValueError(
                 f"edge-classifier artifact feature_spec_version={spec!r} "
@@ -137,27 +154,19 @@ class EdgeClassifierModel:
             )
         model = cls(
             feature_spec_version=spec,
-            model_version=str(data["model_version"]),
-            alpha=float(data["alpha"]),
+            model_version=as_scalar_str(data["model_version"]),
+            alpha=as_scalar_float(data["alpha"]),
             heads={},
         )
-        for name in data["head_names"].tolist():
-            name = str(name)
-            hashes = data[f"{name}__hashes"]
-            coefs = data[f"{name}__coefs"]
-            weights: Dict[int, np.ndarray] = {int(h): coefs[i] for i, h in enumerate(hashes)}
+        for name in as_str_list(data["head_names"]):
+            hashes = as_int_vector(data[f"{name}__hashes"])
+            coefs = as_float_rows(data[f"{name}__coefs"])
+            weights: Dict[int, List[float]] = {int(h): coefs[i] for i, h in enumerate(hashes)}
             model.heads[name] = DecisionHead(
                 decision_type=name,
-                labels=[str(x) for x in data[f"{name}__labels"].tolist()],
+                labels=as_str_list(data[f"{name}__labels"]),
                 weights=weights,
-                bias=data[f"{name}__bias"].astype(float),
-                threshold=float(data[f"{name}__threshold"]),
+                bias=as_float_vector(data[f"{name}__bias"]),
+                threshold=as_scalar_float(data[f"{name}__threshold"]),
             )
         return model
-
-
-def _softmax(scores: np.ndarray) -> np.ndarray:
-    """Numerically stable softmax."""
-    shifted = scores - np.max(scores)
-    exp = np.exp(shifted)
-    return exp / np.sum(exp)
