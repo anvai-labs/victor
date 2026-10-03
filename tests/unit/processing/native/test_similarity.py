@@ -12,21 +12,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""numpy is an optional accelerator for similarity, never a requirement.
+"""Dispatch pressure tests for victor/processing/native/similarity.py.
 
-Pressure tests for the numpy-out-of-core move: with numpy hidden (probe +
-lazy import both patched), every similarity function must still return
-correct values — via the native engine when present, else pure-Python
-vecmath — and numpy-present environments must keep their BLAS batch path.
+numpy is an optional accelerator, never a requirement: with numpy hidden
+(probe + lazy import patched), every similarity function still returns correct
+values — via the native engine when present, else pure-Python vecmath — and
+numpy-present environments keep their BLAS batch path.
+
+Mirrored location for scripts/ci/select_changed_tests.py: changed source
+``victor/processing/native/similarity.py`` maps here.
 """
 
 from __future__ import annotations
 
-import math
-
 import pytest
 
-from victor.core import vecmath
+from victor.core.vecmath import batch_cosine as vec_batch_cosine
+from victor.core.vecmath import normalize_rows as vec_normalize_rows
 from victor.processing.native import similarity
 from victor.processing.native import _base as native_base
 
@@ -102,7 +104,7 @@ def test_numpy_absent_no_native_batch_uses_pure(monkeypatch):
 
     result = similarity.batch_cosine_similarity(QUERY, CORPUS)
 
-    assert result == vecmath.batch_cosine(QUERY, CORPUS)
+    assert result == vec_batch_cosine(QUERY, CORPUS)
     # eps-damped float64 norms give 1 - ~2e-9, not exactly 1.0 (float32
     # numpy hides the eps; the pure path keeps it).
     assert result[0] == pytest.approx(1.0, abs=1e-6)
@@ -122,10 +124,10 @@ def test_numpy_absent_normalized_variants_use_pure(monkeypatch):
     hide_numpy(monkeypatch)
     monkeypatch.setattr(native_base, "_NATIVE_AVAILABLE", False)
 
-    normalized = vecmath.normalize_rows(CORPUS)
+    normalized = vec_normalize_rows(CORPUS)
     assert similarity.batch_normalize_vectors(CORPUS) == normalized
     scores = similarity.batch_cosine_similarity_normalized(QUERY, normalized)
-    assert scores == pytest.approx(vecmath.batch_cosine(QUERY, CORPUS), rel=1e-9)
+    assert scores == pytest.approx(vec_batch_cosine(QUERY, CORPUS), rel=1e-9)
     assert scores[0] == pytest.approx(1.0, abs=1e-6)
     top = similarity.top_k_similar_normalized(QUERY, normalized, k=2)
     assert [i for i, _ in top] == [0, 2]
@@ -166,43 +168,3 @@ def test_error_semantics_preserved(monkeypatch):
         similarity.cosine_similarity([1.0], [1.0, 2.0])
     assert similarity.batch_cosine_similarity(QUERY, []) == []
     assert similarity.batch_normalize_vectors([]) == []
-
-
-def test_probe_is_cached_and_resettable(monkeypatch):
-    calls = []
-    real_find_spec = __import__("importlib.util", fromlist=["find_spec"]).find_spec
-
-    def counting_find_spec(name):
-        if name == "numpy":
-            calls.append(name)
-        return real_find_spec(name)
-
-    import importlib.util
-
-    monkeypatch.setattr(importlib.util, "find_spec", counting_find_spec)
-    native_base.reset_numpy_probe_for_tests()
-    first = native_base.numpy_accelerator_available()
-    second = native_base.numpy_accelerator_available()
-    assert first is second
-    assert len(calls) == 1  # cached: exactly one spec lookup
-    native_base.reset_numpy_probe_for_tests()
-    native_base.numpy_accelerator_available()
-    assert len(calls) == 2
-
-
-def test_softmax_and_argmax_match_numpy():
-    np = pytest.importorskip("numpy")
-    scores = [0.3, -1.2, 2.4, 0.0]
-    pure = vecmath.softmax(scores)
-    expected = np.exp(np.array(scores) - max(scores))
-    expected = (expected / expected.sum()).tolist()
-    assert pure == pytest.approx(expected, rel=1e-12)
-    assert vecmath.argmax(scores) == int(np.argmax(scores))
-
-
-def test_vecmath_cosine_matches_closed_form():
-    a = [3.0, 4.0]
-    b = [4.0, 3.0]
-    expected = (3 * 4 + 4 * 3) / ((5 + 1e-9) * (5 + 1e-9))
-    assert vecmath.cosine(a, b) == pytest.approx(expected, rel=1e-12)
-    assert math.isfinite(vecmath.cosine([0.0, 0.0], [1.0, 1.0]))
