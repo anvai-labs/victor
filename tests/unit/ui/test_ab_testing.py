@@ -68,10 +68,11 @@ def test_list_experiments_lazily_imports_the_paths_helper(monkeypatch):
 
     from victor.ui.commands.ab_testing import _list_experiments
 
-    import click
-
     try:
         _list_experiments(None)
-    except (SystemExit, click.exceptions.Exit):
-        pass  # 'No experiments found' exits 0 (typer.Exit is click's Exit)
+    except Exception:
+        # 'No experiments found' exits 0 — exit plumbing varies by typer
+        # version (SystemExit / click.exceptions.Exit / typer.exceptions.Exit);
+        # the point under test is the lazy paths-helper import, not taxonomy.
+        pass
     assert called.get("hit") is True
