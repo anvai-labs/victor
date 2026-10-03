@@ -511,14 +511,17 @@ jobs:
 
       - name: Distribution metrics gates (size / CLI timings / numpy absent)
         run: |
+          # Timing budgets are runner-realistic (shared runners are ~2x slower
+          # than a dev machine — the 0.12.0 rehearsal tripped 1500ms with a
+          # 2030ms warm --version). They still catch 5s-class regressions.
           python scripts/ci/dist_metrics.py \
             --mode env \
             --python .venv-bare/bin/python \
             --iterations 5 \
             --json dist-metrics-release.json \
             --expect-no-numpy \
-            --max-help-ms 2200 \
-            --max-version-ms 1500 \
+            --max-help-ms 3000 \
+            --max-version-ms 3000 \
             --max-install-mb 200
 
       - name: Upload release distribution metrics
