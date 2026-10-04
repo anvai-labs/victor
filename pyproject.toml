@@ -195,6 +195,8 @@ dev = [
     "sentence-transformers>=2.2.0",
     "torch>=2.13.0",  # Patched floor for the embeddings backend
     "lancedb>=0.6.0",
+    # TUI tests (tests/unit/ui/tui/) — textual moved from core to a tui extra
+    "textual>=0.89",
     "pyarrow>=14.0",
     # Fuzzy matching for robust classification
     "Levenshtein>=0.25.1",  # Fast C implementation for typo tolerance
