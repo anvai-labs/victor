@@ -31,6 +31,7 @@ from victor.agent.services.orchestrator_protocol_adapter import OrchestratorProt
 from victor.agent.services.task_guidance_runtime import TaskGuidanceRuntime
 from victor.agent.services.tool_selection_runtime import ToolSelectionRuntime
 from victor.agent.session_state_accessor import SessionStateAccessor
+from victor.providers.gateway_boundary import uses_gateway
 from victor.providers.usage_accounting import accumulate_usage
 
 logger = logging.getLogger(__name__)
@@ -296,6 +297,10 @@ class _ChatStreamLifecycleView(_WeakOwner):
             owner.current_stream_context = None
         if state.get("_current_stream_context") is context:
             owner._current_stream_context = None
+
+    def provider_retry_limit(self, requested_retries: int) -> int:
+        provider = self._owner().provider
+        return 0 if uses_gateway(provider) else requested_retries
 
     def rate_limit_wait_time(self, error: Exception, attempt: int) -> float:
         provider_service = getattr(self._owner(), "_provider_service", None)

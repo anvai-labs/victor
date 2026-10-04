@@ -6,7 +6,13 @@ discarding ~26 iterations of agent work. The streaming retry loop now treats a
 mid-stream disconnect as a transient, bounded-retryable condition.
 """
 
+from types import SimpleNamespace
+
 import pytest
+
+from victor.agent.factory.chat_runtime_bindings import bind_chat_runtime_services
+from victor.agent.session_state_accessor import SessionStateAccessor
+from victor.agent.session_state_manager import SessionStateManager
 
 from victor.agent.services.chat_stream_helpers import ChatStreamHelperMixin
 from victor.core.errors import ProviderConnectionError
@@ -18,6 +24,9 @@ class _RetryHarness(ChatStreamHelperMixin):
     def __init__(self, fail_times: int):
         self._fail_times = fail_times
         self.calls = 0
+        self.provider = SimpleNamespace(extra_config={})
+        self._session_accessor = SessionStateAccessor(SessionStateManager())
+        self.services = bind_chat_runtime_services(self)
 
     async def _stream_provider_response_inner(self, tools, provider_kwargs, stream_ctx):
         self.calls += 1
@@ -61,16 +70,30 @@ class TestStreamConnectionRetry:
 @pytest.mark.asyncio
 @pytest.mark.parametrize("wrapped", [False, True])
 async def test_gateway_disconnect_is_not_replayed(wrapped):
-    from types import SimpleNamespace
-
     harness = _RetryHarness(fail_times=99)
-    harness._orchestrator = SimpleNamespace(
-        provider=SimpleNamespace(extra_config={"gateway": {"url": "https://gateway.test"}})
-    )
+    harness.provider = SimpleNamespace(extra_config={"gateway": {"url": "https://gateway.test"}})
     if wrapped:
         from victor.providers.factory import ManagedProvider
 
-        harness._orchestrator.provider = ManagedProvider(harness._orchestrator.provider)
+        harness.provider = ManagedProvider(harness.provider)
     with pytest.raises(ProviderConnectionError):
         await harness._stream_with_rate_limit_retry(None, {}, None)
     assert harness.calls == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("gateway", [False, True])
+async def test_terminal_policy_error_never_retries(gateway, monkeypatch):
+    from unittest.mock import AsyncMock
+    from victor.core.errors import ProviderPolicyError
+
+    harness = _RetryHarness(fail_times=0)
+    if gateway:
+        harness.provider = SimpleNamespace(extra_config={"gateway": {}})
+    error = ProviderPolicyError(code="denied", provider="test")
+    execute = AsyncMock(side_effect=error)
+    monkeypatch.setattr(harness, "_stream_provider_response_inner", execute)
+    with pytest.raises(ProviderPolicyError) as caught:
+        await harness._stream_with_rate_limit_retry(None, {}, None)
+    assert caught.value is error
+    execute.assert_awaited_once()

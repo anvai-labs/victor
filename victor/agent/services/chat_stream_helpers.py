@@ -858,12 +858,8 @@ class ChatStreamHelperMixin:
     ) -> tuple[str, Any, float, bool]:
         """Stream provider response with automatic rate limit retry."""
         # Gateway-routed providers enforce their own rate limits upstream.
-        # The orchestrator is optional on this helper's harnesses (the
-        # rate-limit retry tests exercise it without one), so the access
-        # stays defensive: this getattr probe is the reviewed form
-        # (boundary registry: private_probes 14).
-        if uses_gateway(getattr(getattr(self, "_orchestrator", None), "provider", None)):
-            max_retries = 0
+        # The lifecycle capability resolves retry ownership from the live provider.
+        max_retries = self.services.stream_lifecycle.provider_retry_limit(max_retries)
         last_exception = None
 
         for attempt in range(max_retries + 1):
