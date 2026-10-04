@@ -840,7 +840,9 @@ class VictorClient:
                     logger.debug("Could not restore conversation state: %s", exc)
         return metadata
 
-    async def resume(self, run_id: str, decision: "ApprovalDecision") -> "TaskResult":
+    async def resume(
+        self, run_id: str, decision: "ApprovalDecision", *, durable_actions: bool = False
+    ) -> "TaskResult":
         """Resume a durably-paused turn with a human approval decision (FEP-0029).
 
         When a turn paused on a policy ASK (``chat``/``stream`` returned a ``TaskResult`` with
@@ -857,6 +859,8 @@ class VictorClient:
         Args:
             run_id: The resume token from the paused ``TaskResult``.
             decision: The human's :class:`ApprovalDecision`.
+            durable_actions: Opt in to persistent final-dispatch intent and invocation
+                observations. Does not enable replay or verify backend business outcomes.
 
         Raises:
             RuntimeError: If the client is not initialized.
@@ -873,7 +877,11 @@ class VictorClient:
 
         if type(getattr(decision, "approved", None)) is not bool:
             raise ValueError("Approval decision must be a boolean")
+        if type(durable_actions) is not bool:
+            raise ValueError("durable_actions must be a boolean")
         store = get_paused_run_store()
+        if durable_actions and getattr(store, "durable_actions", False) is not True:
+            raise ValueError("Durable actions require persistent storage")
         # FEP-0029 expiry/GC: opportunistically expire any stale pending pauses (a day-old approval
         # should not silently execute), so this and other stragglers drop out before we resume.
         store.expire_pending(max_age_seconds=DEFAULT_PAUSE_TTL_SECONDS)
@@ -895,7 +903,12 @@ class VictorClient:
         if orchestrator is None:
             raise RuntimeError("No orchestrator available to resume the paused run")
 
-        outcome = await resume_paused_run(orchestrator, paused, decision)
+        outcome = await resume_paused_run(
+            orchestrator,
+            paused,
+            decision,
+            **({"action_store": store} if durable_actions else {}),
+        )
         metadata = {
             "resumed_run_id": run_id,
             "approved": outcome.approved,
@@ -921,6 +934,29 @@ class VictorClient:
             status="ok",
             metadata=metadata,
         )
+
+    def get_action_status(self, run_id: str) -> Dict[str, Any]:
+        """Read action observations for a paused run in the restored original session.
+
+        Absence is not proof of nonexecution. Returned observations are not backend
+        receipts, and this read never reopens an approval or dispatches a tool.
+        """
+        if not self._initialized or not self._context:
+            raise RuntimeError("VictorClient not initialized. Call initialize() first.")
+        from victor.agent.paused_run_store import get_paused_run_store
+
+        run = get_paused_run_store().get(run_id)
+        if run is None:
+            raise ValueError("Unknown paused run")
+        orchestrator = getattr(self._agent, "_orchestrator", None)
+        if not run.session_id or getattr(orchestrator, "active_session_id", None) != run.session_id:
+            raise ValueError("Action status requires the restored original session")
+        return {
+            "version": 1,
+            "run_id": run_id,
+            "approval_status": run.status,
+            "action": run.action,
+        }
 
     # ─────────────────────────────────────────────────────────────────────────
     # Lifecycle Management

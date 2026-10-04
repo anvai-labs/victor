@@ -2298,11 +2298,13 @@ class HaskellPlugin(BaseLanguagePlugin):
         )
 
     def _create_tree_sitter_queries(self) -> TreeSitterQueries:
-        # tree-sitter-haskell: `newtype`, `data_type`; their child holding
-        # the type name is `(name)`, not `name: (type)`. Function
+        # tree-sitter-haskell: the declared name is the `name:`-field child of
+        # the declaration node. The field qualifier is load-bearing: an
+        # unfielded `(name)` capture also matches right-hand-side type and
+        # constructor names, emitting them as phantom class symbols. Function
         # application is `(apply . (variable))` — the leading anchor `.`
         # captures only the function position, not argument variables.
-        # The class-declaration node spelling is grammar-era dependent and
+        # The type-synonym node spelling is grammar-era dependent and
         # resolved by _haskell_type_class_node.
         try:
             from victor_coding.codebase.tree_sitter_service import (
@@ -2318,9 +2320,9 @@ class HaskellPlugin(BaseLanguagePlugin):
         return TreeSitterQueries(
             symbols=[
                 QueryPattern("function", "(function name: (variable) @name)"),
-                QueryPattern("class", f"({type_class_node} (name) @name)"),
-                QueryPattern("class", "(newtype (name) @name)"),
-                QueryPattern("class", "(data_type (name) @name)"),
+                QueryPattern("class", f"({type_class_node} name: (name) @name)"),
+                QueryPattern("class", "(newtype name: (name) @name)"),
+                QueryPattern("class", "(data_type name: (name) @name)"),
             ],
             calls="""
                 (apply . (variable) @callee)

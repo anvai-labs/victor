@@ -18,7 +18,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "victor-ai"
-version = "0.11.0"
+version = "0.12.0"
 description = "Open-source agentic AI framework with multi-provider support, workflow orchestration, and extensible tool system"
 readme = "README.md"
 license = {text = "Apache-2.0"}
@@ -63,11 +63,12 @@ dependencies = [
     # vertical version gating. Previously satisfied only transitively via dev tools —
     # a bare `pip install victor-ai` could land in an env without it.
     "packaging>=23.0",
-    # Module-level import on the CLI path (processing.native similarity fallbacks,
-    # semantic caches, FEP-0012 numpy-only ML inference). Previously only reachable
-    # via the embeddings/dev extras, so a bare `pip install victor-ai` shipped a CLI
-    # that crashed at startup. Keep the pin aligned with the embeddings extra.
-    "numpy>=1.24,<2.5",
+    # numpy is NOT a core dependency: processing-native similarity, the semantic
+    # caches, and FEP-0012 inference are numpy-optional (victor_native primary /
+    # pure-Python victor.core.vecmath fallbacks; numpy is a lazy accelerator when
+    # installed). Install `victor-ai[embeddings]` or `[dev]` for the numpy-backed
+    # paths. Enforced by test_cli_import_weight_guard (bare-install simulation)
+    # and the release bare-install-smoke job.
 
     # Standards-based advisory scoring; pure Python with no transitive dependencies.
     "cvss>=3.6,<4",
@@ -78,11 +79,16 @@ dependencies = [
     "aiohttp>=3.14.3",
 
     # CLI/UI
+    # click is a DIRECT dependency: victor.ui.cli imports it at module level,
+    # and typer>=0.27 no longer depends on click at all — a bare wheel install
+    # resolved typer 0.27.2 without click and `victor --help` crashed with
+    # "No module named 'click'" (caught by dist_metrics venv-wheel mode).
     # typer<0.15 (e.g. 0.12.x) is incompatible with click>=8.2: click added
     # validation that rejects --flag/--no-flag secondary opts unless is_flag is
     # set, which old typer doesn't do — every boolean CLI option then fails at
     # group-build time. Floor at a click-8.2+ aware typer; cap to satisfy
     # huggingface-hub (typer<0.26).
+    "click>=8.2,<9.0",
     "typer>=0.15,<0.28",
     "rich>=13.7",
     "prompt-toolkit>=3.0",
@@ -548,7 +554,7 @@ apple-silicon = [
 #   pip install victor-ai[native]
 # Build from source: cd rust && maturin develop --release
 native = [
-    "victor-native>=0.11.0",
+    "victor-native>=0.12.0",
 ]
 
 # Extracted vertical packages (optional meta-extras for cross-repo installs)

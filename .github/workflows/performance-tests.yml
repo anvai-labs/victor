@@ -119,6 +119,44 @@ jobs:
               body: comment
             });
 
+  dist-metrics:
+    name: Distribution Metrics (bare wheel)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    # Budget tracker, not a gate (yet): records size/dep-count/CLI-timings for a
+    # bare wheel install on the daily schedule and main pushes. The blocking
+    # gates run at release time (bare-install-smoke in release.yml).
+    continue-on-error: true
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+
+      - name: Build wheel
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build --wheel
+
+      - name: Measure bare-wheel install
+        run: |
+          python scripts/ci/dist_metrics.py \
+            --mode venv-wheel \
+            --wheel dist/victor_ai-*.whl \
+            --iterations 5 \
+            --json dist-metrics.json \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload distribution metrics
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dist-metrics
+          path: dist-metrics.json
+          retention-days: 90
+
   baseline-comparison:
     name: Compare to Baseline
     runs-on: ubuntu-24.04

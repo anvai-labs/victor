@@ -1193,6 +1193,8 @@ class ToolExecutor:
             Tuple of (result, success, error_message, retry_count, error_info)
             error_info is only populated on failure for structured error tracking
         """
+        from victor.agent.action_observation import ActionStateError
+
         retry_context = RetryContext(
             max_attempts=getattr(self.retry_strategy, "max_attempts", self.max_retries)
         )
@@ -1214,12 +1216,28 @@ class ToolExecutor:
 
                 grant = current_approval_grant.get()
                 if grant is not None:
-                    grant.dispatch(tool, arguments, self.current_user)
-                execution_started = True
-                result = await asyncio.wait_for(
-                    tool.execute(_exec_ctx=context, **arguments),
-                    timeout=per_attempt_timeout,
-                )
+                    grant.check(tool.name, arguments)
+                from victor.agent.action_observation import observe_dispatch
+
+                observer = grant.action_observer if grant is not None else None
+                with observe_dispatch(observer) as action_id:
+                    if grant is not None:
+                        # Intent persistence can block; recheck all authority after it.
+                        grant.dispatch(tool, arguments, self.current_user)
+                    execution_started = True
+                    call_context = (
+                        {**context, "durable_action_id": action_id}
+                        if action_id is not None
+                        else context
+                    )
+                    result = await asyncio.wait_for(
+                        tool.execute(_exec_ctx=call_context, **arguments),
+                        timeout=per_attempt_timeout,
+                    )
+                    if observer is not None:
+                        observer.returned(
+                            result.success if isinstance(result, ToolResult) else None
+                        )
 
                 # Run after hooks - critical hooks can raise errors
                 self._run_after_hooks(tool.name, result)
@@ -1262,6 +1280,17 @@ class ToolExecutor:
                     # Raw result (for tools that don't return ToolResult)
                     self.retry_strategy.on_success(retry_context)
                     return result, True, None, retry_context.attempt - 1, None
+
+            except ActionStateError as exc:
+                last_error_info = self.error_handler.handle(exc, context={"tool": tool.name})
+                mark_unknown_tool_outcome(last_error_info)
+                return (
+                    None,
+                    False,
+                    last_error_info.to_user_message(),
+                    retry_context.attempt - 1,
+                    last_error_info,
+                )
 
             except asyncio.TimeoutError as e:
                 # Handle timeout specifically

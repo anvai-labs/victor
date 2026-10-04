@@ -70,13 +70,13 @@ echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
 source ~/.bashrc
 ```
 
-**3. Reinstall with pipx** (recommended):
+**3. Reinstall with uv** (recommended):
 ```bash
 # Uninstall existing
 pip uninstall victor-ai
 
-# Install with pipx
-pipx install victor-ai
+# Install with uv
+uv tool install --python 3.12 victor-ai
 
 # Verify
 which victor
