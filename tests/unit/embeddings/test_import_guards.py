@@ -20,10 +20,17 @@ def _run_blocked_import_script(script: str) -> str:
         [sys.executable, "-c", dedent(script)],
         cwd=ROOT,
         env=env,
-        check=True,
+        check=False,
         capture_output=True,
         text=True,
     )
+    if result.returncode != 0:
+        # Surface the subprocess's own traceback — a CalledProcessError alone
+        # hides the import error this guard exists to diagnose.
+        raise AssertionError(
+            f"blocked-import subprocess failed (rc={result.returncode}):\n"
+            f"{result.stderr[-2000:]}"
+        )
     return result.stdout
 
 
