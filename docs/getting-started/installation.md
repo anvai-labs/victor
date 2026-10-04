@@ -151,6 +151,12 @@ builds and contribution worktrees are documented there and in the
 
 Victor has optional dependencies for specific features:
 
+!!! note "TUI dependency split on develop"
+
+    After 0.12.0, `develop` moves Textual into the `tui` extra. For a source
+    checkout, follow the development setup above, then install `pip install -e ".[tui]"`
+    when using Textual interfaces. Published 0.12.0 still includes Textual in core.
+
 | Extra | Command | Features |
 |-------|---------|----------|
 | **api** | `pip install victor-ai[api]` | FastAPI HTTP server, REST API |
