@@ -5,6 +5,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+- Require `sandhi-gateway==0.11.0`: the 0.11.0 gateway binding loads
+  private CA roots in its provider clients, so gateways fronted by a
+  private certificate authority (e.g. the homelab TLS gateway) work on a
+  fresh install. The 0.10.1 pin predates that fix and fails the TLS
+  handshake against such gateways.
+
 ### Deprecated
 - **`FrameworkShim` compatibility surface**, **`TeamNode*` workflow
   compatibility aliases**, and the **`WorkflowGraph` alias from
