@@ -21,7 +21,14 @@ import logging
 import os
 import re
 from pathlib import Path
-from typing import Any, ClassVar, Dict, List, Optional, Set, Tuple
+from typing import TYPE_CHECKING, Any, ClassVar, Dict, List, Optional, Set, Tuple
+
+if TYPE_CHECKING:
+    # Lazy at runtime: a module-level import here cycles through
+    # victor.agent.__init__ -> orchestrator -> back to this module when the
+    # CLI cold-start import order shifts (bites when optional deps are absent
+    # and reshuffles the chain).
+    from victor.agent.tool_sequence_tracker import ToolSequenceTracker
 
 # Disable tokenizers parallelism BEFORE importing sentence_transformers
 # This prevents "bad value(s) in fds_to_keep" errors in async contexts
@@ -42,10 +49,6 @@ from victor.core.data_cache import (
 from victor.providers.base import ToolDefinition
 from victor.tools.enums import CostTier
 from victor.tools.registry import ToolRegistry
-from victor.agent.tool_sequence_tracker import (
-    ToolSequenceTracker,
-    create_sequence_tracker,
-)
 from victor.agent.debug_logger import TRACE  # Import TRACE level
 from victor.tools.metadata_registry import (
     ToolMetadataRegistry,
@@ -236,6 +239,9 @@ class SemanticToolSelector:
         self._sequence_tracking = sequence_tracking
         self._sequence_tracker: Optional[ToolSequenceTracker] = None
         if sequence_tracking:
+            # Function-level: see the TYPE_CHECKING note above (import cycle).
+            from victor.agent.tool_sequence_tracker import create_sequence_tracker
+
             self._sequence_tracker = create_sequence_tracker()
 
         # Phase 17: Tiered classification service (lazily resolved)
