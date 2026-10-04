@@ -92,7 +92,6 @@ dependencies = [
     "typer>=0.15,<0.28",
     "rich>=13.7",
     "prompt-toolkit>=3.0",
-    "textual>=0.89",
 
     # LLM Providers (core - always installed)
     "anthropic>=0.34",
@@ -173,6 +172,12 @@ web = [
 # Web chat UI: a pure-Python Chainlit surface bound to VictorClient (`victor ui`)
 chat-ui = [
     "chainlit>=2,<3",  # 2.x cl.Action uses payload= (the 1.x value= kwarg was removed)
+]
+
+# Full TUI app (victor ui): textual-based terminal dashboard. Lazy at runtime —
+# all import sites are function-level, so a bare install works without it.
+tui = [
+    "textual>=0.89",
 ]
 
 # Edge-classifier TRAINING (FEP-0012) — dev-only. Runtime inference is
