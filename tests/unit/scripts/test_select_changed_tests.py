@@ -257,3 +257,11 @@ def test_attribution_guard_selects_its_policy_regressions():
 )
 def test_mcp_schema_owners_include_legacy_location_and_end_to_end_contract(source, contract_test):
     assert {contract_test, "tests/unit/tools/test_mcp_schema_fidelity.py"} <= set(select([source]))
+
+
+def test_stream_helper_changes_select_retry_and_boundary_regressions():
+    assert {
+        "tests/unit/agent/services/test_chat_runtime_services_boundary.py",
+        "tests/unit/agent/services/test_stream_connection_retry.py",
+        "tests/unit/agent/services/test_chat_stream_helpers_gateway_retry.py",
+    } <= set(select(["victor/agent/services/chat_stream_helpers.py"]))

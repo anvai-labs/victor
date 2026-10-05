@@ -42,14 +42,8 @@ CLUSTER_CAPS = {
         "raw_state": 0,
     },
     "chat_stream_helpers.py": {
-        # 56/14: #1203's gateway rate-limit check probes the OPTIONAL
-        # _orchestrator through a defensive nested getattr — the REQUIRED
-        # form: the rate-limit retry harness (_RetryHarness) intentionally
-        # omits _orchestrator, and direct/hasattr access forms break those
-        # tests (observed in the v0.11.0 promotion battery). Reviewed and
-        # accepted; a capability-registration migration is the follow-up.
         "private_attributes": 56,
-        "private_probes": 14,
+        "private_probes": 13,
         "dynamic_probes": 0,
         "delivery_accesses": 0,
         "planning_accesses": 0,
