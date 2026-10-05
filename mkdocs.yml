@@ -144,6 +144,7 @@ nav:
       - SDK Boundary: architecture/CONTRACTS_BOUNDARY.md
       - State-Passed Coordinators: architecture/state-passed-architecture.md
       - Streaming Runtime: architecture/streaming-pipeline.md
+      - Stage C Reassessment: architecture/stage-c-reassessment.md
       - Smart Routing: architecture/smart_routing.md
       - Edge Provider Strategy: architecture/edge-provider-tool-strategy.md
       - InferFlux Reasoning Contract: architecture/inferflux-reasoning-separation-handoff.md

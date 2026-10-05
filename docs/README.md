@@ -10,6 +10,7 @@ contributor guidance from dated experiments, design proposals and review evidenc
 | System ownership and runtime behavior | [Architecture](architecture.md) |
 | Technology choices and dependency requirements | [Tech stack](tech-stack.md) |
 | Current execution plan and complete debt register | [Roadmap](roadmap.md) |
+| Stage C source evidence and remaining work | [Stage C reassessment](architecture/stage-c-reassessment.md) |
 | Feature catalog | [Features](features.md) |
 | Development environment | [Development Setup](development/setup.md) |
 | Deployment dependencies and container targets | [Dependency maintenance](development/dependencies.md) |

@@ -74,6 +74,10 @@ The graph DB is defined as derived/rebuildable, yet it is the largest file in th
 
 Sequenced by (severity × leverage ÷ effort). IDs reference unit reports. FEP-gated items marked.
 
+**Current reassessment (2026-10-04):** [Stage C source/status audit](../../architecture/stage-c-reassessment.md)
+records completed/superseded work, remaining items (including 26b), the boundary-capability
+repair and revised execution order. Original measurements below remain historical.
+
 **Wave 1 — immediate, small, high severity (days): DONE 2026-09-03, PRs #994–#998 (+#993 artifacts).**
 Each PR passed an adversarial review pass before merge; findings fixed in-PR with negative tests.
 Known accepted gaps: terminal blocklist remains substring-based (API-key auth is the real gate);
@@ -166,7 +170,7 @@ Shipping note: victor-contracts 0.9.1 (sdk-v0.9.1) published 2026-09-07 with
 | 26b | Manifest-aware `parse_repo` (U5-02) + Tier-A/B storage protocol split (U5-07 remainder) | U5-01/02 | L |
 | 27 | ChatService inversion: turn frame and stream-control capabilities complete; broader runtime-state migration remains | U1-4/7 | L |
 | 28 | Contrib bases → `victor_contracts.verticals`; de-template the 4 small verticals (~12k LOC) | U9-F5 | M–L |
-| 29 | RL/prompt-evolution out of `victor/framework` (no FEP-0025 Phase 6 exists — new FEP; 60-site fan-out) | U2-F4 | L |
+| 29 | RL/prompt-evolution out of `victor/framework` (FEP-0033; caller inventory must be refreshed) | U2-F4 | L |
 | 30 | Coordinator split: WorktreeMergeService + DelegateContractBuilder | U6-F7 | L |
 | 31 | One benchmark stack on the BenchmarkRunner protocol; single agent-creation path in evals | U10-F1/F8 | L |
 | 32 | REPL/`/completions` through VictorClient; session-aware API contract | U7-F5/F6/F10 | M |

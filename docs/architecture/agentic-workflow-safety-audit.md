@@ -287,7 +287,7 @@ approval after SQLite persistence. Strict canonical result publication is requir
 before continuation. Fault-injection tests include a committed backend write with
 a lost response; the stored outcome stays unknown and no second effect is issued.
 `returned` records a tool invocation, not verified business success. See the
-[FEP-0029 contract](../../feps/fep-0029-single-agent-durable-chat-continuation.md#opt-in-durable-action-observations-2026-09-30-partial-g62).
+[FEP-0029 contract](https://github.com/anvai-labs/victor/blob/develop/feps/fep-0029-single-agent-durable-chat-continuation.md#opt-in-durable-action-observations-2026-09-30-partial-g62).
 The following recovery sequence remains the complete target; receipt lookup,
 reconciliation and whole-member continuation are not yet implemented by this increment.
 
