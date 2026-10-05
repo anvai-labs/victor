@@ -24,8 +24,7 @@ import logging
 from typing import Any, Dict, List, Optional
 from datetime import datetime
 from collections import defaultdict
-
-import numpy as np
+from statistics import fmean, median
 
 from victor.optimization.models import (
     Bottleneck,
@@ -36,6 +35,21 @@ from victor.optimization.models import (
     OptimizationStrategyType,
     WorkflowProfile,
 )
+
+
+def _percentile(data: list[float], q: float) -> float:
+    """Linear-interpolation percentile matching ``numpy.percentile``."""
+    if not data:
+        return 0.0
+    ordered = sorted(data)
+    idx = (len(ordered) - 1) * q / 100.0
+    lo = int(idx)
+    frac = idx - lo
+    if lo + 1 >= len(ordered):
+        return float(ordered[-1])
+    return float(ordered[lo] * (1 - frac) + ordered[lo + 1] * frac)
+
+
 from victor.experiments.tracking import ExperimentTracker
 
 logger = logging.getLogger(__name__)
@@ -134,7 +148,8 @@ class WorkflowProfiler:
             stats.avg_input_tokens + stats.avg_output_tokens for stats in node_stats.values()
         )
 
-        success_rate = np.mean([exec.get("success", True) for exec in executions])
+        successes = [exec.get("success", True) for exec in executions]
+        success_rate = fmean(1.0 if s else 0.0 for s in successes)
 
         profile = WorkflowProfile(
             workflow_id=workflow_id,
@@ -259,30 +274,31 @@ class WorkflowProfiler:
         node_stats = {}
 
         for node_id, data in node_data.items():
-            durations = np.array(data["durations"])
-            input_tokens = np.array(data["input_tokens"])
-            output_tokens = np.array(data["output_tokens"])
-            costs = np.array(data["costs"])
-            successes = np.array(data["successes"], dtype=bool)
+            durations = data["durations"]
+            input_tokens = data["input_tokens"]
+            output_tokens = data["output_tokens"]
+            costs = data["costs"]
+            successes = data["successes"]
 
             # Token efficiency
             token_efficiency = 0.0
-            if input_tokens.sum() > 0:
-                token_efficiency = output_tokens.sum() / input_tokens.sum()
+            total_input = sum(input_tokens)
+            if total_input > 0:
+                token_efficiency = sum(output_tokens) / total_input
 
             stats = NodeStatistics(
                 node_id=node_id,
-                avg_duration=float(np.mean(durations)),
-                p50_duration=float(np.percentile(durations, 50)),
-                p95_duration=float(np.percentile(durations, 95)),
-                p99_duration=float(np.percentile(durations, 99)),
-                success_rate=float(np.mean(successes)),
+                avg_duration=fmean(durations),
+                p50_duration=_percentile(durations, 50),
+                p95_duration=_percentile(durations, 95),
+                p99_duration=_percentile(durations, 99),
+                success_rate=fmean(1.0 if s else 0.0 for s in successes),
                 error_types=dict(data["errors"]),
-                avg_input_tokens=int(np.mean(input_tokens)),
-                avg_output_tokens=int(np.mean(output_tokens)),
+                avg_input_tokens=int(fmean(input_tokens)),
+                avg_output_tokens=int(fmean(output_tokens)),
                 token_efficiency=token_efficiency,
                 tool_calls=dict(data["tool_calls"]),
-                total_cost=float(np.sum(costs)),
+                total_cost=float(sum(costs)),
             )
 
             node_stats[node_id] = stats
@@ -307,7 +323,7 @@ class WorkflowProfiler:
             return bottlenecks
 
         # Calculate median duration
-        median_duration = np.median([stats.avg_duration for stats in node_stats.values()])
+        median_duration = median([stats.avg_duration for stats in node_stats.values()])
 
         total_cost = sum(stats.total_cost for stats in node_stats.values())
 
