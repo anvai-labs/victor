@@ -8,9 +8,10 @@ cannot be replayed or garbage-collected based on approval expiry.
 
 from __future__ import annotations
 
-from contextlib import contextmanager
+import asyncio
+from contextlib import asynccontextmanager, contextmanager
 from copy import deepcopy
-from typing import Any, Iterator
+from typing import Any, AsyncIterator, Iterator
 
 from victor.framework.approval_binding import ActionObserver, digest
 
@@ -104,6 +105,22 @@ class ActionJournal:
             # Preserve cancellation/approval and leave durable intent unresolved.
             original.add_note("Action remains unresolved; observation persistence failed")
 
+    async def begin_async(self) -> str:
+        # A contended BEGIN IMMEDIATE can block up to the connection's 60 s
+        # lock timeout; offload so a stalled write cannot freeze the event
+        # loop that serves every other task.
+        return await asyncio.to_thread(self.begin)
+
+    async def returned_async(self, reported_success: bool | None) -> None:
+        await asyncio.to_thread(self.returned, reported_success)
+
+    async def interrupted_async(self, original: BaseException) -> None:
+        # Cancellation may already be unwinding: shield the best-effort marker
+        # so a second cancel cannot skip the durable "unknown" write. If the
+        # shield itself is cancelled, the write continues detached and the
+        # intent stays unresolved either way — the cancellation is delivered.
+        await asyncio.shield(asyncio.to_thread(self.interrupted, original))
+
 
 @contextmanager
 def observe_dispatch(journal: ActionObserver | None) -> Iterator[str | None]:
@@ -116,4 +133,25 @@ def observe_dispatch(journal: ActionObserver | None) -> Iterator[str | None]:
         yield action_id
     except BaseException as exc:
         journal.interrupted(exc)
+        raise
+
+
+@asynccontextmanager
+async def observe_dispatch_async(
+    journal: ActionJournal | None,
+) -> AsyncIterator[str | None]:
+    """Async twin of observe_dispatch: intent persistence runs off the event loop.
+
+    Ordering is unchanged — persist, recheck authority, dispatch — but a
+    contended SQLite write now awaits in a worker thread instead of blocking
+    the loop that serves every other task.
+    """
+    if journal is None:
+        yield None
+        return
+    action_id = await journal.begin_async()
+    try:
+        yield action_id
+    except BaseException as exc:
+        await journal.interrupted_async(exc)
         raise

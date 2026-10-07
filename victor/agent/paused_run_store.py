@@ -203,6 +203,15 @@ class ProjectDbPausedRunStore:
 
     durable_actions = True
 
+    def _commit_locked(self, conn: sqlite3.Connection) -> None:
+        """Commit under the write lock; roll back so a failure cannot strand
+        an open transaction on the thread-local connection."""
+        try:
+            conn.commit()
+        except BaseException:
+            conn.rollback()
+            raise
+
     def _change_action(
         self, run_id: str, change: Callable[[PausedRun], Dict[str, Any]]
     ) -> Dict[str, Any]:
@@ -315,7 +324,7 @@ class ProjectDbPausedRunStore:
                     json.dumps(metadata) if metadata else None,
                 ),
             )
-            conn.commit()
+            self._commit_locked(conn)
         return run_id
 
     def get(self, run_id: str) -> Optional[PausedRun]:
@@ -333,7 +342,7 @@ class ProjectDbPausedRunStore:
                 "WHERE run_id = ? AND status = 'awaiting_approval'",
                 (0.0, run_id),
             )
-            conn.commit()
+            self._commit_locked(conn)
             return cur.rowcount > 0
 
     def list_pending(self) -> List[PausedRun]:
@@ -356,7 +365,7 @@ class ProjectDbPausedRunStore:
                 "WHERE status = 'awaiting_approval' AND created_at > 0 AND created_at < ?",
                 (cutoff,),
             )
-            conn.commit()
+            self._commit_locked(conn)
             return cur.rowcount
 
     def purge(self, *, before: float) -> int:
@@ -368,7 +377,7 @@ class ProjectDbPausedRunStore:
                 "AND action_record IS NULL AND created_at < ?",
                 (before,),
             )
-            conn.commit()
+            self._commit_locked(conn)
             return cur.rowcount
 
     def clear(self) -> None:
