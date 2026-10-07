@@ -5,7 +5,7 @@
     Victor is a contract-first agent framework for tool use, compiled workflows and
     multi-agent coordination across local and cloud providers.
 
-    **Published baseline:** Victor AI 0.9.5. **Development line:** 0.10.0 candidate.
+    **Published baseline:** Victor AI 0.12.0 (2026-10-04). **Development line:** post-release changes.
 
 **Version**: {{ victor_version }} | **License**: Apache-2.0 | **Python**: 3.12+
 
@@ -67,13 +67,12 @@ flowchart TB
 
 ## Delivery State
 
-| Surface | v0.9.5 public release | Current `develop` |
+| Surface | Published 0.12.0 | Remaining work |
 | --- | --- | --- |
-| Sandhi consumer accounting | Published | Published behavior plus later lifecycle fixes |
-| Tool supply | Existing selection runtime | Unified turn pipeline and demand hydration integrated |
-| Teams | Six core formations | Expanded formations, isolation and usage guards |
-| Chat ownership | Earlier service slices | Turn frame, planning and stream controls migrated |
-| Toolchain | Node 22.12 or 24 extension support | Node 24 minimum; Python 3.12/3.13 CI |
+| Tool supply and teams | Unified turn pipeline, expanded formations, isolation and usage guards | Acceptance gaps remain tracked; release does not certify every live formation. |
+| Chat ownership | Service-owned turn frame and partial runtime inversion | Retry ownership moves to a lifecycle capability; broader inversion remains open. |
+| API / gateway | Classify API, gateway policy, result withholding and Sandhi 0.10.1 accounting | General client routing and retained safety gaps remain open. |
+| Installation | Node 24 minimum; Python 3.12/3.13 CI; optional NumPy and Linux binaries | Later develop changes move Textual into the TUI extra; see the installation guide. |
 
 !!! note
 
@@ -206,8 +205,8 @@ Contributions use conventional commits and the checks documented in the PR workf
 
 ## Current work and historical evidence
 
-The [roadmap](roadmap.md) distinguishes the published 0.9.5 baseline from the 0.10.0
-development candidate and remaining Stage C work.
+The [roadmap](roadmap.md) and [Stage C reassessment](architecture/stage-c-reassessment.md)
+distinguish published 0.12.0 from subsequent changes and unfinished structural work.
 The [September co-design review](reviews/2026-09-03-codesign/README.md) preserves dated findings;
 merged design documents do not imply their implementation has shipped. See the
 [documentation source index](https://github.com/anvai-labs/victor/blob/develop/docs/README.md) for canonical ownership and historical-record conventions.

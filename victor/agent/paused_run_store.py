@@ -203,6 +203,15 @@ class ProjectDbPausedRunStore:
 
     durable_actions = True
 
+    def _commit_locked(self, conn: sqlite3.Connection) -> None:
+        """Commit under the write lock; roll back so a failure cannot strand
+        an open transaction on the thread-local connection."""
+        try:
+            conn.commit()
+        except BaseException:
+            conn.rollback()
+            raise
+
     def _change_action(
         self, run_id: str, change: Callable[[PausedRun], Dict[str, Any]]
     ) -> Dict[str, Any]:
@@ -301,21 +310,25 @@ class ProjectDbPausedRunStore:
         run_id = uuid.uuid4().hex
         with self._write_lock:
             conn = self._conn()
-            conn.execute(
-                "INSERT INTO paused_run (run_id, session_id, agent_id, approval_request, "
-                "pending_tool, status, created_at, metadata) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    run_id,
-                    session_id,
-                    agent_id,
-                    json.dumps(approval_request or {}),
-                    json.dumps(pending_tool) if pending_tool is not None else None,
-                    "awaiting_approval",
-                    created_at,
-                    json.dumps(metadata) if metadata else None,
-                ),
-            )
-            conn.commit()
+            try:
+                conn.execute(
+                    "INSERT INTO paused_run (run_id, session_id, agent_id, approval_request, "
+                    "pending_tool, status, created_at, metadata) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        run_id,
+                        session_id,
+                        agent_id,
+                        json.dumps(approval_request or {}),
+                        json.dumps(pending_tool) if pending_tool is not None else None,
+                        "awaiting_approval",
+                        created_at,
+                        json.dumps(metadata) if metadata else None,
+                    ),
+                )
+                self._commit_locked(conn)
+            except BaseException:
+                conn.rollback()
+                raise
         return run_id
 
     def get(self, run_id: str) -> Optional[PausedRun]:
@@ -333,7 +346,7 @@ class ProjectDbPausedRunStore:
                 "WHERE run_id = ? AND status = 'awaiting_approval'",
                 (0.0, run_id),
             )
-            conn.commit()
+            self._commit_locked(conn)
             return cur.rowcount > 0
 
     def list_pending(self) -> List[PausedRun]:
@@ -356,7 +369,7 @@ class ProjectDbPausedRunStore:
                 "WHERE status = 'awaiting_approval' AND created_at > 0 AND created_at < ?",
                 (cutoff,),
             )
-            conn.commit()
+            self._commit_locked(conn)
             return cur.rowcount
 
     def purge(self, *, before: float) -> int:
@@ -368,7 +381,7 @@ class ProjectDbPausedRunStore:
                 "AND action_record IS NULL AND created_at < ?",
                 (before,),
             )
-            conn.commit()
+            self._commit_locked(conn)
             return cur.rowcount
 
     def clear(self) -> None:

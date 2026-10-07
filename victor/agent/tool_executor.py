@@ -1217,10 +1217,10 @@ class ToolExecutor:
                 grant = current_approval_grant.get()
                 if grant is not None:
                     grant.check(tool.name, arguments)
-                from victor.agent.action_observation import observe_dispatch
+                from victor.agent.action_observation import observe_dispatch_async
 
                 observer = grant.action_observer if grant is not None else None
-                with observe_dispatch(observer) as action_id:
+                async with observe_dispatch_async(observer) as action_id:
                     if grant is not None:
                         # Intent persistence can block; recheck all authority after it.
                         grant.dispatch(tool, arguments, self.current_user)
@@ -1235,7 +1235,7 @@ class ToolExecutor:
                         timeout=per_attempt_timeout,
                     )
                     if observer is not None:
-                        observer.returned(
+                        await observer.returned_async(
                             result.success if isinstance(result, ToolResult) else None
                         )
 

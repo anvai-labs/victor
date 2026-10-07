@@ -669,3 +669,53 @@ async def test_durable_intent_cannot_bypass_final_authority_or_restart_guard(
         assert not durable.mark_resumed(run_id)
     finally:
         reset_paused_run_store()
+
+
+async def test_second_cancel_during_interruption_writes_unknown_detached(tmp_path):
+    """A second cancellation during the shielded interrupted_async await must
+    still propagate cancellation AND complete the durable 'unknown' write
+    detached — the marker must never be skipped by a racing cancel."""
+    import asyncio
+    import threading
+
+    from victor.agent.action_observation import ActionJournal
+    from victor.agent.paused_run_store import ProjectDbPausedRunStore
+
+    durable = ProjectDbPausedRunStore(tmp_path / "state.db")
+    set_paused_run_store(durable)
+    binding = {"session_id": "s", "tool_name": "t"}
+    run_id = durable.save(
+        session_id="s",
+        agent_id="a",
+        approval_request={},
+        pending_tool={"tool_name": "t", "arguments": {}, "binding": binding},
+    )
+    assert durable.mark_resumed(run_id)
+
+    started = threading.Event()
+    gate = threading.Event()
+    real_observe = durable.observe_action
+
+    def gated(*args, **kwargs):
+        started.set()
+        assert gate.wait(10), "gate never released"
+        return real_observe(*args, **kwargs)
+
+    durable.observe_action = gated  # instance attribute: gates only this test
+    journal = ActionJournal(durable, run_id, binding)
+    journal.begin()
+
+    task = asyncio.create_task(journal.interrupted_async(RuntimeError("cancelled")))
+    await asyncio.to_thread(started.wait, 5)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert task.cancelled()
+
+    gate.set()
+    for _ in range(100):
+        action = durable.get(run_id).action
+        if action is not None and action["state"] == "unknown":
+            break
+        await asyncio.sleep(0.05)
+    assert durable.get(run_id).action["state"] == "unknown"

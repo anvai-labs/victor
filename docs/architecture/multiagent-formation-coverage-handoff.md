@@ -118,7 +118,7 @@ Implementation delivery and live acceptance have different denominators:
 | G60 pre-dispatch enforcement repair | ✅ [Victor #1180](https://github.com/anvai-labs/victor/pull/1180); all CI green including Vertical Py3.12 | Result-publication follow-up is described in G60 below; broader G60 and G61–G65 remain open |
 | G60 result-publication boundary | [Victor #1204](https://github.com/anvai-labs/victor/pull/1204): typed withholding, cache/result publication checks and retry vetoes | Executor/observer disclosure and cached pre-action authorization remain open; this does not close G60 or C5 |
 
-The [PDF recheck and critique](agentic-workflow-safety-audit.md#pdf-recheck-and-design-critique--2026-09-25)
+The [PDF recheck and critique](agentic-workflow-safety-audit.md#pdf-recheck-and-design-critique-2026-09-25)
 maps the local Agentic Workflow Automation guide to formation-specific acceptance
 gates. Supervisor/MCP/queue choices remain workload-dependent; exact approval,
 effect-aware recovery and verified outcomes apply to every member. Offline safety
@@ -1383,7 +1383,7 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   and mixed-traffic acceptance remain open after short liveness checks.
 
 - **G60 — configured governance failures can permit dispatch.** The 2026-09-24
-  [workflow safety audit](agentic-workflow-safety-audit.md#g60--configured-policy-failures-can-allow-execution-high-priority)
+  [workflow safety audit](agentic-workflow-safety-audit.md#g60-configured-policy-failures-can-allow-execution-high-priority)
   reproduces ALLOW after a configured policy raises. Required policy and middleware
   errors must fail closed; normal DENY/ASK handling already has useful controls.
   ✅ [#1180](https://github.com/anvai-labs/victor/pull/1180) blocks pre-dispatch policy/middleware failures, malformed
@@ -1422,7 +1422,7 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   Add durable action identity, intent, unknown outcomes and receipt reconciliation;
   do not equate checkpoints with exactly-once external writes. This extends G17/G21
   without another formation implementation; see the
-  [audit](agentic-workflow-safety-audit.md#g62--durable-external-action-recovery-is-incomplete-high-priority).
+  [audit](agentic-workflow-safety-audit.md#g62-durable-external-action-recovery-is-incomplete-high-priority).
   The PDF recheck also found automatic replay in the service wrapper, pipeline
   fallback, and post-success bookkeeping error path. The bounded repair shares one
   effect-free metadata gate and preserves structured unknown/reconciliation-required
@@ -1436,7 +1436,7 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   continuation. Retained `pending`/`unknown`/`returned` evidence never authorizes replay;
   `returned` is not a verified backend receipt. Existing owners cover commit-then-timeout,
   cancellation, competing stores, migration and post-effect publication failures.
-  See [FEP-0029](../../feps/fep-0029-single-agent-durable-chat-continuation.md#opt-in-durable-action-observations-2026-09-30-partial-g62).
+  See [FEP-0029](https://github.com/anvai-labs/victor/blob/develop/feps/fep-0029-single-agent-durable-chat-continuation.md#opt-in-durable-action-observations-2026-09-30-partial-g62).
   Backend receipt lookup, verified reconciliation, complete member continuation and
   mixed-team C5 remain open; this is not a live acceptance result.
 
@@ -1444,20 +1444,20 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   The inspected routes store in-memory records, launch a background task, expose
   run status without owner filtering and mark cancellation without stopping that
   task. Configured API authentication is separate from these guarantees. The
-  [audit](agentic-workflow-safety-audit.md#g63--workflow-api-admission-ownership-and-cancellation-need-durable-semantics)
+  [audit](agentic-workflow-safety-audit.md#g63-workflow-api-admission-ownership-and-cancellation-need-durable-semantics)
   scopes reliable admission, request deduplication, ownership and truthful status
   to the durable/shared service profile, with tests in the existing route suite.
 
 - **G64 — concurrent budgets and argument redaction need consistent ownership.**
   Check-before-await/consume-afterward is not an atomic reservation; unavailable
   cost is not zero spend. Argument logs/errors also need a shared sensitive-field
-  projection. The [audit](agentic-workflow-safety-audit.md#g64--budget-reservations-and-redaction-need-consistent-boundary-ownership)
+  projection. The [audit](agentic-workflow-safety-audit.md#g64-budget-reservations-and-redaction-need-consistent-boundary-ownership)
   identifies existing owners and separates tool counts from hard spend guarantees.
 
 - **G65 — retrieval needs explicit authorization/provenance/error contracts.**
   The inspected gateway carries session filters but not authenticated evidence scope,
   version and retrieval time; backend errors may become empty results. This is not
-  a demonstrated tenant leak. The [audit](agentic-workflow-safety-audit.md#g65--retrieval-contract-does-not-establish-authorized-versioned-evidence)
+  a demonstrated tenant leak. The [audit](agentic-workflow-safety-audit.md#g65-retrieval-contract-does-not-establish-authorized-versioned-evidence)
   requires adapter-specific access checks and explicit unavailable/denied results
   before claiming protected retrieval. Keep current facts in authoritative APIs.
 

@@ -12,14 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Gateway rate-limit retry semantics for _stream_with_rate_limit_retry.
-
-Gateway-routed providers enforce their own rate limits upstream, so the
-client must NOT retry (max_retries collapses to 0); direct-API providers
-keep the bounded retry ladder. Pins the behavior of the
-``uses_gateway(self._orchestrator.provider)`` branch (the line the boundary
-ratchet and the changed-file coverage gate both watch).
-"""
+"""Gateway rate-limit policy is resolved through the bound lifecycle capability."""
 
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -27,25 +20,19 @@ from unittest.mock import MagicMock
 import pytest
 
 from victor.agent.services.chat_stream_helpers import ChatStreamHelperMixin
-from victor.agent.services.chat_delivery import ChatDelivery
-from victor.agent.services.chat_runtime_services import ChatStreamMetrics
+from victor.agent.factory.chat_runtime_bindings import bind_chat_runtime_services
+from victor.agent.session_state_accessor import SessionStateAccessor
+from victor.agent.session_state_manager import SessionStateManager
 from victor.core.errors import ProviderRateLimitError
 
 
 class _Helper(ChatStreamHelperMixin):
     def __init__(self, orchestrator, attempts):
-        self._orchestrator = orchestrator
+        self.provider = orchestrator.provider
         self._attempts = attempts
-        self.services = SimpleNamespace(
-            delivery=ChatDelivery(
-                chunks=None,
-                sanitizer=SimpleNamespace(
-                    is_garbage_content=lambda _c: False, sanitize=lambda c: c
-                ),
-            ),
-            metrics=ChatStreamMetrics(orchestrator._metrics_collector),
-            stream_lifecycle=SimpleNamespace(rate_limit_wait_time=MagicMock(return_value=0.0)),
-        )
+        self._session_accessor = SessionStateAccessor(SessionStateManager())
+        self._provider_service = SimpleNamespace(get_rate_limit_wait_time=lambda _: 0.0)
+        self.services = bind_chat_runtime_services(self)
 
     async def _stream_provider_response_inner(self, tools, provider_kwargs, stream_ctx):
         self._attempts.append(1)

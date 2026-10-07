@@ -611,3 +611,24 @@ def test_stream_context_publication_uses_live_owner_and_does_not_retain_it():
         view.task_state.record_stream_context({})
     with pytest.raises(RuntimeError, match="no longer available"):
         view.metrics.accumulate_usage({})
+
+
+@pytest.mark.parametrize("wrapped", [False, True])
+def test_retry_limit_tracks_live_provider_without_retaining_owner(wrapped):
+    from victor.providers.factory import ManagedProvider
+
+    owner = _owner()
+    owner.provider = SimpleNamespace(extra_config={})
+    lifecycle = bind_chat_runtime_services(owner).stream_lifecycle
+    assert lifecycle.provider_retry_limit(3) == 3
+    gateway = SimpleNamespace(extra_config={"gateway": {}})
+    owner.provider = ManagedProvider(gateway) if wrapped else gateway
+    assert lifecycle.provider_retry_limit(3) == 0
+    owner.provider = SimpleNamespace(extra_config={})
+    assert lifecycle.provider_retry_limit(2) == 2
+    ref = weakref.ref(owner)
+    del owner
+    gc.collect()
+    assert ref() is None
+    with pytest.raises(RuntimeError, match="no longer available"):
+        lifecycle.provider_retry_limit(3)

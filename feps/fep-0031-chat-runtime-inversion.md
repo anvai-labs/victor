@@ -4,7 +4,7 @@ title: "Chat Runtime Inversion — ChatService owns the turn lifecycle"
 type: Standards Track
 status: Draft
 created: 2026-09-06
-modified: 2026-09-20
+modified: 2026-10-02
 authors:
   - name: Vijaykumar Singh
     email: vijay@anvaiops.com
@@ -368,6 +368,16 @@ The boundary guard gives `_runtime_intelligence`, `_prepare_runtime_intelligence
 private-attribute cap falls from 45 to 44 and raw-state cap from 10 to 7; the helper caps fall from
 68 to 66 and from 8 raw-state reads to 7. Phase 1 remains open for provider and broader runtime
 state.
+
+### Phase 1 progress: provider retry ownership
+
+Provider retry limits now resolve through the existing `ChatStreamLifecycle`
+capability at the composition boundary. Gateway providers receive zero client
+retries; direct providers retain the requested bounded retry count. The view
+reads the live provider after a switch and retains only a weak owner reference.
+The stream helper no longer probes the facade for this decision; its private-probe
+cap returns from 14 to 13 while the private-attribute cap stays at 56. Retry and
+boundary suites are explicit changed-file CI targets. Broader Phase 1 remains open.
 
 ## Benefits
 

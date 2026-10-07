@@ -92,7 +92,6 @@ dependencies = [
     "typer>=0.15,<0.28",
     "rich>=13.7",
     "prompt-toolkit>=3.0",
-    "textual>=0.89",
 
     # LLM Providers (core - always installed)
     "anthropic>=0.34",
@@ -175,6 +174,12 @@ chat-ui = [
     "chainlit>=2,<3",  # 2.x cl.Action uses payload= (the 1.x value= kwarg was removed)
 ]
 
+# Full TUI app (victor ui): textual-based terminal dashboard. Lazy at runtime —
+# all import sites are function-level, so a bare install works without it.
+tui = [
+    "textual>=0.89",
+]
+
 # Edge-classifier TRAINING (FEP-0012) — dev-only. Runtime inference is
 # numpy-only (victor.ml.features + victor.ml.model); this extra is needed only
 # to run scripts/train_edge_classifier.py / victor.ml.trainer.
@@ -190,6 +195,8 @@ dev = [
     "sentence-transformers>=2.2.0",
     "torch>=2.13.0",  # Patched floor for the embeddings backend
     "lancedb>=0.6.0",
+    # TUI tests (tests/unit/ui/tui/) — textual moved from core to a tui extra
+    "textual>=0.89",
     "pyarrow>=14.0",
     # Fuzzy matching for robust classification
     "Levenshtein>=0.25.1",  # Fast C implementation for typo tolerance

@@ -237,6 +237,7 @@ extras, refresh resolved requirements, and build the core, MCP, native or full c
 - [Development](docs/development/)
 - [Architecture](docs/architecture.md)
 - [Roadmap](docs/roadmap.md)
+- [Stage C reassessment and remaining work](docs/architecture/stage-c-reassessment.md)
 
 ## Contributing
 

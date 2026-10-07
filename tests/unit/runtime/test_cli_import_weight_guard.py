@@ -123,3 +123,24 @@ class TestCliImportWeightGuard:
             "CLI chain broke without numpy — a core-path module hard-imports "
             f"numpy:\n{result.stderr[-1500:]}"
         )
+
+    def test_cli_import_survives_without_textual(self) -> None:
+        """Bare-install simulation: with textual un-importable, the CLI chain
+        must still work (textual is a `tui` extra, not core)."""
+        code = (
+            "import sys\n"
+            "sys.modules['textual'] = None\n"
+            "import victor.ui.cli\n"
+            "print('TEXTUAL_BARE_OK')\n"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", code],
+            cwd=str(REPO_ROOT),
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        assert result.returncode == 0 and "TEXTUAL_BARE_OK" in result.stdout, (
+            "CLI chain broke without textual — a core-path module hard-imports "
+            f"textual:\n{result.stderr[-1500:]}"
+        )
