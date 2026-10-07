@@ -102,7 +102,14 @@ class ActionJournal:
         try:
             self.store.observe_action(self.run_id, self.action_id, "unknown", None)
         except Exception:
-            # Preserve cancellation/approval and leave durable intent unresolved.
+            # A lost race with a committed returned() write is not "unresolved":
+            # only flag when the action is genuinely still pending.
+            try:
+                settled = self.store.get(self.run_id)
+            except Exception:
+                settled = None
+            if settled is not None and (settled.action or {}).get("state") == "returned":
+                return
             original.add_note("Action remains unresolved; observation persistence failed")
 
     async def begin_async(self) -> str:

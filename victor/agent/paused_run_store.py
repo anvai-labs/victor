@@ -310,21 +310,25 @@ class ProjectDbPausedRunStore:
         run_id = uuid.uuid4().hex
         with self._write_lock:
             conn = self._conn()
-            conn.execute(
-                "INSERT INTO paused_run (run_id, session_id, agent_id, approval_request, "
-                "pending_tool, status, created_at, metadata) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    run_id,
-                    session_id,
-                    agent_id,
-                    json.dumps(approval_request or {}),
-                    json.dumps(pending_tool) if pending_tool is not None else None,
-                    "awaiting_approval",
-                    created_at,
-                    json.dumps(metadata) if metadata else None,
-                ),
-            )
-            self._commit_locked(conn)
+            try:
+                conn.execute(
+                    "INSERT INTO paused_run (run_id, session_id, agent_id, approval_request, "
+                    "pending_tool, status, created_at, metadata) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        run_id,
+                        session_id,
+                        agent_id,
+                        json.dumps(approval_request or {}),
+                        json.dumps(pending_tool) if pending_tool is not None else None,
+                        "awaiting_approval",
+                        created_at,
+                        json.dumps(metadata) if metadata else None,
+                    ),
+                )
+                self._commit_locked(conn)
+            except BaseException:
+                conn.rollback()
+                raise
         return run_id
 
     def get(self, run_id: str) -> Optional[PausedRun]:
