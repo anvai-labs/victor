@@ -173,7 +173,9 @@ From the worktree root, use `.venv-codesign/bin/python -m pytest <cited-owner>
 Use the MLX flag only for unrelated control tests, never to claim MLX acceptance.
 Run Black/Ruff/MyPy for touched Python, TS lint/compile/unit/real-host tests for
 extension changes, webview check/build, `npm ci` for both graphs and production
-VSIX packaging. Docs changes require MkDocs/link checks. Hosted CI is not an
+VSIX packaging. Docs changes require MkDocs/link checks. FEP changes also require
+`.venv-codesign/bin/victor fep validate <proposal-path>`; a passing docs build
+does not establish FEP structure validity. Hosted CI is not an
 edit/test loop; validate locally and independently review the exact candidate first.
 
 C5 retains the confirmed 120-second buffered gateway deadline unless a separately
@@ -232,6 +234,22 @@ service. Do not require ephemeral files to understand the next action.
 - Next action: finish current candidate review, validate final docs/source, commit,
   push and drive its PR to green. Then reconcile VAS-01/02 from the actual merge
   record and start VAS-03; never resume by rerunning the original WS-A.
+
+### Checkpoint 2026-10-07-publication-review
+
+- PR: [#1251](https://github.com/anvai-labs/victor/pull/1251), targeting develop.
+- First candidate: `32f969ac3d847314b6987329ddc570b192251ab7`, independently reviewed;
+  code/local tests passed. The two FEP-specific CI gates failed because the first
+  proposal lacked required canonical sections; a passing MkDocs build did not
+  exercise that validator. Preserve that failure, not a full-green claim.
+- Correction: restructure the same design into required sections, record unresolved
+  decisions/compatibility/implementation and validate the actual FEP locally.
+  The publication PR's latest head/review/CI is authoritative for the correction;
+  never merge using the earlier commit's attestation. No runtime code changed.
+- VAS-01/02 stay LOCAL_PASS until the actual merge is verified. On the next
+  checkpoint, replace their states with MERGED and cite #1251's merge SHA if green;
+  do not repeat the dependency/activation work merely because this snapshot predates
+  its merge. VAS-03 and independent framework VAS-11 are the next ready candidates.
 
 ## Resume after a session change or reboot
 

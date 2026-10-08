@@ -14,7 +14,7 @@ reviewers: []
 
 # FEP-0039: Unified agent-service API
 
-## Summary and status
+## Summary
 
 Use `victor serve` as the single HTTP composition root for browser, VS Code and
 external agent-service consumers. Existing framework services own execution,
@@ -29,7 +29,13 @@ contains the reproduced defects and source inventory. Approval of this design
 must be recorded before new public contracts ship. Ordinary defect repairs may
 proceed independently through the normal reviewed PR gates.
 
-## Problem
+The primary customer journey is a run that can begin in an editor, pause for an
+exact approval, survive disconnection, and resume from the browser without losing
+ownership or duplicating an external action. Both clients render recorded service
+state. They do not infer business success from an HTTP connection closing, a
+model assertion, or a cancellation message being sent.
+
+## Motivation
 
 `victor serve` and `web/server/main.py` expose different chat requests, streams,
 session/token behavior and supported operations. VS Code's `streamChat()` matches
@@ -41,7 +47,7 @@ premature EOF as completion, and overstates cancellation acknowledgement.
 The web backend already has useful typed bounded session storage and v1 event
 serialization; core already has broad routers and repaired HTTP/WS auth gates.
 Preserve those investments. Neither implementation alone establishes safe,
-durable, multi-principal agent-as-a-service behavior.
+durable, multi-principal agent-as-a-service behavior under concurrent use.
 
 ## Boundaries and ownership
 
@@ -65,7 +71,7 @@ and [FEP-0038 model/reasoning-effort contract](0038-model-reasoning-effort.md).
 Client migration must retain explicit model identity, supported reasoning controls
 and structured classification semantics rather than creating competing definitions.
 
-## Public contract direction
+## Proposed Change
 
 A reviewed `/v1` resource family exposes capabilities, approved agent definitions,
 sessions, runs, run status/results, run events, approval decisions and cancellation.
@@ -113,7 +119,7 @@ Preserve remote-development behavior: the extension host's workspace may not be
 on the browser/UI machine. Keep liveness, readiness and privileged administration
 separate.
 
-## Compatibility and migration
+## Migration Path
 
 Migrate the web session/wire implementations into existing canonical routers and
 framework owners. Keep `web/server` as a temporary compatibility entry point using
@@ -144,7 +150,7 @@ shutdown. No required Redis/broker, new language, gRPC migration or new event
 registry without a measured need. A one-process durable store does not establish
 multiworker safety; distributed ownership/leases require their own acceptance.
 
-## Alternatives and risks
+## Drawbacks and Alternatives
 
 | Alternative | Decision / risk |
 | --- | --- |
@@ -159,3 +165,76 @@ Risks are tenant/session leakage, duplicate external effects, false success,
 compatibility breaks and unmanaged concurrency. Security and UX gates precede
 performance tuning. Release, deployment and mixed-team acceptance remain separate
 from a source merge. The tracker defines PR-sized milestones and durable evidence.
+
+## Benefits
+
+Users receive the same run identity, approval request and recorded outcome in the
+browser, editor and automation client. Moving between those clients no longer
+requires choosing between incompatible backend applications or losing session
+continuity. A generated contract removes repeated manual synchronization of
+payload fields, while real consumer-provider tests detect differences before a
+release. Shared policy and lifecycle owners make alternative transports subject
+to the same authorization and recovery rules. Bounded queues, admission and
+explicit cancellation improve predictable resource use. Keeping embedded Python
+access and a single network hop avoids introducing avoidable latency. Existing
+session, event and recovery work remains useful rather than being replaced by a
+new orchestration stack.
+
+## Compatibility
+
+The current Python framework and plugin-definition APIs remain supported. The
+legacy HTTP and web entry points receive explicit compatibility adapters until
+their documented deprecation window expires. Existing model identity, reasoning
+effort and classification contracts retain their canonical definitions. Schema
+versions and capability negotiation distinguish unsupported functionality from
+network or authorization failure. Byte-compatible legacy defaults remain the
+baseline unless a separately reviewed defect repair changes erroneous behavior.
+New authorization modes and durable-run contracts are explicit configuration or
+versioned surfaces. Session persistence format, deployment settings and generated
+SDK package versions need migration tests, not only source-level type checks.
+
+## Unresolved Questions
+
+- Which existing durable store/transaction boundary will implement run admission
+  and reliable dispatch? Resolve in VAS-07 with crash and duplicate-request tests.
+- What session ownership/concurrent-turn rules apply to anonymous local mode?
+  Resolve in VAS-05/06 without weakening hosted authenticated ownership.
+- Which event classes are retained, for how long, and how are expired cursors
+  reported? Resolve in VAS-10 with bounded-memory and snapshot-recovery evidence.
+- Which external clients depend on legacy HTTP, GraphQL or protocol adapters?
+  Resolve via consumer inventory before removal; absence of internal imports is
+  insufficient evidence to remove a public interface.
+- What absolute latency and resource SLOs should each workload meet? Record a
+  measured baseline before accepting performance targets or changing languages.
+
+These questions constrain their dependent increments; they do not authorize
+silent fallback or prevent isolated bug fixes and existing framework recovery work.
+
+## Implementation Plan
+
+Use the linked tracker as the single status ledger rather than maintaining a
+second checklist here. First land the isolated dependency/activation milestone
+and agree the public contract. Reproduce current failures in existing test owners
+before changing request or result handling. Then establish authenticated resource
+ownership, bounded sessions and durable run admission, preserving existing owners.
+Consolidate HTTP composition, generate the shared SDK, and implement event replay
+and truthful terminal outcomes. Migrate editor and browser clients with real-server
+and packaged-client smoke tests, followed by adapter deprecation and measured
+performance acceptance. Each increment is independently reviewed and must pass
+all applicable CI gates before squash merge into develop. Main promotion and
+release are separate gates. The framework recovery/member-continuation path may
+proceed independently toward released-foundation and C5 acceptance; it need not
+wait for GraphQL cleanup or either UI migration. Record failed evidence and exact
+commit/runtime identities at every material checkpoint.
+
+## References
+
+- [Canonical execution tracker](../docs/architecture/victor-agent-service-plan.md)
+- [API audit and reproduced defects](../docs/development/victor-agent-service-audit.md)
+- [FEP-0029 durable chat continuation](fep-0029-single-agent-durable-chat-continuation.md)
+- [FEP-0037 classification](0037-v1-classify-endpoint.md)
+- [FEP-0038 model identity and reasoning effort](0038-model-reasoning-effort.md)
+- [Formation gap ledger](../docs/architecture/multiagent-formation-coverage-handoff.md)
+- [OpenAPI](https://spec.openapis.org/oas/v3.1.2.html)
+- [SSE framing and reconnect semantics](https://html.spec.whatwg.org/multipage/server-sent-events.html)
+- [HTTP retry semantics](https://www.rfc-editor.org/rfc/rfc9110.html)
