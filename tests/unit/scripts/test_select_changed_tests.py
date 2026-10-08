@@ -83,6 +83,15 @@ def test_selector_changes_select_its_own_regressions():
             ],
         ),
         (
+            "victor/agent/paused_run_store.py",
+            [
+                "tests/unit/agent/test_paused_run_persistence.py",
+                "tests/unit/agent/test_paused_run_expiry.py",
+                "tests/unit/agent/test_durable_resume.py",
+                "tests/unit/framework/test_client_resume.py",
+            ],
+        ),
+        (
             "victor/framework/approval_pause.py",
             [
                 "tests/unit/agent/services/test_tool_execution_runtime.py",

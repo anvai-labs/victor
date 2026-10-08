@@ -207,3 +207,172 @@ def test_action_status_requires_original_restored_session(_store):
         "approval_status": "awaiting_approval",
         "action": None,
     }
+
+
+@pytest.mark.parametrize("cancel", [False, True], ids=["continue", "cancel"])
+async def test_sqlite_claim_contention_keeps_loop_responsive_and_cancel_never_dispatches(
+    tmp_path, monkeypatch, cancel
+):
+    import asyncio
+    import sqlite3
+    import threading
+    from unittest.mock import AsyncMock
+
+    from victor.agent import durable_resume
+    from victor.agent.paused_run_store import ProjectDbPausedRunStore
+
+    persistent = ProjectDbPausedRunStore(tmp_path / "state.db")
+    set_paused_run_store(persistent)
+    run_id = _save(persistent)
+    entered = threading.Event()
+    claimed = threading.Event()
+    release = threading.Event()
+    released_by_loop = []
+    expire = persistent.expire_pending
+    mark = persistent.mark_resumed
+
+    def observed_expire(**kwargs):
+        entered.set()
+        return expire(**kwargs)
+
+    def observed_claim(run_id):
+        try:
+            return mark(run_id)
+        finally:
+            claimed.set()
+
+    monkeypatch.setattr(persistent, "expire_pending", observed_expire)
+    monkeypatch.setattr(persistent, "mark_resumed", observed_claim)
+    replay = AsyncMock(return_value=durable_resume.ResumeResult(final_content="done"))
+    monkeypatch.setattr(durable_resume, "resume_paused_run", replay)
+    blocker = sqlite3.connect(persistent.db_path, check_same_thread=False)
+    blocker.execute("BEGIN IMMEDIATE")
+
+    def unlock():
+        # A separate watchdog releases even the pre-fix blocking implementation.
+        # The invariant is who releases it, not a wall-clock speed assertion.
+        released_by_loop.append(release.wait(timeout=5))
+        blocker.rollback()
+        blocker.close()
+
+    watchdog = threading.Thread(target=unlock)
+    watchdog.start()
+    task = asyncio.create_task(_client().resume(run_id, ApprovalDecision(True)))
+    try:
+        assert await asyncio.to_thread(entered.wait, 5)
+        assert (
+            not released_by_loop
+        ), "SQLite admission blocked the event loop until watchdog release"
+        if cancel:
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+            replay.assert_not_awaited()
+        release.set()
+        assert await asyncio.to_thread(claimed.wait, 5)
+        if not cancel:
+            assert (await task).content == "done"
+            replay.assert_awaited_once()
+        else:
+            replay.assert_not_awaited()
+        assert ProjectDbPausedRunStore(persistent.db_path).get(run_id).status == "resumed"
+        # Cancellation may consume admission, but can never reopen it for replay.
+        with pytest.raises(ValueError, match="already resumed"):
+            await _client().resume(run_id, ApprovalDecision(True))
+    finally:
+        release.set()
+        await asyncio.gather(task, return_exceptions=True)
+        await asyncio.to_thread(watchdog.join, 5)
+        assert not watchdog.is_alive()
+    assert released_by_loop == [True]
+
+
+async def test_competing_persistent_resumes_dispatch_once(tmp_path, monkeypatch):
+    import asyncio
+    from unittest.mock import AsyncMock
+
+    from victor.agent import durable_resume
+    from victor.agent.paused_run_store import ProjectDbPausedRunStore
+
+    persistent = ProjectDbPausedRunStore(tmp_path / "state.db")
+    set_paused_run_store(persistent)
+    run_id = _save(persistent)
+    # Force both workers to observe pending before either attempts the atomic claim.
+    import threading
+
+    barrier = threading.Barrier(2)
+    get = persistent.get
+
+    def pending_snapshot(run_id):
+        paused = get(run_id)
+        assert paused.status == "awaiting_approval"
+        barrier.wait(timeout=5)
+        return paused
+
+    monkeypatch.setattr(persistent, "get", pending_snapshot)
+    replay = AsyncMock(return_value=durable_resume.ResumeResult(final_content="done"))
+    monkeypatch.setattr(durable_resume, "resume_paused_run", replay)
+    outcomes = await asyncio.gather(
+        _client().resume(run_id, ApprovalDecision(True)),
+        _client().resume(run_id, ApprovalDecision(True)),
+        return_exceptions=True,
+    )
+    assert sum(isinstance(outcome, ValueError) for outcome in outcomes) == 1
+    assert sum(getattr(outcome, "content", None) == "done" for outcome in outcomes) == 1
+    replay.assert_awaited_once()
+    assert ProjectDbPausedRunStore(persistent.db_path).get(run_id).status == "resumed"
+
+
+async def test_persistent_claim_commits_then_errors_without_dispatch_or_reopening(
+    tmp_path, monkeypatch
+):
+    import sqlite3
+    from unittest.mock import AsyncMock
+
+    from victor.agent import durable_resume
+    from victor.agent.paused_run_store import ProjectDbPausedRunStore
+
+    persistent = ProjectDbPausedRunStore(tmp_path / "state.db")
+    set_paused_run_store(persistent)
+    run_id = _save(persistent)
+    mark = persistent.mark_resumed
+
+    def lost_ack(run_id):
+        assert mark(run_id)
+        raise sqlite3.OperationalError("claim acknowledgement lost")
+
+    monkeypatch.setattr(persistent, "mark_resumed", lost_ack)
+    replay = AsyncMock()
+    monkeypatch.setattr(durable_resume, "resume_paused_run", replay)
+    with pytest.raises(sqlite3.OperationalError, match="acknowledgement lost"):
+        await _client().resume(run_id, ApprovalDecision(True))
+    replay.assert_not_awaited()
+    reopened = ProjectDbPausedRunStore(persistent.db_path)
+    assert reopened.get(run_id).status == "resumed"
+    assert not reopened.mark_resumed(run_id)
+
+
+async def test_injected_store_retains_caller_thread_affinity(monkeypatch, _store):
+    import threading
+
+    from victor.agent import durable_resume
+
+    owner = threading.get_ident()
+    calls = []
+    for name in ("expire_pending", "get", "mark_resumed"):
+        method = getattr(_store, name)
+
+        def checked(*args, _name=name, _method=method, **kwargs):
+            assert threading.get_ident() == owner
+            calls.append(_name)
+            return _method(*args, **kwargs)
+
+        monkeypatch.setattr(_store, name, checked)
+
+    async def resume(*args):
+        return durable_resume.ResumeResult(final_content="done")
+
+    monkeypatch.setattr(durable_resume, "resume_paused_run", resume)
+    result = await _client().resume(_save(_store), ApprovalDecision(True))
+    assert result.content == "done"
+    assert calls == ["expire_pending", "get", "mark_resumed"]

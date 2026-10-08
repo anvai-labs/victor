@@ -31,6 +31,7 @@ needs on top of the transcript.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from copy import deepcopy
 import sqlite3
@@ -197,7 +198,8 @@ class ProjectDbPausedRunStore:
 
     Self-manages the ``paused_run`` table (idempotent ``CREATE TABLE IF NOT EXISTS``) against the
     project database, mirroring ``ConversationStore`` (the pause is a property of a project-scoped
-    conversation). Uses a thread-local connection. JSON-encodes the approval request / pending tool /
+    conversation). Methods may run on worker threads; subclasses must preserve this
+    thread-safe contract. Uses a thread-local connection. JSON-encodes the approval request / pending tool /
     metadata. Accepts an explicit ``db_path`` so tests can point at a temporary database.
     """
 
@@ -390,6 +392,36 @@ class ProjectDbPausedRunStore:
             conn = self._conn()
             conn.execute("DELETE FROM paused_run")
             conn.commit()
+
+
+def _claim_for_resume(store: PausedRunStoreProtocol, run_id: str) -> PausedRun:
+    """Expire, load and claim once through the captured store's existing methods."""
+    store.expire_pending(max_age_seconds=DEFAULT_PAUSE_TTL_SECONDS)
+    paused = store.get(run_id)
+    if paused is None:
+        raise ValueError(f"Unknown paused run: {run_id}")
+    if getattr(paused, "status", None) == "expired":
+        raise ValueError(f"Paused run expired: {run_id}")
+    if not store.mark_resumed(run_id):
+        raise ValueError(f"Paused run already resumed or not pending: {run_id}")
+    return paused
+
+
+async def claim_for_resume(store: PausedRunStoreProtocol, run_id: str) -> PausedRun:
+    """Keep built-in persistent admission off the event loop, without replay.
+
+    ProjectDbPausedRunStore (and its subclasses) owns thread-local connections
+    and synchronized writes. Other injected stores retain caller-thread behavior;
+    the protocol does not impose a new thread-safety requirement on them.
+
+    Cancelling the waiter cannot stop an already-running database worker. Its
+    single-use claim may still commit; it is never reopened here. Session restore
+    and dispatch belong to the caller only after a successful await. Store errors
+    propagate without retry or synchronous fallback.
+    """
+    if isinstance(store, ProjectDbPausedRunStore):
+        return await asyncio.to_thread(_claim_for_resume, store, run_id)
+    return _claim_for_resume(store, run_id)
 
 
 _store: Optional[PausedRunStoreProtocol] = None
