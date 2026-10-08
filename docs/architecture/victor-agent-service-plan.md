@@ -2,8 +2,8 @@
 plan_id: VAS-2026-10
 status: active
 updated: 2026-10-08
-baseline_develop: a5fa47e444e6f973ad95149ae0677327df060dc7
-next_task: VAS-11a
+baseline_develop: ec41c97b4bf6b62e31168cbba0153d850d133ae3
+next_task: VAS-11b
 ---
 
 # Victor shared agent-service implementation plan and tracker
@@ -64,11 +64,13 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
-- Fetched develop: `a5fa47e444e6f973ad95149ae0677327df060dc7` (#1252 merged).
-- Owner: current durable-recovery session. Worktree:
-  `/private/tmp/victor-action-recovery`; branch `fix/durable-action-recovery-guards`.
-  Next action: complete final validation and exact-commit review, publish the
-  admission repair, then verify every applicable CI gate before squash merge.
+- Fetched develop: `ec41c97b4bf6b62e31168cbba0153d850d133ae3` (#1253 merged).
+- VAS-11a is merged. The documentation checkpoint uses branch
+  `docs/action-recovery-transaction-checkpoint` in the same linked worktree,
+  `/private/tmp/victor-action-recovery`; no runtime changes are pending there.
+- Next implementation task: VAS-11b. Claim a fresh linked worktree from fetched
+  `origin/develop`, review the receipt and local transaction contract in the
+  existing FEP/store owners, then implement only its accepted bounded scope.
 - Root checkout remains on main; another session's `fix-inferflux-codesign`
   worktree is not owned by this plan. Do not modify or remove it.
 - Local default Node upgraded to 24.21.0. This is the build/tooling runtime;
@@ -77,14 +79,16 @@ edit. A mock test is not live provider or C5 evidence.
   gaps remain open; this plan adds no formation passes.
 - Durable local recovery copy: `var/session-closeout-2026-10-07/vscode-api-audit/`
   in the root checkout; this increment uses
-  `var/session-closeout-2026-10-08-stream-contract/`. These contain patches,
+  `var/session-closeout-2026-10-08-action-admission/` (prior stream evidence remains
+  in `var/session-closeout-2026-10-08-stream-contract/`). These contain patches,
   reports, logs and hashes; the archives are ignored
   by Git and machine-local. Remote Git/PR records are the cross-machine authority.
 
 ## Work ledger
 
 Planning/evidence: VAS-00 is accepted; VAS-01 is merged.
-Delivery: VAS-02 and VAS-03a are merged; VAS-11a has local passes; other implementation rows remain TODO. These counts are not
+Delivery: VAS-02, VAS-03a and VAS-11a are merged; other implementation rows remain
+TODO. These counts are not
 an effort-weighted completion percentage. The original formation denominator is
 independent. Update this paragraph and the rows together at each checkpoint.
 
@@ -109,7 +113,8 @@ independent. Update this paragraph and the rows together at each checkpoint.
 | VAS-09 | Authoritative schemas and generated shared TS SDK | VAS-08 | TODO | OpenAPI/event schema generation, runtime boundary validation, deterministic generation and compatibility tests |
 | VAS-10 | Unified run events, bounded parsing and replay | VAS-07, VAS-09 | TODO | UTF-8/SSE framing, IDs/cursors, explicit retention gaps, durable terminal state, bounded slow-client handling |
 | VAS-11 | Exact approval and verified action reconciliation through existing framework owners | VAS-00, VAS-02 | TODO | G61/G62/G70: bind owner/payload/version/expiry; backend commit then response loss; receipt lookup or safe same-key guarantee; unknown blocks replay |
-| VAS-11a | Keep durable approval admission off the async event loop | VAS-00, VAS-02 | LOCAL_PASS | Existing store owns expiry/load/single-use claim; real SQLite contention, cancellation and competing claim tests; no receipt verification or claim reopening |
+| VAS-11a | Keep durable approval admission off the async event loop | VAS-00, VAS-02 | ✅ MERGED | [#1253](https://github.com/anvai-labs/victor/pull/1253), `ec41c97b4bf6b62e31168cbba0153d850d133ae3`; clean exact-head review and 39 successful checks including Vertical Py3.12; no receipt verification or claim reopening |
+| VAS-11b | Review receipt provenance and local transaction boundaries, then implement bounded reconciliation | VAS-11a | TODO | [Database boundary](victor-agent-service-technology.md#database-transaction-and-external-effect-boundary); amend/review existing FEP before new contracts, define backend capabilities and absent-receipt semantics, prove commit-with-lost-response recovery without replay; parent VAS-11 remains open |
 | VAS-12 | Complete member continuation and cancellation lifecycle | VAS-11 | TODO | G61/G63/G70: restore completed batches, no whole-member replay; own cancellation and preserve partial effects |
 | VAS-13 | VS Code migrates to shared SDK/state; secure webview and remote workspace | VAS-09, VAS-10, VAS-11, VAS-12 | TODO | Real ephemeral server + installed VSIX smoke; auth expiry, reconnect, approval, cancellation, capabilities and workspace boundaries |
 | VAS-14 | Web UI migrates to the same API and state semantics | VAS-09, VAS-10, VAS-11, VAS-12 | TODO | Browser smoke against the same server/fixtures as VS Code; embedded Chainlit retains shared service path; remote mode uses API |
@@ -185,7 +190,8 @@ are responsibilities; an ACTIVE claim still needs a named session and branch.
 
 ## Delivery order and progress accounting
 
-1. Finish the isolated VAS-03a repair and preserve its regression evidence.
+1. Preserve merged VAS-03a and VAS-11a evidence; continue their open parent
+   milestones without repeating the completed repairs.
 2. Close the remaining contract/identity decisions and framework recovery gates
    (VAS-03/05a/e and VAS-11/12). Shared token review VAS-21a and Sandhi theme work
    VAS-21b can proceed independently; theme work does not delay C5 foundations.
@@ -550,3 +556,26 @@ Resume prompt:
   and mypy for the two production modules plus selector passed. Documentation
   build and built-site link checks passed. Cumulative independent review is clean;
   the checkpoint now points at publication, not repeating the completed repair.
+
+
+### Checkpoint 2026-10-08-VAS-11a-merged
+
+- [#1253](https://github.com/anvai-labs/victor/pull/1253) squash-merged to develop
+  at 14:51:46 UTC, merge `ec41c97b4bf6b62e31168cbba0153d850d133ae3`.
+  Independent adversarial review was clean for tested head
+  `43ba4749a7943b9198af675a79acb5ff74df97e4` against `a5fa47e44`.
+- All applicable gates finished: 39 successful checks, including CI Success,
+  Vertical Py3.12, full collection, changed tests and documentation build. Trivy
+  reported neutral; deploy and Post Validation Results were nonapplicable/skipped.
+  This is a develop merge, not a release or live-provider acceptance.
+- VAS-11a/G77 is complete. The database remains the owner of local atomicity;
+  worker offloading only removes SQLite waits from the async loop. The separate
+  approval, intent and transcript commits are not one atomic operation today.
+- VAS-11b records the next bounded recovery task. Its reviewed design guidance
+  requires trusted receipt provenance, exact action/backend binding, safe absent
+  receipt semantics, database durability/failure settings and monotonic local
+  transactions. Timeout after possible dispatch remains unknown without evidence;
+  a missing receipt must not authorize replay. Extend existing test owners.
+- VAS-11/12, G61/G62/G70 and C5 remain open. No shared services, credentials or
+  provider caches changed. Archived review, CI, merge metadata, patch and restart
+  instructions are in `var/session-closeout-2026-10-08-action-admission/`.

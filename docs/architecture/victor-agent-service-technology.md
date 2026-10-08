@@ -66,6 +66,48 @@ engine or Rust service solely to unify language or chase assumed speed. A real
 need for crash isolation, independent scaling or a missing latency target can
 justify a process boundary, with its ownership/version/recovery costs recorded.
 
+## Database transaction and external-effect boundary
+
+Use the database as the authority for durable local state. Its constraints,
+conditional updates and transactions must enforce uniqueness and legal state
+transitions; an in-process lock alone is insufficient across workers. Group the
+local changes that establish one transition in one transaction. Keep model calls,
+human waits and external tool requests outside that transaction.
+
+| Boundary | Required guarantee | Recovery rule |
+| --- | --- | --- |
+| Approval and action intent | Verify the exact binding and current state; atomically commit the local records required by an authorized transition | A losing claimant cannot dispatch. A consumed claim with missing intent must not be reopened by assumption. |
+| Durable admission and dispatch | Commit accepted work and its dispatch record together, or use an existing durable engine with equivalent guarantees | Recover delivery from committed state. Outbox delivery can repeat; it does not make an external effect exactly once. |
+| External tool effect | Use a stable action key only where the backend actually guarantees its semantics; preserve backend identity and request binding | A timeout after possible dispatch leaves the outcome unknown unless authoritative evidence establishes it. Query authoritative status/receipt before retry; without a safe backend contract, stop for reconciliation. |
+| Receipt and continuation | Validate receipt provenance and exact action identity; commit monotonic outcome/checkpoint changes through the existing store owner | Receipt lookup must not execute the effect. Crash or duplicate reconciliation must not publish duplicate results or rerun completed work. |
+
+Current code already provides a conditional single-use approval claim and a
+transactional action intent/observation update in `ProjectDbPausedRunStore` when
+`durable_actions=True`; default resume does not write that action journal.
+Approval claiming, intent creation and transcript publication are separate
+commits today. Moving blocking SQLite work to a worker thread changes event-loop
+responsiveness, not the transaction's atomicity. Cancellation can leave a consumed
+claim, and a returned invocation is still not a verified backend receipt.
+
+VAS-11b must settle the receipt/adapter contract in the existing FEP and identify
+which local records share a transaction before implementation. Verify the
+backend durability settings and failure model, including process crash versus
+power loss. Define absent/negative receipt semantics: a not-found response from
+an eventually consistent lookup must not authorize replay. Do not invent a
+second action ledger or a generic retry endpoint. Include backend commit with
+lost response, wrong/stale/conflicting receipt, concurrent reconciliation, and
+crash-before-publication tests in the existing owners. VAS-12 separately owns
+complete member continuation. These are design requirements, not implemented
+recovery or live acceptance claims.
+
+[SQLite's transaction guarantee](https://www.sqlite.org/transactional.html) covers
+changes within its transaction. The [transactional outbox pattern](https://docs.aws.amazon.com/prescriptive-guidance/latest/cloud-design-patterns/transactional-outbox.html)
+addresses durable state plus message publication and still requires handling
+duplicate delivery. Neither automatically includes an arbitrary remote API in
+the local transaction. Keep the existing database until measured concurrency,
+deployment or availability requirements justify another backend; changing the
+database product alone does not resolve external-effect uncertainty.
+
 ## Contracts at every language boundary
 
 - Generate the TypeScript HTTP SDK and event validators from authoritative
