@@ -169,6 +169,30 @@ async def test_durable_action_mode_passes_same_store_to_canonical_resume(tmp_pat
     assert out.content == "done"
 
 
+async def test_default_off_writes_no_action_record_on_persistent_store(tmp_path, monkeypatch):
+    """Pin the opt-in default: without durable_actions=True, canonical resume
+    receives no action journal and the persistent store never gains durable
+    action evidence. If someone flips the default, this fails."""
+    from victor.agent import durable_resume
+    from victor.agent.paused_run_store import ProjectDbPausedRunStore
+
+    persistent = ProjectDbPausedRunStore(tmp_path / "state.db")
+    set_paused_run_store(persistent)
+    run_id = _save(persistent)
+
+    seen: dict[str, Any] = {}
+
+    async def resume(orchestrator, paused, decision, *, action_store=None):
+        seen["action_store"] = action_store
+        return durable_resume.ResumeResult(final_content="done")
+
+    monkeypatch.setattr(durable_resume, "resume_paused_run", resume)
+    out = await _client().resume(run_id, ApprovalDecision(True))
+    assert out.content == "done"
+    assert seen["action_store"] is None
+    assert persistent.get(run_id).action is None
+
+
 def test_action_status_requires_original_restored_session(_store):
     run_id = _store.save(session_id="original", agent_id="a", approval_request={})
     client = _client()

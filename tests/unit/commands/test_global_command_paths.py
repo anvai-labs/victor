@@ -155,7 +155,7 @@ def test_ab_list_experiments_uses_global_victor_dir_by_default(tmp_path):
     record_console = Console(record=True, force_terminal=False, width=160)
     with (
         patch(
-            "victor.ui.commands.ab_testing.get_default_ab_test_db_path",
+            "victor.experiments.ab_testing.paths.get_default_ab_test_db_path",
             return_value=db_path,
         ),
         patch.object(ab_testing_cmd, "console", record_console),

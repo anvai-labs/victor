@@ -39,8 +39,40 @@ source-evidence snapshot, measurements and revised execution order. The
 findings. FEP-0031/0032/0033/0034/0035 retain Draft frontmatter: design, partial
 implementation and release are separate states.
 
-Pages last published from `main` on 2026-10-04. PR builds do not deploy; newer
-documentation reaches the public site through the next main promotion.
+Pages last verified published from `main` on 2026-10-07 (`f9515e98e`); see the
+[publishing record](development/docs-publishing.md). PR builds do not deploy;
+newer documentation reaches the public site through the next main promotion.
+
+### Multiagent continuation — October 7 checkpoint
+
+The original WS-A–WS-I implementation increments are **9/9 landed**. This does not
+mean every workload/model or lifecycle contract has passed. The canonical
+[formation ledger](architecture/multiagent-formation-coverage-handoff.md#15-completion-audit-updated-2026-10-07-cohort-dates-retained)
+retains separate cohort counts and the open mixed-team C5 verdict.
+
+Completed source milestones include interrupted-batch evidence (#1208) and opt-in
+single-action observations (#1209, included in v0.12.0). Asynchronous journal writes
+and transaction rollback (#1249) are a later main change. They do not establish
+backend receipt reconciliation or complete member continuation.
+
+Next, in dependency order:
+
+1. Reconcile main/develop, resolve recorded CI failures, and verify released gateway
+   and origin identities/readiness after restart; complete their settlement and
+   lifecycle gates before live formation acceptance.
+2. Complete G62 backend receipt lookup and unknown-outcome reconciliation through
+   the existing action owner, with crash/restart and duplicate-event regressions.
+3. Complete principal/member approval binding and member continuation (G61/G70),
+   restoring completed work without repeating uncertain effects.
+4. Run reviewed six-Qwen/one-ZAI C5 with unchanged accounting, session correlation,
+   timeout and deliverable gates; then finish matched local-model formation cohorts.
+5. Address strict hierarchical selection/delegation (G72) as an opt-in contract;
+   keep peer formations independent of a mandatory supervisor.
+
+The [restart handoff](architecture/multiagent-session-closeout-2026-10-07.md)
+contains concrete entry points and acceptance conditions. Broader Stage C,
+deployment-size and optional-SDK work retain their own owners; no new formation
+or default change is required to finish these safety milestones.
 
 ## Evaluation roadmap — existing gates and remaining work
 
