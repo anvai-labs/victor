@@ -2,8 +2,8 @@
 plan_id: VAS-2026-10
 status: active
 updated: 2026-10-08
-baseline_develop: 895ce0ada1983fa592c13ad3ddc40f1857e32213
-next_task: VAS-04a
+baseline_develop: bdb10c083951426a14209b27c44a5073263a4a90
+next_task: VAS-02a
 ---
 
 # Victor shared agent-service implementation plan and tracker
@@ -64,11 +64,21 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
-- Fetched develop: `895ce0ada1983fa592c13ad3ddc40f1857e32213` (#1261 merged).
-- Active owner: this session, branch `fix/vscode-stream-outcomes`, linked worktree
-  `/private/tmp/victor-receipt-qualification-20261008`, on the fetched baseline.
-  VAS-04a repairs existing stream termination and cancellation acknowledgement;
-  it adds no public server contract and does not imply FEP-0039 acceptance.
+- Fetched develop: `bdb10c083951426a14209b27c44a5073263a4a90` (#1262 merged).
+- Active owner: this session, branch `chore/patch-dependency-locks`, reusing linked
+  worktree `/private/tmp/victor-receipt-qualification-20261008` on the fetched base.
+  VAS-02a addresses the remaining embeddings `multidict` and Rust edge `rustls`
+  dependency alerts. Runtime/UI code from #1262 is complete and unchanged.
+- VAS-02a local evidence: Linux Python 3.12/pip-tools 7.6.1 regenerated the CPU
+  embeddings lock with `multidict==6.9.1` and removed stale Textual-only dependencies
+  absent from current deployment metadata. Rust edge TLS resolves `rustls==0.23.45`
+  and `rustls-webpki==0.103.15`. Original RustSec/embeddings audits each found one
+  vulnerability; updated RustSec, Linux lock and complete installed-environment
+  audits found zero. The installed local Victor/contracts wheels passed real
+  HTTP multivalue header/query, deterministic CPU embedding pipeline and CLI smokes.
+  No pretrained model download/quality or provider/C5 claim is made. All 28 edge
+  tests/doctests, 79 lock/doc tests and 34,029 collection cases passed. Final review,
+  PR/CI and merge remain; existing default-branch alerts require main promotion.
 - VAS-11c qualification recheck: TaskStore mutates memory and saves JSON; database
   tools execute arbitrary caller SQL under process-local connection IDs; Jira/Slack
   return backend IDs after writes, without an action-key receipt lookup. None can
@@ -77,14 +87,15 @@ edit. A mock test is not live provider or C5 evidence.
   effect/receipt contract must be supplied/qualified first. Preserve unknown and
   unsupported effects without replay. The existing SQLite fixture is conformance
   evidence only. No production adapter or member continuation is claimed.
-- VAS-04a local evidence: 23 client RED failures, six actual extension-host RED
+- VAS-04a merged evidence: 23 client RED failures, six actual extension-host RED
   failures and a further UTF-8-after-terminal RED; repaired through existing owners.
   Both production HTTP entry points pass normal and lost-terminator smokes using the
   compiled client. Pending-approval cancellation is checked over authenticated HTTP.
   Final local checks: 76 Vitest, 1,000 actual VS Code host, 71 API/web tests;
   34,029 collected; Black/Ruff/MyPy and strict docs/link/hygiene checks pass.
-  Independent review passed 76 Vitest and nine HTTP contract cases. Final commit
-  review, PR/CI and merge remain; no published release claim.
+  Independent review passed 76 Vitest and nine HTTP contract cases. Exact-commit
+  review and all 39 successful CI checks, including Vertical Py3.12, passed before
+  [#1262](https://github.com/anvai-labs/victor/pull/1262) squash-merged. No release claim.
 - Limits: stream termination is not business success. Recognized event payloads still
   have legacy per-field defaults; generated schema/result validation, paused-run and
   approval fields, durable terminal state, remote cancellation and full VAS-04 stay open.
@@ -122,8 +133,7 @@ edit. A mock test is not live provider or C5 evidence.
 
 Planning/evidence: VAS-00 is accepted; VAS-01 is merged.
 Delivery: VAS-02, VAS-03a, VAS-11a, VAS-11b, VAS-11d, VAS-12a and VAS-12b are
-merged. VAS-04a is LOCAL_PASS pending reviewed PR/CI/merge. Other implementation
-rows remain TODO. These counts are not
+merged. VAS-04a is merged; VAS-02a is LOCAL_PASS pending reviewed PR/CI/merge. Other implementation rows remain TODO. These counts are not
 an effort-weighted completion percentage. The original formation denominator is
 independent. Update this paragraph and the rows together at each checkpoint.
 
@@ -132,10 +142,11 @@ independent. Update this paragraph and the rows together at each checkpoint.
 | VAS-00 | Audit current API shapes and reproduce boundary defects | — | ✅ ACCEPTED | Audit: real core router returns 422; compiled TS stub probes show approval loss, EOF success and false cancellation; independent review corrected binding/ownership details |
 | VAS-01 | Publish FEP, plan, roadmap/gap links and reboot handoff | VAS-00 | ✅ MERGED | [#1251](https://github.com/anvai-labs/victor/pull/1251), `470c9ccdcb222dcfd8acce5b4c52fb27321ac952`; all applicable checks green; FEP remains Draft |
 | VAS-02 | Node 24, dependency remediation and real activation/package smoke | — | ✅ MERGED | [#1251](https://github.com/anvai-labs/victor/pull/1251), `470c9ccdcb222dcfd8acce5b4c52fb27321ac952`; 999 host + 50 unit tests; audits zero; packaged VSIX activation/106 commands passed |
+| VAS-02a | Patch remaining embeddings and Rust edge dependency alerts | VAS-02 | LOCAL_PASS | `chore/patch-dependency-locks`, baseline `bdb10c083`; align embeddings multidict with patched 6.9.1 and resolve rustls to patched compatible release; lock audits and affected smokes; no gateway/server deployment |
 | VAS-03 | Agree contract/FEP and consumer inventory; repair streaming request parity | VAS-01, VAS-02 | TODO | Accept FEP before new public API; preserve FEP-0037/0038 classify/model-effort contracts; extend existing contract owner, RED actual TS body vs real router, then explicit compatibility adapter |
 | VAS-03a | Repair existing VS Code streaming request compatibility | VAS-01, VAS-02 | ✅ MERGED | [#1252](https://github.com/anvai-labs/victor/pull/1252), `a5fa47e444e6f973ad95149ae0677327df060dc7`; clean exact-head review, 41 applicable checks passed including Vertical Py3.12; parent/FEP acceptance remains open |
 | VAS-04 | Typed client outcomes: paused run, terminal EOF, cancellation acknowledgement | VAS-03 | TODO | Preserve status/run/approval; reject incomplete streams; consume negative cancellation body; no new approval store |
-| VAS-04a | Repair existing stream termination and cancellation acknowledgements | VAS-03a | LOCAL_PASS | `fix/vscode-stream-outcomes`, baseline `895ce0ada`; bounded SSE framing, explicit terminator, HTTP cancellation result and honest UI state; no durable result/approval/continuation contract |
+| VAS-04a | Repair existing stream termination and cancellation acknowledgements | VAS-03a | ✅ MERGED | [#1262](https://github.com/anvai-labs/victor/pull/1262), `bdb10c083951426a14209b27c44a5073263a4a90`; clean exact-commit review, 39 successful CI checks including Vertical Py3.12. 76 Vitest, 1,000 host, 71 API/web tests; bounded transport/pending-approval acknowledgement only; no durable result/approval/continuation contract |
 | VAS-05 | Shared authentication and per-resource principal authorization | VAS-03 | TODO | HTTP/events parity, no placeholder tokens, OIDC hosted posture and explicit scoped machine/local modes; reject cross-owner access |
 | VAS-05a | Strict verified-principal and resource/action policy contracts | VAS-03 | TODO | [Kanidm/API-key policy design](victor-agent-service-auth-policy.md); deny overrides, credential-scope ceiling, ownership and no cross-grant widening; design only |
 | VAS-05b | Kanidm access-token and scoped key authentication | VAS-05a | TODO | Dedicated verified registration/discovery; no alternate-auth fallback; expiry/revocation/rotation, group provenance; same principal contract |

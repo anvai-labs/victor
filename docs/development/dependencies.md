@@ -23,10 +23,11 @@ It does not install Victor itself or enable every optional feature.
 
 The `all` extra includes development, documentation and build tooling. Use the
 specific feature extras for deployment. The Apple Silicon extra is restricted to
-Darwin ARM64. NumPy remains a core dependency because runtime inference and
-similarity fallbacks use it. BeautifulSoup's `lxml` parser is an indirect runtime
+Darwin ARM64. NumPy is optional in the core runtime; embeddings and other
+numeric extras declare it where required. BeautifulSoup's `lxml` parser is an indirect runtime
 consumer, so a zero direct-import count does not justify removing `lxml`.
-Git operations use the system Git executable; GitPython is unnecessary. Coverage
+Git operations use the system Git executable and the declared GitPython dependency;
+check the current consumers before pruning either. Coverage
 uploads use the pinned GitHub Action, so the unused Python `codecov` CLI is
 removed from the CI extra. RAG
 package discovery keeps storage libraries lazy; requesting a document store,
