@@ -123,16 +123,24 @@ When an opt-in checkpointer and thread ID are configured, authoritative load or
 save errors must stop execution with a reconciliation error rather than silently
 start fresh or claim success. Pause markers and approval lane events follow the
 acknowledged pause save. A failed concurrent member save closes queued admission
-and retries; already-started members are joined unless external cancellation
-interrupts ownership. Materialized worktrees survive storage exceptions, with
-paths included in the coordinator's dictionary failure result. Checkpointer-free
-execution retains its existing behavior.
+and retries. Opt-in concurrent execution closes admission before signalling workers
+on caller cancellation, then joins owned coroutines before propagating cancellation.
+Repeated stop requests do not interrupt that join. Pending cancellation is checked
+before and after checkpoint reads/saves, including translated store failures, so a
+late acknowledgement cannot publish approval or admit work. Materialized worktrees
+survive storage exceptions and cancellation even when cleanup was requested. Storage
+errors include paths in the dictionary result; cancellation still raises
+`CancelledError` and reports retained paths through best-effort `team.cancelled`
+telemetry. Telemetry is not durable terminal state. Checkpointer-free execution
+retains its existing behavior.
 
-A save error may follow a successful commit. The error is not permission to replay
-members or retry a side effect. This boundary does not provide production receipt
-adapters, cancellation-safe workspace retention, durable in-flight intents or safe
-whole-member continuation. Implementation and acceptance evidence belong to
-[VAS-12a](../docs/architecture/victor-agent-service-plan.md) and
+A save error or cancellation may follow a successful commit. Neither permits
+member replay or a new side effect. These guarantees cover owned coroutines and
+pending `Task.cancelling()` requests, not adapters that explicitly clear cancellation,
+detached threads/provider work, process crashes or a bounded shutdown time for
+callbacks that never finish. Production receipt adapters, durable in-flight intents
+and safe whole-member continuation remain separate. Implementation and acceptance
+evidence belong to [VAS-12a/12b](../docs/architecture/victor-agent-service-plan.md) and
 [G79](../docs/architecture/multiagent-formation-coverage-handoff.md), not the original
 acceptance record above.
 

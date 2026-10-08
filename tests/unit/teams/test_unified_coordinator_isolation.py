@@ -1,5 +1,6 @@
 """Real worktree dispatch and adapter identity regressions."""
 
+import asyncio
 from pathlib import Path
 import subprocess
 from types import SimpleNamespace
@@ -99,11 +100,26 @@ async def test_isolation_fails_closed_without_materialized_worktrees(context, ca
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("cleanup", [None, True])
-async def test_checkpoint_failure_preserves_materialized_deliverables(tmp_path, cleanup):
+@pytest.mark.parametrize(
+    "failure,formation",
+    [("storage", TeamFormation.PARALLEL)]
+    + [
+        (failure, formation)
+        for failure in ("cancel_before", "cancel_after")
+        for formation in (TeamFormation.SEQUENTIAL, TeamFormation.PARALLEL, TeamFormation.PIPELINE)
+    ],
+)
+async def test_checkpoint_failure_preserves_materialized_deliverables(
+    tmp_path, cleanup, failure, formation
+):
     from victor.framework.graph_checkpoint import MemoryCheckpointer
 
     class FailingCheckpointer(MemoryCheckpointer):
         async def save(self, checkpoint):
+            if failure == "cancel_after":
+                await super().save(checkpoint)
+            if failure.startswith("cancel"):
+                raise asyncio.CancelledError("save cancelled")
             raise OSError("checkpoint unavailable")
 
     repo = tmp_path / "repo"
@@ -124,7 +140,8 @@ async def test_checkpoint_failure_preserves_materialized_deliverables(tmp_path, 
         return {"success": True, "output": "done"}
 
     coord = UnifiedTeamCoordinator(lightweight_mode=True, checkpointer=FailingCheckpointer())
-    coord.set_formation(TeamFormation.PARALLEL)
+    coord.set_formation(formation)
+    coord._emit_team_event = MagicMock()
     coord.add_member(
         SimpleNamespace(id="a", role="executor", execute_task=execute, receive_message=AsyncMock())
     )
@@ -138,12 +155,30 @@ async def test_checkpoint_failure_preserves_materialized_deliverables(tmp_path, 
     }
     if cleanup is not None:
         context["cleanup_worktrees"] = cleanup
-    result = await coord.execute_task("write", context)
-    assert result["error_code"] == "member_checkpoint_failed"
-    assert result["reconciliation_required"] is True
+    if failure == "storage":
+        result = await coord.execute_task("write", context)
+        assert result["error_code"] == "member_checkpoint_failed"
+        assert result["reconciliation_required"] is True
+        summary = result["worktree_cleanup"]
+    else:
+        task = asyncio.create_task(coord.execute_task("write", context))
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert task.cancelled()
+        events = [
+            call.args[1]
+            for call in coord._emit_team_event.call_args_list
+            if call.args[0] == "cancelled"
+        ]
+        assert len(await coord._checkpointer.list("recovery")) == int(failure == "cancel_after")
     assert len(written) == 1
     assert written[0].read_text() == "completed work"
-    summary = result["worktree_cleanup"]
+    if failure != "storage":
+        assert len(events) == 1
+        assert events[0]["reconciliation_required"] is True
+        summary = events[0]["worktree_cleanup"]
     assert summary["removed"] == []
     assert summary["skipped"] == [str(written[0].parent)]
-    assert summary["reason"] == "member_checkpoint_failed"
+    assert summary["reason"] == (
+        "member_checkpoint_failed" if failure == "storage" else "member_execution_cancelled"
+    )

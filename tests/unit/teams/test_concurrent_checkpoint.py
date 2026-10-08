@@ -185,3 +185,78 @@ async def test_checkpoint_failure_closes_admission_and_joins_started_members(
     finally:
         release_peer.set()
         await asyncio.gather(task, return_exceptions=True)
+
+
+@pytest.mark.parametrize("during_save", [False, True], ids=["member", "checkpoint"])
+@pytest.mark.parametrize("repeat_cancel", [False, True])
+async def test_external_cancellation_joins_cleanup_without_retry(during_save, repeat_cancel):
+    peer_started = asyncio.Event()
+    ready = asyncio.Event()
+    first_cancelled = asyncio.Event()
+    peer_cancelled = asyncio.Event()
+    release_cleanup = asyncio.Event()
+    calls = []
+    finished = []
+
+    async def delayed_cleanup(cancelled, name):
+        if release_cleanup.is_set():
+            return
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cancelled.set()
+            await release_cleanup.wait()
+            finished.append(name)
+
+    class Checkpointer(MemoryCheckpointer):
+        attempts = 0
+
+        async def save(self, checkpoint):
+            self.attempts += 1
+            ready.set()
+            await delayed_cleanup(first_cancelled, "save")
+            await super().save(checkpoint)
+
+    class Member(_FakeMember):
+        async def execute_task(self, *args, **kwargs):
+            calls.append(self.id)
+            if self.id == "peer":
+                peer_started.set()
+                await delayed_cleanup(peer_cancelled, "peer")
+            elif self.id == "first":
+                await peer_started.wait()
+                if during_save:
+                    return {"output": "done", "success": True}
+                ready.set()
+                await delayed_cleanup(first_cancelled, "first")
+            return {"output": "stopped", "success": False}
+
+    cp = Checkpointer()
+    coord = _coordinator([Member("first"), Member("peer"), Member("queued")], cp)
+    task = asyncio.create_task(
+        coord.execute_task(
+            "go", {"thread_id": "t1", "member_concurrency_limit": 2, "parallel_member_retries": 1}
+        )
+    )
+    try:
+        await asyncio.wait_for(ready.wait(), 2)
+        task.cancel("user requested stop")
+        await asyncio.wait_for(first_cancelled.wait(), 2)
+        await asyncio.wait_for(peer_cancelled.wait(), 2)
+        if repeat_cancel:
+            task.cancel("repeated stop")
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+        assert not task.done()
+        release_cleanup.set()
+        with pytest.raises(asyncio.CancelledError, match="user requested stop"):
+            await asyncio.wait_for(task, 2)
+        assert task.cancelled()
+        assert calls == ["first", "peer"]
+        assert set(finished) == {"save" if during_save else "first", "peer"}
+        assert cp.attempts == int(during_save)
+    finally:
+        release_cleanup.set()
+        # A broken retry must not leave this regression's worker waiting forever.
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)

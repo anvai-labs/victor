@@ -1644,15 +1644,19 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   the existing hook/dispatch owners: sanitized `member_checkpoint_failed` results
   require reconciliation, queued admissions and retries stop, and acknowledged
   pause saves precede approval markers/events. Already-started siblings are joined
-  in the absence of racing external cancellation. Storage exceptions preserve
-  materialized worktrees and return their paths even when cleanup was requested.
-  Memory-store fault injection includes commit-before-lost-ack, and real git
-  worktrees prove evidence preservation; neither is production durability or C5
-  acceptance. Full external-cancellation ownership (including workspace retention
-  on cancellation), in-flight receipts, checkpoint identity validation and safe
-  whole-member continuation remain open. VAS-12a merged after clean review and all
-  applicable CI; follow the [VAS ledger](victor-agent-service-plan.md) for VAS-12b/12
-  recovery work; never blindly retry an ambiguous save.
+  after storage failure. Storage exceptions preserve materialized worktrees and
+  return their paths even when cleanup was requested. VAS-12b adds owned-coroutine
+  cancellation joins, retention of worktrees on cancellation and guards against
+  checkpoint adapters returning late acknowledgements after a pending stop. Repeated
+  stop requests do not interrupt sibling cleanup; cancellation is propagated and
+  retained paths are emitted as best-effort `team.cancelled` telemetry, not a durable
+  run record. Memory-store fault injection and real git worktrees are local evidence;
+  neither is production durability or C5 acceptance. Detached thread/provider work,
+  explicit clearing of cancellation, callbacks that never finish, process crashes,
+  in-flight receipts, checkpoint identity validation and safe whole-member continuation
+  remain open. VAS-12a merged after clean review and all applicable CI; follow the
+  [VAS ledger](victor-agent-service-plan.md) for VAS-12b review/CI/merge status and
+  remaining recovery work. Never blindly retry an ambiguous save.
 
 Validation-test audit: neither live harness had direct tests before this follow-up.
 The new mixed-harness suite covers rejected/malformed/missing reviews, inclusive

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any, List
 
 import pytest
@@ -252,3 +253,115 @@ async def test_durable_approval_event_follows_acknowledged_pause(formation):
         current_member_sink.reset(token)
     assert result["status"] == "awaiting_approval" and result["success"] is False
     assert emitted == (["m0", "m1"] if formation == TeamFormation.PARALLEL else ["m0"])
+
+
+@pytest.mark.parametrize(
+    "formation", [TeamFormation.SEQUENTIAL, TeamFormation.PARALLEL, TeamFormation.PIPELINE]
+)
+@pytest.mark.parametrize("pause", [False, True])
+@pytest.mark.parametrize("committed", [False, True])
+async def test_late_save_acknowledgement_cannot_suppress_cancellation(formation, pause, committed):
+    from victor.framework.member_event_sink import MemberEventSink, current_member_sink
+
+    saving = asyncio.Event()
+
+    class LateStore(MemoryCheckpointer):
+        attempts = 0
+
+        async def save(self, checkpoint):
+            self.attempts += 1
+            saving.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                if committed:
+                    await super().save(checkpoint)
+                # Simulate a store returning after handling cancellation internally.
+
+    cp = LateStore()
+    members = [_FakeMember("m0", pause=pause), _FakeMember("m1", pause=pause)]
+    coord = _coordinator(members, cp)
+    coord.set_formation(formation)
+    sink = MemberEventSink()
+    token = current_member_sink.set(sink)
+    task = asyncio.create_task(
+        coord.execute_task("go", {"thread_id": "t1", "member_concurrency_limit": 1})
+    )
+    try:
+        await asyncio.wait_for(saving.wait(), 2)
+        task.cancel()
+        done, _ = await asyncio.wait({task}, timeout=1)
+        assert task in done, "cancellation must not start another member/save"
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert task.cancelled()
+        assert members[1].calls == int(pause and formation == TeamFormation.PARALLEL)
+        assert cp.attempts == 1
+        assert len(await cp.list("t1")) == int(committed)
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        current_member_sink.reset(token)
+        await sink.close()
+    assert all(
+        event.kind != "member_awaiting_approval" for event in [e async for e in sink.drain()]
+    )
+
+
+@pytest.mark.parametrize("boundary", ["load", "member", "load_error", "save_error"])
+async def test_suppressed_cancellation_stops_before_checkpoint_or_next_member(
+    boundary, monkeypatch
+):
+    from unittest.mock import Mock
+
+    entered = asyncio.Event()
+
+    async def swallow_stop():
+        entered.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            pass
+
+    class Store(MemoryCheckpointer):
+        attempts = 0
+
+        async def list(self, thread_id):
+            if boundary.startswith("load"):
+                await swallow_stop()
+                if boundary == "load_error":
+                    raise OSError("store failed after cancellation")
+            return []
+
+        async def save(self, checkpoint):
+            self.attempts += 1
+            if boundary == "save_error":
+                await swallow_stop()
+                raise OSError("store failed after cancellation")
+            await super().save(checkpoint)
+
+    class Member(_FakeMember):
+        async def execute_task(self, *args, **kwargs):
+            self.calls += 1
+            if boundary == "member" and self.id == "m0":
+                await swallow_stop()
+            return {"success": False, "output": "stopped"}
+
+    cp = Store()
+    members = [Member("m0"), Member("m1")]
+    coord = _coordinator(members, cp)
+    materialize = Mock(wraps=coord._materialize_worktree_plan_with_diagnostics)
+    monkeypatch.setattr(coord, "_materialize_worktree_plan_with_diagnostics", materialize)
+    task = asyncio.create_task(coord.execute_task("go", {"thread_id": "t1"}))
+    try:
+        await asyncio.wait_for(entered.wait(), 2)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert [m.calls for m in members] == [int(not boundary.startswith("load")), 0]
+        assert cp.attempts == int(boundary == "save_error")
+        if boundary.startswith("load"):
+            materialize.assert_not_called()
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
