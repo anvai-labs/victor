@@ -1,5 +1,7 @@
 # Victor Documentation
 
+[Repository map and module owners](development/repository-map.md) · [Completed and superseded work](development/completed-work.md)
+
 Start with the [documentation map](index.md). This repository separates current user and
 contributor guidance from dated experiments, design proposals and review evidence.
 
@@ -35,8 +37,8 @@ findings and an execution ledger. Historical experiment reports preserve their m
 PASS, HOLD and NO-GO outcomes. Follow their status banners before using an old command or
 file reference; removed research apparatus is recoverable from git history.
 
-The [September documentation audit](development/docs-audit-2026-09.md) records consolidation
-and archival decisions. Current recipes belong in their canonical guide; duplicate pages
+The [completed-work record](development/completed-work.md) preserves the September
+audit and later consolidation decisions. Current recipes belong in their canonical guide; duplicate pages
 point there instead of maintaining a second copy.
 
 ## Authoring conventions

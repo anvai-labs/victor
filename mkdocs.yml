@@ -205,4 +205,5 @@ nav:
       - Prompt Evolution Workflow: development/prompt-evolution-workflow.md
   - Audits:
       - September Co-design Review: reviews/2026-09-03-codesign/README.md
-      - Documentation Inventory: development/docs-audit-2026-09.md
+      - Repository Map: development/repository-map.md
+      - Completed and Superseded Work: development/completed-work.md

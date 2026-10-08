@@ -75,7 +75,7 @@ precede the visual demo; provider release/C5 acceptance remains separately gated
 ### VS Code dependency and runtime checkpoint
 
 Node 24.21.0 LTS is pinned once for local work and extension CI. The
-[dependency/activation record](development/vscode-dependency-validation.md)
+[dependency/activation record](development/completed-work.md)
 tracks the VSCE 4 packaging migration, zero-vulnerability lock audits, real-host
 activation repair, and removal of six inactive command advertisements. Main
 promotion, default-branch rescanning and extension publication remain release
@@ -98,8 +98,8 @@ Next, in dependency order:
 1. Reconcile main/develop, resolve recorded CI failures, and verify released gateway
    and origin identities/readiness after restart; complete their settlement and
    lifecycle gates before live formation acceptance.
-2. Complete G62 backend receipt lookup and unknown-outcome reconciliation through
-   the existing action owner, with crash/restart and duplicate-event regressions.
+2. Qualify production G62 receipt adapters on the bound reconciliation capability
+   merged in #1255; preserve unknown outcomes and verify crash/restart behavior.
 3. Complete principal/member approval binding and member continuation (G61/G70),
    restoring completed work without repeating uncertain effects.
 4. Run reviewed six-Qwen/one-ZAI C5 with unchanged accounting, session correlation,
@@ -107,7 +107,7 @@ Next, in dependency order:
 5. Address strict hierarchical selection/delegation (G72) as an opt-in contract;
    keep peer formations independent of a mandatory supervisor.
 
-The [restart handoff](architecture/multiagent-session-closeout-2026-10-07.md)
+The [canonical restart tracker](architecture/victor-agent-service-plan.md)
 contains concrete entry points and acceptance conditions. Broader Stage C,
 deployment-size and optional-SDK work retain their own owners; no new formation
 or default change is required to finish these safety milestones.
@@ -243,7 +243,7 @@ extension, checksums, SBOM, GitHub Release, and Docker image. Source:
 
 | TD-20 | Framework stdout log volume | A stuck real-agent calibration wrote **~350 GB** to one redirected log and filled the disk (2026-07-06; held open by the live PID so `rm` freed nothing until killed). Root cause on investigation was *not* a single fat log line — every content log is already bounded (`reasoning[:500]`, `content[:300]`) or a short breadcrumb. It was a **wedged loop** (PID stuck 7.5 h) emitting the steady stream of per-turn INFO breadcrumbs across the flood-logger set into an unbounded file. Volume + accumulation are handled: `configure_logging` (calibration runner, quiet-by-default, #428) raises flood loggers to ERROR, and `os._exit` (#431) stops a wedged loop accumulating. **Residual gap #428 did not cover:** it raises to ERROR (not OFF), and several ERROR/WARNING error-path logs interpolated *untruncated* content (full ollama HTTP error bodies, full tool exception text/tracebacks) — so an error-spinning loop still floods in quiet mode. Fixed by capping those via `truncate_for_log` (`victor/core/utils/log_helpers.py`, 500-char ceiling) at the ollama provider + tool-retry/tool-service error paths. The per-turn breadcrumbs stay at INFO by design (cheap, useful interactively, already gated by #428 for batch runs); DB-migration logs are already guarded (`if migrated > 0`, `if version <`), firing once per DB open — cosmetic, not flood-scale. | Medium | Resolved | `victor/core/utils/log_helpers.py`, `victor/providers/ollama_provider.py`, `victor/agent/services/` |
 
-| TD-21 | Usage attribution + typed provider boundary | `sandhi` owns typed provider transport, usage/cache metering, virtual keys, budgets and proxy ingress. Victor pins `sandhi-gateway==0.10.1`; the 0.11.0 release includes the later streaming-accounting repair. Per-call reasoning accounting, totals and timing provenance reach the stream accumulator and session pricer; see the [consumer handoff](architecture/inferflux-reasoning-separation-handoff.md). Distinct protocol providers retain explicitly classified native paths. Canonical ledger: Sandhi `docs/td/TD-0002-typed-provider-runtime.md`; decisions: FEP-0020 and ADR-018. | High | Consumer correction published in v0.9.5; broader typed-runtime work continues | `victor/providers/`, `sandhi/crates/sandhi-{core,providers,proxy}/` |
+| TD-21 | Usage attribution + typed provider boundary | `sandhi` owns typed provider transport, usage/cache metering, virtual keys, budgets and proxy ingress. Victor pins `sandhi-gateway==0.11.0`; the 0.11.0 release includes the later streaming-accounting repair. Per-call reasoning accounting, totals and timing provenance reach the stream accumulator and session pricer; see the [consumer handoff](architecture/inferflux-reasoning-separation-handoff.md). Distinct protocol providers retain explicitly classified native paths. Canonical ledger: Sandhi `docs/td/TD-0002-typed-provider-runtime.md`; decisions: FEP-0020 and ADR-018. | High | Consumer correction published in v0.9.5; broader typed-runtime work continues | `victor/providers/`, `sandhi/crates/sandhi-{core,providers,proxy}/` |
 
 | TD-22 | Interactive Terminal TUI | Build a first-class interactive **Textual** TUI (conversation pane, tool/diff pane, agent-state sidebar, keyboard nav) as a peer surface to the REPL and Chainlit web UI, driven by the existing `RenderAction` event stream — no new event vocabulary. Today only `victor/ui/tui/wire_timeline.py` (171 lines) exists and it merely *replays* a recorded JSONL stream; there is no live TUI, so terminal users must open a browser for the rich experience. Select via terminal-capability detection with the plain REPL as fallback. Decision: [ADR-020](architecture/adr/020-interactive-terminal-tui.md). **v1 shipped 2026-07-30** (`victor tui` / `victor chat --tui`, opt-in): `VictorTUIApp` with sidebar/conversation/status panes, live `feed_action` streaming, theming, capability-gated selection. **Diff pane shipped 2026-07-30** (`diff_pane.py`: unified colored diff auto-revealed on `edit`/`patch`/`replace_in_file`, F3 toggle / F4 cycle, reuses the `ToolPreviewRenderer` diff strategy). **Themes shipped 2026-07-30** (`themes.py`: dark/light/high-contrast registered Textual themes, `styles.tcss` variable-ized, `victor tui --theme`, F6 runtime cycle). TUI surface complete; the last ADR-020 item (per-member team streaming lanes) shipped via ADR-023/TD-25 (Done). | High | Done | `victor/ui/tui/` |
 
