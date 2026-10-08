@@ -348,6 +348,13 @@ embedded acceptance remains a separately labelled matrix row.
 
 ## Product-family theme and commercial UI boundary
 
+Generic authentication, authorization, reusable UI components and standalone
+agent-service behavior belong in Victor OSS. AnvaiOps owns commercial product
+composition, managed operations and entitlements/billing. The shared theme must
+not introduce private runtime dependencies or move basic security behind a
+commercial gate; the [technology decision](victor-agent-service-technology.md)
+defines the repository ownership and separate release boundaries.
+
 Read-only source baselines fetched on 2026-10-08:
 
 - AnvaiOps `origin/develop` `6f1cb95b8c1307a3271a636a4b67f9cc9c0d4dd2`,

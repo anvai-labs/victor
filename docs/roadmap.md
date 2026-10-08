@@ -45,6 +45,10 @@ newer documentation reaches the public site through the next main promotion.
 
 ### Shared agent-service delivery plan
 
+Reusable runtime/API/auth/SDK/UI building blocks stay in Victor OSS. AnvaiOps
+owns the commercial offering and its shell, managed operations, billing and
+entitlements. Its integration milestone VAS-21c does not gate OSS release VAS-20.
+
 The [technology decision](architecture/victor-agent-service-technology.md) keeps
 TypeScript interactive clients, async Python orchestration and measured Rust
 compute. VAS-21 extends the shared AnvaiOps/Sandesha theme to Sandhi as well as

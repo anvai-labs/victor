@@ -28,6 +28,9 @@ observe the same recorded progress, approve the exact action, disconnect/restart
 and recover the true outcome through the same API. Unknown writes are reconciled
 before continuation; stop controls distinguish requested from completed cancellation.
 
+- Victor owns reusable OSS building blocks; AnvaiOps owns commercial product
+  integration, managed operations, billing/entitlements and packaging. Keep OSS
+  auth/security, authoring components and standalone use independent of AnvaiOps.
 - One canonical server composition root, service/dispatch owner and identifier
   derivation; structured contracts and explicit errors. Preserve unchanged legacy
   defaults through opt-in/versioned surfaces and adapters.
@@ -119,11 +122,11 @@ independent. Update this paragraph and the rows together at each checkpoint.
 | VAS-17 | Released foundation deployment and lifecycle acceptance for C5 | VAS-02, VAS-11, VAS-12 | TODO | Full green promotion/release CI, artifact/binary/source/config IDs and rollback; verify released Sandhi/InferFlux readiness without clearing cache |
 | VAS-18 | Full mixed-team C5 verdict | VAS-17 | TODO | Six-Qwen/one-ZAI harness; unchanged deliverable/pytest/session/accounting gates; reviewed verdict on InferFlux #184 |
 | VAS-19 | Matched formation cohorts and remaining semantics | VAS-18 | TODO | Preserve ZAI reference, simpler explicitly labelled local tasks, all 12 formations + 3 policies; G72 opt-in strict hierarchy separately |
-| VAS-20 | Shared API/UI main promotion and release | VAS-16, VAS-17, VAS-14d, VAS-21c | TODO | Full green promotion/release CI; publish server/SDK/VSIX/docs and compatibility matrix; verify installed artifacts |
+| VAS-20 | OSS shared API/UI main promotion and release | VAS-16, VAS-17, VAS-14d | TODO | Full green promotion/release CI; publish server/SDK/VSIX/docs and compatibility matrix; verify installed artifacts |
 | VAS-21 | Cohesive product-family UI across Victor, Sandhi, Sandesha and AnvaiOps | VAS-00 | TODO | Parent stays open until shared token ownership, product adapters and cross-product acceptance pass; existing standalone OSS deployment remains supported |
 | VAS-21a | Review/version shared semantic token contract and publication boundary | VAS-00 | TODO | AnvaiOps source, Sandesha alignment, licenses/provenance, generated CSS adapters and drift check; no private checkout dependency |
 | VAS-21b | Align Sandhi dashboard with the family theme | VAS-21a | TODO | Sandhi-owned linked worktree/PR; adapt existing dashboard CSS/JS; preserve OIDC/key/public-read modes, protected controls, real data/empty/error states, responsive accessibility and standalone packaging |
-| VAS-21c | Cross-product visual, identity and commercial-shell acceptance | VAS-14e, VAS-21b, VAS-05d | TODO | Headed AgentBrowser snapshots and actions on released artifacts; same brand/navigation, distinct audience/roles, no session/credential leakage; verify AnvaiOps/Sandesha current owner changes before adoption |
+| VAS-21c | AnvaiOps-owned cross-product visual, identity and commercial-shell acceptance | VAS-14e, VAS-21b, VAS-05d | TODO | Headed AgentBrowser snapshots and actions on released artifacts; same brand/navigation, distinct audience/roles, no session/credential leakage; verify AnvaiOps/Sandesha current owner changes before adoption |
 | VAS-22 | Technology allocation and measured compute qualification | VAS-00 | TODO | [Decision](victor-agent-service-technology.md): TS clients, async Python orchestration, existing Rust compute path; document baseline/SLOs in VAS-16 and qualify only measured hotspots; no rewrite assumed |
 
 **Two delivery paths:** VAS-11 → VAS-12 → VAS-17 → VAS-18 preserves the original
@@ -134,6 +137,11 @@ for new HTTP run endpoints; VAS-05/07 later expose those same contracts. The C5
 harness calls the framework/providers directly. New API event work is not a
 technical prerequisite for its verdict. Parallel sessions can claim independent
 ready rows; the default remains the fewest worktrees and one accountable owner.
+
+VAS-21c is commercial integration evidence owned by AnvaiOps. It does not gate
+Victor OSS release VAS-20, standalone functionality or the original C5 verdict.
+Generic reusable UI/auth/API work stays in Victor; commercial orchestration of
+product deployments and entitlements stays in AnvaiOps, consuming public APIs.
 
 Each row is a milestone, not a requirement to combine all its work into one PR.
 If scope exceeds a reviewable increment, add child IDs (for example VAS-05a/b)
@@ -465,3 +473,27 @@ Resume prompt:
   after verified authentication (VAS-05b), then VAS-05c proves authorization across
   every owned resource/transport. The CI compiled-client trigger now includes the
   shared wire-event owner. No authorization-complete claim precedes ownership.
+
+### Checkpoint 2026-10-08-oss-commercial-boundary
+
+- User confirmed reusable OSS building blocks belong in Victor and the commercial
+  offering belongs in AnvaiOps. The technology decision now gives an explicit
+  repository ownership table; Sandhi/InferFlux retain their own OSS responsibilities.
+- Removed commercial-shell VAS-21c from the OSS VAS-20 release prerequisites.
+  Generic security, durable execution, APIs and reusable workflow UI remain OSS;
+  commercial packaging/billing/entitlements and managed operations remain AnvaiOps.
+- PR [#1252](https://github.com/anvai-labs/victor/pull/1252) publishes the stream
+  repair and this plan. Initial head `bcfb331e51f3e4aa1f59e08de30686db83c063d3`
+  passed independent review; hosted quick-test failure requires correction and
+  a fresh exact-head review/CI verdict. Preserve failed evidence; not merged yet.
+
+- CI failure diagnosis: changed-file testing installs the dev extra, which lacked
+  Uvicorn, and invoked the pytest executable without the repository root on the
+  import path for the source-only `web` namespace. Add the actual HTTP test runner
+  to dev dependencies and invoke that job with `python -m pytest`; keep the real
+  HTTP assertions and dedicated required compiled-client gate intact.
+
+- Corrected candidate local validation: 96 real HTTP/config/CI-policy tests passed,
+  including the required compiled-client cases; formatting, lint, docs/link/FEP
+  checks passed. The first hosted run's only underlying failure was quick tests
+  (the aggregate also failed). Do not reuse its green jobs as the new head verdict.

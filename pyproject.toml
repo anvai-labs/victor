@@ -229,6 +229,7 @@ dev = [
     "types-aiofiles",
 
     # Integration test dependencies
+    "uvicorn>=0.27",  # Real HTTP consumer/provider tests require the server runner
     "strawberry-graphql[fastapi]>=0.243",  # For GraphQL API integration tests
     # All tree-sitter grammar wheels, inlined (repo hygiene forbids
     # victor-ai[lang-all] self-references in dev/ci — nested extras do not

@@ -567,7 +567,7 @@ jobs:
             exit 0
           fi
           echo "Running ${#TARGETS[@]} changed-file test target(s):"; printf '  %s\n' "${TARGETS[@]}"
-          pytest "${TARGETS[@]}" \
+          python -m pytest "${TARGETS[@]}" \
             -m "not slow" \
             --tb=short \
             -q \

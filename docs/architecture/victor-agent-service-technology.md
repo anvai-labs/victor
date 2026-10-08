@@ -86,6 +86,28 @@ justify a process boundary, with its ownership/version/recovery costs recorded.
 
 ## One product family, several deployable services
 
+**Repository/product boundary:** Victor owns reusable OSS agent-service building
+blocks. AnvaiOps owns the commercial offering built from those blocks. This is
+an ownership decision, not a new licensing change or a requirement to move other
+projects into Victor.
+
+| Repository | Owns | Must not require |
+| --- | --- | --- |
+| Victor (OSS) | Generic agent/workflow/formation runtime, durable execution, service API, SDKs, generic auth/policy adapters, reusable authoring/UI components and a functional standalone experience | AnvaiOps account, private checkout, commercial entitlement service or product billing to use the OSS capabilities |
+| Sandhi / InferFlux (their OSS projects) | Gateway/metering/provider contracts and inference/hardware runtime respectively; their standalone admin UIs and reusable integration APIs | Victor owning a duplicate gateway/inference implementation, or private AnvaiOps services for standalone operation |
+| AnvaiOps (commercial product) | Integrated product shell/navigation, managed deployment/fleet/customer operations, billing/subscriptions/entitlements, commercial packaging and product-specific workflows | A fork or privileged bypass of Victor/Sandhi policy, a second execution engine, or proprietary code copied into OSS |
+| Sandesha (its product owner) | Messaging/product functionality and its own UI adapter | Victor adopting its application code or backend framework just to share a theme |
+
+Use public versioned contracts and generic extension/configuration points in OSS.
+Keep commercial policy data and integrations in AnvaiOps. Authentication,
+authorization, auditability and safe recovery remain OSS security building blocks;
+they must not become commercial-only correctness fixes. Shared assets must have
+compatible publication/license provenance and an offline standalone fallback.
+AnvaiOps may apply branding/entitlements to its offering without granting extra
+runtime authority. Its commercial acceptance/release is separate from Victor's
+OSS release; a private control-plane outage must not break a standalone install.
+
+
 AnvaiOps owns the reviewed family token baseline. VAS-14e adapts it for Victor;
 VAS-21 covers Sandhi and cross-product evidence. Use a small semantic CSS token
 contract with provenance and drift checks, including light/dark, focus, contrast,

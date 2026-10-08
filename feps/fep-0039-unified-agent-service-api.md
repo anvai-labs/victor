@@ -51,6 +51,14 @@ durable, multi-principal agent-as-a-service behavior under concurrent use.
 
 ## Boundaries and ownership
 
+Victor supplies the reusable OSS runtime, agent-service contracts, generic
+security/policy and UI/SDK building blocks. AnvaiOps supplies the commercial
+product shell, managed operations, entitlements/billing and product integration
+through those public APIs. OSS security and standalone usage remain available
+without a private control-plane deployment; commercial integration acceptance
+is not a prerequisite for an OSS release. Sandhi and InferFlux retain ownership
+of their respective gateway and inference building blocks.
+
 | Owner | Responsibility |
 | --- | --- |
 | Framework application services | Agent/session creation, run transitions, policy, approval and recovery; reuse existing owners |
