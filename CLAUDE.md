@@ -63,6 +63,21 @@ Canonical doc: `docs/architecture.md`. Strict layering, each layer depends only 
 - **Rust fallback pattern**: every native hot path checks `_NATIVE_AVAILABLE` and falls back to Python when the extension is absent.
 - Settings cascade: `.env` → `~/.victor/profiles.yaml` → CLI flags → immutable `SessionConfig`.
 
+## Persistent agent-service plan
+
+For API consolidation, web UI, VS Code and related multiagent continuation, start
+with [the canonical tracker](docs/architecture/victor-agent-service-plan.md) and
+[FEP-0039](feps/fep-0039-unified-agent-service-api.md). The tracker owns task IDs,
+dependencies, status, TDD/smoke gates, evidence and reboot instructions. The FEP
+remains Draft until its acceptance is recorded; a plan merge is not implementation.
+
+Fetch and reconcile remote source/PR state before choosing a task. Record the task
+owner, branch, baseline and next action; avoid another session's active work.
+Update the ledger at each material milestone and session handoff, citing exact
+commits, tests, review and CI. Never equate local pass, merge, release and live C5
+acceptance. Preserve unmerged work outside `/tmp` before stopping. Do not maintain
+a second task-status table in this file or restart completed WS-A–WS-I increments.
+
 ## Development Workflow
 
 Full doc: `docs/development/PR_WORKFLOW.md`.

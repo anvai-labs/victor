@@ -429,6 +429,45 @@ async function getSymbolAtCursor(): Promise<{ uri: vscode.Uri; range: vscode.Ran
     };
 }
 
+/** Encode the explicit target contract for hover command links. */
+export function encodeSymbolTarget(uri: vscode.Uri, range: vscode.Range, name: string): string {
+    return encodeURIComponent(JSON.stringify([
+        uri.toString(),
+        [[range.start.line, range.start.character], [range.end.line, range.end.character]],
+        name,
+    ]));
+}
+
+/** Resolve a CodeLens/hover target or the current cursor for palette commands. */
+export async function resolveSymbolTarget(...args: unknown[]): Promise<{
+    uri: vscode.Uri; range: vscode.Range; name: string; kind: string;
+} | null> {
+    if (args.length === 0) {
+        return getSymbolAtCursor();
+    }
+    let [uri, range] = args;
+    const name = args[2];
+    // Hover links use a URI string and two [line, character] pairs. Decode only
+    // this complete shape; malformed explicit targets must never use the cursor.
+    if (typeof uri === 'string' && /^[a-z][a-z0-9+.-]*:/i.test(uri)
+        && Array.isArray(range) && range.length === 2
+        && range.every(p => Array.isArray(p) && p.length === 2
+            && p.every(n => Number.isSafeInteger(n) && n >= 0))) {
+        const start = new vscode.Position(range[0][0], range[0][1]);
+        const end = new vscode.Position(range[1][0], range[1][1]);
+        if (start.isAfter(end)) {
+            throw new TypeError('Expected an ordered symbol range');
+        }
+        uri = vscode.Uri.parse(uri, true);
+        range = new vscode.Range(start, end);
+    }
+    if (args.length !== 3 || !(uri instanceof vscode.Uri) || !(range instanceof vscode.Range)
+        || typeof name !== 'string' || !name.trim()) {
+        throw new TypeError('Expected a symbol URI, range, and non-empty name');
+    }
+    return { uri, range, name, kind: 'symbol' };
+}
+
 /**
  * Register symbol-based AI commands
  */
@@ -438,8 +477,8 @@ function registerSymbolCommands(
 ): void {
     // Ask about symbol
     context.subscriptions.push(
-        vscode.commands.registerCommand('victor.askAboutSymbol', async () => {
-            const symbol = await getSymbolAtCursor();
+        vscode.commands.registerCommand('victor.askAboutSymbol', async (...args: unknown[]) => {
+            const symbol = await resolveSymbolTarget(...args);
             if (!symbol) {
                 vscode.window.showWarningMessage('No symbol found at cursor position');
                 return;
@@ -464,8 +503,8 @@ function registerSymbolCommands(
 
     // Explain symbol
     context.subscriptions.push(
-        vscode.commands.registerCommand('victor.explainSymbol', async () => {
-            const symbol = await getSymbolAtCursor();
+        vscode.commands.registerCommand('victor.explainSymbol', async (...args: unknown[]) => {
+            const symbol = await resolveSymbolTarget(...args);
             if (!symbol) {
                 vscode.window.showWarningMessage('No symbol found at cursor position');
                 return;
@@ -483,8 +522,8 @@ function registerSymbolCommands(
 
     // Refactor symbol
     context.subscriptions.push(
-        vscode.commands.registerCommand('victor.refactorSymbol', async () => {
-            const symbol = await getSymbolAtCursor();
+        vscode.commands.registerCommand('victor.refactorSymbol', async (...args: unknown[]) => {
+            const symbol = await resolveSymbolTarget(...args);
             if (!symbol) {
                 vscode.window.showWarningMessage('No symbol found at cursor position');
                 return;
@@ -509,8 +548,8 @@ function registerSymbolCommands(
 
     // Document symbol
     context.subscriptions.push(
-        vscode.commands.registerCommand('victor.documentSymbol', async () => {
-            const symbol = await getSymbolAtCursor();
+        vscode.commands.registerCommand('victor.documentSymbol', async (...args: unknown[]) => {
+            const symbol = await resolveSymbolTarget(...args);
             if (!symbol) {
                 vscode.window.showWarningMessage('No symbol found at cursor position');
                 return;
@@ -528,8 +567,8 @@ function registerSymbolCommands(
 
     // Generate tests for symbol
     context.subscriptions.push(
-        vscode.commands.registerCommand('victor.generateTestsForSymbol', async () => {
-            const symbol = await getSymbolAtCursor();
+        vscode.commands.registerCommand('victor.generateTestsForSymbol', async (...args: unknown[]) => {
+            const symbol = await resolveSymbolTarget(...args);
             if (!symbol) {
                 vscode.window.showWarningMessage('No symbol found at cursor position');
                 return;
@@ -547,8 +586,8 @@ function registerSymbolCommands(
 
     // Optimize symbol
     context.subscriptions.push(
-        vscode.commands.registerCommand('victor.optimizeSymbol', async () => {
-            const symbol = await getSymbolAtCursor();
+        vscode.commands.registerCommand('victor.optimizeSymbol', async (...args: unknown[]) => {
+            const symbol = await resolveSymbolTarget(...args);
             if (!symbol) {
                 vscode.window.showWarningMessage('No symbol found at cursor position');
                 return;
@@ -566,8 +605,8 @@ function registerSymbolCommands(
 
     // Review symbol
     context.subscriptions.push(
-        vscode.commands.registerCommand('victor.reviewSymbol', async () => {
-            const symbol = await getSymbolAtCursor();
+        vscode.commands.registerCommand('victor.reviewSymbol', async (...args: unknown[]) => {
+            const symbol = await resolveSymbolTarget(...args);
             if (!symbol) {
                 vscode.window.showWarningMessage('No symbol found at cursor position');
                 return;

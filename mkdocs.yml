@@ -139,6 +139,7 @@ nav:
   - Features: features.md
   - Tech Stack: tech-stack.md
   - Roadmap: roadmap.md
+  - Agent-Service Tracker: architecture/victor-agent-service-plan.md
   - Architecture Deep-Dives:
       - Orchestrator History: architecture/orchestrator_decomposition.md
       - SDK Boundary: architecture/CONTRACTS_BOUNDARY.md

@@ -1568,6 +1568,19 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   need not acquire a supervisor merely to satisfy this gap. Complete member continuation
   and action recovery remain G61/G62/G70; this finding has not been live-validated or fixed.
 
+- **G73 — shared agent-service API and IDE/web lifecycle parity (2026-10-07 audit; open).**
+  The current VS Code `streamChat()` body matches the separate `web/server`
+  application, but returns HTTP 422 from `victor serve`; path-only contract tests
+  do not detect it. Compiled-client transport probes also reproduce lost paused
+  run fields, premature-EOF success and false cancellation acknowledgement.
+  Event authentication and session/principal ownership differ between surfaces.
+  The [audit](../development/victor-agent-service-audit.md) records source and
+  non-live evidence; [FEP-0039](https://github.com/anvai-labs/victor/blob/develop/feps/fep-0039-unified-agent-service-api.md)
+  proposes one service and shared schemas/SDK. The [VAS tracker](victor-agent-service-plan.md)
+  owns implementation status and TDD/smoke sequencing. Reuse G61/G62/G70 approval,
+  action and member owners; no parallel lifecycle/dispatch registry. Local
+  extension activation/package passes do not close this gap or C5.
+
 Validation-test audit: neither live harness had direct tests before this follow-up.
 The new mixed-harness suite covers rejected/malformed/missing reviews, inclusive
 cache accounting, missing artifacts, bad member usage, pytest timeout, startup and

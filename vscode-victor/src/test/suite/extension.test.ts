@@ -10,22 +10,22 @@ import * as vscode from 'vscode';
 suite('Extension Test Suite', () => {
     vscode.window.showInformationMessage('Starting extension tests');
 
-    test('Extension should be present', () => {
+    test('Extension should activate in the test host', async () => {
         const extension = vscode.extensions.getExtension('victor-ai.victor-ai');
-        // Extension might not be installed in test environment, just check API exists
-        assert.ok(vscode.extensions);
+        assert.ok(extension, 'Victor extension must be loaded by the test host');
+        await extension.activate();
+        assert.strictEqual(extension.isActive, true);
     });
 
     test('Should register all commands', async () => {
-        // Get all registered commands
+        const extension = vscode.extensions.getExtension('victor-ai.victor-ai');
+        assert.ok(extension, 'Victor extension must be loaded by the test host');
+        await extension.activate();
         const commands = await vscode.commands.getCommands(true);
-
-        // Check for Victor commands
-        const victorCommands = commands.filter(cmd => cmd.startsWith('victor.'));
-
-        // We should have at least some Victor commands registered
-        // In test environment, the extension may not be activated
-        assert.ok(commands.length > 0, 'Commands should be available');
+        const declared = extension.packageJSON.contributes.commands as Array<{ command: string }>;
+        assert.ok(declared.length > 0, 'Manifest must declare Victor commands');
+        const missing = declared.map(({ command }) => command).filter(command => !commands.includes(command));
+        assert.deepStrictEqual(missing, [], 'Every advertised command must have a handler');
     });
 
     test('Configuration should have default values', () => {

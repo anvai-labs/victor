@@ -6,6 +6,8 @@
  */
 
 import * as assert from 'assert';
+import * as vscode from 'vscode';
+import { encodeSymbolTarget, resolveSymbolTarget } from '../../codeActionProvider';
 
 suite('CodeActionProvider Test Suite', () => {
     // Test code action kinds
@@ -481,49 +483,79 @@ suite('Symbol-Based Commands Test Suite', () => {
         });
     });
 
-    // Test symbol commands list
-    suite('Symbol Commands', () => {
-        const symbolCommands = [
-            'victor.askAboutSymbol',
-            'victor.explainSymbol',
-            'victor.refactorSymbol',
-            'victor.documentSymbol',
-            'victor.generateTestsForSymbol',
-            'victor.optimizeSymbol',
-            'victor.reviewSymbol',
-        ];
+    suite('Symbol Target Resolution', () => {
+        let provider: vscode.Disposable;
+        let document: vscode.TextDocument;
+        const outer = new vscode.Range(0, 0, 2, 1);
+        const inner = new vscode.Range(1, 0, 1, 9);
 
-        symbolCommands.forEach(cmd => {
-            test(`Should have command: ${cmd}`, () => {
-                assert.ok(cmd.startsWith('victor.'));
-                assert.ok(cmd.includes('Symbol'));
+        setup(async () => {
+            document = await vscode.workspace.openTextDocument({
+                language: 'plaintext', content: 'outer {\n  inner()\n}',
             });
+            provider = vscode.languages.registerDocumentSymbolProvider(
+                { scheme: 'untitled', language: 'plaintext' },
+                { provideDocumentSymbols: () => {
+                    const parent = new vscode.DocumentSymbol('outer', '', vscode.SymbolKind.Class, outer, outer);
+                    parent.children = [new vscode.DocumentSymbol('inner', '', vscode.SymbolKind.Method, inner, inner)];
+                    return [parent];
+                } }
+            );
+            const editor = await vscode.window.showTextDocument(document);
+            editor.selection = new vscode.Selection(1, 3, 1, 3);
         });
 
-        test('Should have 7 symbol commands', () => {
-            assert.strictEqual(symbolCommands.length, 7);
-        });
-    });
-
-    // Test null symbol handling
-    suite('Null Symbol Handling', () => {
-        test('Should return null when no symbol at cursor', () => {
-            const symbols: unknown[] = [];
-            const cursorPosition = { line: 10, character: 5 };
-
-            const findSymbol = (symbols: unknown[], _position: typeof cursorPosition): unknown | null => {
-                return symbols.length > 0 ? symbols[0] : null;
-            };
-
-            const result = findSymbol(symbols, cursorPosition);
-            assert.strictEqual(result, null);
+        teardown(async () => {
+            provider.dispose();
+            await vscode.commands.executeCommand('workbench.action.revertAndCloseActiveEditor');
         });
 
-        test('Should handle empty document symbols', () => {
-            const documentSymbols: unknown[] | undefined = [];
+        test('Palette resolves the deepest symbol at the cursor', async () => {
+            const result = await resolveSymbolTarget();
+            assert.ok(result);
+            assert.strictEqual(result.uri.toString(), document.uri.toString());
+            assert.strictEqual(result.name, 'inner');
+            assert.strictEqual(result.kind, 'Method');
+            assert.ok(result.range.isEqual(inner));
+        });
 
-            const hasSymbols = documentSymbols && documentSymbols.length > 0;
-            assert.ok(!hasSymbols);
+        test('CodeLens preserves its explicit target when another document is active', async () => {
+            const uri = vscode.Uri.parse('untitled:explicit-target');
+            const result = await resolveSymbolTarget(uri, outer, 'requested');
+            assert.ok(result);
+            assert.strictEqual(result.uri.toString(), uri.toString());
+            assert.strictEqual(result.name, 'requested');
+            assert.ok(result.range.isEqual(outer));
+        });
+
+        test('Hover command targets survive URI encoding and JSON round trips', async () => {
+            const uri = vscode.Uri.parse('untitled:target%20with%20spaces#fragment');
+            const encoded = encodeSymbolTarget(uri, inner, 'name [with](punctuation)?');
+            assert.ok(!encoded.includes('['));
+            const result = await resolveSymbolTarget(...JSON.parse(decodeURIComponent(encoded)));
+            assert.ok(result);
+            assert.strictEqual(result.uri.toString(), uri.toString());
+            assert.ok(result.range.isEqual(inner));
+            assert.strictEqual(result.name, 'name [with](punctuation)?');
+        });
+
+        test('Malformed explicit targets reject instead of falling back to the cursor', async () => {
+            for (const args of [
+                [document.uri], [document.uri, inner], [document.uri.toString(), inner, 'inner'],
+                [document.uri, {}, 'inner'], [document.uri, inner, ' '],
+                [document.uri, inner, 'inner', 'extra'],
+                ['not a URI', [[0, 0], [1, 0]], 'inner'],
+                [document.uri.toString(), [[-1, 0], [1, 0]], 'inner'],
+                [document.uri.toString(), [[0, 0.5], [1, 0]], 'inner'],
+                [document.uri.toString(), [[2, 0], [1, 0]], 'inner'],
+            ]) {
+                await assert.rejects(resolveSymbolTarget(...args), /Expected (a symbol URI|an ordered symbol range)/);
+            }
+        });
+
+        test('Palette reports no target when the document has no symbols', async () => {
+            provider.dispose();
+            assert.strictEqual(await resolveSymbolTarget(), null);
         });
     });
 });

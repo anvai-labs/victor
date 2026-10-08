@@ -13,3 +13,21 @@ policy is mandatory for new code and refactoring:
 
 Use `docs/architecture/native-acceleration-strategy.md` for the decision matrix and current audit
 priorities.
+
+## Shared agent-service work: persistent tracker
+
+For Victor API, web UI, VS Code and related multiagent continuation work, read
+[the canonical agent-service tracker](docs/architecture/victor-agent-service-plan.md)
+and [FEP-0039](feps/fep-0039-unified-agent-service-api.md) before selecting work.
+At session start or after reboot, fetch origin and reconcile the tracker's dated
+checkpoint with actual PR/CI/merge state; do not restart completed tasks or assume
+a local main checkout is current. Claim a ready task ID and record its owner,
+branch, baseline and next action before implementation.
+
+Use TDD in the existing test owner and the tracker's smoke gates. Update the
+canonical ledger with evidence at RED/GREEN, PR, merge, release and handoff
+boundaries. Keep local passes, merged code, released artifacts and live acceptance
+separate. Before stopping, preserve pending work outside temporary directories and
+record an executable next step. The tracker is the only task-status authority;
+roadmap, audit and session handoffs link to it instead of duplicating its statuses.
+These instructions apply to this workstream, not unrelated repository tasks.
