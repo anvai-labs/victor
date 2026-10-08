@@ -1591,7 +1591,13 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   proposes one service and shared schemas/SDK. The [VAS tracker](victor-agent-service-plan.md)
   owns implementation status and TDD/smoke sequencing. Reuse G61/G62/G70 approval,
   action and member owners; no parallel lifecycle/dispatch registry. Local
-  extension activation/package passes do not close this gap or C5.
+  extension activation/package passes do not close this gap or C5. VAS-04a repairs
+  premature stream EOF and cancellation acknowledgement through existing client/UI
+  owners; follow the tracker for validation/merge state. It does not add durable
+  terminal run status or prove remote action cancellation. Review also found legacy
+  per-field defaults in recognized stream events (for example missing/malformed
+  `tool_result.success` becomes true); VAS-04/09 must qualify result schemas before
+  those events can establish verified business outcomes.
 
 - **G74 — ✅ web backend startup/auth settings migration ([PR #1252](https://github.com/anvai-labs/victor/pull/1252)).**
   Importing `web/server/main.py` failed because it read removed flat server/render

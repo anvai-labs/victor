@@ -4,8 +4,16 @@ const assert = require('node:assert/strict');
 const { VictorClient } = require('../out/victorClient.js');
 
 async function main() {
-    const [url, kind] = process.argv.slice(2);
+    const [url, kind, scenario] = process.argv.slice(2);
     const client = new VictorClient(url, undefined, 'contract-test-key');
+    if (scenario === 'truncated') {
+        const chunks = [];
+        await assert.rejects(client.streamChat([{ role: 'user', content: 'partial' }],
+            c => chunks.push(c)), /before an explicit terminator/);
+        assert.deepEqual(chunks, ['echo:partial']);
+        process.stdout.write(JSON.stringify({ outcome: 'interrupted' }));
+        return;
+    }
     const chunks = [];
     const requestIds = [];
     const history = [
@@ -28,6 +36,12 @@ async function main() {
     const unauthorized = new VictorClient(url, undefined, 'incorrect-test-key');
     await assert.rejects(unauthorized.streamChat(
         [{ role: 'user', content: 'must not execute' }], () => assert.fail('unexpected chunk')));
+    if (kind === 'core') {
+        assert.equal(await unauthorized.cancelToolExecution('smoke-pending'), false);
+        assert.equal(await client.cancelToolExecution('unknown-call'), false);
+        assert.equal(await client.cancelToolExecution('smoke-pending'), true);
+        assert.equal(await client.cancelToolExecution('smoke-pending'), false);
+    }
     process.stdout.write(JSON.stringify({ chunks, request_ids: requestIds, session_id: session }));
 }
 

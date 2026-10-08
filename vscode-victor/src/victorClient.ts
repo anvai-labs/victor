@@ -9,6 +9,7 @@
  */
 
 import axios, { AxiosInstance, AxiosError } from 'axios';
+import { ChatSseDecoder } from './chatSseDecoder';
 
 // =============================================================================
 // Types and Interfaces
@@ -725,16 +726,10 @@ export class VictorClient {
         } else if (event === 'error') {
             const message = typeof data.message === 'string' ? data.message : 'Unknown stream error';
             onEvent?.({ type: 'error', error: message, raw: data });
-            if (!settle.done) {
-                settle.done = true;
-                settle.reject(new VictorError(message, VictorErrorType.ServerError));
-            }
+            settle.reject(new VictorError(message, VictorErrorType.ServerError));
         } else if (event === 'stream_end') {
             onEvent?.({ type: 'stream_end', raw: data });
-            if (!settle.done) {
-                settle.done = true;
-                settle.resolve();
-            }
+            settle.resolve();
         } else {
             // Additive contract growth must never crash a consumer.
             onEvent?.({ type: event, raw: data });
@@ -769,116 +764,133 @@ export class VictorClient {
             }
 
             return new Promise((resolve, reject) => {
-                let buffer = '';
-                const settle = { done: false, resolve, reject };
-
-                response.data.on('data', (chunk: Buffer) => {
-                    buffer += chunk.toString();
-                    const lines = buffer.split('\n');
-                    buffer = lines.pop() || '';
-
-                    for (const line of lines) {
-                        if (line.startsWith('data: ')) {
-                            const payload = line.slice(6);
-                            // Legacy pre-v1 terminator
-                            if (payload === '[DONE]') {
-                                onEvent?.({ type: 'done', raw: { type: 'done' } });
-                                return;
-                            }
-                            try {
-                                const data = JSON.parse(payload) as Record<string, unknown>;
-                                if (data.v === 1 && typeof data.event === 'string') {
-                                    this._handleWireEvent(data, onChunk, onToolCall, onEvent, settle);
-                                    continue;
-                                }
-                                // Legacy pre-v1 protocol (type-discriminated)
-                                const requestId = typeof data.request_id === 'string'
-                                    ? data.request_id
-                                    : undefined;
-                                if (data.type === 'content') {
-                                    const content = typeof data.content === 'string' ? data.content : '';
-                                    if (content) {
-                                        onChunk(content);
-                                    }
-                                    onEvent?.({
-                                        type: 'content',
-                                        content,
-                                        requestId,
-                                        raw: data,
-                                    });
-                                } else if (data.type === 'tool_call') {
-                                    const rawToolCalls = Array.isArray(data.tool_call)
-                                        ? data.tool_call
-                                        : data.tool_call
-                                            ? [data.tool_call]
-                                            : [];
-                                    const toolCalls = rawToolCalls.filter(
-                                        (toolCall): toolCall is ToolCall =>
-                                            typeof toolCall === 'object' && toolCall !== null
-                                    );
-                                    if (onToolCall) {
-                                        for (const toolCall of toolCalls) {
-                                            onToolCall(toolCall);
-                                        }
-                                    }
-                                    onEvent?.({
-                                        type: 'tool_call',
-                                        toolCalls,
-                                        requestId,
-                                        raw: data,
-                                    });
-                                } else if (data.type === 'request') {
-                                    onEvent?.({
-                                        type: 'request',
-                                        requestId: typeof data.request_id === 'string'
-                                            ? data.request_id
-                                            : undefined,
-                                        raw: data,
-                                    });
-                                } else if (data.type === 'error') {
-                                    const message = typeof data.message === 'string'
-                                        ? data.message
-                                        : 'Unknown stream error';
-                                    onEvent?.({
-                                        type: 'error',
-                                        error: message,
-                                        requestId,
-                                        raw: data,
-                                    });
-                                    if (!settle.done) {
-                                        settle.done = true;
-                                        settle.reject(new VictorError(message, VictorErrorType.ServerError));
-                                    }
-                                } else {
-                                    onEvent?.({
-                                        type: typeof data.type === 'string' ? data.type : 'unknown',
-                                        requestId,
-                                        raw: data,
-                                    });
-                                }
-                            } catch (e) {
-                                // Log parse errors for debugging incomplete SSE chunks
-                                console.debug('[Victor SSE] Parse error for chunk:', payload.slice(0, 50), e);
+                const stream = response.data;
+                const decoder = new ChatSseDecoder();
+                const finish = (error?: Error) => {
+                    if (settle.done) return;
+                    settle.done = true;
+                    stream.removeListener('data', onData);
+                    stream.removeListener('end', onEnd);
+                    stream.removeListener('aborted', onEnd);
+                    // Keep the guarded error listener until close: destroying an
+                    // Axios response can itself emit an asynchronous error.
+                    stream.destroy?.();
+                    if (error) reject(error);
+                    else resolve();
+                };
+                const settle = {
+                    done: false,
+                    resolve: () => finish(),
+                    reject: (error: Error) => finish(error),
+                };
+                const onPayload = (payload: string): boolean => {
+                    if (settle.done) return false;
+                    if (payload === '[DONE]') {
+                        onEvent?.({ type: 'done', raw: { type: 'done' } });
+                        settle.resolve();
+                        return false;
+                    }
+                    let value: unknown;
+                    try { value = JSON.parse(payload); }
+                    catch { throw new VictorError('Malformed chat stream JSON', VictorErrorType.Validation); }
+                    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+                        throw new VictorError('Malformed chat stream event', VictorErrorType.Validation);
+                    }
+                    const data = value as Record<string, unknown>;
+                    if ('v' in data) {
+                        if (data.v !== 1 || typeof data.event !== 'string' || !data.event) {
+                            throw new VictorError('Unsupported chat wire event', VictorErrorType.Validation);
+                        }
+                        this._handleWireEvent(data, onChunk, onToolCall, onEvent, settle);
+                        return !settle.done;
+                    }
+                    if (typeof data.type !== 'string' || !data.type) {
+                        throw new VictorError('Malformed legacy chat event', VictorErrorType.Validation);
+                    }
+                    // Legacy pre-v1 protocol (type-discriminated)
+                    const requestId = typeof data.request_id === 'string'
+                        ? data.request_id
+                        : undefined;
+                    if (data.type === 'content') {
+                        const content = typeof data.content === 'string' ? data.content : '';
+                        if (content) {
+                            onChunk(content);
+                        }
+                        onEvent?.({
+                            type: 'content',
+                            content,
+                            requestId,
+                            raw: data,
+                        });
+                    } else if (data.type === 'tool_call') {
+                        const rawToolCalls = Array.isArray(data.tool_call)
+                            ? data.tool_call
+                            : data.tool_call
+                                ? [data.tool_call]
+                                : [];
+                        const toolCalls = rawToolCalls.filter(
+                            (toolCall): toolCall is ToolCall =>
+                                typeof toolCall === 'object' && toolCall !== null
+                        );
+                        if (onToolCall) {
+                            for (const toolCall of toolCalls) {
+                                onToolCall(toolCall);
                             }
                         }
+                        onEvent?.({
+                            type: 'tool_call',
+                            toolCalls,
+                            requestId,
+                            raw: data,
+                        });
+                    } else if (data.type === 'request') {
+                        onEvent?.({
+                            type: 'request',
+                            requestId: typeof data.request_id === 'string'
+                                ? data.request_id
+                                : undefined,
+                            raw: data,
+                        });
+                    } else if (data.type === 'error') {
+                        const message = typeof data.message === 'string'
+                            ? data.message
+                            : 'Unknown stream error';
+                        onEvent?.({
+                            type: 'error',
+                            error: message,
+                            requestId,
+                            raw: data,
+                        });
+                        settle.reject(new VictorError(message, VictorErrorType.ServerError));
+                    } else {
+                        onEvent?.({
+                            type: typeof data.type === 'string' ? data.type : 'unknown',
+                            requestId,
+                            raw: data,
+                        });
                     }
-                });
-
-                response.data.on('end', () => {
-                    if (!settle.done) {
-                        settle.done = true;
-                        resolve();
-                    }
-                });
-                response.data.on('error', (err: Error) => {
-                    if (settle.done) {
-                        return;
-                    }
-                    settle.done = true;
-                    const handled = this._handleError(err);
-                    console.error('[VictorClient] streamChat error', handled);
-                    reject(handled);
-                });
+                    return !settle.done;
+                };
+                const onData = (chunk: Buffer) => {
+                    if (settle.done) return;
+                    try { decoder.push(chunk, onPayload); }
+                    catch (error) { finish(this._handleError(error)); }
+                };
+                const onEnd = () => finish(new VictorError(
+                    'Chat stream interrupted before an explicit terminator; outcome is unknown',
+                    VictorErrorType.Network
+                ));
+                const onError = (error: Error) => finish(this._handleError(error));
+                const onClose = () => {
+                    onEnd();
+                    stream.removeListener('error', onError);
+                    stream.removeListener('close', onClose);
+                };
+                stream.on('data', onData);
+                stream.on('end', onEnd);
+                stream.on('aborted', onEnd);
+                stream.on('error', onError);
+                stream.on('close', onClose);
             });
         } catch (error) {
             const handled = this._handleError(error);
@@ -1929,30 +1941,15 @@ export class VictorClient {
         }
     }
 
-    /**
-     * Cancel a tool execution.
-     * Sends cancellation signal via WebSocket if connected.
+    /** Cancel a pending approval only when the HTTP backend confirms that ID.
+     * This does not establish cancellation of an already dispatched tool/provider.
      */
     async cancelToolExecution(toolCallId: string): Promise<boolean> {
-        // Try to send cancellation via WebSocket
-        if (this.wsConnection?.readyState === WebSocket.OPEN) {
-            try {
-                this.wsConnection.send(JSON.stringify({
-                    type: 'cancel_tool',
-                    tool_call_id: toolCallId,
-                }));
-                return true;
-            } catch (error) {
-                console.error('Failed to send tool cancellation:', error);
-            }
-        }
-
-        // Fallback: try HTTP endpoint if available
         try {
-            await this.client.post('/tools/cancel', { tool_call_id: toolCallId });
-            return true;
+            const response = await this.client.post('/tools/cancel', { tool_call_id: toolCallId });
+            return response.data?.cancelled === true && response.data?.tool_call_id === toolCallId;
         } catch {
-            // Endpoint may not exist - that's ok, we tried
+            // Transport failure is not evidence that cancellation happened.
             return false;
         }
     }

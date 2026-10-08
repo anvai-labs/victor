@@ -2,8 +2,8 @@
 plan_id: VAS-2026-10
 status: active
 updated: 2026-10-08
-baseline_develop: 742b1a4b025f55e00bef1d92f1c67745bc951ae5
-next_task: VAS-11c
+baseline_develop: 895ce0ada1983fa592c13ad3ddc40f1857e32213
+next_task: VAS-04a
 ---
 
 # Victor shared agent-service implementation plan and tracker
@@ -64,21 +64,40 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
-- Fetched develop: `742b1a4b025f55e00bef1d92f1c67745bc951ae5` (#1260 merged).
-- VAS-12b is implemented on develop. This session owns only documentation closeout
-  on `docs/checkpoint-cancellation-status`; remove its worktree after that PR merges
-  and evidence is archived. No release, deployed provider or C5 claim is made.
-- Next action: VAS-11c, qualify a concrete production receipt backend before enabling
-  recovered-result publication or whole-member continuation. Do not treat the memory
-  fault tests, task JSON persistence or telemetry as an atomic business receipt.
-  Keep unsupported/unknown effects unreplayed; record backend identity, transaction
-  boundary and failure evidence in the existing ledger before adapter implementation.
-- VAS-11c prerequisite remains a concrete production effect backend with atomic
-  effect/receipt correlation, stable account/environment identity and authenticated
-  lookup. TaskStore JSON persistence and arbitrary SQL/file operations do not qualify;
-  Slack/Jira response IDs cannot resolve a lost response by Victor action key.
-  Preserve unsupported/unknown. VAS-12 still needs recovered-result publication and
-  complete member continuation; this bounded independent repair does not close them.
+- Fetched develop: `895ce0ada1983fa592c13ad3ddc40f1857e32213` (#1261 merged).
+- Active owner: this session, branch `fix/vscode-stream-outcomes`, linked worktree
+  `/private/tmp/victor-receipt-qualification-20261008`, on the fetched baseline.
+  VAS-04a repairs existing stream termination and cancellation acknowledgement;
+  it adds no public server contract and does not imply FEP-0039 acceptance.
+- VAS-11c qualification recheck: TaskStore mutates memory and saves JSON; database
+  tools execute arbitrary caller SQL under process-local connection IDs; Jira/Slack
+  return backend IDs after writes, without an action-key receipt lookup. None can
+  be enabled as a production receipt adapter on this evidence. A named deployed
+  business operation, stable backend identity, authenticated lookup and atomic
+  effect/receipt contract must be supplied/qualified first. Preserve unknown and
+  unsupported effects without replay. The existing SQLite fixture is conformance
+  evidence only. No production adapter or member continuation is claimed.
+- VAS-04a local evidence: 23 client RED failures, six actual extension-host RED
+  failures and a further UTF-8-after-terminal RED; repaired through existing owners.
+  Both production HTTP entry points pass normal and lost-terminator smokes using the
+  compiled client. Pending-approval cancellation is checked over authenticated HTTP.
+  Final local checks: 76 Vitest, 1,000 actual VS Code host, 71 API/web tests;
+  34,029 collected; Black/Ruff/MyPy and strict docs/link/hygiene checks pass.
+  Independent review passed 76 Vitest and nine HTTP contract cases. Final commit
+  review, PR/CI and merge remain; no published release claim.
+- Limits: stream termination is not business success. Recognized event payloads still
+  have legacy per-field defaults; generated schema/result validation, paused-run and
+  approval fields, durable terminal state, remote cancellation and full VAS-04 stay open.
+  No foundation deployment, released artifact or C5 acceptance is added.
+- Upstream release audit (2026-10-08): Sandhi's latest published GitHub release is
+  [v0.11.0](https://github.com/anvai-labs/sandhi/releases/tag/v0.11.0); Victor metadata
+  and all three deployment locks already pin `sandhi-gateway==0.11.0`. InferFlux's
+  latest is [v0.4.0](https://github.com/anvai-labs/inferflux/releases/tag/v0.4.0), a
+  separately deployed service. No dependency bump is needed for these release pins.
+  VAS-17 still owns deployed binary/config identities, release compatibility and
+  lifecycle evidence; dependency installation alone does not enable or accept every
+  upstream feature. Future upgrades need release-note/security review, synchronized
+  metadata/locks and contract/installed-artifact smokes before changing the baseline.
 - Documentation maintenance uses the [repository map](../development/repository-map.md)
   and compact [completed-work record](../development/completed-work.md). Superseded
   interim handoffs are removed; unique failures, FEPs/ADRs and current gates remain.
@@ -90,7 +109,8 @@ edit. A mock test is not live provider or C5 evidence.
   gaps remain open; this plan adds no formation passes.
 - Durable local recovery copy: `var/session-closeout-2026-10-07/vscode-api-audit/`
   in the root checkout; this increment uses
-  `var/session-closeout-2026-10-08-checkpoint-cancellation/` (storage-failure evidence
+  `var/session-closeout-2026-10-08-vscode-outcomes/` (checkpoint cancellation evidence
+  remains in `var/session-closeout-2026-10-08-checkpoint-cancellation/`; storage-failure evidence
   remains in `var/session-closeout-2026-10-08-checkpoint-failures/`; pause evidence remains
   in `var/session-closeout-2026-10-08-pause-persistence/`; receipt evidence remains
   in `var/session-closeout-2026-10-08-action-receipts/`; prior stream evidence remains
@@ -102,7 +122,8 @@ edit. A mock test is not live provider or C5 evidence.
 
 Planning/evidence: VAS-00 is accepted; VAS-01 is merged.
 Delivery: VAS-02, VAS-03a, VAS-11a, VAS-11b, VAS-11d, VAS-12a and VAS-12b are
-merged. Other implementation rows remain TODO. These counts are not
+merged. VAS-04a is LOCAL_PASS pending reviewed PR/CI/merge. Other implementation
+rows remain TODO. These counts are not
 an effort-weighted completion percentage. The original formation denominator is
 independent. Update this paragraph and the rows together at each checkpoint.
 
@@ -114,6 +135,7 @@ independent. Update this paragraph and the rows together at each checkpoint.
 | VAS-03 | Agree contract/FEP and consumer inventory; repair streaming request parity | VAS-01, VAS-02 | TODO | Accept FEP before new public API; preserve FEP-0037/0038 classify/model-effort contracts; extend existing contract owner, RED actual TS body vs real router, then explicit compatibility adapter |
 | VAS-03a | Repair existing VS Code streaming request compatibility | VAS-01, VAS-02 | ✅ MERGED | [#1252](https://github.com/anvai-labs/victor/pull/1252), `a5fa47e444e6f973ad95149ae0677327df060dc7`; clean exact-head review, 41 applicable checks passed including Vertical Py3.12; parent/FEP acceptance remains open |
 | VAS-04 | Typed client outcomes: paused run, terminal EOF, cancellation acknowledgement | VAS-03 | TODO | Preserve status/run/approval; reject incomplete streams; consume negative cancellation body; no new approval store |
+| VAS-04a | Repair existing stream termination and cancellation acknowledgements | VAS-03a | LOCAL_PASS | `fix/vscode-stream-outcomes`, baseline `895ce0ada`; bounded SSE framing, explicit terminator, HTTP cancellation result and honest UI state; no durable result/approval/continuation contract |
 | VAS-05 | Shared authentication and per-resource principal authorization | VAS-03 | TODO | HTTP/events parity, no placeholder tokens, OIDC hosted posture and explicit scoped machine/local modes; reject cross-owner access |
 | VAS-05a | Strict verified-principal and resource/action policy contracts | VAS-03 | TODO | [Kanidm/API-key policy design](victor-agent-service-auth-policy.md); deny overrides, credential-scope ceiling, ownership and no cross-grant widening; design only |
 | VAS-05b | Kanidm access-token and scoped key authentication | VAS-05a | TODO | Dedicated verified registration/discovery; no alternate-auth fallback; expiry/revocation/rotation, group provenance; same principal contract |

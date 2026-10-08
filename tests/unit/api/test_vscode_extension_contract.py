@@ -139,6 +139,7 @@ def chat_http_server(request, monkeypatch, tmp_path):
     calls = []
     requests = []
     created = []
+    faults = []
 
     class FakeClient:
         async def initialize(self):
@@ -168,6 +169,10 @@ def chat_http_server(request, monkeypatch, tmp_path):
             api_keys={"contract-test-key": "contract-user"},
         )
         server._victor_client = create_client()
+        server._pending_tool_approvals["smoke-pending"] = {
+            "tool_name": "test_no_effect",
+            "resolved": False,
+        }
         app = server.app
     else:
         from web.server import session_store
@@ -184,7 +189,19 @@ def chat_http_server(request, monkeypatch, tmp_path):
     async def capture(scope, receive, send):
         if scope["type"] == "http" and scope["path"] == "/chat/stream":
             requests.append(scope)
-        await app(scope, receive, send)
+
+            async def fault_injection(message):
+                if faults and message["type"] == "http.response.body":
+                    body = message.get("body", b"")
+                    if b"[DONE]" in body or b'"stream_end"' in body:
+                        # Simulate a proxy losing the terminal frame, leaving
+                        # a clean HTTP EOF. Production handlers still execute.
+                        message = {**message, "body": b""}
+                await send(message)
+
+            await app(scope, receive, fault_injection)
+        else:
+            await app(scope, receive, send)
 
     # Bind port 0 once and retain the socket: no port-selection race or shared service.
     sock = socket.socket()
@@ -203,7 +220,12 @@ def chat_http_server(request, monkeypatch, tmp_path):
             time.sleep(0.01)
         assert http_server.started, "ephemeral HTTP server did not start"
         yield SimpleNamespace(
-            kind=request.param, url=url, calls=calls, requests=requests, created=created
+            kind=request.param,
+            url=url,
+            calls=calls,
+            requests=requests,
+            created=created,
+            faults=faults,
         )
     finally:
         http_server.should_exit = True
@@ -249,3 +271,18 @@ def test_chat_rejects_malformed_body_before_agent_execution(chat_http_server):
         response = client.post("/chat/stream", json=invalid)
     assert response.status_code == 422
     assert server.calls == []
+
+
+def test_actual_extension_rejects_lost_terminator_over_http(compiled_client_node, chat_http_server):
+    server = chat_http_server
+    server.faults.append("drop_terminator")
+    runner = _VICTOR_CLIENT_TS.parents[1] / "scripts" / "chat-contract-smoke.cjs"
+    result = subprocess.run(
+        [compiled_client_node, str(runner), server.url, server.kind, "truncated"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert json.loads(result.stdout)["outcome"] == "interrupted"
+    assert len(server.calls) == 1  # Never replay a POST after an unknown outcome.

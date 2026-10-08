@@ -186,7 +186,7 @@ describe('streamChat v1 wire contract', () => {
             wire('stream_end'),
             wire('error', { message: 'late — must not reject after settle' }),
         ]);
-        expect(seen[0].type).toBe('stream_end');
+        expect(seen.map(e => e.type)).toEqual(['stream_end']);
     });
 
     it('ignores unknown additive event types without crashing', async () => {
@@ -206,12 +206,90 @@ describe('streamChat v1 wire contract', () => {
         expect(seen.map((e) => e.type)).toEqual(['content', 'done']);
     });
 
-    it('tolerates non-JSON noise between frames', async () => {
-        const { chunks } = await run(client, [
-            'not json at all',
-            wire('content', { content: 'ok' }),
-            wire('stream_end'),
-        ]);
-        expect(chunks).toEqual(['ok']);
+    it.each(['not json', 'null', '[]', '{"v":2,"event":"stream_end"}', '{}'])(
+        'rejects malformed or unsupported payload %s before later completion', async (payload) => {
+            await expect(run(client, [payload, wire('stream_end')])).rejects.toThrowError(VictorError);
+        }
+    );
+
+    it('rejects EOF after partial content without a terminator', async () => {
+        await expect(run(client, [wire('content', { content: 'partial' })]))
+            .rejects.toThrow(/before.*terminator/i);
+    });
+
+    it.each(['close', 'aborted'])('rejects premature %s without waiting for end', async (event) => {
+        const stream = new EventEmitter();
+        mockClient.post.mockResolvedValueOnce({ data: stream, headers: {} });
+        const result = client.streamChat([], () => undefined);
+        const check = expect(result).rejects.toThrowError(VictorError);
+        await Promise.resolve();
+        stream.emit(event);
+        await check;
+    });
+
+    it.each(['\n', '\r\n', '\r'])('decodes split UTF-8 and multiline SSE with %j', async (newline) => {
+        const stream = new EventEmitter();
+        mockClient.post.mockResolvedValueOnce({ data: stream, headers: {} });
+        const chunks: string[] = [];
+        const result = client.streamChat([], c => chunks.push(c));
+        await Promise.resolve();
+        const body = Buffer.from([
+            '\uFEFF: heartbeat', '', 'data:{"v":1,"event":"content",',
+            'data: "content":"🧪 café"}', '', 'data: [DONE]', '', '',
+        ].join(newline));
+        for (const byte of body) stream.emit('data', Buffer.from([byte]));
+        stream.emit('end');
+        await result;
+        expect(chunks).toEqual(['🧪 café']);
+    });
+
+    it.each(['data: [DONE]\n', 'data: {"v":1,"event":"stream_end"}']) (
+        'does not dispatch an unterminated SSE frame at EOF: %s', async (body) => {
+            const stream = new EventEmitter();
+            mockClient.post.mockResolvedValueOnce({ data: stream, headers: {} });
+            const result = client.streamChat([], () => undefined);
+            const check = expect(result).rejects.toThrowError(VictorError);
+            await Promise.resolve();
+            stream.emit('data', Buffer.from(body));
+            stream.emit('end');
+            await check;
+        }
+    );
+
+    it('rejects an oversized unterminated frame and releases the response', async () => {
+        const stream = Object.assign(new EventEmitter(), { destroy: vi.fn() });
+        mockClient.post.mockResolvedValueOnce({ data: stream, headers: {} });
+        const result = client.streamChat([], () => undefined);
+        const check = expect(result).rejects.toThrow(/limit/i);
+        await Promise.resolve();
+        stream.emit('data', Buffer.from('data: ' + 'x'.repeat(1024 * 1024)));
+        await check;
+        expect(stream.destroy).toHaveBeenCalledOnce();
+        expect(stream.listenerCount('data')).toBe(0);
+    });
+
+    it('propagates callback failures without logging or consuming later content', async () => {
+        const seen = vi.fn();
+        mockClient.post.mockResolvedValueOnce({
+            data: sse([wire('content', { content: 'first' }), wire('stream_end')]), headers: {},
+        });
+        await expect(client.streamChat([], () => { throw new Error('callback failed'); }, undefined, seen))
+            .rejects.toThrow('callback failed');
+        expect(seen).not.toHaveBeenCalled();
+    });
+
+    it.each([true, false])('handles invalid UTF-8 after/before termination (terminal=%s)', async (terminal) => {
+        const stream = new EventEmitter();
+        mockClient.post.mockResolvedValueOnce({ data: stream, headers: {} });
+        const seen = vi.fn();
+        const result = client.streamChat([], () => undefined, undefined, seen);
+        const check = terminal ? expect(result).resolves.toBeUndefined() : expect(result).rejects.toThrowError(VictorError);
+        await Promise.resolve();
+        stream.emit('data', Buffer.concat([
+            Buffer.from(terminal ? 'data: [DONE]\n\n' : 'data: '), Buffer.from([0xff]),
+        ]));
+        stream.emit('end');
+        await check;
+        expect(seen).toHaveBeenCalledTimes(terminal ? 1 : 0);
     });
 });

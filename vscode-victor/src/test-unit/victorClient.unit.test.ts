@@ -96,6 +96,25 @@ describe('VictorClient API methods', () => {
         client = new VictorClient('http://localhost:8765');
     });
 
+    it.each([false, 'true', 1, undefined])('does not confirm cancellation from %s', async (cancelled) => {
+        mockClient.post.mockResolvedValueOnce({ data: { tool_call_id: 'call-1', cancelled } });
+        expect(await client.cancelToolExecution('call-1')).toBe(false);
+    });
+
+    it('uses the acknowledged HTTP operation even with an open WebSocket', async () => {
+        const send = vi.fn();
+        Object.assign(client, { wsConnection: { readyState: 1, send } });
+        mockClient.post.mockResolvedValueOnce({ data: { tool_call_id: 'call-1', cancelled: true } });
+        expect(await client.cancelToolExecution('call-1')).toBe(true);
+        expect(mockClient.post).toHaveBeenCalledExactlyOnceWith('/tools/cancel', { tool_call_id: 'call-1' });
+        expect(send).not.toHaveBeenCalled();
+    });
+
+    it('rejects a cancellation acknowledgement for another tool call', async () => {
+        mockClient.post.mockResolvedValueOnce({ data: { tool_call_id: 'other', cancelled: true } });
+        expect(await client.cancelToolExecution('call-1')).toBe(false);
+    });
+
     it('chat() POSTs to /chat and normalizes the response payload', async () => {
         mockClient.post.mockResolvedValue({ data: { role: 'assistant', content: 'hi', tool_calls: [{ id: 't1' }] } });
         const res = await client.chat([{ role: 'user', content: 'hello' } as any]);
