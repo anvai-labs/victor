@@ -262,3 +262,113 @@ def test_receipt_and_invocation_observation_preserve_each_others_evidence(tmp_pa
     assert saved.action["state"] == "returned" and saved.action["reported_success"] is True
     assert saved.action["backend_receipt"] == receipt.to_dict()
     assert saved.status == "resumed" and not store.mark_resumed(run_id)
+
+
+async def test_async_pause_snapshots_inputs_and_store_before_worker_yields(tmp_path, monkeypatch):
+    import asyncio
+    import threading
+    from victor.agent.paused_run_store import (
+        InMemoryPausedRunStore,
+        record_pause_from_approval_async,
+        reset_paused_run_store,
+        set_paused_run_store,
+    )
+    from victor.framework.hitl import ApprovalRequest
+
+    store = _store(tmp_path)
+    replacement = InMemoryPausedRunStore()
+    request = ApprovalRequest(
+        id="bound",
+        title="submit",
+        description="",
+        context={"tool_name": "submit", "arguments": {}, "action_binding": {"payload": "hash"}},
+    )
+    metadata = {"nested": {"owner": "original"}}
+    entered, release, finished = threading.Event(), threading.Event(), threading.Event()
+    save = store.save
+
+    def delayed(**kwargs):
+        entered.set()
+        try:
+            assert release.wait(5), "pause worker release timed out"
+            return save(**kwargs)
+        finally:
+            finished.set()
+
+    monkeypatch.setattr(store, "save", delayed)
+    set_paused_run_store(store)
+    task = asyncio.create_task(
+        record_pause_from_approval_async(
+            request,
+            session_id="s",
+            agent_id="a",
+            metadata=metadata,
+        )
+    )
+    try:
+        assert await asyncio.to_thread(entered.wait, 5)
+        request.context["arguments"]["unexpected"] = True
+        request.context["action_binding"]["payload"] = "changed"
+        metadata["nested"]["owner"] = "changed"
+        set_paused_run_store(replacement)
+        release.set()
+        run_id, approval = await task
+        run = ProjectDbPausedRunStore(store.db_path).get(run_id)
+        assert run.approval_request == approval
+        assert run.pending_tool["arguments"] == {}
+        assert run.pending_tool["binding"] == {
+            "payload": "hash",
+            "session_id": "s",
+            "agent_id": "a",
+            "request_id": "bound",
+            "expires_at": request.created_at + request.timeout_seconds,
+        }
+        assert run.metadata == {"nested": {"owner": "original"}}
+        assert not replacement.list_pending()
+    finally:
+        release.set()
+        await asyncio.gather(task, return_exceptions=True)
+        assert await asyncio.to_thread(finished.wait, 5)
+        reset_paused_run_store()
+
+
+async def test_custom_pause_store_stays_on_caller_thread_and_matches_sync_contract():
+    import threading
+    from victor.agent.paused_run_store import (
+        InMemoryPausedRunStore,
+        record_pause_from_approval,
+        record_pause_from_approval_async,
+        reset_paused_run_store,
+        set_paused_run_store,
+    )
+    from victor.framework.hitl import ApprovalRequest
+
+    caller = threading.get_ident()
+
+    class CallerThreadStore(InMemoryPausedRunStore):
+        def save(self, **kwargs):
+            assert threading.get_ident() == caller
+            return super().save(**kwargs)
+
+    store = CallerThreadStore()
+    set_paused_run_store(store)
+    request = ApprovalRequest(
+        id="r",
+        title="legacy aliases",
+        description="",
+        context={"tool": "submit", "args": {"value": "original"}},
+    )
+    try:
+        sync_id, sync_request = record_pause_from_approval(request, session_id="s", agent_id="a")
+        async_id, async_request = await record_pause_from_approval_async(
+            request, session_id="s", agent_id="a"
+        )
+        assert sync_request == async_request == request.to_dict()
+        assert (
+            store.get(sync_id).pending_tool
+            == store.get(async_id).pending_tool
+            == {"tool_name": "submit", "arguments": {"value": "original"}}
+        )
+        assert sync_id != async_id
+    finally:
+        reset_paused_run_store()

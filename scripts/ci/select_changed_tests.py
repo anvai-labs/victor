@@ -124,6 +124,8 @@ RELATED_TESTS = {
         "tests/unit/framework/test_client_resume.py",
     ),
     "victor/agent/paused_run_store.py": (
+        "tests/unit/framework/test_durable_chat_pause.py",
+        "tests/unit/framework/test_streaming_pause.py",
         "tests/unit/agent/test_paused_run_persistence.py",
         "tests/unit/agent/test_paused_run_expiry.py",
         "tests/unit/agent/test_durable_resume.py",
