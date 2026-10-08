@@ -1603,7 +1603,7 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   delegation and immutable per-run credentials; current shared-workload usage is
   not human-scoped gateway authorization. Preserve issuer-qualified identities.
 
-- **G77 — async durable approval admission (local repair; review/CI/merge pending).**
+- **G77 — ✅ async durable approval admission ([PR #1253](https://github.com/anvai-labs/victor/pull/1253)).**
   At baseline, `VictorClient.resume()` called paused-store expiry, lookup and
   single-use claim synchronously. ProjectDbPausedRunStore can wait for SQLite's 60-second busy
   timeout; #1249 moved action observation writes off-loop, not these earlier
@@ -1611,8 +1611,9 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   cancellation/single-use behavior and prove contended database responsiveness.
   VAS-11a moves this admission sequence off-loop for the built-in persistent
   backend, preserving injected stores' caller-thread behavior. Contended SQLite,
-  cancellation, competing claims and lost-acknowledgement regressions pass locally.
-  It does not close receipt reconciliation/C5.
+  cancellation, competing claims and lost-acknowledgement regressions passed;
+  clean exact-head review and all applicable CI gates preceded squash merge
+  `ec41c97b4` into develop. It does not close receipt reconciliation/C5.
 
 Validation-test audit: neither live harness had direct tests before this follow-up.
 The new mixed-harness suite covers rejected/malformed/missing reviews, inclusive
