@@ -280,7 +280,8 @@ checkpoints after execution (`graph_runtime.py:265,320`); restarting a node does
 by itself reconcile effects already committed inside it. Existing tool observability
 is not a transactional intent/receipt ledger.
 
-The opt-in single-action observation increment (2026-09-30) now records durable
+The opt-in single-action observation increment ([#1209](https://github.com/anvai-labs/victor/pull/1209),
+merged 2026-10-03 and included in v0.12.0) records durable
 intent and invocation observations in the existing paused-run row. It excludes
 all action-bearing rows from automatic purge, blocks repeated intent and rechecks
 approval after SQLite persistence. Strict canonical result publication is required
@@ -290,6 +291,12 @@ a lost response; the stored outcome stays unknown and no second effect is issued
 [FEP-0029 contract](https://github.com/anvai-labs/victor/blob/develop/feps/fep-0029-single-agent-durable-chat-continuation.md#opt-in-durable-action-observations-2026-09-30-partial-g62).
 The following recovery sequence remains the complete target; receipt lookup,
 reconciliation and whole-member continuation are not yet implemented by this increment.
+
+The post-release [#1249 follow-up](https://github.com/anvai-labs/victor/pull/1249)
+moves asynchronous journal writes off the event loop, shields the interrupted-action
+observation and rolls back failed commits and save/action mutations. This does not implement receipt
+lookup or close G62. The [October 7 closeout](multiagent-session-closeout-2026-10-07.md)
+records its separate integration/validation status and the next acceptance gates.
 
 Repair in this order:
 

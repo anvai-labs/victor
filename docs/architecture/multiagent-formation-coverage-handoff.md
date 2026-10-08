@@ -7,6 +7,10 @@ those were verified live; which designs exist beyond the canonical six (implemen
 unwired, or deferred); and what the follow-up session should address, with the
 co-design learnings that motivate each item.
 
+**2026-10-07 closeout:** read the [restart handoff](multiagent-session-closeout-2026-10-07.md)
+for merged milestones, release versus source status, and the ordered remaining gates.
+It supersedes stale session/branch instructions; dated live evidence below is retained.
+
 ## 1. Coverage: what is implemented, and what was verified live
 
 ### 1.1 Canonical formations — implemented and live-tested (6/6)
@@ -93,7 +97,7 @@ remains inline (see G17).
   blackboard and contract-net remain absent. Conversation-native formations now
   use the FEP-0035 transcript substrate; ensemble status is tracked separately (G16).
 
-### 1.5 Completion audit (updated 2026-09-25; cohort dates retained)
+### 1.5 Completion audit (updated 2026-10-07; cohort dates retained)
 
 Implementation delivery and live acceptance have different denominators:
 
@@ -117,6 +121,8 @@ Implementation delivery and live acceptance have different denominators:
 | G53 operator deadline policy | ✅ Buffered #297, stream body owner #298 and standalone streaming policy [Sandhi #301](https://github.com/anvai-labs/sandhi/pull/301) released in 0.10.1 | Bounded durable HTTP settlement/recovery and changed-deadline live evidence remain open |
 | G60 pre-dispatch enforcement repair | ✅ [Victor #1180](https://github.com/anvai-labs/victor/pull/1180); all CI green including Vertical Py3.12 | Result-publication follow-up is described in G60 below; broader G60 and G61–G65 remain open |
 | G60 result-publication boundary | [Victor #1204](https://github.com/anvai-labs/victor/pull/1204): typed withholding, cache/result publication checks and retry vetoes | Executor/observer disclosure and cached pre-action authorization remain open; this does not close G60 or C5 |
+| G62 local single-action observations | ✅ [Victor #1209](https://github.com/anvai-labs/victor/pull/1209), merged October 3 and included in v0.12.0 | Backend receipt lookup, verified reconciliation and whole-member continuation remain open |
+| G62 asynchronous journal follow-up | [Victor #1249](https://github.com/anvai-labs/victor/pull/1249), merged to main October 7; not in v0.12.0 | Reconcile into develop and validate the integration; historical shard failures are recorded in the restart handoff |
 
 The [PDF recheck and critique](agentic-workflow-safety-audit.md#pdf-recheck-and-design-critique-2026-09-25)
 maps the local Agentic Workflow Automation guide to formation-specific acceptance
@@ -1429,7 +1435,7 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   errors through middleware; it does not implement durable action reconciliation,
   exact approval binding or whole-member replay protection. Keep G62 open until
   those boundaries have independent failure/restart evidence.
-  **Partial implementation (2026-09-30):** opt-in single-action resume now persists
+  **Partial implementation ([PR #1209](https://github.com/anvai-labs/victor/pull/1209), merged 2026-10-03):** opt-in single-action resume now persists
   intent and invocation observations in the existing paused-run row, exposes a
   session-scoped versioned status snapshot, rejects prior intent on restart and
   rechecks authority after persistence. Strict result publication is required before
@@ -1439,6 +1445,12 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   See [FEP-0029](https://github.com/anvai-labs/victor/blob/develop/feps/fep-0029-single-agent-durable-chat-continuation.md#opt-in-durable-action-observations-2026-09-30-partial-g62).
   Backend receipt lookup, verified reconciliation, complete member continuation and
   mixed-team C5 remain open; this is not a live acceptance result.
+  The [#1249 follow-up](https://github.com/anvai-labs/victor/pull/1249) moves async-path
+  journal writes off the event loop and rolls back failed commits and save/action mutations. It is a
+  post-v0.12.0 main change, not new backend or live acceptance. See the
+  [closeout](multiagent-session-closeout-2026-10-07.md) for integration and CI status.
+  Resume/claim and turn-boundary pause-store calls remain a separate blocking-I/O
+  follow-up; retain the planned loop-responsiveness check under contention.
 
 - **G63 — workflow HTTP lifecycle is not durable admission or owned cancellation.**
   The inspected routes store in-memory records, launch a background task, expose

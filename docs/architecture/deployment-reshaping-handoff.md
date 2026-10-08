@@ -3,6 +3,13 @@
 **Date:** 2026-10-04 · **From:** Claude Code session (deployment reshaping Phase 0+1 + release)
 **To:** Codex / next Claude session · **Status:** Phase 0+1 COMPLETE, v0.12.0 RELEASED, all PRs merged
 
+> **October 7 reconciliation:** this is the historical deployment-session record.
+> #1237 has since merged; main and develop are no longer identical at the closeout
+> snapshot. Use the [multiagent restart handoff](multiagent-session-closeout-2026-10-07.md)
+> for exact refs, #1249 validation limitations and ordered recovery/C5 work. Verify
+> dependency pins and deployed binaries from the current checkout/configuration;
+> this dated record is not a live-service inventory.
+
 ## What this session accomplished
 
 Victor's core installation was reshaped: **numpy is no longer a dependency**,
@@ -74,7 +81,10 @@ rather than removal. Lower priority than the SDK work.
 
 ### 4. Sandhi aarch64 wheel (upstream)
 
-`sandhi-gateway==0.12.0` publishes no manylinux-aarch64 wheel. This blocks:
+The original session reported no manylinux-aarch64 Sandhi wheel. Its recorded
+`0.12.0` Sandhi version was incorrect: October 7 verification found `0.11.0` to be
+the latest published release and Victor's exact pin. Recheck that release's wheel
+inventory before treating the reported platform gap as current. The reported gap blocks:
 the linux-arm64 binary leg AND pip installs on that platform. Fix is in the
 Sandhi repo: add `aarch64-unknown-linux-gnu` target to the maturin build
 matrix (the `ubuntu-24.04-arm` runner already exists in victor's CI).
@@ -98,7 +108,7 @@ Sandhi-side). #1209 shipped G62's local persistence piece.
 ### The numpy-optional architecture
 
 ```
-Core deps (62):  pydantic, orjson, sandhi-gateway==0.12.0, click, typer,
+Core deps (62):  pydantic, orjson, sandhi-gateway==0.11.0, click, typer,
                  rich, prompt-toolkit, httpx, aiohttp, tiktoken, ...
 NOT in core:     numpy (→ victor_native or vecmath fallback)
                  textual (→ tui extra)
@@ -128,8 +138,10 @@ if any spot drifts. The native wheel version always equals the release version.
   1 review, enforce_admins=false). NEVER squash (ancestry severs).
 - **Rehearsal**: `gh workflow run release.yml --ref develop -f publish_testpypi=true`.
   Requires the TestPyPI trusted publisher (not yet registered — user action).
-- **If a release fails**: delete the GH release, delete the tag, re-tag at
-  the fixed commit, push. (Done for v0.11.0→v0.12.0.)
+- **If a release fails**: preserve published tags, assets and failed evidence.
+  Diagnose the failed stage; changed published content requires a new version.
+  Follow the current [release workflow](../development/PR_WORKFLOW.md#promote-and-release)
+  rather than moving an existing release tag.
 
 ### Gotchas (learned the hard way)
 
