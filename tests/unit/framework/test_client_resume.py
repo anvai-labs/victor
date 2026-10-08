@@ -376,3 +376,46 @@ async def test_injected_store_retains_caller_thread_affinity(monkeypatch, _store
     result = await _client().resume(_save(_store), ApprovalDecision(True))
     assert result.content == "done"
     assert calls == ["expire_pending", "get", "mark_resumed"]
+
+
+@pytest.mark.parametrize("timeout", [True, 0, -1, float("nan"), float("inf"), 61, "10"])
+async def test_receipt_lookup_rejects_invalid_timeout_before_storage(timeout):
+    with pytest.raises(ValueError, match="timeout"):
+        await _client().reconcile_action("unused", timeout_seconds=timeout)
+
+
+@pytest.mark.parametrize(
+    "kind",
+    [
+        "identity_version",
+        "empty_backend",
+        "receipt_version",
+        "action_hash",
+        "receipt_url",
+        "outcome",
+    ],
+)
+def test_receipt_contract_rejects_malformed_evidence(kind):
+    from victor.framework.action_recovery import BackendReceipt, RecoveryIdentity
+
+    with pytest.raises(ValueError):
+        if kind == "identity_version":
+            RecoveryIdentity("adapter-v1", "tenant:prod", version=True)
+        elif kind == "empty_backend":
+            RecoveryIdentity("adapter-v1", "")
+        else:
+            overrides = {
+                "receipt_version": {"version": True},
+                "action_hash": {"action_id": "wrong"},
+                "receipt_url": {"receipt_id": "https://credential@example.invalid"},
+                "outcome": {"outcome": "not_found"},
+            }[kind]
+            BackendReceipt(
+                **{
+                    "action_id": "a" * 64,
+                    "binding_digest": "b" * 64,
+                    "identity": RecoveryIdentity("adapter-v1", "tenant:prod"),
+                    "receipt_id": "receipt-1",
+                    **overrides,
+                }
+            )

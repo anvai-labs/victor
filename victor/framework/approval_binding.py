@@ -89,13 +89,17 @@ def proposal(call: dict[str, Any]) -> dict[str, Any]:
 
 
 def tool_contract(tool: Any) -> str:
-    return digest(
-        {
-            "name": tool.name,
-            "parameters": tool.parameters,
-            "access_mode": getattr(getattr(tool, "access_mode", None), "value", None),
-        }
-    )
+    from victor.framework.action_recovery import recovery_identity
+
+    contract = {
+        "name": tool.name,
+        "parameters": tool.parameters,
+        "access_mode": getattr(getattr(tool, "access_mode", None), "value", None),
+    }
+    identity = recovery_identity(tool)
+    if identity is not None:
+        contract["action_recovery"] = identity
+    return digest(contract)
 
 
 @dataclass
@@ -134,7 +138,9 @@ class ActionObserver(Protocol):
 
     return_observed: bool
     reported_success: bool | None
+    lookup_request: Any
 
+    def bind_recovery(self, identity: dict[str, Any] | None, contract: str) -> None: ...
     def begin(self) -> str: ...
     def returned(self, reported_success: bool | None) -> None: ...
     def interrupted(self, original: BaseException) -> None: ...

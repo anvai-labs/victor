@@ -141,6 +141,11 @@ RELATED_TESTS = {
         "tests/unit/teams/test_member_pause_resume.py",
         "tests/unit/teams/test_durable_pause_gating.py",
     ),
+    "victor/framework/action_recovery.py": (
+        "tests/unit/agent/test_durable_resume.py",
+        "tests/unit/agent/test_paused_run_persistence.py",
+        "tests/unit/framework/test_client_resume.py",
+    ),
     "victor/framework/approval_binding.py": (
         "tests/unit/teams/test_member_pause_resume.py",
         "tests/unit/agent/test_durable_resume.py",

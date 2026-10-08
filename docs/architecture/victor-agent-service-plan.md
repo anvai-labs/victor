@@ -2,7 +2,7 @@
 plan_id: VAS-2026-10
 status: active
 updated: 2026-10-08
-baseline_develop: ec41c97b4bf6b62e31168cbba0153d850d133ae3
+baseline_develop: 72aaa4b3873abb3b9a49723867b0d235f141a0f5
 next_task: VAS-11b
 ---
 
@@ -64,13 +64,13 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
-- Fetched develop: `ec41c97b4bf6b62e31168cbba0153d850d133ae3` (#1253 merged).
-- VAS-11a is merged. The documentation checkpoint uses branch
-  `docs/action-recovery-transaction-checkpoint` in the same linked worktree,
-  `/private/tmp/victor-action-recovery`; no runtime changes are pending there.
-- Next implementation task: VAS-11b. Claim a fresh linked worktree from fetched
-  `origin/develop`, review the receipt and local transaction contract in the
-  existing FEP/store owners, then implement only its accepted bounded scope.
+- Fetched develop: `72aaa4b3873abb3b9a49723867b0d235f141a0f5` (#1254 merged).
+- Owner: current durable-recovery session, VAS-11b. Branch
+  `feat/action-receipt-reconciliation`; linked worktree
+  `/private/tmp/victor-action-receipts-20261008`.
+- Next action: finish final validation and exact-commit review of the bounded
+  receipt capability, then publish to develop and wait for all CI gates.
+  No open PR overlaps were found at claim time; VAS-11a/G77 stays complete.
 - Root checkout remains on main; another session's `fix-inferflux-codesign`
   worktree is not owned by this plan. Do not modify or remove it.
 - Local default Node upgraded to 24.21.0. This is the build/tooling runtime;
@@ -87,8 +87,7 @@ edit. A mock test is not live provider or C5 evidence.
 ## Work ledger
 
 Planning/evidence: VAS-00 is accepted; VAS-01 is merged.
-Delivery: VAS-02, VAS-03a and VAS-11a are merged; other implementation rows remain
-TODO. These counts are not
+Delivery: VAS-02, VAS-03a and VAS-11a are merged; VAS-11b has local passes; other implementation rows remain TODO. These counts are not
 an effort-weighted completion percentage. The original formation denominator is
 independent. Update this paragraph and the rows together at each checkpoint.
 
@@ -114,7 +113,8 @@ independent. Update this paragraph and the rows together at each checkpoint.
 | VAS-10 | Unified run events, bounded parsing and replay | VAS-07, VAS-09 | TODO | UTF-8/SSE framing, IDs/cursors, explicit retention gaps, durable terminal state, bounded slow-client handling |
 | VAS-11 | Exact approval and verified action reconciliation through existing framework owners | VAS-00, VAS-02 | TODO | G61/G62/G70: bind owner/payload/version/expiry; backend commit then response loss; receipt lookup or safe same-key guarantee; unknown blocks replay |
 | VAS-11a | Keep durable approval admission off the async event loop | VAS-00, VAS-02 | ✅ MERGED | [#1253](https://github.com/anvai-labs/victor/pull/1253), `ec41c97b4bf6b62e31168cbba0153d850d133ae3`; clean exact-head review and 39 successful checks including Vertical Py3.12; no receipt verification or claim reopening |
-| VAS-11b | Review receipt provenance and local transaction boundaries, then implement bounded reconciliation | VAS-11a | TODO | [Database boundary](victor-agent-service-technology.md#database-transaction-and-external-effect-boundary); amend/review existing FEP before new contracts, define backend capabilities and absent-receipt semantics, prove commit-with-lost-response recovery without replay; parent VAS-11 remains open |
+| VAS-11b | Review receipt provenance and local transaction boundaries, then implement bounded reconciliation | VAS-11a | LOCAL_PASS | [Database boundary](victor-agent-service-technology.md#database-transaction-and-external-effect-boundary); amend/review existing FEP before new contracts, define backend capabilities and absent-receipt semantics, prove commit-with-lost-response recovery without replay; parent VAS-11 remains open |
+| VAS-11c | Qualify production backend receipt adapters | VAS-11b | TODO | G78: no built-in tool currently qualifies; choose a concrete backend with atomic effect/receipt correlation and stable account/environment identity; no automatic retrofit to arbitrary SQL, shell, Jira or Slack; adapter and deployment failure evidence required |
 | VAS-12 | Complete member continuation and cancellation lifecycle | VAS-11 | TODO | G61/G63/G70: restore completed batches, no whole-member replay; own cancellation and preserve partial effects |
 | VAS-13 | VS Code migrates to shared SDK/state; secure webview and remote workspace | VAS-09, VAS-10, VAS-11, VAS-12 | TODO | Real ephemeral server + installed VSIX smoke; auth expiry, reconnect, approval, cancellation, capabilities and workspace boundaries |
 | VAS-14 | Web UI migrates to the same API and state semantics | VAS-09, VAS-10, VAS-11, VAS-12 | TODO | Browser smoke against the same server/fixtures as VS Code; embedded Chainlit retains shared service path; remote mode uses API |
@@ -579,3 +579,54 @@ Resume prompt:
 - VAS-11/12, G61/G62/G70 and C5 remain open. No shared services, credentials or
   provider caches changed. Archived review, CI, merge metadata, patch and restart
   instructions are in `var/session-closeout-2026-10-08-action-admission/`.
+
+
+### Checkpoint 2026-10-08-VAS-11b-claim
+
+- Fresh base `72aaa4b3873abb3b9a49723867b0d235f141a0f5`; #1253/#1254 are merged,
+  and no open Victor PR overlaps this task. Previous session worktree is preserved.
+- Discovery first: inspect actual effect backends and existing action observation
+  owners. Do not invent a backend idempotency/receipt guarantee or ship an unused
+  parallel executor. Contract review and existing test-owner audit precede edits.
+
+
+### Checkpoint 2026-10-08-VAS-11b-local-contract
+
+- Discovery: production tools do not consume `durable_action_id` or supply exact
+  receipt lookup. Slack/Jira response IDs arrive after mutation; generic database
+  connections are volatile and SQL is unrestricted; shell/file history is not a
+  receipt. G78/VAS-11c records this production capability gap.
+- Bounded contract review chose an optional capability on the existing registered
+  tool, no second registry/dispatcher. Exact approval binds adapter/backend
+  identity; v2 opt-in action records retain it. Legacy/default records remain v1.
+  The existing store transaction retains one immutable verified receipt while
+  preserving the original invocation observation and consumed approval.
+- `reconcile_action` performs an authenticated-by-adapter backend lookup and writes
+  local evidence, without tool replay, result publication or member continuation.
+  Embedded runtime session/authority, current configured RBAC and original backend
+  identity guard both reconciliation and v2 status disclosure. Hosted principal
+  ownership remains future VAS-05 work; this introduces no HTTP endpoint.
+- TDD: five initial receipt cases failed before the capability existed. A separate
+  review regression proved that an extended receipt could otherwise persist extra
+  fields before rejection; strict typed validation now rejects before persistence.
+  Unsupported legacy records, absent/error/timeout, identity mismatch, revocation,
+  cancellation and storage failure remain explicit; no unknown result authorizes
+  replay. A lookup not-found response is never proof of nonexecution.
+- Existing test owners were extended. No redundant test was removed: existing
+  invocation-error/policy cases prove a different boundary from receipt proof,
+  disclosure and CAS. SQLite test backend evidence demonstrates commit with lost
+  response and restart lookup, not a production connector, power-loss test or C5.
+- Initial broader local validation: 580 affected tests passed; eight touched
+  production/selector modules type-check; changed production-line coverage 93%.
+  Final dependency-aligned validation, collection, docs, review and CI precede merge.
+
+- Final local validation after declared runtime dependency resolution: 580 affected
+  tests passed, 221 architecture/contracts checks passed (8 optional skips),
+  33,946 tests collected. Black/Ruff, typing on eight modules, 93% changed-line
+  coverage, documentation build/link checks and repository hygiene pass.
+- Independent cumulative review is clean and independently ran 180 tests. Fixed
+  its two findings before publication: malformed/version-downgraded receipt status
+  disclosure and schema-extension persistence. Both are covered in existing owners.
+- Evidence/restart archive: `var/session-closeout-2026-10-08-action-receipts/` in
+  the root checkout. Exact-commit attestation, hosted CI and squash merge remain
+  the next publication gates; no release/provider/C5 acceptance is claimed.

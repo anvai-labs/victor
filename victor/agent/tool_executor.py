@@ -1220,6 +1220,11 @@ class ToolExecutor:
                 from victor.agent.action_observation import observe_dispatch_async
 
                 observer = grant.action_observer if grant is not None else None
+                if observer is not None:
+                    from victor.framework.action_recovery import recovery_identity
+                    from victor.framework.approval_binding import tool_contract
+
+                    observer.bind_recovery(recovery_identity(tool), tool_contract(tool))
                 async with observe_dispatch_async(observer) as action_id:
                     if grant is not None:
                         # Intent persistence can block; recheck all authority after it.
@@ -1230,6 +1235,8 @@ class ToolExecutor:
                         if action_id is not None
                         else context
                     )
+                    if observer is not None and observer.lookup_request is not None:
+                        call_context = {**call_context, "durable_action": observer.lookup_request}
                     result = await asyncio.wait_for(
                         tool.execute(_exec_ctx=call_context, **arguments),
                         timeout=per_attempt_timeout,
