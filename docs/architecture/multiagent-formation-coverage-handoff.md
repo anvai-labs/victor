@@ -1571,8 +1571,8 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
 - **G73 — shared agent-service API and IDE/web lifecycle parity (2026-10-07 audit; open).**
   The current VS Code `streamChat()` body matches the separate `web/server`
   application; the original audit reproduced HTTP 422 from `victor serve`.
-  VAS-03a now has a local repair and executable client/router regression;
-  final PR/merge proof belongs in the VAS tracker. Compiled-client transport probes also reproduce lost paused
+  VAS-03a landed the request repair and executable client/router regression in
+  [PR #1252](https://github.com/anvai-labs/victor/pull/1252). Compiled-client transport probes also reproduce lost paused
   run fields, premature-EOF success and false cancellation acknowledgement.
   Event authentication and session/principal ownership differ between surfaces.
   The [audit](../development/victor-agent-service-audit.md) records source and
@@ -1582,9 +1582,9 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   action and member owners; no parallel lifecycle/dispatch registry. Local
   extension activation/package passes do not close this gap or C5.
 
-- **G74 — web backend startup/auth settings migration (2026-10-08; local repair, merge pending).**
-  Importing `web/server/main.py` fails because it reads removed flat server/render
-  settings. Credentials now live as `SecretStr` under `settings.server`; signing
+- **G74 — ✅ web backend startup/auth settings migration ([PR #1252](https://github.com/anvai-labs/victor/pull/1252)).**
+  Importing `web/server/main.py` failed because it read removed flat server/render
+  settings; the merged repair uses the nested settings owner. Credentials now live as `SecretStr` under `settings.server`; signing
   and authentication must unwrap the real value. VAS-03a adds executable startup,
   HMAC/authentication and compiled-client HTTP tests; source/release acceptance
   remain separate. Track final PR/merge evidence in the [VAS ledger](victor-agent-service-plan.md).
@@ -1602,6 +1602,17 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   headers, then selects an authorized grant/vault credential. VAS-05e/f own verified
   delegation and immutable per-run credentials; current shared-workload usage is
   not human-scoped gateway authorization. Preserve issuer-qualified identities.
+
+- **G77 — async durable approval admission (local repair; review/CI/merge pending).**
+  At baseline, `VictorClient.resume()` called paused-store expiry, lookup and
+  single-use claim synchronously. ProjectDbPausedRunStore can wait for SQLite's 60-second busy
+  timeout; #1249 moved action observation writes off-loop, not these earlier
+  admission operations. Repair through the existing store owner, preserve
+  cancellation/single-use behavior and prove contended database responsiveness.
+  VAS-11a moves this admission sequence off-loop for the built-in persistent
+  backend, preserving injected stores' caller-thread behavior. Contended SQLite,
+  cancellation, competing claims and lost-acknowledgement regressions pass locally.
+  It does not close receipt reconciliation/C5.
 
 Validation-test audit: neither live harness had direct tests before this follow-up.
 The new mixed-harness suite covers rejected/malformed/missing reviews, inclusive

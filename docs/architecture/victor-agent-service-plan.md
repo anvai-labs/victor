@@ -2,8 +2,8 @@
 plan_id: VAS-2026-10
 status: active
 updated: 2026-10-08
-baseline_develop: 470c9ccdcb222dcfd8acce5b4c52fb27321ac952
-next_task: VAS-03a
+baseline_develop: a5fa47e444e6f973ad95149ae0677327df060dc7
+next_task: VAS-11a
 ---
 
 # Victor shared agent-service implementation plan and tracker
@@ -64,11 +64,11 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
-- Fetched develop: `470c9ccdcb222dcfd8acce5b4c52fb27321ac952` (#1251 merged).
-- Owner: current Victor stream-contract session. Worktree:
-  `/private/tmp/victor-stream-contract`; branch `fix/vscode-stream-request-parity`.
-  Next action: finish independent review and publish the locally validated stream
-  repair plus expanded plan; no new public API in this increment.
+- Fetched develop: `a5fa47e444e6f973ad95149ae0677327df060dc7` (#1252 merged).
+- Owner: current durable-recovery session. Worktree:
+  `/private/tmp/victor-action-recovery`; branch `fix/durable-action-recovery-guards`.
+  Next action: complete final validation and exact-commit review, publish the
+  admission repair, then verify every applicable CI gate before squash merge.
 - Root checkout remains on main; another session's `fix-inferflux-codesign`
   worktree is not owned by this plan. Do not modify or remove it.
 - Local default Node upgraded to 24.21.0. This is the build/tooling runtime;
@@ -84,7 +84,7 @@ edit. A mock test is not live provider or C5 evidence.
 ## Work ledger
 
 Planning/evidence: VAS-00 is accepted; VAS-01 is merged.
-Delivery: VAS-02 is merged; VAS-03a has local passes; other implementation rows remain TODO. These counts are not
+Delivery: VAS-02 and VAS-03a are merged; VAS-11a has local passes; other implementation rows remain TODO. These counts are not
 an effort-weighted completion percentage. The original formation denominator is
 independent. Update this paragraph and the rows together at each checkpoint.
 
@@ -94,7 +94,7 @@ independent. Update this paragraph and the rows together at each checkpoint.
 | VAS-01 | Publish FEP, plan, roadmap/gap links and reboot handoff | VAS-00 | ✅ MERGED | [#1251](https://github.com/anvai-labs/victor/pull/1251), `470c9ccdcb222dcfd8acce5b4c52fb27321ac952`; all applicable checks green; FEP remains Draft |
 | VAS-02 | Node 24, dependency remediation and real activation/package smoke | — | ✅ MERGED | [#1251](https://github.com/anvai-labs/victor/pull/1251), `470c9ccdcb222dcfd8acce5b4c52fb27321ac952`; 999 host + 50 unit tests; audits zero; packaged VSIX activation/106 commands passed |
 | VAS-03 | Agree contract/FEP and consumer inventory; repair streaming request parity | VAS-01, VAS-02 | TODO | Accept FEP before new public API; preserve FEP-0037/0038 classify/model-effort contracts; extend existing contract owner, RED actual TS body vs real router, then explicit compatibility adapter |
-| VAS-03a | Repair existing VS Code streaming request compatibility | VAS-01, VAS-02 | LOCAL_PASS | Core 422 and web startup regression reproduced; repaired client and settings; 13 real HTTP/config tests, 352 affected tests, 54 TS unit tests, 999 host tests; review/CI/merge pending; parent/FEP acceptance remains open |
+| VAS-03a | Repair existing VS Code streaming request compatibility | VAS-01, VAS-02 | ✅ MERGED | [#1252](https://github.com/anvai-labs/victor/pull/1252), `a5fa47e444e6f973ad95149ae0677327df060dc7`; clean exact-head review, 41 applicable checks passed including Vertical Py3.12; parent/FEP acceptance remains open |
 | VAS-04 | Typed client outcomes: paused run, terminal EOF, cancellation acknowledgement | VAS-03 | TODO | Preserve status/run/approval; reject incomplete streams; consume negative cancellation body; no new approval store |
 | VAS-05 | Shared authentication and per-resource principal authorization | VAS-03 | TODO | HTTP/events parity, no placeholder tokens, OIDC hosted posture and explicit scoped machine/local modes; reject cross-owner access |
 | VAS-05a | Strict verified-principal and resource/action policy contracts | VAS-03 | TODO | [Kanidm/API-key policy design](victor-agent-service-auth-policy.md); deny overrides, credential-scope ceiling, ownership and no cross-grant widening; design only |
@@ -109,6 +109,7 @@ independent. Update this paragraph and the rows together at each checkpoint.
 | VAS-09 | Authoritative schemas and generated shared TS SDK | VAS-08 | TODO | OpenAPI/event schema generation, runtime boundary validation, deterministic generation and compatibility tests |
 | VAS-10 | Unified run events, bounded parsing and replay | VAS-07, VAS-09 | TODO | UTF-8/SSE framing, IDs/cursors, explicit retention gaps, durable terminal state, bounded slow-client handling |
 | VAS-11 | Exact approval and verified action reconciliation through existing framework owners | VAS-00, VAS-02 | TODO | G61/G62/G70: bind owner/payload/version/expiry; backend commit then response loss; receipt lookup or safe same-key guarantee; unknown blocks replay |
+| VAS-11a | Keep durable approval admission off the async event loop | VAS-00, VAS-02 | LOCAL_PASS | Existing store owns expiry/load/single-use claim; real SQLite contention, cancellation and competing claim tests; no receipt verification or claim reopening |
 | VAS-12 | Complete member continuation and cancellation lifecycle | VAS-11 | TODO | G61/G63/G70: restore completed batches, no whole-member replay; own cancellation and preserve partial effects |
 | VAS-13 | VS Code migrates to shared SDK/state; secure webview and remote workspace | VAS-09, VAS-10, VAS-11, VAS-12 | TODO | Real ephemeral server + installed VSIX smoke; auth expiry, reconnect, approval, cancellation, capabilities and workspace boundaries |
 | VAS-14 | Web UI migrates to the same API and state semantics | VAS-09, VAS-10, VAS-11, VAS-12 | TODO | Browser smoke against the same server/fixtures as VS Code; embedded Chainlit retains shared service path; remote mode uses API |
@@ -497,3 +498,55 @@ Resume prompt:
   including the required compiled-client cases; formatting, lint, docs/link/FEP
   checks passed. The first hosted run's only underlying failure was quick tests
   (the aggregate also failed). Do not reuse its green jobs as the new head verdict.
+
+### Checkpoint 2026-10-08-VAS-11a-claim
+
+- Reconciled PR1252 from GitHub: merged `a5fa47e444e6f973ad95149ae0677327df060dc7`,
+  41 successful applicable checks including Vertical Py3.12, one deployment skip
+  and one neutral check; independent review clean. VAS-03a is MERGED, not released.
+- No open Victor PRs at claim; the other existing local worktree remains untouched.
+- VAS-11a targets synchronous SQLite expiry/load/claim in `VictorClient.resume()`.
+  Journal writes already run off-loop after #1249; approval admission still can
+  block unrelated async work for the database lock timeout. Audit the existing
+  client/store tests for duplicate invariants before adding regression cases.
+- Preserve existing single-use/default-off/error behavior and existing store
+  ownership. Cancellation or a failed claim must never reach tool execution.
+  Verified backend receipts, principal ownership and member continuation remain open.
+
+### Checkpoint 2026-10-08-VAS-11a-local-repair
+
+- RED: both real-SQLite contention cases blocked the loop until the five-second
+  watchdog released the write lock. GREEN: 96 client/store/durable-resume tests
+  passed after offloading expiry/load/claim for the built-in persistent backend.
+- One store-owned helper receives the captured store; only admission runs in a
+  worker. Session hydration and canonical runtime dispatch require successful
+  await. Concurrent resumes still claim once; a committed claim with lost
+  acknowledgement dispatches nothing and remains consumed.
+- Cancellation cannot stop an already-started SQLite worker. It may consume the
+  approval after the waiter cancels, but never dispatches or reopens that claim.
+  Recovery for consumed-but-undispatched approvals remains unresolved.
+- Injected non-ProjectDb stores retain caller-thread behavior: no new protocol
+  thread-safety requirement or failure fallback. ProjectDb subclasses must honor
+  the existing thread-local/locking contract; blocking custom stores retain their
+  own responsiveness responsibility. The synchronous status API is unchanged.
+- Duplicate-test audit: client admission concurrency/loop tests cover a distinct
+  boundary from store persistence and action-journal dispatch tests. No existing
+  test was removed; sequential single-use, expiry, hydration, default-off and
+  opt-in contract cases remain. No extra test module or public API was added.
+- G77 records this newly discovered gap. G61/G62/G70, backend receipt verification,
+  full member continuation and C5 remain open. Independent exact-head review,
+  affected suites, collection and hosted CI still precede merge.
+
+- Broader validation: 216 affected tests passed (framework clients, durable stores,
+  resume, member/API/UI resume and guards). Independent review strengthened the
+  existing race test with a bounded barrier so both workers read pending before
+  either claims. Final focused client/CI-selector suite: 55 passed; collection:
+  33,894 tests (collection only). Mypy on both production modules passed.
+- Extended the existing changed-test selector/parametrized regression so a future
+  paused-store-only edit executes the client admission tests. Its missing mapping
+  failed RED before the one-line mapping correction; no separate CI job was added.
+
+- Final local CI-selection run: 174 tests passed with coverage enabled; Black/Ruff
+  and mypy for the two production modules plus selector passed. Documentation
+  build and built-site link checks passed. Cumulative independent review is clean;
+  the checkpoint now points at publication, not repeating the completed repair.

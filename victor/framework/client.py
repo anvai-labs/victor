@@ -871,7 +871,7 @@ class VictorClient:
 
         from victor.agent.durable_resume import resume_paused_run
         from victor.agent.paused_run_store import (
-            DEFAULT_PAUSE_TTL_SECONDS,
+            claim_for_resume,
             get_paused_run_store,
         )
 
@@ -882,17 +882,9 @@ class VictorClient:
         store = get_paused_run_store()
         if durable_actions and getattr(store, "durable_actions", False) is not True:
             raise ValueError("Durable actions require persistent storage")
-        # FEP-0029 expiry/GC: opportunistically expire any stale pending pauses (a day-old approval
-        # should not silently execute), so this and other stragglers drop out before we resume.
-        store.expire_pending(max_age_seconds=DEFAULT_PAUSE_TTL_SECONDS)
-        paused = store.get(run_id)
-        if paused is None:
-            raise ValueError(f"Unknown paused run: {run_id}")
-        if getattr(paused, "status", None) == "expired":
-            raise ValueError(f"Paused run expired: {run_id}")
-        # Atomically claim the run (single-use); False ⇒ already resumed or gone.
-        if not store.mark_resumed(run_id):
-            raise ValueError(f"Paused run already resumed or not pending: {run_id}")
+        # Capture one store and await its existing single-use admission. Persistent
+        # SQLite lock waits must not freeze other sessions on this event loop.
+        paused = await claim_for_resume(store, run_id)
 
         if paused.session_id:
             if await self.resume_session(paused.session_id) is None:
