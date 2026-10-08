@@ -2,8 +2,8 @@
 plan_id: VAS-2026-10
 status: active
 updated: 2026-10-08
-baseline_develop: b6d936d88fa99c1f467266b2fdbc62fad2b80833
-next_task: VAS-11d
+baseline_develop: 440b8f46d7400ac79d1ca86a410b881ac83b80d1
+next_task: VAS-12a
 ---
 
 # Victor shared agent-service implementation plan and tracker
@@ -64,12 +64,14 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
-- Fetched develop: `b6d936d88fa99c1f467266b2fdbc62fad2b80833` (#1256 merged).
-- Owner: current recovery session, branch `fix/async-approval-persistence`, linked
-  worktree `/private/tmp/victor-pause-persistence-20261008`, based on that merge.
-- Next runtime action: VAS-11d, keep initial buffered/streamed and chained approval
-  persistence off the event loop, preserving commit-before-publication and failure
-  semantics. Local repair passes; complete independent review, CI and squash merge.
+- Fetched develop: `440b8f46d7400ac79d1ca86a410b881ac83b80d1` (#1257 merged).
+- Owner: current recovery session, branch `fix/member-checkpoint-failures`, linked
+  worktree `/private/tmp/victor-checkpoint-failures-20261008`, based on that merge.
+- Next action: VAS-12a, fail closed on opt-in member checkpoint read/save failures.
+  Final local preflight and independent runtime review pass; freeze the commit,
+  confirm exact-head review, then open a PR and require all CI before squash merge. Preserve workspaces
+  on storage exceptions; block later admissions and never claim an unsaved pause.
+  External-cancellation ownership and safe member continuation remain open.
 - VAS-11c prerequisite remains a concrete production effect backend with atomic
   effect/receipt correlation, stable account/environment identity and authenticated
   lookup. TaskStore JSON persistence and arbitrary SQL/file operations do not qualify;
@@ -87,7 +89,8 @@ edit. A mock test is not live provider or C5 evidence.
   gaps remain open; this plan adds no formation passes.
 - Durable local recovery copy: `var/session-closeout-2026-10-07/vscode-api-audit/`
   in the root checkout; this increment uses
-  `var/session-closeout-2026-10-08-pause-persistence/` (receipt evidence remains
+  `var/session-closeout-2026-10-08-checkpoint-failures/` (pause evidence remains
+  in `var/session-closeout-2026-10-08-pause-persistence/`; receipt evidence remains
   in `var/session-closeout-2026-10-08-action-receipts/`; prior stream evidence remains
   in `var/session-closeout-2026-10-08-stream-contract/`). These contain patches,
   reports, logs and hashes; the archives are ignored
@@ -96,7 +99,8 @@ edit. A mock test is not live provider or C5 evidence.
 ## Work ledger
 
 Planning/evidence: VAS-00 is accepted; VAS-01 is merged.
-Delivery: VAS-02, VAS-03a, VAS-11a and VAS-11b are merged; VAS-11d is locally validated. Other implementation rows remain TODO. These counts are not
+Delivery: VAS-02, VAS-03a, VAS-11a, VAS-11b and VAS-11d are merged. VAS-12a has
+passed local preflight; other implementation rows remain TODO. These counts are not
 an effort-weighted completion percentage. The original formation denominator is
 independent. Update this paragraph and the rows together at each checkpoint.
 
@@ -124,8 +128,9 @@ independent. Update this paragraph and the rows together at each checkpoint.
 | VAS-11a | Keep durable approval admission off the async event loop | VAS-00, VAS-02 | ✅ MERGED | [#1253](https://github.com/anvai-labs/victor/pull/1253), `ec41c97b4bf6b62e31168cbba0153d850d133ae3`; clean exact-head review and 39 successful checks including Vertical Py3.12; no receipt verification or claim reopening |
 | VAS-11b | Bound receipt provenance and local transaction reconciliation | VAS-11a | ✅ MERGED | [#1255](https://github.com/anvai-labs/victor/pull/1255), `76384b0e455bcaea29c4046a15ff0092cfe6df1d`; exact-head review clean, 40 applicable checks passed including Vertical Py3.12; readonly backend lookup and immutable local receipt, no tool replay/result publication/member continuation; production adapters remain VAS-11c |
 | VAS-11c | Qualify production backend receipt adapters | VAS-11b | TODO | G78: no built-in tool currently qualifies; choose a concrete backend with atomic effect/receipt correlation and stable account/environment identity; no automatic retrofit to arbitrary SQL, shell, Jira or Slack; adapter and deployment failure evidence required |
-| VAS-11d | Keep initial and chained approval pause persistence off the event loop | VAS-11a | LOCAL_PASS | `fix/async-approval-persistence`, baseline `b6d936d88`; 368 affected/boundary/documentation tests; real SQLite contention/cancellation, commit-before-publication, no duplicate save or tool replay; custom stores retain caller-thread behavior. Independent review/CI/merge pending |
+| VAS-11d | Keep initial and chained approval pause persistence off the event loop | VAS-11a | ✅ MERGED | [#1257](https://github.com/anvai-labs/victor/pull/1257), `440b8f46d7400ac79d1ca86a410b881ac83b80d1`; exact-head review clean, 39 applicable CI checks passed including Vertical Py3.12; 368 local tests and 33,965 collected; preserves ownership and custom-store affinity |
 | VAS-12 | Complete member continuation and cancellation lifecycle | VAS-11 | TODO | G61/G63/G70: restore completed batches, no whole-member replay; own cancellation and preserve partial effects |
+| VAS-12a | Stop on member checkpoint I/O failure without unsafe fresh restart | VAS-11d | LOCAL_PASS | `fix/member-checkpoint-failures`, baseline `440b8f46d`; 551 affected tests, 33,995 collected, 64 independent review tests; static/docs/FEP gates pass; G79 covers read/save/pause failures and workspace preservation. Commit-bound review/remote CI/merge remain pending at this checkpoint; full continuation remains separate |
 | VAS-13 | VS Code migrates to shared SDK/state; secure webview and remote workspace | VAS-09, VAS-10, VAS-11, VAS-12 | TODO | Real ephemeral server + installed VSIX smoke; auth expiry, reconnect, approval, cancellation, capabilities and workspace boundaries |
 | VAS-14 | Web UI migrates to the same API and state semantics | VAS-09, VAS-10, VAS-11, VAS-12 | TODO | Browser smoke against the same server/fixtures as VS Code; embedded Chainlit retains shared service path; remote mode uses API |
 | VAS-14a | Workflow/formation authoring contract and consumer inventory | VAS-03, VAS-05a | TODO | Existing visualizer is not an authoring UI; reuse canonical compiler, coordinator and formation registry; typed validation and versioned save/load |
@@ -371,5 +376,17 @@ Resume prompt:
 - Cancellation may leave one pending pause after a late worker commit; lost response
   discovery and bounded worker admission remain future VAS-07/16 requirements.
   Unknown production effects still require VAS-11c. No released service, provider,
-  shared cache or C5 result changed. Finish exact-head review and every applicable
-  CI gate before recording VAS-11d as merged.
+  shared cache or C5 result changed. #1257 is now verified merged; its 39 applicable
+  checks and exact-head review are clean. Continue VAS-12a without replaying VAS-11d.
+
+- VAS-12a RED: 15 read/save regressions exposed fresh replay and swallowed storage
+  failures; six lane-event cases exposed publication before pause acknowledgement.
+  Independent review found forced cleanup deleting completed work; two real git
+  worktree cases reproduced that loss. Final GREEN: 551 team/formation tests,
+  33,995 tests collected; Black/Ruff/MyPy (2,000 source files), FEP validation,
+  strict MkDocs, internal links and repository hygiene pass. Independent review
+  passed 64 tests after the workspace fix. Extended existing checkpoint, concurrent, hierarchical, iterative and
+  isolation owners; no equivalent regression existed to remove. Checkpointer-free
+  defaults remain covered. Commit-before-lost-ack is memory-store fault injection,
+  not backend acceptance. G79 records external cancellation, in-flight receipts and
+  safe whole-member continuation limits.

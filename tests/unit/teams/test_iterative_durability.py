@@ -275,3 +275,26 @@ async def test_reflection_no_checkpointer_is_unchanged() -> None:
     results = await ReflectionFormation().execute([], ctx, _task())
     assert gen.calls == 2 and crit.calls == 2
     assert results[0].metadata["iterations"] == 2
+
+
+@pytest.mark.parametrize("formation", ["consensus", "reflection"])
+async def test_checkpoint_failure_stops_before_next_iteration(formation, monkeypatch):
+    from unittest.mock import AsyncMock
+    from victor.coordination.formations.base import MemberCheckpointError
+
+    cp = MemoryCheckpointer()
+    save = AsyncMock(side_effect=OSError("checkpoint unavailable"))
+    monkeypatch.setattr(cp, "save", save)
+    if formation == "consensus":
+        a, d = _agents()
+        with pytest.raises(MemberCheckpointError):
+            await _consensus(3).execute([a, d], await _durable_context(cp), _task())
+        assert a.rounds_seen == d.rounds_seen == [0]
+    else:
+        gen, crit = _Generator(), _Critic()
+        with pytest.raises(MemberCheckpointError):
+            await ReflectionFormation().execute(
+                [], await _reflection_context(cp, gen, crit, 3), _task()
+            )
+        assert gen.calls == crit.calls == 1
+    save.assert_awaited_once()

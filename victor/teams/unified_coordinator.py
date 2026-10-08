@@ -55,7 +55,11 @@ from typing import (
     runtime_checkable,
 )
 
-from victor.coordination.formations.base import BaseFormationStrategy, TeamContext
+from victor.coordination.formations.base import (
+    BaseFormationStrategy,
+    MemberCheckpointError,
+    TeamContext,
+)
 from victor.framework.graph_checkpoint import CheckpointerProtocol, WorkflowCheckpoint
 from victor.framework.approval_binding import require_complete_batch_evidence
 from victor.framework.member_event_sink import MemberEvent, MemberEventSink, current_member_sink
@@ -549,9 +553,8 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
         """
         try:
             checkpoints = await checkpointer.list(thread_id)
-        except Exception as exc:  # noqa: BLE001 - resume is best-effort
-            logger.debug("Member checkpoint list failed (starting fresh): %s", exc)
-            return None
+        except Exception as exc:
+            raise MemberCheckpointError("load") from exc
         relevant = [c for c in checkpoints if c.metadata.get("team_node_id") == team_node_id]
         if not relevant:
             return None
@@ -569,6 +572,16 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
             "last_output": state.get("last_output"),
             "last_agent_id": state.get("last_agent_id"),
         }
+
+    @staticmethod
+    async def _save_member_checkpoint(
+        checkpointer: CheckpointerProtocol, checkpoint: WorkflowCheckpoint, operation: str
+    ) -> None:
+        """Require a save acknowledgement; a lost acknowledgement never permits retry."""
+        try:
+            await checkpointer.save(checkpoint)
+        except Exception as exc:
+            raise MemberCheckpointError(operation) from exc
 
     def _make_member_checkpoint_hook(
         self,
@@ -606,10 +619,7 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
                     "formation": formation,
                 },
             )
-            try:
-                await checkpointer.save(checkpoint)
-            except Exception as exc:  # noqa: BLE001 - checkpointing must not break the run
-                logger.warning("Member checkpoint save failed: %s", exc)
+            await self._save_member_checkpoint(checkpointer, checkpoint, "save_member")
 
         return _hook
 
@@ -660,10 +670,7 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
                     "awaiting_approval": True,
                 },
             )
-            try:
-                await checkpointer.save(checkpoint)
-            except Exception as exc:  # noqa: BLE001 - checkpointing must not break the run
-                logger.warning("Member pause checkpoint save failed: %s", exc)
+            await self._save_member_checkpoint(checkpointer, checkpoint, "save_pause")
 
         return _hook
 
@@ -719,10 +726,7 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
                     "awaiting_member_ids": [r.member_id for r in awaiting_results],
                 },
             )
-            try:
-                await checkpointer.save(checkpoint)
-            except Exception as exc:  # noqa: BLE001 - checkpointing must not break the run
-                logger.warning("Member batch pause checkpoint save failed: %s", exc)
+            await self._save_member_checkpoint(checkpointer, checkpoint, "save_batch_pause")
 
         return _hook
 
@@ -789,6 +793,18 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
             context,
             delegate_reentry_contract=delegate_reentry_contract,
         )
+
+        # Resolve authoritative recovery state before allocating workspaces or admitting members.
+        team_context_id = (
+            effective_context.get("team_id") or effective_context.get("team_name") or "UnifiedTeam"
+        )
+        thread_id = effective_context.get("thread_id") or effective_context.get("__thread_id__")
+        checkpointer = self._checkpointer
+        resume_completed = None
+        if checkpointer is not None and thread_id:
+            resume_completed = await self._load_member_resume(
+                checkpointer, str(thread_id), str(team_context_id)
+            )
 
         parallel_isolation = bool(
             active_formation == TeamFormation.PARALLEL
@@ -912,9 +928,6 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
                 workspace_diagnostics
             )
 
-        team_context_id = (
-            effective_context.get("team_id") or effective_context.get("team_name") or "UnifiedTeam"
-        )
         shared_state_with_supervisor["team_id"] = team_context_id
         team_context_metadata = dict(effective_context)
         for reserved_key in (
@@ -935,23 +948,20 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
 
         # ADR-023: member-granular checkpoint/resume — active only when a
         # checkpointer and a stable thread_id are both provided (fully opt-in).
-        thread_id = effective_context.get("thread_id") or effective_context.get("__thread_id__")
-        if self._checkpointer is not None and thread_id:
+        if checkpointer is not None and thread_id:
             team_node_id = str(team_context_id)
-            team_context.resume_completed = await self._load_member_resume(
-                self._checkpointer, str(thread_id), team_node_id
-            )
+            team_context.resume_completed = resume_completed
             team_context.checkpoint_hook = self._make_member_checkpoint_hook(
-                self._checkpointer, str(thread_id), team_node_id, active_formation.value
+                checkpointer, str(thread_id), team_node_id, active_formation.value
             )
             # ADR-023 pillar 2b: durable pause when a member awaits approval.
             team_context.pause_hook = self._make_member_pause_hook(
-                self._checkpointer, str(thread_id), team_node_id, active_formation.value
+                checkpointer, str(thread_id), team_node_id, active_formation.value
             )
             # ADR-023 pillar 2b (concurrent): multi-member pause for concurrent formations
             # (PARALLEL) — several members can await approval in one wave.
             team_context.batch_pause_hook = self._make_member_batch_pause_hook(
-                self._checkpointer, str(thread_id), team_node_id, active_formation.value
+                checkpointer, str(thread_id), team_node_id, active_formation.value
             )
             # On resume, surface the human's decision to the re-run member.
             approval_decision = effective_context.get("approval_decision")
@@ -977,6 +987,7 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
         )
 
         result_dict: Optional[Dict[str, Any]] = None
+        checkpoint_failure: Optional[MemberCheckpointError] = None
         # ADR-023 pillar 2b: arm durable member pause for the duration of member execution when a
         # checkpointer + thread_id are configured (pause_hook set) AND the formation actually
         # implements durable pause. A member's ASK then raises MemberApprovalPause (durable) instead
@@ -1193,9 +1204,18 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
                         )
 
             return result_dict
+        except MemberCheckpointError as exc:
+            checkpoint_failure = exc
+            raise
         finally:
             if worktree_session is not None:
-                if self._should_cleanup_worktrees(effective_context, result_dict=result_dict):
+                if checkpoint_failure is not None:
+                    cleanup_summary = self._build_preserved_worktree_cleanup_summary(
+                        worktree_session,
+                        reason="member_checkpoint_failed",
+                    )
+                    checkpoint_failure.worktree_cleanup = cleanup_summary
+                elif self._should_cleanup_worktrees(effective_context, result_dict=result_dict):
                     cleanup_summary = self._cleanup_worktree_session(worktree_session)
                 else:
                     cleanup_summary = self._build_preserved_worktree_cleanup_summary(
@@ -3143,6 +3163,20 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
                     "member_results": {},
                     "final_output": "",
                     "formation": effective_formation.value,
+                    **(
+                        {
+                            "error_code": "member_checkpoint_failed",
+                            "checkpoint_operation": e.operation,
+                            "reconciliation_required": True,
+                            **(
+                                {"worktree_cleanup": e.worktree_cleanup}
+                                if e.worktree_cleanup is not None
+                                else {}
+                            ),
+                        }
+                        if isinstance(e, MemberCheckpointError)
+                        else {}
+                    ),
                 }
         finally:
             self._execution_state.reset(token)

@@ -95,3 +95,55 @@ async def test_isolation_fails_closed_without_materialized_worktrees(context, ca
     assert not result["success"]
     member.execute_task.assert_not_awaited()
     assert "could not be materialized" in caplog.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cleanup", [None, True])
+async def test_checkpoint_failure_preserves_materialized_deliverables(tmp_path, cleanup):
+    from victor.framework.graph_checkpoint import MemoryCheckpointer
+
+    class FailingCheckpointer(MemoryCheckpointer):
+        async def save(self, checkpoint):
+            raise OSError("checkpoint unavailable")
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    for command in (
+        ["init"],
+        ["config", "user.email", "test@example.com"],
+        ["config", "user.name", "Test"],
+        ["commit", "--allow-empty", "-m", "seed"],
+    ):
+        subprocess.run(["git", *command], cwd=repo, check=True, capture_output=True)
+    written = []
+
+    async def execute(task, context):
+        path = Path(context["worktree_path"]) / "deliverable.py"
+        path.write_text("completed work")
+        written.append(path)
+        return {"success": True, "output": "done"}
+
+    coord = UnifiedTeamCoordinator(lightweight_mode=True, checkpointer=FailingCheckpointer())
+    coord.set_formation(TeamFormation.PARALLEL)
+    coord.add_member(
+        SimpleNamespace(id="a", role="executor", execute_task=execute, receive_message=AsyncMock())
+    )
+    context = {
+        "worktree_isolation": True,
+        "materialize_worktrees": True,
+        "repo_root": str(repo),
+        "worktree_parent": str(tmp_path / "members"),
+        "branch_prefix": "feat/checkpoint-failure",
+        "thread_id": "recovery",
+    }
+    if cleanup is not None:
+        context["cleanup_worktrees"] = cleanup
+    result = await coord.execute_task("write", context)
+    assert result["error_code"] == "member_checkpoint_failed"
+    assert result["reconciliation_required"] is True
+    assert len(written) == 1
+    assert written[0].read_text() == "completed work"
+    summary = result["worktree_cleanup"]
+    assert summary["removed"] == []
+    assert summary["skipped"] == [str(written[0].parent)]
+    assert summary["reason"] == "member_checkpoint_failed"
