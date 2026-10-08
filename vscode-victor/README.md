@@ -250,6 +250,23 @@ Click to see options (start/stop/restart/logs).
 2. Verify port isn't in use: `lsof -i :8765`
 3. Restart server: Command Palette → "Victor: Restart Server"
 
+### Interrupted chat or unconfirmed cancellation
+
+The extension accepts the core server's `[DONE]` and web server's v1 `stream_end`
+terminators. EOF, a closed connection or an aborted response before a terminator
+is an interruption with an unknown outcome; the client does not retry the POST.
+Malformed JSON, unsupported wire versions, invalid UTF-8 and SSE frames over
+1 MiB are rejected. Split UTF-8 and LF/CRLF/CR framing are supported. The first
+terminator stops callbacks and closes the local response. It proves transport
+completion only, not that a task succeeded or an external write was committed.
+
+Tool cancellation uses the existing HTTP acknowledgement for the requested tool
+ID. That endpoint cancels a pending approval; it does not stop an already-running
+provider or undo a committed action. Missing, rejected or failed acknowledgements
+leave the execution active. A late acknowledgement cannot overwrite a completion,
+failure or replacement. The Cancel All message reports the confirmed count.
+Inspect the recorded backend outcome before retrying an interrupted action.
+
 ### Model errors
 
 1. **Cloud providers**: Set API keys in `~/.victor/profiles.yaml`
