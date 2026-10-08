@@ -4,7 +4,7 @@ title: "Team-Node Durability Contract"
 type: Standards Track
 status: Accepted
 created: 2026-07-30
-modified: 2026-08-01
+modified: 2026-10-08
 authors:
   - name: Vijaykumar Singh
     email: vijay@anvaiops.com
@@ -116,6 +116,25 @@ and `resume_completed` (seeds a resumed run). With neither set, the formation lo
 
 The identity/state shape above is the *base* contract, written verbatim by the sequential
 formations; each formation maps it onto its own **durable unit**:
+
+#### Checkpoint I/O failure boundary
+
+When an opt-in checkpointer and thread ID are configured, authoritative load or
+save errors must stop execution with a reconciliation error rather than silently
+start fresh or claim success. Pause markers and approval lane events follow the
+acknowledged pause save. A failed concurrent member save closes queued admission
+and retries; already-started members are joined unless external cancellation
+interrupts ownership. Materialized worktrees survive storage exceptions, with
+paths included in the coordinator's dictionary failure result. Checkpointer-free
+execution retains its existing behavior.
+
+A save error may follow a successful commit. The error is not permission to replay
+members or retry a side effect. This boundary does not provide production receipt
+adapters, cancellation-safe workspace retention, durable in-flight intents or safe
+whole-member continuation. Implementation and acceptance evidence belong to
+[VAS-12a](../docs/architecture/victor-agent-service-plan.md) and
+[G79](../docs/architecture/multiagent-formation-coverage-handoff.md), not the original
+acceptance record above.
 
 #### Per-formation durability granularity
 

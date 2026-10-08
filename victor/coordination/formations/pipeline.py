@@ -86,19 +86,31 @@ class PipelineFormation(BaseFormationStrategy):
             # Shared helper: emits member_start → executes → emits the terminal lane event
             # (completed / error / awaiting); normalizes exceptions to a failed MemberResult.
             result = await self._execute_member_with_events(
-                agent, task, context, i, member_event_hook=member_event_hook
+                agent,
+                task,
+                context,
+                i,
+                member_event_hook=member_event_hook,
+                defer_approval_event=pause_hook is not None,
             )
 
             # ADR-023 pillar 2b: durable pause — an awaiting-approval stage stops + checkpoints
             # (via pause_hook) and is NOT appended, so a resumed run re-executes it.
             if pause_hook is not None and (result.metadata or {}).get("awaiting_approval"):
                 logger.info(f"PipelineFormation: stage {agent.id} awaiting approval; pausing")
-                context.shared_state["__awaiting_approval__"] = {
+                pause_state = {
                     "member_id": agent.id,
                     "index": i,
                     "approval_request": result.metadata.get("approval_request"),
                 }
-                await pause_hook(i, result, results, context.shared_state)
+                await pause_hook(
+                    i,
+                    result,
+                    results,
+                    {**context.shared_state, "__awaiting_approval__": pause_state},
+                )
+                context.shared_state["__awaiting_approval__"] = pause_state
+                await self._emit_member_approval_event(result, i, member_event_hook)
                 return results
 
             results.append(result)

@@ -42,6 +42,15 @@ from victor.teams.types import AgentMessage, MemberResult
 logger = logging.getLogger(__name__)
 
 
+class MemberCheckpointError(RuntimeError):
+    """Opt-in recovery evidence is unavailable; restarting may repeat effects."""
+
+    def __init__(self, operation: str) -> None:
+        self.operation = operation
+        self.worktree_cleanup: Optional[Dict[str, Any]] = None
+        super().__init__(f"Member checkpoint {operation} failed; reconcile before restarting")
+
+
 class TeamContext:
     """Simple context for team execution.
 
@@ -286,6 +295,16 @@ class BaseFormationStrategy(ABC):
         """
         return False
 
+    @staticmethod
+    async def _emit_member_approval_event(
+        result: MemberResult, index: int, hook: Optional[Callable[..., Awaitable[None]]]
+    ) -> None:
+        """Publish an approval lane after its durable pause is acknowledged, when enabled."""
+        if hook is not None:
+            request = (result.metadata or {}).get("approval_request") or {}
+            detail = str(request.get("title") or request.get("tool_name") or "")
+            await hook("member_awaiting_approval", result.member_id, index, content=detail)
+
     async def _execute_member_with_events(
         self,
         agent: Any,
@@ -294,6 +313,7 @@ class BaseFormationStrategy(ABC):
         index: int,
         *,
         member_event_hook: Optional[Callable[..., Awaitable[None]]] = None,
+        defer_approval_event: bool = False,
     ) -> MemberResult:
         """Run one member, emitting ADR-023 per-member lane events around it.
 
@@ -322,11 +342,8 @@ class BaseFormationStrategy(ABC):
         if member_event_hook is not None:
             metadata = result.metadata or {}
             if metadata.get("awaiting_approval"):
-                approval_request = metadata.get("approval_request") or {}
-                detail = str(
-                    approval_request.get("title") or approval_request.get("tool_name") or ""
-                )
-                await member_event_hook("member_awaiting_approval", agent.id, index, content=detail)
+                if not defer_approval_event:
+                    await self._emit_member_approval_event(result, index, member_event_hook)
             else:
                 await member_event_hook(
                     "member_completed" if result.success else "member_error",
@@ -398,13 +415,15 @@ class BaseFormationStrategy(ABC):
 
         lock = asyncio.Lock()
         cumulative: List[MemberResult] = list(seeded)
-        awaiting: List[MemberResult] = []
+        awaiting: List[tuple[MemberResult, int]] = []
         _SKIPPED = object()
         _AWAITING = object()
+        checkpoint_error: Optional[BaseException] = None
 
         async def _run(
             agent: Any, exec_context: "TeamContext", index: int, agent_task: "AgentMessage"
         ) -> Any:
+            nonlocal checkpoint_error
             if agent.id in completed_ids:
                 logger.debug(
                     f"{type(self).__name__}: skipping completed member {agent.id} (resume)"
@@ -414,8 +433,15 @@ class BaseFormationStrategy(ABC):
             total_duration = 0.0
             total_usage: Dict[str, int] = {}
             for attempt in range(member_retries + 1):
+                if checkpoint_error is not None:
+                    return _SKIPPED
                 result = await self._execute_member_with_events(
-                    agent, agent_task, exec_context, index, member_event_hook=member_event_hook
+                    agent,
+                    agent_task,
+                    exec_context,
+                    index,
+                    member_event_hook=member_event_hook,
+                    defer_approval_event=batch_pause_hook is not None,
                 )
                 total_tools += result.tool_calls_used
                 total_duration += result.duration_seconds
@@ -445,14 +471,22 @@ class BaseFormationStrategy(ABC):
             if checkpoint_hook is not None or is_awaiting:
                 # Serialize only the record/checkpoint/collect — execution above stayed concurrent.
                 async with lock:
+                    if checkpoint_error is not None:
+                        return _SKIPPED
                     if is_awaiting:
-                        awaiting.append(result)
+                        awaiting.append((result, index))
                     else:
                         cumulative.append(result)
                         if checkpoint_hook is not None:
-                            await checkpoint_hook(
-                                index, result, list(cumulative), context.shared_state
-                            )
+                            try:
+                                await checkpoint_hook(
+                                    index, result, list(cumulative), context.shared_state
+                                )
+                            except BaseException as exc:
+                                # Close queued/retry admission. Already-started members
+                                # remain owned by gather and finish before propagation.
+                                checkpoint_error = exc
+                                raise
             return _AWAITING if is_awaiting else result
 
         concurrency_limit = context.get("member_concurrency_limit")
@@ -502,6 +536,9 @@ class BaseFormationStrategy(ABC):
             return_exceptions=True,
         )
 
+        if checkpoint_error is not None:
+            raise checkpoint_error
+
         fresh: List[MemberResult] = []
         for i, r in enumerate(gathered):
             if r is _SKIPPED or r is _AWAITING:
@@ -526,14 +563,21 @@ class BaseFormationStrategy(ABC):
         # absent from the returned results (excluded from the completed set), so a resumed run
         # re-runs exactly them.
         if awaiting and batch_pause_hook is not None:
-            context.shared_state["__awaiting_approvals__"] = [
+            pause_state = [
                 {
-                    "member_id": r.member_id,
-                    "approval_request": (r.metadata or {}).get("approval_request"),
+                    "member_id": result.member_id,
+                    "approval_request": (result.metadata or {}).get("approval_request"),
                 }
-                for r in awaiting
+                for result, _ in awaiting
             ]
-            await batch_pause_hook(list(awaiting), list(cumulative), context.shared_state)
+            await batch_pause_hook(
+                [result for result, _ in awaiting],
+                list(cumulative),
+                {**context.shared_state, "__awaiting_approvals__": pause_state},
+            )
+            context.shared_state["__awaiting_approvals__"] = pause_state
+            for result, index in awaiting:
+                await self._emit_member_approval_event(result, index, member_event_hook)
 
         return seeded + fresh
 

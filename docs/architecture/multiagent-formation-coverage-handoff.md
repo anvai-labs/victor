@@ -1455,8 +1455,8 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   [closeout](victor-agent-service-plan.md) for integration and CI status.
   #1253/G77 moved built-in resume admission off-loop with contention/cancellation
   evidence. VAS-11d now covers initial buffered/streamed and chained pause writes
-  in the existing persistence owner (local validation; merge evidence belongs to
-  the [tracker](victor-agent-service-plan.md)). Built-in SQLite saves run off-loop;
+  in the existing persistence owner (✅ [#1257](https://github.com/anvai-labs/victor/pull/1257),
+  merge `440b8f46d`; detailed evidence in the [tracker](victor-agent-service-plan.md)). Built-in SQLite saves run off-loop;
   a pause is published only after save returns and originating runtime identity still
   matches. Cancellation can leave one pending
   row after a late commit, without automatic retry or dispatch. Custom stores keep
@@ -1635,6 +1635,23 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   (VAS-11b, merge `76384b0e4`); production adapter qualification
   remains VAS-11c. A SQLite test adapter is conformance evidence only. Preserve
   unsupported/unknown outcomes and keep G62/member continuation/C5 open.
+
+- **G79 — member checkpoint failure can erase recovery evidence or restart work.**
+  The previous coordinator treated failed checkpoint reads as fresh execution and
+  swallowed member/pause save failures. Concurrent members could then advance and
+  approval events could precede durable save acknowledgement; default cleanup could
+  delete materialized deliverables after failure. VAS-12a repairs these paths in
+  the existing hook/dispatch owners: sanitized `member_checkpoint_failed` results
+  require reconciliation, queued admissions and retries stop, and acknowledged
+  pause saves precede approval markers/events. Already-started siblings are joined
+  in the absence of racing external cancellation. Storage exceptions preserve
+  materialized worktrees and return their paths even when cleanup was requested.
+  Memory-store fault injection includes commit-before-lost-ack, and real git
+  worktrees prove evidence preservation; neither is production durability or C5
+  acceptance. Full external-cancellation ownership (including workspace retention
+  on cancellation), in-flight receipts, checkpoint identity validation and safe
+  whole-member continuation remain open. Follow the [VAS ledger](victor-agent-service-plan.md)
+  for review/CI/merge status; never blindly retry an ambiguous save.
 
 Validation-test audit: neither live harness had direct tests before this follow-up.
 The new mixed-harness suite covers rejected/malformed/missing reviews, inclusive
