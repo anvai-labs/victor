@@ -2,8 +2,8 @@
 plan_id: VAS-2026-10
 status: active
 updated: 2026-10-08
-baseline_develop: ca05295f9877ef555a252f97c46ba7675726d8d6
-next_task: VAS-12b
+baseline_develop: 742b1a4b025f55e00bef1d92f1c67745bc951ae5
+next_task: VAS-11c
 ---
 
 # Victor shared agent-service implementation plan and tracker
@@ -64,13 +64,15 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
-- Fetched develop: `ca05295f9877ef555a252f97c46ba7675726d8d6` (#1259 merged).
-- Owner: current recovery session, branch `fix/member-checkpoint-cancellation`,
-  linked worktree `/private/tmp/victor-checkpoint-cancellation-20261008`.
-- Next action: freeze the VAS-12b candidate, confirm exact-commit independent
-  review, then open a PR and require all CI before squash merge. Local preflight
-  passes: 583 team/formation tests, 34,027 collected, Black/Ruff/MyPy and docs/FEP
-  validation; independent runtime review passed 67 tests.
+- Fetched develop: `742b1a4b025f55e00bef1d92f1c67745bc951ae5` (#1260 merged).
+- VAS-12b is implemented on develop. This session owns only documentation closeout
+  on `docs/checkpoint-cancellation-status`; remove its worktree after that PR merges
+  and evidence is archived. No release, deployed provider or C5 claim is made.
+- Next action: VAS-11c, qualify a concrete production receipt backend before enabling
+  recovered-result publication or whole-member continuation. Do not treat the memory
+  fault tests, task JSON persistence or telemetry as an atomic business receipt.
+  Keep unsupported/unknown effects unreplayed; record backend identity, transaction
+  boundary and failure evidence in the existing ledger before adapter implementation.
 - VAS-11c prerequisite remains a concrete production effect backend with atomic
   effect/receipt correlation, stable account/environment identity and authenticated
   lookup. TaskStore JSON persistence and arbitrary SQL/file operations do not qualify;
@@ -99,8 +101,8 @@ edit. A mock test is not live provider or C5 evidence.
 ## Work ledger
 
 Planning/evidence: VAS-00 is accepted; VAS-01 is merged.
-Delivery: VAS-02, VAS-03a, VAS-11a, VAS-11b, VAS-11d and VAS-12a are merged.
-VAS-12b has passed local preflight; other implementation rows remain TODO. These counts are not
+Delivery: VAS-02, VAS-03a, VAS-11a, VAS-11b, VAS-11d, VAS-12a and VAS-12b are
+merged. Other implementation rows remain TODO. These counts are not
 an effort-weighted completion percentage. The original formation denominator is
 independent. Update this paragraph and the rows together at each checkpoint.
 
@@ -131,7 +133,7 @@ independent. Update this paragraph and the rows together at each checkpoint.
 | VAS-11d | Keep initial and chained approval pause persistence off the event loop | VAS-11a | ✅ MERGED | [#1257](https://github.com/anvai-labs/victor/pull/1257), `440b8f46d7400ac79d1ca86a410b881ac83b80d1`; exact-head review clean, 39 applicable CI checks passed including Vertical Py3.12; 368 local tests and 33,965 collected; preserves ownership and custom-store affinity |
 | VAS-12 | Complete member continuation and cancellation lifecycle | VAS-11 | TODO | G61/G63/G70: restore completed batches, no whole-member replay; own cancellation and preserve partial effects |
 | VAS-12a | Stop on member checkpoint I/O failure without unsafe fresh restart | VAS-11d | ✅ MERGED | [#1258](https://github.com/anvai-labs/victor/pull/1258), `dcba943b61b970b087bc9b9f8db7fee3e9bc70a9`; clean exact-head review, 40 successful checks including Vertical Py3.12; 551 affected tests and 33,995 collected. G79 bounded storage-failure repair; full continuation remains separate |
-| VAS-12b | Own checkpoint cancellation and preserve member recovery evidence | VAS-12a | LOCAL_PASS | `fix/member-checkpoint-cancellation`, baseline `ca05295f9`; 583 affected tests, 34,027 collected, 67 independent review tests; static/docs/FEP pass. Commit-bound review/CI/merge pending. G79: inject cancellation during save and sibling execution; retain materialized deliverables, join owned work and expose cancellation honestly. No automatic retry, ambiguous-write replay or premature approval; extend existing concurrent checkpoint/isolation owners |
+| VAS-12b | Own checkpoint cancellation and preserve member recovery evidence | VAS-12a | ✅ MERGED | [#1260](https://github.com/anvai-labs/victor/pull/1260), `742b1a4b025f55e00bef1d92f1c67745bc951ae5`; clean exact-head review, 40 successful checks including Vertical Py3.12; 583 affected tests, 34,027 collected, 67 independent review tests. Owned coroutine/retained workspace and pending-cancellation boundaries only; whole-member continuation remains open |
 | VAS-13 | VS Code migrates to shared SDK/state; secure webview and remote workspace | VAS-09, VAS-10, VAS-11, VAS-12 | TODO | Real ephemeral server + installed VSIX smoke; auth expiry, reconnect, approval, cancellation, capabilities and workspace boundaries |
 | VAS-14 | Web UI migrates to the same API and state semantics | VAS-09, VAS-10, VAS-11, VAS-12 | TODO | Browser smoke against the same server/fixtures as VS Code; embedded Chainlit retains shared service path; remote mode uses API |
 | VAS-14a | Workflow/formation authoring contract and consumer inventory | VAS-03, VAS-05a | TODO | Existing visualizer is not an authoring UI; reuse canonical compiler, coordinator and formation registry; typed validation and versioned save/load |
@@ -410,3 +412,10 @@ Resume prompt:
   links/hygiene/FEP validation pass. Independent runtime/test review is clean
   (67 tests). Review also corrected the tracker summary to match its row. No
   provider runtime, release or C5 acceptance changed.
+
+- VAS-12b merged in [#1260](https://github.com/anvai-labs/victor/pull/1260) as
+  `742b1a4b025f55e00bef1d92f1c67745bc951ae5` after 40 successful checks including Vertical Py3.12 and clean
+  review of `741c61fc3c98122c05e843dcad87995a905388b2`. Trivy was neutral;
+  documentation deployment/helper publication were non-applicable skips. Original
+  RED and final GREEN evidence remain in the declared archive. Release and C5
+  acceptance are separate; continue VAS-11c/12 without repeating VAS-12a/12b.

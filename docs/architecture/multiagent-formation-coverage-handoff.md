@@ -1636,7 +1636,7 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   remains VAS-11c. A SQLite test adapter is conformance evidence only. Preserve
   unsupported/unknown outcomes and keep G62/member continuation/C5 open.
 
-- **G79 — ✅ bounded storage-failure repair ([#1258](https://github.com/anvai-labs/victor/pull/1258)); cancellation and whole-member recovery remain open.**
+- **G79 — ✅ bounded storage/coroutine cancellation repair ([#1258](https://github.com/anvai-labs/victor/pull/1258), [#1260](https://github.com/anvai-labs/victor/pull/1260)); whole-member recovery remains open.**
   The previous coordinator treated failed checkpoint reads as fresh execution and
   swallowed member/pause save failures. Concurrent members could then advance and
   approval events could precede durable save acknowledgement; default cleanup could
@@ -1654,8 +1654,8 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   neither is production durability or C5 acceptance. Detached thread/provider work,
   explicit clearing of cancellation, callbacks that never finish, process crashes,
   in-flight receipts, checkpoint identity validation and safe whole-member continuation
-  remain open. VAS-12a merged after clean review and all applicable CI; follow the
-  [VAS ledger](victor-agent-service-plan.md) for VAS-12b review/CI/merge status and
+  remain open. VAS-12a/12b merged after clean review and all applicable CI; follow the
+  [VAS ledger](victor-agent-service-plan.md) for production receipt qualification and
   remaining recovery work. Never blindly retry an ambiguous save.
 
 Validation-test audit: neither live harness had direct tests before this follow-up.
