@@ -2,8 +2,8 @@
 plan_id: VAS-2026-10
 status: active
 updated: 2026-10-08
-baseline_develop: 440b8f46d7400ac79d1ca86a410b881ac83b80d1
-next_task: VAS-12a
+baseline_develop: dcba943b61b970b087bc9b9f8db7fee3e9bc70a9
+next_task: VAS-12b
 ---
 
 # Victor shared agent-service implementation plan and tracker
@@ -64,14 +64,15 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
-- Fetched develop: `440b8f46d7400ac79d1ca86a410b881ac83b80d1` (#1257 merged).
-- Owner: current recovery session, branch `fix/member-checkpoint-failures`, linked
-  worktree `/private/tmp/victor-checkpoint-failures-20261008`, based on that merge.
-- Next action: VAS-12a, fail closed on opt-in member checkpoint read/save failures.
-  Final local preflight and independent runtime review pass; freeze the commit,
-  confirm exact-head review, then open a PR and require all CI before squash merge. Preserve workspaces
-  on storage exceptions; block later admissions and never claim an unsaved pause.
-  External-cancellation ownership and safe member continuation remain open.
+- Fetched develop: `dcba943b61b970b087bc9b9f8db7fee3e9bc70a9` (#1258 merged).
+- VAS-12a implementation is complete on develop. This session owns only the
+  documentation closeout on `docs/checkpoint-recovery-status`; remove its worktree
+  after that PR merges and evidence is archived. No promotion, release or live
+  acceptance is claimed.
+- Next action: claim VAS-12b from freshly fetched develop and reproduce cancellation
+  during member checkpoint saves, including worktree retention and already-started
+  siblings. Own cancellation before cleanup; do not retry ambiguous work or publish
+  an unacknowledged approval. Check other sessions before claiming implementation.
 - VAS-11c prerequisite remains a concrete production effect backend with atomic
   effect/receipt correlation, stable account/environment identity and authenticated
   lookup. TaskStore JSON persistence and arbitrary SQL/file operations do not qualify;
@@ -99,8 +100,8 @@ edit. A mock test is not live provider or C5 evidence.
 ## Work ledger
 
 Planning/evidence: VAS-00 is accepted; VAS-01 is merged.
-Delivery: VAS-02, VAS-03a, VAS-11a, VAS-11b and VAS-11d are merged. VAS-12a has
-passed local preflight; other implementation rows remain TODO. These counts are not
+Delivery: VAS-02, VAS-03a, VAS-11a, VAS-11b, VAS-11d and VAS-12a are merged.
+Other implementation rows, including VAS-12b, remain TODO. These counts are not
 an effort-weighted completion percentage. The original formation denominator is
 independent. Update this paragraph and the rows together at each checkpoint.
 
@@ -130,7 +131,8 @@ independent. Update this paragraph and the rows together at each checkpoint.
 | VAS-11c | Qualify production backend receipt adapters | VAS-11b | TODO | G78: no built-in tool currently qualifies; choose a concrete backend with atomic effect/receipt correlation and stable account/environment identity; no automatic retrofit to arbitrary SQL, shell, Jira or Slack; adapter and deployment failure evidence required |
 | VAS-11d | Keep initial and chained approval pause persistence off the event loop | VAS-11a | ✅ MERGED | [#1257](https://github.com/anvai-labs/victor/pull/1257), `440b8f46d7400ac79d1ca86a410b881ac83b80d1`; exact-head review clean, 39 applicable CI checks passed including Vertical Py3.12; 368 local tests and 33,965 collected; preserves ownership and custom-store affinity |
 | VAS-12 | Complete member continuation and cancellation lifecycle | VAS-11 | TODO | G61/G63/G70: restore completed batches, no whole-member replay; own cancellation and preserve partial effects |
-| VAS-12a | Stop on member checkpoint I/O failure without unsafe fresh restart | VAS-11d | LOCAL_PASS | `fix/member-checkpoint-failures`, baseline `440b8f46d`; 551 affected tests, 33,995 collected, 64 independent review tests; static/docs/FEP gates pass; G79 covers read/save/pause failures and workspace preservation. Commit-bound review/remote CI/merge remain pending at this checkpoint; full continuation remains separate |
+| VAS-12a | Stop on member checkpoint I/O failure without unsafe fresh restart | VAS-11d | ✅ MERGED | [#1258](https://github.com/anvai-labs/victor/pull/1258), `dcba943b61b970b087bc9b9f8db7fee3e9bc70a9`; clean exact-head review, 40 successful checks including Vertical Py3.12; 551 affected tests and 33,995 collected. G79 bounded storage-failure repair; full continuation remains separate |
+| VAS-12b | Own checkpoint cancellation and preserve member recovery evidence | VAS-12a | TODO | G79: inject cancellation during save and sibling execution; retain materialized deliverables, join owned work and expose cancellation honestly. No automatic retry, ambiguous-write replay or premature approval; extend existing concurrent checkpoint/isolation owners |
 | VAS-13 | VS Code migrates to shared SDK/state; secure webview and remote workspace | VAS-09, VAS-10, VAS-11, VAS-12 | TODO | Real ephemeral server + installed VSIX smoke; auth expiry, reconnect, approval, cancellation, capabilities and workspace boundaries |
 | VAS-14 | Web UI migrates to the same API and state semantics | VAS-09, VAS-10, VAS-11, VAS-12 | TODO | Browser smoke against the same server/fixtures as VS Code; embedded Chainlit retains shared service path; remote mode uses API |
 | VAS-14a | Workflow/formation authoring contract and consumer inventory | VAS-03, VAS-05a | TODO | Existing visualizer is not an authoring UI; reuse canonical compiler, coordinator and formation registry; typed validation and versioned save/load |
@@ -377,7 +379,8 @@ Resume prompt:
   discovery and bounded worker admission remain future VAS-07/16 requirements.
   Unknown production effects still require VAS-11c. No released service, provider,
   shared cache or C5 result changed. #1257 is now verified merged; its 39 applicable
-  checks and exact-head review are clean. Continue VAS-12a without replaying VAS-11d.
+  checks and exact-head review are clean. VAS-12a subsequently landed as #1258;
+  do not repeat either increment.
 
 - VAS-12a RED: 15 read/save regressions exposed fresh replay and swallowed storage
   failures; six lane-event cases exposed publication before pause acknowledgement.
@@ -389,4 +392,7 @@ Resume prompt:
   isolation owners; no equivalent regression existed to remove. Checkpointer-free
   defaults remain covered. Commit-before-lost-ack is memory-store fault injection,
   not backend acceptance. G79 records external cancellation, in-flight receipts and
-  safe whole-member continuation limits.
+  safe whole-member continuation limits. #1258 merged as
+  `dcba943b61b970b087bc9b9f8db7fee3e9bc70a9` after 40 successful CI checks and clean review of `f3b3312329e95b6e75c5f28a24c90b90a46fd567`.
+  Trivy was neutral; PR-only documentation deployment and helper publication were
+  non-applicable skips. No release, provider runtime or C5 result changed.
