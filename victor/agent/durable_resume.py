@@ -261,15 +261,19 @@ async def resume_paused_run(
                 # Chained pause: a further ASK fired mid-continuation — park again.
                 import time
 
-                from victor.agent.paused_run_store import record_pause_from_approval
+                from victor.agent.paused_run_store import record_pause_from_approval_async
 
-                awaiting_run_id, awaiting_request = record_pause_from_approval(
+                owner_fields = ("active_session_id", "agent_id", "model")
+                owner = tuple(getattr(orchestrator, name, None) for name in owner_fields)
+                awaiting_run_id, awaiting_request = await record_pause_from_approval_async(
                     getattr(pause, "request", None),
                     session_id=getattr(paused_run, "session_id", None),
                     agent_id=getattr(paused_run, "agent_id", None),
                     created_at=time.time(),
                     metadata={"chained_from": getattr(paused_run, "run_id", None)},
                 )
+                if owner != tuple(getattr(orchestrator, name, None) for name in owner_fields):
+                    raise PermissionError("Approval pause ownership changed during persistence")
                 break
             turns += 1
             response = getattr(turn, "response", None)

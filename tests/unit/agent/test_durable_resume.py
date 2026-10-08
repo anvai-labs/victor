@@ -400,8 +400,30 @@ async def test_current_policy_and_final_payload_are_enforced(store, change, monk
     assert state.effects == []
 
 
-async def test_continuation_loops_and_chained_pause_parks_again(store):
+@pytest.mark.parametrize("changed_owner", [None, "active_session_id", "agent_id"])
+@pytest.mark.parametrize("persistent", [False, True], ids=["custom-store", "project-db"])
+async def test_continuation_loops_and_chained_pause_parks_again(
+    store, tmp_path, monkeypatch, persistent, changed_owner
+):
+    import threading
+    from victor.agent.paused_run_store import ProjectDbPausedRunStore
+
+    if persistent:
+        store = ProjectDbPausedRunStore(tmp_path / "chained.db")
+        set_paused_run_store(store)
     state = await paused_runtime(store)
+    caller_thread = threading.get_ident()
+    save = store.save
+    save_threads = []
+
+    def observed_save(**kwargs):
+        save_threads.append(threading.get_ident())
+        run_id = save(**kwargs)
+        if changed_owner:
+            setattr(state.orch, changed_owner, "other")
+        return run_id
+
+    monkeypatch.setattr(store, "save", observed_save)
     from victor.framework.hitl import ApprovalRequest
 
     request = ApprovalRequest(
@@ -417,10 +439,22 @@ async def test_continuation_loops_and_chained_pause_parks_again(store):
         ),
         ApprovalPause(request),
     ]
-    out = await resume_paused_run(state.orch, state.paused, ApprovalDecision(True))
+    if changed_owner:
+        with pytest.raises(PermissionError, match="ownership changed"):
+            await resume_paused_run(state.orch, state.paused, ApprovalDecision(True))
+        chained = [run for run in store.list_pending() if run.run_id != state.paused.run_id]
+        assert len(chained) == 1
+        assert chained[0].session_id == state.paused.session_id
+        assert chained[0].metadata["chained_from"] == state.paused.run_id
+    else:
+        out = await resume_paused_run(state.orch, state.paused, ApprovalDecision(True))
+        assert out.continuation_turns == 1 and out.awaiting_run_id
+        assert store.get(out.awaiting_run_id).metadata["chained_from"] == state.paused.run_id
     assert state.effects == ["original"]
-    assert out.continuation_turns == 1 and out.awaiting_run_id
-    assert store.get(out.awaiting_run_id).metadata["chained_from"] == state.paused.run_id
+    assert state.orch.turn_executor.execute_turn.await_count == 2
+    assert len(save_threads) == 1
+    assert (save_threads[0] != caller_thread) is persistent
+    assert not current_durable_pause_enabled.get()
 
 
 async def test_missing_result_after_dispatch_never_continues_or_replays(store):

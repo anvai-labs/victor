@@ -1454,7 +1454,14 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   post-v0.12.0 main change, not new backend or live acceptance. See the
   [closeout](victor-agent-service-plan.md) for integration and CI status.
   #1253/G77 moved built-in resume admission off-loop with contention/cancellation
-  evidence. Turn-boundary pause-store calls still need their own blocking-I/O audit.
+  evidence. VAS-11d now covers initial buffered/streamed and chained pause writes
+  in the existing persistence owner (local validation; merge evidence belongs to
+  the [tracker](victor-agent-service-plan.md)). Built-in SQLite saves run off-loop;
+  a pause is published only after save returns and originating runtime identity still
+  matches. Cancellation can leave one pending
+  row after a late commit, without automatic retry or dispatch. Custom stores keep
+  caller-thread semantics. This does not supply lost-ack pause discovery, bounded
+  worker admission, production receipts or full continuation.
 
 - **G63 — workflow HTTP lifecycle is not durable admission or owned cancellation.**
   The inspected routes store in-memory records, launch a background task, expose

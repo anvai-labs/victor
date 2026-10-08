@@ -133,23 +133,27 @@ def _durable_pause_enabled(orchestrator: Any) -> bool:
     return bool(getattr(governance, "durable", False))
 
 
-def _build_awaiting_task_result(orchestrator: Any, pause: Any) -> TaskResult:
+async def _build_awaiting_task_result(orchestrator: Any, pause: Any) -> TaskResult:
     """Convert an :class:`ApprovalPause` into an ``awaiting_approval`` TaskResult (FEP-0029).
 
-    Records a resumable pause in the process-local paused-run store (Phase 1) and returns the
+    Persists a resumable pause before returning the
     ``run_id`` + pending ``approval_request`` on the result so the caller can resume later.
     """
     import time
 
-    from victor.agent.paused_run_store import record_pause_from_approval
+    from victor.agent.paused_run_store import record_pause_from_approval_async
 
-    run_id, req_dict = record_pause_from_approval(
+    owner_fields = ("active_session_id", "agent_id", "model")
+    owner = tuple(getattr(orchestrator, name, None) for name in owner_fields)
+    run_id, req_dict = await record_pause_from_approval_async(
         getattr(pause, "request", None),
-        session_id=getattr(orchestrator, "active_session_id", None),
-        agent_id=getattr(orchestrator, "agent_id", None) or getattr(orchestrator, "model", None),
+        session_id=owner[0],
+        agent_id=owner[1] or owner[2],
         created_at=time.time(),
         metadata={"stage": _resolve_stage_value(orchestrator)},
     )
+    if owner != tuple(getattr(orchestrator, name, None) for name in owner_fields):
+        raise PermissionError("Approval pause ownership changed during persistence")
     return TaskResult(
         content="",
         tool_calls=[],
@@ -370,7 +374,7 @@ async def execute_message(
 
     except ApprovalPause as pause:
         # FEP-0029: the turn parked on a policy ASK. Record a resumable pause and surface it.
-        return _build_awaiting_task_result(orchestrator, pause)
+        return await _build_awaiting_task_result(orchestrator, pause)
     except CancellationError:
         return TaskResult(
             content="",
@@ -403,13 +407,10 @@ async def stream_message_events(
 
     FEP-0029: when durable approval is armed (``governance.durable``), a policy ASK mid-stream raises
     :class:`ApprovalPause`, which is caught here — the pause is recorded (shared
-    ``record_pause_from_approval``) and an ``AWAITING_APPROVAL`` event carrying the resume ``run_id`` +
+    ``record_pause_from_approval_async``) and an ``AWAITING_APPROVAL`` event carrying the resume ``run_id`` +
     ``approval_request`` is yielded before the stream ends, so streaming callers (TUI, SSE) can render
     a paused lane and resume. Disarmed, this is byte-identical to before.
     """
-    import time
-
-    from victor.agent.paused_run_store import record_pause_from_approval
     from victor.framework._internal import stream_with_events
     from victor.framework.approval_pause import ApprovalPause, current_durable_pause_enabled
     from victor.framework.events import awaiting_approval_event
@@ -427,15 +428,8 @@ async def stream_message_events(
         ):
             yield event
     except ApprovalPause as pause:
-        run_id, req_dict = record_pause_from_approval(
-            getattr(pause, "request", None),
-            session_id=getattr(orchestrator, "active_session_id", None),
-            agent_id=getattr(orchestrator, "agent_id", None)
-            or getattr(orchestrator, "model", None),
-            created_at=time.time(),
-            metadata={"stage": _resolve_stage_value(orchestrator)},
-        )
-        yield awaiting_approval_event(run_id, req_dict)
+        result = await _build_awaiting_task_result(orchestrator, pause)
+        yield awaiting_approval_event(result.run_id, result.approval_request)
     finally:
         if _token is not None:
             current_durable_pause_enabled.reset(_token)
