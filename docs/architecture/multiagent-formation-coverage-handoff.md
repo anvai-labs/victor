@@ -1615,6 +1615,15 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   clean exact-head review and all applicable CI gates preceded squash merge
   `ec41c97b4` into develop. It does not close receipt reconciliation/C5.
 
+- **G78 — production effect backends lack action-key receipt adapters.** VAS-11b
+  discovery found no production tool consuming `durable_action_id`. Jira/Slack
+  mutation responses, arbitrary database SQL with volatile connection IDs, shell
+  results and file editing history do not establish an atomic effect/receipt
+  contract. Optional typed capability, bound backend identity and local receipt
+  retention are being implemented under VAS-11b; production adapter qualification
+  remains VAS-11c. A SQLite test adapter is conformance evidence only. Preserve
+  unsupported/unknown outcomes and keep G62/member continuation/C5 open.
+
 Validation-test audit: neither live harness had direct tests before this follow-up.
 The new mixed-harness suite covers rejected/malformed/missing reviews, inclusive
 cache accounting, missing artifacts, bad member usage, pytest timeout, startup and

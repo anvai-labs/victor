@@ -927,6 +927,25 @@ class VictorClient:
             metadata=metadata,
         )
 
+    async def reconcile_action(self, run_id: str, *, timeout_seconds: float = 10) -> Dict[str, Any]:
+        """Verify backend receipt evidence without replaying or continuing a tool.
+
+        Requires an opted-in action and its original trusted tool capability.
+        Unsupported or unknown outcomes never authorize execution. This embedded
+        API uses configured runtime authority; it is not a hosted auth boundary.
+        """
+        if not self._initialized or not self._context:
+            raise RuntimeError("VictorClient not initialized. Call initialize() first.")
+        from victor.agent.action_observation import reconcile_action_receipt
+        from victor.agent.paused_run_store import get_paused_run_store
+
+        return await reconcile_action_receipt(
+            get_paused_run_store(),
+            run_id,
+            getattr(self._agent, "_orchestrator", None),
+            timeout_seconds=timeout_seconds,
+        )
+
     def get_action_status(self, run_id: str) -> Dict[str, Any]:
         """Read action observations for a paused run in the restored original session.
 
@@ -941,6 +960,15 @@ class VictorClient:
         if run is None:
             raise ValueError("Unknown paused run")
         orchestrator = getattr(self._agent, "_orchestrator", None)
+        if run.action is not None and (
+            type(run.action.get("version")) is not int
+            or run.action.get("version") != 1
+            or "recovery" in run.action
+            or run.action.get("backend_receipt") is not None
+        ):
+            from victor.agent.action_observation import require_receipt_access
+
+            require_receipt_access(run, orchestrator)
         if not run.session_id or getattr(orchestrator, "active_session_id", None) != run.session_id:
             raise ValueError("Action status requires the restored original session")
         return {

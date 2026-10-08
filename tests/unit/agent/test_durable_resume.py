@@ -57,7 +57,7 @@ class Controller:
         self.messages.append(SimpleNamespace(role="tool", tool_call_id=call_id, content=content))
 
 
-async def paused_runtime(store, *, argument=None, empty=False, effect_error=None):
+async def paused_runtime(store, *, argument=None, empty=False, effect_error=None, recovery=None):
     effects = []
 
     @tool(access_mode=AccessMode.WRITE)
@@ -77,6 +77,7 @@ async def paused_runtime(store, *, argument=None, empty=False, effect_error=None
         submit_record = empty_record
     registry = ToolRegistry()
     registry.register(submit_record)
+    registry.get("submit_record").action_recovery = recovery
     executor = ToolExecutor(tool_registry=registry, retry_delay=0)
     engine = PolicyEngine([AskOnToolsPolicy({"submit_record"})])
     scope = {"session_id": "s1", "labels": {"role": "operator"}}
@@ -719,3 +720,424 @@ async def test_second_cancel_during_interruption_writes_unknown_detached(tmp_pat
             break
         await asyncio.sleep(0.05)
     assert durable.get(run_id).action["state"] == "unknown"
+
+
+class ReceiptBackend:
+    """Test-only backend: business effect and exact receipt share one SQLite commit."""
+
+    def __init__(self, path):
+        from victor.framework.action_recovery import RecoveryIdentity
+
+        import hashlib
+
+        self.path = path
+        self.identity = RecoveryIdentity(
+            "sqlite-test-v1", "test-account:" + hashlib.sha256(str(path).encode()).hexdigest()
+        )
+        self.lookups = 0
+
+    def commit(self, request, payload):
+        import sqlite3
+
+        with sqlite3.connect(self.path) as db:
+            assert db.execute("PRAGMA synchronous").fetchone()[0] == 2
+            db.execute(
+                "CREATE TABLE IF NOT EXISTS effects (action_id TEXT PRIMARY KEY, "
+                "binding_digest TEXT, payload TEXT)"
+            )
+            db.execute(
+                "INSERT INTO effects VALUES (?, ?, ?)",
+                (request.action_id, request.binding_digest, payload),
+            )
+
+    async def lookup(self, request):
+        import sqlite3
+        from victor.framework.action_recovery import BackendReceipt
+
+        self.lookups += 1
+        with sqlite3.connect(self.path) as db:
+            row = db.execute(
+                "SELECT binding_digest FROM effects WHERE action_id = ?", (request.action_id,)
+            ).fetchone()
+        if row is None:
+            return None
+        return BackendReceipt(
+            request.action_id, row[0], self.identity, "receipt:" + request.action_id
+        )
+
+
+def receipt_client(orch):
+    from victor.framework.client import VictorClient
+
+    client = VictorClient.__new__(VictorClient)
+    client._initialized = True
+    client._context = object()
+    client._agent = SimpleNamespace(_orchestrator=orch)
+    return client
+
+
+async def committed_receipt_runtime(tmp_path, monkeypatch):
+    from victor.agent.paused_run_store import ProjectDbPausedRunStore
+
+    durable = ProjectDbPausedRunStore(tmp_path / "actions.db")
+    set_paused_run_store(durable)
+    backend = ReceiptBackend(tmp_path / "backend.db")
+    state = await paused_runtime(durable, recovery=backend)
+
+    async def commit_then_lose_response(payload, _exec_ctx):
+        request = _exec_ctx["durable_action"]
+        assert request.action_id == _exec_ctx["durable_action_id"]
+        backend.commit(request, payload)
+        state.effects.append(payload)
+        raise TimeoutError("backend committed; response lost")
+
+    monkeypatch.setattr(
+        state.pipeline.executor.tools.get("submit_record"), "execute", commit_then_lose_response
+    )
+    assert durable.mark_resumed(state.paused.run_id)
+    with pytest.raises(ResumeError):
+        await resume_paused_run(
+            state.orch, state.paused, ApprovalDecision(True), action_store=durable
+        )
+    return durable, backend, state
+
+
+async def test_receipt_lookup_after_lost_response_and_store_restart_never_reexecutes(
+    tmp_path, monkeypatch, store
+):
+    from victor.agent.paused_run_store import ProjectDbPausedRunStore
+
+    durable, backend, state = await committed_receipt_runtime(tmp_path, monkeypatch)
+    run_id = state.paused.run_id
+    action = durable.get(run_id).action
+    assert action["version"] == 2
+    assert action["state"] == "unknown" and action["backend_receipt"] is None
+    reopened = ProjectDbPausedRunStore(tmp_path / "actions.db")
+    set_paused_run_store(reopened)
+    # Recreate the adapter too; no in-memory execution observation is recovery proof.
+    backend = ReceiptBackend(tmp_path / "backend.db")
+    state.pipeline.executor.tools.get("submit_record").action_recovery = backend
+    client = receipt_client(state.orch)
+    original_transcript = deepcopy(state.controller.appended)
+    result = await client.reconcile_action(run_id)
+    assert result["status"] == "verified"
+    assert result["action"]["state"] == "unknown"  # Invocation evidence remains honest.
+    assert result["action"]["backend_receipt"]["outcome"] == "committed"
+    assert client.get_action_status(run_id)["action"] == result["action"]
+    assert not reopened.mark_resumed(run_id)
+    assert reopened.purge(before=10**12) == 0
+    assert (await client.reconcile_action(run_id))["action"] == result["action"]
+    assert backend.lookups == 1
+    assert state.effects == ["original"]
+    assert state.controller.appended == original_transcript
+    state.orch.turn_executor.execute_turn.assert_not_awaited()
+
+
+@pytest.mark.parametrize("change", ["session", "authority", "backend", "rbac"])
+@pytest.mark.parametrize("recorded", [False, True])
+async def test_receipt_lookup_and_status_reject_changed_authority(
+    tmp_path, monkeypatch, store, change, recorded
+):
+    from victor.framework.action_recovery import RecoveryIdentity
+
+    durable, backend, state = await committed_receipt_runtime(tmp_path, monkeypatch)
+    client = receipt_client(state.orch)
+    if recorded:
+        await client.reconcile_action(state.paused.run_id)
+    before = durable.get(state.paused.run_id).action
+    if change == "session":
+        state.orch.active_session_id = "other"
+    elif change == "authority":
+        state.pipeline.executor.current_user = "other"
+    elif change == "backend":
+        backend.identity = RecoveryIdentity("sqlite-test-v1", "different-account")
+    else:
+        state.pipeline.executor.rbac_manager = SimpleNamespace(check_tool_access=lambda **kw: False)
+    with pytest.raises(PermissionError):
+        await client.reconcile_action(state.paused.run_id)
+    with pytest.raises(PermissionError):
+        client.get_action_status(state.paused.run_id)
+    assert backend.lookups == int(recorded)
+    assert durable.get(state.paused.run_id).action == before
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        "absent",
+        "error",
+        "timeout",
+        "cancel",
+        "action",
+        "binding",
+        "identity",
+        "untyped",
+        "extended",
+    ],
+)
+async def test_unproven_receipts_cannot_change_the_action(tmp_path, monkeypatch, store, failure):
+    import asyncio
+    from dataclasses import replace
+    from victor.agent.action_observation import ActionStateError
+    from victor.framework.action_recovery import RecoveryIdentity
+
+    durable, backend, state = await committed_receipt_runtime(tmp_path, monkeypatch)
+    original = backend.lookup
+
+    async def lookup(request):
+        if failure == "absent":
+            return None
+        if failure == "error":
+            raise OSError("secret credential must not escape")
+        if failure == "timeout":
+            await asyncio.Event().wait()
+        if failure == "cancel":
+            raise asyncio.CancelledError()
+        receipt = await original(request)
+        if failure == "action":
+            return replace(receipt, action_id="0" * 64)
+        if failure == "binding":
+            return replace(receipt, binding_digest="0" * 64)
+        if failure == "identity":
+            return replace(receipt, identity=RecoveryIdentity("sqlite-test-v1", "other"))
+        if failure == "extended":
+            from dataclasses import make_dataclass
+            from victor.framework.action_recovery import BackendReceipt
+
+            extended = make_dataclass(
+                "ExtendedReceipt",
+                [("raw_response", str, "secret")],
+                bases=(BackendReceipt,),
+                frozen=True,
+            )
+            return extended(
+                receipt.action_id, receipt.binding_digest, receipt.identity, receipt.receipt_id
+            )
+        return receipt.to_dict()
+
+    monkeypatch.setattr(backend, "lookup", lookup)
+    client = receipt_client(state.orch)
+    run_id = state.paused.run_id
+    before = durable.get(run_id).action
+    if failure == "cancel":
+        with pytest.raises(asyncio.CancelledError):
+            await client.reconcile_action(run_id)
+    elif failure in {"action", "binding", "identity", "untyped", "extended"}:
+        with pytest.raises((ActionStateError, PermissionError)):
+            await client.reconcile_action(run_id)
+    else:
+        result = await client.reconcile_action(run_id, timeout_seconds=0.01)
+        assert result["status"] == "unknown"
+        assert (
+            result["reason"]
+            == {"absent": "receipt_absent", "error": "lookup_failed", "timeout": "lookup_timeout"}[
+                failure
+            ]
+        )
+        assert "secret" not in str(result)
+    assert durable.get(run_id).action == before
+    assert state.effects == ["original"]
+    state.orch.turn_executor.execute_turn.assert_not_awaited()
+
+
+@pytest.mark.parametrize("change", ["session", "authority", "capability", "registry", "binding"])
+async def test_receipt_access_is_rechecked_after_lookup(tmp_path, monkeypatch, store, change):
+    import json
+    import sqlite3
+    from copy import copy
+    from victor.agent.action_observation import ActionStateError
+
+    durable, backend, state = await committed_receipt_runtime(tmp_path, monkeypatch)
+    original = backend.lookup
+    tool = state.pipeline.executor.tools.get("submit_record")
+
+    async def lookup(request):
+        receipt = await original(request)
+        if change == "session":
+            state.orch.active_session_id = "other"
+        elif change == "authority":
+            state.pipeline.executor.current_user = "other"
+        elif change == "capability":
+            tool.action_recovery = ReceiptBackend(backend.path)
+        elif change == "registry":
+            replacement = copy(tool)
+            monkeypatch.setattr(state.pipeline.executor.tools, "get", lambda name: replacement)
+        else:
+            pending = deepcopy(state.paused.pending_tool)
+            pending["binding"]["payload"] = "0" * 64
+            with sqlite3.connect(durable.db_path) as db:
+                db.execute(
+                    "UPDATE paused_run SET pending_tool = ? WHERE run_id = ?",
+                    (json.dumps(pending), state.paused.run_id),
+                )
+        return receipt
+
+    monkeypatch.setattr(backend, "lookup", lookup)
+    with pytest.raises((PermissionError, ActionStateError)):
+        await receipt_client(state.orch).reconcile_action(state.paused.run_id)
+    assert durable.get(state.paused.run_id).action["backend_receipt"] is None
+    assert state.effects == ["original"]
+
+
+@pytest.mark.parametrize("conflict", [False, True])
+async def test_concurrent_receipt_lookup_retains_one_immutable_result(
+    tmp_path, monkeypatch, store, conflict
+):
+    import asyncio
+    from dataclasses import replace
+    from victor.agent.action_observation import ActionStateError
+
+    durable, backend, state = await committed_receipt_runtime(tmp_path, monkeypatch)
+    barrier = asyncio.Barrier(2)
+    original = backend.lookup
+
+    async def lookup(request):
+        receipt = await original(request)
+        index = await asyncio.wait_for(barrier.wait(), timeout=2)
+        return replace(receipt, receipt_id=f"receipt:{index}") if conflict else receipt
+
+    monkeypatch.setattr(backend, "lookup", lookup)
+    client = receipt_client(state.orch)
+    results = await asyncio.gather(
+        client.reconcile_action(state.paused.run_id),
+        client.reconcile_action(state.paused.run_id),
+        return_exceptions=True,
+    )
+    assert sum(isinstance(result, ActionStateError) for result in results) == int(conflict)
+    receipts = [
+        result["action"]["backend_receipt"] for result in results if isinstance(result, dict)
+    ]
+    assert len(receipts) == 2 - int(conflict)
+    assert all(
+        receipt == durable.get(state.paused.run_id).action["backend_receipt"]
+        for receipt in receipts
+    )
+    assert state.effects == ["original"] and not durable.mark_resumed(state.paused.run_id)
+
+
+@pytest.mark.parametrize("failure", ["before", "after"])
+async def test_receipt_storage_failure_never_replays_effect(tmp_path, monkeypatch, store, failure):
+    durable, backend, state = await committed_receipt_runtime(tmp_path, monkeypatch)
+    retain = durable.retain_receipt
+
+    def fail(*args):
+        if failure == "after":
+            retain(*args)
+        raise OSError("storage acknowledgement unavailable")
+
+    monkeypatch.setattr(durable, "retain_receipt", fail)
+    client = receipt_client(state.orch)
+    with pytest.raises(OSError):
+        await client.reconcile_action(state.paused.run_id)
+    action = durable.get(state.paused.run_id).action
+    assert (action["backend_receipt"] is not None) == (failure == "after")
+    monkeypatch.setattr(durable, "retain_receipt", retain)
+    assert (await client.reconcile_action(state.paused.run_id))["status"] == "verified"
+    assert state.effects == ["original"]
+    state.orch.turn_executor.execute_turn.assert_not_awaited()
+
+
+async def test_legacy_action_has_no_recovery_capability(tmp_path, store):
+    from victor.agent.paused_run_store import ProjectDbPausedRunStore
+
+    durable = ProjectDbPausedRunStore(tmp_path / "actions.db")
+    set_paused_run_store(durable)
+    state = await paused_runtime(durable, effect_error=TimeoutError())
+    assert durable.mark_resumed(state.paused.run_id)
+    with pytest.raises(ResumeError):
+        await resume_paused_run(
+            state.orch, state.paused, ApprovalDecision(True), action_store=durable
+        )
+    result = await receipt_client(state.orch).reconcile_action(state.paused.run_id)
+    assert result["status"] == "unsupported"
+    assert result["action"]["version"] == 1 and "recovery" not in result["action"]
+    assert state.effects == ["original"]
+
+
+async def test_cancelled_receipt_write_can_commit_without_dispatch_or_disclosure(
+    tmp_path, monkeypatch, store
+):
+    import asyncio
+    import threading
+
+    durable, backend, state = await committed_receipt_runtime(tmp_path, monkeypatch)
+    entered, release, finished = threading.Event(), threading.Event(), threading.Event()
+    retain = durable.retain_receipt
+
+    def delayed(*args):
+        entered.set()
+        try:
+            assert release.wait(3), "receipt worker release timed out"
+            return retain(*args)
+        finally:
+            finished.set()
+
+    monkeypatch.setattr(durable, "retain_receipt", delayed)
+    client = receipt_client(state.orch)
+    task = asyncio.create_task(client.reconcile_action(state.paused.run_id))
+    try:
+        assert await asyncio.to_thread(entered.wait, 2)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    finally:
+        release.set()
+        await asyncio.gather(task, return_exceptions=True)
+        assert await asyncio.to_thread(finished.wait, 2)
+    assert durable.get(state.paused.run_id).action["backend_receipt"] is not None
+    assert (await client.reconcile_action(state.paused.run_id))["status"] == "verified"
+    assert backend.lookups == 1 and state.effects == ["original"]
+    state.orch.turn_executor.execute_turn.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    "corruption",
+    ["legacy", "future", "boolean", "receipt_action", "receipt_binding", "receipt_backend"],
+)
+async def test_status_and_reconciliation_reject_corrupt_receipt_records(
+    tmp_path, monkeypatch, store, corruption
+):
+    import json
+    import sqlite3
+    from victor.agent.action_observation import ActionStateError
+
+    durable, backend, state = await committed_receipt_runtime(tmp_path, monkeypatch)
+    client = receipt_client(state.orch)
+    await client.reconcile_action(state.paused.run_id)
+    action = durable.get(state.paused.run_id).action
+    if corruption in {"legacy", "future", "boolean"}:
+        action["version"] = {"legacy": 1, "future": 3, "boolean": True}[corruption]
+    elif corruption == "receipt_action":
+        action["backend_receipt"]["action_id"] = "0" * 64
+    elif corruption == "receipt_binding":
+        action["backend_receipt"]["binding_digest"] = "0" * 64
+    else:
+        action["backend_receipt"]["identity"]["backend_id"] = "wrong"
+    with sqlite3.connect(durable.db_path) as db:
+        db.execute(
+            "UPDATE paused_run SET action_record = ? WHERE run_id = ?",
+            (json.dumps(action), state.paused.run_id),
+        )
+    with pytest.raises((PermissionError, ActionStateError)):
+        client.get_action_status(state.paused.run_id)
+    with pytest.raises((PermissionError, ActionStateError)):
+        await client.reconcile_action(state.paused.run_id)
+    assert backend.lookups == 1
+
+
+async def test_recovery_backend_change_after_approval_blocks_dispatch(tmp_path, store):
+    from victor.agent.paused_run_store import ProjectDbPausedRunStore
+    from victor.framework.action_recovery import RecoveryIdentity
+
+    durable = ProjectDbPausedRunStore(tmp_path / "actions.db")
+    set_paused_run_store(durable)
+    backend = ReceiptBackend(tmp_path / "backend.db")
+    state = await paused_runtime(durable, recovery=backend)
+    backend.identity = RecoveryIdentity("sqlite-test-v1", "different-account")
+    assert durable.mark_resumed(state.paused.run_id)
+    with pytest.raises(ResumeError):
+        await resume_paused_run(
+            state.orch, state.paused, ApprovalDecision(True), action_store=durable
+        )
+    assert state.effects == []
+    assert durable.get(state.paused.run_id).action is None

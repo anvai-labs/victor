@@ -220,3 +220,45 @@ def test_schema_failure_releases_connection_and_allows_retry(tmp_path, monkeypat
             store.get("missing")
     connection.close.assert_called_once()
     assert store.get("missing") is None
+
+
+@pytest.mark.parametrize("receipt_first", [False, True])
+def test_receipt_and_invocation_observation_preserve_each_others_evidence(tmp_path, receipt_first):
+    from concurrent.futures import ThreadPoolExecutor
+    import threading
+    from victor.framework.action_recovery import ActionLookup, BackendReceipt, RecoveryIdentity
+
+    store = _store(tmp_path)
+    run_id, binding = _claimed_action(store)
+    identity = RecoveryIdentity("test-adapter-v1", "tenant:test-ledger")
+    action = store.begin_action(run_id, binding, recovery=identity.to_dict())
+    request = ActionLookup(action["action_id"], action["binding_digest"], identity)
+    receipt = BackendReceipt(request.action_id, request.binding_digest, identity, "receipt-1")
+    first_committed = threading.Event()
+
+    def write_receipt():
+        if not receipt_first:
+            assert first_committed.wait(3)
+        try:
+            return _store(tmp_path).retain_receipt(run_id, request, receipt)
+        finally:
+            if receipt_first:
+                first_committed.set()
+
+    def write_observation():
+        if receipt_first:
+            assert first_committed.wait(3)
+        try:
+            return _store(tmp_path).observe_action(run_id, request.action_id, "returned", True)
+        finally:
+            if not receipt_first:
+                first_committed.set()
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        a, b = pool.submit(write_receipt), pool.submit(write_observation)
+        a.result(timeout=5)
+        b.result(timeout=5)
+    saved = _store(tmp_path).get(run_id)
+    assert saved.action["state"] == "returned" and saved.action["reported_success"] is True
+    assert saved.action["backend_receipt"] == receipt.to_dict()
+    assert saved.status == "resumed" and not store.mark_resumed(run_id)

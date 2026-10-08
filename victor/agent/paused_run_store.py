@@ -239,11 +239,19 @@ class ProjectDbPausedRunStore:
                 conn.rollback()
                 raise
 
-    def begin_action(self, run_id: str, binding: Dict[str, Any]) -> Dict[str, Any]:
+    def begin_action(
+        self, run_id: str, binding: Dict[str, Any], *, recovery: Dict[str, Any] | None = None
+    ) -> Dict[str, Any]:
         """Atomically persist intent; an existing intent never authorizes replay."""
         from victor.agent.action_observation import begin_record
 
-        return self._change_action(run_id, lambda run: begin_record(run, binding))
+        return self._change_action(run_id, lambda run: begin_record(run, binding, recovery))
+
+    def retain_receipt(self, run_id: str, request: Any, receipt: Any) -> Dict[str, Any]:
+        """Compare and retain immutable backend evidence; never reopen or dispatch."""
+        from victor.agent.action_observation import retain_receipt_record
+
+        return self._change_action(run_id, lambda run: retain_receipt_record(run, request, receipt))
 
     def observe_action(
         self, run_id: str, action_id: str, state: str, reported_success: Optional[bool]
