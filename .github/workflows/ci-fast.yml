@@ -411,7 +411,7 @@ jobs:
           else
             changed=true
           fi
-          if printf '%s\n' "${files:-}" | grep -Eq '^(vscode-victor/|\.github/workflows/(build|ci-fast|release)\.yml$)'; then
+          if printf '%s\n' "${files:-}" | grep -Eq '^(vscode-victor/|web/server/|victor/integrations/api/|victor/config/|victor/framework/wire_events\.py$|tests/unit/framework/test_wire_events[^/]*\.py$|tests/unit/api/test_vscode_extension_contract\.py$|tests/unit/framework/test_web_server_boundary\.py$|\.github/workflows/(build|ci-fast|release)\.yml$)'; then
             changed=true
           fi
           echo "changed=$changed" >> "$GITHUB_OUTPUT"
@@ -441,6 +441,16 @@ jobs:
           cd ..
           xvfb-run -a npm test
           npx vsce package --no-dependencies
+
+      - name: Verify compiled VS Code client against real HTTP routers
+        if: steps.vscode-changes.outputs.changed == 'true'
+        env:
+          VICTOR_REQUIRE_VSCODE_HTTP_SMOKE: "1"
+          VICTOR_ENABLE_MLX_PROVIDER: "0"
+        run: |
+          python -m venv .venv-codesign
+          .venv-codesign/bin/python -m pip install -e ./victor-contracts -e ".[api]" pytest pytest-asyncio pytest-cov
+          .venv-codesign/bin/python -m pytest tests/unit/api/test_vscode_extension_contract.py tests/unit/framework/test_web_server_boundary.py --no-cov -q
 
       - name: Check archive/victor-legacy guard
         if: github.event_name == 'pull_request'
@@ -557,7 +567,7 @@ jobs:
             exit 0
           fi
           echo "Running ${#TARGETS[@]} changed-file test target(s):"; printf '  %s\n' "${TARGETS[@]}"
-          pytest "${TARGETS[@]}" \
+          python -m pytest "${TARGETS[@]}" \
             -m "not slow" \
             --tb=short \
             -q \

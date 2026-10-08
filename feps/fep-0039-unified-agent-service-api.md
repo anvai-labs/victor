@@ -4,7 +4,7 @@ title: "Unified agent-service API for web, IDE and automation clients"
 type: Standards Track
 status: Draft
 created: 2026-10-07
-modified: 2026-10-07
+modified: 2026-10-08
 authors:
   - name: Vijaykumar Singh
     email: vijay@anvaiops.com
@@ -50,6 +50,14 @@ Preserve those investments. Neither implementation alone establishes safe,
 durable, multi-principal agent-as-a-service behavior under concurrent use.
 
 ## Boundaries and ownership
+
+Victor supplies the reusable OSS runtime, agent-service contracts, generic
+security/policy and UI/SDK building blocks. AnvaiOps supplies the commercial
+product shell, managed operations, entitlements/billing and product integration
+through those public APIs. OSS security and standalone usage remain available
+without a private control-plane deployment; commercial integration acceptance
+is not a prerequisite for an OSS release. Sandhi and InferFlux retain ownership
+of their respective gateway and inference building blocks.
 
 | Owner | Responsibility |
 | --- | --- |
@@ -106,6 +114,14 @@ canonical derivation, and transport IDs remain distinct from logical action IDs.
 
 ## Authentication and deployment
 
+Kanidm is the selected OIDC provider. The [authentication and authorization
+policy design](../docs/architecture/victor-agent-service-auth-policy.md) specifies
+OIDC plus explicit scoped API-key access, one verified-principal boundary,
+deny-by-default resource/action grants and existing tool/approval enforcement.
+It records Sandhi/InferFlux co-design evidence and remaining deployment gates;
+it does not claim either service's existing login authorizes Victor resources.
+
+
 Hosted users use configured OIDC with verified issuer, audience, signature and
 expiry; principal/role checks apply to HTTP, events and adapters. Browser cookies
 need CSRF controls; VS Code uses extension-host authentication and SecretStorage.
@@ -134,6 +150,11 @@ major versions fail clearly. Remove legacy protocol adapters, GraphQL surfaces
 or dormant commands only after consumer inventory, parity and a deprecation plan.
 
 ## Validation and performance
+
+The [technology decision](../docs/architecture/victor-agent-service-technology.md)
+retains typed async Python orchestration, TypeScript UI/SDKs and measured Rust
+compute. Shared semantic theme tokens align Victor, Sandhi, Sandesha and AnvaiOps
+without requiring a common frontend framework or a new backend runtime.
 
 TDD extends existing owners with consumer-provider fixtures and failures before
 repairs. Required cases include the 422 mismatch, lost approval fields, false

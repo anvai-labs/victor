@@ -1570,8 +1570,9 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
 
 - **G73 — shared agent-service API and IDE/web lifecycle parity (2026-10-07 audit; open).**
   The current VS Code `streamChat()` body matches the separate `web/server`
-  application, but returns HTTP 422 from `victor serve`; path-only contract tests
-  do not detect it. Compiled-client transport probes also reproduce lost paused
+  application; the original audit reproduced HTTP 422 from `victor serve`.
+  VAS-03a now has a local repair and executable client/router regression;
+  final PR/merge proof belongs in the VAS tracker. Compiled-client transport probes also reproduce lost paused
   run fields, premature-EOF success and false cancellation acknowledgement.
   Event authentication and session/principal ownership differ between surfaces.
   The [audit](../development/victor-agent-service-audit.md) records source and
@@ -1580,6 +1581,27 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   owns implementation status and TDD/smoke sequencing. Reuse G61/G62/G70 approval,
   action and member owners; no parallel lifecycle/dispatch registry. Local
   extension activation/package passes do not close this gap or C5.
+
+- **G74 — web backend startup/auth settings migration (2026-10-08; local repair, merge pending).**
+  Importing `web/server/main.py` fails because it reads removed flat server/render
+  settings. Credentials now live as `SecretStr` under `settings.server`; signing
+  and authentication must unwrap the real value. VAS-03a adds executable startup,
+  HMAC/authentication and compiled-client HTTP tests; source/release acceptance
+  remain separate. Track final PR/merge evidence in the [VAS ledger](victor-agent-service-plan.md).
+
+- **G75 — workflow authoring and headed browser acceptance (2026-10-08; open).**
+  Existing workflow HTML is an execution visualizer, not a formation/workflow
+  authoring surface. AgentBrowser 1.15.2 advertises no drag action and its egress
+  policy restricts page WS/SSE. VAS-14a–d own canonical authoring, accessible
+  drag/drop, browser co-design and actual headed acceptance; graph layout changes
+  and polling must not be mislabeled as authoring or streaming proof.
+
+- **G76 — end-to-end caller delegation to Sandhi (2026-10-08; open).**
+  Victor's inbound user attribution and configured outbound workload credentials
+  are separate. Sandhi correctly rejects wrong-audience tokens and forged subject
+  headers, then selects an authorized grant/vault credential. VAS-05e/f own verified
+  delegation and immutable per-run credentials; current shared-workload usage is
+  not human-scoped gateway authorization. Preserve issuer-qualified identities.
 
 Validation-test audit: neither live harness had direct tests before this follow-up.
 The new mixed-harness suite covers rejected/malformed/missing reviews, inclusive

@@ -666,8 +666,8 @@ export class VictorClient {
         }
     }
 
-    /** Chat session continuity: populated from the X-Session-Id response
-     *  header of `/chat/stream` and echoed back as `session_id`. */
+    /** Web backend continuity: populated from X-Session-Id and echoed as
+     *  session_id. The core server does not implement this session contract. */
     getChatSessionId(): string | null {
         return this.chatSessionId;
     }
@@ -748,14 +748,17 @@ export class VictorClient {
         onEvent?: (event: StreamEvent) => void
     ): Promise<void> {
         try {
-            // v1 wire contract: the server owns conversation history per
-            // session, so only the newest user message goes up, plus the
-            // session id captured from a prior response's X-Session-Id.
+            // Compatibility with the two existing request contracts: core
+            // consumes messages; the web backend consumes message/session_id.
+            // Derive one turn once; neither server should replay client history.
+            // This is one dispatch, not a retry on a guessed server protocol.
             const latestUser = [...messages].reverse().find((m) => m.role === 'user');
-            const body: Record<string, unknown> = { message: latestUser?.content ?? '' };
-            if (this.chatSessionId) {
-                body.session_id = this.chatSessionId;
-            }
+            const content = latestUser?.content ?? '';
+            const body = {
+                messages: [{ role: 'user', content }],
+                message: content,
+                ...(this.chatSessionId ? { session_id: this.chatSessionId } : {}),
+            };
             const response = await this.client.post('/chat/stream', body, {
                 responseType: 'stream',
             });
