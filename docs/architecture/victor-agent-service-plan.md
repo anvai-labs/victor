@@ -1,9 +1,9 @@
 ---
 plan_id: VAS-2026-10
 status: active
-updated: 2026-10-07
-baseline_develop: b8e195cc68e009c68b2cfc9b96ac8cf5b74bef84
-next_task: VAS-02
+updated: 2026-10-08
+baseline_develop: 470c9ccdcb222dcfd8acce5b4c52fb27321ac952
+next_task: VAS-03a
 ---
 
 # Victor shared agent-service implementation plan and tracker
@@ -61,10 +61,11 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
-- Fetched develop: `b8e195cc68e009c68b2cfc9b96ac8cf5b74bef84` (#1250 merged).
-- Worktree: `/private/tmp/victor-vscode-dependencies`; branch
-  `fix/vscode-security-locks`. Source publication status comes from that branch's
-  PR; see the append-only checkpoint/evidence records below.
+- Fetched develop: `470c9ccdcb222dcfd8acce5b4c52fb27321ac952` (#1251 merged).
+- Owner: current Victor stream-contract session. Worktree:
+  `/private/tmp/victor-stream-contract`; branch `fix/vscode-stream-request-parity`.
+  Next action: finish independent review and publish the locally validated stream
+  repair plus expanded plan; no new public API in this increment.
 - Root checkout remains on main; another session's `fix-inferflux-codesign`
   worktree is not owned by this plan. Do not modify or remove it.
 - Local default Node upgraded to 24.21.0. This is the build/tooling runtime;
@@ -72,25 +73,34 @@ edit. A mock test is not live provider or C5 evidence.
 - Original WS-A–WS-I: **9/9 landed**. C5, G61/G62/G70 and other recorded lifecycle
   gaps remain open; this plan adds no formation passes.
 - Durable local recovery copy: `var/session-closeout-2026-10-07/vscode-api-audit/`
-  in the root checkout. It contains a patch, reports, logs and hashes; it is ignored
+  in the root checkout; this increment uses
+  `var/session-closeout-2026-10-08-stream-contract/`. These contain patches,
+  reports, logs and hashes; the archives are ignored
   by Git and machine-local. Remote Git/PR records are the cross-machine authority.
 
 ## Work ledger
 
-Planning/evidence: VAS-00 is accepted; VAS-01 is locally authored pending publication.
-Delivery: VAS-02 has local passes; VAS-03–VAS-20 remain TODO. These counts are not
+Planning/evidence: VAS-00 is accepted; VAS-01 is merged.
+Delivery: VAS-02 is merged; VAS-03a has local passes; other implementation rows remain TODO. These counts are not
 an effort-weighted completion percentage. The original formation denominator is
 independent. Update this paragraph and the rows together at each checkpoint.
 
 | ID | Milestone / bounded scope | Depends on | State | Evidence / next action |
 | --- | --- | --- | --- | --- |
 | VAS-00 | Audit current API shapes and reproduce boundary defects | — | ✅ ACCEPTED | Audit: real core router returns 422; compiled TS stub probes show approval loss, EOF success and false cancellation; independent review corrected binding/ownership details |
-| VAS-01 | Publish FEP, plan, roadmap/gap links and reboot handoff | VAS-00 | LOCAL_PASS | This document + Draft FEP-0039; verify docs, review and publish with current coherent PR; update merge proof at next checkpoint |
-| VAS-02 | Node 24, dependency remediation and real activation/package smoke | — | LOCAL_PASS | 999 host + 50 unit tests; audits zero; production VSIX built; finish exact-candidate review/CI/merge |
+| VAS-01 | Publish FEP, plan, roadmap/gap links and reboot handoff | VAS-00 | ✅ MERGED | [#1251](https://github.com/anvai-labs/victor/pull/1251), `470c9ccdcb222dcfd8acce5b4c52fb27321ac952`; all applicable checks green; FEP remains Draft |
+| VAS-02 | Node 24, dependency remediation and real activation/package smoke | — | ✅ MERGED | [#1251](https://github.com/anvai-labs/victor/pull/1251), `470c9ccdcb222dcfd8acce5b4c52fb27321ac952`; 999 host + 50 unit tests; audits zero; packaged VSIX activation/106 commands passed |
 | VAS-03 | Agree contract/FEP and consumer inventory; repair streaming request parity | VAS-01, VAS-02 | TODO | Accept FEP before new public API; preserve FEP-0037/0038 classify/model-effort contracts; extend existing contract owner, RED actual TS body vs real router, then explicit compatibility adapter |
+| VAS-03a | Repair existing VS Code streaming request compatibility | VAS-01, VAS-02 | LOCAL_PASS | Core 422 and web startup regression reproduced; repaired client and settings; 13 real HTTP/config tests, 352 affected tests, 54 TS unit tests, 999 host tests; review/CI/merge pending; parent/FEP acceptance remains open |
 | VAS-04 | Typed client outcomes: paused run, terminal EOF, cancellation acknowledgement | VAS-03 | TODO | Preserve status/run/approval; reject incomplete streams; consume negative cancellation body; no new approval store |
 | VAS-05 | Shared authentication and per-resource principal authorization | VAS-03 | TODO | HTTP/events parity, no placeholder tokens, OIDC hosted posture and explicit scoped machine/local modes; reject cross-owner access |
-| VAS-06 | Canonical session ownership and bounded admission | VAS-05 | TODO | Port/reuse web store semantics; scope by principal/workspace, concurrent-turn policy, pre-initialization admission and restart contract |
+| VAS-05a | Strict verified-principal and resource/action policy contracts | VAS-03 | TODO | [Kanidm/API-key policy design](victor-agent-service-auth-policy.md); deny overrides, credential-scope ceiling, ownership and no cross-grant widening; design only |
+| VAS-05b | Kanidm access-token and scoped key authentication | VAS-05a | TODO | Dedicated verified registration/discovery; no alternate-auth fallback; expiry/revocation/rotation, group provenance; same principal contract |
+| VAS-05c | Enforce authorization through every resource/transport | VAS-05b, VAS-06 | TODO | Owner/workspace/tenant checks on HTTP/SSE/WS and delegation; existing tool/approval owners remain authoritative |
+| VAS-05d | Login UX, Kanidm provisioning and deployment acceptance | VAS-05c | TODO | Browser/IDE login and service-key positive/negative smokes; verified DS3 setup, roles, recovery and documented revocation bounds |
+| VAS-05e | Victor/Sandhi identity propagation and delegation contract | VAS-05a | TODO | Co-design separate initiator/actor/provider identity; verify Kanidm exchange capability, scoped delegation, audience and revocation; shared workload attribution is intermediate only |
+| VAS-05f | Implement immutable per-run gateway credential binding and delegation | VAS-05c, VAS-05e, VAS-06 | TODO | Two-user concurrency, no shared credential mutation, grant/model denial, rotation/revocation and actual identity/accounting joins |
+| VAS-06 | Canonical session ownership and bounded admission | VAS-05b | TODO | Port/reuse web store semantics; scope by principal/workspace, concurrent-turn policy, pre-initialization admission and restart contract |
 | VAS-07 | Durable run admission, identity and status | VAS-06 | TODO | Reuse existing durable owners; same-key dedup/content conflict, reliable dispatch and honest recorded outcomes |
 | VAS-08 | Canonical FastAPI composition and web compatibility entry point | VAS-03, VAS-06, VAS-07 | TODO | One route/service owner; port web wire/session behavior, preserve supported old requests and startup entry points |
 | VAS-09 | Authoritative schemas and generated shared TS SDK | VAS-08 | TODO | OpenAPI/event schema generation, runtime boundary validation, deterministic generation and compatibility tests |
@@ -99,12 +109,22 @@ independent. Update this paragraph and the rows together at each checkpoint.
 | VAS-12 | Complete member continuation and cancellation lifecycle | VAS-11 | TODO | G61/G63/G70: restore completed batches, no whole-member replay; own cancellation and preserve partial effects |
 | VAS-13 | VS Code migrates to shared SDK/state; secure webview and remote workspace | VAS-09, VAS-10, VAS-11, VAS-12 | TODO | Real ephemeral server + installed VSIX smoke; auth expiry, reconnect, approval, cancellation, capabilities and workspace boundaries |
 | VAS-14 | Web UI migrates to the same API and state semantics | VAS-09, VAS-10, VAS-11, VAS-12 | TODO | Browser smoke against the same server/fixtures as VS Code; embedded Chainlit retains shared service path; remote mode uses API |
+| VAS-14a | Workflow/formation authoring contract and consumer inventory | VAS-03, VAS-05a | TODO | Existing visualizer is not an authoring UI; reuse canonical compiler, coordinator and formation registry; typed validation and versioned save/load |
+| VAS-14b | Drag/drop plus accessible workflow and formation editor | VAS-14a, VAS-09 | TODO | Node/edge editing, all registered formation choices, bounded workflow styles, undo/redo, stable definition hash, reload and keyboard parity; no second runtime |
+| VAS-14c | AgentBrowser drag and transport co-design capability | VAS-14a | TODO | Current 1.15.2 catalog has no drag primitive and policy restricts WS/SSE; add supported capability or record blocker, never silently substitute pointer/stream proof |
+| VAS-14d | Headed OIDC workflow→Victor→Sandhi→provider demo | VAS-14b, VAS-14c, VAS-14e, VAS-05d, VAS-05f, VAS-11, VAS-12 | TODO | AgentBrowser snapshots + exact definition + verified execution/approval/cancel + human/actor/accounting joins; deterministic then released-provider acceptance |
+| VAS-14e | Victor adapter for AnvaiOps/Sandesha/Sandhi family theme and bundled UI assets | VAS-14a, VAS-21a | TODO | Pinned semantic token source/adapters and drift guard; ink/teal, light/dark/high-contrast, responsive/keyboard/reduced motion; headed visual/functional snapshots; OSS/commercial boundary |
 | VAS-15 | GraphQL/MCP/legacy adapter convergence and deprecation | VAS-08, VAS-13, VAS-14 | TODO | Inventory external consumers, policy/attribution parity; one owner, compatibility window; retire only evidenced duplicates |
 | VAS-16 | Measured performance and broader lifecycle acceptance | VAS-12, VAS-13, VAS-14, VAS-15 | TODO | Same-workload baseline/comparison; cold/warm, 1/8/32 concurrency, memory/backpressure, deadlines and crash/recovery |
 | VAS-17 | Released foundation deployment and lifecycle acceptance for C5 | VAS-02, VAS-11, VAS-12 | TODO | Full green promotion/release CI, artifact/binary/source/config IDs and rollback; verify released Sandhi/InferFlux readiness without clearing cache |
 | VAS-18 | Full mixed-team C5 verdict | VAS-17 | TODO | Six-Qwen/one-ZAI harness; unchanged deliverable/pytest/session/accounting gates; reviewed verdict on InferFlux #184 |
 | VAS-19 | Matched formation cohorts and remaining semantics | VAS-18 | TODO | Preserve ZAI reference, simpler explicitly labelled local tasks, all 12 formations + 3 policies; G72 opt-in strict hierarchy separately |
-| VAS-20 | Shared API/UI main promotion and release | VAS-16, VAS-17 | TODO | Full green promotion/release CI; publish server/SDK/VSIX/docs and compatibility matrix; verify installed artifacts |
+| VAS-20 | Shared API/UI main promotion and release | VAS-16, VAS-17, VAS-14d, VAS-21c | TODO | Full green promotion/release CI; publish server/SDK/VSIX/docs and compatibility matrix; verify installed artifacts |
+| VAS-21 | Cohesive product-family UI across Victor, Sandhi, Sandesha and AnvaiOps | VAS-00 | TODO | Parent stays open until shared token ownership, product adapters and cross-product acceptance pass; existing standalone OSS deployment remains supported |
+| VAS-21a | Review/version shared semantic token contract and publication boundary | VAS-00 | TODO | AnvaiOps source, Sandesha alignment, licenses/provenance, generated CSS adapters and drift check; no private checkout dependency |
+| VAS-21b | Align Sandhi dashboard with the family theme | VAS-21a | TODO | Sandhi-owned linked worktree/PR; adapt existing dashboard CSS/JS; preserve OIDC/key/public-read modes, protected controls, real data/empty/error states, responsive accessibility and standalone packaging |
+| VAS-21c | Cross-product visual, identity and commercial-shell acceptance | VAS-14e, VAS-21b, VAS-05d | TODO | Headed AgentBrowser snapshots and actions on released artifacts; same brand/navigation, distinct audience/roles, no session/credential leakage; verify AnvaiOps/Sandesha current owner changes before adoption |
+| VAS-22 | Technology allocation and measured compute qualification | VAS-00 | TODO | [Decision](victor-agent-service-technology.md): TS clients, async Python orchestration, existing Rust compute path; document baseline/SLOs in VAS-16 and qualify only measured hotspots; no rewrite assumed |
 
 **Two delivery paths:** VAS-11 → VAS-12 → VAS-17 → VAS-18 preserves the original
 framework/C5 mission and does not wait for GraphQL deprecation or either UI
@@ -120,6 +140,63 @@ If scope exceeds a reviewable increment, add child IDs (for example VAS-05a/b)
 with explicit acceptance before coding; the parent stays open until all children
 pass. Avoid cross-row feature bundles. Independent work may overlap only with
 separate file ownership and recorded coordination, never shared mutable branches.
+
+
+## Scope reconciliation and repository ownership
+
+This matrix maps the requests accumulated across sessions to delivery owners. It
+is an index into the ledger and existing handoffs, not a second status table.
+Historical claims must be reverified against exact source, release and runtime
+identities before they satisfy a current gate. Repository ownership names below
+are responsibilities; an ACTIVE claim still needs a named session and branch.
+
+| Requested outcome / insight | Authoritative task or evidence owner | Completion test / boundary |
+| --- | --- | --- |
+| WS-A through WS-I, nomenclature, orphan integration and unique formations | Formation handoff, VAS-19 | Preserve landed PR references; audit 12 formations/3 policies and duplicate semantics before additions; no invented new denominator |
+| Exact approvals, durable action reconciliation and member continuation | VAS-11/12, G61/G62/G70 | Crash/commit-with-lost-response, stale approval and whole-member replay negative cases; verified effects before success |
+| Every API/client tells the same truth | VAS-03/04/06–10/13–15 | Same principal/session/run/outcome semantics; stream EOF is not success; explicit compatibility/deprecation |
+| Agent-as-service with Kanidm, scoped keys and authorization policy | VAS-05a–d | Browser/native/workload registrations, denial/expiry/revocation, workspace ownership and operator setup documentation |
+| User → Victor → Sandhi → provider identity | VAS-05e/f; Sandhi auth owner | Immutable initiator/actor binding and scoped delegation; workload attribution alone is not human authorization |
+| Sandhi embedded library and optional external gateway | VAS-05e/f/17; Sandhi owner | Explicit capability/profile matrix, identical accounting contracts, no failure-driven bypass |
+| Shared OIDC mechanism reuse | VAS-05a/b/e; Sandesha/Sandhi candidate owner | Review candidate HOLD/release/security constraints before reuse; product authorization stays distinct |
+| Theme and coherent commercial product experience | VAS-14e/21a–c; each product owner | Ink/teal semantic tokens, provenance/drift, accessibility and headed functional snapshots; no OSS dependence on private product code |
+| Actual drag/drop workflow and formation authoring | VAS-14a/b/d | Versioned canonical graph, save/reload/hash, keyboard parity and actual execution; layouts alone do not qualify |
+| AgentBrowser headed actions and evidence | VAS-14c/d/21c; AgentBrowser owner | Supported drag primitive and approved stream transport, isolated users, screenshots plus semantic outcome assertions |
+| Python vs TypeScript vs Rust and compute placement | VAS-22/16, native strategy | Keep existing owners; bounded async waits, no event-loop blocking, measured native/IPC trade-off and packaging parity |
+| Dual AMD/NVIDIA models and embeddings | VAS-17; InferFlux deployment/placement owner | Released build and pinned model/device/config identity; concurrent generation/embeddings and readiness on actual consolidated endpoint |
+| Endpoint admission/rate limits and gateway deadlines | VAS-17/16; Sandhi/InferFlux owners | Measure passages/tokens/concurrency, not guessed requests/second; document model/global deadlines, timeouts as failures; preserve rollback |
+| Cache counts, tokenizer units, session/request tracing and conservation | VAS-17/18; TD-0028, InferFlux #184 | Wire/SQLite/C4/dashboard joins, reporting coverage distinct from executed reuse; preserve original failed and passing evidence |
+| Sandhi terminal observations, settlement and lifecycle recovery | VAS-17; Sandhi owner and latest durable-settlement handoff | Reverify released behavior for streaming, cancellation, process death and bounded recovery; source merge is insufficient |
+| Six-Qwen/one-ZAI full mixed-team C5 | VAS-18, InferFlux #184 | Unchanged harness, member artifacts + task pytest + distinct sessions + accounting; no replay of passing five-call probe just to regenerate it |
+| Better model first, then simpler local-model cohorts | VAS-19 | ZAI reference then labelled simpler Qwen tasks; model swaps require measured task evidence and InferFlux placement acceptance |
+| Research evidence and best-practice audit | VAS-03/11/12/22; formation gaps | Reconcile existing audit/PDF findings, use supplied arXive API for relevant unanswered design questions; record paper/version, applicability and rejected recommendations, no speculative framework proliferation |
+| Node/dependency/VS Code release health | VAS-02/13/20; dependency PR owner | Installed VSIX, supported runtime, audits and packaged smoke; fetch/review outstanding PRs before superseding them |
+| MkDocs/GitHub Pages, main promotion and consistent releases | VAS-17/20; release owners | Documentation build/link/deployment, matching package/binary/source versions, post-release installed smoke; do not equate develop merge with published release |
+| Reboot-safe work, upstream freshness and parallel-session reconciliation | Checkpoint protocol below, every ACTIVE owner | Remote PR evidence plus sanitized durable archive; fetch first, FF where possible, rebase only unpublished work or merge published ancestry without force-push |
+
+## Delivery order and progress accounting
+
+1. Finish the isolated VAS-03a repair and preserve its regression evidence.
+2. Close the remaining contract/identity decisions and framework recovery gates
+   (VAS-03/05a/e and VAS-11/12). Shared token review VAS-21a and Sandhi theme work
+   VAS-21b can proceed independently; theme work does not delay C5 foundations.
+3. Verify released Sandhi/InferFlux lifecycle/admission/settlement and execute
+   C5 through VAS-17/18. Maintain timeout and failed-evidence semantics.
+4. Build authenticated ownership/durable admission and the shared SDK/API, then
+   migrate editor/browser clients and add actual workflow authoring. Use VAS-14a's
+   small TypeScript/Svelte reuse spike before selecting graph UI dependencies.
+5. Complete headed identity/authoring/product-family acceptance, measured capacity,
+   formation cohorts, docs, main promotion and installed release verification.
+
+Critical controls precede UI convenience and speculative acceleration. Independent
+work need not wait for unrelated roadmap milestones, but its own gates still apply.
+There are no calendar or effort estimates yet: the evidence does not support a
+credible total-project percentage. Report separately (a) original WS 9/9 landed,
+(b) leaf tasks merged, (c) released and (d) live acceptance cases passed/total with
+failed/blocked/not-run counts. Never count both a parent and its children or use
+source completion as a proxy for C5/model quality. Before claiming full closure,
+all requested outcomes above must have accepted evidence or an explicit,
+user-approved scope change; a TODO plan entry is not delivery.
 
 ## TDD and test ownership
 
@@ -283,3 +360,108 @@ Resume prompt:
 > VAS item using TDD in the existing test owner, real-server/packaged-client smokes,
 > independent review and all CI gates. Update the ledger/evidence each milestone.
 > Preserve G61/G62/G70/C5 limits, credentials, shared caches and other sessions.
+
+### Checkpoint 2026-10-08-VAS-03a-claim
+
+- Verified #1251 merged into develop at `470c9ccdcb222dcfd8acce5b4c52fb27321ac952`;
+  41 SUCCESS, Trivy NEUTRAL, PR Pages deploy SKIPPED; no failed/pending checks.
+- No open PRs at claim time. Other session worktree is preserved.
+- VAS-03a is a defect repair to the existing client/server contracts, permitted
+  independently of Draft FEP-0039 acceptance. VAS-03 as a whole stays open.
+- Duplicate-test audit: the majority-of-endpoints assertion is implied by exact
+  missing-route equality; replace that redundant assertion with executable payload
+  coverage while retaining source extraction/route-presence guards.
+- No provider calls, service deployment or C5 acceptance is planned in this increment.
+
+### Checkpoint 2026-10-08-authentication-direction
+
+- User selected Kanidm OIDC plus scoped API keys and explicit authorization policy.
+  [Policy design](victor-agent-service-auth-policy.md) records concrete proposal,
+  current local Sandhi/InferFlux source evidence and standards. VAS-05a–d are
+  tracked separately; no authentication implementation/deployment is claimed.
+- VAS-03a smoke also reproduced web import failure after nested settings migration
+  (G74). Repair reads ServerSettings and unwraps SecretStr; no second secret owner.
+
+### Checkpoint 2026-10-08-VAS-03a-local-validation
+
+- Baseline: `470c9ccdcb222dcfd8acce5b4c52fb27321ac952`; tested tree uncommitted.
+- RED: three TS payload assertions failed; actual compiled TS → core HTTP returned
+  422. Web router import and two configured/default settings tests failed on
+  removed flat settings. Original failures are retained in the local evidence archive.
+- GREEN: one compatibility envelope derives newest-user content once and dispatches
+  once. Existing web message/session behavior and core messages contract remain;
+  no server aliases, retries or session-ownership claim added.
+- Executable HTTP/config smoke: 13 passed, including clean minimal `[api]` environment;
+  two real client turns per server, core correlation/web reuse, invalid auth and
+  malformed request rejection. Agent execution is a deterministic double; startup
+  lifecycle and live models are not exercised. CI requires a compiled client and
+  these tests when related source/contracts change, rather than accepting a skip.
+- Affected API/web/settings/workflow-guard suites: 352 passed. TS: 54 unit and
+  999 isolated VS Code host tests passed. Whole-extension statement/line coverage
+  remains low (5.38%/5.46%), not a claim of full API coverage. Lint has nine existing
+  warnings; webview build has its existing bundle-size warning. MyPy/Black/Ruff,
+  FEP validation, MkDocs/build-site links and repo hygiene passed.
+- Removed only the redundant majority-route assertion: before/after route coverage
+  is identical across 19 modules, 564 executed lines and zero executed branches.
+  Exact route drift and extraction guards remain; actual payload tests add coverage.
+- Review found an HTTP fixture singleton leak; corrected before final validation.
+  Auth design now requires separate browser/native Kanidm registrations and explicit
+  verified account linking for cross-client ownership. FEP remains Draft.
+- Remaining: final commit-bound review, hosted CI and squash merge;
+  source merge is not a release, OIDC deployment, session isolation or C5 acceptance.
+
+### Checkpoint 2026-10-08-workflow-ui-and-Sandhi-scope
+
+- User explicitly requested Kanidm across workflow UI, agent-as-service and Sandhi;
+  scoped API keys remain supported under the same authorization policy. They also
+  requested actual drag/drop formation/workflow authoring and a headed AgentBrowser
+  demo. VAS-05e/f and VAS-14a–d make those delivery gates explicit.
+- Independent read-only review of `../sandhi` (fetched develop equals local SHA
+  `1a7e6ed3f35c001892fcac28333e74c1717108f8`) found strict gateway identity/grants
+  and vault mapping, but no automatic Victor-user→Sandhi delegation. See the
+  [co-design evidence and acceptance matrix](victor-agent-service-auth-policy.md).
+- Scope order: finish VAS-03a defect repair; agree strict identity/policy and
+  authoring contracts; establish ownership and auth/delegation; implement editor
+  and supported browser actions; run deterministic UI/HTTP lifecycle tests; then
+  released-service headed acceptance and C5. Independent framework VAS-11 remains
+  eligible; no new UI requirement silently certifies or closes the original C5.
+- Browser baseline uses an isolated headed session with fixture data only. Current
+  visualizer/layout interactions are not drag/drop authoring or OIDC acceptance.
+
+### Checkpoint 2026-10-08-shared-theme-and-runtime-shape
+
+- User requires a cohesive AnvaiOps/Sandesha/Victor service design. Fetched both
+  sibling origins; dirty in-flight branches remain untouched. VAS-14e records
+  exact source/token baselines and visual/accessibility acceptance.
+- Sandhi embedded library and external gateway remain explicit supported shapes.
+  External gateway is preferred for the hosted multiuser demo; embedded support
+  needs control/capability parity rather than an assumed OIDC middleware feature.
+- Sandesha has existing shared OIDC extraction work on adoption HOLD. Reconcile
+  that source, dual-consumer/security/performance proof and accessible package
+  before creating another verifier or treating its prototype as production ready.
+- Headed AgentBrowser baseline captured actual visualizer failure (`cytoscape is
+  not defined`) and absent authoring controls; preserved as failed/limited UI
+  evidence, not a drag-and-drop, OIDC, streaming or formation pass.
+- Full collection initially failed because the new local venv lacked the pinned
+  Sandhi binding. Installed declared `sandhi-gateway==0.11.0`; final collection
+  passed: 33,888 tests. This was an environment repair, not a dependency upgrade.
+
+### Checkpoint 2026-10-08-family-and-technology-scope
+
+- User explicitly added Sandhi dashboard alignment to the AnvaiOps/Sandesha family.
+  VAS-21 now owns the cross-repository theme delivery and acceptance dependency;
+  VAS-14e remains Victor's adapter. No sibling UI implementation is claimed here.
+- Recorded the bounded polyglot decision: TypeScript/Svelte reuse for rich clients,
+  typed async Python for orchestration, existing Rust/PyO3 for measured compute,
+  InferFlux for GPU placement. VAS-22/16 own measurement, not an assumed rewrite.
+- Added request-to-owner coverage and delivery order, including release/lifecycle,
+  full C5, research applicability, shared identity, real authoring and reboot
+  recovery. This reconciles scope without reopening landed WS-A–WS-I.
+- Sandhi's baseline dashboard uses standalone CSS/JS with blue accent tokens;
+  theme migration can stay within those assets. Its local untracked handoff files
+  and the dirty AnvaiOps/Sandesha work remain untouched.
+
+- Final review corrected the delivery dependency: VAS-06 establishes ownership
+  after verified authentication (VAS-05b), then VAS-05c proves authorization across
+  every owned resource/transport. The CI compiled-client trigger now includes the
+  shared wire-event owner. No authorization-complete claim precedes ownership.

@@ -22,8 +22,16 @@ The router factories only touch the server at request time, so the full route ta
 built with a mock server (no orchestrator / live server needed).
 """
 
+import json
+import os
 import re
+import shutil
+import socket
+import subprocess
+import threading
+import time
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -102,9 +110,142 @@ class TestVSCodeExtensionFastAPIContract:
             f"  stale allowlist entries (now on backend): {sorted(KNOWN_BACKEND_GAPS - missing)}"
         )
 
-    def test_majority_of_extension_endpoints_are_satisfied(self):
-        backend = _backend_routes()
-        extension = _extension_endpoints()
-        satisfied = extension & backend
-        # The contract should be overwhelmingly satisfied (only the tracked gaps remain).
-        assert len(satisfied) >= len(extension) - len(KNOWN_BACKEND_GAPS)
+
+@pytest.fixture
+def compiled_client_node():
+    """The HTTP smoke must execute the consumer, not a handwritten request copy.
+
+    Python-only environments may skip this cross-language smoke; the CI Guards
+    job installs/compiles the client and requires it explicitly.
+    """
+    node = shutil.which("node")
+    compiled = _VICTOR_CLIENT_TS.parents[1] / "out" / "victorClient.js"
+    if not node or not compiled.exists():
+        message = "VS Code HTTP smoke needs Node and npm ci && npm run compile"
+        if os.environ.get("VICTOR_REQUIRE_VSCODE_HTTP_SMOKE") == "1":
+            pytest.fail(message)
+        pytest.skip(message)
+    return node
+
+
+@pytest.fixture(params=["core", "web"])
+def chat_http_server(request, monkeypatch, tmp_path):
+    """Real loopback HTTP and production routes; only agent execution is doubled."""
+    import uvicorn
+
+    from victor.integrations.api import fastapi_server
+    from victor.observability.request_correlation import get_request_correlation_id
+
+    calls = []
+    requests = []
+    created = []
+
+    class FakeClient:
+        async def initialize(self):
+            pass
+
+        async def stream_chat(self, message):
+            calls.append((message, get_request_correlation_id(), id(self)))
+            yield SimpleNamespace(content=f"echo:{message}", tool_calls=None)
+
+        async def stream(self, message):
+            calls.append((message, get_request_correlation_id(), id(self)))
+            yield SimpleNamespace(event_type="content", content=f"echo:{message}")
+
+    def create_client(*args):
+        client = FakeClient()
+        created.append(client)
+        return client
+
+    if request.param == "core":
+        monkeypatch.setattr(fastapi_server, "load_fastapi_router_registrations", lambda **_: [])
+        monkeypatch.setattr(
+            "victor.workflows.hitl_api.get_default_hitl_db_path", lambda: tmp_path / "hitl.db"
+        )
+        server = fastapi_server.VictorFastAPIServer(
+            workspace_root=str(tmp_path),
+            enable_graphql=False,
+            api_keys={"contract-test-key": "contract-user"},
+        )
+        server._victor_client = create_client()
+        app = server.app
+    else:
+        from web.server import session_store
+
+        monkeypatch.setattr(session_store, "set_session_store", lambda store: store)
+        from web.server import main
+        from web.server.session_store import InMemorySessionStore
+
+        monkeypatch.setattr(main, "API_KEY", "contract-test-key")
+        monkeypatch.setattr(main, "SESSION_STORE", InMemorySessionStore(2))
+        monkeypatch.setattr(main, "VictorClient", create_client)
+        app = main.app
+
+    async def capture(scope, receive, send):
+        if scope["type"] == "http" and scope["path"] == "/chat/stream":
+            requests.append(scope)
+        await app(scope, receive, send)
+
+    # Bind port 0 once and retain the socket: no port-selection race or shared service.
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    url = f"http://127.0.0.1:{sock.getsockname()[1]}"
+    # App startup would initialize real agents/background cleanup; not part of this
+    # transport contract. Production auth, validation, handlers and SSE remain real.
+    http_server = uvicorn.Server(
+        uvicorn.Config(capture, log_level="error", lifespan="off", loop="asyncio")
+    )
+    worker = threading.Thread(target=http_server.run, kwargs={"sockets": [sock]}, daemon=True)
+    worker.start()
+    try:
+        deadline = time.monotonic() + 10
+        while not http_server.started and worker.is_alive() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert http_server.started, "ephemeral HTTP server did not start"
+        yield SimpleNamespace(
+            kind=request.param, url=url, calls=calls, requests=requests, created=created
+        )
+    finally:
+        http_server.should_exit = True
+        worker.join(timeout=10)
+        sock.close()
+        assert not worker.is_alive(), "ephemeral HTTP server did not stop"
+
+
+def test_actual_extension_streams_two_turns_over_http(compiled_client_node, chat_http_server):
+    server = chat_http_server
+    runner = _VICTOR_CLIENT_TS.parents[1] / "scripts" / "chat-contract-smoke.cjs"
+    result = subprocess.run(
+        [compiled_client_node, str(runner), server.url, server.kind],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    report = json.loads(result.stdout)
+    assert report["chunks"] == ["echo:latest 🧪\nline", "echo:second turn"]
+    assert [call[0] for call in server.calls] == ["latest 🧪\nline", "second turn"]
+    assert len(server.requests) == 3  # two valid turns, one rejected auth attempt; no retry
+    assert len(server.created) == 1
+    assert server.calls[0][2] == server.calls[1][2]
+    if server.kind == "core":
+        assert report["session_id"] is None  # core does not implement web session ownership
+        assert report["request_ids"] == [call[1] for call in server.calls]
+        assert len(set(report["request_ids"])) == 2
+    else:
+        assert report["session_id"]
+
+
+def test_chat_rejects_malformed_body_before_agent_execution(chat_http_server):
+    import httpx
+
+    server = chat_http_server
+    with httpx.Client(
+        base_url=server.url, headers={"Authorization": "Bearer contract-test-key"}
+    ) as client:
+        # Old client body is invalid on core; it remains the supported web contract.
+        invalid = {"message": "old singular-only"} if server.kind == "core" else {"message": {}}
+        response = client.post("/chat/stream", json=invalid)
+    assert response.status_code == 422
+    assert server.calls == []

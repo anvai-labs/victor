@@ -45,12 +45,28 @@ newer documentation reaches the public site through the next main promotion.
 
 ### Shared agent-service delivery plan
 
+The [technology decision](architecture/victor-agent-service-technology.md) keeps
+TypeScript interactive clients, async Python orchestration and measured Rust
+compute. VAS-21 extends the shared AnvaiOps/Sandesha theme to Sandhi as well as
+Victor; VAS-22 owns technology qualification. The tracker maps all accumulated
+requests to owners and gates, including cross-repository release/live evidence.
+
 The [canonical VAS tracker](architecture/victor-agent-service-plan.md) owns the
 cross-session plan for one API shared by web UI, VS Code and automation: stable
 task IDs, dependencies, TDD/smoke gates, evidence and reboot recovery. FEP-0039 is
 Draft; the audit is completed evidence, while API consolidation, deployment and
 C5 remain separate delivery gates. Read/reconcile the tracker before resuming;
 do not infer completion from this roadmap or duplicate its task statuses here.
+
+The scoped UI journey now includes visual workflow/formation authoring, Kanidm
+login, agent-as-service execution, scoped API-key automation and authorized Sandhi
+provider mapping. The [auth/co-design contract](architecture/victor-agent-service-auth-policy.md)
+distinguishes initiator, gateway actor and upstream credential; a shared workload
+key does not prove human delegation. VAS-05a–f and VAS-14a–e own policy, deployment,
+drag/drop and accessible editing, shared AnvaiOps/Sandesha ink-and-teal theme
+(VAS-14e), AgentBrowser capability gaps and the headed
+end-to-end acceptance matrix. Foundation identity/ownership and durable execution
+precede the visual demo; provider release/C5 acceptance remains separately gated.
 
 ### VS Code dependency and runtime checkpoint
 

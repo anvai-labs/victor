@@ -68,13 +68,13 @@ describe('streamChat v1 wire contract', () => {
         client = new VictorClient('http://localhost:8765');
     });
 
-    it('sends {message, session_id?} and captures X-Session-Id', async () => {
+    it('sends both established request shapes and captures the web session header', async () => {
         await run(client, [wire('content', { content: 'a' }), wire('stream_end')], {
             'x-session-id': 'sess-1',
         });
         expect(mockClient.post).toHaveBeenCalledWith(
             '/chat/stream',
-            { message: 'hi' },
+            { messages: [{ role: 'user', content: 'hi' }], message: 'hi' },
             { responseType: 'stream' }
         );
         expect(client.getChatSessionId()).toBe('sess-1');
@@ -83,7 +83,7 @@ describe('streamChat v1 wire contract', () => {
         await run(client, [wire('stream_end')]);
         expect(mockClient.post).toHaveBeenLastCalledWith(
             '/chat/stream',
-            { message: 'hi', session_id: 'sess-1' },
+            { messages: [{ role: 'user', content: 'hi' }], message: 'hi', session_id: 'sess-1' },
             { responseType: 'stream' }
         );
     });
@@ -94,9 +94,35 @@ describe('streamChat v1 wire contract', () => {
         await run(client, [wire('stream_end')]);
         expect(mockClient.post).toHaveBeenLastCalledWith(
             '/chat/stream',
-            { message: 'hi' },
+            { messages: [{ role: 'user', content: 'hi' }], message: 'hi' },
             { responseType: 'stream' }
         );
+    });
+
+    it('derives both fields from the newest user message without replaying history', async () => {
+        mockClient.post.mockResolvedValueOnce({ data: sse(['[DONE]']), headers: {} });
+        await client.streamChat([
+            { role: 'system', content: 'system context' },
+            { role: 'user', content: 'old turn' },
+            { role: 'assistant', content: 'old response' },
+            { role: 'user', content: 'latest 🧪\nline' },
+            { role: 'assistant', content: 'pending response' },
+        ], () => undefined);
+        expect(mockClient.post).toHaveBeenCalledExactlyOnceWith('/chat/stream', {
+            messages: [{ role: 'user', content: 'latest 🧪\nline' }],
+            message: 'latest 🧪\nline',
+        }, { responseType: 'stream' });
+    });
+
+    it.each([401, 422, 503])('propagates HTTP %i without retrying another request shape', async (status) => {
+        mockClient.post.mockRejectedValueOnce({
+            isAxiosError: true,
+            message: `HTTP ${status}`,
+            response: { status, data: { detail: 'rejected' } },
+        });
+        await expect(client.streamChat([{ role: 'user', content: 'hi' }], () => undefined))
+            .rejects.toThrowError(VictorError);
+        expect(mockClient.post).toHaveBeenCalledTimes(1);
     });
 
     it('routes all six event types to the right callbacks', async () => {
