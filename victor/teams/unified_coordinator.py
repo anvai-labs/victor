@@ -92,6 +92,13 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _require_uncancelled_member_task() -> None:
+    """A handled cancellation request is not permission to admit work or publish a pause."""
+    task = asyncio.current_task()
+    if task is not None and task.cancelling():
+        raise asyncio.CancelledError("Member execution cancellation requested")
+
+
 # =============================================================================
 # StateGraph Node Configuration
 # =============================================================================
@@ -551,10 +558,13 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
 
         Returns ``None`` when there is nothing to resume (fresh run).
         """
+        _require_uncancelled_member_task()
         try:
             checkpoints = await checkpointer.list(thread_id)
         except Exception as exc:
+            _require_uncancelled_member_task()
             raise MemberCheckpointError("load") from exc
+        _require_uncancelled_member_task()
         relevant = [c for c in checkpoints if c.metadata.get("team_node_id") == team_node_id]
         if not relevant:
             return None
@@ -578,10 +588,13 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
         checkpointer: CheckpointerProtocol, checkpoint: WorkflowCheckpoint, operation: str
     ) -> None:
         """Require a save acknowledgement; a lost acknowledgement never permits retry."""
+        _require_uncancelled_member_task()
         try:
             await checkpointer.save(checkpoint)
         except Exception as exc:
+            _require_uncancelled_member_task()
             raise MemberCheckpointError(operation) from exc
+        _require_uncancelled_member_task()
 
     def _make_member_checkpoint_hook(
         self,
@@ -988,6 +1001,7 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
 
         result_dict: Optional[Dict[str, Any]] = None
         checkpoint_failure: Optional[MemberCheckpointError] = None
+        durable_cancelled = False
         # ADR-023 pillar 2b: arm durable member pause for the duration of member execution when a
         # checkpointer + thread_id are configured (pause_hook set) AND the formation actually
         # implements durable pause. A member's ASK then raises MemberApprovalPause (durable) instead
@@ -1207,7 +1221,11 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
         except MemberCheckpointError as exc:
             checkpoint_failure = exc
             raise
+        except asyncio.CancelledError:
+            durable_cancelled = checkpointer is not None and bool(thread_id)
+            raise
         finally:
+            cleanup_summary = None
             if worktree_session is not None:
                 if checkpoint_failure is not None:
                     cleanup_summary = self._build_preserved_worktree_cleanup_summary(
@@ -1215,6 +1233,11 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
                         reason="member_checkpoint_failed",
                     )
                     checkpoint_failure.worktree_cleanup = cleanup_summary
+                elif durable_cancelled:
+                    cleanup_summary = self._build_preserved_worktree_cleanup_summary(
+                        worktree_session,
+                        reason="member_execution_cancelled",
+                    )
                 elif self._should_cleanup_worktrees(effective_context, result_dict=result_dict):
                     cleanup_summary = self._cleanup_worktree_session(worktree_session)
                 else:
@@ -1224,6 +1247,16 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
                     )
                 if result_dict is not None:
                     result_dict["worktree_cleanup"] = cleanup_summary
+            if durable_cancelled:
+                self._emit_team_event(
+                    "cancelled",
+                    {
+                        "team_id": team_context_id,
+                        "thread_id": str(thread_id),
+                        "reconciliation_required": True,
+                        **({"worktree_cleanup": cleanup_summary} if cleanup_summary else {}),
+                    },
+                )
 
     def _plan_worktree_execution(
         self,

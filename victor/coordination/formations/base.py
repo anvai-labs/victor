@@ -528,13 +528,33 @@ class BaseFormationStrategy(ABC):
             async with semaphore:
                 return await _run(agent, exec_context, index, agent_task)
 
-        gathered = await asyncio.gather(
-            *[
-                _admitted_run(a, c, i, t)
-                for a, c, i, t in zip(agents, exec_contexts, member_indices, member_tasks)
-            ],
-            return_exceptions=True,
-        )
+        runs = [
+            _admitted_run(a, c, i, t)
+            for a, c, i, t in zip(agents, exec_contexts, member_indices, member_tasks)
+        ]
+        if checkpoint_hook is not None or batch_pause_hook is not None:
+            workers = [asyncio.create_task(run) for run in runs]
+            wave = asyncio.gather(*workers, return_exceptions=True)
+            try:
+                gathered = await asyncio.shield(wave)
+            except asyncio.CancelledError as cancellation:
+                # Close admission before signalling workers: one may catch cancellation
+                # and return a retryable failure or a late checkpoint acknowledgement.
+                checkpoint_error = cancellation
+                for worker in workers:
+                    if not worker.done():
+                        worker.cancel()
+                # Repeated parent cancellation must not interrupt member cleanup or
+                # let coordinator workspace cleanup race a still-owned worker.
+                while not wave.done():
+                    try:
+                        await asyncio.shield(wave)
+                    except asyncio.CancelledError:
+                        continue
+                wave.result()
+                raise cancellation
+        else:
+            gathered = await asyncio.gather(*runs, return_exceptions=True)
 
         if checkpoint_error is not None:
             raise checkpoint_error
