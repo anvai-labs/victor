@@ -43,6 +43,24 @@ Pages last verified published from `main` on 2026-10-07 (`f9515e98e`); see the
 [publishing record](development/docs-publishing.md). PR builds do not deploy;
 newer documentation reaches the public site through the next main promotion.
 
+### Shared agent-service delivery plan
+
+The [canonical VAS tracker](architecture/victor-agent-service-plan.md) owns the
+cross-session plan for one API shared by web UI, VS Code and automation: stable
+task IDs, dependencies, TDD/smoke gates, evidence and reboot recovery. FEP-0039 is
+Draft; the audit is completed evidence, while API consolidation, deployment and
+C5 remain separate delivery gates. Read/reconcile the tracker before resuming;
+do not infer completion from this roadmap or duplicate its task statuses here.
+
+### VS Code dependency and runtime checkpoint
+
+Node 24.21.0 LTS is pinned once for local work and extension CI. The
+[dependency/activation record](development/vscode-dependency-validation.md)
+tracks the VSCE 4 packaging migration, zero-vulnerability lock audits, real-host
+activation repair, and removal of six inactive command advertisements. Main
+promotion, default-branch rescanning and extension publication remain release
+milestones; restoring dormant commands needs separate reviewed integration.
+
 ### Multiagent continuation — October 7 checkpoint
 
 The original WS-A–WS-I implementation increments are **9/9 landed**. This does not

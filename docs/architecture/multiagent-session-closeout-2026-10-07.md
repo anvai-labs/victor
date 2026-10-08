@@ -6,6 +6,15 @@ live acceptance run. The [formation ledger](multiagent-formation-coverage-handof
 owns coverage/gaps; the [safety audit](agentic-workflow-safety-audit.md) owns the design
 critique; the [roadmap](../roadmap.md) owns priority. Do not restart WS-A from scratch.
 
+## Current continuation entry point
+
+The [shared agent-service tracker](victor-agent-service-plan.md) now owns the
+cross-session execution order, stable VAS task IDs, TDD/smoke gates and checkpoint
+updates. Read it with FEP-0037 and reconcile PR/source state before acting. This
+October 7 handoff preserves history; its priority list below is context, not a
+second current task-status ledger. Original WS-A–WS-I stay landed and C5 stays
+open until its own acceptance gate passes.
+
 ## Completed milestones and limits
 
 | Milestone | Durable record | What is still outside that milestone |
@@ -47,6 +56,16 @@ The existing tests already cover these contracts, so no parallel or duplicate su
 was added. Candidate checks and the reviewed SHA belong in the closeout PR; do not
 claim a passing rerun of historical shards from targeted tests. A merged closeout
 does not by itself publish a new release or promote documentation to main.
+
+## VS Code dependency follow-up
+
+[#1250](https://github.com/anvai-labs/victor/pull/1250) merged into develop as
+`b8e195cc68e009c68b2cfc9b96ac8cf5b74bef84`. Its branch and worktree were removed.
+The [VS Code checkpoint](../development/vscode-dependency-validation.md) records
+Node 24.21.0 LTS, repaired dependency graphs, actual activation smoke coverage,
+and six pruned inactive command advertisements. Source, default-branch alert
+closure, published artifacts and running services remain separate milestones.
+The gateway/origin and G62/G61/G70/C5 follow-ups below remain open.
 
 ## Next PR-sized milestones, in order
 
@@ -131,8 +150,7 @@ establishes preservation of this Victor work, not machine-wide safe shutdown.
 After reboot:
 
 1. In `~/code/codingagent`, run `git fetch origin --prune`, `git status --short
-   --branch` and `git worktree list`. Read this file from the merged branch or the
-   remote `fix/session-closeout` branch if its PR is still pending. Verify PR state
+   --branch` and `git worktree list`. Read this file from `origin/develop`; #1250 is merged. Verify PR state
    before deleting a worktree. Do not alter another session's locked checkout.
 2. Create the next linked worktree from the reconciled `origin/develop`. Recreate
    `.venv-codesign`, install in-repo contracts before runtime dependencies, and use

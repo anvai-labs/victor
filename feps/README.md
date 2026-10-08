@@ -52,6 +52,7 @@ The older `docs/feps/` 0001/0002 documents form a separate historical series.
 | [FEP-0036](fep-0036-independent-review-panel.md) | Independent review panel with commit-bound advisory verdicts | Draft |
 | [FEP-0037](0037-v1-classify-endpoint.md) | Versioned /v1/classify surface on victor serve — one structured completion, CI-enforced contract | Draft |
 | [FEP-0038](0038-model-reasoning-effort.md) | Model identity and reasoning effort across client surfaces | Draft |
+| [FEP-0039](fep-0039-unified-agent-service-api.md) | Unified agent-service API for web, IDE and automation clients | Draft |
 
 ## Submit or Update a Proposal
 

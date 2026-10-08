@@ -261,11 +261,30 @@ Click to see options (start/stop/restart/logs).
 
 ## Development
 
+Use Node 24 LTS. `.nvmrc` pins the tested patch (24.21.0); the build, fast CI and
+release workflows read that same file. VSCE 4 is the packaging tool. Install from
+the committed lockfiles so local validation uses the same dependency graph as CI.
+
 ```bash
 cd vscode-victor
-npm install
+nvm install
+nvm use
+npm ci
+npm run lint
 npm run compile
+npm run coverage
+cd webview-ui
+npm ci
+npm run check
+npm run build
+cd ..
+npm test
+npx --no-install vsce package --no-dependencies
 ```
+
+`npm test` downloads and launches an isolated VS Code extension test host. On
+headless Linux, use `xvfb-run -a npm test`. Packaging runs the production webview
+and extension build through `vscode:prepublish`; do not disable it for smoke tests.
 
 Press F5 to launch the extension in debug mode.
 

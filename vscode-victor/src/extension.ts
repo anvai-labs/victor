@@ -450,7 +450,7 @@ export async function activate(context: vscode.ExtensionContext) {
             codeLensProvider
         )
     );
-    registerCodeLensCommands(context, sendToChat);
+    registerCodeLensCommands(context);
     context.subscriptions.push({ dispose: () => codeLensProvider.dispose() });
 
     // Initialize Code Action provider (lightbulb menu)
