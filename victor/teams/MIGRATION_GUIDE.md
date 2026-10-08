@@ -423,7 +423,7 @@ coordinator = create_coordinator(
 
 ### Documentation
 
-- **Consolidation Details**: See `victor/teams/CONSOLIDATION.md`
+- **Consolidation history**: See [completed and superseded work](https://github.com/anvai-labs/victor/blob/develop/docs/development/completed-work.md)
 - **API Reference**: See `victor/teams/__init__.py`
 - **Formation Strategies**: See `victor/coordination/formations/`
 

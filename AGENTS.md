@@ -31,3 +31,11 @@ separate. Before stopping, preserve pending work outside temporary directories a
 record an executable next step. The tracker is the only task-status authority;
 roadmap, audit and session handoffs link to it instead of duplicating its statuses.
 These instructions apply to this workstream, not unrelated repository tasks.
+
+
+For module/submodule and documentation discovery, use
+[the repository map](docs/development/repository-map.md). Completed/superseded
+interim records are condensed in [completed work](docs/development/completed-work.md)
+with immutable history links. Keep current status in its canonical ledger;
+transfer unresolved tasks before deleting obsolete handoffs, and update the map
+when documentation or source-package ownership changes.

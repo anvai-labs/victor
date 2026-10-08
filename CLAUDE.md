@@ -114,3 +114,11 @@ Full doc: `docs/development/PR_WORKFLOW.md`.
 - Treat packaging as part of correctness: validate supported Python versions, operating systems, architectures, baseline CPU features, wheel installation, and fallback behavior before merge. A local `target-cpu=native` result is not release evidence.
 - A performance refactor is complete only when it improves the measured user-level target without weakening correctness, cancellation, security, portability, or maintainability. Remove experiments that fail that gate.
 - Use [Native Acceleration Strategy](docs/architecture/native-acceleration-strategy.md) for the decision matrix and current audit priorities.
+
+
+For module/submodule and documentation discovery, use
+[the repository map](docs/development/repository-map.md). Completed/superseded
+interim records are condensed in [completed work](docs/development/completed-work.md)
+with immutable history links. Keep current status in its canonical ledger;
+transfer unresolved tasks before deleting obsolete handoffs, and update the map
+when documentation or source-package ownership changes.

@@ -165,3 +165,23 @@ The remaining proposed upgrades are deliberately deferred, not represented as me
 The original bot CI failures are evidence of incompatibility, not reasons to disable
 security alerts. Future routine updates still follow the existing grouped schedule;
 reopening any deferred migration requires resolving its listed completion gate.
+
+
+## Packaging follow-ups
+
+Source checked October 8, 2026. These remain proposals or verification gates,
+not completed migrations. The [completed-work record](completed-work.md) preserves
+prior release results; [ADR-016](../architecture/adr/016-distribution-packaging-strategy.md)
+and the [release procedure](releasing/publishing.md) own supported packaging.
+
+| Remaining item | Evidence / next gate |
+| --- | --- |
+| Provider SDK extras | `anthropic` and `openai` remain core dependencies in `pyproject.toml`. Inventory direct/native provider consumers and prove transport, usage and token parity before moving either SDK to an extra; Sandhi availability alone is insufficient. |
+| Interactive input cost | `prompt-toolkit` remains a core dependency serving interactive input; Rich serves rendering. Measure cold-start/install impact and preserve input behavior before changing laziness/packaging. Do not delete one as a duplicate of the other. |
+| Linux ARM64 dependency/artifact qualification | Recheck the exact pinned Sandhi release's wheel inventory and Victor's install/frozen artifact smoke. The old handoff named the wrong Sandhi version, so its platform-gap assertion is unverified rather than accepted fact. |
+| TestPyPI rehearsal | Verify trusted publisher registration for `anvai-labs/victor`, `release.yml`, environment `testpypi`, then run a rehearsal. Historical missing registration remains unverified until checked; production release success does not establish rehearsal readiness. |
+| Broader deployment and lifecycle | VAS-17 and G53/G60–G65 retain released runtime, settlement, ownership and cancellation acceptance. A source pin or release tag does not identify a serving process. |
+
+Do not revive speculative `victor-ai-core` extraction or blanket replacements of
+`json`, `packaging`, or CLI libraries from the retired phase-6 analysis. Changes
+need a current use case and the measured [native/performance policy](../architecture/native-acceleration-strategy.md).

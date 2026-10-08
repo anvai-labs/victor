@@ -2,8 +2,8 @@
 plan_id: VAS-2026-10
 status: active
 updated: 2026-10-08
-baseline_develop: 72aaa4b3873abb3b9a49723867b0d235f141a0f5
-next_task: VAS-11b
+baseline_develop: 76384b0e455bcaea29c4046a15ff0092cfe6df1d
+next_task: VAS-11c
 ---
 
 # Victor shared agent-service implementation plan and tracker
@@ -64,13 +64,18 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
-- Fetched develop: `72aaa4b3873abb3b9a49723867b0d235f141a0f5` (#1254 merged).
-- Owner: current durable-recovery session, VAS-11b. Branch
-  `feat/action-receipt-reconciliation`; linked worktree
-  `/private/tmp/victor-action-receipts-20261008`.
-- Next action: finish final validation and exact-commit review of the bounded
-  receipt capability, then publish to develop and wait for all CI gates.
-  No open PR overlaps were found at claim time; VAS-11a/G77 stays complete.
+- Fetched develop: `76384b0e455bcaea29c4046a15ff0092cfe6df1d` (#1255 merged).
+- Owner: current documentation reconciliation session. Branch
+  `docs/module-inventory-cleanup`; linked worktree
+  `/private/tmp/victor-action-receipts-20261008`, based on that merge.
+- Next runtime action: qualify one production backend for VAS-11c before claiming
+  its unknown writes can be resolved. Verify atomic effect/receipt correlation,
+  stable backend identity and authenticated lookup; if none qualifies, retain
+  unsupported/unknown and record the concrete backend prerequisite. VAS-12 still
+  needs recovered-result publication and complete member continuation.
+- Documentation maintenance uses the [repository map](../development/repository-map.md)
+  and compact [completed-work record](../development/completed-work.md). Superseded
+  interim handoffs are removed; unique failures, FEPs/ADRs and current gates remain.
 - Root checkout remains on main; another session's `fix-inferflux-codesign`
   worktree is not owned by this plan. Do not modify or remove it.
 - Local default Node upgraded to 24.21.0. This is the build/tooling runtime;
@@ -79,7 +84,7 @@ edit. A mock test is not live provider or C5 evidence.
   gaps remain open; this plan adds no formation passes.
 - Durable local recovery copy: `var/session-closeout-2026-10-07/vscode-api-audit/`
   in the root checkout; this increment uses
-  `var/session-closeout-2026-10-08-action-admission/` (prior stream evidence remains
+  `var/session-closeout-2026-10-08-action-receipts/` (prior stream evidence remains
   in `var/session-closeout-2026-10-08-stream-contract/`). These contain patches,
   reports, logs and hashes; the archives are ignored
   by Git and machine-local. Remote Git/PR records are the cross-machine authority.
@@ -87,7 +92,8 @@ edit. A mock test is not live provider or C5 evidence.
 ## Work ledger
 
 Planning/evidence: VAS-00 is accepted; VAS-01 is merged.
-Delivery: VAS-02, VAS-03a and VAS-11a are merged; VAS-11b has local passes; other implementation rows remain TODO. These counts are not
+Delivery: VAS-02, VAS-03a, VAS-11a and VAS-11b are merged; other implementation
+rows remain TODO. These counts are not
 an effort-weighted completion percentage. The original formation denominator is
 independent. Update this paragraph and the rows together at each checkpoint.
 
@@ -113,7 +119,7 @@ independent. Update this paragraph and the rows together at each checkpoint.
 | VAS-10 | Unified run events, bounded parsing and replay | VAS-07, VAS-09 | TODO | UTF-8/SSE framing, IDs/cursors, explicit retention gaps, durable terminal state, bounded slow-client handling |
 | VAS-11 | Exact approval and verified action reconciliation through existing framework owners | VAS-00, VAS-02 | TODO | G61/G62/G70: bind owner/payload/version/expiry; backend commit then response loss; receipt lookup or safe same-key guarantee; unknown blocks replay |
 | VAS-11a | Keep durable approval admission off the async event loop | VAS-00, VAS-02 | ✅ MERGED | [#1253](https://github.com/anvai-labs/victor/pull/1253), `ec41c97b4bf6b62e31168cbba0153d850d133ae3`; clean exact-head review and 39 successful checks including Vertical Py3.12; no receipt verification or claim reopening |
-| VAS-11b | Review receipt provenance and local transaction boundaries, then implement bounded reconciliation | VAS-11a | LOCAL_PASS | [Database boundary](victor-agent-service-technology.md#database-transaction-and-external-effect-boundary); amend/review existing FEP before new contracts, define backend capabilities and absent-receipt semantics, prove commit-with-lost-response recovery without replay; parent VAS-11 remains open |
+| VAS-11b | Bound receipt provenance and local transaction reconciliation | VAS-11a | ✅ MERGED | [#1255](https://github.com/anvai-labs/victor/pull/1255), `76384b0e455bcaea29c4046a15ff0092cfe6df1d`; exact-head review clean, 40 applicable checks passed including Vertical Py3.12; readonly backend lookup and immutable local receipt, no tool replay/result publication/member continuation; production adapters remain VAS-11c |
 | VAS-11c | Qualify production backend receipt adapters | VAS-11b | TODO | G78: no built-in tool currently qualifies; choose a concrete backend with atomic effect/receipt correlation and stable account/environment identity; no automatic retrofit to arbitrary SQL, shell, Jira or Slack; adapter and deployment failure evidence required |
 | VAS-12 | Complete member continuation and cancellation lifecycle | VAS-11 | TODO | G61/G63/G70: restore completed batches, no whole-member replay; own cancellation and preserve partial effects |
 | VAS-13 | VS Code migrates to shared SDK/state; secure webview and remote workspace | VAS-09, VAS-10, VAS-11, VAS-12 | TODO | Real ephemeral server + installed VSIX smoke; auth expiry, reconnect, approval, cancellation, capabilities and workspace boundaries |
@@ -306,48 +312,14 @@ large logs belong in durable CI artifacts or a declared local archive with hashe
 A local archive is recovery assistance, not cross-machine proof or a deployed
 service. Do not require ephemeral files to understand the next action.
 
-### Checkpoint 2026-10-07-VAS-00-02
-
-- Owner: current Victor API/dependency session; branch/worktree above.
-- Base: `b8e195cc68e009c68b2cfc9b96ac8cf5b74bef84`; implementation evidence was
-  gathered on the uncommitted candidate, not an immutable release.
-- VAS-00: audit accepted. Actual router 422 without runtime init; compiled-client
-  transport stubs reproduce lost approval fields, premature EOF and false cancel.
-  Existing API/auth/resume tests: 23 passed; wire/session/boundary: 33 passed.
-- VAS-02: RED actual extension activation failed on duplicate symbol commands;
-  GREEN 999 real-host tests after one registration owner, target decoding and
-  six inactive advertisements pruned. Unit tests: 50 passed; both npm audits zero;
-  VSIX built; 83 repository contracts passed; 33,883 Python tests collected.
-  Existing lint/bundle warnings and low whole-extension coverage remain disclosed.
-- Node: 24.21.0 nvm default; `.nvmrc` is canonical for CI. No provider deployment.
-- VAS-01: authored plan/FEP/links; formal FEP acceptance and API implementation
-  remain outstanding. Independent review and exact candidate/PR evidence must be
-  appended below or linked from the publication PR before source acceptance.
-- Next action: finish current candidate review, validate final docs/source, commit,
-  push and drive its PR to green. Then reconcile VAS-01/02 from the actual merge
-  record and start VAS-03; never resume by rerunning the original WS-A.
-
-### Checkpoint 2026-10-07-publication-review
-
-- PR: [#1251](https://github.com/anvai-labs/victor/pull/1251), targeting develop.
-- First candidate: `32f969ac3d847314b6987329ddc570b192251ab7`, independently reviewed;
-  code/local tests passed. The two FEP-specific CI gates failed because the first
-  proposal lacked required canonical sections; a passing MkDocs build did not
-  exercise that validator. Preserve that failure, not a full-green claim.
-- Correction: restructure the same design into required sections, record unresolved
-  decisions/compatibility/implementation and validate the actual FEP locally.
-  The publication PR's latest head/review/CI is authoritative for the correction;
-  never merge using the earlier commit's attestation. No runtime code changed.
-- VAS-01/02 stay LOCAL_PASS until the actual merge is verified. On the next
-  checkpoint, replace their states with MERGED and cite #1251's merge SHA if green;
-  do not repeat the dependency/activation work merely because this snapshot predates
-  its merge. VAS-03 and independent framework VAS-11 are the next ready candidates.
+Historical claim/local-pass/publication checkpoints are condensed in the
+[completed-work record](../development/completed-work.md#validation-provenance).
+Their full original text is immutable history, not current restart instructions.
 
 ## Resume after a session change or reboot
 
 1. In `~/code/codingagent`, fetch origin with prune; inspect status, worktrees,
-   current PRs and this file from `origin/develop`. If not yet merged, find the
-   `fix/vscode-security-locks` PR and read the plan from its exact head. Do not
+   current PRs and this file from `origin/develop`. Do not
    assume a local main checkout contains the latest plan.
 2. Compare remote PR/CI/merge state with the ledger. Mark newly verified merges
    and supersessions with links and SHAs before choosing work. If develop advanced,
@@ -376,257 +348,22 @@ Resume prompt:
 > independent review and all CI gates. Update the ledger/evidence each milestone.
 > Preserve G61/G62/G70/C5 limits, credentials, shared caches and other sessions.
 
-### Checkpoint 2026-10-08-VAS-03a-claim
+## Latest verified delivery
 
-- Verified #1251 merged into develop at `470c9ccdcb222dcfd8acce5b4c52fb27321ac952`;
-  41 SUCCESS, Trivy NEUTRAL, PR Pages deploy SKIPPED; no failed/pending checks.
-- No open PRs at claim time. Other session worktree is preserved.
-- VAS-03a is a defect repair to the existing client/server contracts, permitted
-  independently of Draft FEP-0039 acceptance. VAS-03 as a whole stays open.
-- Duplicate-test audit: the majority-of-endpoints assertion is implied by exact
-  missing-route equality; replace that redundant assertion with executable payload
-  coverage while retaining source extraction/route-presence guards.
-- No provider calls, service deployment or C5 acceptance is planned in this increment.
-
-### Checkpoint 2026-10-08-authentication-direction
-
-- User selected Kanidm OIDC plus scoped API keys and explicit authorization policy.
-  [Policy design](victor-agent-service-auth-policy.md) records concrete proposal,
-  current local Sandhi/InferFlux source evidence and standards. VAS-05a–d are
-  tracked separately; no authentication implementation/deployment is claimed.
-- VAS-03a smoke also reproduced web import failure after nested settings migration
-  (G74). Repair reads ServerSettings and unwraps SecretStr; no second secret owner.
-
-### Checkpoint 2026-10-08-VAS-03a-local-validation
-
-- Baseline: `470c9ccdcb222dcfd8acce5b4c52fb27321ac952`; tested tree uncommitted.
-- RED: three TS payload assertions failed; actual compiled TS → core HTTP returned
-  422. Web router import and two configured/default settings tests failed on
-  removed flat settings. Original failures are retained in the local evidence archive.
-- GREEN: one compatibility envelope derives newest-user content once and dispatches
-  once. Existing web message/session behavior and core messages contract remain;
-  no server aliases, retries or session-ownership claim added.
-- Executable HTTP/config smoke: 13 passed, including clean minimal `[api]` environment;
-  two real client turns per server, core correlation/web reuse, invalid auth and
-  malformed request rejection. Agent execution is a deterministic double; startup
-  lifecycle and live models are not exercised. CI requires a compiled client and
-  these tests when related source/contracts change, rather than accepting a skip.
-- Affected API/web/settings/workflow-guard suites: 352 passed. TS: 54 unit and
-  999 isolated VS Code host tests passed. Whole-extension statement/line coverage
-  remains low (5.38%/5.46%), not a claim of full API coverage. Lint has nine existing
-  warnings; webview build has its existing bundle-size warning. MyPy/Black/Ruff,
-  FEP validation, MkDocs/build-site links and repo hygiene passed.
-- Removed only the redundant majority-route assertion: before/after route coverage
-  is identical across 19 modules, 564 executed lines and zero executed branches.
-  Exact route drift and extraction guards remain; actual payload tests add coverage.
-- Review found an HTTP fixture singleton leak; corrected before final validation.
-  Auth design now requires separate browser/native Kanidm registrations and explicit
-  verified account linking for cross-client ownership. FEP remains Draft.
-- Remaining: final commit-bound review, hosted CI and squash merge;
-  source merge is not a release, OIDC deployment, session isolation or C5 acceptance.
-
-### Checkpoint 2026-10-08-workflow-ui-and-Sandhi-scope
-
-- User explicitly requested Kanidm across workflow UI, agent-as-service and Sandhi;
-  scoped API keys remain supported under the same authorization policy. They also
-  requested actual drag/drop formation/workflow authoring and a headed AgentBrowser
-  demo. VAS-05e/f and VAS-14a–d make those delivery gates explicit.
-- Independent read-only review of `../sandhi` (fetched develop equals local SHA
-  `1a7e6ed3f35c001892fcac28333e74c1717108f8`) found strict gateway identity/grants
-  and vault mapping, but no automatic Victor-user→Sandhi delegation. See the
-  [co-design evidence and acceptance matrix](victor-agent-service-auth-policy.md).
-- Scope order: finish VAS-03a defect repair; agree strict identity/policy and
-  authoring contracts; establish ownership and auth/delegation; implement editor
-  and supported browser actions; run deterministic UI/HTTP lifecycle tests; then
-  released-service headed acceptance and C5. Independent framework VAS-11 remains
-  eligible; no new UI requirement silently certifies or closes the original C5.
-- Browser baseline uses an isolated headed session with fixture data only. Current
-  visualizer/layout interactions are not drag/drop authoring or OIDC acceptance.
-
-### Checkpoint 2026-10-08-shared-theme-and-runtime-shape
-
-- User requires a cohesive AnvaiOps/Sandesha/Victor service design. Fetched both
-  sibling origins; dirty in-flight branches remain untouched. VAS-14e records
-  exact source/token baselines and visual/accessibility acceptance.
-- Sandhi embedded library and external gateway remain explicit supported shapes.
-  External gateway is preferred for the hosted multiuser demo; embedded support
-  needs control/capability parity rather than an assumed OIDC middleware feature.
-- Sandesha has existing shared OIDC extraction work on adoption HOLD. Reconcile
-  that source, dual-consumer/security/performance proof and accessible package
-  before creating another verifier or treating its prototype as production ready.
-- Headed AgentBrowser baseline captured actual visualizer failure (`cytoscape is
-  not defined`) and absent authoring controls; preserved as failed/limited UI
-  evidence, not a drag-and-drop, OIDC, streaming or formation pass.
-- Full collection initially failed because the new local venv lacked the pinned
-  Sandhi binding. Installed declared `sandhi-gateway==0.11.0`; final collection
-  passed: 33,888 tests. This was an environment repair, not a dependency upgrade.
-
-### Checkpoint 2026-10-08-family-and-technology-scope
-
-- User explicitly added Sandhi dashboard alignment to the AnvaiOps/Sandesha family.
-  VAS-21 now owns the cross-repository theme delivery and acceptance dependency;
-  VAS-14e remains Victor's adapter. No sibling UI implementation is claimed here.
-- Recorded the bounded polyglot decision: TypeScript/Svelte reuse for rich clients,
-  typed async Python for orchestration, existing Rust/PyO3 for measured compute,
-  InferFlux for GPU placement. VAS-22/16 own measurement, not an assumed rewrite.
-- Added request-to-owner coverage and delivery order, including release/lifecycle,
-  full C5, research applicability, shared identity, real authoring and reboot
-  recovery. This reconciles scope without reopening landed WS-A–WS-I.
-- Sandhi's baseline dashboard uses standalone CSS/JS with blue accent tokens;
-  theme migration can stay within those assets. Its local untracked handoff files
-  and the dirty AnvaiOps/Sandesha work remain untouched.
-
-- Final review corrected the delivery dependency: VAS-06 establishes ownership
-  after verified authentication (VAS-05b), then VAS-05c proves authorization across
-  every owned resource/transport. The CI compiled-client trigger now includes the
-  shared wire-event owner. No authorization-complete claim precedes ownership.
-
-### Checkpoint 2026-10-08-oss-commercial-boundary
-
-- User confirmed reusable OSS building blocks belong in Victor and the commercial
-  offering belongs in AnvaiOps. The technology decision now gives an explicit
-  repository ownership table; Sandhi/InferFlux retain their own OSS responsibilities.
-- Removed commercial-shell VAS-21c from the OSS VAS-20 release prerequisites.
-  Generic security, durable execution, APIs and reusable workflow UI remain OSS;
-  commercial packaging/billing/entitlements and managed operations remain AnvaiOps.
-- PR [#1252](https://github.com/anvai-labs/victor/pull/1252) publishes the stream
-  repair and this plan. Initial head `bcfb331e51f3e4aa1f59e08de30686db83c063d3`
-  passed independent review; hosted quick-test failure requires correction and
-  a fresh exact-head review/CI verdict. Preserve failed evidence; not merged yet.
-
-- CI failure diagnosis: changed-file testing installs the dev extra, which lacked
-  Uvicorn, and invoked the pytest executable without the repository root on the
-  import path for the source-only `web` namespace. Add the actual HTTP test runner
-  to dev dependencies and invoke that job with `python -m pytest`; keep the real
-  HTTP assertions and dedicated required compiled-client gate intact.
-
-- Corrected candidate local validation: 96 real HTTP/config/CI-policy tests passed,
-  including the required compiled-client cases; formatting, lint, docs/link/FEP
-  checks passed. The first hosted run's only underlying failure was quick tests
-  (the aggregate also failed). Do not reuse its green jobs as the new head verdict.
-
-### Checkpoint 2026-10-08-VAS-11a-claim
-
-- Reconciled PR1252 from GitHub: merged `a5fa47e444e6f973ad95149ae0677327df060dc7`,
-  41 successful applicable checks including Vertical Py3.12, one deployment skip
-  and one neutral check; independent review clean. VAS-03a is MERGED, not released.
-- No open Victor PRs at claim; the other existing local worktree remains untouched.
-- VAS-11a targets synchronous SQLite expiry/load/claim in `VictorClient.resume()`.
-  Journal writes already run off-loop after #1249; approval admission still can
-  block unrelated async work for the database lock timeout. Audit the existing
-  client/store tests for duplicate invariants before adding regression cases.
-- Preserve existing single-use/default-off/error behavior and existing store
-  ownership. Cancellation or a failed claim must never reach tool execution.
-  Verified backend receipts, principal ownership and member continuation remain open.
-
-### Checkpoint 2026-10-08-VAS-11a-local-repair
-
-- RED: both real-SQLite contention cases blocked the loop until the five-second
-  watchdog released the write lock. GREEN: 96 client/store/durable-resume tests
-  passed after offloading expiry/load/claim for the built-in persistent backend.
-- One store-owned helper receives the captured store; only admission runs in a
-  worker. Session hydration and canonical runtime dispatch require successful
-  await. Concurrent resumes still claim once; a committed claim with lost
-  acknowledgement dispatches nothing and remains consumed.
-- Cancellation cannot stop an already-started SQLite worker. It may consume the
-  approval after the waiter cancels, but never dispatches or reopens that claim.
-  Recovery for consumed-but-undispatched approvals remains unresolved.
-- Injected non-ProjectDb stores retain caller-thread behavior: no new protocol
-  thread-safety requirement or failure fallback. ProjectDb subclasses must honor
-  the existing thread-local/locking contract; blocking custom stores retain their
-  own responsiveness responsibility. The synchronous status API is unchanged.
-- Duplicate-test audit: client admission concurrency/loop tests cover a distinct
-  boundary from store persistence and action-journal dispatch tests. No existing
-  test was removed; sequential single-use, expiry, hydration, default-off and
-  opt-in contract cases remain. No extra test module or public API was added.
-- G77 records this newly discovered gap. G61/G62/G70, backend receipt verification,
-  full member continuation and C5 remain open. Independent exact-head review,
-  affected suites, collection and hosted CI still precede merge.
-
-- Broader validation: 216 affected tests passed (framework clients, durable stores,
-  resume, member/API/UI resume and guards). Independent review strengthened the
-  existing race test with a bounded barrier so both workers read pending before
-  either claims. Final focused client/CI-selector suite: 55 passed; collection:
-  33,894 tests (collection only). Mypy on both production modules passed.
-- Extended the existing changed-test selector/parametrized regression so a future
-  paused-store-only edit executes the client admission tests. Its missing mapping
-  failed RED before the one-line mapping correction; no separate CI job was added.
-
-- Final local CI-selection run: 174 tests passed with coverage enabled; Black/Ruff
-  and mypy for the two production modules plus selector passed. Documentation
-  build and built-site link checks passed. Cumulative independent review is clean;
-  the checkpoint now points at publication, not repeating the completed repair.
-
-
-### Checkpoint 2026-10-08-VAS-11a-merged
-
-- [#1253](https://github.com/anvai-labs/victor/pull/1253) squash-merged to develop
-  at 14:51:46 UTC, merge `ec41c97b4bf6b62e31168cbba0153d850d133ae3`.
-  Independent adversarial review was clean for tested head
-  `43ba4749a7943b9198af675a79acb5ff74df97e4` against `a5fa47e44`.
-- All applicable gates finished: 39 successful checks, including CI Success,
-  Vertical Py3.12, full collection, changed tests and documentation build. Trivy
-  reported neutral; deploy and Post Validation Results were nonapplicable/skipped.
-  This is a develop merge, not a release or live-provider acceptance.
-- VAS-11a/G77 is complete. The database remains the owner of local atomicity;
-  worker offloading only removes SQLite waits from the async loop. The separate
-  approval, intent and transcript commits are not one atomic operation today.
-- VAS-11b records the next bounded recovery task. Its reviewed design guidance
-  requires trusted receipt provenance, exact action/backend binding, safe absent
-  receipt semantics, database durability/failure settings and monotonic local
-  transactions. Timeout after possible dispatch remains unknown without evidence;
-  a missing receipt must not authorize replay. Extend existing test owners.
-- VAS-11/12, G61/G62/G70 and C5 remain open. No shared services, credentials or
-  provider caches changed. Archived review, CI, merge metadata, patch and restart
-  instructions are in `var/session-closeout-2026-10-08-action-admission/`.
-
-
-### Checkpoint 2026-10-08-VAS-11b-claim
-
-- Fresh base `72aaa4b3873abb3b9a49723867b0d235f141a0f5`; #1253/#1254 are merged,
-  and no open Victor PR overlaps this task. Previous session worktree is preserved.
-- Discovery first: inspect actual effect backends and existing action observation
-  owners. Do not invent a backend idempotency/receipt guarantee or ship an unused
-  parallel executor. Contract review and existing test-owner audit precede edits.
-
-
-### Checkpoint 2026-10-08-VAS-11b-local-contract
-
-- Discovery: production tools do not consume `durable_action_id` or supply exact
-  receipt lookup. Slack/Jira response IDs arrive after mutation; generic database
-  connections are volatile and SQL is unrestricted; shell/file history is not a
-  receipt. G78/VAS-11c records this production capability gap.
-- Bounded contract review chose an optional capability on the existing registered
-  tool, no second registry/dispatcher. Exact approval binds adapter/backend
-  identity; v2 opt-in action records retain it. Legacy/default records remain v1.
-  The existing store transaction retains one immutable verified receipt while
-  preserving the original invocation observation and consumed approval.
-- `reconcile_action` performs an authenticated-by-adapter backend lookup and writes
-  local evidence, without tool replay, result publication or member continuation.
-  Embedded runtime session/authority, current configured RBAC and original backend
-  identity guard both reconciliation and v2 status disclosure. Hosted principal
-  ownership remains future VAS-05 work; this introduces no HTTP endpoint.
-- TDD: five initial receipt cases failed before the capability existed. A separate
-  review regression proved that an extended receipt could otherwise persist extra
-  fields before rejection; strict typed validation now rejects before persistence.
-  Unsupported legacy records, absent/error/timeout, identity mismatch, revocation,
-  cancellation and storage failure remain explicit; no unknown result authorizes
-  replay. A lookup not-found response is never proof of nonexecution.
-- Existing test owners were extended. No redundant test was removed: existing
-  invocation-error/policy cases prove a different boundary from receipt proof,
-  disclosure and CAS. SQLite test backend evidence demonstrates commit with lost
-  response and restart lookup, not a production connector, power-loss test or C5.
-- Initial broader local validation: 580 affected tests passed; eight touched
-  production/selector modules type-check; changed production-line coverage 93%.
-  Final dependency-aligned validation, collection, docs, review and CI precede merge.
-
-- Final local validation after declared runtime dependency resolution: 580 affected
-  tests passed, 221 architecture/contracts checks passed (8 optional skips),
-  33,946 tests collected. Black/Ruff, typing on eight modules, 93% changed-line
-  coverage, documentation build/link checks and repository hygiene pass.
-- Independent cumulative review is clean and independently ran 180 tests. Fixed
-  its two findings before publication: malformed/version-downgraded receipt status
-  disclosure and schema-extension persistence. Both are covered in existing owners.
-- Evidence/restart archive: `var/session-closeout-2026-10-08-action-receipts/` in
-  the root checkout. Exact-commit attestation, hosted CI and squash merge remain
-  the next publication gates; no release/provider/C5 acceptance is claimed.
+- [#1255](https://github.com/anvai-labs/victor/pull/1255) squash-merged at 17:45:09 UTC
+  as `76384b0e455bcaea29c4046a15ff0092cfe6df1d`; reviewed head
+  `79cf0e76a43a468d47ddabc222ae1edcd8468a29`. All 40 applicable CI checks passed,
+  including Vertical Py3.12 and CI Success; Trivy neutral, two nonapplicable skips.
+- Final local evidence: 580 affected tests, 221 architecture/contracts checks
+  (8 optional skips), 33,946 collected, 93% changed production-line coverage,
+  clean typing/lint/docs. Independent review reran 180 owner tests and confirmed
+  both disclosure/corruption and schema-extension persistence regressions fixed.
+- VAS-11b is merged source, not a production receipt adapter or release. G78,
+  VAS-11/12 and full mixed-team C5 remain open. No provider/service/cache changed.
+- User requested repository-wide documentation inventory and removal of completed
+  interim notes. The repository map inventories code subpackages and retained
+  document owners without claiming every module is finished or semantically
+  certified. Completed/superseded records move to one compact history with
+  immutable originals; unresolved packaging and lifecycle work remains explicit.
+- Current documentation branch is named above. Reconcile its actual GitHub PR/CI
+  before continuing or cleanup; no new runtime test result is implied by doc edits.

@@ -295,8 +295,12 @@ reconciliation and whole-member continuation are not yet implemented by this inc
 The post-release [#1249 follow-up](https://github.com/anvai-labs/victor/pull/1249)
 moves asynchronous journal writes off the event loop, shields the interrupted-action
 observation and rolls back failed commits and save/action mutations. This does not implement receipt
-lookup or close G62. The [October 7 closeout](multiagent-session-closeout-2026-10-07.md)
-records its separate integration/validation status and the next acceptance gates.
+lookup or close G62. The [canonical tracker](victor-agent-service-plan.md)
+records integration and current acceptance gates. Subsequently, #1253 moved
+built-in resume admission off-loop, and #1255 added a bound readonly receipt
+lookup plus immutable local retention. The SQLite conformance adapter is not a
+production connector; G78 adapter qualification, recovered-result publication,
+whole-member continuation and C5 remain open.
 
 Repair in this order:
 

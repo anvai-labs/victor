@@ -50,8 +50,9 @@ version stamp and build hooks.
 `docs/README.md` remains the repository documentation index and is explicitly
 excluded from the build to avoid competing for the same output URL.
 
-The Audits navigation section exposes the co-design review and documentation
-inventory. Their historical status remains visible. Root `feps/` proposals are
+The Audits navigation section exposes the historical co-design review, current
+repository map and compact completed-work record. Superseded interim notes live
+in immutable Git history, with unresolved tasks transferred to current owners. Root `feps/` proposals are
 linked directly to the repository so there is one canonical proposal copy;
 legacy documents under `docs/feps/` retain their historical-series banners.
 
