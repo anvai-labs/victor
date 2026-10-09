@@ -58,6 +58,17 @@ DEPRECATION_NOTICE_FILES = (
     "victor/agent/sqlite_session_persistence.py",
 )
 RELATED_TESTS = {
+    "victor/integrations/protocol/__init__.py": (
+        "tests/unit/protocols/test_protocol_interface.py",
+        "tests/unit/protocols/test_protocol_adapters.py",
+    ),
+    "victor/integrations/protocol/interface.py": (
+        "tests/unit/protocols/test_protocol_interface.py",
+    ),
+    "victor/integrations/protocol/adapters.py": (
+        "tests/unit/protocols/test_protocol_adapters.py",
+        "tests/unit/api/test_vscode_extension_contract.py",
+    ),
     "victor/agent/services/chat_stream_helpers.py": (
         "tests/unit/agent/services/test_chat_runtime_services_boundary.py",
         "tests/unit/agent/services/test_stream_connection_retry.py",

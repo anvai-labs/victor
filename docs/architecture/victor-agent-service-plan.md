@@ -1,7 +1,7 @@
 ---
 plan_id: VAS-2026-10
 status: active
-updated: 2026-10-08
+updated: 2026-10-09
 baseline_develop: 07b076726de88a50d37df766e72a0945e2435496
 next_task: VAS-15a
 ---
@@ -76,9 +76,14 @@ edit. A mock test is not live provider or C5 evidence.
   execution, including tool-call lists, lost terminator and denied credentials.
   Final affected GREEN: 696 protocol/API/web tests (including the compiled VS Code
   client over HTTP), 81 documentation tests, Black (3,917 files), Ruff, touched-module
-  MyPy, strict MkDocs/internal links and repository hygiene; 34,079 tests collected
+  MyPy, strict MkDocs/internal links and repository hygiene; 34,082 tests collected
   (final collection without coverage instrumentation).
-  Final exact-commit review/CI/merge remain before completion.
+  [#1268](https://github.com/anvai-labs/victor/pull/1268) is open. Its initial
+  changed-file CI gate found a missing selector mapping, before running tests.
+  Three additional selector RED cases now map the package, interface and adapter
+  to existing canonical suites, instead of unrelated flattened-name matches.
+  All 44 selector tests and 199 exactly selected tests pass, with 95% changed-line
+  coverage. Final follow-up review/CI/merge remain before completion.
 - VAS-15a test audit: strengthened the existing serialization assertion and replaced
   the mocked HTTP happy path with parameterized real HTTPX transport cases. Added
   malformed/framing/ownership cases to the existing adapter owner and reused the
@@ -227,7 +232,7 @@ independent. Update this paragraph and the rows together at each checkpoint.
 | VAS-14d | Headed OIDC workflow→Victor→Sandhi→provider demo | VAS-14b, VAS-14c, VAS-14e, VAS-05d, VAS-05f, VAS-11, VAS-12 | TODO | AgentBrowser snapshots + exact definition + verified execution/approval/cancel + human/actor/accounting joins; deterministic then released-provider acceptance |
 | VAS-14e | Victor adapter for AnvaiOps/Sandesha/Sandhi family theme and bundled UI assets | VAS-14a, VAS-21a | TODO | Pinned semantic token source/adapters and drift guard; ink/teal, light/dark/high-contrast, responsive/keyboard/reduced motion; headed visual/functional snapshots; OSS/commercial boundary |
 | VAS-15 | GraphQL/MCP/legacy adapter convergence and deprecation | VAS-08, VAS-13, VAS-14 | TODO | Inventory external consumers, policy/attribution parity; one owner, compatibility window; retire only evidenced duplicates |
-| VAS-15a | Preserve outcomes through the retained Python HTTP adapter | VAS-00 | LOCAL_PASS | G80; `fix/protocol-adapter-outcomes`, baseline `07b076726`; 37 initial RED failures plus six review RED cases; 144 focused/696 affected GREEN, actual core HTTP smoke and 81 doc tests. 34,079 collected; final review/CI/merge pending; no POST replay, adapter removal or durability claim; direct adapter remains G82/VAS-15 |
+| VAS-15a | Preserve outcomes through the retained Python HTTP adapter | VAS-00 | LOCAL_PASS | G80; `fix/protocol-adapter-outcomes`, baseline `07b076726`; 37 initial RED failures plus six review RED cases; 144 focused/696 affected GREEN, actual core HTTP smoke and 81 doc tests. 34,082 collected; [#1268](https://github.com/anvai-labs/victor/pull/1268) open, initial CI selector gap repaired (44 selector/199 selected tests, 95% changed-line coverage); final review/CI/merge pending; no POST replay, adapter removal or durability claim; direct adapter remains G82/VAS-15 |
 | VAS-16 | Measured performance and broader lifecycle acceptance | VAS-12, VAS-13, VAS-14, VAS-15 | TODO | Same-workload baseline/comparison; cold/warm, 1/8/32 concurrency, memory/backpressure, deadlines and crash/recovery |
 | VAS-17 | Released foundation deployment and lifecycle acceptance for C5 | VAS-02, VAS-11, VAS-12 | TODO | Full green promotion/release CI, artifact/binary/source/config IDs and rollback; verify released Sandhi/InferFlux readiness without clearing cache |
 | VAS-18 | Full mixed-team C5 verdict | VAS-17 | TODO | Six-Qwen/one-ZAI harness; unchanged deliverable/pytest/session/accounting gates; reviewed verdict on InferFlux #184 |
