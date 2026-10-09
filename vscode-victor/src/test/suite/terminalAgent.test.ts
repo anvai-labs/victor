@@ -3,25 +3,36 @@
  */
 
 import * as assert from 'assert';
-import { TerminalCommand, TerminalSession } from '../../terminalAgent';
+import * as vscode from 'vscode';
+import { TerminalCommand, TerminalSession, TerminalAgentProvider } from '../../terminalAgent';
 
 suite('TerminalAgent Test Suite', () => {
-    test('TerminalCommand interface', () => {
-        const cmd: TerminalCommand = {
-            id: 'cmd-123',
-            command: 'npm install',
-            description: 'Install dependencies',
-            workingDir: '/path/to/project',
-            status: 'pending',
-            timestamp: Date.now(),
-            isDangerous: false,
-        };
-
-        assert.strictEqual(cmd.id, 'cmd-123');
-        assert.strictEqual(cmd.command, 'npm install');
-        assert.strictEqual(cmd.status, 'pending');
-        assert.strictEqual(cmd.isDangerous, false);
-    });
+    for (const paused of [false, true]) {
+        test(`actual suggestion ${paused ? 'stops for approval' : 'creates a pending command'}`, async () => {
+            let calls = 0;
+            const warnings: string[] = [];
+            const original = vscode.window.showWarningMessage;
+            (vscode.window as any).showWarningMessage = async (message: string) => { warnings.push(message); };
+            const provider = new TerminalAgentProvider({ chat: async () => {
+                calls++;
+                return { role: 'assistant', content: 'echo safe', ...(paused ? {
+                    status: 'awaiting_approval', run_id: 'run-terminal', approval_request: { id: 'a1' }
+                } : {}) };
+            } } as any);
+            try {
+                const command = await provider.suggestCommand('say hello');
+                assert.strictEqual(calls, 1);
+                assert.strictEqual((provider as any)._pendingCommands.size, paused ? 0 : 1);
+                if (paused) {
+                    assert.strictEqual(command, null);
+                    assert.ok(warnings.some(message => message.includes('run-terminal')));
+                } else { assert.strictEqual(command?.command, 'echo safe'); }
+            } finally {
+                provider.dispose();
+                (vscode.window as any).showWarningMessage = original;
+            }
+        });
+    }
 
     test('TerminalCommand status values', () => {
         const statuses: TerminalCommand['status'][] = [

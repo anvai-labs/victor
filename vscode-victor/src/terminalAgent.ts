@@ -6,7 +6,7 @@
  */
 
 import * as vscode from 'vscode';
-import { VictorClient } from './victorClient';
+import { VictorClient, requireCompletedChat, ChatOutcomeError } from './victorClient';
 import { TerminalHistoryService } from './terminalHistory';
 
 export interface TerminalCommand {
@@ -216,7 +216,7 @@ Respond with just the command to run.`
                 }
             ]);
 
-            const command = response.content?.trim() || '';
+            const command = requireCompletedChat(response).content?.trim() || '';
             if (!command) {
                 return null;
             }
@@ -259,6 +259,7 @@ Respond with just the command to run.`
 
             return cmd;
         } catch (error) {
+            if (error instanceof ChatOutcomeError) { void vscode.window.showWarningMessage(error.message); }
             this._log?.appendLine(`[Terminal] Error suggesting command: ${error}`);
             return null;
         }

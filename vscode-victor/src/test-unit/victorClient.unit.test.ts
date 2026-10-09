@@ -130,6 +130,41 @@ describe('VictorClient API methods', () => {
         expect(res.content).toBe('');
     });
 
+    it('preserves a paused run without treating its content as a final answer', async () => {
+        const paused = {
+            role: 'assistant', content: 'partial draft', status: 'awaiting_approval',
+            run_id: 'run-approval', approval_request: { id: 'approval-1', metadata: { hash: 'abc' } },
+        };
+        mockClient.post.mockResolvedValueOnce({ status: 202, data: paused });
+        expect(await client.chat([{ role: 'user', content: 'write' }])).toMatchObject(paused);
+        expect(mockClient.post).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+        { status: 'awaiting_approval', approval_request: {} },
+        { status: 'awaiting_approval', run_id: ' ', approval_request: {} },
+        { status: 'awaiting_approval', run_id: 'run', approval_request: null },
+        { status: 'awaiting_approval', run_id: 'run', approval_request: [] },
+        { status: 'ok' }, {},
+    ])('rejects incomplete or contradictory HTTP 202 outcomes: %j', async data => {
+        mockClient.post.mockResolvedValueOnce({ status: 202, data });
+        await expect(client.chat([{ role: 'user', content: 'write' }])).rejects.toMatchObject({
+            name: 'ChatOutcomeError',
+        });
+        expect(mockClient.post).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([null, [], { status: 'failed' }, { status: null },
+        { status: 'ok', run_id: 'run', approval_request: { id: 'a1' } }])(
+        'rejects unsupported chat outcomes without retry: %j', async data => {
+            mockClient.post.mockResolvedValueOnce({ status: 200, data });
+            await expect(client.chat([{ role: 'user', content: 'write' }])).rejects.toMatchObject({
+                name: 'ChatOutcomeError',
+            });
+            expect(mockClient.post).toHaveBeenCalledTimes(1);
+        }
+    );
+
     it('semanticSearch() POSTs to /search/semantic and returns results', async () => {
         mockClient.post.mockResolvedValue({ data: { results: [{ file: 'a.ts' }] } });
         const res = await client.semanticSearch('query', 5);

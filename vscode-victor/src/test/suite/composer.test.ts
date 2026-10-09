@@ -4,24 +4,54 @@
 
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import { ComposerFile, ComposerSession } from '../../composer';
+import { ComposerFile, ComposerSession, ComposerViewProvider } from '../../composer';
 
 suite('Composer Test Suite', () => {
-    test('ComposerFile interface should have required fields', () => {
-        const file: ComposerFile = {
-            path: '/path/to/file.ts',
-            relativePath: 'src/file.ts',
-            content: 'const x = 1;',
-            language: 'typescript',
-            selected: true,
-        };
+    for (const paused of [false, true]) {
+        test(`actual composition ${paused ? 'retains approval pause' : 'produces changes'}`, async () => {
+            const response = { role: 'assistant', content: '--- FILE: file.ts ---\n```ts\nconst x = 2;\n```',
+                ...(paused ? { status: 'awaiting_approval', run_id: 'run-compose', approval_request: { id: 'a1' } } : {}) };
+            let calls = 0;
+            const provider = new ComposerViewProvider(vscode.Uri.file('/tmp'),
+                { chat: async () => { calls++; return response; } } as any, {} as any);
+            const owner = provider as any;
+            owner._loadFiles = async () => [{ path: '/tmp/file.ts', relativePath: 'file.ts',
+                content: 'const x = 1;', language: 'typescript', selected: true }];
+            try {
+                await provider.compose('change x', ['/tmp/file.ts']);
+                assert.strictEqual(calls, 1);
+                assert.strictEqual(owner._session.status, paused ? 'awaiting_approval' : 'ready');
+                assert.strictEqual(owner._session.changes.length, paused ? 0 : 1);
+                if (paused) { assert.deepStrictEqual(owner._session.pausedResponse, response); }
+            } finally { provider.dispose(); }
+        });
+    }
 
-        assert.strictEqual(file.path, '/path/to/file.ts');
-        assert.strictEqual(file.relativePath, 'src/file.ts');
-        assert.strictEqual(file.content, 'const x = 1;');
-        assert.strictEqual(file.language, 'typescript');
-        assert.strictEqual(file.selected, true);
-    });
+    for (const replaced of [false, true]) {
+        test(`late pause cannot overwrite a ${replaced ? 'replacement' : 'cleared'} composition`, async () => {
+            let resolve!: (value: unknown) => void;
+            const pending = new Promise(r => { resolve = r; });
+            let started!: () => void;
+            const called = new Promise<void>(r => { started = r; });
+            const provider = new ComposerViewProvider(vscode.Uri.file('/tmp'),
+                { chat: () => { started(); return pending; } } as any, {} as any);
+            const owner = provider as any;
+            owner._loadFiles = async () => [{ path: '/tmp/file.ts', relativePath: 'file.ts',
+                content: 'const x = 1;', language: 'typescript', selected: true }];
+            const running = provider.compose('first', ['/tmp/file.ts']);
+            await called;
+            owner._clear();
+            const replacement = { id: 'new-session', status: 'idle', files: [], changes: [] };
+            if (replaced) { owner._session = replacement; }
+            resolve({ role: 'assistant', content: 'pending', status: 'awaiting_approval',
+                run_id: 'old-run', approval_request: { id: 'old-approval' } });
+            try {
+                await running;
+                assert.strictEqual(owner._session, replaced ? replacement : undefined);
+                assert.deepStrictEqual(replacement, { id: 'new-session', status: 'idle', files: [], changes: [] });
+            } finally { provider.dispose(); }
+        });
+    }
 
     test('ComposerSession should have all status types', () => {
         const statuses: ComposerSession['status'][] = [

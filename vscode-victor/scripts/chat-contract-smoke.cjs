@@ -6,6 +6,19 @@ const { VictorClient } = require('../out/victorClient.js');
 async function main() {
     const [url, kind, scenario] = process.argv.slice(2);
     const client = new VictorClient(url, undefined, 'contract-test-key');
+    if (scenario === 'paused') {
+        const { requireCompletedChat, ChatApprovalRequiredError } = require('../out/victorClient.js');
+        const response = await client.chat([{ role: 'user', content: 'pause this turn' }]);
+        assert.equal(response.status, 'awaiting_approval');
+        assert.equal(response.run_id, 'run-http-approval');
+        assert.deepEqual(response.approval_request, { id: 'approval-http', metadata: { hash: 'abc' } });
+        assert.throws(() => requireCompletedChat(response), error =>
+            error instanceof ChatApprovalRequiredError && error.response === response);
+        const unauthorized = new VictorClient(url, undefined, 'incorrect-test-key');
+        await assert.rejects(unauthorized.chat([{ role: 'user', content: 'must not execute' }]));
+        process.stdout.write(JSON.stringify({ outcome: response.status }));
+        return;
+    }
     if (scenario === 'truncated') {
         const chunks = [];
         await assert.rejects(client.streamChat([{ role: 'user', content: 'partial' }],
