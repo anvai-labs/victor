@@ -52,7 +52,12 @@ entitlements. Its integration milestone VAS-21c does not gate OSS release VAS-20
 The [technology decision](architecture/victor-agent-service-technology.md) keeps
 TypeScript interactive clients, async Python orchestration and measured Rust
 compute. VAS-21 extends the shared AnvaiOps/Sandesha theme to Sandhi as well as
-Victor; VAS-22 owns technology qualification. The tracker maps all accumulated
+Victor. VAS-21d–g extend reuse to ProximaDB and AnvaiOps's existing workflow/code
+editor/notebook surfaces: inventory first, minimal OSS component contracts next,
+then repository-owned adapters and installed acceptance. Database graphs and agent
+workflows retain separate semantics; commercial workspace operations stay in
+AnvaiOps. See the [pinned source inventory and adoption sequence](architecture/victor-agent-service-technology.md#reuse-with-proximadb-and-the-anvaiops-workspace).
+VAS-22 owns technology qualification. The tracker maps all accumulated
 requests to owners and gates, including cross-repository release/live evidence.
 
 The [canonical VAS tracker](architecture/victor-agent-service-plan.md) owns the

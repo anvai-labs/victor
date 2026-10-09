@@ -136,6 +136,7 @@ projects into Victor.
 | Repository | Owns | Must not require |
 | --- | --- | --- |
 | Victor (OSS) | Generic agent/workflow/formation runtime, durable execution, service API, SDKs, generic auth/policy adapters, reusable authoring/UI components and a functional standalone experience | AnvaiOps account, private checkout, commercial entitlement service or product billing to use the OSS capabilities |
+| ProximaDB (OSS) | Database/query/graph execution, database authorization, its SDK and standalone query/graph UI; adapter to reusable presentation components | Victor owning its query engine, or an AnvaiOps runtime dependency for standalone queries |
 | Sandhi / InferFlux (their OSS projects) | Gateway/metering/provider contracts and inference/hardware runtime respectively; their standalone admin UIs and reusable integration APIs | Victor owning a duplicate gateway/inference implementation, or private AnvaiOps services for standalone operation |
 | AnvaiOps (commercial product) | Integrated product shell/navigation, managed deployment/fleet/customer operations, billing/subscriptions/entitlements, commercial packaging and product-specific workflows | A fork or privileged bypass of Victor/Sandhi policy, a second execution engine, or proprietary code copied into OSS |
 | Sandesha (its product owner) | Messaging/product functionality and its own UI adapter | Victor adopting its application code or backend framework just to share a theme |
@@ -168,6 +169,102 @@ uses its own approved client/session configuration and checks its own grants.
 Review Sandesha/Sandhi's shared OIDC candidate before adding another verifier;
 its current HOLD means reuse is a dependency decision, not an accepted security
 implementation. See the [identity and deployment design](victor-agent-service-auth-policy.md).
+
+## Reuse with ProximaDB and the AnvaiOps workspace
+
+The workflow canvas, source editor, notebook document and result presentation
+should share qualified components, while each service retains its execution,
+authorization and persistence contracts. Build the reusable OSS surface in Victor
+first, with explicit adapters for ProximaDB and AnvaiOps. This is a proposed
+packaging boundary, not an extracted or published package. VAS-21d–g in the
+[canonical tracker](victor-agent-service-plan.md) own qualification and adoption.
+
+### Source inventory and compatibility risks
+
+Inspected fetched source on 2026-10-09: Victor `8a4b6ad0e4732114fe609461d143e4f8c343d886`,
+ProximaDB `9d6acc7f4f08abec57b4c54b3a0bc8d5ee6ddb6c`, AnvaiOps
+`91d731e8203e6c0b8393c8176031aae79d3d0557`. Sibling worktrees were not changed;
+AnvaiOps has unrelated local work. This inventory establishes source surfaces,
+not runtime acceptance or permission to copy private implementation into OSS.
+
+| Surface | Existing owner and inspected paths | Reuse decision / evidence still needed |
+| --- | --- | --- |
+| Workflow/run graph | Victor `victor/ui/visualizer/`; bundled Cytoscape visualizer | Preserve the shipped viewer; repair the actual execution-to-graph projection in VAS-14a. Authoring must use Victor's canonical compiler/formation registry, with layout stored separately. |
+| Database graph | ProximaDB `ui/src/components/GraphVisualizationTab.tsx`; Cytoscape | Reuse tokens, selection/inspector and accessibility patterns where contracts match. A property graph is not an executable workflow; keep its node/edge semantics and database adapter distinct. |
+| Commercial code graph | AnvaiOps `apps/control-plane/src/react/codegraph/GraphCanvas.tsx`; React Flow | Inspect existing interaction/tests before introducing a second canvas. React Flow is a candidate for authoring, not evidence that Victor workflows or database graphs already share a model. |
+| Code/SQL editor | ProximaDB `ui/src/components/SqlQueryTab.tsx` uses Monaco React; AnvaiOps `apps/control-plane/src/main.ts` and `react/codebrowser/ReadOnlyMonaco.tsx` use Monaco loader | Qualify one generic document/editor lifecycle with language, diagnostics, read-only and execute callbacks. Domain completions and execution stay in adapters. AnvaiOps currently documents CDN loading: bundle pinned workers/assets before claiming offline/CSP compatibility. |
+| Notebook document and kernel UI | AnvaiOps `apps/control-plane/src/notebook.ts`, `apps/api/src/routes/workspace_notebook.py` | Existing cell/import/export and gated kernel bridge are reference contracts, not production acceptance. Current importer can omit unsupported cells; require explicit diagnostics/preservation policy. Browser bearer query-token support needs review before reuse; do not propagate it as the shared security design. |
+| Embedded notebook compute | ProximaDB `clients/python-embedded/src/proximadb_embedded/notebook.py` | Lazy Python plan builder over existing Rust database execution, not a browser notebook editor or kernel manager. Consume through the ProximaDB adapter; do not move this compute path into Victor. |
+| Theme and build | ProximaDB `ui/package.json` declares React 17/TypeScript 4/CRA/Material UI 4; AnvaiOps control-plane declares React 18/TypeScript 5/Vite; Victor viewer is plain HTML/JS | A shared React bundle cannot be assumed compatible. Start with semantic tokens and framework-neutral document contracts; qualify peer dependencies, worker paths, CSS isolation and standalone builds before selecting component packaging. ProximaDB's current theme resolves system preference initially but does not expose a persistent system mode. |
+
+These are source observations and migration constraints, not a claim that a
+library version caused a production defect. No library or framework upgrade is
+approved solely by this comparison; use the existing dependency/security process
+and representative compatibility tests.
+
+### Proposed shared seams
+
+| Reusable OSS piece | Contract and owner | Product-specific responsibility |
+| --- | --- | --- |
+| Semantic theme and basic controls | Reviewed public token schema, accessible controls, light/dark/system/high-contrast adapters; license/provenance and immutable release | AnvaiOps branding/navigation/entitlements; local product appearance preference and supported IDE overrides |
+| Document/editor components | Versioned source document, language, diagnostics, read-only state, dirty/save/conflict callbacks; optional Monaco adapter loaded only when needed | Victor logic schemas; ProximaDB SQL completion/query validation; AnvaiOps workspace selection and persistence |
+| Workflow canvas and inspector | Controlled nodes/edges/layout plus typed edit/selection/validation callbacks; no browser scheduler or independent formation registry | Victor owns workflow meaning and server validation. Database and code graphs keep domain models; share only proven presentation primitives. |
+| Notebook document and safe output renderer | Cells, source, bounded MIME outputs and explicit import/export diagnostics; imported content never executes; HTML/SVG require sanitization or isolation under documented CSP | Kernel creation, credentials, execution permissions, quotas, interrupts and recovery remain in the authorized backend adapter. Victor run cells need not start a Python kernel. |
+| Run/query status and audit views | Typed presentation adapters preserve pending, partial, unknown, failed and confirmed outcomes, source IDs and trace links | Each backend owns receipts, cancellation acknowledgement, replay/cursors and tenant/resource checks. A UI completion animation cannot establish committed success. |
+
+Use the generated Victor SDK for Victor operations and the ProximaDB SDK/API
+for database operations. Do not create a universal execute endpoint or a second
+shared run store to make unrelated semantics look identical. Supply authenticated
+API clients from each host; reusable components must not discover tokens, read
+cross-origin storage or receive provider credentials. Server capability responses
+guide UI affordances but never replace authorization on every operation.
+
+### Incremental adoption and acceptance
+
+1. **Inventory before extraction (VAS-21d):** map actual imports, tests and live
+   consumers in both products; distinguish production code from demos. Record
+   equivalent behavior and gaps before deleting anything. Retain the current
+   viewer and public routes throughout this qualification.
+2. **Contracts before package (VAS-21a/21e, VAS-14a):** review the smallest common
+   seams with both consumers. Keep framework-neutral contracts/tokens and optional
+   editor/canvas/notebook entry points separately loadable. Select the package
+   location/name, public license, release owner, API compatibility policy and
+   supported peer versions before publication. No sibling filesystem imports,
+   private registry dependency, automatic credential sharing or runtime federation.
+3. **One proven vertical slice (VAS-14f/21e):** source document → edit → validate
+   → save/reload in a Victor fixture and a ProximaDB adapter fixture. Compare
+   existing Monaco with CodeMirror only where measured payload, accessibility or
+   lifecycle costs justify an alternative; compare canvas libraries on authoring
+   needs separately. No wholesale framework migration to obtain visual consistency.
+4. **Adopt without forks (VAS-21f/21c):** consume the same immutable OSS release
+   in ProximaDB standalone and the AnvaiOps shell. Their repository-owned PRs keep
+   product execution/auth adapters and test real endpoint contracts. Remove an
+   old component only after parity, upgrade/rollback and supported consumer checks.
+5. **Notebook execution last (VAS-14g/21g):** first qualify non-executing notebook
+   documents and safe outputs; then opt-in isolated execution, capability/role
+   denial, resource bounds, lost connections and truthful interrupt/unknown states.
+   Commercial workspace scheduling and entitlements remain AnvaiOps-owned.
+
+Before extraction, freeze representative fixtures and agreed budgets for cold
+load, transferred JS, peak heap, editor mount/dispose, graph pan/edit latency and
+large output rendering. Measure small/medium/large graphs and notebooks based on
+observed customer workloads; publish fixture sizes and hardware, not invented
+throughput claims. Reuse existing tests by invariant: shared component behavior
+once, each product's API/auth adapter separately, and a small installed integration
+matrix. Avoid copying entire test suites into each repository.
+
+Acceptance includes standalone packaged assets with CDN access disabled, worker
+and CSP paths, compatible peer dependencies, storage denied, all theme modes,
+keyboard-only editing, malicious notebook outputs, bounded output/graph sizes,
+mount/dispose leaks, save conflicts and no automatic execution on import. Headed
+AgentBrowser evidence must cover real save/reload/run/audit with authorized and
+denied roles; synthetic component checks do not close provider, kernel or C5 gates.
+Preserve any unsupported browser automation capability as an explicit blocker.
+
+Shared planning and adapter qualification may proceed now. Implementation of new
+Victor public contracts still follows FEP-0039 acceptance. Sandhi ownership and
+settlement/recovery remain the next execution priority; cross-product UI adoption
+does not delay that foundation, C5 or standalone OSS release.
 
 ## Acceptance and reconsideration
 
