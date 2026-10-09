@@ -1681,6 +1681,15 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   owns bounded TDD repairs through the existing protocol suites; VAS-15 still owns
   eventual consolidation. Preserve unknown/pending effects and never auto-replay.
 
+- **G81 — live authorization revocation for established EventBridge sockets (open).**
+  The core `/ws/events` gate authenticates the upgrade, not each later event.
+  VAS-05g repairs the extension's missing credential and client-side rotation,
+  stale callbacks, bounded retries and disposal through the existing transport.
+  It does not enforce server-side revocation on a socket already authenticated.
+  VAS-05 owns the reviewed revocation/authorization contract and its failure tests;
+  do not infer tenant isolation or live revocation from an authenticated handshake.
+  Follow the [canonical tracker](victor-agent-service-plan.md) for VAS-05g PR status.
+
 Validation-test audit: neither live harness had direct tests before this follow-up.
 The new mixed-harness suite covers rejected/malformed/missing reviews, inclusive
 cache accounting, missing artifacts, bad member usage, pytest timeout, startup and

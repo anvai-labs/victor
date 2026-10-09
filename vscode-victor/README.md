@@ -126,7 +126,20 @@ npm run compile
 If your Victor server sets `VICTOR_SERVER_API_KEY`:
 - In VS Code settings, set `victor.serverApiKey` to the same token.
 - Set `victor.serverPort` or `victor.serverUrl` to point at your server (default `http://localhost:8765` if you started `victor serve --port 8765`).
-- The extension will send `Authorization: Bearer <token>`, prefetch a signed `session_token`, and reuse it for WebSocket reconnects automatically.
+- HTTP requests and the active EventBridge `/ws/events` upgrade send
+  `Authorization: Bearer <token>`. EventBridge uses the configured key directly;
+  it does not use the legacy `/session/token` or `/ws` path.
+- Changing or clearing the configured key, or changing the server URL, replaces
+  the event connection. The explicitly configured new server receives the current
+  key. Redirects are not followed; endpoint URLs must not contain credentials,
+  query strings or fragments. Keys stay in the extension host, not the webview.
+- A rejected credential or redirect stops EventBridge reconnection until the
+  configuration changes. Transient connection failures use bounded backoff.
+  Disposing the chat provider or extension stops its event connection.
+- Leaving the key unset preserves local servers configured without authentication;
+  a rejected key never causes an automatic anonymous retry. Server authentication
+  currently checks the WebSocket upgrade: this client repair does not add live
+  server-side revocation of an already authenticated socket, OIDC or tenant policy.
 
 ## Commands
 
