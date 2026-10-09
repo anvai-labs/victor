@@ -1631,7 +1631,11 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   (`cytoscape is not defined`) and status at Loading. Refresh fetched execution
   status but did not initialize the graph. Preserve screenshot/network evidence;
   VAS-14e owns bundled assets, and VAS-14b/d own actionable loading/retry states.
-  This is a visualizer failure, not provider execution or formation evidence.
+  This is a visualizer failure, not provider execution or formation evidence. The bounded
+  repair packages graph assets, fixes safe node inspection/retry, and aligns local
+  light/dark/system tokens with fetched AnvaiOps/Identity references (VAS-14e).
+  VAS-14f/g track editor-library and notebook evaluation; none closes authoring,
+  OIDC, drag/stream or live mixed-model acceptance.
 
 - **G76 — end-to-end caller delegation to Sandhi (2026-10-08; open).**
   Victor's inbound user attribution and configured outbound workload credentials

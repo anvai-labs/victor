@@ -1,0 +1,71 @@
+{
+  "date": "2026-10-09",
+  "scope": "Existing workflow visualizer repair and local product-family appearance; synthetic UI only",
+  "theme_references": {
+    "anvaiops_develop": "91d731e8203e6c0b8393c8176031aae79d3d0557",
+    "anvai_identity_main": "724132c4234eebaeaa36423d02414cdb9eaf3eaa"
+  },
+  "verification": {
+    "affected_tests": 180,
+    "final_focused_tests": 25,
+    "collected": 34173,
+    "node_version": "24.21.0",
+    "agentbrowser_cli_and_server": "1.15.2",
+    "browser": "Chromium 154.0.8037.99 headed",
+    "viewports": [
+      "1440x1000",
+      "390x844"
+    ],
+    "observed": [
+      "CDN 404 and blank graph before repair",
+      "Local graph render and node inspector after repair",
+      "Graph HTTP503 yields Unavailable; Refresh recovers after fault clears",
+      "Execution HTTP503 yields State unavailable; Refresh restores Pending",
+      "Circle layout selection",
+      "Light and Dark selection; explicit Light remains after reload",
+      "System selection and narrow-screen layout",
+      "Narrow-screen collapsed canvas found and fixed",
+      "Installed wheel HTTP/assets/hash smoke and sdist asset/license membership"
+    ],
+    "unit_only": [
+      "Blocked appearance storage and invalid preference normalization",
+      "System preference change events",
+      "Malicious node content rendered as inert text",
+      "100 canvas theme changes keep stylesheet bounded and status colors correct"
+    ],
+    "review": "Independent review found stylesheet growth; corrected canonical definition and mutant fails 714 != 14; no remaining blocker at review",
+    "build": "Final isolated wheel and sdist; installed no-deps into disposable target",
+    "npm_audit": "0 reported advisories for cytoscape3.34.3, cytoscape-dagre4.0.1, bundled dagre3.0.0 and graphlib4.0.1"
+  },
+  "limitations": [
+    "No live provider requests in UI test",
+    "No OIDC/editor authoring/drag/C5 acceptance",
+    "AgentBrowser egress policy blocks page WebSocket; UI correctly remains Disconnected",
+    "Full notebook kernel/security integration and chart/editor library spike remain planned",
+    "Only Victor appearance changed; no sibling service deployment or global theme-preference propagation"
+  ],
+  "archive": "var/workflow-editor-audit-2026-10-09/",
+  "artifact_sha256": {
+    "visualizer-before.png": "1c0c9299345cd0c7061f2cbca53d6c1b6fd3246974b996235757f6a6581cafd0",
+    "theme-dark.png": "559a142accb6f35dd82cfea1a027f6ea3a7b472e23cdf00aee257a6c4a18899e",
+    "visualizer-after.png": "95cee049ba9c177699fc0ebeb348d22ba98a05f4143b62dd1dc3ba900b0a76b7",
+    "theme-light.png": "83489efc95f6e1d51e86e1d97f20a61ba6a47148f4d51c4cb225c24d20d7e402",
+    "victor-theme-red.log": "aafaec36aa33c78715619a404995860fc0bf4a2fa74c8c3b6513b280fa937c15",
+    "victor-visualizer-js-red-20261009.log": "6d3c947456ed9bc093ab0918974b3b37cccfb66fdbf062e46f02814cceebfb48",
+    "theme-mobile-system-fixed.png": "c6e500b855c28c072f527794a3218d3e6065b7dde3191c757f6cb7dc78158398",
+    "victor-ui-accepted-tests.log": "bdffe0c9e8c5ad864e39d257a1e869be935a5b60ce69aa3b1528a31160638d9e",
+    "synthetic_preview.py": "4f061d424fd9d39efe3c7f94d436300674cfe24f3f1f0fe77f672fa98caebbef",
+    "theme-system.png": "6ae84ec32d2594c972df09edc9ce9f1195870f7dec08030c737b0f3d0ed270f4",
+    "victor-visualizer-red-20261009.log": "7500123059ec4d292426de135d42d02f2cb777d469ac607a10b668188fc2fca6",
+    "victor-visualizer-mypy.log": "5d4b6d285b77932e3d08212c3b4974d0a803f98ec60408ac6ccf6a063fa6c19e",
+    "victor-visualizer-hygiene.log": "d175cb8f166a87af8033c8e0670ffe2f7b96e503d893485d930358e36110950e",
+    "installed_smoke.py": "51833e264cba3a26e4942a69225e92452dab5b53824e57d8cd28c631dc34f4e3",
+    "victor-visualizer-docs.log": "f2b6eca8fa78bf8dfa0829c3e3d2482485ad07711783c87cdc3782935aa83647",
+    "theme-mobile-system.png": "7047fbbeb7c2f3d5627f7835f492d2460ce19ec410eeafb0fc70229994f21d2c",
+    "victor-visualizer-accepted-build.log": "0bdee9d6a48a4780ac457d5966ef41b0d093d4a8f4936040e45ebbc26007130b",
+    "victor-visualizer-accepted-install.log": "1a07b1a100a6932f5a6903557d8625dfe2333c75f57f1952503153b0bff45e08",
+    "victor-theme-styles-red.log": "7d0c1240774226de2f9a89e6fadfc74215472082f31f524d4eb085fde8ec3d2d",
+    "victor-visualizer-final-collection.log": "f2bf3a4cdb9eed7fe0f4e7cfe602d1c81f9e9b1cf19cfa89375d08ae6eeb0ded",
+    "victor-visualizer-final-tests.log": "04bf62dbe71621429b89a05deccb942678f975d4bd2357b5cecfe35f4d470292"
+  }
+}

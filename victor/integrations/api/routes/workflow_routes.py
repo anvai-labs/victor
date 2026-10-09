@@ -31,7 +31,7 @@ from fastapi import (
     WebSocket,
     WebSocketDisconnect,
 )
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
 from victor.integrations.api.graph_export import get_execution_state
 
@@ -382,6 +382,18 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
                 await websocket.close(code=1011, reason=str(e))
             except Exception:
                 pass
+
+    @router.get("/workflows/assets/{asset}", include_in_schema=False)
+    async def visualizer_asset(asset: str) -> FileResponse:
+        """Serve only the packaged graph dependencies, never arbitrary paths."""
+        if asset not in {"cytoscape.min.js", "cytoscape-dagre.min.js"}:
+            raise HTTPException(status_code=404, detail="Unknown visualization asset")
+        path = Path(__file__).parent.parent / "templates" / "vendor" / asset
+        if not path.is_file():
+            raise HTTPException(status_code=503, detail="Visualization assets are not installed")
+        return FileResponse(
+            path, media_type="text/javascript", headers={"X-Content-Type-Options": "nosniff"}
+        )
 
     @router.get("/workflows/visualize/{workflow_id}", response_class=HTMLResponse)
     async def visualize_workflow(workflow_id: str) -> HTMLResponse:

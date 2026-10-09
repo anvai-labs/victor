@@ -33,6 +33,8 @@ def test_pyproject_enables_setuptools_package_data_for_vertical_assets() -> None
         # The TUI stylesheet: App.CSS_PATH loads it at startup. A wheel that
         # drops it crashes the TUI with StylesheetError (regression guard).
         "ui/tui/*.tcss",
+        "integrations/api/templates/*.html",
+        "integrations/api/templates/vendor/*",
     }
     missing = sorted(required_patterns - set(package_data))
     assert not missing, f"Missing required package-data patterns: {missing}"
@@ -54,3 +56,10 @@ def test_manifest_includes_tui_stylesheet() -> None:
     """Source distributions must include the TUI stylesheet."""
     manifest = (_repo_root() / "MANIFEST.in").read_text(encoding="utf-8")
     assert "recursive-include victor/ui/tui *.tcss" in manifest
+
+
+def test_manifest_includes_workflow_visualizer_assets() -> None:
+    manifest = (_repo_root() / "MANIFEST.in").read_text(encoding="utf-8")
+    assert (
+        "recursive-include victor/integrations/api/templates *.html *.js *.json *.txt" in manifest
+    )
