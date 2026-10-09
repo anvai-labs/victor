@@ -1302,8 +1302,14 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   HTTP ownership, atomically correlated
   admission, terminal settlement and bounded recovery through the original ledger.
   Local process tests distinguish successful settlement from unavailable usage and
-  incomplete shutdown; no live formation pass is added. **Still open:** broader
-  crash/recovery and streaming lifecycle acceptance, promotion/release and installed
+  incomplete shutdown. [Sandhi #339](https://github.com/anvai-labs/sandhi/pull/339)
+  merged after clean review and all six applicable green checks, with two
+  actual-process SIGKILL/restart drills:
+  unknown post-origin liability remains held; durable terminal usage recovers one
+  receipt after synthetic insertion failure, stable across a second restart without
+  inference/event replay. No live formation pass is added. **Still open:** terminal
+  publication under contention/process death, tracked TLS/OIDC and streaming
+  lifecycle acceptance, promotion/release and installed
   verification. SQLite operations can outlive a wait; unknown liability stays held,
   and no provider call is replayed. Defaults and shared runtimes are unchanged. New live
   acceptance evidence remains a separate gate. At #300, the source increment did

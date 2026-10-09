@@ -103,7 +103,11 @@ backend receipt reconciliation or complete member continuation.
 Sandhi's strict buffered usage qualification merged in
 [#337](https://github.com/anvai-labs/sandhi/pull/337). Tracked buffered HTTP ownership
 and bounded recovery merged in [#338](https://github.com/anvai-labs/sandhi/pull/338).
-These source increments do not change serving 0.11.0 or add live acceptance.
+Two tracked SIGKILL/restart cases merged in
+[#339](https://github.com/anvai-labs/sandhi/pull/339) after clean review and green CI. The next
+foundation checks cover terminal publication under contention/process death,
+tracked TLS/OIDC and streaming. These increments do not change serving 0.11.0
+or add live acceptance.
 
 Next, in dependency order:
 
