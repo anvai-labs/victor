@@ -318,12 +318,85 @@ Screenshots, snapshots and network events are preserved in
 `var/workflow-editor-audit-2026-10-09/`. Bundle verified assets and expose actionable
 load/retry state before claiming editor readiness; theme-only changes are insufficient.
 
+## UI library and theme decisions (2026-10-09)
+
+The launch surface is an authoring canvas, a typed logic inspector and a run/audit
+view backed by the same Victor service. A chart library cannot replace those
+contracts. These are evaluated candidates, not new installed dependencies or
+claims of measured performance:
+
+| Responsibility | Candidate / decision | Rationale and acceptance gate |
+| --- | --- | --- |
+| Existing execution graph | Keep locally packaged Cytoscape + Dagre | Repair the shipped visualizer now; do not build a second authoring engine inside it. Verify wheel assets, node inspection and honest load/retry states. |
+| Workflow/formation editor | Prefer React Flow in the planned TypeScript UI | Native node/handle interactions and accessibility hooks; server remains authoritative for typed connections, bounded loops, conditions, permissions and definition hashes. Prototype save/reload, undo/redo, keyboard parity and actual drag before adoption. |
+| Complex automatic layout | Compare Dagre with ELK for compound/multi-port graphs | Measure representative 50/250/1,000-node workflows; record latency, memory, rendering responsiveness and layout stability. Do not pick from library size alone. |
+| Logic / prompt / YAML / JSON editor | Compare Monaco and CodeMirror 6 | Monaco fits the existing VS Code ecosystem and language-service UX; CodeMirror offers composable cell editors. Measure startup/bundle/memory and accessibility; choose one primary editor after the spike. No browser eval of user logic. |
+| Audit charts | Prefer an existing lightweight chart surface; evaluate D3/Observable Plot if necessary | D3 supplies low-level visualization primitives; Rickshaw targets interactive time-series graphs, not workflow authoring. Introduce neither merely for visual novelty. Charts use recorded outcomes and neutral usage, with accessible tables. |
+| Notebook-style authoring | Begin with ordered Markdown, input, typed operation and result cells | Cells reference the canonical workflow definition and recorded run/step IDs. Editing/import does not execute code. Bound, sanitize and label output provenance. |
+| Full notebook compatibility | Optional JupyterLab/nbformat adapter after core editor | A kernel and server are separate execution/authorization surfaces. Require isolated per-user execution, quotas, cancellation, retention, explicit trust and existing action/approval gates; never silently execute imported cells. |
+
+Primary references: [React Flow accessibility](https://reactflow.dev/learn/advanced-use/accessibility),
+[connection validation](https://reactflow.dev/examples/interaction/validation),
+[D3 scope](https://d3js.org/what-is-d3), [Rickshaw](https://github.com/shutterstock/rickshaw),
+[Monaco](https://github.com/microsoft/monaco-editor), and
+[JupyterLab notebook model](https://jupyterlab.readthedocs.io/en/latest/extension/notebook.html).
+Databricks publicly documents its adoption of
+[Monaco](https://www.databricks.com/blog/2023/01/30/introducing-upgrades-databricks-notebooks-new-editor-python-formatting-and-more).
+[SageMaker](https://docs.aws.amazon.com/sagemaker/latest/dg/machine-learning-environments.html)
+offers JupyterLab and a separate Code-OSS editor. Snowflake documents
+[SQL/Python/Markdown cells](https://docs.snowflake.com/en/user-guide/ui-snowsight/notebooks-develop-run),
+but the inspected source does not establish its underlying editor library. Do not
+infer a proprietary application's stack from similar appearance or file formats.
+
+### Product-family visual contract
+
+Fetched references: AnvaiOps `origin/develop`
+`91d731e8203e6c0b8393c8176031aae79d3d0557`, `design/tokens.css`; Anvai Identity
+`origin/main` `724132c4234eebaeaa36423d02414cdb9eaf3eaa`,
+`crates/idm/assets/theme.css` and `docs/specs/SPEC-UI-001-anvai-experience.md`.
+AnvaiOps has unrelated local edits, so only remote refs were refreshed; Identity
+was inspected in a temporary reference clone because the named sibling was absent.
+
+Use local OSS-owned semantic values, not copied private application styles or a
+runtime import from AnvaiOps. Shared light palette: background `#f6f7fb`, surface
+`#ffffff`, text `#101828`, accent `#0f766e`, ink chrome `#0f172a`. Identity provides
+the dark mapping: background `#0b1220`, surface `#111d2e`, text `#edf2f7`, accent
+`#5eead4`. Preserve Identity's stronger control borders and readable secondary text.
+Use system fonts, 12px cards, 8px controls, visible focus and reduced motion.
+
+Dark/light/system is an appearance preference scoped to each origin; it does not
+share identity cookies or imply cross-service authorization. System follows OS
+changes; explicit choices persist when storage is available, and blocked storage
+must still allow in-page switching. Repaint canvas colors from the same semantic
+tokens without accumulating stylesheet contexts or resetting execution state.
+On a reference update, compare selected light/dark tokens and accessibility
+contrast, review intentional differences, update the pinned commits, and capture
+headed desktop/mobile light/dark/system evidence. A shared versioned token package
+is a later cross-repository decision if measured drift justifies it.
+
+The current visualizer increment removes the failing CDN dependency, adds safe
+node inspection and retry states, and implements this appearance baseline. It does
+not complete VAS-14: authoring, authenticated execution, browser drag/stream support,
+whole-member continuation and C5 remain open. The existing legacy execute route
+also creates a record without graph metadata: an actual router fixture returns
+200 on execute, then 404 on its graph URL. VAS-14a/14d must repair and test this
+projection seam before claiming the UI displays a real executed workflow. The notebook/editor spike belongs to
+VAS-14f/g below and must obey the existing FEP and foundation gates.
+
+Candidate validation: 180 affected tests, 25 final focused tests and 34,173 collected;
+Black/Ruff/MyPy, strict documentation build and repository hygiene pass. Installed
+wheel HTTP/assets and source-distribution membership checks pass. Headed screenshots
+cover desktop light/dark/system and a corrected narrow-screen canvas. Independent
+review found stylesheet growth; the canonical style owner and 100-switch regression
+fix it. [Evidence manifest](evidence/workflow-visualizer-ui-2026-10-09.json) records
+hashes and the explicit synthetic, authentication and streaming limits.
+
 ## Work ledger
 
 Planning/evidence: VAS-00 is accepted; VAS-01 is merged.
 Delivery: VAS-02, VAS-03a, VAS-11a, VAS-11b, VAS-11d, VAS-12a and VAS-12b are
 merged. VAS-04a, VAS-04b and VAS-02a are merged. VAS-03b is merged evidence only; VAS-05g and VAS-15a are merged.
-VAS-17 released InferFlux provenance and bounded wire acceptance now pass; durable gateway HTTP settlement/recovery and broader lifecycle qualification remain open. Parent VAS-03 and formal FEP acceptance remain open. Other implementation rows remain TODO. These counts are not
+VAS-17 released InferFlux provenance and bounded wire acceptance now pass; durable gateway HTTP settlement/recovery and broader lifecycle qualification remain open. Parent VAS-03 and formal FEP acceptance remain open. VAS-14e has an existing-visualizer candidate; other implementation rows remain TODO. These counts are not
 an effort-weighted completion percentage. The original formation denominator is
 independent. Update this paragraph and the rows together at each checkpoint.
 
@@ -366,7 +439,9 @@ independent. Update this paragraph and the rows together at each checkpoint.
 | VAS-14b | Drag/drop plus accessible workflow and formation editor | VAS-14a, VAS-09 | TODO | Node/edge editing, all registered formation choices, bounded workflow styles, undo/redo, stable definition hash, reload and keyboard parity; no second runtime |
 | VAS-14c | AgentBrowser drag and transport co-design capability | VAS-14a | TODO | Current 1.15.2 catalog has no drag primitive and policy restricts WS/SSE; add supported capability or record blocker, never silently substitute pointer/stream proof |
 | VAS-14d | Headed OIDC workflow→Victor→Sandhi→provider demo | VAS-14b, VAS-14c, VAS-14e, VAS-05d, VAS-05f, VAS-11, VAS-12 | TODO | AgentBrowser snapshots + exact definition + verified execution/approval/cancel + human/actor/accounting joins; deterministic then released-provider acceptance |
-| VAS-14e | Victor adapter for AnvaiOps/Sandesha/Sandhi family theme and bundled UI assets | VAS-14a, VAS-21a | TODO | Pinned semantic token source/adapters and drift guard; ink/teal, light/dark/high-contrast, responsive/keyboard/reduced motion; headed visual/functional snapshots; OSS/commercial boundary |
+| VAS-14e | Victor adapter for AnvaiOps/Sandesha/Sandhi/Identity family theme and bundled UI assets | VAS-14a, VAS-21a | IN PROGRESS | Existing visualizer baseline; full editor/cross-product acceptance remains.  Pinned semantic token source/adapters and drift guard; ink/teal, light/dark/high-contrast, responsive/keyboard/reduced motion; headed visual/functional snapshots; OSS/commercial boundary |
+| VAS-14f | Editor library spike and canonical logic inspector | VAS-14a | TODO | Compare React Flow, graph layouts and Monaco/CodeMirror on representative workflows; measure load/memory/interaction, keyboard access, packaging/licenses and typed save/reload parity; no client execution engine |
+| VAS-14g | Notebook-style cells and optional Jupyter interoperability | VAS-14f, VAS-05c, VAS-11, VAS-12 | TODO | Canonical definition/run linkage, bounded safe outputs, non-executing import/export; separately authorize isolated kernels if required; retain exact approval and recovery semantics |
 | VAS-15 | GraphQL/MCP/legacy adapter convergence and deprecation | VAS-08, VAS-13, VAS-14 | TODO | Inventory external consumers, policy/attribution parity; one owner, compatibility window; retire only evidenced duplicates |
 | VAS-15a | Preserve outcomes through the retained Python HTTP adapter | VAS-00 | ✅ MERGED | G80; [#1268](https://github.com/anvai-labs/victor/pull/1268), `e9004a5d8`; exact-candidate independent review and all applicable CI green. 144 focused/696 affected/81 docs/44 selector/199 selected tests, 34,082 collected, 95% changed-line coverage; no POST replay, adapter removal or durability claim; direct adapter remains G82/VAS-15 |
 | VAS-16 | Measured performance and broader lifecycle acceptance | VAS-12, VAS-13, VAS-14, VAS-15 | TODO | Same-workload baseline/comparison; cold/warm, 1/8/32 concurrency, memory/backpressure, deadlines and crash/recovery |

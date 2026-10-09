@@ -1,0 +1,27 @@
+{
+  "assets": [
+    {
+      "package": "cytoscape",
+      "version": "3.34.3",
+      "url": "https://registry.npmjs.org/cytoscape/-/cytoscape-3.34.3.tgz",
+      "integrity": "sha512-yfYGhRcGAntq6YBD583j4n0Eg3jIxvWmZtz/5uz9UYkeIStSlMxuUja+ec5j3iBD8nv1rwaOAYMW09tBdkSeaQ==",
+      "file": "cytoscape.min.js",
+      "sha256": "5f3b5b529546d5af1fc5628590af033b74511a5b6f789f5f4682845863228b91"
+    },
+    {
+      "package": "cytoscape-dagre",
+      "version": "4.0.1",
+      "url": "https://registry.npmjs.org/cytoscape-dagre/-/cytoscape-dagre-4.0.1.tgz",
+      "integrity": "sha512-hyNdh8Vp1nwzBcjHnM4c71G81bFhPmQYLXD2HM9AZIvl+8TrMzWEOPW45hF/XOBQiEguPcDQzi6VrXR1XBcXOA==",
+      "file": "cytoscape-dagre.min.js",
+      "sha256": "ec671a41d2bfcac580352e2997797793949e3489cecaf347fc48670d4bd456b0"
+    }
+  ],
+  "bundled_dependencies": {
+    "cytoscape-dagre": {
+      "@dagrejs/dagre": "3.0.0",
+      "@dagrejs/graphlib": "4.0.1"
+    }
+  },
+  "note": "Upstream npm dist artifacts copied byte-for-byte. Bundled dependency versions verified in upstream source map. Cytoscape-dagre package 4.0.1 retains upstream 4.0.0 banner. Refresh from npm tarballs and verify integrity before replacing; retain all MIT licenses."
+}

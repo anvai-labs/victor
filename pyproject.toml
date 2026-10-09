@@ -719,6 +719,8 @@ victor = [
     # TUI stylesheet: App.CSS_PATH loads this at startup; a wheel without it
     # crashes the TUI with StylesheetError (see test_packaging_asset_contracts).
     "ui/tui/*.tcss",
+    "integrations/api/templates/*.html",
+    "integrations/api/templates/vendor/*",
     "verticals/contrib/*/*.yaml",
     "verticals/contrib/*/*.toml",
     "verticals/contrib/*/*.svg",
