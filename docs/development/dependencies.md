@@ -10,7 +10,8 @@ It does not install Victor itself or enable every optional feature.
 
 | Deployment | Installation | Additional dependency surface |
 | --- | --- | --- |
-| CLI, TUI, framework, MCP | `pip install victor-ai` | Core providers, terminal UI and generic tools |
+| CLI, framework, MCP | `pip install victor-ai` | Core providers, command-line UI and generic tools |
+| Textual TUI | `pip install 'victor-ai[tui]'` | Optional Textual dashboard (`victor tui`) |
 | HTTP / GraphQL API | `pip install 'victor-ai[api]'` | FastAPI, Uvicorn, Strawberry |
 | Local text embeddings | `pip install 'victor-ai[embeddings]'` | Sentence Transformers, Torch, LanceDB, Arrow |
 | Google provider | `pip install 'victor-ai[google]'` | Google GenAI SDK |
