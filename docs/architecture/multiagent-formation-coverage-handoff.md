@@ -1678,8 +1678,11 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   outcome losses; no live-member acceptance is claimed. This exported package has
   no discovered non-example internal production callers, but external use is
   unknown. Do not remove it without compatibility/deprecation evidence. VAS-15a
-  owns bounded TDD repairs through the existing protocol suites; VAS-15 still owns
-  eventual consolidation. Preserve unknown/pending effects and never auto-replay.
+  owns bounded TDD repairs through the existing protocol suites and a real core
+  HTTP smoke: preserve paused fields, reject malformed/incomplete streams, bound
+  frames, expand core tool-call lists and close without POST replay. Follow the
+  [canonical tracker](victor-agent-service-plan.md) for review/CI/merge status.
+  VAS-15 still owns eventual consolidation. Preserve unknown/pending effects.
 
 - **G81 — live authorization revocation for established EventBridge sockets (open).**
   The core `/ws/events` gate authenticates the upgrade, not each later event.
@@ -1689,6 +1692,15 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   VAS-05 owns the reviewed revocation/authorization contract and its failure tests;
   do not infer tenant isolation or live revocation from an authenticated handshake.
   Follow the [canonical tracker](victor-agent-service-plan.md) for VAS-05g PR status.
+
+- **G82 — legacy direct adapter outcome parity is unqualified (open).**
+  `DirectProtocolAdapter.chat` still invokes a supplied orchestrator and constructs
+  a response with `finish_reason="stop"`; its stream conversion drops tool calls.
+  VAS-15a's HTTP repair does not change this separate execution path. No internal
+  non-example production consumer was found; external compatibility remains unknown.
+  VAS-15 owns consumer qualification and migration through canonical framework
+  services before a parity or deprecation claim. This source audit is not evidence
+  of a live-member failure and does not justify removing public imports.
 
 Validation-test audit: neither live harness had direct tests before this follow-up.
 The new mixed-harness suite covers rejected/malformed/missing reviews, inclusive

@@ -15,6 +15,8 @@
 """Tests for protocol adapters."""
 
 import pytest
+import httpx
+import asyncio
 from unittest.mock import MagicMock, AsyncMock, patch
 import json
 import sys
@@ -395,6 +397,62 @@ class TestHTTPProtocolAdapterInit:
         assert adapter._timeout == 30.0
 
 
+class _WireStream(httpx.AsyncByteStream):
+    def __init__(self, parts, wait=False, forbid_next_read=False):
+        self.parts = parts
+        self.closed = False
+        self.wait = wait
+        self.forbid_next_read = forbid_next_read
+        self.waiting = asyncio.Event()
+
+    async def __aiter__(self):
+        for part in self.parts:
+            yield part
+        if self.forbid_next_read:
+            raise AssertionError("Read past complete terminal frame")
+        if self.wait:
+            self.waiting.set()
+            await asyncio.Future()
+
+    async def aclose(self):
+        self.closed = True
+
+
+@pytest.fixture
+async def http_adapter():
+    adapters = []
+
+    async def create(
+        *,
+        payload=None,
+        status=200,
+        parts=None,
+        content_type="text/event-stream",
+        wait=False,
+        forbid_next_read=False,
+    ):
+        requests = []
+        stream = _WireStream(parts or [], wait, forbid_next_read)
+
+        def handler(request):
+            requests.append(request)
+            if parts is None:
+                return httpx.Response(status, json=payload)
+            return httpx.Response(status, headers={"content-type": content_type}, stream=stream)
+
+        adapter = HTTPProtocolAdapter()
+        await adapter._client.aclose()
+        adapter._client = httpx.AsyncClient(
+            base_url="http://test", transport=httpx.MockTransport(handler)
+        )
+        adapters.append(adapter)
+        return adapter, requests, stream
+
+    yield create
+    for adapter in adapters:
+        await adapter.close()
+
+
 class TestHTTPProtocolAdapterChat:
     """Tests for HTTPProtocolAdapter chat methods."""
 
@@ -402,25 +460,166 @@ class TestHTTPProtocolAdapterChat:
     def adapter(self):
         return HTTPProtocolAdapter()
 
-    @pytest.mark.asyncio
-    async def test_chat(self, adapter):
-        """Test chat via HTTP."""
-        mock_response = MagicMock()
-        mock_response.json.return_value = {
-            "content": "Hello!",
-            "tool_calls": [],
-            "finish_reason": "stop",
-            "usage": {},
-        }
-        mock_response.raise_for_status = MagicMock()
-
-        adapter._client.post = AsyncMock(return_value=mock_response)
-
-        messages = [ChatMessage(role="user", content="Hi")]
-        response = await adapter.chat(messages)
-
+    @pytest.mark.parametrize(
+        "status,metadata",
+        [
+            (200, {}),
+            (202, {"status": "awaiting_approval", "run_id": "run-1", "approval_request": {}}),
+        ],
+    )
+    async def test_chat(self, http_adapter, status, metadata):
+        adapter, requests, _ = await http_adapter(
+            payload={"content": "Hello!", "tool_calls": None, **metadata},
+            status=status,
+        )
+        response = await adapter.chat([ChatMessage(role="user", content="Hi")])
         assert response.content == "Hello!"
-        adapter._client.post.assert_called_once()
+        assert response.finish_reason == ("awaiting_approval" if status == 202 else "stop")
+        assert len(requests) == 1
+        assert json.loads(requests[0].content)["messages"][0]["content"] == "Hi"
+
+    @pytest.mark.parametrize(
+        "status,payload",
+        [
+            (202, {"content": "partial"}),
+            (202, {"content": "partial", "status": "ok"}),
+            (200, []),
+            (200, {"content": 9}),
+            (200, {"content": "partial", "status": "failed"}),
+        ],
+    )
+    async def test_invalid_chat_outcome_never_replays(self, http_adapter, status, payload):
+        adapter, requests, _ = await http_adapter(payload=payload, status=status)
+        with pytest.raises(ValueError):
+            await adapter.chat([])
+        assert len(requests) == 1
+
+    @pytest.mark.parametrize("ending", [b"\n", b"\r\n", b"\r"])
+    async def test_stream_framing_and_tool_list(self, http_adapter, ending):
+        frames = [
+            b"\xef\xbb\xbf: heartbeat",
+            b'data:{"type":"request","request_id":"r"}',
+            b"",
+            'data: {"type":"content",'.encode(),
+            'data:"content":"hello 🧪"}'.encode(),
+            b"",
+            b'data: {"type":"tool_call","tool_call":[{"name":"graph"},{"name":"read","arguments":{"path":"a"}}]}',
+            b"",
+            b'data: {"v":1,"event":"content","content":"v1"}',
+            b"",
+            b'data: {"v":1,"event":"tool_call","tool":"list","call_id":"call-1"}',
+            b"",
+            b"data: [DONE]",
+            b"",
+            b"",
+        ]
+        raw = ending.join(frames)
+        adapter, requests, stream = await http_adapter(parts=[bytes([b]) for b in raw])
+        chunks = [chunk async for chunk in adapter.stream_chat([])]
+        assert [chunk.content for chunk in chunks] == ["hello 🧪", "", "", "v1", ""]
+        assert [chunk.tool_call.name for chunk in chunks if chunk.tool_call] == [
+            "graph",
+            "read",
+            "list",
+        ]
+        assert chunks[1].tool_call.arguments == {}
+        assert chunks[-1].tool_call.id == "call-1"
+        assert stream.closed and len(requests) == 1
+
+    @pytest.mark.parametrize(
+        "raw",
+        [
+            b"",
+            b'data: {"content":"partial"}\n\n',
+            b"data: [DONE]\n",
+            b'data: {"content":"partial","finish_reason":"stop"}\n\n',
+            b"data: not-json\n\ndata: [DONE]\n\n",
+            b"data: []\n\n",
+            b'data: {"content":9}\n\n',
+            b'data: {"type":"error","message":"private"}\n\ndata: [DONE]\n\n',
+            b'data: {"v":1,"event":"error","message":"private"}\n\n',
+            b'data: {"v":2,"event":"stream_end"}\n\n',
+            b'data: {"type":"invented"}\n\n',
+            b'data: {"event":null,"content":"partial"}\n\ndata: [DONE]\n\n',
+            b'data: {"type":null,"content":"partial"}\n\ndata: [DONE]\n\n',
+            b'data: {"v":1,"content":"partial"}\n\ndata: [DONE]\n\n',
+            b'data: {"v":1,"type":"content","content":"partial"}\n\ndata: [DONE]\n\n',
+            b'data: {"content":"\xff"}\n\ndata: [DONE]\n\n',
+            b'data: {"type":"tool_call","tool_call":42}\n\n',
+        ],
+    )
+    async def test_bad_stream_closes_without_replay(self, http_adapter, raw):
+        adapter, requests, stream = await http_adapter(parts=[raw])
+        with pytest.raises(ValueError) as error:
+            _ = [chunk async for chunk in adapter.stream_chat([])]
+        assert "private" not in str(error.value)
+        assert stream.closed and len(requests) == 1
+
+    @pytest.mark.parametrize("ending", [b"\n", b"\r\n", b"\r"])
+    async def test_terminal_never_waits_for_another_read(self, http_adapter, ending):
+        adapter, requests, stream = await http_adapter(
+            parts=[b"data: [DONE]" + ending + ending],
+            forbid_next_read=True,
+        )
+        assert [chunk async for chunk in adapter.stream_chat([])] == []
+        assert stream.closed and len(requests) == 1
+
+    @pytest.mark.parametrize("terminal", [b"[DONE]", b'{"v":1,"event":"stream_end"}'])
+    async def test_terminal_stops_before_decoding_trailing_bytes(self, http_adapter, terminal):
+        adapter, requests, stream = await http_adapter(parts=[b"data: " + terminal + b"\n\n\xff"])
+        assert [chunk async for chunk in adapter.stream_chat([])] == []
+        assert stream.closed and len(requests) == 1
+
+    @pytest.mark.parametrize("prefix", [b"data: ", b":", b"ignored: "])
+    async def test_bounds_unterminated_frames_including_ignored_lines(
+        self, http_adapter, monkeypatch, prefix
+    ):
+        monkeypatch.setattr(
+            "victor.integrations.protocol.adapters._MAX_SSE_FRAME_BYTES", 64, raising=False
+        )
+        adapter, requests, stream = await http_adapter(parts=[prefix, b"x" * 65])
+        with pytest.raises(ValueError, match="limit"):
+            _ = [chunk async for chunk in adapter.stream_chat([])]
+        assert stream.closed and len(requests) == 1
+
+    async def test_exact_frame_bound_and_reset(self, http_adapter, monkeypatch):
+        monkeypatch.setattr(
+            "victor.integrations.protocol.adapters._MAX_SSE_FRAME_BYTES", 64, raising=False
+        )
+        frame = b":" + b"x" * 61 + b"\n\n"  # 64 bytes including ignored comment and delimiter
+        adapter, _, stream = await http_adapter(parts=[frame, b"data: [DONE]\n\n"])
+        assert [chunk async for chunk in adapter.stream_chat([])] == []
+        assert stream.closed
+
+    @pytest.mark.parametrize(
+        "status,content_type", [(403, "text/event-stream"), (200, "application/json")]
+    )
+    async def test_rejects_http_failure_and_wrong_media_type(
+        self, http_adapter, status, content_type
+    ):
+        adapter, requests, stream = await http_adapter(
+            parts=[b"data: [DONE]\n\n"], status=status, content_type=content_type
+        )
+        with pytest.raises((ValueError, httpx.HTTPStatusError)):
+            _ = [chunk async for chunk in adapter.stream_chat([])]
+        assert stream.closed and len(requests) == 1
+
+    @pytest.mark.parametrize("cancel", [False, True])
+    async def test_consumer_close_or_cancel_releases_response(self, http_adapter, cancel):
+        adapter, requests, stream = await http_adapter(
+            parts=[b'data: {"content":"partial"}\n\n'], wait=True
+        )
+        result = adapter.stream_chat([])
+        assert (await anext(result)).content == "partial"
+        if cancel:
+            task = asyncio.create_task(anext(result))
+            await stream.waiting.wait()
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+        else:
+            await result.aclose()
+        assert stream.closed and len(requests) == 1
 
     @pytest.mark.asyncio
     async def test_reset_conversation(self, adapter):

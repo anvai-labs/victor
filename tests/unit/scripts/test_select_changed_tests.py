@@ -120,6 +120,24 @@ def test_selector_changes_select_its_own_regressions():
         ),
         ("victor/ui/cli_group.py", ["tests/unit/ui/test_cli_command_resolution.py"]),
         (
+            "victor/integrations/protocol/__init__.py",
+            [
+                "tests/unit/protocols/test_protocol_interface.py",
+                "tests/unit/protocols/test_protocol_adapters.py",
+            ],
+        ),
+        (
+            "victor/integrations/protocol/interface.py",
+            ["tests/unit/protocols/test_protocol_interface.py"],
+        ),
+        (
+            "victor/integrations/protocol/adapters.py",
+            [
+                "tests/unit/protocols/test_protocol_adapters.py",
+                "tests/unit/api/test_vscode_extension_contract.py",
+            ],
+        ),
+        (
             "victor/agent/strategies/provider_strategies.py",
             ["tests/unit/providers/test_provider_components.py"],
         ),

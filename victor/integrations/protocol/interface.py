@@ -1,19 +1,7 @@
-"""Victor Protocol Interface - Unified API contract.
+"""Legacy Python protocol types for opt-in direct and HTTP adapters.
 
-This module defines the abstract interface that all Victor clients
-use to interact with the core engine. Both CLI and VS Code extension
-implement this protocol to ensure feature parity.
-
-Usage:
-    # CLI uses DirectProtocolAdapter
-    from victor.integrations.protocol import DirectProtocolAdapter
-    protocol = await DirectProtocolAdapter.create()
-    response = await protocol.chat([ChatMessage(role="user", content="Hello")])
-
-    # VS Code uses HTTPProtocolAdapter
-    from victor.integrations.protocol import HTTPProtocolAdapter
-    protocol = HTTPProtocolAdapter("http://localhost:8765")
-    response = await protocol.chat([ChatMessage(role="user", content="Hello")])
+Current CLI/IDE/framework consumers do not all implement this interface. Keep
+public imports compatible while the shared agent-service contract is reviewed.
 """
 
 from abc import ABC, abstractmethod
@@ -126,36 +114,89 @@ class ChatResponse:
     tool_calls: list[ToolCall] = field(default_factory=list)
     finish_reason: str = "stop"
     usage: dict[str, int] = field(default_factory=dict)
+    status: str | None = None
+    run_id: str | None = None
+    approval_request: dict[str, Any] | None = None
+
+    def __post_init__(self) -> None:
+        paused = self.status == "awaiting_approval"
+        if (
+            self.status not in (None, "ok", "awaiting_approval")
+            or (self.run_id is not None and not isinstance(self.run_id, str))
+            or (self.approval_request is not None and not isinstance(self.approval_request, dict))
+            or (not paused and self.approval_request is not None)
+            or (
+                paused
+                and (not self.run_id or not self.run_id.strip() or self.approval_request is None)
+            )
+        ):
+            raise ValueError("Invalid chat outcome metadata; outcome is unknown")
+        if paused:
+            self.finish_reason = "awaiting_approval"
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        result = {
             "content": self.content,
             "tool_calls": [tc.to_dict() for tc in self.tool_calls],
             "finish_reason": self.finish_reason,
             "usage": self.usage,
         }
+        # Keep the legacy four-key shape byte-identical when metadata is absent.
+        for key in ("status", "run_id", "approval_request"):
+            value = getattr(self, key)
+            if value is not None:
+                result[key] = value
+        return result
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "ChatResponse":
+        if not isinstance(data, dict) or not isinstance(data.get("content"), str):
+            raise ValueError("Invalid chat response; outcome is unknown")
+        if "status" in data and data["status"] is None:
+            raise ValueError("Invalid chat outcome metadata; outcome is unknown")
+        calls = data.get("tool_calls")
+        if calls is None:
+            calls = []
+        if not isinstance(calls, list):
+            raise ValueError("Invalid chat tool calls; outcome is unknown")
+        finish = data.get("finish_reason", "stop")
+        usage = data.get("usage", {})
+        if not isinstance(finish, str) or not isinstance(usage, dict):
+            raise ValueError("Invalid chat response; outcome is unknown")
         return cls(
             content=data["content"],
-            tool_calls=[ToolCall.from_dict(tc) for tc in data.get("tool_calls", [])],
-            finish_reason=data.get("finish_reason", "stop"),
-            usage=data.get("usage", {}),
+            tool_calls=[_decode_tool_call(tc) for tc in calls],
+            finish_reason=finish,
+            usage=usage,
+            status=data.get("status"),
+            run_id=data.get("run_id"),
+            approval_request=data.get("approval_request"),
         )
+
+
+def _decode_tool_call(data: Any) -> ToolCall:
+    """Check the wire shape, retaining canonical optional argument/id defaults."""
+    if (
+        not isinstance(data, dict)
+        or not isinstance(data.get("name", ""), str)
+        or not isinstance(data.get("arguments", {}), dict)
+        or (data.get("id") is not None and not isinstance(data["id"], str))
+    ):
+        raise ValueError("Invalid tool call in chat response")
+    return ToolCall.from_dict(data)
 
 
 @dataclass
 class ClientStreamChunk:
     """A chunk from a streaming response for client protocols.
 
-    Used by CLI and IDE extension clients for streaming responses.
+    Used by opt-in legacy Python protocol adapters for streaming responses.
 
     Renamed from StreamChunk to be semantically distinct from other streaming types:
     - StreamChunk (victor.providers.base): Provider-level raw streaming
     - OrchestratorStreamChunk: Orchestrator protocol with typed ChunkType
     - TypedStreamChunk: Safe typed accessor with nested StreamDelta
-    - ClientStreamChunk: Protocol interface for clients (CLI/VS Code)
+    - ClientStreamChunk: Opt-in legacy Python protocol adapters
     """
 
     content: str
@@ -211,9 +252,8 @@ class AgentStatus:
 class VictorProtocol(ABC):
     """Abstract protocol interface for Victor clients.
 
-    All clients (CLI, VS Code, JetBrains, MCP) implement this interface
-    through appropriate adapters. This ensures feature parity across
-    all integration points.
+    Retained for callers of the legacy Python adapters. This interface alone
+    does not establish parity with current CLI, IDE or MCP application services.
     """
 
     # =========================================================================
