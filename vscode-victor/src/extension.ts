@@ -6,6 +6,7 @@
  */
 
 import * as vscode from 'vscode';
+import { disposeEventBridgeClient } from './eventBridgeClient';
 import { VictorClient } from './victorClient';
 import { ChatViewProvider } from './chatViewProvider';
 import { SemanticSearchProvider } from './semanticSearch';
@@ -223,6 +224,7 @@ export async function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(clientOutput);
 
     const chatViewProvider = new ChatViewProvider(context.extensionUri, victorClient, clientOutput);
+    context.subscriptions.push(chatViewProvider);
     const semanticSearchProvider = new SemanticSearchProvider(victorClient);
     const inlineCompletionProvider = new InlineCompletionProvider(victorClient);
     const inlineEditProvider = new InlineEditProvider(victorClient, clientOutput);
@@ -1127,6 +1129,7 @@ function updateServerStatusBar(
 
 export function deactivate() {
     console.log('Victor AI extension deactivating...');
+    disposeEventBridgeClient();
 
     // Dispose state store
     const store = getStore();

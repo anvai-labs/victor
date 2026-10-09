@@ -287,6 +287,8 @@ export class VictorClient {
     private wsHeartbeatTimer: NodeJS.Timeout | null = null;
     private wsPongTimer: NodeJS.Timeout | null = null;
 
+    private connectionHandlers = new Set<() => void>();
+
     // Event handlers
     private messageHandlers: ((msg: ChatMessage) => void)[] = [];
     private stateChangeHandlers: ((state: WebSocketState) => void)[] = [];
@@ -312,11 +314,34 @@ export class VictorClient {
         return this.serverUrl;
     }
 
+    /** Extension-host transport configuration; never post this snapshot to a webview. */
+    getConnectionConfig(): Readonly<{ serverUrl: string; apiToken?: string }> {
+        return Object.freeze({ serverUrl: this.serverUrl, apiToken: this.apiToken });
+    }
+
+    onConnectionChange(handler: () => void): { dispose(): void } {
+        this.connectionHandlers.add(handler);
+        return { dispose: () => { this.connectionHandlers.delete(handler); } };
+    }
+
+    private notifyConnectionChange(): void {
+        for (const handler of this.connectionHandlers) {
+            try {
+                handler();
+            } catch {
+                console.warn('[Victor] Connection change listener failed');
+            }
+        }
+    }
+
     // =========================================================================
     // Connection Management
     // =========================================================================
 
     setApiToken(token?: string): void {
+        if (this.apiToken === token) {
+            return;
+        }
         this.apiToken = token;
         this.invalidateStatusCache();
         if (token) {
@@ -324,6 +349,7 @@ export class VictorClient {
         } else {
             delete this.client.defaults.headers.common['Authorization'];
         }
+        this.notifyConnectionChange();
     }
 
     setServerUrl(serverUrl: string): void {
@@ -337,6 +363,7 @@ export class VictorClient {
         this.sessionToken = undefined;
         this.invalidateStatusCache();
         this.disconnectWebSocket();
+        this.notifyConnectionChange();
     }
 
     /**
