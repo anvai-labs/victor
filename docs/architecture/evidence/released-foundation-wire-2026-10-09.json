@@ -1,0 +1,414 @@
+{
+  "evidence_date": "2026-10-09",
+  "scope": "new synthetic release wire acceptance; not member replay or C5",
+  "c5_accepted": false,
+  "source": "bfdf32c00ccf40c7af73b86df2eedabc20a7ae85",
+  "release_url": "https://github.com/anvai-labs/inferflux/releases/tag/v0.5.0",
+  "origin": {
+    "pid": 152439,
+    "executable": "/home/vsingh/.local/share/inferflux/releases/v0.5.0-bfdf32c00ccf/runtime/inferfluxd",
+    "sha256": "66f2fa90fef39d7bea8a67b18c275745c9961c12add9da7470eded7cf2c46d71",
+    "listening_ports": [
+      8080,
+      8443
+    ],
+    "start_ticks": "39726957"
+  },
+  "gateway": {
+    "pid": 2969496,
+    "executable": "/home/vsingh/.local/share/sandhi/releases/v0.11.0-official/sandhi-proxy",
+    "sha256": "5c804c4a6a9431a1be58e046b6541d974dc4f59befd2f564258a96db23a1ec56",
+    "listening_ports": [
+      18788
+    ],
+    "start_ticks": "36313611"
+  },
+  "config_sha256": "fe799c5895b7e32f77704936e6b61ccc047771225b9a2407dea6122c20e6d5d6",
+  "checks_passed": 16,
+  "checks": [
+    {
+      "port": 8080,
+      "model": "qwen3-coder-30b",
+      "stream": false,
+      "run_id": "release05_0e6c26c2cb154779b170a6544696a221",
+      "usage": {
+        "completion_tokens": 1,
+        "duration_ms": 397.169264,
+        "prompt_tokens": 14,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "total_tokens": 15
+      },
+      "elapsed_seconds": 0.398414249997586
+    },
+    {
+      "port": 8080,
+      "model": "qwen3-coder-30b",
+      "stream": true,
+      "run_id": "release05_0d255c3073144bbe8263902164692fc9",
+      "usage": {
+        "completion_tokens": 1,
+        "duration_ms": 99.007799,
+        "prompt_tokens": 14,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "time_to_first_token_ms": 87.210243,
+        "total_tokens": 15
+      },
+      "elapsed_seconds": 0.09984439000254497
+    },
+    {
+      "port": 8080,
+      "model": "qwen2.5-coder-14b",
+      "stream": false,
+      "run_id": "release05_5253c362dad44e29b6389f9e7f1a1d0a",
+      "usage": {
+        "completion_tokens": 1,
+        "duration_ms": 492.373527,
+        "prompt_tokens": 14,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "total_tokens": 15
+      },
+      "elapsed_seconds": 0.4933553829905577
+    },
+    {
+      "port": 8080,
+      "model": "qwen2.5-coder-14b",
+      "stream": true,
+      "run_id": "release05_7af37013a9214c8082ab2b9eac5084cf",
+      "usage": {
+        "completion_tokens": 1,
+        "duration_ms": 124.143448,
+        "prompt_tokens": 14,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "time_to_first_token_ms": 92.972226,
+        "total_tokens": 15
+      },
+      "elapsed_seconds": 0.12509937299182639
+    },
+    {
+      "port": 8080,
+      "model": "bge-small-en-v1.5",
+      "encoding": "float",
+      "run_id": "release05_ef40a33d8efc4432b72b7c5146327b5f",
+      "dimensions": 384,
+      "vectors": 2,
+      "usage": {
+        "prompt_tokens": 10,
+        "total_tokens": 10
+      },
+      "elapsed_seconds": 0.13375205197371542
+    },
+    {
+      "port": 8080,
+      "model": "bge-small-en-v1.5",
+      "encoding": "base64",
+      "run_id": "release05_9d99f0b664d340d1b0d2ef0c72ba6c28",
+      "dimensions": 384,
+      "vectors": 2,
+      "usage": {
+        "prompt_tokens": 10,
+        "total_tokens": 10
+      },
+      "elapsed_seconds": 0.053636862023267895
+    },
+    {
+      "port": 8443,
+      "model": "qwen3-coder-30b",
+      "stream": false,
+      "run_id": "release05_e995e373090443bcaec39f14e358be1a",
+      "usage": {
+        "completion_tokens": 1,
+        "duration_ms": 99.900672,
+        "prompt_tokens": 14,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "total_tokens": 15
+      },
+      "elapsed_seconds": 0.10201978002442047
+    },
+    {
+      "port": 8443,
+      "model": "qwen3-coder-30b",
+      "stream": true,
+      "run_id": "release05_ce35048bb7be4b3d93d275ace87a3233",
+      "usage": {
+        "completion_tokens": 1,
+        "duration_ms": 98.343405,
+        "prompt_tokens": 14,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "time_to_first_token_ms": 86.814699,
+        "total_tokens": 15
+      },
+      "elapsed_seconds": 0.14139582397183403
+    },
+    {
+      "port": 8443,
+      "model": "qwen2.5-coder-14b",
+      "stream": false,
+      "run_id": "release05_7c0714086a424bf18dfd772129fa50db",
+      "usage": {
+        "completion_tokens": 1,
+        "duration_ms": 124.557372,
+        "prompt_tokens": 14,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "total_tokens": 15
+      },
+      "elapsed_seconds": 0.12638557999162003
+    },
+    {
+      "port": 8443,
+      "model": "qwen2.5-coder-14b",
+      "stream": true,
+      "run_id": "release05_db800bbe33a649ca9c03114dcb74d99a",
+      "usage": {
+        "completion_tokens": 1,
+        "duration_ms": 123.943508,
+        "prompt_tokens": 14,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "time_to_first_token_ms": 93.019526,
+        "total_tokens": 15
+      },
+      "elapsed_seconds": 0.16694994596764445
+    },
+    {
+      "port": 8443,
+      "model": "bge-small-en-v1.5",
+      "encoding": "float",
+      "run_id": "release05_ee00a2a9d2f546eb8215ec547b42152b",
+      "dimensions": 384,
+      "vectors": 2,
+      "usage": {
+        "prompt_tokens": 10,
+        "total_tokens": 10
+      },
+      "elapsed_seconds": 0.09673535299953073
+    },
+    {
+      "port": 8443,
+      "model": "bge-small-en-v1.5",
+      "encoding": "base64",
+      "run_id": "release05_9ef0ae06a10649bf96584257c1188736",
+      "dimensions": 384,
+      "vectors": 2,
+      "usage": {
+        "prompt_tokens": 10,
+        "total_tokens": 10
+      },
+      "elapsed_seconds": 0.09593996196053922
+    },
+    {
+      "port": 18788,
+      "model": "qwen3-coder-30b",
+      "stream": false,
+      "run_id": "release05_38f624907d264c60908f6c1882e97e1c",
+      "usage": {
+        "completion_tokens": 1,
+        "duration_ms": 99.584357,
+        "prompt_tokens": 14,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "total_tokens": 15
+      },
+      "elapsed_seconds": 0.16039118298795074,
+      "reconciliation": {
+        "request_id": "req_1791561317419_3",
+        "provider_response_id": "cmpl-1791561317519-9",
+        "request_id_provenance": "gateway request echoed by origin and persisted by gateway",
+        "cache_read_coverage": {
+          "absent": 0,
+          "malformed": 0,
+          "reported": 1,
+          "unknown": 0,
+          "unsupported": 0
+        },
+        "total": {
+          "billable_tokens": 15,
+          "cache_creation_tokens": 0,
+          "cache_read_coverage": {
+            "absent": 0,
+            "malformed": 0,
+            "reported": 1,
+            "unknown": 0,
+            "unsupported": 0
+          },
+          "cache_read_tokens": 0,
+          "calls": 1,
+          "key": "release05_38f624907d264c60908f6c1882e97e1c",
+          "reasoning_tokens": 0,
+          "tokens_in": 14,
+          "tokens_out": 1
+        }
+      }
+    },
+    {
+      "port": 18788,
+      "model": "qwen3-coder-30b",
+      "stream": true,
+      "run_id": "release05_8d123c5395754e39aa9ffd0cdb0bab4d",
+      "usage": {
+        "completion_tokens": 1,
+        "duration_ms": 99.442393,
+        "prompt_tokens": 14,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "time_to_first_token_ms": 87.630537,
+        "total_tokens": 15
+      },
+      "elapsed_seconds": 0.15634292404865846,
+      "reconciliation": {
+        "request_id": "req_1791561317627_4",
+        "provider_response_id": "cmpl-1791561317628-10",
+        "request_id_provenance": "gateway request echoed by origin and persisted by gateway",
+        "cache_read_coverage": {
+          "absent": 0,
+          "malformed": 0,
+          "reported": 1,
+          "unknown": 0,
+          "unsupported": 0
+        },
+        "total": {
+          "billable_tokens": 15,
+          "cache_creation_tokens": 0,
+          "cache_read_coverage": {
+            "absent": 0,
+            "malformed": 0,
+            "reported": 1,
+            "unknown": 0,
+            "unsupported": 0
+          },
+          "cache_read_tokens": 0,
+          "calls": 1,
+          "key": "release05_8d123c5395754e39aa9ffd0cdb0bab4d",
+          "reasoning_tokens": 0,
+          "tokens_in": 14,
+          "tokens_out": 1
+        }
+      }
+    },
+    {
+      "port": 18788,
+      "model": "bge-small-en-v1.5",
+      "encoding": "float",
+      "run_id": "release05_8a09b3e99e404d4caa70ac7cda8f564c",
+      "dimensions": 384,
+      "vectors": 2,
+      "usage": {
+        "prompt_tokens": 10,
+        "total_tokens": 10
+      },
+      "elapsed_seconds": 0.10693758900742978,
+      "reconciliation": {
+        "request_id": "req_1791561317783_5",
+        "provider_response_id": null,
+        "request_id_provenance": "gateway request echoed by origin and persisted by gateway",
+        "cache_read_coverage": {
+          "absent": 1,
+          "malformed": 0,
+          "reported": 0,
+          "unknown": 0,
+          "unsupported": 0
+        },
+        "total": {
+          "billable_tokens": 10,
+          "cache_creation_tokens": 0,
+          "cache_read_coverage": {
+            "absent": 1,
+            "malformed": 0,
+            "reported": 0,
+            "unknown": 0,
+            "unsupported": 0
+          },
+          "cache_read_tokens": 0,
+          "calls": 1,
+          "key": "release05_8a09b3e99e404d4caa70ac7cda8f564c",
+          "reasoning_tokens": 0,
+          "tokens_in": 10,
+          "tokens_out": 0
+        }
+      }
+    },
+    {
+      "port": 18788,
+      "model": "bge-small-en-v1.5",
+      "encoding": "base64",
+      "run_id": "release05_d909c677b81c45fdb4719b27d3f77e70",
+      "dimensions": 384,
+      "vectors": 2,
+      "usage": {
+        "prompt_tokens": 10,
+        "total_tokens": 10
+      },
+      "elapsed_seconds": 0.10846450499957427,
+      "reconciliation": {
+        "request_id": "req_1791561317895_6",
+        "provider_response_id": null,
+        "request_id_provenance": "gateway request echoed by origin and persisted by gateway",
+        "cache_read_coverage": {
+          "absent": 1,
+          "malformed": 0,
+          "reported": 0,
+          "unknown": 0,
+          "unsupported": 0
+        },
+        "total": {
+          "billable_tokens": 10,
+          "cache_creation_tokens": 0,
+          "cache_read_coverage": {
+            "absent": 1,
+            "malformed": 0,
+            "reported": 0,
+            "unknown": 0,
+            "unsupported": 0
+          },
+          "cache_read_tokens": 0,
+          "calls": 1,
+          "key": "release05_d909c677b81c45fdb4719b27d3f77e70",
+          "reasoning_tokens": 0,
+          "tokens_in": 10,
+          "tokens_out": 0
+        }
+      }
+    }
+  ],
+  "dashboard_delta": {
+    "calls": 4,
+    "tokens_in": 48,
+    "tokens_out": 2,
+    "cache_read_tokens": 0,
+    "cache_creation_tokens": 0,
+    "billable_tokens": 50
+  },
+  "buffered_deadline_seconds": 120,
+  "client_total_deadline_seconds": 125,
+  "preserved_reports_sha256": {
+    "deployment-accepted.json": "cb25136735791fd6a9d43ed7f0271e115181ad85cc3fb9084ce81cc6f1f0b307",
+    "wire-accepted.json": "15cd8ea1a980f89837f1cc964fc7b0b74b2e4c375c75150ee161d1e4c7e96172",
+    "wire-failed-stream-options.json": "3217175f38f58e7ea565e7a8013cec564761324784671f87b2c84c2dc7226e31",
+    "wire-failed-identity-assumption.json": "f66aefc1a9afc4e037bfe2d3c27f63a4bced20f269fc236cd02bf87fa826eaab",
+    "deployment-failed-stream-options.json": "70546c52c97fc98db64aff124b0f9348053a074a41256a192361a1de11190e2b",
+    "deployment-failed-identity-assumption.json": "d2e9ce3ff31163390daffe04e8de058c4645758570b2c207aea7d33fbbfdb7fd"
+  },
+  "limitations": [
+    "New synthetic evidence; no actual-member replay or C5 verdict.",
+    "Legacy completion cache explicitly zero; embedding cache reporting absent.",
+    "No executed cache reuse, tokenizer-unit, session-lease or origin-cancellation acceptance.",
+    "Remote gateway retains token mode; no new OIDC acceptance.",
+    "Failed harness attempts preserved; both verified old-runtime rollback."
+  ]
+}
