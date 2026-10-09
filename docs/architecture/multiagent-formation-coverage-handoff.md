@@ -1593,7 +1593,8 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   action and member owners; no parallel lifecycle/dispatch registry. Local
   extension activation/package passes do not close this gap or C5. VAS-04a repairs
   premature stream EOF and cancellation acknowledgement through existing client/UI
-  owners; follow the tracker for validation/merge state. It does not add durable
+  owners in [#1262](https://github.com/anvai-labs/victor/pull/1262), after clean review
+  and all applicable CI passed. It does not add durable
   terminal run status or prove remote action cancellation. Review also found legacy
   per-field defaults in recognized stream events (for example missing/malformed
   `tool_result.success` becomes true); VAS-04/09 must qualify result schemas before
