@@ -1670,7 +1670,7 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   [VAS ledger](victor-agent-service-plan.md) for production receipt qualification and
   remaining recovery work. Never blindly retry an ambiguous save.
 
-- **G80 — public legacy protocol adapter loses paused and terminal outcomes (open).**
+- **G80 — public legacy HTTP protocol adapter loses paused and terminal outcomes (✅ repaired in [#1268](https://github.com/anvai-labs/victor/pull/1268)).**
   At `b19f0f673`, `integrations/protocol/interface.py::ChatResponse.from_dict`
   discards status/run/approval metadata and defaults `finish_reason` to `stop`.
   `HTTPProtocolAdapter.stream_chat` suppresses JSON decoding errors and accepts EOF
@@ -1678,10 +1678,10 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   outcome losses; no live-member acceptance is claimed. This exported package has
   no discovered non-example internal production callers, but external use is
   unknown. Do not remove it without compatibility/deprecation evidence. VAS-15a
-  owns bounded TDD repairs through the existing protocol suites and a real core
+  merged bounded TDD repairs through the existing protocol suites and a real core
   HTTP smoke: preserve paused fields, reject malformed/incomplete streams, bound
   frames, expand core tool-call lists and close without POST replay. Follow the
-  [canonical tracker](victor-agent-service-plan.md) for review/CI/merge status.
+  [canonical tracker](victor-agent-service-plan.md) for exact review/CI/merge evidence.
   VAS-15 still owns eventual consolidation. Preserve unknown/pending effects.
 
 - **G81 — live authorization revocation for established EventBridge sockets (open).**
