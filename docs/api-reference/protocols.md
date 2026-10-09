@@ -21,6 +21,7 @@ This document provides comprehensive API reference documentation for Victor's pr
 - [LSP Types](#lsp-types)
 - [Tool Selection Protocols](#tool-selection-protocols)
 - [Implementation Examples](#implementation-examples)
+- [Retained Python transport adapters](#retained-python-transport-adapters)
 
 ---
 
@@ -1362,6 +1363,44 @@ class SecurityAwareQualityAssessor:
 ```
 
 ---
+
+## Retained Python transport adapters
+
+`victor.integrations.protocol.HTTPProtocolAdapter` is an opt-in legacy Python
+consumer of the core API's `messages` request shape. It is not the current VS Code
+client or the web server's singular `message` adapter. Keep public imports available
+while external consumer compatibility is established; the
+[agent-service tracker](../architecture/victor-agent-service-plan.md) owns migration.
+
+`ChatResponse` retains `status`, `run_id` and `approval_request` when supplied.
+An `awaiting_approval` result requires a nonempty run ID and an approval object;
+its `finish_reason` is also `awaiting_approval`, never `stop`. HTTP 202 requires
+that paused status. Missing required paused metadata or invalid supplied metadata
+raises `ValueError`.
+The ordinary four-key serialization remains unchanged when metadata is absent.
+This adapter does not approve actions or resume a paused run automatically.
+
+Streaming accepts UTF-8 SSE with LF, CRLF or CR line endings, an initial BOM,
+multiline data and comments. Each frame is bounded to 1 MiB, including ignored
+fields/comments; an explicit `[DONE]` or version-1 `stream_end` ends the iterator.
+A `finish_reason` alone is not a transport terminator. Malformed content, unsupported
+events, server errors and premature EOF raise `ValueError`; partial content is not
+a successful outcome. HTTP status errors retain HTTPX's exception behavior. The
+client closes its HTTP response on completion, failure, explicit iterator close or
+cancellation and never automatically replays the POST.
+
+Core tool-call lists expand into individual `ClientStreamChunk` objects. Known
+`request`, `thinking` and `tool_result` metadata events have no representation in
+this legacy content/tool-call interface and are not emitted. Transport completion
+does not prove durable business completion, approval, or cancellation at the origin.
+Frame parsing follows the
+[SSE line and dispatch rules](https://html.spec.whatwg.org/multipage/server-sent-events.html#parsing-an-event-stream);
+strict decoding failures and no POST reconnection are Victor client policies.
+
+`DirectProtocolAdapter` still delegates to a supplied orchestrator and retains its
+older result conversion. It is not a service authorization or durability boundary;
+do not infer HTTP outcome parity from their shared interface. Its qualification and
+eventual convergence remain part of VAS-15.
 
 ## See Also
 

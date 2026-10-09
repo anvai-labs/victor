@@ -3,16 +3,19 @@
 This module provides adapters that implement the VictorProtocol interface
 for different communication methods:
 
-- DirectProtocolAdapter: For CLI, uses orchestrator directly
-- HTTPProtocolAdapter: For VS Code extension, uses HTTP API
+- DirectProtocolAdapter: Opt-in legacy access to a supplied orchestrator
+- HTTPProtocolAdapter: Opt-in legacy Python client of the core HTTP API
 """
 
 import json
+import re
+from contextlib import aclosing
 from typing import Any, AsyncIterator
 
 import httpx
 
 from victor.integrations.protocol.interface import (
+    _decode_tool_call,
     VictorProtocol,
     ChatMessage,
     ChatResponse,
@@ -24,12 +27,146 @@ from victor.integrations.protocol.interface import (
 )
 from victor.integrations.search_types import CodeSearchResult
 
+_MAX_SSE_FRAME_BYTES = 1024 * 1024
+
+
+async def _iter_sse_payloads(response: httpx.Response) -> AsyncIterator[str]:
+    """Bound wire frames before allocation; decode complete lines strictly.
+
+    This is a POST consumer, not reconnecting EventSource. EOF never dispatches
+    an unfinished frame, and only the caller recognizes a protocol terminator.
+    """
+    line = bytearray()
+    data: list[str] = []
+    frame_bytes = 0
+    skip_lf = False
+    first_line = True
+
+    def consume(segment: bytes, delimiter_bytes: int = 0) -> None:
+        nonlocal frame_bytes
+        frame_bytes += len(segment) + delimiter_bytes
+        if frame_bytes > _MAX_SSE_FRAME_BYTES:
+            raise ValueError("SSE frame exceeds byte limit")
+        line.extend(segment)
+
+    def dispatch_line() -> str | None:
+        nonlocal frame_bytes, first_line
+        try:
+            text = line.decode("utf-8-sig" if first_line else "utf-8", errors="strict")
+        except UnicodeDecodeError:
+            raise ValueError("Invalid UTF-8 in SSE frame") from None
+        first_line = False
+        line.clear()
+        if not text:
+            payload = "\n".join(data) if data else None
+            data.clear()
+            frame_bytes = 0
+            return payload
+        if not text.startswith(":"):
+            name, separator, value = text.partition(":")
+            if name == "data":
+                data.append(value.removeprefix(" ") if separator else "")
+        return None
+
+    async for chunk in response.aiter_bytes():
+        offset = 0
+        for match in re.finditer(rb"[\r\n]", chunk):
+            end = match.start()
+            segment = chunk[offset:end]
+            offset = end + 1
+            if not segment and chunk[end] == 10 and skip_lf:
+                # A CR already dispatched the line. Count the LF inside an
+                # unfinished frame, but never delay a complete CR terminator.
+                if frame_bytes:
+                    consume(b"", 1)
+                skip_lf = False
+                continue
+            consume(segment, 1)
+            skip_lf = chunk[end] == 13
+            payload = dispatch_line()
+            if payload is not None:
+                yield payload
+        if offset < len(chunk):
+            skip_lf = False
+            consume(chunk[offset:])
+    raise ValueError("Chat stream ended before an explicit terminator; outcome is unknown")
+
+
+def _decode_stream_payload(payload: str) -> tuple[list[ClientStreamChunk], bool]:
+    if payload == "[DONE]":
+        return [], True
+    try:
+        data = json.loads(payload)
+    except (ValueError, RecursionError):
+        raise ValueError("Invalid JSON in chat stream") from None
+    if not isinstance(data, dict):
+        raise ValueError("Invalid chat stream event")
+    if "v" in data and (type(data["v"]) is not int or data["v"] != 1):
+        raise ValueError("Unsupported chat stream version")
+    for discriminator in ("event", "type"):
+        if discriminator in data and (
+            not isinstance(data[discriminator], str) or not data[discriminator]
+        ):
+            raise ValueError("Invalid chat stream event type")
+    if "v" in data and "event" not in data:
+        raise ValueError("Versioned chat stream event requires an event type")
+    kind = data.get("event", data.get("type"))
+    if "event" in data and "type" in data and data["event"] != data["type"]:
+        raise ValueError("Conflicting chat stream event types")
+    if kind == "error" or data.get("error") is not None:
+        raise ValueError("Server reported a chat stream error; outcome is unknown")
+    if data.get("status") not in (None, "ok") or data.get("approval_request") is not None:
+        raise ValueError("Unsupported streaming outcome; inspect recorded run state")
+    if kind == "stream_end":
+        if data.get("v") != 1:
+            raise ValueError("Unsupported chat stream terminator")
+        return [], True
+    if kind in ("request", "thinking", "tool_result"):
+        # This legacy content/tool-call iterator has no telemetry surface.
+        return [], False
+    if kind not in (None, "content", "tool_call"):
+        raise ValueError("Unsupported chat stream event")
+    content = data.get("content", "")
+    finish = data.get("finish_reason")
+    if not isinstance(content, str) or (finish is not None and not isinstance(finish, str)):
+        raise ValueError("Invalid chat stream content or finish reason")
+    if kind == "tool_call" and "v" in data:
+        calls = [
+            {
+                "name": data.get("tool"),
+                "arguments": data.get("arguments", {}),
+                "id": data.get("call_id"),
+            }
+        ]
+    else:
+        raw_calls = data.get("tool_call")
+        calls = (
+            raw_calls
+            if isinstance(raw_calls, list)
+            else [raw_calls] if raw_calls is not None else []
+        )
+    if (
+        not calls
+        and kind not in ("content",)
+        and "content" not in data
+        and "finish_reason" not in data
+    ):
+        raise ValueError("Chat stream event has no supported payload")
+    if calls:
+        tools = [_decode_tool_call(call) for call in calls]
+        return [
+            ClientStreamChunk(
+                content=content if i == 0 else "", tool_call=call, finish_reason=finish
+            )
+            for i, call in enumerate(tools)
+        ], False
+    return [ClientStreamChunk(content=content, finish_reason=finish)], False
+
 
 class DirectProtocolAdapter(VictorProtocol):
-    """Direct adapter for CLI - calls orchestrator directly.
+    """Legacy adapter that calls a supplied orchestrator directly.
 
-    This adapter is used by the CLI and provides the fastest path
-    to the core engine without network overhead.
+    This is not the CLI's current framework client or a durability boundary.
 
     Usage:
         adapter = await DirectProtocolAdapter.create()
@@ -279,10 +416,12 @@ class DirectProtocolAdapter(VictorProtocol):
 
 
 class HTTPProtocolAdapter(VictorProtocol):
-    """HTTP adapter for VS Code extension and remote clients.
+    """Legacy Python client of the core Victor HTTP API.
 
-    This adapter communicates with the Victor server over HTTP/REST API.
-    It's used by the VS Code extension and any remote clients.
+    The VS Code extension has its own TypeScript client. Streams require a
+    framed [DONE] or v1 stream_end, reject malformed/oversized frames, and never
+    replay POST on failure. A terminator is transport completion, not a verified
+    business outcome. Plain response serialization retains its legacy shape.
 
     Usage:
         adapter = HTTPProtocolAdapter("http://localhost:8765")
@@ -314,8 +453,10 @@ class HTTPProtocolAdapter(VictorProtocol):
             json={"messages": [m.to_dict() for m in messages]},
         )
         response.raise_for_status()
-        data = response.json()
-        return ChatResponse.from_dict(data)
+        result = ChatResponse.from_dict(response.json())
+        if response.status_code == 202 and result.status != "awaiting_approval":
+            raise ValueError("HTTP 202 lacks valid paused outcome; outcome is unknown")
+        return result
 
     async def stream_chat(self, messages: list[ChatMessage]) -> AsyncIterator[ClientStreamChunk]:
         """Stream a chat response."""
@@ -325,28 +466,16 @@ class HTTPProtocolAdapter(VictorProtocol):
             json={"messages": [m.to_dict() for m in messages]},
         ) as response:
             response.raise_for_status()
-            buffer = ""
-
-            async for chunk in response.aiter_text():
-                buffer += chunk
-                lines = buffer.split("\n")
-                buffer = lines.pop()  # Keep incomplete line
-
-                for line in lines:
-                    if line.startswith("data: "):
-                        try:
-                            data = json.loads(line[6:])
-                            yield ClientStreamChunk(
-                                content=data.get("content", ""),
-                                tool_call=(
-                                    ToolCall.from_dict(data["tool_call"])
-                                    if data.get("tool_call")
-                                    else None
-                                ),
-                                finish_reason=data.get("finish_reason"),
-                            )
-                        except json.JSONDecodeError:
-                            pass
+            media_type = response.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+            if media_type != "text/event-stream":
+                raise ValueError("Expected text/event-stream response")
+            async with aclosing(_iter_sse_payloads(response)) as frames:
+                async for payload in frames:
+                    chunks, terminal = _decode_stream_payload(payload)
+                    if terminal:
+                        return
+                    for chunk in chunks:
+                        yield chunk
 
     async def reset_conversation(self) -> None:
         """Clear conversation history."""

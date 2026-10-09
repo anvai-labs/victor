@@ -35,6 +35,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
+import httpx
 
 _VICTOR_CLIENT_TS = (
     Path(__file__).resolve().parents[3] / "vscode-victor" / "src" / "victorClient.ts"
@@ -140,6 +141,7 @@ def chat_http_server(request, monkeypatch, tmp_path):
     requests = []
     created = []
     faults = []
+    stream_tools = []
 
     class FakeClient:
         async def initialize(self):
@@ -158,6 +160,8 @@ def chat_http_server(request, monkeypatch, tmp_path):
         async def stream_chat(self, message):
             calls.append((message, get_request_correlation_id(), id(self)))
             yield SimpleNamespace(content=f"echo:{message}", tool_calls=None)
+            if stream_tools:
+                yield SimpleNamespace(content="", tool_calls=list(stream_tools))
 
         async def stream(self, message):
             calls.append((message, get_request_correlation_id(), id(self)))
@@ -236,6 +240,7 @@ def chat_http_server(request, monkeypatch, tmp_path):
             requests=requests,
             created=created,
             faults=faults,
+            stream_tools=stream_tools,
         )
     finally:
         http_server.should_exit = True
@@ -312,3 +317,35 @@ def test_actual_extension_preserves_paused_chat_over_http(compiled_client_node, 
     assert json.loads(result.stdout)["outcome"] == "awaiting_approval"
     assert [call[0] for call in server.calls] == ["pause this turn"]
     assert server.calls[0][1]  # Existing request correlation still crosses the real route.
+
+
+@pytest.mark.parametrize("chat_http_server", ["core"], indirect=True)
+async def test_legacy_python_adapter_preserves_core_outcomes_over_http(chat_http_server):
+    """Reuse the production-route fixture for the retained Python consumer."""
+    from victor.integrations.protocol import ChatMessage, HTTPProtocolAdapter
+
+    server = chat_http_server
+    adapter = HTTPProtocolAdapter(server.url)
+    adapter._client.headers["Authorization"] = "Bearer contract-test-key"
+    messages = [ChatMessage(role="user", content="legacy caller")]
+    try:
+        paused = await adapter.chat(messages)
+        assert paused.status == "awaiting_approval"
+        assert paused.run_id == "run-http-approval"
+        assert paused.approval_request["id"] == "approval-http"
+        assert paused.finish_reason == "awaiting_approval"
+        server.stream_tools.append({"name": "graph"})
+        chunks = [chunk async for chunk in adapter.stream_chat(messages)]
+        assert [chunk.content for chunk in chunks] == ["echo:legacy caller", ""]
+        assert chunks[1].tool_call.name == "graph"
+        server.faults.append("drop-terminator")
+        with pytest.raises(ValueError, match="terminator"):
+            _ = [chunk async for chunk in adapter.stream_chat(messages)]
+        assert len(server.requests) == 2  # Neither stream was replayed.
+        adapter._client.headers["Authorization"] = "Bearer incorrect-test-key"
+        with pytest.raises(httpx.HTTPStatusError):
+            await adapter.chat(messages)
+        assert len(server.calls) == 3
+        assert all(call[1] for call in server.calls)
+    finally:
+        await adapter.close()
