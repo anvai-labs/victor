@@ -1595,7 +1595,11 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   premature stream EOF and cancellation acknowledgement through existing client/UI
   owners in [#1262](https://github.com/anvai-labs/victor/pull/1262), after clean review
   and all applicable CI passed. It does not add durable
-  terminal run status or prove remote action cancellation. Review also found legacy
+  terminal run status or prove remote action cancellation. VAS-04b additionally
+  repairs existing nonstream approval metadata and content consumers; follow its
+  [tracker row](victor-agent-service-plan.md) for validation/merge state. It does not
+  provide a new approval UI, restart-safe continuation or a new server contract.
+  Review also found legacy
   per-field defaults in recognized stream events (for example missing/malformed
   `tool_result.success` becomes true); VAS-04/09 must qualify result schemas before
   those events can establish verified business outcomes.

@@ -21,6 +21,19 @@ export interface ChatMessage {
     toolCalls?: ToolCall[];
 }
 
+/** Existing /chat result; absent status is the legacy completed response. */
+export interface ChatResponse extends ChatMessage {
+    status?: 'ok' | 'awaiting_approval';
+    run_id?: string | null;
+    approval_request?: Record<string, unknown> | null;
+}
+
+export interface PausedChatResponse extends ChatResponse {
+    status: 'awaiting_approval';
+    run_id: string;
+    approval_request: Record<string, unknown>;
+}
+
 export interface ToolCall {
     id?: string;
     name: string;
@@ -197,6 +210,30 @@ export class VictorError extends Error {
                 return new VictorError(message || 'Unknown error', VictorErrorType.Unknown, status, error);
         }
     }
+}
+
+/** An unqualified outcome must not trigger a consumer's fallback write. */
+export class ChatOutcomeError extends VictorError {
+    constructor(message: string, statusCode?: number) {
+        super(message, VictorErrorType.Validation, statusCode);
+        this.name = 'ChatOutcomeError';
+    }
+}
+
+export class ChatApprovalRequiredError extends ChatOutcomeError {
+    constructor(public readonly response: PausedChatResponse) {
+        super(`Run ${response.run_id} is awaiting approval. No result was applied. ` +
+            'Use the server approval flow before continuing.');
+        this.name = 'ChatApprovalRequiredError';
+    }
+}
+
+/** Guard content consumers without creating another approval or resume owner. */
+export function requireCompletedChat(response: ChatResponse): ChatMessage {
+    if (response.status === 'awaiting_approval') {
+        throw new ChatApprovalRequiredError(response as PausedChatResponse);
+    }
+    return response;
 }
 
 // =============================================================================
@@ -646,19 +683,33 @@ export class VictorClient {
     // Chat API
     // =========================================================================
 
-    async chat(messages: ChatMessage[]): Promise<ChatMessage> {
+    async chat(messages: ChatMessage[]): Promise<ChatResponse> {
         try {
             const response = await this.client.post('/chat', { messages });
-            const payload = response.data as {
-                role?: ChatMessage['role'];
-                content?: string;
-                tool_calls?: ToolCall[];
-                toolCalls?: ToolCall[];
-            };
+            const payload: unknown = response.data;
+            if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+                throw new ChatOutcomeError('Invalid chat response; outcome is unknown.', response.status);
+            }
+            const data = payload as Record<string, unknown>;
+            const status = data.status;
+            const paused = status === 'awaiting_approval';
+            const approval = data.approval_request;
+            const validApproval = approval !== null && typeof approval === 'object' && !Array.isArray(approval);
+            if ((status !== undefined && status !== 'ok' && !paused) ||
+                (response.status === 202 && !paused) ||
+                (!paused && approval !== null && approval !== undefined) ||
+                (paused && (typeof data.run_id !== 'string' || !data.run_id.trim() || !validApproval)) ||
+                (data.run_id !== null && data.run_id !== undefined && typeof data.run_id !== 'string') ||
+                (approval !== null && approval !== undefined && !validApproval)) {
+                throw new ChatOutcomeError('Invalid chat status or approval metadata; outcome is unknown.', response.status);
+            }
             return {
-                role: payload.role || 'assistant',
-                content: payload.content || '',
-                toolCalls: payload.toolCalls || payload.tool_calls,
+                role: (data.role as ChatMessage['role']) || 'assistant',
+                content: (data.content as string) || '',
+                toolCalls: (data.toolCalls || data.tool_calls) as ToolCall[] | undefined,
+                ...(status !== undefined ? { status: status as ChatResponse['status'] } : {}),
+                ...('run_id' in data ? { run_id: data.run_id as string | null } : {}),
+                ...('approval_request' in data ? { approval_request: approval as Record<string, unknown> | null } : {}),
             };
         } catch (error) {
             const handled = this._handleError(error);

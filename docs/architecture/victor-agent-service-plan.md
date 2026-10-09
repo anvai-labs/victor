@@ -2,7 +2,7 @@
 plan_id: VAS-2026-10
 status: active
 updated: 2026-10-08
-baseline_develop: 9c281c57236aaf2cfa937e0114fadb6992531056
+baseline_develop: 2da3413aed5a5437092a3270f3feccb939f850c9
 next_task: VAS-04b
 ---
 
@@ -64,16 +64,33 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
-- Fetched develop: `9c281c57236aaf2cfa937e0114fadb6992531056` (#1263 merged).
-- VAS-04a and VAS-02a are complete on develop. This session owns documentation
-  closeout on `docs/vscode-outcomes-closeout`; remove its linked worktree after
-  that PR merges and reports are archived. No release/deployment/C5 claim is made.
-- Next ready bounded repair: VAS-04b, preserve the existing HTTP 202
-  `status=awaiting_approval`, `run_id` and `approval_request` response fields in the
-  extension client. Confirm actual consumers before extending types; use existing
-  client/API tests and real HTTP smoke. Do not add a new approval store, resume
-  dispatcher or automatic approval. New public server contracts still require
-  FEP-0039 acceptance through VAS-03.
+- Fetched develop: `2da3413aed5a5437092a3270f3feccb939f850c9` (#1264 merged).
+- VAS-04a and VAS-02a are complete on develop; #1264 reconciled their evidence.
+  Active owner: this session, branch `fix/vscode-paused-chat`, linked worktree
+  `/private/tmp/victor-paused-chat-20261008` from that fetched base.
+- VAS-04b preserves the existing nonstream `/chat` status, run ID and approval
+  request. Composer, terminal suggestions and Smart Paste all use one completion
+  guard before consuming content. Pauses carry the original response; malformed or
+  contradictory outcomes fail closed. Smart Paste does not perform either regular-
+  paste fallback for these outcomes. Composer retains the pause in its current UI
+  session and ignores responses belonging to replaced/cleared sessions; displayed
+  error/run text is assigned with `textContent`, not interpolated HTML.
+- VAS-04b TDD: 11 original client failures, three actual-host failures and one real
+  HTTP failure reproduced the defect. Review added failing contradictory-outcome
+  and late-session tests. Three literal interface-only tests were replaced with
+  actual consumer behavior tests; other invariants remain covered. No new approval
+  store, resume dispatcher or automatic approval/replay was added. Local validation
+  passed: 88 Vitest, 1,006 actual VS Code host, 239 affected API tests,
+  10 final HTTP contract tests, 76 doc tests and
+  34,030 collected tests. Compilation, bundle, Black/Ruff, ESLint (zero errors;
+  26 existing warnings), strict MkDocs, local site links and hygiene passed.
+  Independent runtime review and its 88 Vitest/10 HTTP reruns are clean; exact-
+  commit attestation, PR/CI and merge remain at this checkpoint.
+- VAS-04b is a bounded existing-contract repair. Paused-run UI retention is volatile;
+  it does not deliver restart-safe continuation or a complete approval experience.
+  Ordinary transport failures retain the notified legacy paste fallback; this is
+  not a general write-reconciliation guarantee. New public server contracts still
+  require FEP-0039 acceptance through VAS-03.
 - VAS-02a merged evidence: Linux Python 3.12/pip-tools 7.6.1 regenerated the CPU
   embeddings lock with `multidict==6.9.1` and removed stale Textual-only dependencies
   absent from current deployment metadata. Rust edge TLS resolves `rustls==0.23.45`
@@ -140,7 +157,7 @@ edit. A mock test is not live provider or C5 evidence.
 
 Planning/evidence: VAS-00 is accepted; VAS-01 is merged.
 Delivery: VAS-02, VAS-03a, VAS-11a, VAS-11b, VAS-11d, VAS-12a and VAS-12b are
-merged. VAS-04a and VAS-02a are merged. Other implementation rows remain TODO. These counts are not
+merged. VAS-04a and VAS-02a are merged; VAS-04b is LOCAL_PASS pending reviewed PR/CI/merge. Other implementation rows remain TODO. These counts are not
 an effort-weighted completion percentage. The original formation denominator is
 independent. Update this paragraph and the rows together at each checkpoint.
 
@@ -154,7 +171,7 @@ independent. Update this paragraph and the rows together at each checkpoint.
 | VAS-03a | Repair existing VS Code streaming request compatibility | VAS-01, VAS-02 | ✅ MERGED | [#1252](https://github.com/anvai-labs/victor/pull/1252), `a5fa47e444e6f973ad95149ae0677327df060dc7`; clean exact-head review, 41 applicable checks passed including Vertical Py3.12; parent/FEP acceptance remains open |
 | VAS-04 | Typed client outcomes: paused run, terminal EOF, cancellation acknowledgement | VAS-03 | TODO | Preserve status/run/approval; reject incomplete streams; consume negative cancellation body; no new approval store |
 | VAS-04a | Repair existing stream termination and cancellation acknowledgements | VAS-03a | ✅ MERGED | [#1262](https://github.com/anvai-labs/victor/pull/1262), `bdb10c083951426a14209b27c44a5073263a4a90`; clean exact-commit review, 39 successful CI checks including Vertical Py3.12. 76 Vitest, 1,000 host, 71 API/web tests; bounded transport/pending-approval acknowledgement only; no durable result/approval/continuation contract |
-| VAS-04b | Preserve existing paused-chat response fields in extension consumers | VAS-03a | TODO | Inventory real consumers, retain HTTP 202/status/run ID/approval request through the existing owner; RED actual client vs real router; no new server contract, approval store or automatic resume |
+| VAS-04b | Preserve existing paused-chat response fields in extension consumers | VAS-03a | LOCAL_PASS | `fix/vscode-paused-chat`, baseline `2da3413ae`; existing response metadata + shared completion guard, no Smart Paste fallback on pause or invalid response metadata, Composer session ownership; 12 client and five host RED cases plus real HTTP RED; 88 client/1,006 host/239 API tests green, 34,030 collected; exact-commit review/CI/merge pending |
 | VAS-05 | Shared authentication and per-resource principal authorization | VAS-03 | TODO | HTTP/events parity, no placeholder tokens, OIDC hosted posture and explicit scoped machine/local modes; reject cross-owner access |
 | VAS-05a | Strict verified-principal and resource/action policy contracts | VAS-03 | TODO | [Kanidm/API-key policy design](victor-agent-service-auth-policy.md); deny overrides, credential-scope ceiling, ownership and no cross-grant widening; design only |
 | VAS-05b | Kanidm access-token and scoped key authentication | VAS-05a | TODO | Dedicated verified registration/discovery; no alternate-auth fallback; expiry/revocation/rotation, group provenance; same principal contract |

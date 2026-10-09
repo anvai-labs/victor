@@ -145,6 +145,16 @@ def chat_http_server(request, monkeypatch, tmp_path):
         async def initialize(self):
             pass
 
+        async def chat(self, message):
+            calls.append((message, get_request_correlation_id(), id(self)))
+            return SimpleNamespace(
+                content="partial draft",
+                tool_calls=[],
+                status="awaiting_approval",
+                run_id="run-http-approval",
+                approval_request={"id": "approval-http", "metadata": {"hash": "abc"}},
+            )
+
         async def stream_chat(self, message):
             calls.append((message, get_request_correlation_id(), id(self)))
             yield SimpleNamespace(content=f"echo:{message}", tool_calls=None)
@@ -286,3 +296,19 @@ def test_actual_extension_rejects_lost_terminator_over_http(compiled_client_node
     assert result.returncode == 0, result.stdout + result.stderr
     assert json.loads(result.stdout)["outcome"] == "interrupted"
     assert len(server.calls) == 1  # Never replay a POST after an unknown outcome.
+
+
+@pytest.mark.parametrize("chat_http_server", ["core"], indirect=True)
+def test_actual_extension_preserves_paused_chat_over_http(compiled_client_node, chat_http_server):
+    server = chat_http_server
+    runner = _VICTOR_CLIENT_TS.parents[1] / "scripts" / "chat-contract-smoke.cjs"
+    result = subprocess.run(
+        [compiled_client_node, str(runner), server.url, server.kind, "paused"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert json.loads(result.stdout)["outcome"] == "awaiting_approval"
+    assert [call[0] for call in server.calls] == ["pause this turn"]
+    assert server.calls[0][1]  # Existing request correlation still crosses the real route.

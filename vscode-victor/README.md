@@ -250,6 +250,20 @@ Click to see options (start/stop/restart/logs).
 2. Verify port isn't in use: `lsof -i :8765`
 3. Restart server: Command Palette → "Victor: Restart Server"
 
+### A chat turn pauses for approval
+
+Composer, terminal suggestions and Smart Paste stop when the core server returns
+`status=awaiting_approval`. The client preserves `run_id` and `approval_request`;
+Composer displays the paused state, and terminal/Smart Paste notifications include
+the run ID. Partial content is not offered as generated edits or a command, and
+Smart Paste does not fall back to inserting the clipboard. Invalid or contradictory
+approval responses also stop these operations instead of being treated as success.
+
+Complete approval through the server's existing approval flow. These extension
+surfaces do not yet submit approvals or resume a run automatically. Composer's
+paused state is local to the current view session, not durable across restart.
+Starting a new composition or clearing the view does not cancel the server run.
+
 ### Interrupted chat or unconfirmed cancellation
 
 The extension accepts the core server's `[DONE]` and web server's v1 `stream_end`

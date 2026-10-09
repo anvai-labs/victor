@@ -4,7 +4,8 @@
 
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import { PasteContext, AdaptedCode } from '../../smartPaste';
+import { ChatOutcomeError } from '../../victorClient';
+import { PasteContext, AdaptedCode, SmartPasteProvider } from '../../smartPaste';
 
 suite('SmartPaste Test Suite', () => {
     test('PasteContext interface', () => {
@@ -22,17 +23,42 @@ suite('SmartPaste Test Suite', () => {
         assert.strictEqual(context.cursorPosition.line, 5);
     });
 
-    test('AdaptedCode interface', () => {
-        const adapted: AdaptedCode = {
-            original: 'const x = 1',
-            adapted: 'const x: number = 1',
-            changes: ['Added type annotations'],
-        };
-
-        assert.strictEqual(adapted.original, 'const x = 1');
-        assert.ok(adapted.adapted.includes('number'));
-        assert.ok(adapted.changes.length > 0);
-    });
+    for (const outcome of ['complete', 'paused', 'invalid']) {
+        const paused = outcome !== 'complete';
+        test(`actual Smart Paste outcome ${outcome} controls insertion and fallback`, async () => {
+            const doc = await vscode.workspace.openTextDocument({ language: 'typescript', content: '' });
+            await vscode.window.showTextDocument(doc);
+            const savedClipboard = await vscode.env.clipboard.readText();
+            const quickPick = vscode.window.showQuickPick;
+            const warning = vscode.window.showWarningMessage;
+            const warnings: string[] = [];
+            let calls = 0;
+            (vscode.window as any).showQuickPick = async () => ({ value: 'smart' });
+            (vscode.window as any).showWarningMessage = async (message: string) => { warnings.push(message); };
+            // Avoid registering the already-active extension's command; execute the real method.
+            const provider = Object.create(SmartPasteProvider.prototype) as SmartPasteProvider;
+            Object.assign(provider, { _client: { chat: async () => {
+                calls++;
+                if (outcome === 'invalid') { throw new ChatOutcomeError('Invalid approval metadata'); }
+                return { role: 'assistant', content: 'const adapted = 2;', ...(paused ? {
+                    status: 'awaiting_approval', run_id: 'run-paste', approval_request: { id: 'a1' }
+                } : {}) };
+            } }, _isProcessing: false });
+            try {
+                await vscode.env.clipboard.writeText('const original = 1;');
+                await provider.smartPaste();
+                assert.strictEqual(calls, 1);
+                assert.strictEqual(doc.getText(), paused ? '' : 'const adapted = 2;');
+                assert.strictEqual((provider as any)._isProcessing, false);
+                if (paused) { assert.ok(warnings.some(message => message.includes(outcome === 'invalid' ? 'Invalid approval metadata' : 'run-paste'))); }
+            } finally {
+                (vscode.window as any).showQuickPick = quickPick;
+                (vscode.window as any).showWarningMessage = warning;
+                await vscode.env.clipboard.writeText(savedClipboard);
+                await vscode.commands.executeCommand('workbench.action.revertAndCloseActiveEditor');
+            }
+        });
+    }
 
     test('AdaptedCode with multiple changes', () => {
         const adapted: AdaptedCode = {
