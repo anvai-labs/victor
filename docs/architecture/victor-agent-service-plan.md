@@ -2,8 +2,8 @@
 plan_id: VAS-2026-10
 status: active
 updated: 2026-10-09
-baseline_develop: 07b076726de88a50d37df766e72a0945e2435496
-next_task: VAS-15a
+baseline_develop: e9004a5d8b483f653e258431b0cbd32c1bcad49d
+next_task: VAS-17
 ---
 
 # Victor shared agent-service implementation plan and tracker
@@ -64,9 +64,9 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
-- Fetched develop: `07b076726de88a50d37df766e72a0945e2435496` (#1267 merged).
-- VAS-15a LOCAL_PASS: this session, branch `fix/protocol-adapter-outcomes`, worktree
-  `/private/tmp/victor-protocol-outcomes-20261008`, baseline `07b076726`.
+- Fetched develop: `e9004a5d8b483f653e258431b0cbd32c1bcad49d` (#1268 merged).
+- VAS-15a merged in [#1268](https://github.com/anvai-labs/victor/pull/1268),
+  `e9004a5d8b483f653e258431b0cbd32c1bcad49d`, from baseline `07b076726`.
   The retained Python HTTP adapter preserves paused metadata and rejects invalid
   or incomplete streams without automatic POST replay. Existing protocol test owners
   reproduced 37 initial failures. Independent review found delayed CR terminal
@@ -78,12 +78,15 @@ edit. A mock test is not live provider or C5 evidence.
   client over HTTP), 81 documentation tests, Black (3,917 files), Ruff, touched-module
   MyPy, strict MkDocs/internal links and repository hygiene; 34,082 tests collected
   (final collection without coverage instrumentation).
-  [#1268](https://github.com/anvai-labs/victor/pull/1268) is open. Its initial
+  [#1268](https://github.com/anvai-labs/victor/pull/1268) is merged. Its initial
   changed-file CI gate found a missing selector mapping, before running tests.
   Three additional selector RED cases now map the package, interface and adapter
   to existing canonical suites, instead of unrelated flattened-name matches.
   All 44 selector tests and 199 exactly selected tests pass, with 95% changed-line
-  coverage. Final follow-up review/CI/merge remain before completion.
+  coverage. Exact candidate `e5420da0fd1e0a73840f221fbd0304207a0d2638`
+  passed independent review and all applicable CI, including Vertical Py3.12:
+  40 successful checks, one nonapplicable deployment skip and neutral Trivy.
+  The squash-merge tree matches the reviewed candidate; its worktree is removed.
 - VAS-15a test audit: strengthened the existing serialization assertion and replaced
   the mocked HTTP happy path with parameterized real HTTPX transport cases. Added
   malformed/framing/ownership cases to the existing adapter owner and reused the
@@ -111,10 +114,52 @@ edit. A mock test is not live provider or C5 evidence.
   Paused metadata, guarded content consumers and late Composer session ownership
   are repaired. Ordinary transport-error paste fallback is unchanged; volatile UI
   retention is not restart-safe continuation or a complete approval experience.
-- Next action: finish VAS-15a review/CI/merge, then qualify the VAS-17 released
-  foundation baseline while FEP-0039 remains in Review. Reconcile Sandhi/InferFlux
-  source, release, deployed binary/config identities and outstanding lifecycle gates
-  before live C5. VAS-11c still requires a qualified production receipt operation.
+- VAS-17 deployment preflight (2026-10-09): Mac Homebrew CLI/proxy are Sandhi
+  0.11.0, released source `68580981a0008f27d17260cddc11a25020844488`.
+  Loopback gateway and registered HTTPS edge respond; anonymous admin access
+  is denied. The official Linux 0.11.0 artifact passed checksum verification and
+  isolated copied-state TLS/auth/usage checks on aiserver1, but the system service
+  still runs its old 0.10.1 build. Its staged unit changes only the executable;
+  host-owner sudo installation/restart and subsequent verification remain required.
+  Readiness alone does not establish provider credential availability.
+- Existing DS3 replacement brokers passed token exchange/introspection for distinct
+  member/accounting identities. Five isolated authorization checks passed with an
+  empty store: anonymous admin denial, member admin denial, accounting version and
+  usage reads, and accounting inference denial. The first copied-state startup
+  exceeded its 60-second bound in macOS Keychain credential loading. A later
+  attempt started and passed authorization but hit HTTP 502 on the obsolete 18080
+  route. Preserve both failures. The explicit 18081 route passed both Qwen models
+  and ZAI in staging; the old route and private configuration remain for rollback.
+  Exact issuer/subject mappings and replacement broker commands are now active
+  on the restarted local gateway. No credentials or Keychain ACLs were changed.
+  Do not reuse superseded UUIDs or regenerate already-provisioned service accounts.
+- Sandhi still uses Kanidm. [Anvai Identity's tracker](https://github.com/anvai-labs/anvai-identity/blob/7da3c01fb62ad778caf9298036da87e84cd7db6b/docs/planning/tracker.md)
+  leaves T211 consumer qualification and T217 migration/rollback open. The 0.1.0
+  local preview is not a hosted identity replacement. Follow Sandhi's
+  [identity migration contract](https://github.com/anvai-labs/sandhi/blob/1a7e6ed3f35c001892fcac28333e74c1717108f8/docs/operator/identity-groups.md)
+  for the current issuer and exact subject bindings.
+- Local HTTPS OIDC deployment smoke passed ZAI `glm-5.3` and both Qwen models:
+  three buffered calls, 49 input tokens, five output tokens, and explicitly
+  reported zero cache tokens (3/3). Wire, SQLite and per-run totals reconcile;
+  the dashboard delta matches exactly. Distinct run/session IDs and nonempty
+  request IDs join to the new member subject. The initial probe used an incorrect
+  session header and failed its assertion; retain that evidence separately from
+  the corrected `x-sandhi-session` run. These are deployment probes, not Victor
+  members. Zero reported cache does not prove zero executed reuse; browser login,
+  restart durability, streaming/cancellation and full lifecycle remain unqualified.
+- InferFlux direct deployment smokes passed both `qwen3-coder-30b` and
+  `qwen2.5-coder-14b`, plus two finite 384-dimensional BGE embeddings. The origin
+  exposes loopback 8080 and TLS 8443. Observed executable SHA-256:
+  `8b10c5cdc40a7d44325735747a5bcf120406b294b650126235db0bd7fbd10d06`.
+  Checkout `c5c2475c1d4d40aea383be4d9095e61d467cb850` includes dual-listener TLS
+  after released v0.4.0; checkout identity does not prove binary provenance.
+  Preserve it rather than downgrade to an older artifact that loses live features.
+  These are new deployment probes, not actual-member replay, model-quality,
+  placement/concurrency, streaming, lifecycle or C5 acceptance.
+- Next action: resolve VAS-17 host-sudo cutover and released InferFlux provenance
+  while FEP-0039 remains in Review. Verify source/release/binary/config identities, authenticated provider
+  calls, accounting and outstanding lifecycle gates before live C5. VAS-11c still
+  requires a qualified production receipt operation.
   Do not restart merged repairs or infer absence of external protocol consumers.
 - VAS-02a merged evidence: Linux Python 3.12/pip-tools 7.6.1 regenerated the CPU
   embeddings lock with `multidict==6.9.1` and removed stale Textual-only dependencies
@@ -169,6 +214,7 @@ edit. A mock test is not live provider or C5 evidence.
   gaps remain open; this plan adds no formation passes.
 - Durable local recovery copy: `var/session-closeout-2026-10-07/vscode-api-audit/`
   in the root checkout; this increment uses
+  `var/foundation-upgrade-2026-10-09/`; protocol repair evidence remains in
   `var/session-closeout-2026-10-08-protocol-outcomes/` (EventBridge evidence remains
   in `var/session-closeout-2026-10-08-eventbridge-auth/`; API review evidence remains
   in `var/session-closeout-2026-10-08-api-contract-review/`; earlier client outcomes
@@ -186,8 +232,8 @@ edit. A mock test is not live provider or C5 evidence.
 
 Planning/evidence: VAS-00 is accepted; VAS-01 is merged.
 Delivery: VAS-02, VAS-03a, VAS-11a, VAS-11b, VAS-11d, VAS-12a and VAS-12b are
-merged. VAS-04a, VAS-04b and VAS-02a are merged. VAS-03b is merged evidence only; VAS-05g is merged; VAS-15a is LOCAL_PASS.
-Parent VAS-03 and formal FEP acceptance remain open. Other implementation rows remain TODO. These counts are not
+merged. VAS-04a, VAS-04b and VAS-02a are merged. VAS-03b is merged evidence only; VAS-05g and VAS-15a are merged.
+VAS-17 preflight is blocked on deployment prerequisites. Parent VAS-03 and formal FEP acceptance remain open. Other implementation rows remain TODO. These counts are not
 an effort-weighted completion percentage. The original formation denominator is
 independent. Update this paragraph and the rows together at each checkpoint.
 
@@ -232,9 +278,9 @@ independent. Update this paragraph and the rows together at each checkpoint.
 | VAS-14d | Headed OIDC workflow→Victor→Sandhi→provider demo | VAS-14b, VAS-14c, VAS-14e, VAS-05d, VAS-05f, VAS-11, VAS-12 | TODO | AgentBrowser snapshots + exact definition + verified execution/approval/cancel + human/actor/accounting joins; deterministic then released-provider acceptance |
 | VAS-14e | Victor adapter for AnvaiOps/Sandesha/Sandhi family theme and bundled UI assets | VAS-14a, VAS-21a | TODO | Pinned semantic token source/adapters and drift guard; ink/teal, light/dark/high-contrast, responsive/keyboard/reduced motion; headed visual/functional snapshots; OSS/commercial boundary |
 | VAS-15 | GraphQL/MCP/legacy adapter convergence and deprecation | VAS-08, VAS-13, VAS-14 | TODO | Inventory external consumers, policy/attribution parity; one owner, compatibility window; retire only evidenced duplicates |
-| VAS-15a | Preserve outcomes through the retained Python HTTP adapter | VAS-00 | LOCAL_PASS | G80; `fix/protocol-adapter-outcomes`, baseline `07b076726`; 37 initial RED failures plus six review RED cases; 144 focused/696 affected GREEN, actual core HTTP smoke and 81 doc tests. 34,082 collected; [#1268](https://github.com/anvai-labs/victor/pull/1268) open, initial CI selector gap repaired (44 selector/199 selected tests, 95% changed-line coverage); final review/CI/merge pending; no POST replay, adapter removal or durability claim; direct adapter remains G82/VAS-15 |
+| VAS-15a | Preserve outcomes through the retained Python HTTP adapter | VAS-00 | ✅ MERGED | G80; [#1268](https://github.com/anvai-labs/victor/pull/1268), `e9004a5d8`; exact-candidate independent review and all applicable CI green. 144 focused/696 affected/81 docs/44 selector/199 selected tests, 34,082 collected, 95% changed-line coverage; no POST replay, adapter removal or durability claim; direct adapter remains G82/VAS-15 |
 | VAS-16 | Measured performance and broader lifecycle acceptance | VAS-12, VAS-13, VAS-14, VAS-15 | TODO | Same-workload baseline/comparison; cold/warm, 1/8/32 concurrency, memory/backpressure, deadlines and crash/recovery |
-| VAS-17 | Released foundation deployment and lifecycle acceptance for C5 | VAS-02, VAS-11, VAS-12 | TODO | Full green promotion/release CI, artifact/binary/source/config IDs and rollback; verify released Sandhi/InferFlux readiness without clearing cache |
+| VAS-17 | Released foundation deployment and lifecycle acceptance for C5 | VAS-02, VAS-11, VAS-12 | BLOCKED | Host owner must complete staged sudo cutover on aiserver1; release owner must qualify InferFlux provenance/promotion. Local Sandhi 0.11.0 HTTPS/OIDC three-model smoke reconciled wire/SQLite/run/dashboard usage (3 calls, 49 in, 5 out, explicit zero cache). Remote Sandhi is staged; direct InferFlux and isolated authorization smokes passed. Browser, streaming/cancellation, settlement and lifecycle acceptance remain; preserve failed evidence and cache |
 | VAS-18 | Full mixed-team C5 verdict | VAS-17 | TODO | Six-Qwen/one-ZAI harness; unchanged deliverable/pytest/session/accounting gates; reviewed verdict on InferFlux #184 |
 | VAS-19 | Matched formation cohorts and remaining semantics | VAS-18 | TODO | Preserve ZAI reference, simpler explicitly labelled local tasks, all 12 formations + 3 policies; G72 opt-in strict hierarchy separately |
 | VAS-20 | OSS shared API/UI main promotion and release | VAS-16, VAS-17, VAS-14d | TODO | Full green promotion/release CI; publish server/SDK/VSIX/docs and compatibility matrix; verify installed artifacts |
@@ -301,8 +347,8 @@ are responsibilities; an ACTIVE claim still needs a named session and branch.
 
 1. Preserve the merged child milestones, including VAS-03a/04a/04b and
    VAS-11a/b/d/12a/b; continue their open parents without repeating repairs.
-   VAS-05g is merged and VAS-15a is the current bounded existing-contract repair
-   while the shared public API undergoes FEP review; neither waives acceptance.
+   VAS-05g and VAS-15a are merged existing-contract repairs. Continue foundation
+   qualification while the shared public API undergoes FEP review; neither waives acceptance.
 2. Close the remaining contract/identity decisions and framework recovery gates
    (VAS-03/05a/e and VAS-11/12). Shared token review VAS-21a and Sandhi theme work
    VAS-21b can proceed independently; theme work does not delay C5 foundations.
