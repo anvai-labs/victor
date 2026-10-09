@@ -2,8 +2,8 @@
 plan_id: VAS-2026-10
 status: active
 updated: 2026-10-08
-baseline_develop: 2da3413aed5a5437092a3270f3feccb939f850c9
-next_task: VAS-04b
+baseline_develop: b19f0f6730a04b52974fae82829c7ed0152b9d01
+next_task: VAS-05g
 ---
 
 # Victor shared agent-service implementation plan and tracker
@@ -12,7 +12,7 @@ next_task: VAS-04b
 will converge on one Victor service and contract family. The user authorized this
 plan after the [API audit](../development/victor-agent-service-audit.md).
 [FEP-0039](https://github.com/anvai-labs/victor/blob/develop/feps/fep-0039-unified-agent-service-api.md)
-owns the proposed architecture and remains Draft. This file owns execution status;
+owns the proposed architecture and is in Review, not Accepted. This file owns execution status;
 the [formation ledger](multiagent-formation-coverage-handoff.md) owns historical
 formation results and G-numbered gaps. Do not duplicate status in another roadmap.
 
@@ -64,33 +64,37 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
-- Fetched develop: `2da3413aed5a5437092a3270f3feccb939f850c9` (#1264 merged).
-- VAS-04a and VAS-02a are complete on develop; #1264 reconciled their evidence.
-  Active owner: this session, branch `fix/vscode-paused-chat`, linked worktree
-  `/private/tmp/victor-paused-chat-20261008` from that fetched base.
-- VAS-04b preserves the existing nonstream `/chat` status, run ID and approval
-  request. Composer, terminal suggestions and Smart Paste all use one completion
-  guard before consuming content. Pauses carry the original response; malformed or
-  contradictory outcomes fail closed. Smart Paste does not perform either regular-
-  paste fallback for these outcomes. Composer retains the pause in its current UI
-  session and ignores responses belonging to replaced/cleared sessions; displayed
-  error/run text is assigned with `textContent`, not interpolated HTML.
-- VAS-04b TDD: 11 original client failures, three actual-host failures and one real
-  HTTP failure reproduced the defect. Review added failing contradictory-outcome
-  and late-session tests. Three literal interface-only tests were replaced with
-  actual consumer behavior tests; other invariants remain covered. No new approval
-  store, resume dispatcher or automatic approval/replay was added. Local validation
-  passed: 88 Vitest, 1,006 actual VS Code host, 239 affected API tests,
-  10 final HTTP contract tests, 76 doc tests and
-  34,030 collected tests. Compilation, bundle, Black/Ruff, ESLint (zero errors;
-  26 existing warnings), strict MkDocs, local site links and hygiene passed.
-  Independent runtime review and its 88 Vitest/10 HTTP reruns are clean; exact-
-  commit attestation, PR/CI and merge remain at this checkpoint.
-- VAS-04b is a bounded existing-contract repair. Paused-run UI retention is volatile;
-  it does not deliver restart-safe continuation or a complete approval experience.
-  Ordinary transport failures retain the notified legacy paste fallback; this is
-  not a general write-reconciliation guarantee. New public server contracts still
-  require FEP-0039 acceptance through VAS-03.
+- Fetched develop: `b19f0f6730a04b52974fae82829c7ed0152b9d01` (#1265 merged).
+- VAS-04b is complete on develop: [#1265](https://github.com/anvai-labs/victor/pull/1265)
+  passed clean exact-commit review and all 39 applicable CI checks, including
+  Vertical Py3.12. Local evidence: 12 client/five host RED cases and one real HTTP
+  RED, then 88 client, 1,006 actual host, 239 API and 76 doc tests; 34,030 collected.
+  Paused metadata, guarded content consumers and late Composer session ownership
+  are repaired. Ordinary transport-error paste fallback is unchanged; volatile UI
+  retention is not restart-safe continuation or a complete approval experience.
+- VAS-03b owner: this session, branch `docs/agent-service-contract-review`, linked
+  worktree `/private/tmp/victor-api-contract-review-20261008` from the fetched base.
+  The [consumer reconciliation](../development/victor-agent-service-audit.md#consumer-reconciliation-october-8-2026)
+  inventories real call paths and external-usage limits. FEP-0039 moves to Review;
+  this does not accept its public contracts or complete parent VAS-03.
+  Evidence-only package completed: 226 relevant tests, valid FEP metadata, 34,030
+  collected tests, Black/Ruff, strict documentation build, built-site links and
+  repository hygiene passed. Independent review reproduced both synthetic adapter
+  failures and verified the consumer inventory; no runtime changes were made.
+- Review clock: the merged PR moving FEP-0039 to Review starts its minimum 14-day
+  period under `docs/FEP_PROCESS.md`. Preserve that PR's exact merge timestamp in
+  restart evidence; do not backdate to #1251's Draft publication. Acceptance also
+  requires recorded maintainer consensus and resolution of blocking objections.
+  Independent adversarial review/green CI alone is not formal acceptance.
+- Next ready existing-contract repair: VAS-05g. The active EventBridge caller uses
+  a separate WebSocket without credentials, while core `/ws/events` enforces its
+  existing key gate. Reuse the extension host's credential owner; prove token
+  changes, server changes, late callbacks and auth rejection cannot leak credentials
+  or revive an obsolete socket. No new OIDC mode, policy grant or public API implied.
+- Newly isolated G80/VAS-15a: the public Python HTTP adapter still drops paused-run
+  metadata and exhausts a partial stream without a terminator. Synthetic probes
+  reproduce the actual adapters; they are not provider/C5 evidence. Internal
+  reachability does not establish absence of external consumers or permit removal.
 - VAS-02a merged evidence: Linux Python 3.12/pip-tools 7.6.1 regenerated the CPU
   embeddings lock with `multidict==6.9.1` and removed stale Textual-only dependencies
   absent from current deployment metadata. Rust edge TLS resolves `rustls==0.23.45`
@@ -144,7 +148,9 @@ edit. A mock test is not live provider or C5 evidence.
   gaps remain open; this plan adds no formation passes.
 - Durable local recovery copy: `var/session-closeout-2026-10-07/vscode-api-audit/`
   in the root checkout; this increment uses
-  `var/session-closeout-2026-10-08-vscode-outcomes/` (checkpoint cancellation evidence
+  `var/session-closeout-2026-10-08-api-contract-review/` (earlier client outcomes
+  remain in `var/session-closeout-2026-10-08-vscode-outcomes/`; paused-chat evidence
+  remains in `var/session-closeout-2026-10-08-paused-chat/`; checkpoint cancellation evidence
   remains in `var/session-closeout-2026-10-08-checkpoint-cancellation/`; storage-failure evidence
   remains in `var/session-closeout-2026-10-08-checkpoint-failures/`; pause evidence remains
   in `var/session-closeout-2026-10-08-pause-persistence/`; receipt evidence remains
@@ -157,21 +163,23 @@ edit. A mock test is not live provider or C5 evidence.
 
 Planning/evidence: VAS-00 is accepted; VAS-01 is merged.
 Delivery: VAS-02, VAS-03a, VAS-11a, VAS-11b, VAS-11d, VAS-12a and VAS-12b are
-merged. VAS-04a and VAS-02a are merged; VAS-04b is LOCAL_PASS pending reviewed PR/CI/merge. Other implementation rows remain TODO. These counts are not
+merged. VAS-04a, VAS-04b and VAS-02a are merged. VAS-03b is completed evidence only;
+parent VAS-03 and formal FEP acceptance remain open. Other implementation rows remain TODO. These counts are not
 an effort-weighted completion percentage. The original formation denominator is
 independent. Update this paragraph and the rows together at each checkpoint.
 
 | ID | Milestone / bounded scope | Depends on | State | Evidence / next action |
 | --- | --- | --- | --- | --- |
 | VAS-00 | Audit current API shapes and reproduce boundary defects | — | ✅ ACCEPTED | Audit: real core router returns 422; compiled TS stub probes show approval loss, EOF success and false cancellation; independent review corrected binding/ownership details |
-| VAS-01 | Publish FEP, plan, roadmap/gap links and reboot handoff | VAS-00 | ✅ MERGED | [#1251](https://github.com/anvai-labs/victor/pull/1251), `470c9ccdcb222dcfd8acce5b4c52fb27321ac952`; all applicable checks green; FEP remains Draft |
+| VAS-01 | Publish FEP, plan, roadmap/gap links and reboot handoff | VAS-00 | ✅ MERGED | [#1251](https://github.com/anvai-labs/victor/pull/1251), `470c9ccdcb222dcfd8acce5b4c52fb27321ac952`; all applicable checks green; FEP was Draft at that checkpoint |
 | VAS-02 | Node 24, dependency remediation and real activation/package smoke | — | ✅ MERGED | [#1251](https://github.com/anvai-labs/victor/pull/1251), `470c9ccdcb222dcfd8acce5b4c52fb27321ac952`; 999 host + 50 unit tests; audits zero; packaged VSIX activation/106 commands passed |
 | VAS-02a | Patch remaining embeddings and Rust edge dependency alerts | VAS-02 | ✅ MERGED | [#1263](https://github.com/anvai-labs/victor/pull/1263), `9c281c57236aaf2cfa937e0114fadb6992531056`; clean exact-commit review and 39 successful CI checks including Vertical Py3.12; patched TLS/embeddings locks, zero RustSec/Linux lock/installed audit findings, installed-wheel HTTP/CPU/CLI smokes; main release/deployment separate |
 | VAS-03 | Agree contract/FEP and consumer inventory; repair streaming request parity | VAS-01, VAS-02 | TODO | Accept FEP before new public API; preserve FEP-0037/0038 classify/model-effort contracts; extend existing contract owner, RED actual TS body vs real router, then explicit compatibility adapter |
 | VAS-03a | Repair existing VS Code streaming request compatibility | VAS-01, VAS-02 | ✅ MERGED | [#1252](https://github.com/anvai-labs/victor/pull/1252), `a5fa47e444e6f973ad95149ae0677327df060dc7`; clean exact-head review, 41 applicable checks passed including Vertical Py3.12; parent/FEP acceptance remains open |
+| VAS-03b | Reconcile actual consumers and prepare FEP review gates (evidence only) | VAS-03a, VAS-04a, VAS-04b | ✅ ACCEPTED (evidence only) | `docs/agent-service-contract-review`, baseline `b19f0f673`; independently reviewed source inventory + reproduced synthetic legacy adapter probes; 226 tests, 34,030 collected, FEP/docs/link/hygiene checks pass; no runtime/public contract changes; FEP acceptance and this package's PR merge remain separate gates |
 | VAS-04 | Typed client outcomes: paused run, terminal EOF, cancellation acknowledgement | VAS-03 | TODO | Preserve status/run/approval; reject incomplete streams; consume negative cancellation body; no new approval store |
 | VAS-04a | Repair existing stream termination and cancellation acknowledgements | VAS-03a | ✅ MERGED | [#1262](https://github.com/anvai-labs/victor/pull/1262), `bdb10c083951426a14209b27c44a5073263a4a90`; clean exact-commit review, 39 successful CI checks including Vertical Py3.12. 76 Vitest, 1,000 host, 71 API/web tests; bounded transport/pending-approval acknowledgement only; no durable result/approval/continuation contract |
-| VAS-04b | Preserve existing paused-chat response fields in extension consumers | VAS-03a | LOCAL_PASS | `fix/vscode-paused-chat`, baseline `2da3413ae`; existing response metadata + shared completion guard, no Smart Paste fallback on pause or invalid response metadata, Composer session ownership; 12 client and five host RED cases plus real HTTP RED; 88 client/1,006 host/239 API tests green, 34,030 collected; exact-commit review/CI/merge pending |
+| VAS-04b | Preserve existing paused-chat response fields in extension consumers | VAS-03a | ✅ MERGED | [#1265](https://github.com/anvai-labs/victor/pull/1265), `b19f0f6730a04b52974fae82829c7ed0152b9d01`; clean exact-commit review and 39 applicable CI checks; 88 client/1,006 host/239 API tests, 34,030 collected; existing response metadata, shared completion guard and Composer ownership; release/continuation/C5 separate |
 | VAS-05 | Shared authentication and per-resource principal authorization | VAS-03 | TODO | HTTP/events parity, no placeholder tokens, OIDC hosted posture and explicit scoped machine/local modes; reject cross-owner access |
 | VAS-05a | Strict verified-principal and resource/action policy contracts | VAS-03 | TODO | [Kanidm/API-key policy design](victor-agent-service-auth-policy.md); deny overrides, credential-scope ceiling, ownership and no cross-grant widening; design only |
 | VAS-05b | Kanidm access-token and scoped key authentication | VAS-05a | TODO | Dedicated verified registration/discovery; no alternate-auth fallback; expiry/revocation/rotation, group provenance; same principal contract |
@@ -179,6 +187,7 @@ independent. Update this paragraph and the rows together at each checkpoint.
 | VAS-05d | Login UX, Kanidm provisioning and deployment acceptance | VAS-05c | TODO | Browser/IDE login and service-key positive/negative smokes; verified DS3 setup, roles, recovery and documented revocation bounds |
 | VAS-05e | Victor/Sandhi identity propagation and delegation contract | VAS-05a | TODO | Co-design separate initiator/actor/provider identity; verify Kanidm exchange capability, scoped delegation, audience and revocation; shared workload attribution is intermediate only |
 | VAS-05f | Implement immutable per-run gateway credential binding and delegation | VAS-05c, VAS-05e, VAS-06 | TODO | Two-user concurrency, no shared credential mutation, grant/model denial, rotation/revocation and actual identity/accounting joins |
+| VAS-05g | Repair existing EventBridge credential and connection ownership | VAS-04a | TODO | Existing `/ws/events` key contract only; extend actual EventBridge/ChatView owners, real authenticated WS smoke; no credential URL/log/webview exposure, no anonymous downgrade on rejection, rotate/clear keys and server origins with owned socket cleanup; no new OIDC/principal schema |
 | VAS-06 | Canonical session ownership and bounded admission | VAS-05b | TODO | Port/reuse web store semantics; scope by principal/workspace, concurrent-turn policy, pre-initialization admission and restart contract |
 | VAS-07 | Durable run admission, identity and status | VAS-06 | TODO | Reuse existing durable owners; same-key dedup/content conflict, reliable dispatch and honest recorded outcomes |
 | VAS-08 | Canonical FastAPI composition and web compatibility entry point | VAS-03, VAS-06, VAS-07 | TODO | One route/service owner; port web wire/session behavior, preserve supported old requests and startup entry points |
@@ -200,6 +209,7 @@ independent. Update this paragraph and the rows together at each checkpoint.
 | VAS-14d | Headed OIDC workflow→Victor→Sandhi→provider demo | VAS-14b, VAS-14c, VAS-14e, VAS-05d, VAS-05f, VAS-11, VAS-12 | TODO | AgentBrowser snapshots + exact definition + verified execution/approval/cancel + human/actor/accounting joins; deterministic then released-provider acceptance |
 | VAS-14e | Victor adapter for AnvaiOps/Sandesha/Sandhi family theme and bundled UI assets | VAS-14a, VAS-21a | TODO | Pinned semantic token source/adapters and drift guard; ink/teal, light/dark/high-contrast, responsive/keyboard/reduced motion; headed visual/functional snapshots; OSS/commercial boundary |
 | VAS-15 | GraphQL/MCP/legacy adapter convergence and deprecation | VAS-08, VAS-13, VAS-14 | TODO | Inventory external consumers, policy/attribution parity; one owner, compatibility window; retire only evidenced duplicates |
+| VAS-15a | Preserve outcomes through public legacy Python protocol adapters | VAS-00 | TODO | G80; reproduce paused metadata loss, malformed/incomplete SSE and EOF through existing protocol tests before repair; one existing owner, no blind POST replay or unsupported success; external compatibility before deprecation/removal |
 | VAS-16 | Measured performance and broader lifecycle acceptance | VAS-12, VAS-13, VAS-14, VAS-15 | TODO | Same-workload baseline/comparison; cold/warm, 1/8/32 concurrency, memory/backpressure, deadlines and crash/recovery |
 | VAS-17 | Released foundation deployment and lifecycle acceptance for C5 | VAS-02, VAS-11, VAS-12 | TODO | Full green promotion/release CI, artifact/binary/source/config IDs and rollback; verify released Sandhi/InferFlux readiness without clearing cache |
 | VAS-18 | Full mixed-team C5 verdict | VAS-17 | TODO | Six-Qwen/one-ZAI harness; unchanged deliverable/pytest/session/accounting gates; reviewed verdict on InferFlux #184 |
@@ -266,8 +276,10 @@ are responsibilities; an ACTIVE claim still needs a named session and branch.
 
 ## Delivery order and progress accounting
 
-1. Preserve merged VAS-03a and VAS-11a evidence; continue their open parent
-   milestones without repeating the completed repairs.
+1. Preserve the merged child milestones, including VAS-03a/04a/04b and
+   VAS-11a/b/d/12a/b; continue their open parents without repeating repairs.
+   VAS-05g and VAS-15a are bounded existing-contract candidates while the shared
+   public API undergoes FEP review; they do not waive the acceptance gate.
 2. Close the remaining contract/identity decisions and framework recovery gates
    (VAS-03/05a/e and VAS-11/12). Shared token review VAS-21a and Sandhi theme work
    VAS-21b can proceed independently; theme work does not delay C5 foundations.
@@ -302,6 +314,8 @@ RED and final GREEN evidence with SHAs. Do not weaken assertions to match defect
 | VAS-03/08 HTTP parity | `tests/unit/api/test_vscode_extension_contract.py`, `tests/unit/integrations/api/test_fastapi_chat_request_correlation.py`, `tests/unit/api/test_consolidated_routes.py` | Execute real TS request fixtures against real router, not just regex paths; legacy and new payloads, malformed requests, no duplicate routes |
 | VAS-04/09/10 TS wire | `vscode-victor/src/test-unit/victorClientStream.unit.test.ts`, `victorClient.unit.test.ts` | Paused202 fields, EOF/error terminal distinctions, byte fragmentation, extra/unknown versions, false cancellation acknowledgement |
 | VAS-05 auth | `tests/unit/integrations/api/test_api_auth_boundary.py`, `test_ws_auth_gate.py`, `test_chat_resume_routes.py` | HTTP/WS same identity; expired/wrong issuer/audience tokens, cross-owner IDs, machine scopes, local mode isolation |
+| VAS-05g event credentials | `vscode-victor/src/test/eventBridgeClient.test.ts`, existing VS Code host suites, `tests/integration/integrations/api/test_fastapi_event_bridge_e2e.py` | Actual client/server auth, credential/server changes, no credential URL/log exposure, auth denial without downgrade, late callbacks and disconnect ownership; replace placeholder specifications with executable cases in a discovered suite; current host glob is limited to `test/suite` |
+| VAS-15a legacy outcomes | `tests/unit/protocols/test_protocol_adapters.py`, `test_protocol_interface.py` | Real adapter paused/error metadata, malformed UTF-8/JSON/SSE and EOF, bounded frames, no duplicate POST; production-route smoke before completion |
 | VAS-06 sessions | `tests/unit/web/test_session_store.py`, `tests/unit/framework/test_client_close_guard.py` | Admission races, init failure, bounded sessions, close/disconnect; no lock held over slow initialize/shutdown |
 | VAS-07/11 durability | `tests/unit/agent/test_paused_run_persistence.py`, `test_paused_run_expiry.py`, `test_durable_resume.py`; `tests/unit/framework/test_client_resume.py` | Commit-then-timeout, restart, duplicate events, changed-key payload, stale/expired approval, unknown effects; authoritative receipt |
 | VAS-10 events | `tests/unit/framework/test_wire_events.py`, `test_wire_events_member.py`; `tests/unit/integrations/api/test_event_bridge_queue_bounds.py` | Replay gaps, slow consumers, bounded queues, duplicate/out-of-order events, durable terminal status distinct from lossy telemetry |

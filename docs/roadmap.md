@@ -57,8 +57,8 @@ requests to owners and gates, including cross-repository release/live evidence.
 
 The [canonical VAS tracker](architecture/victor-agent-service-plan.md) owns the
 cross-session plan for one API shared by web UI, VS Code and automation: stable
-task IDs, dependencies, TDD/smoke gates, evidence and reboot recovery. FEP-0039 is
-Draft; the audit is completed evidence, while API consolidation, deployment and
+task IDs, dependencies, TDD/smoke gates, evidence and reboot recovery. FEP-0039 is in
+Review, not Accepted; the audit is completed evidence, while API consolidation, deployment and
 C5 remain separate delivery gates. Read/reconcile the tracker before resuming;
 do not infer completion from this roadmap or duplicate its task statuses here.
 

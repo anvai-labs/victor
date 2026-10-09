@@ -7,8 +7,62 @@ activation fixes in `fix/vscode-security-locks`. A fresh fetch found develop
 unchanged. Do not count this document as an accepted FEP or completed milestone.
 
 The [implementation tracker](../architecture/victor-agent-service-plan.md) owns
-current task statuses and restart instructions. This report remains a dated
+current task statuses and restart instructions. The original report below remains a dated
 finding/evidence snapshot; its proposed sequence does not supersede the tracker.
+
+## Consumer reconciliation — October 8, 2026
+
+Rechecked `origin/develop` at `b19f0f6730a04b52974fae82829c7ed0152b9d01`
+after [#1265](https://github.com/anvai-labs/victor/pull/1265). The original report
+below is preserved as audit-time evidence, not a list of still-unfixed defects.
+Delivery status remains in the canonical tracker; this section records the
+consumer relationships and compatibility decisions required by VAS-03b.
+
+The stream request mismatch was repaired in [#1252](https://github.com/anvai-labs/victor/pull/1252).
+Transport termination and cancellation acknowledgement were repaired in
+[#1262](https://github.com/anvai-labs/victor/pull/1262); paused nonstream responses
+and their three content consumers were repaired in #1265. Those bounded repairs
+are not shared authentication, durable run results, approval/resume UI, remote
+cancellation, a release, or C5 acceptance. The API audit's historical RED probes
+must not be used to claim those exact VS Code defects still exist.
+
+| Consumer / actual call path | Present contract and ownership | Migration decision / remaining evidence |
+| --- | --- | --- |
+| VS Code chat panel: `chatViewProvider.ts` → `victorClient.ts::streamChat` | Extension host owns HTTP; compatibility body serves core `messages` and web `message`/optional `session_id`; core `[DONE]` or web v1 `stream_end` required | Keep the explicit compatibility behavior until both server entry points pass the shared contract. A terminator establishes transport completion only |
+| Composer, terminal suggestions, Smart Paste → `VictorClient.chat` | Core `POST /chat`; preserves `status`, `run_id`, `approval_request`; one completion guard prevents consuming paused content | Preserve #1265 ownership/no-paste regressions. No automatic resume or restart-safe UI pause retention; ordinary transport-error paste fallback remains legacy behavior |
+| Svelte webview: `webview-ui/src/stores/chat.ts` → VS Code `postMessage` → `ChatViewProvider` | Embedded webview bridge, not a standalone network client of `web/server`; host owns credentials and HTTP | Share future SDK/state at the host boundary; validate bridge messages separately. Do not invent a second browser REST owner based on the directory name |
+| Active EventBridge: `ChatViewProvider._ensureEventBridgeConnected` → `eventBridgeClient.ts` | Separate `ws` connection to `/ws/events`, subscription/correlation filters; constructor currently sends no authorization | Existing-key protected server rejects it. VAS-05g owns the planned credential/connection repair; correlation filtering is not resource authorization |
+| Main `VictorClient.connectWebSocket` | `/ws` uses first-message API-key auth; optional prefetched session token in URL. No production caller of `connectWebSocket()` found under `vscode-victor/src` | Inventory as a retained client API, not the active EventBridge transport. Core `/session/token` is still a placeholder; neither random token nor WS open means authenticated/resumable session |
+| Browser Chainlit: `victor/ui/chat_app/app.py` | Per-browser-session framework `VictorClient`; calls Python in process, including existing session restore and UI handlers | Retain embedded mode. Hosted remote mode needs the shared adapter; session history restore is not durable action reconciliation |
+| Separate `web/server/main.py` | Server entry point with singular-message SSE, `X-Session-Id`, signed session tokens and bounded in-memory sessions; several IDE endpoints are placeholders | No independent browser HTTP client was found in checked-in `web/`; external consumers remain unknown. Preserve compatibility until usage inventory/parity/deprecation are approved |
+| GraphQL: `graphql_schema.py` | Mounted under the core auth gates when installed; chat resolver calls the orchestrator directly, subscriptions use event infrastructure | Retain while auditing external clients; shared authentication does not prove principal/resource policy parity. Delegate to canonical services before claiming equivalent execution semantics |
+| MCP: `integrations/mcp/server.py` | Registry tool execution with an empty context in `call_tool`; stdio/JSON-RPC shape | Keep interoperability; qualify principal/policy context before hosted use. Do not rename it REST or remove it to reduce endpoint count |
+| Public Python protocol adapters: `integrations/protocol/{interface,adapters}.py` | Exported direct/HTTP wrappers; no non-example production consumer imports found elsewhere in the repository | Package docstrings claim CLI/VS Code usage not supported by the current call sites. Preserve public imports pending external inventory; VAS-15a covers the reproduced outcome gaps below |
+| Embedded Python / teams / workflows | Existing framework client, coordinator and workflow owners | No network hop for embedded calls. Shared run envelopes retain formation-specific execution; peer formations do not require a supervisor |
+| Sandhi / InferFlux | Gateway/provider and model-serving APIs, independent of Victor's agent-run API | Preserve separate token audiences and deployment ownership. Do not make gateway login an approval or expose provider credentials to the UI |
+
+**Newly isolated legacy adapter gap (G80).** Synthetic compatibility probes against
+the actual `ChatResponse.from_dict` convert a paused response with run/approval
+fields into `{content, tool_calls, finish_reason: "stop", usage}` and discard the
+pause identity. A real `HTTPProtocolAdapter.stream_chat` with an `httpx.MockTransport`
+response containing one complete `data` frame but no terminal marker yields the
+partial content and exhausts normally; exactly one POST was observed. These are
+local adapter probes, not live server/member/model evidence. Existing protocol
+tests do not establish the lost-outcome invariant. Repair in the existing test
+owners; do not publish a second result registry or delete the public adapter
+because an internal caller was not found.
+
+The existing `src/test/eventBridgeClient.test.ts` contains placeholder assertions
+and sits outside the host runner's `test/suite` discovery root. It is not current
+client authentication evidence; VAS-05g must exercise the real owner in a discovered
+suite and remove superseded placeholders only after preserving useful invariants.
+
+**Inventory limits.** This is checked-in source reachability, not deployed usage
+telemetry. External clients, installed extensions and generated/dynamic imports
+need explicit compatibility evidence before removal. Existing contract tests are
+reused; this documentation increment adds no mirrored parser or inventory-only
+runtime test. The review gates and unresolved design choices are in
+[FEP-0039](https://github.com/anvai-labs/victor/blob/develop/feps/fep-0039-unified-agent-service-api.md#review-process-and-acceptance-gates).
 
 ## Recommendation
 

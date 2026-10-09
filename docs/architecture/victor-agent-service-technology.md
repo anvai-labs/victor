@@ -3,7 +3,7 @@
 Design recommendation, 2026-10-08. Implementation and acceptance status live only
 in the [canonical tracker](victor-agent-service-plan.md). This extends the existing
 [native acceleration policy](native-acceleration-strategy.md); it does not approve
-a new orchestration engine or replace the Draft FEP-0039 acceptance gate.
+a new orchestration engine or replace the FEP-0039 acceptance gate (currently Review).
 
 ## Decision and evidence
 
