@@ -118,9 +118,10 @@ edit. A mock test is not live provider or C5 evidence.
   0.11.0, released source `68580981a0008f27d17260cddc11a25020844488`.
   Loopback gateway and registered HTTPS edge respond; anonymous admin access
   is denied. The official Linux 0.11.0 artifact passed checksum verification and
-  isolated copied-state TLS/auth/usage checks on aiserver1, but the system service
-  still runs its old 0.10.1 build. Its staged unit changes only the executable;
-  host-owner sudo installation/restart and subsequent verification remain required.
+  isolated copied-state TLS/auth/usage checks on aiserver1. The host owner then
+  installed the staged unit and restarted it. Actual PID 2969496 uses the official
+  binary, SHA-256 `5c804c4a6a9431a1be58e046b6541d974dc4f59befd2f564258a96db23a1ec56`.
+  The unit changed only the executable; private state, credentials and TLS persist.
   Readiness alone does not establish provider credential availability.
 - Existing DS3 replacement brokers passed token exchange/introspection for distinct
   member/accounting identities. Five isolated authorization checks passed with an
@@ -147,6 +148,16 @@ edit. A mock test is not live provider or C5 evidence.
   the corrected `x-sandhi-session` run. These are deployment probes, not Victor
   members. Zero reported cache does not prove zero executed reuse; browser login,
   restart durability, streaming/cancellation and full lifecycle remain unqualified.
+- Remote Sandhi post-cutover smoke passed trusted TLS on 18788, anonymous admin
+  denial, authenticated usage reads, existing client-credential exchange, Qwen3
+  chat and two finite 384-dimensional BGE embeddings. Wire/SQLite/run accounting
+  and dashboard delta reconcile two calls, 22 input tokens and one output token.
+  Chat reports explicit zero cache; embeddings omit cache reporting (absent, not
+  explicit zero). Remote auth remains its existing `tokens` mode; this is not an
+  OIDC acceptance claim. Missing `openai:codex` and `zai:coding` credentials produce
+  the same warnings as before the upgrade and remain unavailable there. No secrets
+  were transferred or unrelated provider routes silently disabled. Mac ZAI remains
+  the independently verified cloud route.
 - InferFlux direct deployment smokes passed both `qwen3-coder-30b` and
   `qwen2.5-coder-14b`, plus two finite 384-dimensional BGE embeddings. The origin
   exposes loopback 8080 and TLS 8443. Observed executable SHA-256:
@@ -156,7 +167,7 @@ edit. A mock test is not live provider or C5 evidence.
   Preserve it rather than downgrade to an older artifact that loses live features.
   These are new deployment probes, not actual-member replay, model-quality,
   placement/concurrency, streaming, lifecycle or C5 acceptance.
-- Next action: resolve VAS-17 host-sudo cutover and released InferFlux provenance
+- Next action: resolve VAS-17 released InferFlux provenance/promotion
   while FEP-0039 remains in Review. Verify source/release/binary/config identities, authenticated provider
   calls, accounting and outstanding lifecycle gates before live C5. VAS-11c still
   requires a qualified production receipt operation.
@@ -233,7 +244,7 @@ edit. A mock test is not live provider or C5 evidence.
 Planning/evidence: VAS-00 is accepted; VAS-01 is merged.
 Delivery: VAS-02, VAS-03a, VAS-11a, VAS-11b, VAS-11d, VAS-12a and VAS-12b are
 merged. VAS-04a, VAS-04b and VAS-02a are merged. VAS-03b is merged evidence only; VAS-05g and VAS-15a are merged.
-VAS-17 preflight is blocked on deployment prerequisites. Parent VAS-03 and formal FEP acceptance remain open. Other implementation rows remain TODO. These counts are not
+VAS-17 remains blocked on released InferFlux qualification; bounded gateway deployment smokes passed. Parent VAS-03 and formal FEP acceptance remain open. Other implementation rows remain TODO. These counts are not
 an effort-weighted completion percentage. The original formation denominator is
 independent. Update this paragraph and the rows together at each checkpoint.
 
@@ -280,7 +291,7 @@ independent. Update this paragraph and the rows together at each checkpoint.
 | VAS-15 | GraphQL/MCP/legacy adapter convergence and deprecation | VAS-08, VAS-13, VAS-14 | TODO | Inventory external consumers, policy/attribution parity; one owner, compatibility window; retire only evidenced duplicates |
 | VAS-15a | Preserve outcomes through the retained Python HTTP adapter | VAS-00 | ✅ MERGED | G80; [#1268](https://github.com/anvai-labs/victor/pull/1268), `e9004a5d8`; exact-candidate independent review and all applicable CI green. 144 focused/696 affected/81 docs/44 selector/199 selected tests, 34,082 collected, 95% changed-line coverage; no POST replay, adapter removal or durability claim; direct adapter remains G82/VAS-15 |
 | VAS-16 | Measured performance and broader lifecycle acceptance | VAS-12, VAS-13, VAS-14, VAS-15 | TODO | Same-workload baseline/comparison; cold/warm, 1/8/32 concurrency, memory/backpressure, deadlines and crash/recovery |
-| VAS-17 | Released foundation deployment and lifecycle acceptance for C5 | VAS-02, VAS-11, VAS-12 | BLOCKED | Host owner must complete staged sudo cutover on aiserver1; release owner must qualify InferFlux provenance/promotion. Local Sandhi 0.11.0 HTTPS/OIDC three-model smoke reconciled wire/SQLite/run/dashboard usage (3 calls, 49 in, 5 out, explicit zero cache). Remote Sandhi is staged; direct InferFlux and isolated authorization smokes passed. Browser, streaming/cancellation, settlement and lifecycle acceptance remain; preserve failed evidence and cache |
+| VAS-17 | Released foundation deployment and lifecycle acceptance for C5 | VAS-02, VAS-11, VAS-12 | BLOCKED | Release owner must qualify InferFlux provenance/promotion. Sandhi 0.11.0 deployed locally and on aiserver1: local HTTPS/OIDC three-model smoke reconciled 3 calls/49 in/5 out; remote TLS/token-mode Qwen3+embedding smoke reconciled 2 calls/22 in/1 out. Explicit chat cache reporting remains distinct from absent embedding reporting. Browser, streaming/cancellation, settlement and lifecycle acceptance remain; remote OpenAI/ZAI credentials were already missing; preserve failed evidence and cache |
 | VAS-18 | Full mixed-team C5 verdict | VAS-17 | TODO | Six-Qwen/one-ZAI harness; unchanged deliverable/pytest/session/accounting gates; reviewed verdict on InferFlux #184 |
 | VAS-19 | Matched formation cohorts and remaining semantics | VAS-18 | TODO | Preserve ZAI reference, simpler explicitly labelled local tasks, all 12 formations + 3 policies; G72 opt-in strict hierarchy separately |
 | VAS-20 | OSS shared API/UI main promotion and release | VAS-16, VAS-17, VAS-14d | TODO | Full green promotion/release CI; publish server/SDK/VSIX/docs and compatibility matrix; verify installed artifacts |
