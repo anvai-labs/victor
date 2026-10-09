@@ -100,6 +100,11 @@ single-action observations (#1209, included in v0.12.0). Asynchronous journal wr
 and transaction rollback (#1249) are a later main change. They do not establish
 backend receipt reconciliation or complete member continuation.
 
+Sandhi's strict buffered usage qualification merged in
+[#337](https://github.com/anvai-labs/sandhi/pull/337). Tracked buffered HTTP ownership
+and bounded recovery merged in [#338](https://github.com/anvai-labs/sandhi/pull/338).
+These source increments do not change serving 0.11.0 or add live acceptance.
+
 Next, in dependency order:
 
 1. Reconcile main/develop, resolve recorded CI failures, and verify released gateway

@@ -118,7 +118,7 @@ Implementation delivery and live acceptance have different denominators:
 | 2026-09-23 OIDC Qwen3/ROCm single-file cohort | 0/15 accepted; interrupted overall FAIL | First completed case timed out; second cancelled; 13 unstarted, not 15 model-quality failures |
 | OIDC Qwen14/CUDA single-file cohort | 0/15; not started | Held for consolidated-origin liveness investigation |
 | Current six-Qwen/one-ZAI C5 acceptance | Open; historical failed run retained | InferFlux v0.5.0 release wire acceptance passes (16 synthetic checks); full run remains held for durable gateway/lifecycle acceptance and reviewed verdict on InferFlux #184 |
-| G53 operator deadline policy | ✅ Buffered #297, stream body owner #298 and standalone streaming policy [Sandhi #301](https://github.com/anvai-labs/sandhi/pull/301) released in 0.10.1 | Owned prepared admission merged in [Sandhi #336](https://github.com/anvai-labs/sandhi/pull/336), not released/HTTP-activated. Bounded durable HTTP settlement/recovery and changed-deadline live evidence remain open |
+| G53 operator deadline policy | ✅ Buffered #297, stream body owner #298 and standalone streaming policy [Sandhi #301](https://github.com/anvai-labs/sandhi/pull/301) released in 0.10.1 | Owned prepared admission and usage qualification merged in [Sandhi #336](https://github.com/anvai-labs/sandhi/pull/336)/[#337](https://github.com/anvai-labs/sandhi/pull/337); tracked buffered HTTP/recovery merged in [#338](https://github.com/anvai-labs/sandhi/pull/338). Broader lifecycle, released deployment and changed-deadline live evidence remain open |
 | G60 pre-dispatch enforcement repair | ✅ [Victor #1180](https://github.com/anvai-labs/victor/pull/1180); all CI green including Vertical Py3.12 | Result-publication follow-up is described in G60 below; broader G60 and G61–G65 remain open |
 | G60 result-publication boundary | [Victor #1204](https://github.com/anvai-labs/victor/pull/1204): typed withholding, cache/result publication checks and retry vetoes | Executor/observer disclosure and cached pre-action authorization remain open; this does not close G60 or C5 |
 | G62 local single-action observations | ✅ [Victor #1209](https://github.com/anvai-labs/victor/pull/1209), merged October 3 and included in v0.12.0 | Bound receipt capability landed in #1255; production adapters and whole-member continuation remain open |
@@ -1293,13 +1293,19 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   [#312](https://github.com/anvai-labs/sandhi/pull/312) adds a bounded read-only inventory
   with frozen admission range and current state per page; it shares settlement eligibility
   and validates receipt/reservation/observation consistency. Pagination is not a recovery
-  worker, a claim on work, or proof of quiescence. The proxy still needs tracked owner
-  integration, an explicit never-dispatched abandonment transition, honest finalization
-  outcomes and bounded ownership of blocking work before authoritative HTTP activation.
-  **Still open:** an explicit lease-renewal or bounded durable HTTP settlement
-  contract; idle gaps alone cannot
-  bound lease lifetime. Blocking finalization can still outlive headroom, and the
-  proxy has not adopted the store's atomic settlement-evidence primitive. New live
+  worker, a claim on work, or proof of quiescence. At that #312 checkpoint, tracked
+  owner integration, explicit never-dispatched abandonment, honest finalization
+  outcomes and bounded blocking ownership remained prerequisites for HTTP activation.
+  **Current source progress:** [Sandhi #337](https://github.com/anvai-labs/sandhi/pull/337)
+  merged strict buffered usage qualification. [#338](https://github.com/anvai-labs/sandhi/pull/338)
+  merged after clean review and all 13 applicable green checks: opt-in buffered
+  HTTP ownership, atomically correlated
+  admission, terminal settlement and bounded recovery through the original ledger.
+  Local process tests distinguish successful settlement from unavailable usage and
+  incomplete shutdown; no live formation pass is added. **Still open:** broader
+  crash/recovery and streaming lifecycle acceptance, promotion/release and installed
+  verification. SQLite operations can outlive a wait; unknown liability stays held,
+  and no provider call is replayed. Defaults and shared runtimes are unchanged. New live
   acceptance evidence remains a separate gate. At #300, the source increment did
   not change the then-running 0.9.1 gateway (buffered120s/setup30s/idle90s), config,
   runtime, shared cache or credentials. The newer release checkpoint is recorded
