@@ -79,7 +79,7 @@ edit. A mock test is not live provider or C5 evidence.
   AnvaiOps `91d731e8203e6c0b8393c8176031aae79d3d0557`. VAS-21d records
   source inspection only; dependency/runtime qualification, extraction and adoption
   remain open. No sibling code, deployment or unrelated dirty file was changed.
-  Keep VAS-17 as the next implementation task.
+  Commercial workspace specs now drive the generic requirement/contract/adapter acceptance map; TypeScript/React is the direction for new rich components, subject to compatible build/peer qualification. Keep VAS-17 as the next implementation task.
 - VAS-15a merged in [#1268](https://github.com/anvai-labs/victor/pull/1268),
   `e9004a5d8b483f653e258431b0cbd32c1bcad49d`, from baseline `07b076726`.
   The retained Python HTTP adapter preserves paused metadata and rejects invalid
@@ -468,7 +468,7 @@ independent. Update this paragraph and the rows together at each checkpoint.
 | VAS-21a | Review/version shared semantic token contract and publication boundary | VAS-00 | TODO | AnvaiOps source, Sandesha alignment, licenses/provenance, generated CSS adapters and drift check; no private checkout dependency |
 | VAS-21b | Align Sandhi dashboard with the family theme | VAS-21a | TODO | Sandhi-owned linked worktree/PR; adapt existing dashboard CSS/JS; preserve OIDC/key/public-read modes, protected controls, real data/empty/error states, responsive accessibility and standalone packaging |
 | VAS-21c | AnvaiOps-owned cross-product visual, identity and commercial-shell acceptance | VAS-14e, VAS-21b, VAS-05d | TODO | Headed AgentBrowser snapshots and actions on released artifacts; same brand/navigation, distinct audience/roles, no session/credential leakage; verify AnvaiOps/Sandesha current owner changes before adoption |
-| VAS-21d | Cross-repository component, contract and test inventory | VAS-00 | IN PROGRESS | [Pinned source inventory](victor-agent-service-technology.md#reuse-with-proximadb-and-the-anvaiops-workspace) inspected; qualify actual consumers/tests, React/build compatibility, notebook import/output/auth semantics and equivalent behavior before extracting or deleting components |
+| VAS-21d | Cross-repository component, contract and test inventory | VAS-00 | IN PROGRESS | [Pinned source inventory](victor-agent-service-technology.md#reuse-with-proximadb-and-the-anvaiops-workspace) inspected; map pinned commercial spec revisions/journeys to generic OSS requirements and both acceptance fixtures; qualify actual consumers/tests, React/build compatibility, notebook import/output/auth semantics and equivalent behavior before extraction |
 | VAS-21e | Minimal OSS UI contracts and two-consumer package qualification | VAS-21a, VAS-21d, VAS-14a | TODO | Victor-owned public contracts with ProximaDB fixture adapter; optional editor/canvas/notebook entries, no domain runtime/credentials; license/release owner, offline workers/CSP, peer matrix, measured performance and save/reload parity before publishing |
 | VAS-21f | ProximaDB-owned adoption and standalone acceptance | VAS-21e | TODO | Repo-owned PR consumes pinned OSS release; retain database query/auth/graph adapters; packaged real-endpoint smoke and rollback; remove duplicate components only after parity, no forced graph/workflow model unification |
 | VAS-21g | AnvaiOps-owned notebook/workspace adoption | VAS-21e, VAS-14g | TODO | Reuse qualified cell/editor/output components through product adapters; retain workspace kernel ownership, scoped auth, entitlement and commercial orchestration; non-executing import, malicious outputs, disconnect/interrupt/unknown outcomes and headed real-kernel acceptance |
@@ -513,6 +513,7 @@ are responsibilities; an ACTIVE claim still needs a named session and branch.
 | Sandhi embedded library and optional external gateway | VAS-05e/f/17; Sandhi owner | Explicit capability/profile matrix, identical accounting contracts, no failure-driven bypass |
 | Shared OIDC mechanism reuse | VAS-05a/b/e; Sandesha/Sandhi candidate owner | Review candidate HOLD/release/security constraints before reuse; product authorization stays distinct |
 | Theme and coherent commercial product experience | VAS-14e/21a–c; each product owner | Ink/teal semantic tokens, provenance/drift, accessibility and headed functional snapshots; no OSS dependence on private product code |
+| Work backward from commercial specs while preserving OSS independence | VAS-21d/e, VAS-22; AnvaiOps spec owners | Trace journey → generic public contract → standalone and commercial adapter tests; TS/React rich UI direction, deliberate divergence for unsupported/unsafe private-only requirements |
 | Shared workflow/code editor/notebook components with ProximaDB and AnvaiOps | VAS-21d–g, VAS-14f/g; product-owned adapters | Public OSS package independent of private checkout; real second consumer, measured compatibility, retained execution/auth owners and commercial shell adoption without forks |
 | Actual drag/drop workflow and formation authoring | VAS-14a/b/d | Versioned canonical graph, save/reload/hash, keyboard parity and actual execution; layouts alone do not qualify |
 | AgentBrowser headed actions and evidence | VAS-14c/d/21c; AgentBrowser owner | Supported drag primitive and approved stream transport, isolated users, screenshots plus semantic outcome assertions |
@@ -540,8 +541,9 @@ are responsibilities; an ACTIVE claim still needs a named session and branch.
 3. Verify released Sandhi/InferFlux lifecycle/admission/settlement and execute
    C5 through VAS-17/18. Maintain timeout and failed-evidence semantics.
 4. Build authenticated ownership/durable admission and the shared SDK/API, then
-   migrate editor/browser clients and add actual workflow authoring. Use VAS-14a's
-   small TypeScript/Svelte reuse spike before selecting graph UI dependencies.
+   migrate editor/browser clients and add actual workflow authoring. Use VAS-14a/14f
+   TypeScript/React shared-editor and host-adapter qualification, preserving
+   supported Svelte clients, before selecting graph UI dependencies.
 5. Complete headed identity/authoring/product-family acceptance, measured capacity,
    formation cohorts, docs, main promotion and installed release verification.
 

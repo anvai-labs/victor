@@ -54,7 +54,9 @@ TypeScript interactive clients, async Python orchestration and measured Rust
 compute. VAS-21 extends the shared AnvaiOps/Sandesha theme to Sandhi as well as
 Victor. VAS-21d–g extend reuse to ProximaDB and AnvaiOps's existing workflow/code
 editor/notebook surfaces: inventory first, minimal OSS component contracts next,
-then repository-owned adapters and installed acceptance. Database graphs and agent
+then repository-owned adapters and installed acceptance. AnvaiOps customer journeys
+and reconciled specs drive generic OSS requirements; new rich components align on
+TypeScript/React, with measured compatibility gates and standalone acceptance. Database graphs and agent
 workflows retain separate semantics; commercial workspace operations stay in
 AnvaiOps. See the [pinned source inventory and adoption sequence](architecture/victor-agent-service-technology.md#reuse-with-proximadb-and-the-anvaiops-workspace).
 VAS-22 owns technology qualification. The tracker maps all accumulated

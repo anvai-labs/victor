@@ -1,6 +1,6 @@
 # Agent-service technology and product-family decision
 
-Design recommendation, 2026-10-08. Implementation and acceptance status live only
+Design recommendation, updated 2026-10-09. Implementation and acceptance status live only
 in the [canonical tracker](victor-agent-service-plan.md). This extends the existing
 [native acceleration policy](native-acceleration-strategy.md); it does not approve
 a new orchestration engine or replace the FEP-0039 acceptance gate (currently Review).
@@ -22,7 +22,7 @@ does not make a whole-stack rewrite necessary.
 
 | Responsibility | Recommended technology / owner | Why and limits |
 | --- | --- | --- |
-| Workflow editor, run timeline, account/approval UI | TypeScript; reuse Victor's Svelte/Vite tooling and generated SDK by default | Rich browser interactions and compile-time contracts. Extract transport-neutral state/components with thin browser/VS Code host adapters. Prove standalone mounting, CSP, accessibility and graph-library support before committing to component reuse. |
+| New shared workflow/code/notebook UI | TypeScript/React; Vite host qualification and generated product SDKs | Align with the existing AnvaiOps/ProximaDB rich UI investments. Keep transport-neutral contracts and thin host adapters; prove compatible peers, standalone mounting, CSP and accessibility before package adoption. Existing Svelte webviews remain supported. |
 | VS Code extension host | Existing TypeScript | Native editor APIs, SecretStorage and remote workspace integration. Never put provider credentials or execution authority in the webview. |
 | Victor API, workflows and agent coordination | Existing typed async Python/FastAPI/framework services | Reuses plugins, durable state and tool policy. Async I/O can suspend while awaiting models; prevent synchronous blocking and bound concurrency. A faster language does not reduce upstream model latency by itself. |
 | Stable CPU-heavy transforms | Existing Rust/PyO3, or an already supported vectorized library | Batch parsing/tokenization/scanning/numeric work after profiling. Include serialization, allocations, FFI and interpreter detachment in measurements. Keep a reference contract and differential tests. |
@@ -32,13 +32,15 @@ does not make a whole-stack rewrite necessary.
 | Sandhi dashboard theme | Existing CSS/JS initially | Semantic token adoption needs no React/Svelte rewrite or production Node server. Consider TypeScript incrementally when state/contract maintenance demonstrates a benefit, using generated types plus runtime validation. |
 | Commercial AnvaiOps integration | Product shell and supported OSS APIs | Family navigation/SSO and visual consistency without importing private product logic into Victor/Sandhi or coupling OSS startup to the control plane. |
 
-Svelte is the reuse preference, not a claim of proven superiority over React.
-VAS-14a must record a small functional spike covering accessible node/edge editing,
-canonical definition round trips, package/license constraints, bundle size and
-the VS Code/browser host boundary. If its required graph tooling fails those
-criteria, select a maintained TypeScript alternative in a reviewed decision with
-migration cost. Do not maintain two authoring applications after that decision.
-Existing Chainlit consumers remain supported through the migration window.
+The 2026-10-09 cross-product inventory supersedes the earlier Svelte-first
+preference for **new shared rich editors**. React is a compatibility direction,
+not a measured performance winner or a mandate to replace existing Svelte
+webviews. VAS-14a/14f must qualify accessible node/edge editing, canonical definition
+round trips, bundle/worker costs and the browser/VS Code host boundary. Keep one
+authoring implementation behind supported host adapters; do not duplicate it in
+Svelte and React. A failed qualification requires a reviewed alternative and
+migration cost. Existing Svelte and Chainlit consumers retain compatibility until
+an evidenced migration; Node 24 remains the established Victor build baseline.
 
 ## Where performance work pays
 
@@ -89,16 +91,17 @@ commits today. Moving blocking SQLite work to a worker thread changes event-loop
 responsiveness, not the transaction's atomicity. Cancellation can leave a consumed
 claim, and a returned invocation is still not a verified backend receipt.
 
-VAS-11b must settle the receipt/adapter contract in the existing FEP and identify
-which local records share a transaction before implementation. Verify the
+VAS-11b merged bounded local receipt provenance/reconciliation in #1255, as
+recorded in the tracker. VAS-11c still must qualify a production backend adapter
+and its transaction/effect boundary; VAS-12 owns complete continuation. Verify the
 backend durability settings and failure model, including process crash versus
 power loss. Define absent/negative receipt semantics: a not-found response from
 an eventually consistent lookup must not authorize replay. Do not invent a
 second action ledger or a generic retry endpoint. Include backend commit with
 lost response, wrong/stale/conflicting receipt, concurrent reconciliation, and
 crash-before-publication tests in the existing owners. VAS-12 separately owns
-complete member continuation. These are design requirements, not implemented
-recovery or live acceptance claims.
+complete member continuation. The bounded local implementation does not establish
+production receipt-adapter, full continuation or live acceptance.
 
 [SQLite's transaction guarantee](https://www.sqlite.org/transactional.html) covers
 changes within its transaction. The [transactional outbox pattern](https://docs.aws.amazon.com/prescriptive-guidance/latest/cloud-design-patterns/transactional-outbox.html)
@@ -202,7 +205,48 @@ library version caused a production defect. No library or framework upgrade is
 approved solely by this comparison; use the existing dependency/security process
 and representative compatibility tests.
 
-### Proposed shared seams
+### Work backward from commercial requirements
+
+AnvaiOps is the integration reference consumer: start with its customer journeys,
+then derive public OSS capabilities and acceptance fixtures. At the pinned source,
+`docs/HLD_WORKSPACE_UX.md` describes workspace files, SQL and notebooks;
+`docs/adr/0019-workspace-coding-platform.md` (Proposed, Revision 1 takes precedence)
+describes code navigation and the staged coding workspace;
+`docs/adr/0006-per-workspace-persistent-runtime.md` (Accepted) owns isolated runtime
+requirements. `docs/adr/0010-tiered-console-architecture.md` is Proposed with
+partially implemented deployment phases. These are requirements references,
+not proof that every topology, identity choice or runtime is deployed today.
+Reconcile later decisions and actual behavior before implementing a requirement;
+do not copy old dates, version pins, egress exceptions or performance estimates
+into an OSS guarantee.
+
+| Commercial journey | OSS capability to qualify first | AnvaiOps integration responsibility |
+| --- | --- | --- |
+| Open a workspace, navigate file ↔ symbol, edit and save | Stable document/navigation interfaces, version/conflict handling, read-only/editor capability inputs | Workspace resolution, repository/file adapter, membership and commercial shell |
+| Author a workflow, select models, run, approve and inspect audit | Canonical Victor definition/run SDK, accessible editor and recorded outcomes; typed provider/formation capabilities | Product templates, authorized deployment selection and customer operations; no alternative scheduler |
+| Query data or run notebook cells and inspect results | ProximaDB query adapter; shared safe document/output components; explicit cancellation/unknown semantics | Scoped data access, isolated workspace execution, resource/egress policy and entitlement enforcement |
+| Use the product across standalone and hosted installations | Versioned packages/assets, auth adapter interfaces, offline packaging and observable errors | Managed rollout, tier presentation, billing and integrated product support |
+
+Directionally align **new rich UI components on TypeScript/React**, using the
+existing AnvaiOps Vite build as the first host qualification target. Prefer the
+existing Monaco investment and React Flow authoring candidate subject to the
+measured spike; keep Cytoscape for existing graph viewers unless evidence warrants
+replacement. Select compatible supported React/TypeScript/Node versions through
+the peer/build matrix, rather than making current React 17 or 18 pins a permanent
+standard. Keep tokens and document contracts framework-neutral, lightweight admin
+UIs free to retain their existing framework, orchestration in typed async Python
+and database/measured native compute in the existing Rust paths. No backend
+rewrite or universal frontend rewrite follows from choosing a common editor host.
+
+Every proposed extraction should record: commercial specification/revision and
+journey, generic OSS requirement, owning public contract, standalone acceptance,
+AnvaiOps adapter acceptance and any intentional divergence. Reject a private-only
+requirement from OSS core when a supported adapter serves it. Where an old spec
+conflicts with security or measured behavior, update the owning commercial spec
+and contract decision before migration. Public FEP/review and licensing gates
+still apply; commercial urgency cannot bypass runtime authorization or correctness.
+
+### Component boundaries
 
 | Reusable OSS piece | Contract and owner | Product-specific responsibility |
 | --- | --- | --- |
