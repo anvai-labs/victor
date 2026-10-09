@@ -377,7 +377,10 @@ is a later cross-repository decision if measured drift justifies it.
 The current visualizer increment removes the failing CDN dependency, adds safe
 node inspection and retry states, and implements this appearance baseline. It does
 not complete VAS-14: authoring, authenticated execution, browser drag/stream support,
-whole-member continuation and C5 remain open. The notebook/editor spike belongs to
+whole-member continuation and C5 remain open. The existing legacy execute route
+also creates a record without graph metadata: an actual router fixture returns
+200 on execute, then 404 on its graph URL. VAS-14a/14d must repair and test this
+projection seam before claiming the UI displays a real executed workflow. The notebook/editor spike belongs to
 VAS-14f/g below and must obey the existing FEP and foundation gates.
 
 Candidate validation: 180 affected tests, 25 final focused tests and 34,173 collected;

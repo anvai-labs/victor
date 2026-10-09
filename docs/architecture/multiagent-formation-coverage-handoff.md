@@ -1635,7 +1635,13 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   repair packages graph assets, fixes safe node inspection/retry, and aligns local
   light/dark/system tokens with fetched AnvaiOps/Identity references (VAS-14e).
   VAS-14f/g track editor-library and notebook evaluation; none closes authoring,
-  OIDC, drag/stream or live mixed-model acceptance.
+  OIDC, drag/stream or live mixed-model acceptance. A subsequent deterministic
+  real-router probe reused the completed-execution test fixture: `POST
+  /workflows/execute` returned 200 and an execution ID, but its `/graph` returned
+  404 because the stored record contains steps without graph metadata. VAS-14a/14d
+  must join execution creation to the canonical graph projection and verify real
+  execution-to-visualization before any product demo. The synthetic screenshot
+  fixture deliberately supplies its graph and therefore does not cover this gap.
 
 - **G76 — end-to-end caller delegation to Sandhi (2026-10-08; open).**
   Victor's inbound user attribution and configured outbound workload credentials
