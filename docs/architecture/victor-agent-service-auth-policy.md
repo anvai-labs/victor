@@ -1,7 +1,7 @@
 # Agent-service authentication and authorization policy
 
-**Design for VAS-05; not implemented or deployment acceptance.** FEP-0039 remains
-Draft. The [canonical tracker](victor-agent-service-plan.md) owns delivery status.
+**Design for VAS-05; not implemented or deployment acceptance.** FEP-0039 is in
+Review, not Accepted. The [canonical tracker](victor-agent-service-plan.md) owns delivery status.
 The user selected Kanidm OIDC and scoped API keys on 2026-10-08. Authenticate both
 into one principal contract, then apply one resource/action policy before dispatch.
 

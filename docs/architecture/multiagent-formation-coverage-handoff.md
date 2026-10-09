@@ -1580,10 +1580,10 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   and action recovery remain G61/G62/G70; this finding has not been live-validated or fixed.
 
 - **G73 — shared agent-service API and IDE/web lifecycle parity (2026-10-07 audit; open).**
-  The current VS Code `streamChat()` body matches the separate `web/server`
-  application; the original audit reproduced HTTP 422 from `victor serve`.
+  The original VS Code `streamChat()` body matched only the separate `web/server`
+  application; the audit reproduced HTTP 422 from `victor serve`.
   VAS-03a landed the request repair and executable client/router regression in
-  [PR #1252](https://github.com/anvai-labs/victor/pull/1252). Compiled-client transport probes also reproduce lost paused
+  [PR #1252](https://github.com/anvai-labs/victor/pull/1252). Audit-time compiled-client probes also reproduced lost paused
   run fields, premature-EOF success and false cancellation acknowledgement.
   Event authentication and session/principal ownership differ between surfaces.
   The [audit](../development/victor-agent-service-audit.md) records source and
@@ -1596,8 +1596,9 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   owners in [#1262](https://github.com/anvai-labs/victor/pull/1262), after clean review
   and all applicable CI passed. It does not add durable
   terminal run status or prove remote action cancellation. VAS-04b additionally
-  repairs existing nonstream approval metadata and content consumers; follow its
-  [tracker row](victor-agent-service-plan.md) for validation/merge state. It does not
+  repairs existing nonstream approval metadata and content consumers in
+  [#1265](https://github.com/anvai-labs/victor/pull/1265), after clean review and
+  all 39 applicable CI checks passed. It does not
   provide a new approval UI, restart-safe continuation or a new server contract.
   Review also found legacy
   per-field defaults in recognized stream events (for example missing/malformed
@@ -1668,6 +1669,17 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   remain open. VAS-12a/12b merged after clean review and all applicable CI; follow the
   [VAS ledger](victor-agent-service-plan.md) for production receipt qualification and
   remaining recovery work. Never blindly retry an ambiguous save.
+
+- **G80 — public legacy protocol adapter loses paused and terminal outcomes (open).**
+  At `b19f0f673`, `integrations/protocol/interface.py::ChatResponse.from_dict`
+  discards status/run/approval metadata and defaults `finish_reason` to `stop`.
+  `HTTPProtocolAdapter.stream_chat` suppresses JSON decoding errors and accepts EOF
+  without a terminal marker. Local synthetic adapter probes reproduced both
+  outcome losses; no live-member acceptance is claimed. This exported package has
+  no discovered non-example internal production callers, but external use is
+  unknown. Do not remove it without compatibility/deprecation evidence. VAS-15a
+  owns bounded TDD repairs through the existing protocol suites; VAS-15 still owns
+  eventual consolidation. Preserve unknown/pending effects and never auto-replay.
 
 Validation-test audit: neither live harness had direct tests before this follow-up.
 The new mixed-harness suite covers rejected/malformed/missing reviews, inclusive

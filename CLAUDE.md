@@ -69,7 +69,8 @@ For API consolidation, web UI, VS Code and related multiagent continuation, star
 with [the canonical tracker](docs/architecture/victor-agent-service-plan.md) and
 [FEP-0039](feps/fep-0039-unified-agent-service-api.md). The tracker owns task IDs,
 dependencies, status, TDD/smoke gates, evidence and reboot instructions. The FEP
-remains Draft until its acceptance is recorded; a plan merge is not implementation.
+owns its formal review and acceptance status; Review is not Accepted, and a plan
+merge is not implementation.
 
 Fetch and reconcile remote source/PR state before choosing a task. Record the task
 owner, branch, baseline and next action; avoid another session's active work.

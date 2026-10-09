@@ -2,7 +2,7 @@
 fep: "0039"
 title: "Unified agent-service API for web, IDE and automation clients"
 type: Standards Track
-status: Draft
+status: Review
 created: 2026-10-07
 modified: 2026-10-08
 authors:
@@ -22,8 +22,9 @@ authorization, sessions, approvals and recovery. Generate TypeScript contracts
 and a shared SDK from authoritative HTTP/event schemas; keep host-specific UI
 and secret storage separate.
 
-This proposal is **Draft**. The user authorized planning and tracking; that does
-not record formal FEP acceptance or implementation. The [execution tracker](../docs/architecture/victor-agent-service-plan.md)
+This proposal is **Review**, not Accepted or Implemented. The user authorized
+planning and delivery, but formal acceptance is still a separate recorded gate.
+The [execution tracker](../docs/architecture/victor-agent-service-plan.md)
 is the only task-status ledger. The [audit](../docs/development/victor-agent-service-audit.md)
 contains the reproduced defects and source inventory. Approval of this design
 must be recorded before new public contracts ship. Ordinary defect repairs may
@@ -38,11 +39,15 @@ model assertion, or a cancellation message being sent.
 ## Motivation
 
 `victor serve` and `web/server/main.py` expose different chat requests, streams,
-session/token behavior and supported operations. VS Code's `streamChat()` matches
-the latter, while its broad IDE API targets the former; the current stream body
-returns HTTP 422 from the core router. Existing endpoint-presence tests do not
-validate payload compatibility. The client also loses paused-run fields, accepts
-premature EOF as completion, and overstates cancellation acknowledgement.
+session/token behavior and supported operations. At the original audit baseline,
+VS Code's streaming request matched the latter while its broad IDE API targeted
+the former, reproducing HTTP 422 from the core router. Endpoint-presence tests
+alone did not validate payload compatibility. The original client also lost paused-run fields, accepted
+premature EOF as completion, and overstated cancellation acknowledgement.
+Those bounded defects were repaired by #1252, #1262 and #1265; the
+[reconciled consumer inventory](../docs/development/victor-agent-service-audit.md#consumer-reconciliation-october-8-2026)
+records the current call paths and remaining gaps. They do not establish the
+shared ownership and durable service contract proposed here.
 
 The web backend already has useful typed bounded session storage and v1 event
 serialization; core already has broad routers and repaired HTTP/WS auth gates.
@@ -247,6 +252,50 @@ release are separate gates. The framework recovery/member-continuation path may
 proceed independently toward released-foundation and C5 acceptance; it need not
 wait for GraphQL cleanup or either UI migration. Record failed evidence and exact
 commit/runtime identities at every material checkpoint.
+
+## Review Process and acceptance gates
+
+This revision moves the existing proposal from Draft to Review. The reviewed PR
+merging this revision starts the **minimum 14-day review period** specified by
+[the FEP process](../docs/FEP_PROCESS.md#7-review-period); do not backdate it to
+the initial Draft publication in #1251. Record the actual merge timestamp and
+review discussion in the tracker/PR evidence. Time elapsed or green CI alone does
+not accept the design: maintainer consensus, resolved blocking objections and
+recorded acceptance are still required. Independent adversarial review assesses
+this package; it does not impersonate maintainer consensus. No public API or
+authentication mode changes in this documentation increment.
+
+| Decision for review | Proposed boundary | Evidence required before dependent implementation/acceptance |
+| --- | --- | --- |
+| One service, multiple client hosts | Core `victor serve` composition; embedded Python remains direct; Chainlit and VS Code retain host adapters | VAS-03b inventory distinguishes embedded Svelte, active EventBridge and public adapters; prove consumer parity before retirement |
+| One principal/resource policy | Reuse [VAS-05 policy design](../docs/architecture/victor-agent-service-auth-policy.md); authenticated subject is separate from credential and request IDs | VAS-05a must settle strict grant schema, credential namespaces, issuer/account linking and revocation bounds; test cross-owner denial before exposure |
+| Durable admission is a qualified capability | 202 on new durable run admission follows recorded acceptance and reliable dispatch; legacy chat 202 still means paused, not completed | VAS-07 must choose the real transaction/outbox or engine owner and prove commit/crash/duplicate-key behavior. Reject unsupported durable profiles; no process-local fallback |
+| Same-key recovery without blind replay | Existing action/pause/journal owners; action identity and receipt provenance survive retries | VAS-11c requires an actual qualified backend, not only a SQLite fixture. Unknown effects block replay and successful-result publication |
+| Recorded outcome versus transport | Run status/results are authoritative; token streams and EventBridge telemetry are not receipt or cancellation evidence | VAS-04/09/10 require typed result validation, bounded cursor retention and explicit gaps; schema/sequence details must be reviewed before generation |
+| Compatibility is explicit | Preserve existing supported payloads/entry points; generated HTTP/event contracts have one schema owner | VAS-08/09/15 require consumer fixtures, supported-version window, external-client inventory and reviewed deprecation before removing public imports/routes |
+| Hosted identity reaches the right service | Victor validates its own resource audience; provider/gateway credentials stay behind the appropriate service boundary | VAS-05e/f must qualify delegation with Kanidm/Sandhi; login reuse is not token forwarding or a claim of token-exchange support |
+
+HTTP 202 does not promise completed processing. The proposal adds a stronger,
+application-level durable-admission requirement; that is a Victor design choice,
+not a guarantee supplied by the HTTP status code. Automatic POST replay requires
+proven safe semantics or proof that the original action was not applied.
+[RFC 9110](https://www.rfc-editor.org/rfc/rfc9110.html#section-15.3.3),
+[retry semantics](https://www.rfc-editor.org/rfc/rfc9110.html#section-9.2.2).
+
+SSE IDs support reconnection, but retained history, authorization and snapshot
+recovery remain server responsibilities; an SSE connection does not itself make
+run state durable. [WHATWG SSE](https://html.spec.whatwg.org/multipage/server-sent-events.html#the-last-event-id-header).
+Audience checking prevents a token intended for another resource being accepted
+as Victor authority. [OAuth security BCP](https://www.rfc-editor.org/rfc/rfc9700.html#section-4.10.2).
+
+Before acceptance, reviewers must agree these ownership/compatibility boundaries
+and identify an accountable owner for each remaining decision. Store/lease details,
+exact credential schema, event retention and measured SLOs remain gated design
+work in their respective tracker rows; this umbrella review does not approve an
+unspecified implementation. Isolated existing-contract bug repairs may proceed
+under the normal PR workflow while review is open. The next such candidate is
+VAS-05g (existing EventBridge credentials), followed by VAS-15a (legacy adapter
+outcomes); neither is permission to add a new public auth/result contract.
 
 ## References
 
