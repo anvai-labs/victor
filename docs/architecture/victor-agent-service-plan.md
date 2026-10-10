@@ -64,8 +64,11 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
-- VAS-17 release alignment is LOCAL_PASS in this co-design session, branch
-  `chore/sandhi-0.12.0`, based on `decfc3ad5d8200a937e7ab156c5493d5bf74c464`.
+- VAS-17 release alignment merged in [#1276](https://github.com/anvai-labs/victor/pull/1276)
+  as `9ff5b9862a17950f70d9d3c850eee03dcca075af`, after clean independent
+  review and all 39 applicable CI checks passed (including Vertical Py3.12).
+  Deployment evidence is owned by this co-design session on
+  `docs/gateway-012-deployment`, based on that merge.
   Sandhi's version preparation [#346](https://github.com/anvai-labs/sandhi/pull/346)
   merged with 13 applicable checks green; promotion
   [#347](https://github.com/anvai-labs/sandhi/pull/347) merged as
@@ -85,15 +88,35 @@ edit. A mock test is not live provider or C5 evidence.
   requirements. Its inherited optional-package conflicts keep broad `pip check`
   non-green; no shared environment was modified and this is not a clean full-extras
   installation claim. No new tests or duplicate test copies were added.
-  Next: independent review and CI for the consumer pin.
-  Deployment recheck: both managed gateways still execute 0.11.0. The current
+  Deployment recheck (2026-10-10): the Mac managed gateway now executes 0.12.0;
+  the remote gateway remains 0.11.0 pending the host owner’s sudo cutover. The current
   validation profile targets `https://sso.singh.local:8444`, forwarding to Mac
   loopback `18789` (OIDC), with ZAI `glm-5.3` and both Qwen models. InferFlux uses
   the existing Mac `18081` SSH tunnel to aiserver1 loopback `8080`. The separate
   remote Sandhi TLS service on `18788` is not a prerequisite for this path.
-  Upgrade and qualify the Mac gateway before new released-runtime acceptance;
-  remote deployment remains separate. Codex is absent from this validation profile
-  and requires explicit authentication/model qualification.
+  Mac activation used graceful SIGTERM/launchd restart to PID 88809, verified the
+  exact 0.12.0 executable and SHA-256
+  `b138480cd96f4c5a1d830a1f9bf1615ba5dd7519362531323d1c37619ed00e34`, and retained
+  all 1,068 existing usage events with database integrity `ok`. OIDC and route
+  configuration are byte-identical. Five copied-state authorization checks passed.
+  Three new HTTPS/OIDC provider probes passed: ZAI `glm-5.3`, Qwen3 and Qwen2.5.
+  Wire, SQLite, per-run accounting and dashboard delta reconcile exactly: **3 calls,
+  49 input tokens, 5 output tokens, explicit zero cache reporting 3/3**. Distinct
+  sessions/run IDs and nonempty request IDs join to the configured member subject.
+  These are new deployment probes, not actual-member/C5 evidence; reported zero
+  cache does not establish zero executed reuse.
+  Remote official 0.12.0 CLI links are updated. Its new service binary SHA-256 is
+  `47b6b9d5f7d040917645b3af3d2b6b1acb824a752d301a09228270beac589786`; copied-state
+  TLS, anonymous-admin denial and authenticated version/key/usage/dashboard reads
+  passed. The validated systemd unit changes only `ExecStart`, with rollback unit,
+  config and SQLite backup preserved under the host’s
+  `.local/state/sandhi-upgrade-012-20261010/`. Password-required sudo blocks this
+  session from installing the unit. Next: host owner installs the prepared unit,
+  reloads/restarts systemd, then this session runs the prepared remote live verifier.
+  No credentials were transferred; unavailable remote cloud credentials remain an
+  explicit limitation. Codex is absent from the Mac validation profile and requires
+  authentication/model qualification. Sanitized reports and credential-free scripts
+  are retained in `var/gateway-upgrade-012-20261010/`; private backups stay local.
   This release/adoption increment
   does not close tracked TLS/OIDC, streaming lifecycle or mixed-team C5 acceptance.
 - Previous checkpoint baseline: `6762481fef7d77ac1978f43d36f8ecb0e3dce317` (#1274 merged).
@@ -550,7 +573,7 @@ independent. Update this paragraph and the rows together at each checkpoint.
 | VAS-15 | GraphQL/MCP/legacy adapter convergence and deprecation | VAS-08, VAS-13, VAS-14 | TODO | Inventory external consumers, policy/attribution parity; one owner, compatibility window; retire only evidenced duplicates |
 | VAS-15a | Preserve outcomes through the retained Python HTTP adapter | VAS-00 | ✅ MERGED | G80; [#1268](https://github.com/anvai-labs/victor/pull/1268), `e9004a5d8`; exact-candidate independent review and all applicable CI green. 144 focused/696 affected/81 docs/44 selector/199 selected tests, 34,082 collected, 95% changed-line coverage; no POST replay, adapter removal or durability claim; direct adapter remains G82/VAS-15 |
 | VAS-16 | Measured performance and broader lifecycle acceptance | VAS-12, VAS-13, VAS-14, VAS-15 | TODO | Same-workload baseline/comparison; cold/warm, 1/8/32 concurrency, memory/backpressure, deadlines and crash/recovery |
-| VAS-17 | Released foundation deployment and lifecycle acceptance for C5 | VAS-02, VAS-11, VAS-12 | ACTIVE (partial foundation accepted) | InferFlux v0.5.0 released/deployed; 16 synthetic wire checks pass through direct HTTP/TLS and Sandhi 0.11.0; gateway reconciliation 4 calls/48 in/2 out. Sandhi #336 admission and #337 usage qualification merged; #338 tracked buffered HTTP/recovery merged after 13 applicable green CI checks; released in Sandhi 0.12.0, deployment pending. Two tracked crash/restart cases merged in #339 after all six applicable CI gates passed. Terminal-publication contention/death cases qualified in Sandhi #340 with 46 affected tests, 12 metrics tests and two negative controls. Next: finish 0.12.0 consumer adoption/deployment, tracked TLS/OIDC and streaming lifecycle acceptance. Browser, cancellation, executed reuse/session behavior, remote cloud credential availability and full C5 remain open |
+| VAS-17 | Released foundation deployment and lifecycle acceptance for C5 | VAS-02, VAS-11, VAS-12 | ACTIVE (partial foundation accepted) | InferFlux v0.5.0 released/deployed; 16 synthetic wire checks pass through direct HTTP/TLS and Sandhi 0.11.0; gateway reconciliation 4 calls/48 in/2 out. Sandhi #336 admission and #337 usage qualification merged; #338 tracked buffered HTTP/recovery merged after 13 applicable green CI checks; released in Sandhi 0.12.0, deployment pending. Two tracked crash/restart cases merged in #339 after all six applicable CI gates passed. Terminal-publication contention/death cases qualified in Sandhi #340 with 46 affected tests, 12 metrics tests and two negative controls. Next: finish remote 0.12.0 service cutover/verification (Mac adoption passed), tracked TLS/OIDC and streaming lifecycle acceptance. Browser, cancellation, executed reuse/session behavior, remote cloud credential availability and full C5 remain open |
 | VAS-18 | Full mixed-team C5 verdict | VAS-17 | TODO | Six-Qwen/one-ZAI harness; unchanged deliverable/pytest/session/accounting gates; reviewed verdict on InferFlux #184 |
 | VAS-19 | Matched formation cohorts and remaining semantics | VAS-18 | TODO | Preserve ZAI reference, simpler explicitly labelled local tasks, all 12 formations + 3 policies; G72 opt-in strict hierarchy separately |
 | VAS-20 | OSS shared API/UI main promotion and release | VAS-16, VAS-17, VAS-14d | TODO | Full green promotion/release CI; publish server/SDK/VSIX/docs and compatibility matrix; verify installed artifacts |
