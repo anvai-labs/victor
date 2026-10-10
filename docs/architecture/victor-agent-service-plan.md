@@ -387,12 +387,32 @@ edit. A mock test is not live provider or C5 evidence.
   a sibling editable install exported a conflicting `scripts` package. A private
   virtualenv copy excluding that editable path collects cleanly; shared environment
   and repository code remain unchanged. Both failure and successful rerun are retained.
+- Sandhi [#352](https://github.com/anvai-labs/sandhi/pull/352) merged as
+  `eeb61d270375dfa9e6743e3b5d587a5b6d9db751` after clean independent review of
+  `fbb73f26f80c394f59c479637ac924cc8a9dc868` and all 13 applicable CI checks,
+  including Rust feature tests, coverage, bindings/ARM64 wheel and SDK conformance.
+  This completes the strict OpenAI Chat stream-usage core prerequisite. Its API qualifies
+  request-total usage only from complete decoded empty-choices Chat chunk events,
+  sharing the buffered counter validator and existing parser. Missing/null usage
+  remains unmeasured; explicit zero is valid; malformed/nonfinal usage is rejected.
+  A valid measurement precedes `[DONE]`; later delivery failure cannot erase it,
+  and EOF/finish markers alone cannot create it. Existing numeric test matrices
+  cover both paths; one new envelope test avoids duplicate parser suites.
+  Local validation: 862 Rust tests pass (six existing ignored), 18 SDK regressions,
+  strict MkDocs, rustfmt and workspace clippy pass; both numeric/envelope guard-bypass
+  negative controls fail as intended and are reverted. Independent exact-commit
+  review is clean. No transport activation, live inference, deployment or C5 evidence
+  is added. Logs and restart state: `var/sandhi-stream-qualification-2026-10-10/`.
 - Next VAS-17 owner: this co-design session. Extend Sandhi's existing streaming
   body owner (`crates/sandhi-proxy/src/streaming.rs`) to durable tracked accounting
-  through the canonical admission/terminal/settlement owners. First qualify final
-  versus incomplete usage and cancellation with TDD; preserve unknown liability
-  rather than inventing zero or replaying inference. Reuse the current stream and
-  recovery fixtures. Keep the working managed streaming gateway
+  through the canonical admission/terminal/settlement owners. First reconstruct
+  complete bounded SSE events, bind them to the request, retain the first accepted
+  usage observation immutably and reject conflicting later reports. The current
+  raw metering callback receives lines, not complete events; multiline data,
+  oversized discarded lines and truncated frames need explicit coverage before
+  wiring the core qualifier. Then qualify cancellation and durable settlement with
+  TDD; preserve unknown liability rather than inventing zero or replaying inference.
+  Reuse the existing splitter, stream owner and recovery fixtures. Keep the managed gateway
   unchanged until a compatible released candidate passes acceptance. Qualify managed
   TLS/OIDC deployment and restart/lifecycle behavior with preserved state; the isolated
   candidate does not establish browser SSO or live crash recovery.
@@ -597,7 +617,7 @@ hashes and the explicit synthetic, authentication and streaming limits.
 Planning/evidence: VAS-00 is accepted; VAS-01 is merged.
 Delivery: VAS-02, VAS-03a, VAS-11a, VAS-11b, VAS-11d, VAS-12a and VAS-12b are
 merged. VAS-04a, VAS-04b and VAS-02a are merged. VAS-03b is merged evidence only; VAS-05g and VAS-15a are merged.
-VAS-17 released InferFlux provenance and bounded wire acceptance now pass; tracked buffered gateway HTTP settlement/recovery merged in Sandhi #338 and synthetic TLS/OIDC composition in #350. Both gateways run released Sandhi 0.12.0; OIDC source crash/restart and isolated released-binary/deployed-policy buffered qualification pass (#351). Managed tracked deployment and broader lifecycle remain open. Parent VAS-03 and formal FEP acceptance remain open. VAS-14e has a merged existing-visualizer baseline (#1271); its parent and other UI implementation rows remain open. These counts are not
+VAS-17 released InferFlux provenance and bounded wire acceptance now pass; tracked buffered gateway HTTP settlement/recovery merged in Sandhi #338 and synthetic TLS/OIDC composition in #350. Both gateways run released Sandhi 0.12.0; OIDC source crash/restart and isolated released-binary/deployed-policy buffered qualification pass (#351). Strict OpenAI Chat stream usage qualification merged in #352 as an unwired core prerequisite; complete-event framing and immutable observation retention are next. Managed tracked deployment and broader lifecycle remain open. Parent VAS-03 and formal FEP acceptance remain open. VAS-14e has a merged existing-visualizer baseline (#1271); its parent and other UI implementation rows remain open. These counts are not
 an effort-weighted completion percentage. The original formation denominator is
 independent. Update this paragraph and the rows together at each checkpoint.
 
@@ -646,7 +666,7 @@ independent. Update this paragraph and the rows together at each checkpoint.
 | VAS-15 | GraphQL/MCP/legacy adapter convergence and deprecation | VAS-08, VAS-13, VAS-14 | TODO | Inventory external consumers, policy/attribution parity; one owner, compatibility window; retire only evidenced duplicates |
 | VAS-15a | Preserve outcomes through the retained Python HTTP adapter | VAS-00 | ✅ MERGED | G80; [#1268](https://github.com/anvai-labs/victor/pull/1268), `e9004a5d8`; exact-candidate independent review and all applicable CI green. 144 focused/696 affected/81 docs/44 selector/199 selected tests, 34,082 collected, 95% changed-line coverage; no POST replay, adapter removal or durability claim; direct adapter remains G82/VAS-15 |
 | VAS-16 | Measured performance and broader lifecycle acceptance | VAS-12, VAS-13, VAS-14, VAS-15 | TODO | Same-workload baseline/comparison; cold/warm, 1/8/32 concurrency, memory/backpressure, deadlines and crash/recovery |
-| VAS-17 | Released foundation deployment and lifecycle acceptance for C5 | VAS-02, VAS-11, VAS-12 | ACTIVE (partial foundation accepted) | InferFlux v0.5.0 released/deployed; 16 synthetic wire checks pass through direct HTTP/TLS and Sandhi 0.11.0; gateway reconciliation 4 calls/48 in/2 out. Sandhi #336 admission and #337 usage qualification merged; #338 tracked buffered HTTP/recovery merged after 13 applicable green CI checks; released in Sandhi 0.12.0 and deployed on both hosts; tracked-mode lifecycle qualification pending. Two tracked crash/restart cases merged in #339 after all six applicable CI gates passed. Terminal-publication contention/death cases qualified in Sandhi #340 with 46 affected tests, 12 metrics tests and two negative controls. Synthetic buffered TLS/OIDC source acceptance merged in Sandhi #350 with 149 unique local tests and 7 applicable CI checks. OIDC crash/restart composition and isolated released 0.12.0/deployed-policy qualification pass in #351 (64 affected tests, 3 live provider calls / 51 charged tokens); managed gateway unchanged. Next: streaming ownership/settlement, managed tracked deployment and broader lifecycle acceptance. Browser deployment, cancellation, executed reuse/session behavior, remote cloud credential availability and full C5 remain open |
+| VAS-17 | Released foundation deployment and lifecycle acceptance for C5 | VAS-02, VAS-11, VAS-12 | ACTIVE (partial foundation accepted) | InferFlux v0.5.0 released/deployed; 16 synthetic wire checks pass through direct HTTP/TLS and Sandhi 0.11.0; gateway reconciliation 4 calls/48 in/2 out. Sandhi #336 admission and #337 usage qualification merged; #338 tracked buffered HTTP/recovery merged after 13 applicable green CI checks; released in Sandhi 0.12.0 and deployed on both hosts; tracked-mode lifecycle qualification pending. Two tracked crash/restart cases merged in #339 after all six applicable CI gates passed. Terminal-publication contention/death cases qualified in Sandhi #340 with 46 affected tests, 12 metrics tests and two negative controls. Synthetic buffered TLS/OIDC source acceptance merged in Sandhi #350 with 149 unique local tests and 7 applicable CI checks. OIDC crash/restart composition and isolated released 0.12.0/deployed-policy qualification pass in #351 (64 affected tests, 3 live provider calls / 51 charged tokens); managed gateway unchanged. Strict OpenAI Chat stream-usage core qualification merged in #352 after 862 Rust tests, 18 SDK regressions and 13 applicable green CI checks; no transport activation. Next: bounded complete-event framing and immutable observation/conflict handling, then streaming ownership/settlement, managed tracked deployment and broader lifecycle acceptance. Browser deployment, cancellation, executed reuse/session behavior, remote cloud credential availability and full C5 remain open |
 | VAS-18 | Full mixed-team C5 verdict | VAS-17 | TODO | Six-Qwen/one-ZAI harness; unchanged deliverable/pytest/session/accounting gates; reviewed verdict on InferFlux #184 |
 | VAS-19 | Matched formation cohorts and remaining semantics | VAS-18 | TODO | Preserve ZAI reference, simpler explicitly labelled local tasks, all 12 formations + 3 policies; G72 opt-in strict hierarchy separately |
 | VAS-20 | OSS shared API/UI main promotion and release | VAS-16, VAS-17, VAS-14d | TODO | Full green promotion/release CI; publish server/SDK/VSIX/docs and compatibility matrix; verify installed artifacts |
