@@ -1,8 +1,8 @@
 ---
 plan_id: VAS-2026-10
 status: active
-updated: 2026-10-09
-baseline_develop: 6762481fef7d77ac1978f43d36f8ecb0e3dce317
+updated: 2026-10-10
+baseline_develop: decfc3ad5d8200a937e7ab156c5493d5bf74c464
 next_task: VAS-17
 ---
 
@@ -64,7 +64,39 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
-- Fetched develop: `6762481fef7d77ac1978f43d36f8ecb0e3dce317` (#1274 merged).
+- VAS-17 release alignment is LOCAL_PASS in this co-design session, branch
+  `chore/sandhi-0.12.0`, based on `decfc3ad5d8200a937e7ab156c5493d5bf74c464`.
+  Sandhi's version preparation [#346](https://github.com/anvai-labs/sandhi/pull/346)
+  merged with 13 applicable checks green; promotion
+  [#347](https://github.com/anvai-labs/sandhi/pull/347) merged as
+  `fc77b537eabbefa0f179769c8953827d776017d1` after clean cumulative review,
+  promotion CI and exact-develop push CI. Main and develop content matches;
+  exact-main push CI also passed. [Sandhi 0.12.0](https://github.com/anvai-labs/sandhi/releases/tag/v0.12.0)
+  published all required targets in run `38025435213`; independent verification
+  confirmed four Python wheel platforms, four crates, three npm packages and both
+  binary archives. Victor's metadata now pins the published 0.12.0 wheel.
+  Homebrew [#99](https://github.com/anvai-labs/homebrew-tap/pull/99) merged after
+  all four checks passed; local upgrade and both 0.12.0 binary version tests pass.
+  Local validation covers 841 distinct existing tests: 824 passed in the restricted
+  run, with 17 socket-denied cases passing in the 37-test HTTP/TLS rerun with
+  loopback access. Full collection found 34,253 tests; strict documentation,
+  repository hygiene and installed CLI/import checks pass. The isolated copied
+  environment uses the published Sandhi wheel and current declared aiohttp/cvss
+  requirements. Its inherited optional-package conflicts keep broad `pip check`
+  non-green; no shared environment was modified and this is not a clean full-extras
+  installation claim. No new tests or duplicate test copies were added.
+  Next: independent review and CI for the consumer pin.
+  Deployment recheck: both managed gateways still execute 0.11.0. The current
+  validation profile targets `https://sso.singh.local:8444`, forwarding to Mac
+  loopback `18789` (OIDC), with ZAI `glm-5.3` and both Qwen models. InferFlux uses
+  the existing Mac `18081` SSH tunnel to aiserver1 loopback `8080`. The separate
+  remote Sandhi TLS service on `18788` is not a prerequisite for this path.
+  Upgrade and qualify the Mac gateway before new released-runtime acceptance;
+  remote deployment remains separate. Codex is absent from this validation profile
+  and requires explicit authentication/model qualification.
+  This release/adoption increment
+  does not close tracked TLS/OIDC, streaming lifecycle or mixed-team C5 acceptance.
+- Previous checkpoint baseline: `6762481fef7d77ac1978f43d36f8ecb0e3dce317` (#1274 merged).
 - VAS-14e's bounded existing-visualizer repair merged in
   [#1271](https://github.com/anvai-labs/victor/pull/1271): packaged assets,
   safe inspection, error/retry states and light/dark/system appearance. Final
@@ -228,7 +260,8 @@ edit. A mock test is not live provider or C5 evidence.
   container-resource test. The final CI-only repair uses Google's mirror with the
   same Dockerfile-derived image digest; all container and optional-feature gates
   passed afterward. Failed evidence remains preserved; no gate was waived.
-  This supersedes the earlier helper-only WIP; it is not released or deployed.
+  This supersedes the earlier helper-only WIP; the release/adoption checkpoint
+  above owns current publication status. Source acceptance is not deployment.
 - Sandhi [#339](https://github.com/anvai-labs/sandhi/pull/339) merged as
   `fb8c02fb3a8736d6966e4658ddbfb76d1ea3ecf9` after clean independent review and
   all six applicable CI checks, including Linux SDK conformance, passed. The merge
@@ -263,14 +296,15 @@ edit. A mock test is not live provider or C5 evidence.
   expected 403). Its exact 14-test module passed locally, then one independently
   justified failed-job rerun passed. The cause remains unproven; original failure
   evidence is preserved. No deadline or assertion was weakened.
-- Next VAS-17 owner: this co-design session. Qualify tracked TLS/OIDC identity
+- After release alignment, next VAS-17 owner: this co-design session. Qualify tracked TLS/OIDC identity
   and policy parity through existing fixtures, including authorized settlement and
   pre-admission denial with no durable intent or origin call. Keep synthetic
   authority tests distinct from deployed SSO acceptance.
   Streaming remains unsupported by tracked mode
   and must pass its own ownership, cancellation and settlement contract; never
-  silently fall back to legacy accounting. Then promote/release, verify installed
-  artifacts and preserved state, and qualify released runtime behavior before C5.
+  silently fall back to legacy accounting. Promote/release further implementation
+  increments, verify installed artifacts and preserved state, and qualify released
+  runtime behavior before C5.
   The first mode is single-file, retry-free buffered OpenAI-compatible transport
   with explicit output bounds and Block policy; logical dedup, amendments, atomic
   telemetry export and tracked threshold alerts remain separate open capabilities.
@@ -516,7 +550,7 @@ independent. Update this paragraph and the rows together at each checkpoint.
 | VAS-15 | GraphQL/MCP/legacy adapter convergence and deprecation | VAS-08, VAS-13, VAS-14 | TODO | Inventory external consumers, policy/attribution parity; one owner, compatibility window; retire only evidenced duplicates |
 | VAS-15a | Preserve outcomes through the retained Python HTTP adapter | VAS-00 | ✅ MERGED | G80; [#1268](https://github.com/anvai-labs/victor/pull/1268), `e9004a5d8`; exact-candidate independent review and all applicable CI green. 144 focused/696 affected/81 docs/44 selector/199 selected tests, 34,082 collected, 95% changed-line coverage; no POST replay, adapter removal or durability claim; direct adapter remains G82/VAS-15 |
 | VAS-16 | Measured performance and broader lifecycle acceptance | VAS-12, VAS-13, VAS-14, VAS-15 | TODO | Same-workload baseline/comparison; cold/warm, 1/8/32 concurrency, memory/backpressure, deadlines and crash/recovery |
-| VAS-17 | Released foundation deployment and lifecycle acceptance for C5 | VAS-02, VAS-11, VAS-12 | ACTIVE (partial foundation accepted) | InferFlux v0.5.0 released/deployed; 16 synthetic wire checks pass through direct HTTP/TLS and Sandhi 0.11.0; gateway reconciliation 4 calls/48 in/2 out. Sandhi #336 admission and #337 usage qualification merged; #338 tracked buffered HTTP/recovery merged after 13 applicable green CI checks; not released or deployed. Two tracked crash/restart cases merged in #339 after all six applicable CI gates passed. Terminal-publication contention/death cases qualified in Sandhi #340 with 46 affected tests, 12 metrics tests and two negative controls. Next: tracked TLS/OIDC and streaming lifecycle, release/deploy and installed acceptance. Browser, cancellation, executed reuse/session behavior, remote cloud credential availability and full C5 remain open |
+| VAS-17 | Released foundation deployment and lifecycle acceptance for C5 | VAS-02, VAS-11, VAS-12 | ACTIVE (partial foundation accepted) | InferFlux v0.5.0 released/deployed; 16 synthetic wire checks pass through direct HTTP/TLS and Sandhi 0.11.0; gateway reconciliation 4 calls/48 in/2 out. Sandhi #336 admission and #337 usage qualification merged; #338 tracked buffered HTTP/recovery merged after 13 applicable green CI checks; released in Sandhi 0.12.0, deployment pending. Two tracked crash/restart cases merged in #339 after all six applicable CI gates passed. Terminal-publication contention/death cases qualified in Sandhi #340 with 46 affected tests, 12 metrics tests and two negative controls. Next: finish 0.12.0 consumer adoption/deployment, tracked TLS/OIDC and streaming lifecycle acceptance. Browser, cancellation, executed reuse/session behavior, remote cloud credential availability and full C5 remain open |
 | VAS-18 | Full mixed-team C5 verdict | VAS-17 | TODO | Six-Qwen/one-ZAI harness; unchanged deliverable/pytest/session/accounting gates; reviewed verdict on InferFlux #184 |
 | VAS-19 | Matched formation cohorts and remaining semantics | VAS-18 | TODO | Preserve ZAI reference, simpler explicitly labelled local tasks, all 12 formations + 3 policies; G72 opt-in strict hierarchy separately |
 | VAS-20 | OSS shared API/UI main promotion and release | VAS-16, VAS-17, VAS-14d | TODO | Full green promotion/release CI; publish server/SDK/VSIX/docs and compatibility matrix; verify installed artifacts |
