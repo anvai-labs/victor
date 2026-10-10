@@ -1307,8 +1307,16 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   actual-process SIGKILL/restart drills:
   unknown post-origin liability remains held; durable terminal usage recovers one
   receipt after synthetic insertion failure, stable across a second restart without
-  inference/event replay. No live formation pass is added. **Still open:** terminal
-  publication under contention/process death, tracked TLS/OIDC and streaming
+  inference/event replay. [Sandhi #340](https://github.com/anvai-labs/sandhi/pull/340)
+  merged with all 11 applicable checks green and adds terminal-publication
+  contention/death acceptance. Gateway metrics witness
+  qualified usage while SQLite blocks publication; after the original worker ends,
+  survival retries the retained observation into one receipt, while SIGKILL leaves
+  unknown liability after restart. Exactly one origin call occurs in either case.
+  All 46 affected tests and 12 metrics tests pass; missing-usage and disabled-retry
+  controls fail as expected. Metrics can increase before durable terminal/receipt
+  persistence and are not a spend oracle. These isolated HTTP/token-mode checks add
+  no live formation pass. **Still open:** tracked TLS/OIDC and streaming
   lifecycle acceptance, promotion/release and installed
   verification. SQLite operations can outlive a wait; unknown liability stays held,
   and no provider call is replayed. Defaults and shared runtimes are unchanged. New live
