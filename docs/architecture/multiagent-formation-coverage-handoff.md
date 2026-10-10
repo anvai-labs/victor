@@ -1316,9 +1316,11 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   All 46 affected tests and 12 metrics tests pass; missing-usage and disabled-retry
   controls fail as expected. Metrics can increase before durable terminal/receipt
   persistence and are not a spend oracle. These isolated HTTP/token-mode checks add
-  no live formation pass. **Still open:** tracked TLS/OIDC and streaming
-  lifecycle acceptance, promotion/release and installed
-  verification. SQLite operations can outlive a wait; unknown liability stays held,
+  no live formation pass. These source increments are published in
+  [Sandhi 0.12.0](https://github.com/anvai-labs/sandhi/releases/tag/v0.12.0);
+  all required artifact targets verified. The [canonical tracker](victor-agent-service-plan.md)
+  owns consumer adoption and installed evidence. **Still open:** tracked TLS/OIDC,
+  streaming lifecycle and deployed acceptance. SQLite operations can outlive a wait; unknown liability stays held,
   and no provider call is replayed. Defaults and shared runtimes are unchanged. New live
   acceptance evidence remains a separate gate. At #300, the source increment did
   not change the then-running 0.9.1 gateway (buffered120s/setup30s/idle90s), config,
