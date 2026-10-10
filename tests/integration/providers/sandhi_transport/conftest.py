@@ -87,12 +87,20 @@ def fixture_server():
         server.stop()
 
 
-@pytest.fixture
-def make_pair():
+@pytest.fixture(params=["deepseek", "inferflux", "zai"])
+def make_pair(request):
     """Factory fixture: two independent typed handles for determinism checks."""
 
     def _make(server_url: str, timeout: int = 30) -> Tuple[Any, Any]:
         from victor.providers.deepseek_provider import DeepSeekProvider
+        from victor.providers.inferflux_provider import InferfluxProvider
+        from victor.providers.zai_provider import ZAIProvider
+
+        provider_cls = {
+            "deepseek": DeepSeekProvider,
+            "inferflux": InferfluxProvider,
+            "zai": ZAIProvider,
+        }[request.param]
 
         kwargs = {
             "api_key": "parity-key",
@@ -100,6 +108,6 @@ def make_pair():
             "timeout": timeout,
             "max_retries": 0,
         }
-        return DeepSeekProvider(**kwargs), DeepSeekProvider(**kwargs)
+        return provider_cls(**kwargs), provider_cls(**kwargs)
 
     return _make
