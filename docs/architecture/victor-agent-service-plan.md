@@ -2,7 +2,7 @@
 plan_id: VAS-2026-10
 status: active
 updated: 2026-10-09
-baseline_develop: 80aa8e08c1b54dd3fa8cb0fda30de10e0c2c9957
+baseline_develop: 6762481fef7d77ac1978f43d36f8ecb0e3dce317
 next_task: VAS-17
 ---
 
@@ -64,7 +64,7 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
-- Fetched develop: `80aa8e08c1b54dd3fa8cb0fda30de10e0c2c9957` (#1273 merged).
+- Fetched develop: `6762481fef7d77ac1978f43d36f8ecb0e3dce317` (#1274 merged).
 - VAS-14e's bounded existing-visualizer repair merged in
   [#1271](https://github.com/anvai-labs/victor/pull/1271): packaged assets,
   safe inspection, error/retry states and light/dark/system appearance. Final
@@ -243,11 +243,30 @@ edit. A mock test is not live provider or C5 evidence.
   Two temporary restart-only legacy-mode controls fail at the intended assertions,
   then restored tracked-mode tests pass. This is HTTP/token-mode synthetic
   acceptance on Mac and Linux, not tracked TLS/OIDC, streaming, a released deployment or C5.
-- Next VAS-17 owner: this co-design session. First qualify terminal publication
-  under SQLite contention and process death before durable publication; preserve
-  unknown liability when only RAM observed usage. Use deterministic persisted-state
-  witnesses, not a provider's response-sent signal as proof of gateway persistence.
-  Then qualify tracked TLS/OIDC identity and policy parity through existing fixtures.
+- Sandhi [#340](https://github.com/anvai-labs/sandhi/pull/340) merged as
+  `f7b144b7b85fcb66f84e856d56dbcb71ca532cf6` after all 11 applicable CI checks passed;
+  its tree matches reviewed candidate `f4a4d49548445e1d08066f0ba940ee2bbc45ed20`.
+  It qualifies terminal publication under SQLite contention and process death. Two synthetic HTTP/token-mode
+  cases gate the origin response, hold an external write lock, witness qualified
+  gateway usage (7 fresh-input, 4 cache-read, 3 output; 14 billable), and wait for
+  the original accounting worker to end before releasing the lock. Survival retries
+  retained usage into one receipt; death before persistence retains unknown liability
+  and incomplete shutdown. Both preserve correlation and avoid inference replay.
+  Optional events may be absent but cannot duplicate or change attribution/counts.
+  All 46 affected process/fixture-consumer tests, 12 metrics tests and repeated
+  focused cases pass. Missing-usage and disabled-retry negative controls fail at
+  their intended assertions; both mutations were restored. Independent review is clean.
+  Existing fixtures/polling are reused, and metrics documentation now distinguishes
+  observed usage from durable spend. Aggregate metrics prove association only in
+  this isolated single-request fixture. Shared runtimes remain unchanged.
+  The first CI run failed an unchanged optional-feature text-policy test (503 versus
+  expected 403). Its exact 14-test module passed locally, then one independently
+  justified failed-job rerun passed. The cause remains unproven; original failure
+  evidence is preserved. No deadline or assertion was weakened.
+- Next VAS-17 owner: this co-design session. Qualify tracked TLS/OIDC identity
+  and policy parity through existing fixtures, including authorized settlement and
+  pre-admission denial with no durable intent or origin call. Keep synthetic
+  authority tests distinct from deployed SSO acceptance.
   Streaming remains unsupported by tracked mode
   and must pass its own ownership, cancellation and settlement contract; never
   silently fall back to legacy accounting. Then promote/release, verify installed
@@ -497,7 +516,7 @@ independent. Update this paragraph and the rows together at each checkpoint.
 | VAS-15 | GraphQL/MCP/legacy adapter convergence and deprecation | VAS-08, VAS-13, VAS-14 | TODO | Inventory external consumers, policy/attribution parity; one owner, compatibility window; retire only evidenced duplicates |
 | VAS-15a | Preserve outcomes through the retained Python HTTP adapter | VAS-00 | ✅ MERGED | G80; [#1268](https://github.com/anvai-labs/victor/pull/1268), `e9004a5d8`; exact-candidate independent review and all applicable CI green. 144 focused/696 affected/81 docs/44 selector/199 selected tests, 34,082 collected, 95% changed-line coverage; no POST replay, adapter removal or durability claim; direct adapter remains G82/VAS-15 |
 | VAS-16 | Measured performance and broader lifecycle acceptance | VAS-12, VAS-13, VAS-14, VAS-15 | TODO | Same-workload baseline/comparison; cold/warm, 1/8/32 concurrency, memory/backpressure, deadlines and crash/recovery |
-| VAS-17 | Released foundation deployment and lifecycle acceptance for C5 | VAS-02, VAS-11, VAS-12 | ACTIVE (partial foundation accepted) | InferFlux v0.5.0 released/deployed; 16 synthetic wire checks pass through direct HTTP/TLS and Sandhi 0.11.0; gateway reconciliation 4 calls/48 in/2 out. Sandhi #336 admission and #337 usage qualification merged; #338 tracked buffered HTTP/recovery merged after 13 applicable green CI checks; not released or deployed. Two tracked crash/restart cases merged in #339 after all six applicable CI gates passed. Next: terminal-publication contention/death, tracked TLS/OIDC and streaming lifecycle, release/deploy and installed acceptance. Browser, cancellation, executed reuse/session behavior, remote cloud credential availability and full C5 remain open |
+| VAS-17 | Released foundation deployment and lifecycle acceptance for C5 | VAS-02, VAS-11, VAS-12 | ACTIVE (partial foundation accepted) | InferFlux v0.5.0 released/deployed; 16 synthetic wire checks pass through direct HTTP/TLS and Sandhi 0.11.0; gateway reconciliation 4 calls/48 in/2 out. Sandhi #336 admission and #337 usage qualification merged; #338 tracked buffered HTTP/recovery merged after 13 applicable green CI checks; not released or deployed. Two tracked crash/restart cases merged in #339 after all six applicable CI gates passed. Terminal-publication contention/death cases qualified in Sandhi #340 with 46 affected tests, 12 metrics tests and two negative controls. Next: tracked TLS/OIDC and streaming lifecycle, release/deploy and installed acceptance. Browser, cancellation, executed reuse/session behavior, remote cloud credential availability and full C5 remain open |
 | VAS-18 | Full mixed-team C5 verdict | VAS-17 | TODO | Six-Qwen/one-ZAI harness; unchanged deliverable/pytest/session/accounting gates; reviewed verdict on InferFlux #184 |
 | VAS-19 | Matched formation cohorts and remaining semantics | VAS-18 | TODO | Preserve ZAI reference, simpler explicitly labelled local tasks, all 12 formations + 3 policies; G72 opt-in strict hierarchy separately |
 | VAS-20 | OSS shared API/UI main promotion and release | VAS-16, VAS-17, VAS-14d | TODO | Full green promotion/release CI; publish server/SDK/VSIX/docs and compatibility matrix; verify installed artifacts |
