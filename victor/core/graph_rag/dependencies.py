@@ -7,7 +7,8 @@ def require_graph_dependencies() -> None:
     """Require usable repository parsing and CCG grammars before index mutation.
 
     Installation remains an explicit package-manager operation: a graph command
-    must never download executable dependencies or silently reduce its fidelity.
+    must never install Python packages or silently reduce its fidelity. The
+    language pack may initialize its own grammar cache during this check.
     """
     from victor.core.graph_rag.indexing import _TREE_SITTER_LANGUAGE_MODULES
 

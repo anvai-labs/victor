@@ -14,12 +14,14 @@ pip install "victor-ai[graph,embeddings]"
 
 Release ordering: publish `victor-codegraph>=0.9.0` before releasing Victor with
 the `graph` extra. For an unreleased source checkout, install its matching parser
-first: `pip install -e "./victor-codegraph[treesitter]" -e ".[graph]".
+first: `pip install -e "./victor-codegraph[treesitter]" -e ".[graph]"`.
 
 The graph command checks repository parsing and the supported CCG grammars before
 opening or clearing the index, including with `--force`. Missing or incompatible
 dependencies produce an installation error; the command does not install packages
-automatically. Install extras in the same environment that runs `victor`. Plain
+automatically. Language-pack 1.21.3 may download its grammar assets on first use;
+prewarm the graph command with network access before an offline deployment.
+Install extras in the same environment that runs `victor`. Plain
 `victor index` is the separate semantic-code-search path and requires the `coding` extra.
 
 A successful parse is not proof of complete dependency resolution. Rust supports

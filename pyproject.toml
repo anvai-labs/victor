@@ -107,7 +107,7 @@ dependencies = [
     "lxml>=5.0",
 
     # Code Analysis (core) — base library only; language grammars are optional
-    "tree-sitter>=0.23",  # 0.23+ required for QueryCursor API
+    "tree-sitter>=0.26.0",  # Aligned with the locked runtime and codegraph parser
     "pygments>=2.20.0",
 
     # Caching
