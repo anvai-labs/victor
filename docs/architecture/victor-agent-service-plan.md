@@ -886,8 +886,9 @@ Source owners inspected: `victor/providers/zai_provider.py`, `deepseek_provider.
 addresses opt-in text handling; real transport qualification and the remaining
 model/history policies stay open.
 
-October 11 implementation increment (`fix/structured-provider-responses`, based
-on merged roadmap [#1293](https://github.com/anvai-labs/victor/pull/1293)):
+October 11 implementation increment merged in
+[#1294](https://github.com/anvai-labs/victor/pull/1294) (`c79b8b347`), after clean
+independent review and all 40 applicable CI checks:
 
 - `text_response_mode="structured"` selects pass-through text/structured tool
   handling for DeepSeek and Cerebras. Shared constructor validation consumes this
@@ -909,6 +910,22 @@ qualification and workload-level memory/latency measurements. No model calls or
 actual-member/C5 acceptance are implied by this source increment. Source/CI/merge
 status belongs to its PR; preserve the independent G83 release gate.
 
+October 11 continuation, based on `c79b8b347`:
+
+| Foundation | Finding / disposition | Acceptance still required |
+| --- | --- | --- |
+| Groq Python stream ownership | Early consumer close leaves the parent generator suspended. Extend the existing shared close matrix and use the same `aclosing` ownership as DeepSeek/Cerebras; keep prompt truncation and original chunks unchanged | Source regression, independent review and CI; native/origin cancellation is separate |
+| Thinking/tool continuation (G85) | Victor `Message.metadata` is intentionally internal; `build_openai_messages` drops assistant reasoning. Sandhi 0.13.0 `ChatMessageV1::Assistant` has no reasoning-history field. Streaming runtime currently counts reasoning characters without retaining continuation data | Define a versioned typed continuation field in Sandhi first, qualify both bindings/codecs, then preserve it through Victor messages, history and checkpoints with explicit provider/model scope |
+| Released tracked streaming (G83/G84) | Sandhi #362/#363 still require hosted approval; auto-squash is enabled and the latest release remains 0.13.0 | Hosted approval, merge, promotion/release, consumer qualification, then managed lifecycle and original C5 |
+
+Do not forward arbitrary message metadata or use an untyped request-extension
+override to bypass the missing continuation contract. Preserve existing request
+bytes when continuation is absent. Qualify multiple tool rounds, streaming and
+buffered responses, persistence/resume and cross-provider rejection before claiming
+thinking/tool support. Provider-returned continuation data must remain separate
+from user-facing text and authorization; synthetic fixtures should contain no real
+private reasoning. This source inspection is not a live continuation result.
+
 ### Broader provider audit and credential-backed qualification
 
 The October 11 source inventory at `21b43fcac` finds **12 direct subclasses** of
@@ -920,7 +937,7 @@ This inventory is source evidence, not twelve live-provider acceptance results.
 | Together, Fireworks, OpenRouter, Mistral | Policy key and compatibility exports; no method overrides | Already consolidated; preserve imports and extend shared contract tests instead of rewriting |
 | DeepSeek | DSML repair, whole-stream buffering and model-name reasoning/tool policy | G85 first: permanent regression, explicit compatibility boundary, metadata/continuation qualification |
 | Cerebras | Regex-based inline reasoning presentation; timing metadata | G86: ordinary prose can be misclassified; qualify structured reasoning and legacy migration before changing defaults |
-| Groq | Prompt-size truncation and queue-time metadata | Keep explicit Victor budget policy; audit shared metadata ownership and cancellation before removing overrides |
+| Groq | Prompt-size truncation and queue-time metadata | Keep explicit Victor budget policy; Python stream-close fix is in the existing shared regression matrix; native cancellation and live metadata qualification remain open |
 | Moonshot, xAI | K3 request constraints / model aliases and capability selection | Audit descriptor parity and call sites before consolidating facts; aliases must preserve public compatibility |
 | ZAI, Qwen | Plan/region selection and OAuth lifecycle respectively | Keep explicit entitlement/auth boundaries; shared protocol must not broaden credential scope |
 | InferFlux | Operator model lineup and admin capacity discovery | Preserve explicit serving capacity; qualify through released local endpoint |

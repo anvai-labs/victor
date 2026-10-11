@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+from contextlib import aclosing
 from typing import Any, AsyncIterator, Dict, List, Optional, Tuple
 
 from victor.providers.base import CompletionResponse, Message, StreamChunk, ToolDefinition
@@ -99,15 +100,18 @@ class GroqProvider(SandhiOpenAICompatPolicy):
         **kwargs: Any,
     ) -> AsyncIterator[StreamChunk]:
         messages, tools = self._limit_payload(messages, tools)
-        async for chunk in super().stream(
-            messages,
-            model=model,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            tools=tools,
-            **kwargs,
-        ):
-            yield chunk
+        async with aclosing(
+            super().stream(
+                messages,
+                model=model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                tools=tools,
+                **kwargs,
+            )
+        ) as upstream:
+            async for chunk in upstream:
+                yield chunk
 
 
 __all__ = ["DEFAULT_BASE_URL", "GROQ_MODELS", "GroqProvider"]
