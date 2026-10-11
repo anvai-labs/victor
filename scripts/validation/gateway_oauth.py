@@ -28,6 +28,8 @@ from aiohttp import ClientResponse, ClientSession
 from victor.core.identity.cache import CachingTokenCredential
 from victor.core.identity.protocols import AccessToken
 
+VALIDATION_PROVIDERS = ("inferflux", "zai", "deepseek")
+
 MAX_BYTES = 65536
 MINIMUM_LIFETIME = 150  # Preserve the 120-second gateway deadline plus clock margin.
 ACQUISITION_TIMEOUT = 20.0
@@ -271,7 +273,7 @@ class GatewayOAuth:
         self._capabilities: dict[str, str] = {}
         for provider, route in config["routes"].items():
             fields(route, {"credential", "grant", "models"})
-            require(provider in ("zai", "inferflux"), "unsupported validation provider")
+            require(provider in VALIDATION_PROVIDERS, "unsupported validation provider")
             credential = route["credential"]
             require(
                 isinstance(credential, str) and credential in sources, "unknown route credential"

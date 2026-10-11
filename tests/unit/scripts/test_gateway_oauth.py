@@ -20,7 +20,7 @@ pytestmark = pytest.mark.skipif(os.name != "posix", reason="POSIX validation bro
 
 
 @pytest.fixture
-def profile(tmp_path):
+def profile(tmp_path, request):
     broker = tmp_path / "broker.py"
     broker.write_text(
         "import json, pathlib, sys, time\n"
@@ -59,7 +59,11 @@ def profile(tmp_path):
         "credentials": identities,
         "accounting": "accounting",
         "routes": {
-            "zai": {"credential": "member", "grant": "cloud", "models": ["reference"]},
+            getattr(request, "param", "zai"): {
+                "credential": "member",
+                "grant": "cloud",
+                "models": ["reference"],
+            },
         },
     }
     path = tmp_path / "profile.json"
@@ -78,12 +82,12 @@ class Client:
         yield SimpleNamespace(status=self.status)
 
 
-async def infer(auth, client, **overrides):
+async def infer(auth, client, *, provider="zai", **overrides):
     args = {
         "method": "POST",
         "url": auth.gateway_url + "/v1/chat/completions",
         "purpose": "inference",
-        "headers": {"Authorization": "Bearer " + auth.capability("zai")},
+        "headers": {"Authorization": "Bearer " + auth.capability(provider)},
         "data": b'{"model":"reference","messages":[]}',
     }
     args.update(overrides)
@@ -91,11 +95,13 @@ async def infer(auth, client, **overrides):
         return response.status
 
 
+@pytest.mark.parametrize("profile", ["zai", "inferflux", "deepseek"], indirect=True)
 async def test_roles_stay_separate_and_denials_are_not_replayed(profile):
+    provider = next(iter(json.loads(profile.read_text())["routes"]))
     auth = GatewayOAuth.load(profile)
     client = Client(status=403)
     headers = {
-        "Authorization": "Bearer " + auth.capability("zai"),
+        "Authorization": "Bearer " + auth.capability(provider),
         "Cookie": "private-browser",
         "x-api-key": "private-key",
         "x-goog-api-key": "private-key",
@@ -103,7 +109,7 @@ async def test_roles_stay_separate_and_denials_are_not_replayed(profile):
         "x-sandhi-grant": "admin",
         "x-sandhi-session": "member-session",
     }
-    assert await infer(auth, client, headers=headers) == 403
+    assert await infer(auth, client, provider=provider, headers=headers) == 403
     assert len(client.calls) == 1
     sent = client.calls[0][2]
     assert sent["data"] == b'{"model":"reference","messages":[]}'
@@ -140,9 +146,11 @@ async def test_roles_stay_separate_and_denials_are_not_replayed(profile):
         "duplicate_auth",
     ],
 )
+@pytest.mark.parametrize("profile", ["zai", "inferflux", "deepseek"], indirect=True)
 async def test_invalid_member_route_is_rejected_before_acquiring_a_token(profile, fault):
     from multidict import CIMultiDict
 
+    provider = next(iter(json.loads(profile.read_text())["routes"]))
     auth, client = GatewayOAuth.load(profile), Client()
     change = {
         "method": {"method": "GET"},
@@ -157,14 +165,14 @@ async def test_invalid_member_route_is_rejected_before_acquiring_a_token(profile
         "duplicate_auth": {
             "headers": CIMultiDict(
                 [
-                    ("Authorization", "Bearer " + auth.capability("zai")),
+                    ("Authorization", "Bearer " + auth.capability(provider)),
                     ("authorization", "Bearer forged"),
                 ]
             )
         },
     }[fault]
     with pytest.raises(GatewayOAuthError):
-        await infer(auth, client, **change)
+        await infer(auth, client, provider=provider, **change)
     assert client.calls == []
     assert not (profile.parent / "member.count").exists()
 
@@ -213,7 +221,10 @@ async def test_existing_cache_renews_before_request_without_replaying_http(profi
     assert client.calls[-1][2]["headers"]["Authorization"] == "Bearer private-renewed"
 
 
-@pytest.mark.parametrize("fault", ["identity_alias", "http", "extra", "unknown_credential"])
+@pytest.mark.parametrize(
+    "fault", ["identity_alias", "http", "extra", "unknown_credential", "unknown_provider"]
+)
+@pytest.mark.parametrize("profile", ["zai", "inferflux", "deepseek"], indirect=True)
 def test_profile_rejects_ambiguous_or_insecure_configuration(profile, fault):
     document = json.loads(profile.read_text())
     if fault == "identity_alias":
@@ -222,8 +233,10 @@ def test_profile_rejects_ambiguous_or_insecure_configuration(profile, fault):
         document["gateway_url"] = "http://gateway.example"
     elif fault == "extra":
         document["skip_tls_verification"] = True
+    elif fault == "unknown_provider":
+        document["routes"]["unqualified"] = document["routes"].pop(next(iter(document["routes"])))
     else:
-        document["routes"]["zai"]["credential"] = "missing"
+        document["routes"][next(iter(document["routes"]))]["credential"] = "missing"
     profile.write_text(json.dumps(document))
     with pytest.raises(GatewayOAuthError):
         GatewayOAuth.load(profile)
@@ -328,3 +341,31 @@ async def test_cleanup_failure_preserves_cancellation_and_finishes_other_stages(
     process.wait.assert_awaited_once()
     assert len(caught.value.__notes__) == 1
     assert "private-detail" not in caught.value.__notes__[0]
+
+
+async def test_provider_capability_cannot_select_another_routes_model(profile):
+    document = json.loads(profile.read_text())
+    document["routes"]["deepseek"] = {
+        "credential": "member",
+        "grant": "deepseek",
+        "models": ["deepseek-flash"],
+    }
+    profile.write_text(json.dumps(document))
+    auth, client = GatewayOAuth.load(profile), Client()
+    for provider, model in (("zai", "deepseek-flash"), ("deepseek", "reference")):
+        with pytest.raises(GatewayOAuthError, match="model outside configured route"):
+            await infer(
+                auth,
+                client,
+                headers={"Authorization": "Bearer " + auth.capability(provider)},
+                data=json.dumps({"model": model}).encode(),
+            )
+    assert client.calls == []
+    assert not (profile.parent / "member.count").exists()
+    await infer(
+        auth,
+        client,
+        headers={"Authorization": "Bearer " + auth.capability("deepseek")},
+        data=b'{"model":"deepseek-flash"}',
+    )
+    assert client.calls[0][2]["headers"]["x-sandhi-grant"] == "deepseek"

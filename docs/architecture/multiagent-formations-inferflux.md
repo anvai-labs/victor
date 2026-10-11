@@ -512,6 +512,39 @@ than repeating calls to obtain a pass:
   --gateway-state /path/to/private/sandhi-state --output-dir /tmp/inferflux-matrix
 ```
 
+DeepSeek is an additional, explicitly selected OIDC cohort. Provision its grant on
+the gateway first, then add this route to the private OAuth profile's `routes`
+object (the named `member` credential must already exist and differ from accounting):
+
+```json
+"deepseek": {
+  "credential": "member",
+  "grant": "deepseek",
+  "models": ["deepseek-flash"]
+}
+```
+
+```bash
+.venv-codesign/bin/python scripts/validation/formation_gateway_matrix.py \
+  --provider deepseek --model deepseek-flash \
+  --auth-profile /path/to/private/validation-oauth.json \
+  --gateway-state /path/to/private/sandhi-state --output-dir /tmp/deepseek-matrix
+```
+
+The grant and model must match the operator's gateway policy. DeepSeek requires
+`--auth-profile`; it never borrows InferFlux's token file. With that profile, the
+harness uses its HTTPS origin, separate accounting identity and database path;
+`--gateway-state` remains required by the shared CLI but its token files are not
+read. Credentials stay with the broker/gateway. A route's capability cannot select
+a model outside its own allowlist, even if another route permits it.
+
+This admits a provider to the existing buffered artifact/accounting checks; it
+does not certify model capabilities, streaming settlement or formation quality.
+Complete the released-runtime gates in [VAS-17](victor-agent-service-plan.md)
+before live formation runs. Preserve the original six-Qwen/one-ZAI C5 cohort;
+DeepSeek results are separately labelled and cannot replace it. ZAI/InferFlux
+commands and their token-compatibility defaults are unchanged.
+
 For a simpler tool-follow-through experiment, add `--task-profile single-file` to
 both commands and use fresh output directories. Each member writes one
 `test_<name>.py` containing its doubling function and a pytest test; isolated

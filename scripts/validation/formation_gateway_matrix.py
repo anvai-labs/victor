@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Opt-in all-formation artifact matrix using ZAI or InferFlux through Sandhi.
+"""Opt-in all-formation artifact matrix using explicitly configured providers through Sandhi.
 
 Run once per compared model; every failure remains evidence. The legacy six-case
 battery and default runtime behavior are unchanged. Output directories are private.
@@ -32,6 +32,7 @@ from scripts.validation.formation_matrix_cases import (
 )
 from scripts.validation.formation_matrix_oracle import CONTRACT_VERSION, check_numeric_oracle
 from scripts.validation.gateway_matrix_accounting import BUFFERED_DEADLINE_SECONDS, GatewayObserver
+from scripts.validation.gateway_oauth import VALIDATION_PROVIDERS, GatewayOAuth
 from victor.framework import Agent
 from victor.framework.member_event_sink import MemberEventSink, current_member_sink
 from victor.framework.verifiers import _run_buffered_command
@@ -349,11 +350,11 @@ async def main(args: argparse.Namespace) -> int:
         raise ValueError(f"Unknown matrix task profile: {args.task_profile}")
     if not args.cases or len(set(args.cases)) != len(args.cases) or args.timeout <= 0:
         raise ValueError("Choose unique cases and a positive timeout before making model calls")
+    profile = getattr(args, "auth_profile", None)
+    if args.provider == "deepseek" and profile is None:
+        raise ValueError("DeepSeek validation requires --auth-profile")
     root = Path(args.output_dir).resolve() / ("matrix-" + uuid.uuid4().hex[:10])
     root.mkdir(parents=True, mode=0o700)
-    from scripts.validation.gateway_oauth import GatewayOAuth
-
-    profile = getattr(args, "auth_profile", None)
     oauth = GatewayOAuth.load(profile) if profile is not None else None
     if oauth is None:
         config_name = "client.json" if args.provider == "zai" else "inferflux.json"
@@ -483,7 +484,7 @@ async def main(args: argparse.Namespace) -> int:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--provider", choices=("inferflux", "zai"), required=True)
+    parser.add_argument("--provider", choices=VALIDATION_PROVIDERS, required=True)
     parser.add_argument("--model", required=True)
     parser.add_argument("--gateway-state", type=Path, required=True)
     parser.add_argument("--auth-profile", type=Path, help="Opt-in strict OAuth broker profile")
