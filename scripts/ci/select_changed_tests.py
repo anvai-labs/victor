@@ -58,6 +58,20 @@ DEPRECATION_NOTICE_FILES = (
     "victor/agent/sqlite_session_persistence.py",
 )
 RELATED_TESTS = {
+    # Text policy and Python stream ownership are tested once across providers,
+    # rather than copied into provider-named mirror suites.
+    **dict.fromkeys(
+        (
+            "victor/providers/deepseek_provider.py",
+            "victor/providers/cerebras_provider.py",
+            "victor/providers/sandhi_openai_compat_policy.py",
+            "victor/providers/sandhi_transport.py",
+        ),
+        (
+            "tests/unit/providers/test_sandhi_openai_compat_policy.py",
+            "tests/unit/providers/test_provider_stream_aclosing.py",
+        ),
+    ),
     "victor/integrations/protocol/__init__.py": (
         "tests/unit/protocols/test_protocol_interface.py",
         "tests/unit/protocols/test_protocol_adapters.py",

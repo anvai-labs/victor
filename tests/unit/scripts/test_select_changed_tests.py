@@ -66,6 +66,16 @@ def test_selector_changes_select_its_own_regressions():
 @pytest.mark.parametrize(
     ("source", "owners"),
     [
+        *[
+            (
+                f"victor/providers/{provider}_provider.py",
+                [
+                    "tests/unit/providers/test_provider_stream_aclosing.py",
+                    "tests/unit/providers/test_sandhi_openai_compat_policy.py",
+                ],
+            )
+            for provider in ("deepseek", "cerebras")
+        ],
         (
             "victor/agent/orchestrator_creation.py",
             ["tests/unit/agent/test_profile_reasoning.py"],
