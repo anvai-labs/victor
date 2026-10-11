@@ -1,6 +1,127 @@
 from __future__ import annotations
 
+import pytest
+
 from victor_codegraph import CodeRelationType, parse, parse_repo, to_proxima_records
+
+
+def test_rust_qualified_calls_do_not_bind_unrelated_local_functions():
+    parsed = parse(
+        "mod a { pub fn target() {} } mod b { pub fn target() {} } "
+        "fn caller() { a::target(); external::target(); value.target(); }",
+        language="rust",
+        file_path="src/lib.rs",
+    )
+    calls = [r for r in parsed.relations if r.relation_type == CodeRelationType.CALLS]
+    targets = {s.id: s for s in parsed.symbols}
+    resolved = [r for r in calls if r.target_ref is None]
+    assert len(resolved) == 1
+    assert targets[resolved[0].to_symbol_id].scope_chain == ["a"]
+    assert {r.target_ref.qualifier for r in calls if r.target_ref} == {"external", "value"}
+
+
+def test_rust_repository_resolves_grouped_alias_and_path_dependency(tmp_path):
+    for crate in ("app", "engine"):
+        (tmp_path / crate / "src").mkdir(parents=True)
+    (tmp_path / "app/Cargo.toml").write_text(
+        '[package]\nname="app"\n[dependencies]\nengine-alias={path="../engine"}\n'
+    )
+    (tmp_path / "engine/Cargo.toml").write_text('[package]\nname="engine"\n')
+    (tmp_path / "app/src/lib.rs").write_text(
+        "mod codec; use crate::codec::{decode as parse}; "
+        "use engine_alias::run; fn caller() { parse(); run(); external::run(); }"
+    )
+    (tmp_path / "app/src/codec.rs").write_text("pub fn decode() {}")
+    (tmp_path / "engine/src/lib.rs").write_text("pub fn run() {}")
+    repository = parse_repo(tmp_path)
+    calls = [r for r in repository.relations if r.relation_type.name == "CALLS"]
+    symbols = {s.id: s for s in repository.symbols}
+    assert {symbols[r.to_symbol_id].location.file_path for r in calls if not r.target_ref} == {
+        "app/src/codec.rs",
+        "engine/src/lib.rs",
+    }
+    assert len([r for r in calls if r.target_ref]) == 1
+    imports = [r for r in repository.relations if r.relation_type.name == "IMPORTS"]
+    assert len(imports) == 2
+    assert all(r.target_ref is None for r in imports)
+
+
+@pytest.mark.parametrize(
+    "source,filename",
+    [
+        ("fn run() {} mod child { fn caller() { run(); } }", "src/lib.rs"),
+        ("use crate::dep::run; fn caller() { run(); }", "src/lib.rs"),
+        ("mod dep; use crate::dep::run; mod child { fn caller() { run(); } }", "src/lib.rs"),
+        ("use crate::run; fn caller() { run(); }", "src/main.rs"),
+        ("#[cfg(any())] mod dep; use crate::dep::run; fn caller() { run(); }", "src/lib.rs"),
+        ("#[cfg(any())] fn run() {} fn caller() { run(); }", "src/lib.rs"),
+        ("mod dep; #[cfg(any())] use crate::dep::run; fn caller() { run(); }", "src/lib.rs"),
+        ("#![cfg(any())] mod dep; use crate::dep::run; fn caller() { run(); }", "src/lib.rs"),
+        ('#[path="other.rs"] mod dep; use crate::dep::run; fn caller() { run(); }', "src/lib.rs"),
+    ],
+)
+def test_rust_repository_does_not_invent_scope_or_module_membership(tmp_path, source, filename):
+    (tmp_path / "src").mkdir()
+    (tmp_path / "Cargo.toml").write_text('[package]\nname="app"\n')
+    (tmp_path / "src/lib.rs").write_text("pub fn run() {}")
+    (tmp_path / "src/dep.rs").write_text("pub fn run() {}")
+    (tmp_path / filename).write_text(source)
+    parsed = parse_repo(tmp_path)
+    calls = [r for r in parsed.relations if r.relation_type.name == "CALLS"]
+    assert calls and all(r.target_ref is not None for r in calls)
+
+
+@pytest.mark.parametrize(
+    "target", ['[lib]\npath="/tmp/outside.rs"', '[[bin]]\npath="../../outside.rs"']
+)
+def test_rust_external_cargo_target_preserves_unresolved_import(tmp_path, target):
+    (tmp_path / "src").mkdir()
+    (tmp_path / "Cargo.toml").write_text('[package]\nname="app"\n' + target)
+    (tmp_path / "src/lib.rs").write_text("use crate::dep::run; fn caller() { run(); }")
+    parsed = parse_repo(tmp_path)
+    assert all(
+        r.target_ref for r in parsed.relations if r.relation_type.name in {"CALLS", "IMPORTS"}
+    )
+
+
+@pytest.mark.parametrize("shared", [False, True])
+def test_rust_binary_child_module_never_binds_library_crate(tmp_path, shared):
+    (tmp_path / "src").mkdir()
+    (tmp_path / "Cargo.toml").write_text('[package]\nname="app"\n')
+    (tmp_path / "src/lib.rs").write_text(("mod helper; " if shared else "") + "pub fn run() {}")
+    (tmp_path / "src/main.rs").write_text("mod helper; fn main() {}")
+    (tmp_path / "src/helper.rs").write_text("use crate::run; fn caller() { run(); }")
+    parsed = parse_repo(tmp_path)
+    calls = [r for r in parsed.relations if r.relation_type.name == "CALLS"]
+    assert calls and all(r.target_ref is not None for r in calls)
+
+
+def test_rust_grouped_glob_retains_import_without_guessing_calls(tmp_path):
+    (tmp_path / "src").mkdir()
+    (tmp_path / "Cargo.toml").write_text('[package]\nname="app"\n')
+    (tmp_path / "src/lib.rs").write_text("mod dep; use crate::dep::{*}; fn caller() { run(); }")
+    (tmp_path / "src/dep.rs").write_text("pub fn run() {}")
+    parsed = parse_repo(tmp_path)
+    imports = [r for r in parsed.relations if r.relation_type.name == "IMPORTS"]
+    assert len(imports) == 1
+    calls = [r for r in parsed.relations if r.relation_type.name == "CALLS"]
+    assert len(calls) == 1 and calls[0].target_ref is not None
+
+
+def test_rust_grouped_import_preserves_unresolved_sibling_and_module_alias(tmp_path):
+    (tmp_path / "src").mkdir()
+    (tmp_path / "Cargo.toml").write_text('[package]\nname="app"\n')
+    (tmp_path / "src/lib.rs").write_text(
+        "mod dep; use crate::{dep::{self as d, run}, absent::missing}; " "fn caller() { d::run(); }"
+    )
+    (tmp_path / "src/dep.rs").write_text("pub fn run() {}")
+    parsed = parse_repo(tmp_path)
+    imports = [r for r in parsed.relations if r.relation_type.name == "IMPORTS"]
+    unresolved = [r for r in imports if r.target_ref is not None]
+    assert len(unresolved) == 1
+    assert unresolved[0].target_ref.name == "crate::absent::missing"
+    calls = [r for r in parsed.relations if r.relation_type.name == "CALLS"]
+    assert len(calls) == 1 and calls[0].target_ref is None
 
 
 def _symbols(parsed):

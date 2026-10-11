@@ -81,6 +81,7 @@ _BODY_REQUIRED_NODES = {"struct_specifier", "class_specifier", "enum_specifier"}
 # Symbol types that can contain other symbols (for CONTAINS resolution).
 _CONTAINER_SYMBOL_TYPES = frozenset(
     {
+        CodeSymbolType.MODULE,
         CodeSymbolType.CLASS,
         CodeSymbolType.STRUCT,
         CodeSymbolType.INTERFACE,
@@ -219,6 +220,8 @@ def _collect_calls(node, owner: CodeSymbol, src: bytes, file_path: str, relation
             if callee:
                 raw = _text(callee_node, src) if callee_node is not None else callee
                 qualifier = raw.rsplit(".", 1)[0] if "." in raw else None
+                if owner.language == "rust" and "::" in raw and "." not in raw:
+                    qualifier = raw.rsplit("::", 1)[0]
                 args = n.child_by_field_name("arguments")
                 arity = None
                 if args is not None:
@@ -337,6 +340,7 @@ def _handle_impl_item(child, src, file_path, language, frames, symbols, relation
         impl_traits.append((name, trait_name))
 
     body = child.child_by_field_name("body")
+    first_member = len(symbols)
     _walk_collect(
         body if body is not None else child,
         src,
@@ -347,6 +351,13 @@ def _handle_impl_item(child, src, file_path, language, frames, symbols, relation
         relations,
         impl_traits,
     )
+    # Same-named methods in different trait/generic impls are distinct symbols.
+    # Preserve type containment while discriminating identity with impl context.
+    impl_type = _text(type_node, src) if type_node is not None else name
+    impl_trait = _text(trait_node, src) if trait_node is not None else ""
+    for member in symbols[first_member:]:
+        if member.scope_chain == [*_scope_names(frames), name]:
+            member.signature = f"impl {impl_trait} for {impl_type} {member.signature or ''}"
 
 
 def _handle_go_type_spec(child, src, file_path, language, frames, symbols, relations):
@@ -415,7 +426,39 @@ def _go_receiver_type(node, src: bytes) -> str | None:
 def _walk_collect(node, src, file_path, language, frames, symbols, relations, impl_traits):
     for child in _children(node):
         t = child.type
-        if t == "impl_item":
+        if t == "mod_item" and language == "rust":
+            name = _name_of(child, src)
+            if name is None:
+                continue
+            module = _mk(
+                child,
+                src,
+                file_path,
+                language,
+                name,
+                CodeSymbolType.MODULE,
+                _scope_names(frames),
+            )
+            body = child.child_by_field_name("body")
+            module.metadata["rust_inline_module"] = body is not None
+            sibling = child.prev_named_sibling
+            while sibling is not None and sibling.type == "attribute_item":
+                if _rust_attribute_name(sibling, src) in {"path", "cfg_attr"}:
+                    module.metadata["rust_path_attribute"] = True
+                sibling = sibling.prev_named_sibling
+            symbols.append(module)
+            if body is not None:
+                _walk_collect(
+                    body,
+                    src,
+                    file_path,
+                    language,
+                    [*frames, (name, "module")],
+                    symbols,
+                    relations,
+                    impl_traits,
+                )
+        elif t == "impl_item":
             _handle_impl_item(
                 child, src, file_path, language, frames, symbols, relations, impl_traits
             )
@@ -527,16 +570,48 @@ def _param_signature(node, src) -> str | None:
     return None
 
 
+def _rust_attribute_name(node, src: bytes) -> str | None:
+    for attribute in node.named_children:
+        if attribute.type == "attribute" and attribute.named_children:
+            return _text(attribute.named_children[0], src)
+    return None
+
+
+def _rust_cfg_attributes(node, src: bytes) -> list[str]:
+    attributes: list[str] = []
+    ancestor = node
+    while ancestor is not None:
+        sibling = ancestor.prev_named_sibling
+        while sibling is not None and sibling.type == "attribute_item":
+            if _rust_attribute_name(sibling, src) in {"cfg", "cfg_attr"}:
+                attributes.append(_text(sibling, src))
+            sibling = sibling.prev_named_sibling
+        for child in ancestor.named_children:
+            if child.type == "inner_attribute_item" and _rust_attribute_name(child, src) in {
+                "cfg",
+                "cfg_attr",
+            }:
+                attributes.append(_text(child, src))
+        ancestor = ancestor.parent
+    return attributes
+
+
 def _mk(node, src, file_path, language, name, stype, scope) -> CodeSymbol:
     start_line = node.start_point[0] + 1
     end_line = node.end_point[0] + 1
     fqn = "::".join([file_path.replace("/", "."), *scope, name])
+    signature = None if stype == CodeSymbolType.MODULE else _param_signature(node, src)
+    attributes: list[str] = []
+    if language == "rust":
+        attributes = _rust_cfg_attributes(node, src)
+        if attributes:
+            signature = " ".join([*reversed(attributes), signature or ""])
     return CodeSymbol(
         id=deterministic_symbol_id(file_path, name, start_line, node.start_point[1]),
         symbol_type=stype,
         fully_qualified_name=fqn,
         simple_name=name,
-        signature=_param_signature(node, src),
+        signature=signature,
         location=SourceLocation(
             file_path=file_path,
             start_line=start_line,
@@ -550,6 +625,7 @@ def _mk(node, src, file_path, language, name, stype, scope) -> CodeSymbol:
         language=language,
         scope_chain=list(scope),
         complexity={"lines": end_line - start_line + 1},
+        metadata={"rust_conditional": True} if attributes else {},
     )
 
 
@@ -620,7 +696,8 @@ def parse_treesitter(content: str, file_path: str, language: str) -> ParsedCode:
 
     for child in _children(root):
         if child.type in _IMPORT_NODES:
-            imports.append(_text(child, src))
+            prefix = _rust_cfg_attributes(child, src) if language == "rust" else []
+            imports.append(" ".join([*prefix, _text(child, src)]))
         elif child.type == "export_statement":
             exported = _text(child, src)
             # Re-exports create a module dependency; plain declarations do not.

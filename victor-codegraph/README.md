@@ -82,3 +82,18 @@ records = to_proxima_records(repository, repo_graph_id="myrepo")
 `0.9.0` source version. Python (`ast`) is the full, offline frontend. JS/TS, Go, Rust,
 Java, C, and C++ have conformance fixtures; other mapped tree-sitter languages report
 symbols-tier or fallback status rather than implying full fidelity.
+
+### Rust graph fidelity
+
+Rust indexing retains inline module scopes and discriminates same-named trait
+implementations and conditional definitions in stable identities. Repository
+resolution follows declared library modules and explicit top-level `use` paths,
+including grouped imports, aliases, and local Cargo path dependencies. Hyphenated
+Cargo dependency names are normalized to their Rust underscore names.
+
+Binary-owned or ambiguous files, conditional items/imports, `#[path]` overrides,
+workspace-inherited dependencies, re-export chains, macros and unknown receiver
+types retain unresolved references. Glob imports retain a module dependency but
+do not guess call targets. This is a conservative static graph, not rustc name
+resolution or evidence that a call executes. Publish this package before a Victor
+release that requires its `0.9.0` repository graph contract.

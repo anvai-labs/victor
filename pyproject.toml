@@ -107,7 +107,7 @@ dependencies = [
     "lxml>=5.0",
 
     # Code Analysis (core) — base library only; language grammars are optional
-    "tree-sitter>=0.23",  # 0.23+ required for QueryCursor API
+    "tree-sitter>=0.26.0",  # Aligned with the locked runtime and codegraph parser
     "pygments>=2.20.0",
 
     # Caching
@@ -566,6 +566,18 @@ native = [
 ]
 
 # Extracted vertical packages (optional meta-extras for cross-repo installs)
+graph = [
+    "victor-codegraph[treesitter]>=0.9.0,<1.0.0",
+    "tree-sitter-python>=0.23",
+    "tree-sitter-javascript>=0.23",
+    "tree-sitter-typescript>=0.23",
+    "tree-sitter-go>=0.23",
+    "tree-sitter-rust>=0.23",
+    "tree-sitter-java>=0.23",
+    "tree-sitter-c>=0.23",
+    "tree-sitter-cpp>=0.23",
+]
+
 coding = [
     "victor-coding>=0.6.0,<1.0.0",
     # Language grammars required by victor-coding's tree-sitter indexer

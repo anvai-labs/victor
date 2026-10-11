@@ -4,18 +4,38 @@ Get started with Victor's graph-based code intelligence in 5 minutes.
 
 ## Installation
 
-Install Victor with semantic embedding support:
+Install the complete structural graph dependencies; add embeddings only for semantic search:
 
 ```bash
-pip install "victor-ai[embeddings]"
+pip install "victor-ai[graph]"
+# Optional semantic search:
+pip install "victor-ai[graph,embeddings]"
 ```
+
+Release ordering: publish `victor-codegraph>=0.9.0` before releasing Victor with
+the `graph` extra. For an unreleased source checkout, install its matching parser
+first: `pip install -e "./victor-codegraph[treesitter]" -e ".[graph]"`.
+
+The graph command checks repository parsing and the supported CCG grammars before
+opening or clearing the index, including with `--force`. Missing or incompatible
+dependencies produce an installation error; the command does not install packages
+automatically. Language-pack 1.21.3 may download its grammar assets on first use;
+prewarm the graph command with network access before an offline deployment.
+Install extras in the same environment that runs `victor`. Plain
+`victor index` is the separate semantic-code-search path and requires the `coding` extra.
+
+A successful parse is not proof of complete dependency resolution. Rust supports
+inline module scopes and explicit top-level imports within local Cargo path
+dependencies. Macro expansion, conditional compilation, re-export chains, workspace
+inherited dependencies and unknown receiver types remain unresolved; graph audits
+must report those limits.
 
 ## 1. Index Your Codebase
 
 First, create a graph index of your code:
 
 ```bash
-victor graph index --path /path/to/your/code --ccg --embeddings
+victor index graph index --path /path/to/your/code --ccg --embeddings
 ```
 
 This will:
@@ -43,7 +63,7 @@ Processing files...
 Ask questions about your codebase in natural language:
 
 ```bash
-victor graph query "how does user authentication work?" --path /path/to/your/code
+victor index graph query "how does user authentication work?" --path /path/to/your/code
 ```
 
 The query will:
@@ -57,10 +77,10 @@ Before making changes, see what will be affected:
 
 ```bash
 # Forward impact: what depends on this function?
-victor graph impact authenticate_user --type forward --depth 3 --path /path/to/your/code
+victor index graph impact authenticate_user --type forward --depth 3 --path /path/to/your/code
 
 # Backward impact: what does this function depend on?
-victor graph impact process_payment --type backward --depth 2 --path /path/to/your/code
+victor index graph impact process_payment --type backward --depth 2 --path /path/to/your/code
 ```
 
 ## 4. Check Statistics
@@ -68,7 +88,7 @@ victor graph impact process_payment --type backward --depth 2 --path /path/to/yo
 View graph statistics:
 
 ```bash
-victor graph stats --path /path/to/your/code
+victor index graph stats --path /path/to/your/code
 ```
 
 ## Python API Usage
@@ -246,40 +266,40 @@ search:
 
 ```bash
 # Map out the data flow
-victor graph query "how does data flow from API to database?"
+victor index graph query "how does data flow from API to database?"
 
 # Find all entry points
-victor graph query "HTTP endpoint handlers"
+victor index graph query "HTTP endpoint handlers"
 ```
 
 ### 2. Refactoring Safety
 
 ```bash
 # Check impact before refactoring
-victor graph impact old_function_name --type forward --depth 5
+victor index graph impact old_function_name --type forward --depth 5
 
 # Find similar code that might need updating
-victor graph query "functions that parse JSON"
+victor index graph query "functions that parse JSON"
 ```
 
 ### 3. Onboarding New Developers
 
 ```bash
 # Get overview of core functionality
-victor graph query "main business logic functions"
+victor index graph query "main business logic functions"
 
 # Find key architectural patterns
-victor graph query "dependency injection pattern"
+victor index graph query "dependency injection pattern"
 ```
 
 ### 4. Debugging
 
 ```bash
 # Trace error propagation
-victor graph impact error_handling --type forward --depth 4
+victor index graph impact error_handling --type forward --depth 4
 
 # Find where exceptions are caught
-victor graph query "exception handling code"
+victor index graph query "exception handling code"
 ```
 
 ## Tips and Tricks
@@ -308,10 +328,10 @@ result = await graph_semantic_search(
 
 ```bash
 # Export graph as JSON
-victor graph export --output graph.json --format json
+victor index graph export --output graph.json --format json
 
 # Export as DOT for GraphViz
-victor graph export --output graph.dot --format dot
+victor index graph export --output graph.dot --format dot
 
 # Render DOT to PNG
 dot -Tpng graph.dot -o graph.png
@@ -323,27 +343,29 @@ dot -Tpng graph.dot -o graph.png
 
 ```bash
 # Check that graph exists
-victor graph stats --path /path/to/your/code
+victor index graph stats --path /path/to/your/code
 
 # Re-index if needed
-victor graph index --force
+victor index graph index --force
 ```
 
 ### Slow Performance
 
 ```bash
 # Disable CCG for faster indexing
-victor graph index --no-ccg
+victor index graph index --no-ccg
 
 # Reduce hop count
-victor graph query "query" --hops 1
+victor index graph query "query" --hops 1
 ```
 
 ### Import Errors
 
 ```bash
 # Install graph dependencies
-pip install "victor-ai[embeddings]"
+pip install "victor-ai[graph]"
+# Optional semantic search:
+pip install "victor-ai[graph,embeddings]"
 
 # Or install individually
 pip install networkx sentence-transformers
