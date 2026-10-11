@@ -825,23 +825,28 @@ def _typed_payload(**overrides):
     return payload
 
 
-def test_extensions_absent_is_behavior_identical(monkeypatch):
+@pytest.mark.parametrize("reasoning", [None, "fixture summary", ""])
+def test_extensions_absent_is_behavior_identical(monkeypatch, reasoning):
     """With no native body, usage/metadata must match the with-body result."""
     install_runtime(monkeypatch)
     provider = make_provider()
+    payload = _typed_payload()
+    if reasoning is not None:
+        payload["output"]["reasoning"] = reasoning
 
     with_native = provider._completion_from_typed(
-        _typed_payload(
+        dict(
+            payload,
             extensions={
                 "openai": {
                     "id": "r9",
                     "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
                 }
-            }
+            },
         ),
         "deepseek-chat",
     )
-    without_native = provider._completion_from_typed(_typed_payload(), "deepseek-chat")
+    without_native = provider._completion_from_typed(payload, "deepseek-chat")
 
     assert without_native.usage == with_native.usage
     assert without_native.usage == {
@@ -850,10 +855,50 @@ def test_extensions_absent_is_behavior_identical(monkeypatch):
         "total_tokens": 15,
         "cache_read_input_tokens": 4,
     }
-    assert without_native.metadata == with_native.metadata is None
+    expected_metadata = {"reasoning_content": reasoning} if reasoning is not None else None
+    assert without_native.metadata == with_native.metadata == expected_metadata
     assert without_native.content == "hello"
     # Debug fallback: with no native body, raw_response is the typed document.
     assert without_native.raw_response["schema_version"] == "1"
+
+
+@pytest.mark.parametrize(
+    "typed,legacy,expected",
+    [
+        ("typed summary", "legacy summary", "typed summary"),
+        ("", "legacy summary", ""),
+        (None, "legacy summary", "legacy summary"),
+        (None, "", None),
+    ],
+)
+@pytest.mark.parametrize("legacy_source", ["extension", "native"])
+def test_typed_reasoning_precedes_legacy_sources(
+    monkeypatch, typed, legacy, expected, legacy_source
+):
+    install_runtime(monkeypatch)
+    extensions = (
+        {"reasoning": legacy}
+        if legacy_source == "extension"
+        else {"openai": {"choices": [{"message": {"reasoning_content": legacy}}]}}
+    )
+    payload = _typed_payload(extensions=extensions)
+    payload["output"]["reasoning"] = typed
+    response = make_provider()._completion_from_typed(payload, "deepseek-chat")
+    assert response.metadata == ({"reasoning_content": expected} if expected is not None else None)
+    assert response.content == "hello"
+
+
+@pytest.mark.parametrize("invalid", [False, 1, [], {"encrypted_content": "private fixture"}])
+async def test_malformed_typed_reasoning_fails_without_fallback_or_replay(monkeypatch, invalid):
+    runtime = install_runtime(monkeypatch)
+    payload = _typed_payload(extensions={"reasoning": "legacy cannot repair invalid typed data"})
+    payload["output"]["reasoning"] = invalid
+    runtime.handle.complete_json = AsyncMock(return_value=json.dumps(payload))
+    with pytest.raises(st.ProviderError, match="output.reasoning must be text or null") as error:
+        await make_provider().chat([Message(role="user", content="hi")], model="deepseek-chat")
+    assert not error.value.recoverable
+    assert "private fixture" not in str(error.value)
+    runtime.handle.complete_json.assert_awaited_once()
 
 
 def test_native_only_usage_fields_surface_as_diagnostics(monkeypatch):
