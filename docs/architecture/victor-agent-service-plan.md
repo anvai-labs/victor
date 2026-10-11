@@ -882,9 +882,32 @@ Order the remaining work:
 
 Source owners inspected: `victor/providers/zai_provider.py`, `deepseek_provider.py`,
 `sandhi_openai_compat_policy.py`, `sandhi_transport.py` and
-`victor/config/openai_compat_model_policy.yaml`. G85 has bounded synthetic reproductions; permanent regression tests, real transport
-qualification and remediation remain open. No new public API or
-transport implementation is authorized by this documentation alone.
+`victor/config/openai_compat_model_policy.yaml`. The bounded implementation below
+addresses opt-in text handling; real transport qualification and the remaining
+model/history policies stay open.
+
+October 11 implementation increment (`fix/structured-provider-responses`, based
+on merged roadmap [#1293](https://github.com/anvai-labs/victor/pull/1293)):
+
+- `text_response_mode="structured"` selects pass-through text/structured tool
+  handling for DeepSeek and Cerebras. Shared constructor validation consumes this
+  host option; it is never sent on the wire. The default remains `legacy`.
+- DeepSeek avoids DSML synthesis and whole-stream buffering in structured mode;
+  Cerebras avoids prose classification. Structured usage/reasoning metadata is
+  retained. This is not JSON-schema enforcement or a capability/history migration.
+- Concrete wrappers close their owned Python iterators, and the shared HTTPx
+  policy wrapper cascades close into `_sandhi_stream`. `GeneratorExit` propagates
+  unchanged. The released native iterator has no `aclose`; origin cancellation is
+  not established by these Python cleanup tests.
+- Existing shared policy and stream-close suites own the regressions: first-yield
+  before upstream exhaustion, exact chunk preservation, native tool calls, legacy
+  defaults, malformed mode rejection, no wire leakage, early close, cancellation
+  and cleanup failure. No duplicate provider suite is added or removed.
+
+G85/G86 remain open for legacy migration, model/history policy, released/live
+qualification and workload-level memory/latency measurements. No model calls or
+actual-member/C5 acceptance are implied by this source increment. Source/CI/merge
+status belongs to its PR; preserve the independent G83 release gate.
 
 ### Broader provider audit and credential-backed qualification
 

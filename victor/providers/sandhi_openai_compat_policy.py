@@ -25,7 +25,7 @@ from __future__ import annotations
 
 from abc import ABC
 from json import JSONDecodeError
-from typing import Any, ClassVar, Dict, List, Optional
+from typing import Any, ClassVar, Dict, List, Literal, Optional
 
 from victor.core.json_utils import json_loads
 from victor.providers.base import CacheCostModel, StreamChunk
@@ -52,8 +52,15 @@ class SandhiOpenAICompatPolicy(SandhiHttpxTransportMixin, HttpxOpenAICompatProvi
         timeout: Optional[int] = None,
         max_retries: Optional[int] = None,
         non_interactive: Optional[bool] = None,
+        text_response_mode: Literal["legacy", "structured"] = "legacy",
         **kwargs: Any,
     ) -> None:
+        if text_response_mode not in ("legacy", "structured"):
+            raise ValueError("text_response_mode must be 'legacy' or 'structured'")
+        # Host-side text handling only; never forwarded to Sandhi or the provider.
+        # Structured mode disables legacy prose interpretation in subclasses. It
+        # is not a JSON-schema guarantee or a change to model/tool capabilities.
+        self.text_response_mode = text_response_mode
         spec = get_openai_compat_provider_spec(self.CONFIG_KEY)
         self._spec = spec
         self._api_key = ""

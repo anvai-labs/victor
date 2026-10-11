@@ -23,9 +23,15 @@ GeneratorExit" / "exit cancel scope in a different task" warnings every turn.
 """
 
 import contextlib
+import asyncio
 from unittest.mock import MagicMock
 
-from victor.providers.base import StreamChunk
+import pytest
+
+from victor.providers.base import Message, StreamChunk
+from victor.providers.cerebras_provider import CerebrasProvider
+from victor.providers.deepseek_provider import DeepSeekProvider
+from victor.providers.sandhi_transport import SandhiTypedProviderMixin
 from victor.providers.resilience import ProviderRetryConfig, ResilientProvider
 
 
@@ -73,3 +79,60 @@ async def test_resilient_stream_cascades_close_on_full_consume():
 
     assert len(chunks) == 10
     assert closed.get("count") == 1
+
+
+@pytest.mark.parametrize("provider_cls", (DeepSeekProvider, CerebrasProvider))
+@pytest.mark.parametrize("termination", ("early_close", "cancel", "cleanup_error"))
+async def test_structured_provider_wrappers_close_typed_python_stream(
+    provider_cls, termination, monkeypatch
+):
+    """Exercise both the concrete wrapper and shared HTTPx-policy wrapper."""
+    closed = 0
+    waiting = asyncio.Event()
+
+    async def upstream(request):
+        nonlocal closed
+        try:
+            yield StreamChunk(content="first")
+            waiting.set()
+            await asyncio.Event().wait()
+        finally:
+            closed += 1
+            if termination == "cleanup_error":
+                raise RuntimeError("cleanup failure")
+
+    provider = provider_cls(api_key="test-key", text_response_mode="structured")
+    monkeypatch.setattr(provider, "_sandhi_stream", upstream)
+    stream = provider.stream([Message(role="user", content="hello")], model="qwen-3")
+    assert (await asyncio.wait_for(anext(stream), timeout=1)).content == "first"
+    if termination == "cancel":
+        pending = asyncio.create_task(anext(stream))
+        await asyncio.wait_for(waiting.wait(), timeout=1)
+        pending.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await pending
+    elif termination == "cleanup_error":
+        with pytest.raises(RuntimeError, match="cleanup failure"):
+            await stream.aclose()
+    else:
+        await stream.aclose()
+    assert closed == 1
+    await stream.aclose()
+    assert closed == 1
+
+
+async def test_typed_stream_generator_exit_is_not_mapped_to_provider_error(monkeypatch):
+    """Python close is not a provider failure; this does not prove origin abort."""
+
+    class Handle:
+        def stream_json(self, *args):
+            async def events():
+                yield '{"event": "text_delta", "delta": "first"}'
+
+            return events()
+
+    provider = DeepSeekProvider(api_key="test-key")
+    monkeypatch.setattr(provider, "_typed_provider", lambda model: Handle())
+    stream = SandhiTypedProviderMixin._sandhi_stream(provider, {"model": "deepseek-chat"})
+    assert (await anext(stream)).content == "first"
+    await stream.aclose()
