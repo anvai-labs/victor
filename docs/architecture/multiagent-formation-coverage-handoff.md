@@ -1753,6 +1753,24 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   services before a parity or deprecation claim. This source audit is not evidence
   of a live-member failure and does not justify removing public imports.
 
+- **G83 — ZAI tracked-stream usage contract is unqualified (open).**
+  New isolated Sandhi 0.13.0/deployed-OIDC evidence on October 11 passes both
+  Qwen tracked streams with exact request/observation/receipt joins. ZAI GLM-5.3
+  instead returns HTTP 200 then a failed body; the persisted outcome is
+  `stream_qualification:InvalidUsage(NonFinalUsage);delivery:error`. Usage remains
+  unavailable, with no frozen charge or receipt; it is not reported zero. The
+  strict qualifier rejects non-null usage on nonempty choices. The failed call did not retain raw SSE. A separate new bounded capture
+  confirms usage on a nonempty final choice (`finish_reason="length"`), followed
+  by `[DONE]`; 19 prompt/32 completion tokens include 30 reasoning tokens, with
+  explicit zero cache. This is wire evidence, not task completion or a replay.
+  Do not weaken the common guard. Review the provider contract, then extend the existing Sandhi qualifier/observer test owners with
+  positive and malformed/partial/conflicting-usage cases if a change is justified.
+  Keep one parser and one derivation; no silent fallback, automatic replay or
+  manufactured settlement. Buffered qualification and both default-mode managed
+  0.13.0 deployments pass; they do not close tracked lifecycle or C5. See the
+  [canonical tracker](victor-agent-service-plan.md) and retained local evidence
+  `var/gateway-upgrade-013-20261011/stream-observations.json`.
+
 Validation-test audit: neither live harness had direct tests before this follow-up.
 The new mixed-harness suite covers rejected/malformed/missing reviews, inclusive
 cache accounting, missing artifacts, bad member usage, pytest timeout, startup and
