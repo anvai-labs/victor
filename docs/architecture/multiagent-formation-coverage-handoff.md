@@ -1319,8 +1319,13 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   no live formation pass. These source increments are published in
   [Sandhi 0.12.0](https://github.com/anvai-labs/sandhi/releases/tag/v0.12.0);
   all required artifact targets verified. The [canonical tracker](victor-agent-service-plan.md)
-  owns consumer adoption and installed evidence. **Still open:** tracked TLS/OIDC,
-  streaming lifecycle and deployed acceptance. SQLite operations can outlive a wait; unknown liability stays held,
+  owns consumer adoption and installed evidence. **Subsequent source/release update:**
+  tracked TLS/OIDC and bounded streaming process acceptance landed in Sandhi
+  #350–#356 and shipped in [0.13.0](https://github.com/anvai-labs/sandhi/releases/tag/v0.13.0)
+  through [#357](https://github.com/anvai-labs/sandhi/pull/357)/[#358](https://github.com/anvai-labs/sandhi/pull/358).
+  All artifact targets verify; Victor pins the official wheel with 1,712 affected
+  tests passing. **Still open:** preserved-state managed tracked deployment,
+  broader lifecycle and actual-member C5 acceptance. SQLite operations can outlive a wait; unknown liability stays held,
   and no provider call is replayed. Defaults and shared runtimes are unchanged. New live
   acceptance evidence remains a separate gate. At #300, the source increment did
   not change the then-running 0.9.1 gateway (buffered120s/setup30s/idle90s), config,

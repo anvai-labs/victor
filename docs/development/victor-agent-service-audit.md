@@ -76,7 +76,8 @@ Use `victor serve` as the canonical composition root. Migrate the useful session
 store and v1 event work from `web/server` into framework-owned services and the
 existing FastAPI routers. Keep a temporary compatibility entry point for the old
 web app. Do not add an HTTP-to-HTTP proxy inside the same deployment merely to
-share code. The Sandhi Python binding is required by Victor (`sandhi-gateway==0.11.0`);
+share code. The Sandhi Python binding is required by Victor (the current pin is in
+[the tech stack](../tech-stack.md));
 routing through a separately deployed Sandhi proxy is optional. InferFlux remains
 the inference service. Neither owns Victor run approval or state.
 
