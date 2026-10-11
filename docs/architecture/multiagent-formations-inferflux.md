@@ -18,9 +18,9 @@ using InferFlux (self-hosted, Qwen3-Coder-30B on AMD Radeon AI PRO R9700).
 
 ## Sandhi binding release baseline
 
-Victor pins the published `sandhi-gateway==0.11.0` Python wheel in project metadata
-and all three deployment locks, matching the [upstream release](https://github.com/anvai-labs/sandhi/releases/tag/v0.11.0)
-as checked on 2026-10-08. Victor consumes wire major 1 and contract minor 9
+Victor pins the published `sandhi-gateway==0.13.0` Python wheel in project metadata
+and all three deployment locks, matching the [upstream release](https://github.com/anvai-labs/sandhi/releases/tag/v0.13.0)
+as checked on 2026-10-10. Victor consumes wire major 1 and contract minor 9
 (cache-read observation), preserving these observations separately
 from measured counts: metadata-only stream updates neither invent zero usage nor
 replace a prior numeric verdict. Existing

@@ -15,7 +15,7 @@ not a claim that these are the newest upstream releases. Optional extras remain 
 | Runtime | Python 3.12+, asyncio | `victor/` |
 | Contracts | `victor-contracts>=0.9.2,<1.0`; separately released SDK | `victor-contracts/` |
 | Models and settings | Pydantic and pydantic-settings >=2.0 | `victor/config/` |
-| Typed provider transport | `sandhi-gateway==0.7.0` | `victor/providers/` |
+| Typed provider transport | `sandhi-gateway==0.13.0` | `victor/providers/` |
 | Python HTTP interfaces | `httpx>=0.27`, `aiohttp>=3.14.3` | Provider and integration adapters |
 | CLI | `typer>=0.15,<0.28`, `rich>=13.7`, prompt-toolkit | `victor/ui/cli.py`, `victor/ui/` |
 | Interactive TUI | `textual>=0.89` | `victor/ui/tui/` |
