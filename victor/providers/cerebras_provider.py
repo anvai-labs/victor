@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import re
+from contextlib import aclosing
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Dict, List, Optional, Tuple
 
@@ -93,12 +94,14 @@ class StreamingThinkingFilter:
         return content, None
 
 
-def _with_cerebras_metadata(response: CompletionResponse, model: str) -> CompletionResponse:
+def _with_cerebras_metadata(
+    response: CompletionResponse, model: str, *, interpret_text: bool = True
+) -> CompletionResponse:
     raw = response.raw_response or {}
     total_time = (raw.get("time_info") or {}).get("total_time")
     if response.usage is not None and isinstance(total_time, (int, float)):
         response.usage["total_time_ms"] = int(total_time * 1000)
-    if response.content and _is_thinking_model(model):
+    if interpret_text and response.content and _is_thinking_model(model):
         thinking, visible = _extract_qwen3_thinking(response.content)
         if thinking:
             response.content = visible
@@ -112,10 +115,18 @@ class CerebrasProvider(SandhiOpenAICompatPolicy):
     CONFIG_KEY = "cerebras"
 
     def _parse_response(self, result: Dict[str, Any], model: str) -> CompletionResponse:
-        return _with_cerebras_metadata(super()._parse_response(result, model), model)
+        return _with_cerebras_metadata(
+            super()._parse_response(result, model),
+            model,
+            interpret_text=self.text_response_mode == "legacy",
+        )
 
     def _completion_from_typed(self, response: Dict[str, Any], model: str) -> CompletionResponse:
-        return _with_cerebras_metadata(super()._completion_from_typed(response, model), model)
+        return _with_cerebras_metadata(
+            super()._completion_from_typed(response, model),
+            model,
+            interpret_text=self.text_response_mode == "legacy",
+        )
 
     async def stream(
         self,
@@ -128,22 +139,28 @@ class CerebrasProvider(SandhiOpenAICompatPolicy):
         **kwargs: Any,
     ) -> AsyncIterator[StreamChunk]:
         thinking_filter = StreamingThinkingFilter(model)
-        async for chunk in super().stream(
-            messages,
-            model=model,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            tools=tools,
-            **kwargs,
-        ):
-            content, reasoning = thinking_filter.process_chunk(chunk.content)
-            if chunk.is_final:
-                trailing, final_reasoning = thinking_filter.finalize()
-                content += trailing
-                reasoning = final_reasoning or reasoning
-            metadata = {**(chunk.metadata or {}), **(reasoning or {})} or None
-            if content or chunk.is_final or chunk.tool_calls or metadata:
-                yield chunk.model_copy(update={"content": content, "metadata": metadata})
+        async with aclosing(
+            super().stream(
+                messages,
+                model=model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                tools=tools,
+                **kwargs,
+            )
+        ) as upstream:
+            async for chunk in upstream:
+                if self.text_response_mode == "structured":
+                    yield chunk
+                    continue
+                content, reasoning = thinking_filter.process_chunk(chunk.content)
+                if chunk.is_final:
+                    trailing, final_reasoning = thinking_filter.finalize()
+                    content += trailing
+                    reasoning = final_reasoning or reasoning
+                metadata = {**(chunk.metadata or {}), **(reasoning or {})} or None
+                if content or chunk.is_final or chunk.tool_calls or metadata:
+                    yield chunk.model_copy(update={"content": content, "metadata": metadata})
 
 
 __all__ = [

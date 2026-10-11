@@ -1814,6 +1814,10 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   Qualify reasoning-history round trips and first-chunk/memory behavior before
   removing wrappers or claiming live acceptance. No second registry/transport or
   permissive parser fallback. G83 release and original C5 remain independent gates.
+  The `fix/structured-provider-responses` increment adds opt-in structured text
+  pass-through and Python stream-close regressions in existing test owners.
+  Default legacy repair is intentionally unchanged, including its metadata-loss
+  limitation. Live qualification, legacy migration and model/history policy remain open.
 
 - **G86 — Cerebras reasoning presentation uses prose classification (open).**
   The broader OpenAI-compatible source audit at `21b43fcac` found
@@ -1827,6 +1831,9 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   usage, metadata and cancellation; add the negative case to an existing provider
   test owner after duplicate-coverage audit. Follow the
   [broader qualification plan](victor-agent-service-plan.md#broader-provider-audit-and-credential-backed-qualification).
+  The same opt-in `text_response_mode="structured"` increment bypasses prose
+  classification and preserves provider metadata. Default legacy presentation is
+  retained; origin cancellation and live qualification are not established.
 
 Validation-test audit: neither live harness had direct tests before this follow-up.
 The new mixed-harness suite covers rejected/malformed/missing reviews, inclusive

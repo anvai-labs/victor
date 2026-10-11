@@ -387,9 +387,9 @@ provider = GoogleProvider(api_key=key, safety_level="block_none")
 
 ### DeepSeek
 
-Very affordable with strong code generation. Chinese language support.
+OpenAI-compatible adapter using the shared Sandhi transport.
 
-**Models**:
+**Retained Victor compatibility model policy** (not the current upstream model catalog):
 | Model | Context | Tool Support |
 |-------|---------|--------------|
 | `deepseek-chat` | 128K | Yes |
@@ -401,13 +401,39 @@ export DEEPSEEK_API_KEY=...
 victor chat --provider deepseek --model deepseek-chat
 ```
 
-**Features**:
-- 10-30x cheaper than OpenAI
-- Native tool calling (deepseek-chat only)
-- Reasoning traces (deepseek-reasoner)
-- 128K context window
+Victor's retained name-based policy disables tools for reasoner-named models.
+This describes the adapter's compatibility behavior, not current upstream support.
+Current catalog adoption and thinking/tool continuation are tracked separately in
+the [provider consolidation plan](../architecture/victor-agent-service-plan.md#openai-compatible-provider-consolidation).
 
-**Note**: `deepseek-reasoner` does NOT support function calling; use for reasoning tasks only.
+#### Explicit text response handling
+
+DeepSeek and Cerebras can opt into `text_response_mode="structured"` when creating
+the provider. Credentials continue to come from the existing resolver:
+
+```python
+from victor.providers.deepseek_provider import DeepSeekProvider
+
+provider = DeepSeekProvider(text_response_mode="structured")
+```
+
+| Mode | DeepSeek | Cerebras |
+| --- | --- | --- |
+| `legacy` (default) | Buffers the whole stream and can repair DSML text into tool calls | Can classify a leading prose paragraph as reasoning |
+| `structured` (opt-in) | Passes text and structured tool calls through without DSML repair or whole-stream buffering | Preserves visible text and provider-supplied reasoning without prose classification |
+
+The mode is a constructor-only host policy and is not sent upstream. Supplying it
+to an individual `chat()` or `stream()` call is rejected before credential refresh
+or dispatch. Structured mode preserves the
+stream's chunks, usage and metadata; it does **not** promise JSON-schema validity,
+correct tool arguments, additional model capabilities or reasoning-history replay.
+Validate and authorize tool calls at the normal execution boundary. The legacy
+DeepSeek repair still drops stream metadata when it synthesizes a tool-call chunk;
+select structured mode to avoid that path. Existing defaults remain unchanged.
+
+Closing these Python wrappers closes their owned Python stream generators. This
+does not establish origin cancellation: the released Sandhi binding has no explicit
+iterator close operation, and backend cancellation remains a separate acceptance gate.
 
 ---
 
@@ -482,6 +508,9 @@ victor chat --provider xai --model grok-beta
 ### Cerebras
 
 Ultra-fast inference using Wafer Scale Engine hardware.
+
+Use the [explicit text response mode](#explicit-text-response-handling) to preserve
+ordinary prose and provider-supplied reasoning without the legacy presentation filter.
 
 **Setup**:
 ```bash
