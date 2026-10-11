@@ -914,7 +914,8 @@ October 11 continuation, based on `c79b8b347`:
 
 | Foundation | Finding / disposition | Acceptance still required |
 | --- | --- | --- |
-| Groq Python stream ownership | Early consumer close leaves the parent generator suspended. Extend the existing shared close matrix and use the same `aclosing` ownership as DeepSeek/Cerebras; keep prompt truncation and original chunks unchanged | Source regression, independent review and CI; native/origin cancellation is separate |
+| Groq Python stream ownership (G87) | ✅ Merged [#1295](https://github.com/anvai-labs/victor/pull/1295), `62c4f4395`, with clean review and 39 applicable green CI gates; existing shared close matrix preserves prompt policy and chunks | Native/origin cancellation remains separate |
+| Displayable reasoning (G88) | Sandhi [#364](https://github.com/anvai-labs/sandhi/pull/364) introduces optional typed `output.reasoning` independently of raw-response echo. Victor prefers canonical text, preserves empty strings and older-binding behavior, and rejects malformed canonical values without replay | Source/CI approval, upstream release, then actual-provider qualification; current released pin remains 0.13.0 |
 | Thinking/tool continuation (G85) | Victor `Message.metadata` is intentionally internal; `build_openai_messages` drops assistant reasoning. Sandhi 0.13.0 `ChatMessageV1::Assistant` has no reasoning-history field. Streaming runtime currently counts reasoning characters without retaining continuation data | Define a versioned typed continuation field in Sandhi first, qualify both bindings/codecs, then preserve it through Victor messages, history and checkpoints with explicit provider/model scope |
 | Released tracked streaming (G83/G84) | Sandhi #362/#363 still require hosted approval; auto-squash is enabled and the latest release remains 0.13.0 | Hosted approval, merge, promotion/release, consumer qualification, then managed lifecycle and original C5 |
 
@@ -925,6 +926,14 @@ buffered responses, persistence/resume and cross-provider rejection before claim
 thinking/tool support. Provider-returned continuation data must remain separate
 from user-facing text and authorization; synthetic fixtures should contain no real
 private reasoning. This source inspection is not a live continuation result.
+
+Keep the output and continuation gates distinct. Clients can receive provider-supplied
+display text through the existing `CompletionResponse.metadata.reasoning_content`
+without enabling a duplicate native body. This does not authorize tool execution or
+provide provider-scoped replay data. Next, land/release the Sandhi output contract and
+qualify the compatible Victor reader; then design the typed request-history contract
+before multi-turn/persistence/resume and live C5 work. No UI display-policy or shared
+gateway deployment change is included in this consumer increment.
 
 ### Broader provider audit and credential-backed qualification
 

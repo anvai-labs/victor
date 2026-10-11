@@ -383,6 +383,9 @@ async def map_sandhi_error(exc: BaseException, provider_name: str, timeout: floa
     return ProviderError(
         detail,
         provider=provider_name,
+        # A malformed structured response is terminal, even though its HTTP
+        # status is 502. Do not turn Sandhi's contract refusal into a retry hint.
+        recoverable=code != "invalid_response",
         status_code=(
             int(status) if status is not None else (400 if code == "invalid_request" else None)
         ),
@@ -999,7 +1002,18 @@ class SandhiTypedProviderMixin:
             "ollama",
         }:
             native = extensions.get("openai")
-        reasoning = extensions.get("reasoning")
+        # Minor 11 supplies displayable text independently of the native echo.
+        # Older bindings retain their explicit legacy extension/native-body path.
+        reasoning = output.get("reasoning")
+        if reasoning is not None and not isinstance(reasoning, str):
+            raise ProviderError(
+                "Sandhi output.reasoning must be text or null",
+                provider=self._sandhi_slug(),
+                recoverable=False,
+            )
+        typed_reasoning_present = reasoning is not None
+        if reasoning is None:
+            reasoning = extensions.get("reasoning")
         if reasoning is None and isinstance(native, dict):
             reasoning = (
                 (native.get("choices") or [{}])[0].get("message", {}).get("reasoning_content")
@@ -1010,7 +1024,7 @@ class SandhiTypedProviderMixin:
             slug="anthropic" if self._sandhi_slug() == "anthropic" else self._sandhi_slug(),
         )
         metadata: Dict[str, Any] = {}
-        if reasoning:
+        if reasoning or typed_reasoning_present:
             metadata["reasoning_content"] = reasoning
         diagnostics = dict(_usage_diagnostics(response.get("usage")) or {})
         diagnostics.update(_latency_fields(response.get("usage")))

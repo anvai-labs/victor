@@ -1842,7 +1842,9 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   classification and preserves provider metadata. Default legacy presentation is
   retained; origin cancellation and live qualification are not established.
 
-- **G87 — Groq Python stream ownership misses early-close cleanup (source fix pending merge).**
+- **G87 — Groq Python stream ownership misses early-close cleanup (✅ source fix merged).**
+  Merged [#1295](https://github.com/anvai-labs/victor/pull/1295) at `62c4f4395`
+  after clean independent review and all 39 applicable CI gates passed.
   Audit at `c79b8b347` finds the remaining `SandhiOpenAICompatPolicy` wrapper with
   unowned re-yielding in `GroqProvider.stream`. An injected parent stream stays
   suspended after explicit outer close. The source fix uses `aclosing` and extends
@@ -1852,6 +1854,19 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   provider-specific owners. No duplicate lifecycle suite is added. This qualifies
   Python generator ownership only; released native iterator/origin cancellation
   and actual-provider lifecycle acceptance remain open.
+
+- **G88 — Buffered reasoning depends on the optional native response echo (source qualification).**
+  Released Sandhi 0.13.0 lacks typed assistant output reasoning for Chat/Responses.
+  Victor disables raw response duplication by design, but clients still need explicit
+  provider-supplied reasoning or summaries. Sandhi
+  [#364](https://github.com/anvai-labs/sandhi/pull/364) adds optional `output.reasoning`
+  (contract minor 11), typed extraction and nonretryable malformed-output errors.
+  The Victor consumer prefers this field, preserves explicit empty text and legacy
+  behavior when absent, and rejects malformed canonical values without fallback or
+  replay. Existing transport tests own these cases. This display-output increment
+  does not enable model thinking, retain opaque continuation, or implement G85
+  history/checkpoint replay. Released dependency pin remains 0.13.0; upstream
+  merge/release and matched provider qualification are still required.
 
 Validation-test audit: neither live harness had direct tests before this follow-up.
 The new mixed-harness suite covers rejected/malformed/missing reviews, inclusive
