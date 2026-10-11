@@ -61,7 +61,7 @@ codegraph = [
     "victor-codegraph>=0.1.0,<1.0",
 ]
 dev = [
-    "numpy>=1.24,<2.5",  # Synthetic embeddings in indexer tests
+    "numpy>=1.24,<2.6",  # Synthetic embeddings in indexer tests
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
     "pytest-cov>=4.1",
