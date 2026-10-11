@@ -289,22 +289,33 @@ async def test_stream_consumes_typed_events_without_sse_round_trip(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_binding_failure_is_mapped_and_never_replayed(monkeypatch):
+@pytest.mark.parametrize(
+    "code,retryable,status,expected",
+    [
+        ("rate_limited", True, 429, ProviderRateLimitError),
+        ("invalid_response", False, 502, st.ProviderError),
+    ],
+)
+async def test_binding_failure_is_mapped_and_never_replayed(
+    monkeypatch, code, retryable, status, expected
+):
     error = RuntimeError(
         json.dumps(
             {
-                "code": "rate_limited",
+                "code": code,
                 "message": "slow down",
-                "retryable": True,
-                "http_status": 429,
+                "retryable": retryable,
+                "http_status": status,
             }
         )
     )
-    install_runtime(monkeypatch, FakeTypedProvider(complete_error=error))
+    runtime = install_runtime(monkeypatch, FakeTypedProvider(complete_error=error))
     provider = make_provider()
 
-    with pytest.raises(ProviderRateLimitError):
+    with pytest.raises(expected) as raised:
         await provider.chat([Message(role="user", content="hi")], model="deepseek-chat")
+    assert raised.value.recoverable is retryable
+    assert len(runtime.handle.requests) == 1
 
 
 class TestTransportErrorTlsDiagnosis:

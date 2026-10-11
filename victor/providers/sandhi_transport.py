@@ -383,6 +383,9 @@ async def map_sandhi_error(exc: BaseException, provider_name: str, timeout: floa
     return ProviderError(
         detail,
         provider=provider_name,
+        # A malformed structured response is terminal, even though its HTTP
+        # status is 502. Do not turn Sandhi's contract refusal into a retry hint.
+        recoverable=code != "invalid_response",
         status_code=(
             int(status) if status is not None else (400 if code == "invalid_request" else None)
         ),
