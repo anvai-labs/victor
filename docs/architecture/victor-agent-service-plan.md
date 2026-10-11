@@ -606,18 +606,31 @@ edit. A mock test is not live provider or C5 evidence.
   with 13 reasoning included. These are default-path compatibility checks, not
   tracked settlement/member/C5 acceptance. G84 tracks live model-catalog drift and
   explicit harness admission; the original six-Qwen/one-ZAI C5 scope is unchanged.
-- G84 harness admission is LOCAL_PASS as an independent VAS-17 increment while Sandhi
-  #362 awaits hosted review: `feat/deepseek-validation-route`, based on
-  `0aebebd876f15da483a2adb908d0a30b961b2e1c`. It extends the existing OAuth and
-  matrix owners to admit an explicitly configured DeepSeek cohort. DeepSeek requires
-  an OIDC profile; original ZAI/InferFlux defaults and six-Qwen/one-ZAI C5 remain.
-  Existing test matrices cover separate accounting, deny-before-token, model and
-  capability boundaries; a two-route case verifies no cross-route model widening.
-  Local validation: 187 affected tests, 34,366 collected, Black/Ruff, touched-module
-  MyPy, CLI help, strict MkDocs, internal links and repository hygiene pass. Existing
-  test owners were extended; no equivalent regression was removed without evidence.
-  G84 model metadata and actual-member acceptance remain open; source admission
-  does not bypass the Sandhi release/deployment/streaming gates.
+- G84 harness admission merged in [#1292](https://github.com/anvai-labs/victor/pull/1292)
+  as `21b43fcac34fb6aed2150ccf05fe5ade5cbc52d5`, with clean exact-commit review
+  and all 39 applicable CI checks. Local: 187 affected tests, 34,366 collected,
+  formatting/lint/typing, CLI smoke, strict docs/links/hygiene. DeepSeek requires an
+  explicit OIDC profile; original ZAI/InferFlux defaults and six-Qwen/one-ZAI C5
+  remain. Source admission is complete; current-model metadata, released tracked
+  streaming and actual-member acceptance remain open. Catalog data belongs to
+  Sandhi; preserve Victor's explicit operating budgets when adopting its release.
+- G84 catalog correction is [Sandhi #363](https://github.com/anvai-labs/sandhi/pull/363),
+  candidate `b8a7955275f24881dc80b6e8da115463ae18ede1`: clean independent review,
+  875 Rust tests, 95 Python binding tests and 88 Node binding tests pass. The local
+  candidate wheel preserves the released 0.13 legacy descriptor prefix exactly.
+  Source merge, publication and Victor policy adoption remain pending; live
+  formation, thinking/tool continuation and streaming settlement are not implied.
+- G85 provider-consolidation audit (October 11, source baseline `21b43fcac`): ZAI
+  and DeepSeek already share `SandhiOpenAICompatPolicy` and the Sandhi typed
+  transport. Separate class names are compatibility/policy surfaces, not proof of
+  separate HTTP engines. The remaining exception is DeepSeek's whole-stream DSML
+  text repair, model-name reasoning heuristic and stale model facts. Record the
+  bounded migration below before changing defaults; this audit is not a repair.
+  A synthetic parent-stream probe reproduced publication only after upstream
+  exhaustion for ordinary text; DSML repair produced a tool-call chunk while
+  dropping supplied usage and reasoning metadata. No HTTP/model call or tool
+  execution occurred. Retained script/report:
+  `var/gateway-upgrade-013-20261011/provider-consolidation/`.
 - VAS-02a merged evidence: Linux Python 3.12/pip-tools 7.6.1 regenerated the CPU
   embeddings lock with `multidict==6.9.1` and removed stale Textual-only dependencies
   absent from current deployment metadata. Rust edge TLS resolves `rustls==0.23.45`
@@ -830,12 +843,93 @@ review found stylesheet growth; the canonical style owner and 100-switch regress
 fix it. [Evidence manifest](evidence/workflow-visualizer-ui-2026-10-09.json) records
 hashes and the explicit synthetic, authentication and streaming limits.
 
+## OpenAI-compatible provider consolidation
+
+Goal: one protocol implementation with explicit, validated vendor profiles.
+"OpenAI-compatible" does not guarantee identical optional fields, terminal usage,
+reasoning history, model limits, authentication or endpoint entitlements.
+
+| Concern | Canonical owner | Consolidation action |
+| --- | --- | --- |
+| HTTP, Chat encoding, SSE framing, usage parsing and cancellation | Sandhi protocol/transport owners | Reuse shared implementation in embedded and network modes; no failure-driven bypass |
+| Documented wire differences | Sandhi catalog-selected profile | Small typed profiles and shared contract matrices; keep strict OpenAI defaults; never infer profile from model name or arbitrary URL |
+| Model IDs, endpoint facts and capabilities | Sandhi descriptors | Refresh from verified primary sources; qualify published binding before adoption |
+| Model exposure, request budgets and endpoint selection | Victor validated policy | Distinguish chosen operating caps from provider maxima; preserve ZAI plan/region authorization |
+| Credentials and attribution | Existing credential/gateway owners | Keep identity/grant/model isolation; protocol similarity cannot broaden credentials or entitlement |
+| Legacy provider class/import names | Victor compatibility wrappers | Retain stable public imports; delegate to shared owners |
+| Exceptional response repair | Explicit compatibility policy | TDD and opt-in/versioned migration; no automatic promotion of ordinary text to executable tool calls on the new strict surface |
+
+Order the remaining work:
+
+1. Finish G83's reviewed source/release and tracked lifecycle gates. Its ZAI and
+   DeepSeek profiles share parsing and dispatch; provider-specific validation is
+   intentional, not a second transport.
+2. Refresh G84 catalog facts in Sandhi, publish them, then reconcile Victor's
+   metadata and name-based policies through the existing config owner. Do not
+   increase runtime token budgets solely because documented maxima increased.
+3. G85: reproduce DeepSeek first-chunk delay, bounded-memory behavior and metadata
+   loss in the existing provider test owners. Add an explicit strict structured
+   tool-call path and an observable legacy compatibility mode; preserve/version
+   existing defaults. Remove dead/duplicate helpers only after call-site and parity
+   evidence. Do not replace legacy imports or add a second provider registry.
+4. Qualify thinking/tool-history round trips and streaming accounting across both
+   modes. The [DeepSeek thinking contract](https://api-docs.deepseek.com/guides/thinking_mode/)
+   requires prior reasoning data on tool conversations; a successful one-turn
+   text probe cannot establish that behavior.
+5. Use one parameterized protocol matrix with provider-specific negative cases,
+   then matched live cohorts. Compare first-token latency, memory and verified
+   completion on representative tasks before claiming a performance improvement.
+
+Source owners inspected: `victor/providers/zai_provider.py`, `deepseek_provider.py`,
+`sandhi_openai_compat_policy.py`, `sandhi_transport.py` and
+`victor/config/openai_compat_model_policy.yaml`. G85 has bounded synthetic reproductions; permanent regression tests, real transport
+qualification and remediation remain open. No new public API or
+transport implementation is authorized by this documentation alone.
+
+### Broader provider audit and credential-backed qualification
+
+The October 11 source inventory at `21b43fcac` finds **12 direct subclasses** of
+`SandhiOpenAICompatPolicy`. Separate import names do not mean separate transports.
+This inventory is source evidence, not twelve live-provider acceptance results.
+
+| Provider group | Existing specialization | Decision / next evidence |
+| --- | --- | --- |
+| Together, Fireworks, OpenRouter, Mistral | Policy key and compatibility exports; no method overrides | Already consolidated; preserve imports and extend shared contract tests instead of rewriting |
+| DeepSeek | DSML repair, whole-stream buffering and model-name reasoning/tool policy | G85 first: permanent regression, explicit compatibility boundary, metadata/continuation qualification |
+| Cerebras | Regex-based inline reasoning presentation; timing metadata | G86: ordinary prose can be misclassified; qualify structured reasoning and legacy migration before changing defaults |
+| Groq | Prompt-size truncation and queue-time metadata | Keep explicit Victor budget policy; audit shared metadata ownership and cancellation before removing overrides |
+| Moonshot, xAI | K3 request constraints / model aliases and capability selection | Audit descriptor parity and call sites before consolidating facts; aliases must preserve public compatibility |
+| ZAI, Qwen | Plan/region selection and OAuth lifecycle respectively | Keep explicit entitlement/auth boundaries; shared protocol must not broaden credential scope |
+| InferFlux | Operator model lineup and admin capacity discovery | Preserve explicit serving capacity; qualify through released local endpoint |
+| OpenAI, vLLM, LM Studio, llama.cpp | Sandhi typed variants outside the 12 policy subclasses | Include in shared transport matrix; retain separate Chat/Responses dialect selection |
+| Azure OpenAI and other native-only adapters | Explicit migration exclusions in `resolve_transport_class` | Separate auth/deployment/protocol assessment; do not claim complete consolidation or change via an unverified URL override |
+
+Credentials enable qualification; they never select a parser, capability or
+fallback. Audit deterministic duplication and documented contracts without live
+keys first. Extend existing owners (`test_sandhi_openai_compat_policy.py`,
+`test_sandhi_transport.py`, event-conformance and provider-specific suites),
+retaining distinct transport, policy and compatibility assertions. A similar test
+name is not evidence of duplicate coverage; remove a case only after demonstrating
+the surviving assertion covers its failure mode.
+
+Then use configured credentials for bounded, read-only cohorts: first DeepSeek,
+ZAI and InferFlux, followed by other explicitly configured providers. Record each
+provider/model/endpoint, exact binary/binding version, request/run correlation,
+first-chunk and total latency, usage coverage/conservation and outcome. Exercise
+structured tool proposals without external side effects, tool-result/reasoning
+continuation, complete streaming, cancellation and both embedded/network modes
+where deployed. Use fixtures for invalid credentials, malformed output and retry
+storms; do not induce those faults against shared live services. Missing keys,
+unreleased repairs or missing observations mean **unqualified**, not pass.
+Existing successful route smoke evidence need not be repeated without a changed
+contract or runtime; it does not replace actual-member or original C5 acceptance.
+
 ## Work ledger
 
 Planning/evidence: VAS-00 is accepted; VAS-01 is merged.
 Delivery: VAS-02, VAS-03a, VAS-11a, VAS-11b, VAS-11d, VAS-12a and VAS-12b are
 merged. VAS-04a, VAS-04b and VAS-02a are merged. VAS-03b is merged evidence only; VAS-05g and VAS-15a are merged.
-VAS-17 released InferFlux provenance and bounded wire acceptance now pass; tracked buffered gateway HTTP settlement/recovery merged in Sandhi #338 and synthetic TLS/OIDC composition in #350. Both gateways now run verified Sandhi 0.13.0 in default accounting mode: Mac OIDC preserves 1,071 prior rows, remote token compatibility preserves 248. G83 leaves released ZAI/DeepSeek tracked-stream acceptance open; Sandhi #362 supplies the reviewed source repair. DeepSeek default-path OIDC deployment passes; G84 tracks model-catalog/harness follow-up. OIDC source crash/restart and isolated released-binary/deployed-policy buffered qualification pass (#351). Strict OpenAI Chat stream usage qualification merged in #352; bounded complete-event framing and immutable observation retention merged in #353. Sandhi #354 merged opt-in raw response ownership after clean review and all 13 applicable CI gates; Sandhi #355 merged opt-in bounded streaming HTTP terminal/settlement and retained recovery. Sandhi #356 qualifies standalone streaming crash/restart, contention and TLS/OIDC completion/disconnect/shutdown using the existing process fixtures. Sandhi 0.13.0 is published with every artifact target verified; official-wheel consumer and local Homebrew smoke pass. Consumer/formula merge gates are complete; managed tracked deployment remains next; broader lifecycle remains open. Parent VAS-03 and formal FEP acceptance remain open. VAS-14e has a merged existing-visualizer baseline (#1271); its parent and other UI implementation rows remain open. These counts are not
+VAS-17 released InferFlux provenance and bounded wire acceptance now pass; tracked buffered gateway HTTP settlement/recovery merged in Sandhi #338 and synthetic TLS/OIDC composition in #350. Both gateways now run verified Sandhi 0.13.0 in default accounting mode: Mac OIDC preserves 1,071 prior rows, remote token compatibility preserves 248. G83 leaves released ZAI/DeepSeek tracked-stream acceptance open; Sandhi #362 supplies the reviewed source repair. DeepSeek default-path OIDC deployment passes; G84 harness admission merged in #1292; its model-catalog/release follow-up remains. G85 tracks the inspected DeepSeek legacy-stream/policy consolidation gap. OIDC source crash/restart and isolated released-binary/deployed-policy buffered qualification pass (#351). Strict OpenAI Chat stream usage qualification merged in #352; bounded complete-event framing and immutable observation retention merged in #353. Sandhi #354 merged opt-in raw response ownership after clean review and all 13 applicable CI gates; Sandhi #355 merged opt-in bounded streaming HTTP terminal/settlement and retained recovery. Sandhi #356 qualifies standalone streaming crash/restart, contention and TLS/OIDC completion/disconnect/shutdown using the existing process fixtures. Sandhi 0.13.0 is published with every artifact target verified; official-wheel consumer and local Homebrew smoke pass. Consumer/formula merge gates are complete; managed tracked deployment remains next; broader lifecycle remains open. Parent VAS-03 and formal FEP acceptance remain open. VAS-14e has a merged existing-visualizer baseline (#1271); its parent and other UI implementation rows remain open. These counts are not
 an effort-weighted completion percentage. The original formation denominator is
 independent. Update this paragraph and the rows together at each checkpoint.
 

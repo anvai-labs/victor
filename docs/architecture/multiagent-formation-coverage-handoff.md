@@ -1786,13 +1786,47 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   model/member-admin/unauthenticated-admin requests return 403/403/401. The key stays
   in local Keychain; the remote gateway has not received it. The standalone
   in-process probe also passes. This does not qualify tracked settlement or C5.
-  The next bounded increment admits DeepSeek to the existing matrix through an
-  explicit OIDC profile, shared provider allowlist and the existing credential/
-  accounting owners. Route/model denial and separate accounting checks remain;
+  Harness admission is ✅ merged in [#1292](https://github.com/anvai-labs/victor/pull/1292)
+  (`21b43fcac`), with clean review and all 39 applicable CI checks. It admits
+  DeepSeek through an explicit OIDC profile, shared provider allowlist and the
+  existing credential/accounting owners. Route/model denial and separate accounting checks remain;
   no InferFlux-token fallback is allowed. Source admission is not live formation
-  acceptance, and curated model metadata remains open. Preserve the required
+  acceptance. Curated metadata is the reviewed source candidate
+  [Sandhi #363](https://github.com/anvai-labs/sandhi/pull/363); merge/release and
+  Victor consumer-policy qualification remain open. Preserve the required
   six-Qwen/one-ZAI C5 verdict separately.
   Evidence: `var/gateway-upgrade-013-20261011/deepseek-registration/`.
+
+- **G85 — DeepSeek legacy response repair and capability policy need consolidation (open).**
+  Source audit at `21b43fcac`: ZAI and DeepSeek already share the Sandhi transport
+  through `SandhiOpenAICompatPolicy`. DeepSeek's `stream()` nevertheless collects
+  every chunk before yielding; its DSML repair converts text to tool calls and
+  emits a replacement final chunk without the buffered chunks' metadata. Its
+  `_is_reasoner()` uses name substrings and disables tools for that branch, while
+  current models expose thinking and tool use together. A synthetic parent-stream
+  injection reproduced first publication after upstream exhaustion and a repaired
+  tool-call chunk without the supplied usage/reasoning metadata. It made no HTTP,
+  model or tool calls; this is not live acceptance or a performance benchmark.
+  Script/report: `var/gateway-upgrade-013-20261011/provider-consolidation/`.
+  Follow the [consolidation sequence](victor-agent-service-plan.md#openai-compatible-provider-consolidation):
+  existing test owners first; explicit strict structured-output behavior and a
+  documented legacy mode; preserve/version defaults, metadata and cancellation.
+  Qualify reasoning-history round trips and first-chunk/memory behavior before
+  removing wrappers or claiming live acceptance. No second registry/transport or
+  permissive parser fallback. G83 release and original C5 remain independent gates.
+
+- **G86 — Cerebras reasoning presentation uses prose classification (open).**
+  The broader OpenAI-compatible source audit at `21b43fcac` found
+  `cerebras_provider.py` classifies a leading paragraph using regular expressions
+  and model-name matching. A synthetic helper call with
+  `First I need your order number.\n\nPlease enter it in the form.` classifies the
+  first, ordinary user-facing sentence as reasoning. No provider/model calls were
+  made; this is not a measured live frequency or evidence about current Cerebras
+  wire behavior. Qualify structured reasoning fields and make any retained legacy
+  presentation mode explicit with a compatibility migration. Preserve visible text,
+  usage, metadata and cancellation; add the negative case to an existing provider
+  test owner after duplicate-coverage audit. Follow the
+  [broader qualification plan](victor-agent-service-plan.md#broader-provider-audit-and-credential-backed-qualification).
 
 Validation-test audit: neither live harness had direct tests before this follow-up.
 The new mixed-harness suite covers rejected/malformed/missing reviews, inclusive
