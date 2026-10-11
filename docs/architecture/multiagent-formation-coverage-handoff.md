@@ -1753,7 +1753,7 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   services before a parity or deprecation claim. This source audit is not evidence
   of a live-member failure and does not justify removing public imports.
 
-- **G83 — ZAI tracked-stream usage contract is unqualified (open).**
+- **G83 — Provider tracked-stream compatibility needs released acceptance (open).**
   New isolated Sandhi 0.13.0/deployed-OIDC evidence on October 11 passes both
   Qwen tracked streams with exact request/observation/receipt joins. ZAI GLM-5.3
   instead returns HTTP 200 then a failed body; the persisted outcome is
@@ -1763,13 +1763,33 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   confirms usage on a nonempty final choice (`finish_reason="length"`), followed
   by `[DONE]`; 19 prompt/32 completion tokens include 30 reasoning tokens, with
   explicit zero cache. This is wire evidence, not task completion or a replay.
-  Do not weaken the common guard. Review the provider contract, then extend the existing Sandhi qualifier/observer test owners with
-  positive and malformed/partial/conflicting-usage cases if a change is justified.
-  Keep one parser and one derivation; no silent fallback, automatic replay or
-  manufactured settlement. Buffered qualification and both default-mode managed
+  Provider documentation and separate DeepSeek wire evidence support catalog-scoped
+  terminal-choice contracts. [Sandhi #362](https://github.com/anvai-labs/sandhi/pull/362)
+  implements them through the existing qualifier, parser, observer and settlement
+  owners. Strict OpenAI/custom/InferFlux defaults remain unchanged; malformed or
+  post-final data retain unresolved evidence. Both provider regressions reproduced
+  `NonFinalUsage` before the repair. Local workspace validation passes 879 tests;
+  exact-commit adversarial review is clean. Release, deployment and tracked live
+  acceptance remain required; no automatic replay or manufactured settlement. Buffered qualification and both default-mode managed
   0.13.0 deployments pass; they do not close tracked lifecycle or C5. See the
   [canonical tracker](victor-agent-service-plan.md) and retained local evidence
   `var/gateway-upgrade-013-20261011/stream-observations.json`.
+
+- **G84 — DeepSeek discovery and validation-harness coverage lag its live API (open).**
+  The October 11 live `/models` response lists `deepseek-flash` and `deepseek-v4-pro`;
+  Sandhi 0.13.0's curated descriptors still list `deepseek-chat`/`deepseek-reasoner`.
+  Verify capabilities and limits from primary sources before refreshing descriptors;
+  do not invent aliases. The Mac gateway now has `deepseek:victor-multiagent`, with
+  OIDC grant `deepseek` limited to `deepseek-flash` under `multiagent-validation`.
+  Buffered and streamed released-default-path smokes pass: two calls, 70 fresh input,
+  30 output, explicit zero cache, matching SQLite/run/dashboard totals. Forbidden
+  model/member-admin/unauthenticated-admin requests return 403/403/401. The key stays
+  in local Keychain; the remote gateway has not received it. The standalone
+  in-process probe also passes. This does not qualify tracked settlement or C5.
+  The canonical validation harness still admits only ZAI/InferFlux; add DeepSeek
+  through an explicit provider/route contract and tests before including it in any
+  formation matrix. Preserve the required six-Qwen/one-ZAI C5 verdict separately.
+  Evidence: `var/gateway-upgrade-013-20261011/deepseek-registration/`.
 
 Validation-test audit: neither live harness had direct tests before this follow-up.
 The new mixed-harness suite covers rejected/malformed/missing reviews, inclusive
