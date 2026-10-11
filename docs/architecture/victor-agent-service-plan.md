@@ -517,11 +517,14 @@ edit. A mock test is not live provider or C5 evidence.
   only in the private test environment; no unrelated dependency pin changed.
   Homebrew's local 0.13.0 installation passes both executable versions, HTTP
   identity, health/readiness and graceful shutdown; the formula update has separate
-  review/CI. Shared gateways remain on 0.12.0 pending managed qualification.
+  review/CI. At release qualification, both shared gateways remained on 0.12.0;
+  the subsequent remote upgrade is recorded below.
   The embedded binding retains its facade and does not acquire proxy ledger
   enforcement. Evidence and restart state: `var/sandhi-release-013-2026-10-10/`.
-- Next VAS-17 owner: this co-design session. Finish consumer/formula merge gates,
-  then qualify the released runtime with preserved state and deployed
+- Next VAS-17 owner: this co-design session. Consumer/formula gates completed
+  in [Victor #1285](https://github.com/anvai-labs/victor/pull/1285) and
+  [Tap #101](https://github.com/anvai-labs/homebrew-tap/pull/101). Qualify the released
+  runtime with preserved state and deployed
   TLS/OIDC/provider routes. Record rollback identities before managed rollout,
   broader lifecycle acceptance, actual-member C5 and formation cohorts. Preserve
   failed evidence, shared caches and credentials. Source and package smoke do not
@@ -534,6 +537,33 @@ edit. A mock test is not live provider or C5 evidence.
   telemetry export and tracked threshold alerts remain separate open capabilities.
   FEP-0039 remains in Review; VAS-11c still needs a qualified production receipt
   operation. Do not restart merged repairs or create a new public Victor API.
+- VAS-17 preserved-state deployment preflight (2026-10-11): the official Linux
+  Sandhi 0.13.0 candidate passes CA-verified TLS readiness, denied anonymous admin
+  access, authorized admin/dashboard access and clean shutdown against a SQLite
+  online backup. Real Qwen3 chat and BGE embeddings reconcile two calls, 22 input
+  tokens and one output token across wire usage, SQLite, per-run totals and
+  dashboard totals. Chat reports cache explicitly; embeddings omit it. These are
+  new deployment probes, not actual-member/C5 evidence. Default accounting mode
+  does not establish the tracked response-header/intent/receipt correlation join.
+  Original passing reports were rechecked without repeating inference.
+  The host owner completed remote activation: aiserver1 now runs the official
+  0.13.0 binary (SHA-256 `e6018a8f22b999bfd37f35fb936f4a24fc5fcbca5b52880ad018938565beb624`).
+  Post-cutover TLS/auth, Qwen3/BGE probes and conservation pass again (two calls,
+  22 input / one output token); all 248 prior usage rows remain intact. Independent
+  read-only verification confirms the running binary, unit, environment/config
+  hashes and effective settings match the reviewed deployment; no model call was
+  repeated for this verification. Token compatibility and default accounting
+  (`off`) remain unchanged; remote cloud credentials remain unavailable.
+  Rollback unit/binary and online backups are retained. The Mac remains on 0.12.0.
+  The Mac 0.13.0 tracked streaming candidate stopped at credential-vault startup
+  at both 15- and 60-second readiness bounds, before any provider calls. A macOS
+  SecurityAgent process appeared; Keychain interaction is suspected, not proven.
+  Do not restart the working Mac gateway until credential access and qualification
+  pass. No credential transfer, shared-cache clear or database rollback occurred.
+  Private restart evidence and guarded deployment scripts are retained under
+  `var/gateway-upgrade-013-20261011/`; preserve both failed Mac reports. Remaining:
+  Mac credential access and qualification, deployed tracked
+  lifecycle and the reviewed full C5 verdict. No source/release tests need repeating.
 - VAS-02a merged evidence: Linux Python 3.12/pip-tools 7.6.1 regenerated the CPU
   embeddings lock with `multidict==6.9.1` and removed stale Textual-only dependencies
   absent from current deployment metadata. Rust edge TLS resolves `rustls==0.23.45`
@@ -751,7 +781,7 @@ hashes and the explicit synthetic, authentication and streaming limits.
 Planning/evidence: VAS-00 is accepted; VAS-01 is merged.
 Delivery: VAS-02, VAS-03a, VAS-11a, VAS-11b, VAS-11d, VAS-12a and VAS-12b are
 merged. VAS-04a, VAS-04b and VAS-02a are merged. VAS-03b is merged evidence only; VAS-05g and VAS-15a are merged.
-VAS-17 released InferFlux provenance and bounded wire acceptance now pass; tracked buffered gateway HTTP settlement/recovery merged in Sandhi #338 and synthetic TLS/OIDC composition in #350. Both gateways run released Sandhi 0.12.0; OIDC source crash/restart and isolated released-binary/deployed-policy buffered qualification pass (#351). Strict OpenAI Chat stream usage qualification merged in #352; bounded complete-event framing and immutable observation retention merged in #353. Sandhi #354 merged opt-in raw response ownership after clean review and all 13 applicable CI gates; Sandhi #355 merged opt-in bounded streaming HTTP terminal/settlement and retained recovery. Sandhi #356 qualifies standalone streaming crash/restart, contention and TLS/OIDC completion/disconnect/shutdown using the existing process fixtures. Sandhi 0.13.0 is published with every artifact target verified; official-wheel consumer and local Homebrew smoke pass. Consumer/formula merge gates and managed tracked deployment remain next; broader lifecycle remains open. Parent VAS-03 and formal FEP acceptance remain open. VAS-14e has a merged existing-visualizer baseline (#1271); its parent and other UI implementation rows remain open. These counts are not
+VAS-17 released InferFlux provenance and bounded wire acceptance now pass; tracked buffered gateway HTTP settlement/recovery merged in Sandhi #338 and synthetic TLS/OIDC composition in #350. The Mac gateway remains on Sandhi 0.12.0; aiserver1 now runs verified 0.13.0 in token/default-accounting mode with all 248 prior usage rows preserved. OIDC source crash/restart and isolated released-binary/deployed-policy buffered qualification pass (#351). Strict OpenAI Chat stream usage qualification merged in #352; bounded complete-event framing and immutable observation retention merged in #353. Sandhi #354 merged opt-in raw response ownership after clean review and all 13 applicable CI gates; Sandhi #355 merged opt-in bounded streaming HTTP terminal/settlement and retained recovery. Sandhi #356 qualifies standalone streaming crash/restart, contention and TLS/OIDC completion/disconnect/shutdown using the existing process fixtures. Sandhi 0.13.0 is published with every artifact target verified; official-wheel consumer and local Homebrew smoke pass. Consumer/formula merge gates are complete; managed tracked deployment remains next; broader lifecycle remains open. Parent VAS-03 and formal FEP acceptance remain open. VAS-14e has a merged existing-visualizer baseline (#1271); its parent and other UI implementation rows remain open. These counts are not
 an effort-weighted completion percentage. The original formation denominator is
 independent. Update this paragraph and the rows together at each checkpoint.
 
@@ -800,7 +830,7 @@ independent. Update this paragraph and the rows together at each checkpoint.
 | VAS-15 | GraphQL/MCP/legacy adapter convergence and deprecation | VAS-08, VAS-13, VAS-14 | TODO | Inventory external consumers, policy/attribution parity; one owner, compatibility window; retire only evidenced duplicates |
 | VAS-15a | Preserve outcomes through the retained Python HTTP adapter | VAS-00 | ✅ MERGED | G80; [#1268](https://github.com/anvai-labs/victor/pull/1268), `e9004a5d8`; exact-candidate independent review and all applicable CI green. 144 focused/696 affected/81 docs/44 selector/199 selected tests, 34,082 collected, 95% changed-line coverage; no POST replay, adapter removal or durability claim; direct adapter remains G82/VAS-15 |
 | VAS-16 | Measured performance and broader lifecycle acceptance | VAS-12, VAS-13, VAS-14, VAS-15 | TODO | Same-workload baseline/comparison; cold/warm, 1/8/32 concurrency, memory/backpressure, deadlines and crash/recovery |
-| VAS-17 | Released foundation deployment and lifecycle acceptance for C5 | VAS-02, VAS-11, VAS-12 | ACTIVE (partial foundation accepted) | InferFlux v0.5.0 released/deployed; 16 synthetic wire checks pass through direct HTTP/TLS and Sandhi 0.11.0; gateway reconciliation 4 calls/48 in/2 out. Sandhi #336 admission and #337 usage qualification merged; #338 tracked buffered HTTP/recovery merged after 13 applicable green CI checks; released in Sandhi 0.12.0 and deployed on both hosts; tracked-mode lifecycle qualification pending. Two tracked crash/restart cases merged in #339 after all six applicable CI gates passed. Terminal-publication contention/death cases qualified in Sandhi #340 with 46 affected tests, 12 metrics tests and two negative controls. Synthetic buffered TLS/OIDC source acceptance merged in Sandhi #350 with 149 unique local tests and 7 applicable CI checks. OIDC crash/restart composition and isolated released 0.12.0/deployed-policy qualification pass in #351 (64 affected tests, 3 live provider calls / 51 charged tokens); managed gateway unchanged. Strict OpenAI Chat stream-usage core qualification merged in #352 after 862 Rust tests, 18 SDK regressions and 13 applicable green CI checks; no transport activation. Bounded complete-event framing/immutable observation merged in #353 after 867 Rust tests, 18 SDK regressions and 13 applicable green CI checks. Sandhi #354 merged opt-in raw response ownership with Final usage retained through drop/timeout after clean exact-commit review, 871 Rust tests, 18 SDK regressions and all 13 applicable CI checks. Sandhi #355 merged bounded transparent streaming HTTP ownership, durable terminal/settlement, shutdown headroom and retained recovery. Sandhi #356 merges standalone streaming process/TLS/OIDC acceptance (40 affected process tests; clean exact-commit review). Sandhi 0.13.0 published through #357/#358 with all artifact targets verified; 1,712 official-wheel consumer tests and local Homebrew binary smoke pass. Next: consumer/formula merge gates, preserved-state managed tracked deployment and broader lifecycle acceptance. Browser deployment, cancellation, executed reuse/session behavior, remote cloud credential availability and full C5 remain open |
+| VAS-17 | Released foundation deployment and lifecycle acceptance for C5 | VAS-02, VAS-11, VAS-12 | ACTIVE (partial foundation accepted) | InferFlux v0.5.0 released/deployed; 16 synthetic wire checks pass through direct HTTP/TLS and Sandhi 0.11.0; gateway reconciliation 4 calls/48 in/2 out. Sandhi #336 admission and #337 usage qualification merged; #338 tracked buffered HTTP/recovery merged after 13 applicable green CI checks; released in Sandhi 0.12.0 and deployed on both hosts; tracked-mode lifecycle qualification pending. Two tracked crash/restart cases merged in #339 after all six applicable CI gates passed. Terminal-publication contention/death cases qualified in Sandhi #340 with 46 affected tests, 12 metrics tests and two negative controls. Synthetic buffered TLS/OIDC source acceptance merged in Sandhi #350 with 149 unique local tests and 7 applicable CI checks. OIDC crash/restart composition and isolated released 0.12.0/deployed-policy qualification pass in #351 (64 affected tests, 3 live provider calls / 51 charged tokens); managed gateway unchanged. Strict OpenAI Chat stream-usage core qualification merged in #352 after 862 Rust tests, 18 SDK regressions and 13 applicable green CI checks; no transport activation. Bounded complete-event framing/immutable observation merged in #353 after 867 Rust tests, 18 SDK regressions and 13 applicable green CI checks. Sandhi #354 merged opt-in raw response ownership with Final usage retained through drop/timeout after clean exact-commit review, 871 Rust tests, 18 SDK regressions and all 13 applicable CI checks. Sandhi #355 merged bounded transparent streaming HTTP ownership, durable terminal/settlement, shutdown headroom and retained recovery. Sandhi #356 merges standalone streaming process/TLS/OIDC acceptance (40 affected process tests; clean exact-commit review). Sandhi 0.13.0 published through #357/#358 with all artifact targets verified; 1,712 official-wheel consumer tests and local Homebrew binary smoke pass. Consumer/formula gates completed in Victor #1285 and Tap #101; remote 0.13.0 default-mode deployment passes TLS/auth/provider/accounting checks with 248 prior usage rows preserved. Mac credential access/upgrade remains pending. Next: preserved-state managed tracked deployment and broader lifecycle acceptance. Browser deployment, cancellation, executed reuse/session behavior, remote cloud credential availability and full C5 remain open |
 | VAS-18 | Full mixed-team C5 verdict | VAS-17 | TODO | Six-Qwen/one-ZAI harness; unchanged deliverable/pytest/session/accounting gates; reviewed verdict on InferFlux #184 |
 | VAS-19 | Matched formation cohorts and remaining semantics | VAS-18 | TODO | Preserve ZAI reference, simpler explicitly labelled local tasks, all 12 formations + 3 policies; G72 opt-in strict hierarchy separately |
 | VAS-20 | OSS shared API/UI main promotion and release | VAS-16, VAS-17, VAS-14d | TODO | Full green promotion/release CI; publish server/SDK/VSIX/docs and compatibility matrix; verify installed artifacts |
