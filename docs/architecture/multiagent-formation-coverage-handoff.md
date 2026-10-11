@@ -1786,9 +1786,12 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   model/member-admin/unauthenticated-admin requests return 403/403/401. The key stays
   in local Keychain; the remote gateway has not received it. The standalone
   in-process probe also passes. This does not qualify tracked settlement or C5.
-  The canonical validation harness still admits only ZAI/InferFlux; add DeepSeek
-  through an explicit provider/route contract and tests before including it in any
-  formation matrix. Preserve the required six-Qwen/one-ZAI C5 verdict separately.
+  The next bounded increment admits DeepSeek to the existing matrix through an
+  explicit OIDC profile, shared provider allowlist and the existing credential/
+  accounting owners. Route/model denial and separate accounting checks remain;
+  no InferFlux-token fallback is allowed. Source admission is not live formation
+  acceptance, and curated model metadata remains open. Preserve the required
+  six-Qwen/one-ZAI C5 verdict separately.
   Evidence: `var/gateway-upgrade-013-20261011/deepseek-registration/`.
 
 Validation-test audit: neither live harness had direct tests before this follow-up.

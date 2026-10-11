@@ -1,7 +1,7 @@
 ---
 plan_id: VAS-2026-10
 status: active
-updated: 2026-10-10
+updated: 2026-10-11
 baseline_develop: decfc3ad5d8200a937e7ab156c5493d5bf74c464
 next_task: VAS-17
 ---
@@ -588,8 +588,9 @@ edit. A mock test is not live provider or C5 evidence.
   Evidence: `var/gateway-upgrade-013-20261011/`. G83's provider-scoped source repair
   is [Sandhi #362](https://github.com/anvai-labs/sandhi/pull/362), with clean
   exact-commit review, 879 passing workspace tests, shared lifecycle/settlement
-  matrices and independent RED reproductions for ZAI and DeepSeek. Next: green CI,
-  source merge/promotion/release, isolated released tracked qualification, then
+  matrices and independent RED reproductions for ZAI and DeepSeek. All 13 applicable
+  CI checks pass; GitHub requires an approving review before queued auto-squash.
+  Next: source merge/promotion/release, isolated released tracked qualification, then
   preserved-state managed tracked lifecycle and full C5.
   Buffered success does not waive the streaming failure, origin cancellation,
   tokenizer/cache/session or actual-member gates.
@@ -605,6 +606,18 @@ edit. A mock test is not live provider or C5 evidence.
   with 13 reasoning included. These are default-path compatibility checks, not
   tracked settlement/member/C5 acceptance. G84 tracks live model-catalog drift and
   explicit harness admission; the original six-Qwen/one-ZAI C5 scope is unchanged.
+- G84 harness admission is LOCAL_PASS as an independent VAS-17 increment while Sandhi
+  #362 awaits hosted review: `feat/deepseek-validation-route`, based on
+  `0aebebd876f15da483a2adb908d0a30b961b2e1c`. It extends the existing OAuth and
+  matrix owners to admit an explicitly configured DeepSeek cohort. DeepSeek requires
+  an OIDC profile; original ZAI/InferFlux defaults and six-Qwen/one-ZAI C5 remain.
+  Existing test matrices cover separate accounting, deny-before-token, model and
+  capability boundaries; a two-route case verifies no cross-route model widening.
+  Local validation: 187 affected tests, 34,366 collected, Black/Ruff, touched-module
+  MyPy, CLI help, strict MkDocs, internal links and repository hygiene pass. Existing
+  test owners were extended; no equivalent regression was removed without evidence.
+  G84 model metadata and actual-member acceptance remain open; source admission
+  does not bypass the Sandhi release/deployment/streaming gates.
 - VAS-02a merged evidence: Linux Python 3.12/pip-tools 7.6.1 regenerated the CPU
   embeddings lock with `multidict==6.9.1` and removed stale Textual-only dependencies
   absent from current deployment metadata. Rust edge TLS resolves `rustls==0.23.45`
