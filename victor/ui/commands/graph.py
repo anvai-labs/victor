@@ -88,6 +88,14 @@ async def _index_async(
         console.print(f"[red]Error:[/red] Path '{path}' is not a directory")
         return False
 
+    from victor.core.graph_rag.dependencies import require_graph_dependencies
+
+    try:
+        require_graph_dependencies()
+    except RuntimeError as exc:
+        console.print(f"Error: {exc}", style="red", markup=False)
+        return False
+
     console.print(f"[dim]Indexing codebase at: {root_path}[/dim]")
 
     # Create graph store

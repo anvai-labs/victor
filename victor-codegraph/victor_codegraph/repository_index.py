@@ -65,6 +65,7 @@ def _resolve_across_files(
     symbols: list[CodeSymbol],
     relations: list[CodeRelation],
     files: dict[str, ParsedCode],
+    rust_bindings: dict[str, list] | None = None,
 ) -> list[CodeRelation]:
     """Resolve only unambiguous repository targets; ambiguity remains explicit."""
 
@@ -103,6 +104,46 @@ def _resolve_across_files(
         source = source_symbols.get(relation.from_symbol_id)
         if source is None:
             out.append(relation)
+            continue
+        if source.language == "rust":
+            candidates = []
+            # Imports currently represent file-level declarations. Rust modules
+            # do not inherit their parent's use bindings.
+            module_scoped = any(
+                symbol.symbol_type == CodeSymbolType.MODULE
+                and source.scope_chain[: len(symbol.scope_chain) + 1]
+                == [*symbol.scope_chain, symbol.simple_name]
+                for symbol in files[source.location.file_path].symbols
+            )
+            # Only explicit imports, with exact path + alias matching. Unknown
+            # receivers, globs and re-exports retain their unresolved references.
+            raw_path = (ref.text or ref.name).split("::")
+            for binding in (rust_bindings or {}).get(source.location.file_path, []):
+                if module_scoped or source.metadata.get("rust_conditional"):
+                    break
+                if binding.name == "*" or raw_path[0] != binding.name:
+                    continue
+                target_path = (*binding.path, *raw_path[1:])
+                candidates.extend(
+                    candidate
+                    for candidate in symbols
+                    if candidate.location.file_path == binding.file
+                    and not candidate.metadata.get("rust_conditional")
+                    and (*candidate.scope_chain, candidate.simple_name) == target_path
+                )
+            candidates = list({candidate.id: candidate for candidate in candidates}.values())
+            if len(candidates) == 1:
+                out.append(
+                    replace(
+                        relation,
+                        to_symbol_id=candidates[0].id,
+                        target_ref=None,
+                        confidence=1.0,
+                        provenance="repository_resolver",
+                    )
+                )
+            else:
+                out.append(relation)
             continue
         allowed = imported_paths.get(source.location.file_path, set())
         candidates = [
@@ -202,6 +243,10 @@ def parse_repo(
 
     symbols = [*file_symbols.values(), *(s for parsed in files.values() for s in parsed.symbols)]
     relations = [relation for parsed in files.values() for relation in parsed.relations]
+    from .rust_repository import RustRepository, use_paths
+
+    rust = RustRepository(root_path, files)
+    rust_bindings: dict[str, list] = {}
     for relative, parsed in files.items():
         owner = file_symbols[relative]
         for symbol in parsed.symbols:
@@ -215,6 +260,33 @@ def parse_repo(
                     )
                 )
         for raw_import in parsed.imports:
+            if parsed.language == "rust":
+                for imported in use_paths(raw_import):
+                    parts, name = imported.path, imported.name
+                    binding = None if imported.conditional else rust.resolve(relative, parts, name)
+                    if binding is None:
+                        ref = SymbolReference(name="::".join(parts), text=raw_import)
+                        relations.append(
+                            CodeRelation(
+                                from_symbol_id=owner.id,
+                                to_symbol_id=ref.name,
+                                relation_type=CodeRelationType.IMPORTS,
+                                target_ref=ref,
+                                confidence=0.5,
+                                provenance="repository_import_resolver",
+                            )
+                        )
+                        continue
+                    rust_bindings.setdefault(relative, []).append(binding)
+                    relations.append(
+                        CodeRelation(
+                            from_symbol_id=owner.id,
+                            to_symbol_id=file_symbols[binding.file].id,
+                            relation_type=CodeRelationType.IMPORTS,
+                            provenance="repository_import_resolver",
+                        )
+                    )
+                continue
             module = _python_import_module(raw_import) if parsed.language == "python" else None
             target = None
             if module:
@@ -235,7 +307,7 @@ def parse_repo(
             )
     # Re-run the scope resolver over the full stable table only for already textual
     # targets, then apply conservative unique-name cross-file linking.
-    relations = _resolve_across_files(symbols, relations, files)
+    relations = _resolve_across_files(symbols, relations, files, rust_bindings)
     generation_raw = "\n".join(f"{path}\x1f{digest}" for path, digest in sorted(manifest.items()))
     generation_id = hashlib.blake2b(generation_raw.encode(), digest_size=16).hexdigest()
     return ParsedRepository(

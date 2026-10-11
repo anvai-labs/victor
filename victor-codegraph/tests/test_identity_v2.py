@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from victor_codegraph import parse, parse_path, to_proxima_records
 
 
@@ -71,3 +73,33 @@ def test_python_decorator_change_updates_content_version_and_snippet():
     assert sa.source_code.startswith("@first")
     assert sb.source_code.startswith("@second")
     assert ra["props"]["content_version"] != rb["props"]["content_version"]
+
+
+def test_rust_inline_modules_preserve_scope_and_identity():
+    source = "mod a { pub fn same() {} } mod b { pub fn same() {} }"
+    parsed = parse(source, language="rust", file_path="src/lib.rs")
+    moved = parse("\n" + source, language="rust", file_path="src/lib.rs")
+    functions = [s for s in parsed.symbols if s.simple_name == "same"]
+    assert {tuple(s.scope_chain) for s in functions} == {("a",), ("b",)}
+    assert len({s.id for s in functions}) == 2
+    assert not parsed.diagnostics
+    assert {s.id for s in parsed.symbols} == {s.id for s in moved.symbols}
+    modules = {s.id for s in parsed.symbols if s.symbol_type.name == "MODULE"}
+    assert len(modules) == 2
+    assert sum(r.from_symbol_id in modules for r in parsed.relations) == 2
+
+
+@pytest.mark.parametrize(
+    "source,name",
+    [
+        ("struct T; impl A for T { fn fmt() {} } impl B for T { fn fmt() {} }", "fmt"),
+        ("#[cfg(unix)] fn main() {} #[cfg(not(unix))] fn main() {}", "main"),
+    ],
+)
+def test_rust_trait_and_cfg_variants_have_distinct_stable_identity(source, name):
+    parsed = parse(source, language="rust", file_path="src/lib.rs")
+    moved = parse("\n\n" + source, language="rust", file_path="src/lib.rs")
+    variants = [s for s in parsed.symbols if s.simple_name == name]
+    assert len(variants) == len({s.id for s in variants}) == 2
+    assert not parsed.diagnostics
+    assert {s.id for s in parsed.symbols} == {s.id for s in moved.symbols}

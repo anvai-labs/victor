@@ -19,7 +19,7 @@ symbol table directly) pass through untouched.
 
 from __future__ import annotations
 
-from .model import CodeRelation, CodeRelationType, CodeSymbol, SymbolReference
+from .model import CodeRelation, CodeRelationType, CodeSymbol, CodeSymbolType, SymbolReference
 
 # Relation types whose ``to_symbol_id`` starts life as a textual name.
 _NAME_TARGETED = frozenset(
@@ -67,7 +67,9 @@ def resolve_relations(
             if arity_matches:
                 candidates = arity_matches
 
-        if source is not None and candidates:
+        if source is not None and source.language == "rust":
+            candidates = _rust_candidates(source, ref, candidates, symbols)
+        elif source is not None and candidates:
             qualifier = (ref.qualifier or "").split(".")[-1]
             if qualifier in {"self", "cls", "this", "super"}:
                 same_scope = [c for c in candidates if c.scope_chain == source.scope_chain]
@@ -98,3 +100,57 @@ def resolve_relations(
             )
         )
     return resolved
+
+
+def _rust_candidates(
+    source: CodeSymbol,
+    ref: SymbolReference,
+    candidates: list[CodeSymbol],
+    symbols: list[CodeSymbol],
+) -> list[CodeSymbol]:
+    """Respect explicit Rust paths; unknown receivers never imply a local type."""
+    qualifier = ref.qualifier
+    if source.metadata.get("rust_conditional"):
+        return []
+    candidates = [c for c in candidates if not c.metadata.get("rust_conditional")]
+    scope = source.scope_chain
+    module_scope: list[str] = []
+    for symbol in symbols:
+        path = [*symbol.scope_chain, symbol.simple_name]
+        if (
+            symbol.symbol_type == CodeSymbolType.MODULE
+            and scope[: len(path)] == path
+            and len(path) > len(module_scope)
+        ):
+            module_scope = path
+    if qualifier in {"self", "Self"} and ref.text and "." in ref.text:
+        return [c for c in candidates if c.scope_chain == scope]
+    if qualifier and ref.text and "." in ref.text:
+        return []
+    if qualifier:
+        parts = qualifier.split("::")
+        if parts[0] == "crate":
+            if source.location.file_path.rsplit("/", 1)[-1] not in {"lib.rs", "main.rs"}:
+                return []
+            paths = [parts[1:]]
+        elif parts[0] == "self":
+            paths = [module_scope + parts[1:]]
+        elif parts[0] == "Self":
+            paths = [scope + parts[1:]]
+        elif parts[0] == "super":
+            base = list(module_scope)
+            while parts and parts[0] == "super":
+                if not base:
+                    return []
+                base.pop()
+                parts.pop(0)
+            paths = [base + parts]
+        else:
+            paths = [module_scope + parts]
+    else:
+        paths = [scope, module_scope]
+    for path in paths:
+        matches = [c for c in candidates if c.scope_chain == path]
+        if matches:
+            return matches
+    return []
