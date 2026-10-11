@@ -72,9 +72,10 @@ def test_selector_changes_select_its_own_regressions():
                 [
                     "tests/unit/providers/test_provider_stream_aclosing.py",
                     "tests/unit/providers/test_sandhi_openai_compat_policy.py",
-                ],
+                ]
+                + (["tests/unit/providers/test_groq_provider.py"] if provider == "groq" else []),
             )
-            for provider in ("deepseek", "cerebras")
+            for provider in ("deepseek", "cerebras", "groq")
         ],
         (
             "victor/agent/orchestrator_creation.py",

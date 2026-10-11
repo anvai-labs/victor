@@ -31,6 +31,7 @@ import pytest
 from victor.providers.base import Message, StreamChunk
 from victor.providers.cerebras_provider import CerebrasProvider
 from victor.providers.deepseek_provider import DeepSeekProvider
+from victor.providers.groq_provider import GroqProvider
 from victor.providers.sandhi_transport import SandhiTypedProviderMixin
 from victor.providers.resilience import ProviderRetryConfig, ResilientProvider
 
@@ -81,19 +82,37 @@ async def test_resilient_stream_cascades_close_on_full_consume():
     assert closed.get("count") == 1
 
 
-@pytest.mark.parametrize("provider_cls", (DeepSeekProvider, CerebrasProvider))
-@pytest.mark.parametrize("termination", ("early_close", "cancel", "cleanup_error"))
-async def test_structured_provider_wrappers_close_typed_python_stream(
-    provider_cls, termination, monkeypatch
+@pytest.mark.parametrize(
+    ("provider_cls", "options"),
+    (
+        (DeepSeekProvider, {"text_response_mode": "structured"}),
+        (CerebrasProvider, {"text_response_mode": "structured"}),
+        (GroqProvider, {}),
+    ),
+)
+@pytest.mark.parametrize(
+    "termination", ("early_close", "cancel", "cleanup_error", "complete", "upstream_error")
+)
+async def test_provider_wrappers_close_typed_python_stream(
+    provider_cls, options, termination, monkeypatch
 ):
     """Exercise both the concrete wrapper and shared HTTPx-policy wrapper."""
     closed = 0
     waiting = asyncio.Event()
+    first = StreamChunk(
+        content="first",
+        metadata={"reasoning_content": "provider reasoning"},
+        usage={"prompt_tokens": 3, "completion_tokens": 1},
+    )
 
     async def upstream(request):
         nonlocal closed
         try:
-            yield StreamChunk(content="first")
+            yield first
+            if termination == "complete":
+                return
+            if termination == "upstream_error":
+                raise RuntimeError("upstream failure")
             waiting.set()
             await asyncio.Event().wait()
         finally:
@@ -101,10 +120,10 @@ async def test_structured_provider_wrappers_close_typed_python_stream(
             if termination == "cleanup_error":
                 raise RuntimeError("cleanup failure")
 
-    provider = provider_cls(api_key="test-key", text_response_mode="structured")
+    provider = provider_cls(api_key="test-key", **options)
     monkeypatch.setattr(provider, "_sandhi_stream", upstream)
     stream = provider.stream([Message(role="user", content="hello")], model="qwen-3")
-    assert (await asyncio.wait_for(anext(stream), timeout=1)).content == "first"
+    assert await asyncio.wait_for(anext(stream), timeout=1) is first
     if termination == "cancel":
         pending = asyncio.create_task(anext(stream))
         await asyncio.wait_for(waiting.wait(), timeout=1)
@@ -114,6 +133,12 @@ async def test_structured_provider_wrappers_close_typed_python_stream(
     elif termination == "cleanup_error":
         with pytest.raises(RuntimeError, match="cleanup failure"):
             await stream.aclose()
+    elif termination == "complete":
+        with pytest.raises(StopAsyncIteration):
+            await anext(stream)
+    elif termination == "upstream_error":
+        with pytest.raises(RuntimeError, match="upstream failure"):
+            await anext(stream)
     else:
         await stream.aclose()
     assert closed == 1

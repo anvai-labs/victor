@@ -1814,10 +1814,17 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   Qualify reasoning-history round trips and first-chunk/memory behavior before
   removing wrappers or claiming live acceptance. No second registry/transport or
   permissive parser fallback. G83 release and original C5 remain independent gates.
-  The `fix/structured-provider-responses` increment adds opt-in structured text
+  Merged [#1294](https://github.com/anvai-labs/victor/pull/1294) adds opt-in structured text
   pass-through and Python stream-close regressions in existing test owners.
   Default legacy repair is intentionally unchanged, including its metadata-loss
   limitation. Live qualification, legacy migration and model/history policy remain open.
+  Continuation audit at `c79b8b347`: `Message.metadata` is internal and
+  `build_openai_messages` drops reasoning; released Sandhi 0.13.0 has no assistant
+  reasoning-history field in `ChatMessageV1`. The streaming runtime counts reasoning
+  characters without retaining continuation data. Implement the typed Sandhi contract
+  before Victor history/checkpoint integration; do not leak arbitrary metadata via
+  an extensions override. Multiple tool rounds, persistence/resume and provider-scope
+  tests must precede any live continuation claim.
 
 - **G86 — Cerebras reasoning presentation uses prose classification (open).**
   The broader OpenAI-compatible source audit at `21b43fcac` found
@@ -1834,6 +1841,17 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   The same opt-in `text_response_mode="structured"` increment bypasses prose
   classification and preserves provider metadata. Default legacy presentation is
   retained; origin cancellation and live qualification are not established.
+
+- **G87 — Groq Python stream ownership misses early-close cleanup (source fix pending merge).**
+  Audit at `c79b8b347` finds the remaining `SandhiOpenAICompatPolicy` wrapper with
+  unowned re-yielding in `GroqProvider.stream`. An injected parent stream stays
+  suspended after explicit outer close. The source fix uses `aclosing` and extends
+  `test_provider_stream_aclosing.py`, preserving Groq's prompt-budget policy and
+  chunk identity. Shared cases cover early close, cancellation, cleanup failure,
+  upstream failure and full consumption; the CI selector retains both shared and
+  provider-specific owners. No duplicate lifecycle suite is added. This qualifies
+  Python generator ownership only; released native iterator/origin cancellation
+  and actual-provider lifecycle acceptance remain open.
 
 Validation-test audit: neither live harness had direct tests before this follow-up.
 The new mixed-harness suite covers rejected/malformed/missing reviews, inclusive

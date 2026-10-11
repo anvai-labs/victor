@@ -64,6 +64,7 @@ RELATED_TESTS = {
         (
             "victor/providers/deepseek_provider.py",
             "victor/providers/cerebras_provider.py",
+            "victor/providers/groq_provider.py",
             "victor/providers/sandhi_openai_compat_policy.py",
             "victor/providers/sandhi_transport.py",
         ),
