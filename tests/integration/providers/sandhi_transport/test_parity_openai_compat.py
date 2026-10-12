@@ -354,3 +354,64 @@ class TestErrorParity:
             await run_chat(sandhi)
         assert time.monotonic() - start < 7.0, "timeout must fire well before the 8s delay"
         assert not hasattr(sandhi, "_sandhi_demoted")
+
+
+@pytest.mark.parametrize("gateway", [False, True], ids=["embedded", "gateway-wire"])
+@pytest.mark.parametrize("streaming", [False, True], ids=["complete", "stream"])
+async def test_service_root_identity_reaches_real_transport_after_resume(
+    fixture_server, make_pair, gateway, streaming
+):
+    """Real HTTP/binding conformance; the fixture is not live gateway/C5 evidence."""
+    from victor.agent.runtime.context import RuntimeIdentity
+    from victor.agent.services.chat_service import ChatService, ChatServiceConfig
+    from victor.core.context import get_session_id, session_id
+
+    server = fixture_server(
+        body=STREAM_SSE if streaming else json.dumps(COMPLETE_BODY).encode(),
+        content_type="text/event-stream" if streaming else "application/json",
+    )
+    provider, _ = make_pair(server.url, gateway=gateway)
+    state = SimpleNamespace(active_session_id=None, _memory_session_id=None)
+    identity = RuntimeIdentity(state)
+    service = ChatService(ChatServiceConfig(), None, None, None, None, None, None)
+
+    async def complete(message):
+        return await provider.chat(MESSAGES, model="deepseek-chat")
+
+    async def stream(message, **kwargs):
+        async for chunk in provider.stream(MESSAGES, model="deepseek-chat"):
+            yield chunk
+
+    service.bind_runtime_components(
+        turn_runtime=SimpleNamespace(
+            resolve_runtime_context=identity.resolve,
+            enter=lambda *a, **k: None,
+            exit=lambda *a, **k: None,
+            start_task_report=lambda *a, **k: None,
+            finish_task_report=lambda *a, **k: None,
+        ),
+        turn_executor=SimpleNamespace(execute_agentic_loop=complete),
+        stream_chat_handler=stream,
+    )
+    caller = session_id.set("unrelated-caller")
+    try:
+        expected = [identity.resolve().session_id, "resumed-root"]
+        for index in range(2):
+            if index:
+                state.active_session_id = expected[index]
+            if streaming:
+                chunks = [chunk async for chunk in service.stream_chat("hello")]
+                assert "Hello" in "".join(chunk.content for chunk in chunks)
+            else:
+                assert (await service.chat("hello")).content == "Hello, world"
+            assert get_session_id() == "unrelated-caller"
+        assert len(server.requests) == 2
+        for request, sid in zip(server.requests, expected):
+            if gateway:
+                assert request.headers["x-sandhi-session"] == sid
+                assert request.headers["x-sandhi-run-id"] == sid
+            elif provider.name == "inferflux":
+                assert request.headers["x-inferflux-session-id"] == sid
+    finally:
+        session_id.reset(caller)
+        await provider.close()

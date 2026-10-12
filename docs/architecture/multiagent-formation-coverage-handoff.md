@@ -1912,16 +1912,37 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   verified merge `3031cd4f66f92118f5ebfc1428ec11b3ffd23aec` and the [audit scope](agentic-workflow-safety-audit.md#sa-03-implementation-scope)
   records limits. Universal root-provider correlation, release and C5 remain separate.
 
-- **G92 — memory-disabled root transport/session correlation is unqualified (open).**
-  SA-03 assigns an explicit unique checkpoint/lifecycle identity to roots without
-  an active or memory session. Provider transport still reads the existing core
-  session ContextVar, and the facade only restamps a nonempty active session. It
-  can therefore observe an empty/inherited provider session while lifecycle uses
-  the explicit root identity. Follow up in the existing turn owner: preserve
-  caller restoration, streaming cancellation and resume behavior; qualify direct
-  and Sandhi transport correlation without introducing another ContextVar or
-  silently changing an in-flight scope. This is source evidence, not a live
-  collision result; it remains a separate C5/identity acceptance prerequisite.
+- **G92 — root transport/session correlation (LOCAL_PASS).**
+  The `fix/root-provider-identity` candidate binds the existing core session
+  ContextVar from the shared resolver at canonical ChatService entry, including
+  memory-disabled roots and planning calls. It restores the caller before each
+  outward stream yield and scopes stream cleanup even when another task closes it.
+  Deprecated facade restamping is removed. Regression and local real-binding
+  checks cover buffered/streaming paths, cancellation, member isolation and resume
+  **between turns**. Gateway-mode fixture requests carry session/run headers for
+  ZAI, DeepSeek and InferFlux; embedded InferFlux carries its session header.
+  The local fixtures do not establish deployed gateway, account or C5 acceptance.
+  The [canonical checkpoint](victor-agent-service-plan.md#current-checkpoint)
+  owns qualification and merge status. G93/G94 remain separate limits.
+
+- **G93 — planning fallback can re-enter the held turn lock (open).**
+  `ChatService.chat(use_planning=True)` calls its planning handler under the turn
+  lock; `PlanningRuntimeService._direct_chat()` calls `orchestrator.chat()`, which
+  can attempt to acquire that same lock. This is a pre-existing control-flow gap,
+  not introduced by identity binding. Qualify a bounded fallback reproducer and
+  route fallback through a typed already-owned turn operation without duplicate
+  reports, resets or permission checks. Do not work around this with an unbounded
+  reentrant lock or another dispatch path.
+
+- **G94 — concurrent resume is not isolated from an active turn (open).**
+  `VictorClient.resume_session()` validates identity before hydration but does not
+  share ChatService's turn lock. Root transition validation permits replacement
+  while a stream is suspended. The source reproducer observes transport identity
+  pinned to the original turn while the lifecycle resolver sees the resumed
+  session. Serialize or explicitly reject session mutation before hydration while
+  a turn owns state; test buffered/streaming, close/cancel and same-session reload.
+  Until qualified, resume acceptance applies only **between turns**. This remains
+  an identity/lifecycle prerequisite for broader C5 acceptance.
 
 Validation-test audit: neither live harness had direct tests before this follow-up.
 The new mixed-harness suite covers rejected/malformed/missing reviews, inclusive

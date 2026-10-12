@@ -160,7 +160,6 @@ from victor.agent.unified_task_tracker import TrackerTaskType, UnifiedTaskTracke
 from victor.agent.prompt_requirement_extractor import extract_prompt_requirements
 
 # Decomposed components - configs, strategies, functions
-from victor.core.context import session_id as ctx_session_id, set_session_id
 from victor.agent.conversation.controller import (
     ConversationConfig,
     ContextMetrics,
@@ -3052,18 +3051,6 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
             stacklevel=2,
         )
 
-        # Re-stamp the session_id contextvar from the persistent attr. The
-        # contextvar can be lost when the caller (e.g. the benchmark adapter)
-        # set it in a different async context, or when decisions cross a
-        # thread/loop boundary (decide_sync). Setting it here, in the chat
-        # call's context, ensures every decision the agentic loop logs carries
-        # the task's session_id (FEP-0012 decision_outcome spine integrity).
-        if self.active_session_id:
-            try:
-                set_session_id(self.active_session_id)
-            except Exception:
-                pass
-
         return await self._chat_service.chat(
             user_message,
             use_planning=use_planning,
@@ -3522,13 +3509,6 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
             DeprecationWarning,
             stacklevel=2,
         )
-
-        # Re-stamp the session_id contextvar (see chat() for rationale).
-        if self.active_session_id:
-            try:
-                set_session_id(self.active_session_id)
-            except Exception:
-                pass
 
         async with _aclosing(self._chat_service.stream_chat(user_message, **kwargs)) as stream:
             async for chunk in stream:

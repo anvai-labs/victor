@@ -91,7 +91,7 @@ def fixture_server():
 def make_pair(request):
     """Factory fixture: two independent typed handles for determinism checks."""
 
-    def _make(server_url: str, timeout: int = 30) -> Tuple[Any, Any]:
+    def _make(server_url: str, timeout: int = 30, *, gateway: bool = False) -> Tuple[Any, Any]:
         from victor.providers.deepseek_provider import DeepSeekProvider
         from victor.providers.inferflux_provider import InferfluxProvider
         from victor.providers.zai_provider import ZAIProvider
@@ -108,6 +108,8 @@ def make_pair(request):
             "timeout": timeout,
             "max_retries": 0,
         }
+        if gateway:
+            kwargs["gateway"] = {"url": server_url, "virtual_key": "fixture-virtual-key"}
         return provider_cls(**kwargs), provider_cls(**kwargs)
 
     return _make

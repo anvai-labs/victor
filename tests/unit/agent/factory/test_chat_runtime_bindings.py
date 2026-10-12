@@ -516,7 +516,15 @@ def test_turn_runtime_uses_enumerated_live_state_without_retaining_owner() -> No
     owner._credit_tracking_service = MagicMock()
     skill_runtime = MagicMock()
     owner._get_skill_runtime = MagicMock(return_value=skill_runtime)
+    from victor.agent.runtime.context import RuntimeIdentity
+
+    owner.active_session_id = None
+    owner._memory_session_id = None
+    owner._runtime_identity = RuntimeIdentity(owner)
     runtime = bind_chat_turn_runtime(owner)
+    assert runtime.resolve_runtime_context() is owner._runtime_identity.resolve()
+    owner.active_session_id = "resumed"
+    assert runtime.resolve_runtime_context().session_id == "resumed"
     assert not hasattr(runtime.state, "__dict__")
 
     constraints = object()

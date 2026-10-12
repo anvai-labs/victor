@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from victor.agent.runtime.context import AgentRuntimeContext
 from victor.agent.services.chat_service import ChatService, ChatServiceConfig
 from victor.agent.services.chat_runtime_services import ChatGovernance
 from victor.agent.services.chat_runtime_services import (
@@ -52,6 +53,9 @@ def make_services(executor_type):
         stream_turn_lock=runtime.services.stream_turn_lock,
         stream_chat_handler=runtime.stream_chat_under_turn_lock,
         turn_runtime=SimpleNamespace(
+            resolve_runtime_context=lambda: AgentRuntimeContext(
+                "root_agent", "Root", "supervisor", "stream-test"
+            ),
             enter=lambda message, **_: events.append(("setup", message)),
             exit=lambda message, **_: events.append(("teardown", message)),
             start_task_report=lambda message, **_: metrics.start_task_report(message),
