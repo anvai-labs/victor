@@ -160,6 +160,18 @@ The local BGE run uses immutable revision
 - Existing test owners were extended; the CI selector now maps the embedding-model
   module to its existing embeddings suite instead of requiring duplicate tests.
 
+### CI bootstrap correction
+
+The first 0.10.0 candidate passed 39 checks but failed the vertical suite on a
+bare mocked table schema in a duplicate core-provider test. That environment
+also resolved published CodeGraph 0.9.0 instead of the in-repo contract. Both
+development bootstraps now install the shared source package before consumers.
+Two duplicate vertical provider tests were removed; the core owner retains
+initialization coverage and adds a real legacy round trip with CodeGraph absent
+during write/query. Affected suites: 45 core/bootstrap plus 15 vertical tests
+passed; independent review repeated all 60. Production code is unchanged by
+this correction. New-head CI remains required before release.
+
 ## Unresolved Questions
 
 LanceDB binds its Arrow schema at creation and queries through the actual loaded

@@ -675,3 +675,14 @@ async def test_failed_semantic_upsert_preserves_previous_rows(semantic_store):
         with pytest.raises(RuntimeError, match="write unavailable"):
             await provider.index_embedded_documents([{**document, "content": "changed"}])
     assert provider.table.to_arrow().to_pylist()[0]["content"] == "calculate_tax"
+
+
+async def test_legacy_roundtrip_needs_no_codegraph_contract(semantic_store):
+    """Core owns provider round trips; unprofiled users need no graph extra."""
+    provider, _, _ = semantic_store
+    with patch.dict("sys.modules", {"victor_codegraph": None}):
+        await provider.index_document("legacy", "legacy document")
+        provider.table = provider.db.open_table("embeddings")
+        results = await provider.search_similar("legacy")
+    assert results[0].content == "legacy document"
+    assert b"victor_codegraph.embedding_profile" not in (provider.table.schema.metadata or {})
