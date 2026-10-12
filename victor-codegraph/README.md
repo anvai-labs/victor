@@ -45,6 +45,24 @@ PR touching `victor-codegraph/**`. Publishing: push a tag `victor-codegraph-v0.1
 (OIDC — no API token). Configure the publisher once on PyPI (owner `vjsingh1984`, repo `victor`,
 workflow `release-codegraph.yml`, environments `pypi` / `testpypi`); see the header of that workflow.
 
+## 0.9 consumer qualification and migration
+
+| Surface | Contract / limit |
+|---|---|
+| Python references | Exact import aliases and dotted modules; lexical scope precedes arity. Unknown receivers, wildcard ambiguity and shadowed bindings remain explicit unresolved references. No runtime execution/type inference. |
+| ES modules | Relative named/default/namespace imports, explicit named re-exports and exported arrow functions. Type-only imports produce dependencies, never runtime call evidence. Re-export traversal is cycle-safe and bounded to 64 bindings. Package/tsconfig aliases, star exports and dynamic exports remain unresolved. |
+| Object-literal identity | Methods include structural object scopes, including anonymous callback ancestry. Whitespace/comments and checkout root do not affect IDs; inserting/reordering anonymous siblings can change structural ordinals. |
+| Source evidence | Python call spans include UTF-8 byte offsets/lengths and end coordinates. New binding metadata is diagnostic evidence, not runtime authorization or a complete language semantic model. |
+| Victor persistence | The canonical snapshot supplies symbols. CLI distinguishes attempted upserts from persisted totals, exposes partial parses and accepts exact opaque IDs; ambiguous display names are not chosen arbitrarily. Default file exclusions can differ from the package walker. |
+
+Rebuild derived indexes after upgrading from older parser versions; an unchanged
+source hash alone does not migrate older IDs/edges. Victor users can run
+`victor graph index --force --no-ccg --no-embeddings`. Consumers must stage a new
+complete generation and switch readers after validation; never mix old and new
+symbol identities. The AnvaiOps adapter/generation migration remains consumer-owned.
+The package adds no commercial runtime, account, entitlement or billing dependency.
+
+
 ## Use
 
 ```python

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import os
 from dataclasses import dataclass, field, replace
@@ -19,6 +20,7 @@ from .model import (
     stable_symbol_key,
 )
 from .repo import iter_source_files, read_source_text
+from .javascript_repository import JavaScriptRepository
 
 
 def relation_key(relation: CodeRelation) -> str:
@@ -66,29 +68,25 @@ def _resolve_across_files(
     relations: list[CodeRelation],
     files: dict[str, ParsedCode],
     rust_bindings: dict[str, list] | None = None,
+    javascript: JavaScriptRepository | None = None,
 ) -> list[CodeRelation]:
     """Resolve only unambiguous repository targets; ambiguity remains explicit."""
 
-    # The scope resolver handles local relationships first. On the repository pass,
-    # unique name + optional arity is a safe floor until import-aware language plugins
-    # provide richer module bindings.
+    # File-local resolution runs first; repository edges require exact import bindings.
     by_name: dict[str, list[CodeSymbol]] = {}
     for symbol in symbols:
         by_name.setdefault(symbol.simple_name, []).append(symbol)
     source_symbols = {symbol.id: symbol for symbol in symbols}
-    imported_paths: dict[str, set[str]] = {}
-    for relative, parsed in files.items():
-        paths: set[str] = set()
-        if parsed.language == "python":
-            for raw_import in parsed.imports:
-                module = _python_import_module(raw_import)
-                if module:
-                    paths.update(
-                        candidate
-                        for candidate in _module_candidates(module, relative)
-                        if candidate in files
-                    )
-        imported_paths[relative] = paths
+    by_path: dict[tuple[str, tuple[str, ...]], list[CodeSymbol]] = {}
+    for symbol in symbols:
+        by_path.setdefault(
+            (symbol.location.file_path, (*symbol.scope_chain, symbol.simple_name)), []
+        ).append(symbol)
+    python_bindings = {
+        path: _python_bindings(parsed.imports, path, files)
+        for path, parsed in files.items()
+        if parsed.language == "python"
+    }
 
     out: list[CodeRelation] = []
     for relation in relations:
@@ -145,14 +143,31 @@ def _resolve_across_files(
             else:
                 out.append(relation)
             continue
-        allowed = imported_paths.get(source.location.file_path, set())
-        candidates = [
-            candidate for candidate in candidates if candidate.location.file_path in allowed
-        ]
-        if ref.arity is not None:
-            arity = [s for s in candidates if len(s.parameters) == ref.arity]
-            if arity:
-                candidates = arity
+        candidates = []
+        if source.language == "python":
+            text = ref.text or ref.name
+            root, *tail = text.split(".")
+            if not source.metadata.get(
+                "python_wildcard_import"
+            ) and root not in source.metadata.get("python_bound_names", []):
+                for binding, targets in python_bindings.get(source.location.file_path, {}).items():
+                    prefix = binding.split(".")
+                    parts = text.split(".")
+                    if parts[: len(prefix)] != prefix:
+                        continue
+                    for file, path in targets:
+                        target_path = (*path, *parts[len(prefix) :])
+                        candidates.extend(
+                            s
+                            for s in by_path.get((file, target_path), [])
+                            if not set(target_path).intersection(
+                                s.metadata.get("python_rebound_names", [])
+                            )
+                        )
+        if source.language in {"javascript", "typescript", "tsx"} and javascript is not None:
+            text = ref.text or ref.name
+            if text.split(".")[0] not in source.metadata.get("javascript_bound_names", []):
+                candidates = javascript.target(source.location.file_path, text)
         if len(candidates) == 1:
             out.append(
                 replace(
@@ -168,6 +183,40 @@ def _resolve_across_files(
     return out
 
 
+def _python_bindings(
+    imports: list[str], importer: str, files: dict[str, ParsedCode]
+) -> dict[str, list[tuple[str, tuple[str, ...]]]]:
+    """Bind exact imported names; no glob, receiver inference or bare-name lookup."""
+    bindings: dict[str, list[tuple[str, tuple[str, ...]]]] = {}
+    for raw in imports:
+        node = ast.parse(raw).body[0]
+        if not isinstance(node, (ast.Import, ast.ImportFrom)):
+            continue
+        for alias in node.names:
+            if alias.name == "*":
+                continue
+            if isinstance(node, ast.ImportFrom):
+                module = "." * node.level + (node.module or "")
+                name = alias.asname or alias.name
+                target = (alias.name,)
+                options = [
+                    (module, target),
+                    (module + ("." if node.module else "") + alias.name, ()),
+                ]
+            else:
+                name = alias.asname or alias.name.split(".")[0]
+                prefix = () if alias.asname else tuple(alias.name.split(".")[1:])
+                options = [(alias.name, ())]
+                # Unaliased import a.b binds a, but only a.b's members are proven.
+                if prefix:
+                    name = alias.name
+            for module, target in options:
+                matches = [p for p in _module_candidates(module, importer) if p in files]
+                for file in matches:
+                    bindings.setdefault(name, []).append((file, target))
+    return bindings
+
+
 def _python_import_module(raw: str) -> str | None:
     text = raw.strip()
     if text.startswith("from "):
@@ -181,11 +230,13 @@ def _python_import_module(raw: str) -> str | None:
     return None
 
 
-def _module_candidates(module: str, importer: str) -> tuple[str, str]:
+def _module_candidates(module: str, importer: str) -> tuple[str, ...]:
     level = len(module) - len(module.lstrip("."))
     tail = module.lstrip(".").replace(".", "/")
     if level:
         base = Path(importer).parent
+        if level > len(base.parts):
+            return ()
         for _ in range(max(0, level - 1)):
             base = base.parent
         stem = (base / tail).as_posix()
@@ -246,6 +297,7 @@ def parse_repo(
     from .rust_repository import RustRepository, use_paths
 
     rust = RustRepository(root_path, files)
+    javascript = JavaScriptRepository(files)
     rust_bindings: dict[str, list] = {}
     for relative, parsed in files.items():
         owner = file_symbols[relative]
@@ -260,6 +312,26 @@ def parse_repo(
                     )
                 )
         for raw_import in parsed.imports:
+            if parsed.language in {"javascript", "typescript", "tsx"}:
+                matches = [
+                    target
+                    for raw, target in javascript.dependencies.get(relative, [])
+                    if raw == raw_import
+                ]
+                js_target = matches[0] if len(matches) == 1 else None
+                relations.append(
+                    CodeRelation(
+                        from_symbol_id=owner.id,
+                        to_symbol_id=file_symbols[js_target].id if js_target else raw_import,
+                        relation_type=CodeRelationType.IMPORTS,
+                        target_ref=(
+                            None if js_target else SymbolReference(name=raw_import, text=raw_import)
+                        ),
+                        confidence=1.0 if js_target else 0.5,
+                        provenance="repository_import_resolver",
+                    )
+                )
+                continue
             if parsed.language == "rust":
                 for imported in use_paths(raw_import):
                     parts, name = imported.path, imported.name
@@ -307,7 +379,7 @@ def parse_repo(
             )
     # Re-run the scope resolver over the full stable table only for already textual
     # targets, then apply conservative unique-name cross-file linking.
-    relations = _resolve_across_files(symbols, relations, files, rust_bindings)
+    relations = _resolve_across_files(symbols, relations, files, rust_bindings, javascript)
     generation_raw = "\n".join(f"{path}\x1f{digest}" for path, digest in sorted(manifest.items()))
     generation_id = hashlib.blake2b(generation_raw.encode(), digest_size=16).hexdigest()
     return ParsedRepository(

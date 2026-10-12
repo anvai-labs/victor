@@ -129,8 +129,11 @@ async def _index_async(
     # Print results
     console.print("\n[green]✓ Indexing complete[/green]")
     console.print(f"  Files processed: {stats.files_processed}")
-    console.print(f"  Nodes created: {stats.nodes_created}")
-    console.print(f"  Edges created: {stats.edges_created}")
+    console.print(f"  Partial parses: {stats.files_partial}")
+    console.print(f"  Node upserts attempted: {stats.nodes_created}")
+    console.print(f"  Edge upserts attempted: {stats.edges_created}")
+    console.print(f"  Persisted nodes: {stats.persisted_nodes}")
+    console.print(f"  Persisted edges: {stats.persisted_edges}")
     if stats.ccg_nodes_created > 0:
         console.print(f"  CCG nodes: {stats.ccg_nodes_created}")
         console.print(f"  CCG edges: {stats.ccg_edges_created}")
@@ -314,6 +317,10 @@ async def _resolve_target(target: str, graph_store) -> Optional[str]:
     """Resolve a target string to a node ID."""
     from victor.storage.graph.edge_types import EdgeType
 
+    exact = await graph_store.get_node_by_id(target)
+    if exact is not None:
+        return exact.node_id
+
     # Check if file:line format
     if ":" in target:
         file_path, line_str = target.rsplit(":", 1)
@@ -328,7 +335,7 @@ async def _resolve_target(target: str, graph_store) -> Optional[str]:
 
     # Search by name
     nodes = await graph_store.find_nodes(name=target)
-    if nodes:
+    if len(nodes) == 1:
         return nodes[0].node_id
 
     return None

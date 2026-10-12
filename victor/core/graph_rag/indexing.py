@@ -222,6 +222,9 @@ class GraphIndexStats:
     files_skipped: int = 0
     files_unchanged: int = 0
     files_deleted: int = 0
+    files_partial: int = 0
+    persisted_nodes: int | None = None
+    persisted_edges: int | None = None
     nodes_created: int = 0
     edges_created: int = 0
     ccg_nodes_created: int = 0
@@ -252,6 +255,9 @@ class GraphIndexStats:
             "files_skipped": self.files_skipped,
             "files_unchanged": self.files_unchanged,
             "files_deleted": self.files_deleted,
+            "files_partial": self.files_partial,
+            "persisted_nodes": self.persisted_nodes,
+            "persisted_edges": self.persisted_edges,
             "nodes_created": self.nodes_created,
             "edges_created": self.edges_created,
             "ccg_nodes_created": self.ccg_nodes_created,
@@ -306,6 +312,7 @@ class ParseResult:
     # cross-file targets bind correctly. Empty when the provider is the null
     # stub or extract_imports raises.
     raw_imports: List[str] = field(default_factory=list)
+    partial: bool = False
 
 
 async def run_indexing_with_lock(
@@ -609,6 +616,11 @@ class GraphIndexingPipeline:
             _status("Reclaiming database space…")
             await self._maintain_project_db_after_rebuild(root)
 
+        store_stats = getattr(self.graph_store, "stats", None)
+        if callable(store_stats):
+            persisted = await store_stats()
+            stats.persisted_nodes = persisted.get("nodes")
+            stats.persisted_edges = persisted.get("edges")
         stats.processing_time_seconds = time.time() - start_time
 
         logger.info(
@@ -1356,6 +1368,13 @@ class GraphIndexingPipeline:
 
     def _is_indexable_language(self, language: str) -> bool:
         """Return whether the built-in indexer can extract useful graph data for a language."""
+        try:
+            from victor_codegraph.languages import TREE_SITTER_GRAMMAR
+        except ImportError:
+            pass
+        else:
+            if language == "python" or language in TREE_SITTER_GRAMMAR:
+                return True
         symbol_languages = {
             "python",
             "javascript",
@@ -1690,6 +1709,36 @@ class GraphIndexingPipeline:
         if language == "unknown":
             return ParseResult(file_path=file_path, language=None)  # skip
 
+        repository = self._codegraph_repository
+        canonical_file = self._canonical_file_str(file_path)
+        parsed = repository.files.get(canonical_file) if repository is not None else None
+        if parsed is not None:
+            from victor.core.graph_rag.codegraph_repository import project_file_symbols
+
+            if parsed.status.value not in {"success", "partial"} or any(
+                d.code == "identity_collision" for d in parsed.diagnostics
+            ):
+                return ParseResult(
+                    file_path=file_path,
+                    language=language,
+                    error=ValueError(
+                        f"CodeGraph {parsed.status.value}: {[(d.code, d.message) for d in parsed.diagnostics]}"
+                    ),
+                )
+            nodes = self._inject_module_node(
+                project_file_symbols(parsed), file_path, parsed.language
+            )
+            ccg_nodes, ccg_edges = self._build_ccg_inline(file_path, language)
+            return ParseResult(
+                file_path=file_path,
+                language=parsed.language,
+                symbol_nodes=nodes,
+                ccg_nodes=ccg_nodes,
+                ccg_edges=ccg_edges,
+                raw_imports=parsed.imports,
+                partial=parsed.status.value == "partial",
+            )
+
         try:
             source_code = file_path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
@@ -1837,6 +1886,7 @@ class GraphIndexingPipeline:
                 )
 
         stats.files_processed += 1
+        stats.files_partial += int(result.partial)
         stats.nodes_created += len(result.symbol_nodes)
         stats.edges_created += len(symbol_edges)
         stats.ccg_nodes_created += len(result.ccg_nodes)
@@ -1973,6 +2023,14 @@ class GraphIndexingPipeline:
         Returns:
             Language identifier
         """
+        try:
+            from victor_codegraph.languages import detect_language
+        except ImportError:
+            pass
+        else:
+            detected = detect_language(str(file_path))
+            if detected is not None:
+                return detected
         ext_map = {
             ".py": "python",
             ".js": "javascript",
@@ -3164,6 +3222,7 @@ class GraphIndexingPipeline:
         target.repository_relations_dropped_unmaterialized += (
             source.repository_relations_dropped_unmaterialized
         )
+        target.files_partial += source.files_partial
         target.error_count += source.error_count
         target.errors.extend(source.errors)
 
@@ -3335,6 +3394,7 @@ class _IndexingStreamPipeline:
             all_sym_edges.extend(sym_edges)
             all_ccg_nodes.extend(result.ccg_nodes)
             all_ccg_edges.extend(result.ccg_edges)
+            stats.files_partial += int(result.partial)
             stats.nodes_created += len(result.symbol_nodes)
             stats.edges_created += len(sym_edges)
             stats.ccg_nodes_created += len(result.ccg_nodes)

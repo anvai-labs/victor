@@ -74,7 +74,7 @@ resolution, and deletion-aware deltas. Behavior-changing identity fields are ver
 
 ## Polyglot consumer qualification and service roadmap — 2026-10-11
 
-Status: co-design requested; consumer handbacks pending. This extends the existing
+Status: AnvaiOps handback acknowledged and ingested; shared corrections in progress, Sandesha handback pending. This extends the existing
 v2 contract and ADR-014/015, not a second parser or independent identity system.
 The Rust qualification landed in Victor [#1297](https://github.com/anvai-labs/victor/pull/1297)
 (`dacac4d1`). AnvaiOps ADR-0018 already chooses the shared package; ADR-0017 owns
@@ -112,9 +112,9 @@ standalone OSS operation and commercial adapter parity before service acceptance
 | Gate | Acceptance evidence | Status |
 |---|---|---|
 | CG-P0: Rust baseline | Sandhi audit at `a2b0f0c`, Victor #1297; parser dependencies present, explicit conservative resolution, 107 Rust files without parse diagnostics. Static results are lower bounds, not complete runtime calls or a performance diagnosis. | Complete for that snapshot only |
-| CG-P1: Consumer inventory and handback | AnvaiOps polyglot and Sandesha TS/TSX/JS snapshots; capability/diagnostic matrix; labeled relationship truth set; measured cold/warm indexing and bounded query performance; minimized reproducible gaps. | Requested; handbacks pending |
-| CG-P2: Shared correctness fixes | TDD in existing parser/resolver/identity/delta suites. Preserve unresolved ambiguity, deletion equivalence, byte/line spans and stable IDs across checkout roots; deduplicate tests by invariant. Both consumers rerun pinned fixes. | Pending CG-P1 |
-| CG-P3: Release/package qualification | Build/install exact wheels in supported Python/platform shapes; dependencies complete, missing-grammar failures explicit before index mutation, migration and consumer compatibility verified. Publish source 0.9.0 or its approved successor before released consumers require it. | Publication and consumer qualification pending |
+| CG-P1: Consumer inventory and handback | AnvaiOps polyglot and Sandesha TS/TSX/JS snapshots; capability/diagnostic matrix; labeled relationship truth set; measured cold/warm indexing and bounded query performance; minimized reproducible gaps. | AnvaiOps evidence received; Sandesha pending |
+| CG-P2: Shared correctness fixes | TDD in existing parser/resolver/identity/delta suites. Preserve unresolved ambiguity, deletion equivalence, byte/line spans and stable IDs across checkout roots; deduplicate tests by invariant. Both consumers rerun pinned fixes. | CG-S01–CG-S05 implemented and locally qualified; pinned consumer reruns remain |
+| CG-P3: Release/package qualification | Build/install exact wheels in supported Python/platform shapes; dependencies complete, missing-grammar failures explicit before index mutation, migration and consumer compatibility verified. Publish source 0.9.0 or its approved successor before released consumers require it. | Local wheel/sdist qualified; publication tracked by `victor-codegraph-v0.9.0`; consumer qualification pending |
 | CG-P4: Service contract and lifecycle | Review existing Victor and AnvaiOps routes, then propose one versioned neutral contract with bounded snapshot jobs, explicit partial/error/cancelled states, generation-bound queries and pagination. FEP before new public framework API implementation. | Planned; no new service claim |
 | CG-P5: UI and agent acceptance | Same snapshot IDs/edges/diagnostics in CLI, API and UI; source navigation, ambiguity display, filters, bounded expansion, accessibility and shared dark/light/system theme. Synthetic authorized/denied/cancel/restart journeys through headed AgentBrowser. | Planned after CG-P2–P4 |
 
@@ -206,3 +206,58 @@ Handbacks are requested at AnvaiOps
 handoffs are `CODEGRAPH_POLYGLOT_HANDOFF.md` and `CODEGRAPH_TYPESCRIPT_HANDOFF.md`
 in those same directories. Fold accepted results into CG-P1/P2 here; retire redundant
 interim notes only after evidence and dispositions are preserved in the owning plan.
+
+
+### AnvaiOps handback accepted — 2026-10-11
+
+Received `docs/operations/CODEGRAPH_POLYGLOT_HANDBACK.md` and adjacent JSON
+from the sibling AnvaiOps repository (consumer snapshot `1aeef9fa`, shared source
+`b09e8d88`). Evidence ingestion acknowledges the findings, not service acceptance.
+The consumer corrections remain owned by AnvaiOps draft PR #488. Only minimized
+synthetic fixtures may enter this OSS repository; private source and graphs stay local.
+
+| Finding | Owner | Disposition / qualification gate |
+|---|---|---|
+| CG-S01: Python false targets and missed aliases | victor-codegraph | Implemented and qualified: exact import bindings and conservative receiver/scope resolution; positive and negative fixtures |
+| CG-S02: JS object-method identity collision | victor-codegraph | Implemented and qualified: structural object scopes; unique IDs stable under line shifts |
+| CG-S03: TS imports/barrels/type-only evidence | victor-codegraph | Implemented and qualified: explicit module/import binding; type-only imports never prove runtime CALLS |
+| CG-S04: persisted graph/query parity | Victor | Implemented and qualified: one canonical projection, materialized endpoints, truthful counts and opaque-ID lookup |
+| CG-S05: Python call byte spans | victor-codegraph | Implemented and qualified: exact UTF-8 spans, including multiline calls |
+
+The six recorded synthetic failures now pass. Existing owning suites were extended
+with positive and adversarial cases; no parallel regression suite was introduced.
+Unknown receivers, shadowed bindings, unsupported module aliases and ambiguous
+exports remain unresolved rather than producing confident guessed edges.
+
+| Qualification | Result / scope |
+|---|---|
+| Shared package | 180 tests; 91.99% coverage (90% gate); six original handback regressions pass |
+| Labeled synthetic truth set | 13 cases; no false positives/negatives in the labeled set; root/line-shift identity, determinism, rename/deletion delta parity pass |
+| Victor runtime | 330 passed, 1 skipped in Graph-RAG; 39 adjacent CLI/storage tests passed; type check covers 2,001 runtime modules |
+| Private frozen snapshot | 738 parsed files; 7,647 symbols and unique IDs; 735 success / 3 partial files |
+| SQLite projection | Existing walker filters select 735 files / 7,638 symbols; exact eligible ID parity, zero dropped resolved repository relations, 9/9 opaque-ID lookups |
+| Persistence accounting | 7,638 stored nodes / 13,776 edges; attempted edge upserts remain separately labeled (15,150), never claimed as stored edge count |
+| Local diagnostic sample | Cold graph index 8.71 s, parse 3.48 s, peak RSS 428 MB on Apple ARM64/Python 3.12; not a controlled benchmark or service SLO |
+| Packaging | Wheel + sdist metadata passed; clean zero-dependency Python install, explicit missing-grammar diagnostics, optional-grammar wheel tests; Linux Python 3.12/3.13 remain CI gates |
+
+Qualification disables CCG/embeddings and isolates vector cleanup for fresh fixtures
+that own no vectors. Existing SQLite deletion can instantiate an embedding provider
+even for graph-only work; track that separate lifecycle gap before claiming an
+entirely offline production CLI. Runtime suites use Hugging Face offline mode.
+Private source, graphs and detailed evidence remain local; only aggregate results
+and synthetic fixtures are published.
+
+**Consumer contract:** rebuild derived graphs for the 0.9.0 structural object IDs and
+relation corrections; retain opaque IDs and full byte spans, parser status and
+unresolved evidence. `nodes_created`/`edges_created` remain attempted-upsert counters;
+`persisted_nodes`/`persisted_edges` report actual store totals and may be null for a
+store without a stats operation. File eligibility remains a consumer configuration,
+so compare the same eligible snapshot. See the package README's migration table.
+
+**Release receipt:** the exact source and package pin are owned by
+[`victor-codegraph-v0.9.0`](https://github.com/anvai-labs/victor/releases/tag/victor-codegraph-v0.9.0)
+and its release workflow; this pre-publication qualification does not establish that
+the tag has published. After publication the consumer pin is
+`victor-codegraph[treesitter]==0.9.0`. AnvaiOps #488 owns its consumer rerun and atomic
+snapshot/read-boundary corrections; do not duplicate them here. Sandesha's handback,
+CG-P4 lifecycle and CG-P5 headed UI acceptance remain open.
