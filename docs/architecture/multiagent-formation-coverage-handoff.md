@@ -1903,7 +1903,7 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   not live provider propagation or durable restart recovery. See the
   [implementation checkpoint](agentic-workflow-safety-audit.md#sa-02-implementation-checkpoint).
 
-- **G91 — shared runtime identity ownership (implementation under validation).**
+- **G91 — shared runtime identity ownership (LOCAL_PASS; merge pending).**
   The two fallback builders are replaced by one typed owner/resolver, with current
   immutable contexts for root resume and explicitly bound member contexts. Missing
   checkpoint identity fails before persistence; cross-member recovery fails before

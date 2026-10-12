@@ -67,18 +67,25 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
-- **SA-03/G91 RED → implementation under validation** — owner: Victor co-design session; branch
+- **SA-03/G91 LOCAL_PASS** — owner: Victor co-design session; branch
   `fix/shared-runtime-identity`; baseline `83708efc5e75aa17632a36a88a4e47225924ed7a`.
-  RED: four focused regressions failed for missing owner, recovery binding and
-  absent pre-checkpoint identity enforcement. Next: qualify the shared owner,
-  member isolation and pre-hydration transition checks, then independent review/CI. Independent
-  design review identified stale resume IDs, absent member binding and identity
-  validation occurring after checkpoint writes. Preserve provider session formats;
-  explicitly initialize unique identities for memory-disabled roots.
-
-  Newly recorded G92 remains TODO: bind/qualify memory-disabled root provider
-  correlation through the existing turn owner, including direct and Sandhi paths.
-  This slice intentionally does not change root transport scoping.
+  One typed identity owner now supplies both consumers, refreshes root identity
+  after resume/recovery and binds the already-derived member context. Checkpoint
+  identity validation precedes writes; member transition validation precedes hydration.
+  Four initial regressions failed as intended; final focused coverage run passes
+  369 tests and independent review passes 153. The broader 2,160-case run passed
+  2,157 in the restricted environment: two incomplete assembly fixtures were
+  corrected (their full 75-test owner passes); the remaining Hugging Face lookup
+  timeout passes outside the sandbox. Earlier interrupted/failed logs are retained,
+  not counted as full passes. Existing member/exploration extras pass 71 tests.
+  Strict MyPy passes 2,001 files; collection finds 34,525 tests; Black, Ruff,
+  facade guards, hygiene, dependency locks, CLI entry-point smoke and strict
+  MkDocs pass. No duplicate test copies were added or coverage-bearing tests removed.
+  Independent review is clean; next are PR CI and gated squash merge. Release and
+  C5 remain separate. See [implementation scope](agentic-workflow-safety-audit.md#sa-03-implementation-scope).
+  Newly recorded G92 remains TODO: qualify memory-disabled root provider correlation
+  through the existing turn owner, including direct and Sandhi paths. This slice
+  does not change root transport scoping.
 
 - SA-01/G89 outcome repair merged in [#1306](https://github.com/anvai-labs/victor/pull/1306)
   as `8f503cf24272c81520847ddd41406f0ffb7a99c7`, with clean independent review and
