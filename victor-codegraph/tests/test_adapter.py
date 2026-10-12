@@ -26,6 +26,15 @@ def test_symbol_records_shape():
     assert n["props"]["lang"] == "python"
     assert n["props"]["ast_kind"] in ("FUNCTION", "METHOD", "CONSTRUCTOR")
     assert n["embeddings"] == []  # no embedder supplied
+    assert (
+        not {
+            "identity_collisions",
+            "projection_status",
+            "omitted_symbol_count",
+            "omitted_relation_count",
+        }
+        & n["props"].keys()
+    )
 
 
 def test_edge_records_reference_node_oids():

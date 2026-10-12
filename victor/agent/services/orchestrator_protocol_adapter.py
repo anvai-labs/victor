@@ -459,21 +459,6 @@ class OrchestratorProtocolAdapter:
     # =====================================================================
 
     @property
-    def task_classifier(self) -> Any:
-        """Get task classifier."""
-        return self._orchestrator.task_classifier
-
-    @property
-    def task_analyzer(self) -> "TaskAnalyzer":
-        """Get task analyzer."""
-        return self._orchestrator.task_analyzer
-
-    @property
-    def response_completer(self) -> Any:
-        """Get response completer."""
-        return self._orchestrator.response_completer
-
-    @property
     def provider(self) -> "BaseProvider":
         """Get LLM provider."""
         return self._orchestrator.provider

@@ -16,6 +16,7 @@ from .model import (
     CapabilityTier,
     CodeChunk,
     CodeRelationType,
+    CodeSymbol,
     CodeSymbolType,
     ParseDiagnostic,
     ParsedCode,
@@ -52,7 +53,7 @@ def _finalize_identity(parsed: ParsedCode, content: str) -> ParsedCode:
     """Promote parser-local line IDs to the v2 structural identity contract."""
 
     id_map: dict[str, str] = {}
-    seen: dict[str, str] = {}
+    groups: dict[str, list[CodeSymbol]] = {}
     for symbol in parsed.symbols:
         legacy = symbol.legacy_id or symbol.id
         stable = stable_symbol_key(
@@ -62,22 +63,29 @@ def _finalize_identity(parsed: ParsedCode, content: str) -> ParsedCode:
             symbol.signature,
             symbol.location.file_path,
         )
-        other = seen.get(stable)
-        if other is not None and other != legacy:
-            parsed.status = ParseStatus.PARTIAL
-            parsed.diagnostics.append(
-                ParseDiagnostic(
-                    code="identity_collision",
-                    message=f"multiple symbols share structural key {stable}",
-                    severity="error",
-                    line=symbol.location.start_line,
-                )
-            )
-        seen[stable] = legacy
+        groups.setdefault(stable, []).append(symbol)
         id_map[legacy] = stable
         symbol.legacy_id = legacy
         symbol.id = stable
         symbol.identity_version = "v2"
+
+    for stable, definitions in groups.items():
+        if len(definitions) < 2:
+            continue
+        parsed.status = ParseStatus.PARTIAL
+        for symbol in definitions:
+            parsed.diagnostics.append(
+                ParseDiagnostic(
+                    code="identity_collision",
+                    message=(
+                        f"multiple declarations of {symbol.fully_qualified_name!r} "
+                        f"share structural key {stable}"
+                    ),
+                    severity="error",
+                    line=symbol.location.start_line,
+                    column=symbol.location.start_column,
+                )
+            )
 
     for relation in parsed.relations:
         relation.from_symbol_id = id_map.get(relation.from_symbol_id, relation.from_symbol_id)

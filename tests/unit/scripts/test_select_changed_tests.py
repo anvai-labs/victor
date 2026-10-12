@@ -86,6 +86,14 @@ def test_selector_changes_select_its_own_regressions():
             ["tests/unit/framework/test_model_effort.py"],
         ),
         (
+            "victor/agent/services/orchestrator_protocol_adapter.py",
+            [
+                "tests/unit/agent/services/test_orchestrator_service_delegation.py",
+                "tests/unit/agent/services/test_protocol_adapter_kwarg_strip.py",
+                "tests/unit/agent/services/test_service_runtime_parity.py",
+            ],
+        ),
+        (
             "victor/agent/services/chat_persistence.py",
             [
                 "tests/unit/agent/services/test_chat_service.py",

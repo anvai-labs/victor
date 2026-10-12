@@ -484,6 +484,31 @@ class TestTokenEstimation:
         # Should use prose factor (4.0) plus overhead
         assert tokens > 0
 
+    def test_estimate_tokens_json(self, compactor):
+        """Test token estimation for JSON content."""
+        tokens = compactor._estimate_tokens(2800, "json")
+        assert tokens == 1000  # 2800 / 2.8
+
+    def test_estimate_tokens_mixed(self, compactor):
+        """Test token estimation for mixed content."""
+        tokens = compactor._estimate_tokens(3500, "mixed")
+        assert tokens == 1000  # 3500 / 3.5
+
+    def test_estimate_tokens_unknown_type(self, compactor):
+        """Test token estimation for unknown content type falls back to mixed."""
+        tokens = compactor._estimate_tokens(3500, "unknown_type")
+        assert tokens == 1000  # Uses mixed factor 3.5
+
+    def test_estimate_message_tokens_json(self, compactor):
+        """Test message token estimation for JSON content."""
+        message = Message(role="assistant", content='{"key": "value", "number": 123}')
+
+        tokens = compactor.estimate_message_tokens(message)
+
+        # Should use JSON factor (2.8) plus overhead (4)
+        expected_base = len(message.content) / 2.8
+        assert tokens >= int(expected_base)
+
 
 class TestStatistics:
     """Tests for statistics methods."""
@@ -1252,35 +1277,6 @@ Line 25"""
         assert result.truncated is False
         assert result.content == content
         assert result.truncated_chars == 0
-
-
-class TestTokenEstimation:
-    """Additional tests for token estimation."""
-
-    def test_estimate_tokens_json(self, compactor):
-        """Test token estimation for JSON content."""
-        tokens = compactor._estimate_tokens(2800, "json")
-        assert tokens == 1000  # 2800 / 2.8
-
-    def test_estimate_tokens_mixed(self, compactor):
-        """Test token estimation for mixed content."""
-        tokens = compactor._estimate_tokens(3500, "mixed")
-        assert tokens == 1000  # 3500 / 3.5
-
-    def test_estimate_tokens_unknown_type(self, compactor):
-        """Test token estimation for unknown content type falls back to mixed."""
-        tokens = compactor._estimate_tokens(3500, "unknown_type")
-        assert tokens == 1000  # Uses mixed factor 3.5
-
-    def test_estimate_message_tokens_json(self, compactor):
-        """Test message token estimation for JSON content."""
-        message = Message(role="assistant", content='{"key": "value", "number": 123}')
-
-        tokens = compactor.estimate_message_tokens(message)
-
-        # Should use JSON factor (2.8) plus overhead (4)
-        expected_base = len(message.content) / 2.8
-        assert tokens >= int(expected_base)
 
 
 class TestStatisticsMethods:

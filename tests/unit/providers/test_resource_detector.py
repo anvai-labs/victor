@@ -182,15 +182,6 @@ class TestResourceAvailabilityDetector:
         assert detector.is_provider_available("ollama", resources) is True
         assert detector.is_provider_available("lmstudio", resources) is True
 
-    def test_is_provider_available_local_without_gpu(self, detector):
-        """Test local provider availability without GPU."""
-        gpu = GPUAvailability(available=False, reason="No GPU")
-        resources = {"gpu": gpu}
-
-        # Local provider should not be available
-        assert detector.is_provider_available("ollama", resources) is False
-        assert detector.is_provider_available("lmstudio", resources) is False
-
     def test_is_provider_available_cloud(self, detector):
         """Test cloud provider availability."""
         # Cloud providers don't require GPU

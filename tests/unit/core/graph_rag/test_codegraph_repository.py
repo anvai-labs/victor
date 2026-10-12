@@ -165,3 +165,83 @@ def test_canonical_projection_carries_body_hash_even_when_summary_is_unchanged()
         new.metadata["source_hash"]
         == hashlib.sha256(after.symbols[0].source_code.encode()).hexdigest()
     )
+
+
+@pytest.mark.asyncio
+async def test_collision_file_keeps_durable_marker_without_ambiguous_edges(tmp_path, monkeypatch):
+    from unittest.mock import AsyncMock, Mock
+    from victor_codegraph import parse_repo
+    from victor.core.graph_rag.config import GraphIndexConfig
+    from victor.core.graph_rag.indexing import GraphIndexingPipeline
+    from victor.storage.graph.sqlite_store import SqliteGraphStore
+
+    (tmp_path / "ambiguous.py").write_text(
+        "def duplicate(): return 1\ndef duplicate(): return 2\n"
+        "def otherwise_valid(): return duplicate()\n"
+    )
+    (tmp_path / "normal.py").write_text(
+        "from ambiguous import duplicate\ndef consumer(): return duplicate()\n"
+    )
+    shared = parse_repo(tmp_path)
+    collision = shared.files["ambiguous.py"]
+    duplicate_ids = {s.id for s in collision.symbols if s.simple_name == "duplicate"}
+    marker_id = next(
+        s.id
+        for s in shared.symbols
+        if s.symbol_type.name == "FILE" and s.location.file_path == "ambiguous.py"
+    )
+    monkeypatch.setattr(SqliteGraphStore, "_delete_embeddings_for_file", AsyncMock())
+    store = SqliteGraphStore(tmp_path)
+    await store.initialize()
+    try:
+        pipeline = GraphIndexingPipeline(
+            store,
+            GraphIndexConfig(
+                root_path=tmp_path,
+                enable_ccg=True,
+                enable_embeddings=False,
+                enable_subgraph_cache=False,
+                enable_module_metrics=False,
+            ),
+        )
+        # Normal CCG work is outside this fixture; collision files must not invoke it.
+        ccg = Mock(return_value=([], []))
+        monkeypatch.setattr(pipeline, "_build_ccg_inline", ccg)
+        stats = await pipeline.index_repository()
+        assert stats.error_count == 0, stats.errors
+        ccg.assert_called_once_with(tmp_path / "normal.py", "python")
+        assert stats.files_partial == 1 and stats.files_processed == 2
+        nodes = await store.get_all_nodes()
+        collision_nodes = [n for n in nodes if n.file == "ambiguous.py"]
+        assert [n.node_id for n in collision_nodes] == [marker_id]
+        marker = collision_nodes[0]
+        assert marker.metadata["parse_status"] == "partial"
+        assert marker.metadata["projection_status"] == "file_marker_only"
+        assert marker.metadata["omitted_symbol_count"] == len(collision.symbols)
+        assert marker.metadata["omitted_relation_count"] == len(collision.relations)
+        assert marker.metadata["diagnostics"][0]["code"] == "identity_collision"
+        details = marker.metadata["identity_collisions"]
+        assert {d["symbol_id"] for d in details} == duplicate_ids
+        assert [d["source_span"]["start_line"] for d in details[0]["declarations"]] == [1, 2]
+        assert any(n.name == "consumer" for n in nodes)
+        assert not duplicate_ids.intersection(n.node_id for n in nodes)
+        edges = await store.get_all_edges()
+        assert not any(e.src in duplicate_ids or e.dst in duplicate_ids for e in edges)
+        assert not any(e.type == "CALLS" for e in edges)
+
+        # Repairing the source replaces the marker and restores canonical edges.
+        (tmp_path / "ambiguous.py").write_text("def duplicate(): return 1\n")
+        recovered = await pipeline.index_repository()
+        assert recovered.error_count == 0 and recovered.files_partial == 0
+        nodes = await store.get_all_nodes()
+        marker = next(n for n in nodes if n.node_id == marker_id)
+        assert marker.metadata["projection_status"] == "symbols"
+        assert not marker.metadata["diagnostics"]
+        target = next(n for n in nodes if n.name == "duplicate")
+        consumer = next(n for n in nodes if n.name == "consumer")
+        assert any(
+            e.src == consumer.node_id and e.dst == target.node_id and e.type == "CALLS"
+            for e in await store.get_all_edges()
+        )
+    finally:
+        await store.close()

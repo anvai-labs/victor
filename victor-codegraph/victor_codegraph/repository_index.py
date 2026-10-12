@@ -5,7 +5,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import os
-from dataclasses import dataclass, field, replace
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 
 from .model import (
@@ -245,6 +245,40 @@ def _module_candidates(module: str, importer: str) -> tuple[str, ...]:
     return f"{stem}.py", f"{stem}/__init__.py"
 
 
+def _file_projection_metadata(parsed: ParsedCode) -> dict[str, object]:
+    """Keep diagnostic evidence while quarantining ambiguous symbol identities."""
+    quarantined = any(item.code == "identity_collision" for item in parsed.diagnostics)
+    groups: dict[str, list[CodeSymbol]] = {}
+    if quarantined:
+        for symbol in parsed.symbols:
+            groups.setdefault(symbol.id, []).append(symbol)
+    return {
+        "parse_status": parsed.status.value,
+        "capability_tier": parsed.capability_tier.value,
+        "diagnostics": [asdict(item) for item in parsed.diagnostics],
+        "projection_status": "file_marker_only" if quarantined else "symbols",
+        "omitted_symbol_count": len(parsed.symbols) if quarantined else 0,
+        "omitted_relation_count": len(parsed.relations) if quarantined else 0,
+        "identity_collisions": [
+            {
+                "symbol_id": symbol_id,
+                "resolution": "ambiguous",
+                "declarations": [
+                    {
+                        "name": symbol.simple_name,
+                        "qualified_name": symbol.fully_qualified_name,
+                        "symbol_type": symbol.symbol_type.name.lower(),
+                        "source_span": asdict(symbol.location),
+                    }
+                    for symbol in declarations
+                ],
+            }
+            for symbol_id, declarations in groups.items()
+            if len(declarations) > 1
+        ],
+    }
+
+
 def parse_repo(
     root: str | os.PathLike[str],
     *,
@@ -288,18 +322,33 @@ def parse_repo(
             ),
             source_code="",
             language=parsed.language,
-            metadata={"embedding_excluded": True, "content_version": parsed.content_hash},
+            metadata={
+                "embedding_excluded": True,
+                "content_version": parsed.content_hash,
+                **_file_projection_metadata(parsed),
+            },
         )
         file_symbols[relative] = file_symbol
 
-    symbols = [*file_symbols.values(), *(s for parsed in files.values() for s in parsed.symbols)]
-    relations = [relation for parsed in files.values() for relation in parsed.relations]
+    # Retain raw ParsedCode in `files` for diagnostics, but never feed ambiguous
+    # declarations into symbol lookup or cross-file resolution. The canonical
+    # FILE node stays visible, including to healthy files importing this module.
+    resolution_files = {
+        path: parsed
+        for path, parsed in files.items()
+        if file_symbols[path].metadata["projection_status"] != "file_marker_only"
+    }
+    symbols = [
+        *file_symbols.values(),
+        *(symbol for parsed in resolution_files.values() for symbol in parsed.symbols),
+    ]
+    relations = [relation for parsed in resolution_files.values() for relation in parsed.relations]
     from .rust_repository import RustRepository, use_paths
 
-    rust = RustRepository(root_path, files)
-    javascript = JavaScriptRepository(files)
+    rust = RustRepository(root_path, resolution_files)
+    javascript = JavaScriptRepository(resolution_files)
     rust_bindings: dict[str, list] = {}
-    for relative, parsed in files.items():
+    for relative, parsed in resolution_files.items():
         owner = file_symbols[relative]
         for symbol in parsed.symbols:
             if not symbol.scope_chain:
@@ -379,7 +428,9 @@ def parse_repo(
             )
     # Re-run the scope resolver over the full stable table only for already textual
     # targets, then apply conservative unique-name cross-file linking.
-    relations = _resolve_across_files(symbols, relations, files, rust_bindings, javascript)
+    relations = _resolve_across_files(
+        symbols, relations, resolution_files, rust_bindings, javascript
+    )
     generation_raw = "\n".join(f"{path}\x1f{digest}" for path, digest in sorted(manifest.items()))
     generation_id = hashlib.blake2b(generation_raw.encode(), digest_size=16).hexdigest()
     return ParsedRepository(
