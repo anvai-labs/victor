@@ -8,6 +8,8 @@ signatures, docstrings, decorators, parameters, cyclomatic complexity, and CALLS
 from __future__ import annotations
 
 import ast
+from collections.abc import Iterator, Sequence
+from typing import NotRequired, TypedDict
 
 from .model import (
     CodeRelation,
@@ -47,13 +49,20 @@ def _cyclomatic(node: ast.AST) -> dict[str, int]:
     return {"cyclomatic": count, "lines": end - lineno + 1}
 
 
-def _params(args: ast.arguments) -> list[dict]:
-    out: list[dict] = []
+class _Parameter(TypedDict):
+    name: str
+    type: NotRequired[str]
+    is_variadic: NotRequired[bool]
+    is_kwonly: NotRequired[bool]
+
+
+def _params(args: ast.arguments) -> list[_Parameter]:
+    out: list[_Parameter] = []
     posonly = getattr(args, "posonlyargs", [])
     for a in [*posonly, *args.args]:
         if a.arg in ("self", "cls"):
             continue
-        p: dict = {"name": a.arg}
+        p: _Parameter = {"name": a.arg}
         if a.annotation is not None:
             p["type"] = ast.unparse(a.annotation)
         out.append(p)
@@ -109,7 +118,7 @@ def _callee_ref(call: ast.Call) -> SymbolReference | None:
     return None
 
 
-def _calls_owned_by(node: ast.AST):
+def _calls_owned_by(node: ast.AST) -> Iterator[ast.Call]:
     """Yield calls owned by ``node`` without stealing calls from nested definitions."""
 
     stack = list(ast.iter_child_nodes(node))
@@ -122,13 +131,15 @@ def _calls_owned_by(node: ast.AST):
         stack.extend(ast.iter_child_nodes(child))
 
 
-def _bound_names(nodes: list[ast.AST]) -> set[str]:
-    """Conservative lexical writes, including captures and deletion bindings."""
+def _lexical_bindings(nodes: Sequence[ast.AST]) -> tuple[set[str], set[str]]:
+    """Collect writes and definition bindings without entering nested namespaces."""
     names: set[str] = set()
+    definitions: set[str] = set()
     stack = list(nodes)
     while stack:
         node = stack.pop()
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            definitions.add(node.name)
             continue
         if isinstance(node, ast.arg):
             names.add(node.arg)
@@ -141,7 +152,7 @@ def _bound_names(nodes: list[ast.AST]) -> set[str]:
         if isinstance(node, (ast.Import, ast.ImportFrom)):
             names.update(a.asname or a.name.split(".")[0] for a in node.names)
         stack.extend(ast.iter_child_nodes(node))
-    return names
+    return names, definitions
 
 
 class _Visitor:
@@ -152,6 +163,7 @@ class _Visitor:
         self.relations: list[CodeRelation] = []
         self.imports: list[str] = []
         self._enclosing_bindings: list[set[str]] = []
+        self._definition_scopes: list[dict[str, list[str]]] = [{}]
         self._import_names: set[str] = set()
         self._wildcard_import = False
         self._fqn_prefix = file_path.replace("/", ".").replace("\\", ".")
@@ -190,7 +202,7 @@ class _Visitor:
         symbol_type: CodeSymbolType,
         scope: list[str],
         signature: str | None = None,
-        params: list[dict] | None = None,
+        params: list[_Parameter] | None = None,
         return_type: str | None = None,
         modifiers: list[str] | None = None,
     ) -> CodeSymbol:
@@ -220,7 +232,7 @@ class _Visitor:
             signature=signature,
             modifiers=modifiers or [],
             scope_chain=list(scope),
-            parameters=params or [],
+            parameters=[dict(parameter) for parameter in params or []],
             return_type=return_type,
             complexity=_cyclomatic(node),
         )
@@ -254,10 +266,16 @@ class _Visitor:
             bound.add(node.args.vararg.arg)
         if node.args.kwarg:
             bound.add(node.args.kwarg.arg)
-        writes = _bound_names(node.body)
+        writes, definitions = _lexical_bindings(node.body)
+        inner = [*scope, name]
+        definition_scopes = {
+            **self._definition_scopes[-1],
+            **{definition: inner for definition in definitions},
+        }
         enclosing = set().union(*self._enclosing_bindings)
         sym.metadata["python_bound_names"] = sorted(bound | writes | enclosing)
         sym.metadata["python_rebound_names"] = sorted(writes | enclosing)
+        sym.metadata["python_definition_scopes"] = definition_scopes
         sym.metadata["python_import_names"] = sorted(self._import_names)
         sym.metadata["python_wildcard_import"] = self._wildcard_import
         sym.metadata["python_receiver"] = (
@@ -275,10 +293,10 @@ class _Visitor:
         # and otherwise keeps it as a bare name (so cross-file/external calls — e.g.
         # a CPG's blast radius — are not silently dropped). ``call_site`` records the
         # call line for consumers that need it.
-        for child in _calls_owned_by(node):
-            ref = _callee_ref(child)
+        for call in _calls_owned_by(node):
+            ref = _callee_ref(call)
             if ref:
-                line, col, end_line, end_col, offset, length = self._span(child)
+                line, col, end_line, end_col, offset, length = self._span(call)
                 self.relations.append(
                     CodeRelation(
                         from_symbol_id=sym.id,
@@ -297,8 +315,8 @@ class _Visitor:
                         ),
                     )
                 )
-        inner = [*scope, name]
         self._enclosing_bindings.append(bound | writes)
+        self._definition_scopes.append(definition_scopes)
         for child in node.body:
             nested: CodeSymbol | None = None
             if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -314,6 +332,7 @@ class _Visitor:
                     )
                 )
         self._enclosing_bindings.pop()
+        self._definition_scopes.pop()
         return sym
 
     def visit_class(self, node: ast.ClassDef, scope: list[str]) -> CodeSymbol:
@@ -322,6 +341,7 @@ class _Visitor:
         if bases:
             mods.append(f"extends({','.join(bases)})")
         cls = self._make_symbol(node, node.name, CodeSymbolType.CLASS, scope, modifiers=mods)
+        cls.metadata["python_definition_scopes"] = self._definition_scopes[-1]
         cls.metadata["python_rebound_names"] = sorted(set().union(*self._enclosing_bindings))
         self.symbols.append(cls)
         for base in bases:
@@ -356,9 +376,11 @@ class _Visitor:
         return cls
 
     def run(self, tree: ast.Module) -> None:
-        self._enclosing_bindings = [
-            _bound_names([n for n in tree.body if not isinstance(n, (ast.Import, ast.ImportFrom))])
-        ]
+        module_writes, _ = _lexical_bindings(
+            [n for n in tree.body if not isinstance(n, (ast.Import, ast.ImportFrom))]
+        )
+        self._enclosing_bindings = [module_writes]
+        self._definition_scopes = [{}]
         self._import_names = set()
         for declaration in tree.body:
             if isinstance(declaration, (ast.Import, ast.ImportFrom)):
