@@ -83,20 +83,20 @@ process.on('SIGTERM', async () => {{ await app.close(); process.exit(0); }});
         assert await client.initialize()
         tools = await client.refresh_tools()
         names = {tool.name for tool in tools}
-        assert "browser_session" in names
-        assert not names.intersection({"browser_create", "browser_close", "browser_cookies"})
-        attached = await client.call_tool("browser_session")
+        assert "session" in names
+        assert not names.intersection({"create", "close", "cookies"})
+        attached = await client.call_tool("session")
         assert attached.success
         assert json.loads(attached.result)["pages"][0]["pageId"] == page_id
         action = await client.call_tool(
-            "browser_act", pageId=page_id, action="press", key="Tab", operationId="victor-step-1"
+            "act", pageId=page_id, action="press", key="Tab", operationId="victor-step-1"
         )
         assert action.success, action.error
-        record = await client.call_tool("browser_operation", operationId="victor-step-1")
+        record = await client.call_tool("operation", operationId="victor-step-1")
         assert record.success
         assert json.loads(record.result)["status"] == "completed"
         request(path + "/control/takeover")
-        assert not (await client.call_tool("browser_session")).success
+        assert not (await client.call_tool("session")).success
     finally:
         await client.cleanup()
         server.terminate()
@@ -130,7 +130,7 @@ async def test_agentbrowser_catalog_reaches_model_adapter_unchanged():
         response = await client._send_request(MCPMessageType.LIST_TOOLS, {})
         expected = {tool["name"]: tool["inputSchema"] for tool in response["result"]["tools"]}
         tools = await client.refresh_tools()
-        assert "browser_autofill" in expected
+        assert "autofill" in expected
         assert {tool.name for tool in tools} == set(expected)
         for tool in tools:
             # Discovery/presentation only; registry execution is covered separately above.
