@@ -386,7 +386,7 @@ suite before upgrading. AnvaiOps owns tenancy, policy, jobs, billing and UX;
 neither those concerns nor storage choice justify different semantic identities.
 
 
-### Embedding alignment prototype — 2026-10-12
+### Embedding alignment release — 2026-10-12
 
 Foundation consumer PR AnvaiOps #489 merged at
 `54b43ccf3a3d8fa2a57602f2943045d830e66b37`; Victor receipt #1302 merged at
@@ -394,7 +394,7 @@ Foundation consumer PR AnvaiOps #489 merged at
 and all applicable CI green. Conditional skips are not full integration acceptance.
 
 [FEP-0040](../../feps/fep-0040-codegraph-embedding-conformance.md) owns the next
-shared contract and its precise evidence. The local prototype adds one optional
+shared contract and its precise evidence. The released package adds one optional
 BGE encoder, canonical symbol-summary input, immutable model/profile identity,
 source/input hashes and strict vector validation. Both storage adapters consumed
 the same actual BGE evidence in a synthetic run (3 symbols; 8 published graph
@@ -404,12 +404,14 @@ unknown source hashes and incompatible tracked graph profiles.
 
 | Ordered remaining gate | State |
 |---|---|
-| Shared document-vector contract and local conformance | #1303 candidate: 958 affected tests passed, 5 skipped; 198 standalone package tests (92.28% coverage); 1,703 AnvaiOps API/SDK tests, 3 skipped against the built 0.10.0 wheel |
+| Shared document-vector contract and local conformance | ✅ #1303 merged `91bae704573ecd80dc5aa2919fb8ba4cb7cdccec`: 958 affected tests passed, 5 skipped; 198 standalone package tests (92.28% coverage); 1,703 AnvaiOps API/SDK tests, 3 skipped against the built 0.10.0 wheel |
 | FEP acceptance | Accepted by the repository owner with an explicitly approved expedited review; see FEP-0040 |
-| Immutable package release | 0.10.0 candidate built/installation-qualified; publication and final CI open. Published AnvaiOps pin remains 0.9.0; never replace that artifact |
+| Immutable package release | ✅ [CodeGraph 0.10.0](https://github.com/anvai-labs/victor/releases/tag/victor-codegraph-v0.10.0), source `91bae704573ecd80dc5aa2919fb8ba4cb7cdccec`; PyPI publication and independent release tests/build passed. 0.9.0 remains immutable. AnvaiOps adoption PR is the next gate |
 | Collection/query model ownership and migration | Local LanceDB implementation: schema-bound profile, whole-table orphan/mixed marker checks, actual query model validation, float32 validation and atomic semantic upsert. Fresh collection required for migration. Local qualification and independent review passed; hosted adapters remain separate. |
 | Semantic relevance and authorized generation-bound retrieval | Open; ingestion parity does not qualify ranking or Q&A |
 | Consumer published pin + browser/hosted lifecycle | Open; retain existing descriptive UI and OSS/commercial ownership boundaries |
 
 Extend these gates here and in AnvaiOps TD-F1; do not create another parser,
 embedding implementation or disconnected completion tracker.
+
+Release evidence: exact-candidate independent review was clean; 41 applicable PR checks passed, including Vertical Py3.12. The first failed CI run is preserved; its correction installs the in-repo CodeGraph package before vertical consumers and replaces duplicate mocked provider checks with a real legacy-storage test. The final collection has 34,367 tests. Release run [38208368472](https://github.com/anvai-labs/victor/actions/runs/38208368472) passed. No new Victor AI release or hosted Q1 acceptance is implied.
