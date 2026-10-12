@@ -12,7 +12,8 @@ remains the acceptance record for formations and C5.
 **Current assessment: preserve the existing execution architecture, repair outcome
 and recovery semantics first, then narrow its typed boundaries.** The evidence does
 not justify more formations, a replacement orchestration engine, a language rewrite,
-or indiscriminate renaming. Findings below are open, not shipped fixes. Historical
+or indiscriminate renaming. Findings below distinguish local repairs from remaining
+gaps; none is a released/live acceptance claim. Historical
 sections retain their original source revisions; their superseding PRs remain valid.
 
 ### Evidence and confidence
@@ -46,7 +47,7 @@ availability and revision before exposing prescriptive recommendations.
 
 | ID / priority | Finding and user consequence | Bounded change and acceptance owner | State |
 |---|---|---|---|
-| SA-01 / P1 | `turn_execution_runtime.py:1167–1186` converts a failed loop with an empty final response to success after any successful tool and nonempty synthesis excluding a hardcoded prose prefix. `subagents/base.py:722` consumes that flag. Useful evidence or fluent prose can therefore be reported as completed work. | Preserve failed/partial status unless the configured verifier establishes completion; preserve useful synthesis separately. Extend existing `test_turn_execution_runtime.py` synthesis cases with failed-verifier and successful-read/unfinished-write outcomes, plus the member consumer. G89. | OPEN; behavior confirmed |
+| SA-01 / P1 | Audited `turn_execution_runtime.py:1167–1186` converted a failed loop with an empty final response to success after any successful tool and nonempty synthesis excluding a hardcoded prose prefix. `subagents/base.py:722` consumes that flag. | The bounded repair preserves the structured loop verdict/error while using the existing typed synthesis helper for presentation. Existing turn-runtime and member tests cover failed verdicts despite successful reads or completion claims, fallback/empty synthesis and failed parent handoffs. G89. | LOCAL_PASS; source review clean, CI/merge/release pending |
 | SA-02 / P2 | `turn_execution_runtime.py:530–532` rolls back messages and `tool_calls_used` after ordinary exceptions from `_execute_via_agentic_loop`; restore at `:402–427` does not check whether tools executed. A late error can hide execution evidence or reduce the live-session counter. This is not a finding that durable receipts are deleted or tools automatically replayed. | Restore speculative pre-dispatch state only; retain observed effects and monotonic consumption after dispatch. Extend existing rollback owner with a fake committed write followed by provider failure, retained receipt/transcript, no second effect, and cancellation/approval controls. G90; complements G62/G70. | OPEN; source-confirmed, new fault scenario pending |
 | SA-03 / P2 | `tool_execution_runtime.py:486–505` and `turn_execution_runtime.py:1864–1883` independently reconstruct runtime identity and default to `session_root` / `root_agent` / `manager`. Normal initialized paths use `AgentRuntimeContext`; actual member collisions are not demonstrated. | Construct one immutable context at assembly, inject it into both consumers, and reject missing identity at effect/persistence boundaries. Map legacy role inputs explicitly to `supervisor`; preserve the existing child-session derivation. Test isolation, missing context and both consumers in their existing suites. G91. | OPEN; duplicated fallback policy confirmed |
 | SA-04 / P2 | `ToolExecutionRuntime(runtime_host: Any)` reaches pipeline, state, identity, persistence, formatting and context through one host. Adapter `__getattr__`/`__setattr__` forwards arbitrary access; `ChatContextProtocol` and peers retain broad `Any` fields. These permit dependencies and typos to escape static checking. | Inject narrow typed collaborators through the existing assembly boundary, starting with required execution/result-publication/identity operations. Keep one compatibility adapter; move optional capability decisions there. Extend delegation/parity tests with typed fakes and static negative fixtures. Do not add a second pipeline or registry. | OPEN; contract debt confirmed |
@@ -115,6 +116,36 @@ Audit qualification: independent source/evidence review found no blocking issues
 160 existing tests passed across turn-runtime/CI selection, module analysis and
 architecture/service-boundary owners. These are baseline behavior checks, not
 implementation acceptance for SA-01–SA-06. No runtime behavior changed in this audit.
+
+### SA-01 implementation checkpoint
+
+Owner: this co-design session; branch `fix/preserve-agentic-loop-outcomes`, rebased
+onto `0c1f07cebc9970b40e68ccd3d53d57ad8e34be81` after the audit/CodeGraph PR
+[#1305](https://github.com/anvai-labs/victor/pull/1305) merged with 40 successful
+applicable checks. No history was rewritten on a published feature branch.
+
+The outer turn runtime no longer promotes a failed `LoopResult` based on summary
+text or a prose-prefix check. It reuses `synthesize_from_tool_evidence`, then
+publishes the authoritative failure, error and iteration count through the existing
+metadata contract. Synthesis remains available; success paths retain their behavior.
+No new enum, verifier, registry, dispatcher or provider call is added.
+
+TDD replaces the existing unsafe synthesis expectation rather than keeping a second
+test owner. Four regression cases initially failed; the empty-summary expectation
+was corrected to preserve the completer's existing explicit fallback response.
+The fixtures use real `LoopResult`, `LoopIteration`, `EvaluationResult` and
+`TurnResult` values. The existing member failure test now checks that fluent
+completion prose with synthesis metadata still produces a failed parent handoff.
+Independent review and 105 directly affected tests pass; the broader runtime/member
+cohort passes 377 tests and the verifier/stream cohort passes 58 tests. The combined
+final-base run passes all 435 tests; full collection finds 34,523 tests. CI and merge
+evidence remain required before declaring this landed.
+
+This qualifies propagation of a structured failed verdict. It does not make every
+unconfigured completion heuristic an independent verifier, change the inner loop's
+evaluation strategy, repair post-effect rollback (SA-02/G90), or close C5. Next:
+finish the reviewed source milestone, then fault-inject a committed action followed
+by a late exception in the existing rollback owner before implementing SA-02.
 
 ## PDF recheck and design critique — 2026-09-25
 
