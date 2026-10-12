@@ -81,7 +81,14 @@ edit. A mock test is not live provider or C5 evidence.
   Required runtime/contracts modules are explicitly unsuppressed and pass strict
   MyPy. Optional context helpers and the adapter's dynamic host forwarding remain
   outside this slice. Configured MyPy passes 2,002 files under the stated legacy
-  suppression; that result does not close G96. Review, CI and merge remain gates.
+  suppression; that result does not close G96. Independent review is clean with
+  151 tests. [PR #1318](https://github.com/anvai-labs/victor/pull/1318) initially
+  failed its fail-closed test selector because the definition-only contracts
+  module lacked a filename mirror. The correction maps it to its existing
+  runtime/static owners; one added case in the existing selector matrix fails
+  before the mapping and passes after it. Independent selector review passes
+  50 tests; selector plus owner/static tests pass 91. Final collection finds
+  34,582 tests. Exact CI-selected cohort, corrected CI and merge remain gates.
 
 - **G96 / TYPE-01 ACTIVE — repository-wide MyPy qualification.** The user expanded
   scope to fix all typing errors, including independently packaged Python modules.
@@ -1305,11 +1312,12 @@ errors is not an acceptance result for this program.
 
 | ID | Dependency / work | Status and acceptance |
 | --- | --- | --- |
-| TYPE-01 | Unsuppressed inventory, reproducible commands, file/error ownership and existing test audit | ACTIVE; core audit 7,794 errors / 1,082 files; independent-package targets report 1,101 package-local errors plus imported core diagnostics; scripts/tests inventory remains |
+| TYPE-01 | Unsuppressed inventory, reproducible commands, file/error ownership and existing test audit | ACTIVE; core audit 7,794 errors / 1,082 files; independent-package targets report 1,101 package-local errors; root tests/scripts also inventoried below; package tests and SDK compatibility namespace remain |
 | TYPE-02 | Definition-layer contracts, missing symbols and concrete signature mismatches | TODO after TYPE-01; fix real runtime hazards first; negative/positive regressions for behavior changes |
 | TYPE-03 | Typed runtime assembly and adapters, completing SA-04 | TODO after TYPE-02; required collaborators explicit, optional capabilities centralized; no dynamic forwarding as evidence of protocol implementation |
 | TYPE-04 | Services, providers, tools, workflows, storage and client consumers | TODO in dependency order; retire each reviewed exception only with affected tests and strict checks |
 | TYPE-05 | Package/vertical integration and full unsuppressed matrix | TODO after contributing groups; build/install and supported Python jobs pass, no broad suppression, unused ignores removed |
+| TYPE-06 | Test and development-script typing | TODO after their production contracts; root tests 48,242 diagnostics, scripts 440; retain intentional negative fixtures and behavior coverage; no blanket test exclusion as a compliance claim |
 
 Each increment records exact source SHA, diagnostics before/after, tests, independent
 review and CI. Correct types at their owning boundary; do not replace errors with
@@ -1328,6 +1336,16 @@ types, so each qualifying increment retains its exact invocation. Both audits us
 the repository strict flags with every `ignore_errors = true` changed to `false`
 in an archived local config. `ignore_missing_imports` is still enabled: installation
 and optional dependency stub/import coverage need separate TYPE-05 qualification.
+
+The root test/script inventory uses MyPy 1.19.1, strict mode,
+`--explicit-package-bases --namespace-packages`, no target exclusions and the same
+unsuppressed config. It reports 48,682 target-local diagnostics across 1,784 files;
+35,755 are missing function annotations. Another 7,233 imported core diagnostics
+overlap the source audit and are not additional errors. Raw output, invocation
+config and summary remain in `var/codegraph-victor-20261012/mypy-tests-scripts-*`.
+This is backlog evidence, not a request to mechanically annotate tens of thousands
+of fixtures before fixing execution hazards. Whole-repository completion includes
+TYPE-06; source-only qualification will be labeled separately.
 
 ## TDD and test ownership
 

@@ -94,6 +94,13 @@ def test_selector_changes_select_its_own_regressions():
             ],
         ),
         (
+            "victor/agent/services/tool_execution_contracts.py",
+            [
+                "tests/unit/agent/services/test_tool_execution_runtime.py",
+                "tests/unit/agent/services/test_typed_contracts.py",
+            ],
+        ),
+        (
             "victor/agent/services/chat_persistence.py",
             [
                 "tests/unit/agent/services/test_chat_service.py",
