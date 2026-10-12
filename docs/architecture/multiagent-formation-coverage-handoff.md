@@ -1968,8 +1968,8 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   SA-04 inspection found `pyproject.toml` applies `ignore_errors = true` to
   `victor.*`. A successful repository-wide `mypy --strict` command therefore
   does not prove every checked module is type-safe. Enabling errors for the tool
-  execution runtime exposed four previously suppressed errors. The SA-04a
-  candidate explicitly checks that runtime and its required collaborator
+  execution runtime exposed four previously suppressed errors. SA-04a [#1318](https://github.com/anvai-labs/victor/pull/1318)
+  explicitly checks that runtime and its required collaborator
   contracts, plus positive/negative constructor fixtures. Other modules,
   including the compatibility adapter, retain their historical exception;
   retire exceptions in bounded, behavior-qualified increments. Adapter dynamic

@@ -14,7 +14,7 @@ make lint
 # Individual tools
 black victor tests                    # Format with Black
 ruff check --fix victor tests         # Lint and auto-fix with Ruff
-mypy victor                           # Type check with MyPy
+mypy                                  # Configured core + SDK type check
 ```
 
 ## Tools Overview
@@ -164,60 +164,32 @@ def good(items=None):  # Do this instead
 
 MyPy verifies type hints for type safety and better IDE support.
 
-### Configuration
+### Configuration and qualification
 
-From `pyproject.toml`:
-
-```toml
-[tool.mypy]
-python_version = "3.12"
-strict = false                    # Gradual typing adoption
-warn_return_any = false
-warn_unused_configs = true
-disallow_untyped_defs = false
-ignore_missing_imports = true
-no_implicit_optional = true
-exclude = [
-    "^archive/",
-    "^tests/",
-    "^scripts/",
-]
-files = ["victor"]
-
-# Strictly typed modules
-[[tool.mypy.overrides]]
-module = [
-    "victor.config.*",
-    "victor.storage.cache.*",
-    "victor.telemetry.*",
-    "victor.analytics.*",
-    "victor.profiler.*",
-    "victor.debug.*",
-]
-strict = true
-```
+`pyproject.toml` is the authoritative configuration. Strict flags are enabled, but
+legacy `victor.*` error suppression remains except for explicitly qualified
+modules. A successful configured check is therefore not whole-repository typing
+acceptance. The SDK and its legacy root are included without that suppression.
+[G96](../architecture/victor-agent-service-plan.md#repository-wide-typing-qualification-g96)
+tracks the unsuppressed inventory and ordered removal of exceptions, including
+independent packages and tests/scripts.
 
 ### Running MyPy
 
 ```bash
-# Type check the codebase
-mypy victor
+# Configured source targets: core, contracts SDK and compatibility root
+.venv-codesign/bin/python -m mypy
 
-# Run the strict-package gate (same command as CI)
-mypy --strict \
-  victor/config \
-  victor/storage/cache \
-  victor/telemetry \
-  victor/analytics \
-  victor/profiler \
-  victor/debug
+# Same strict invocation as CI; legacy exceptions still apply
+.venv-codesign/bin/python -m mypy --strict
 
-# Type check specific file
-mypy victor/agent/orchestrator.py
-
-# Show error codes
-mypy victor --show-error-codes
+# Inspect one module; its configured exception, if any, still applies
+.venv-codesign/bin/python -m mypy victor/agent/orchestrator.py --show-error-codes
 ```
+
+New code must not copy broad suppressions. Fix types at the owning contract and
+retain runtime tests; annotations alone do not validate external data or prove
+safe execution. Built SDK wheels also undergo downstream positive/negative checks.
 
 ### Type Hint Requirements
 
@@ -546,7 +518,7 @@ All pull requests must pass these checks:
 # These commands run in CI
 ruff check victor             # No lint errors
 black --check victor          # Code is formatted
-mypy victor --ignore-missing-imports  # Type check passes
+mypy                                # Configured gate; G96 tracks unsuppressed debt
 ```
 
 If CI fails:

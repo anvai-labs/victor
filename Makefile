@@ -220,7 +220,7 @@ test-split:
 lint:
 	ruff check victor tests
 	black --check victor tests
-	mypy victor
+	mypy victor victor-contracts/victor_contracts victor-contracts/victor_sdk
 	python scripts/ci/repo_hygiene_check.py
 
 check-repo-hygiene:

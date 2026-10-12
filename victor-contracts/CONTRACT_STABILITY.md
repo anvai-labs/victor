@@ -109,6 +109,23 @@ No semver stability guarantee; may change in any release:
   `DeprecationWarning` on import and exists only so pinned external plugins
   keep working. New code must import from `victor_contracts`.
 
+## Static typing and installed wheels
+
+The wheel includes `py.typed` for `victor_contracts` and the legacy root namespace.
+CI checks SDK sources in strict mode and type-checks a consumer outside the source
+checkout after installing the wheel. The consumer must accept valid definitions
+and reject incorrect field/constructor types without ignoring missing imports.
+Host bridges still require the matching Victor installation for host functionality;
+SDK checks do not qualify every imported runtime implementation.
+
+Legacy root imports such as `from victor_sdk import TeamMemberSpec` are checked.
+The runtime import hook also preserves `victor_sdk.team_schema` module identity,
+but static checkers cannot resolve these dynamically created legacy submodules.
+Use `victor_contracts.team_schema` for static typing; no legacy submodule stub
+coverage is claimed. The deprecated handler bridge's previously advertised
+`sync_handlers_with_executor` never resolved to a host implementation and is no
+longer listed; existing working deprecated exports retain their warnings.
+
 ## Deprecation Policy
 
 1. **Warn before removal.** A deprecated surface emits `DeprecationWarning`

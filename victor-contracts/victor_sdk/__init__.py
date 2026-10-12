@@ -28,6 +28,9 @@ import importlib.abc
 import importlib.util
 import sys
 import warnings
+from collections.abc import Sequence
+from importlib.machinery import ModuleSpec
+from types import ModuleType
 
 import victor_contracts
 
@@ -50,18 +53,23 @@ class _VictorSdkRedirect(importlib.abc.MetaPathFinder, importlib.abc.Loader):
     identity checks across the old/new names stay consistent.
     """
 
-    def find_spec(self, fullname, path=None, target=None):  # noqa: ANN001
+    def find_spec(
+        self,
+        fullname: str,
+        path: Sequence[str] | None = None,
+        target: ModuleType | None = None,
+    ) -> ModuleSpec | None:
         if fullname != _PREFIX and not fullname.startswith(_PREFIX + "."):
             return None
         return importlib.util.spec_from_loader(fullname, self)
 
-    def create_module(self, spec):  # noqa: ANN001
+    def create_module(self, spec: ModuleSpec) -> ModuleType:
         target_name = _TARGET + spec.name[len(_PREFIX) :]
         module = importlib.import_module(target_name)  # nosemgrep
         sys.modules[spec.name] = module
         return module
 
-    def exec_module(self, module):  # noqa: ANN001
+    def exec_module(self, module: ModuleType) -> None:
         pass
 
 
@@ -72,11 +80,9 @@ if not any(isinstance(finder, _VictorSdkRedirect) for finder in sys.meta_path):
 # direct ``from victor_sdk import Name`` both work without hitting the finder.
 from victor_contracts import *  # noqa: F401,F403,E402  (warn before re-export)
 
-try:
-    __all__ = list(victor_contracts.__all__)  # type: ignore[attr-defined]
-except AttributeError:  # pragma: no cover - victor_contracts always defines __all__
-    __all__ = []
+__all__ = list(victor_contracts.__all__)
 
 
-def __getattr__(name: str):  # PEP 562 — delegate any other attribute access.
-    return getattr(victor_contracts, name)
+def __getattr__(name: str) -> object:  # PEP 562 — delegate other attribute access.
+    value: object = getattr(victor_contracts, name)
+    return value

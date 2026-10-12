@@ -27,11 +27,11 @@ if TYPE_CHECKING:
         InlineCompletionParams,
         InsertTextFormat,
     )
-    from victor.processing.native import (
+    from victor.native.protocols import (
         ChunkInfo,
         TextChunkerProtocol,
-        get_default_text_chunker,
     )
+    from victor.processing.native import get_default_text_chunker
 
 __all__ = [
     "OperationType",
@@ -65,8 +65,8 @@ _LAZY_IMPORTS = {
     "EditTransaction": "victor.framework.processing",
     "FileEditor": "victor.framework.processing",
     "get_default_text_chunker": "victor.framework.processing",
-    "TextChunkerProtocol": "victor.processing.native",
-    "ChunkInfo": "victor.processing.native",
+    "TextChunkerProtocol": "victor.native.protocols",
+    "ChunkInfo": "victor.native.protocols",
     "Position": "victor.framework.lsp",
     "Range": "victor.framework.lsp",
     "TextEdit": "victor.framework.lsp",

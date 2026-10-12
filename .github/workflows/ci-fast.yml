@@ -139,7 +139,7 @@ jobs:
         run: pip install mypy types-pyyaml types-aiofiles
 
       - name: Type check with MyPy
-        run: mypy victor
+        run: mypy
 
   strict-typecheck:
     name: Global Strict Type Gate (MyPy)
@@ -158,12 +158,10 @@ jobs:
 
       - name: Enforce global strict type checking
         run: |
-          # M3 achievement (2026-03-10): Global strict mode enabled
-          # M1 baseline: 6 modules
-          # M1 expansion: +5 modules (total 11)
-          # M2 expansion: +4 modules (total 15)
-          # M3: Global strict enabled for entire codebase
-          mypy victor --strict
+          # pyproject owns the source targets: core plus the unsuppressed SDK.
+          # G96 tracks remaining legacy core suppression; this is not yet
+          # whole-repository unsuppressed qualification.
+          mypy --strict
 
   imports:
     name: Import Check

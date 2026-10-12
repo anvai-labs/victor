@@ -10,6 +10,22 @@ the deprecation policy are defined in
 
 ## [Unreleased]
 
+### Fixed
+
+- Runtime `MemoryConfig` and `TeamAgentCategory` now re-export their canonical SDK
+  definitions, preserving identity and eliminating incompatible duplicate types.
+- `processing_runtime` resolves `ChunkInfo` and `TextChunkerProtocol` against their
+  actual host owner. The deprecated handler decorator keeps the decorated class
+  type; the bridge no longer advertises `sync_handlers_with_executor`, which had
+  no host implementation and failed on access.
+
+### Added
+
+- SDK and legacy-root `py.typed` wheel markers, strict SDK source checks and an
+  installed-wheel consumer check with positive and negative typing examples.
+  Runtime legacy submodule aliases remain available; static consumers should use
+  `victor_contracts.*` (see the contract stability policy).
+
 ## [0.9.0] - 2026-08-01
 
 ### Added
