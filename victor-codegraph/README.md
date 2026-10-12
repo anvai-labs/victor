@@ -25,7 +25,7 @@ gaps:
 ## Install
 
 Published on PyPI as [`victor-codegraph`](https://pypi.org/project/victor-codegraph/).
-This source tree is version **0.9.0**; consumers should use a compatible `<1.0` pin.
+This source tree is version **0.10.0**; consumers should use a compatible `<1.0` pin.
 
 ```bash
 # from PyPI
@@ -97,7 +97,7 @@ records = to_proxima_records(repository, repo_graph_id="myrepo")
 
 ## Status
 
-`0.9.0` source version. Python (`ast`) is the full, offline frontend. JS/TS, Go, Rust,
+`0.10.0` source version. Python (`ast`) is the full, offline frontend. JS/TS, Go, Rust,
 Java, C, and C++ have conformance fixtures; other mapped tree-sitter languages report
 symbols-tier or fallback status rather than implying full fidelity.
 
@@ -114,12 +114,12 @@ workspace-inherited dependencies, re-export chains, macros and unknown receiver
 types retain unresolved references. Glob imports retain a module dependency but
 do not guess call targets. This is a conservative static graph, not rustc name
 resolution or evidence that a call executes. Publish this package before a Victor
-release that requires its `0.9.0` repository graph contract.
+release that requires its exact repository graph contract.
 
 
-### Embedding conformance candidate (unreleased)
+### Embedding conformance (0.10.0)
 
-The working-tree prototype described by FEP-0040 supplies store-neutral
+The accepted FEP-0040 supplies store-neutral
 `EmbeddingProfile`, `SymbolEmbedding`, `embed_symbols` and an optional
 `SentenceTransformerEncoder`. The base compiler stays dependency-free. The
 `embeddings` extra loads sentence-transformers only when explicitly selected;
@@ -132,7 +132,12 @@ Inference errors propagate; hash placeholders, zero vectors and malformed batche
 are not semantic evidence. File/container symbols marked `embedding_excluded`
 remain graph evidence only.
 
-This is not part of the published 0.9.0 distribution. Installation instructions
-and consumer pins follow a new qualified release. Current evidence covers
-synthetic document-vector persistence parity; collection/query compatibility,
-relevance and hosted lifecycle remain separate acceptance gates.
+These APIs are introduced in 0.10.0 and are unavailable in 0.9.0. Install the
+exact published `victor-codegraph[treesitter,embeddings]==0.10.0` when selecting
+local model execution; the base package has no mandatory model dependency.
+Current evidence covers
+synthetic document-vector persistence parity and local LanceDB collection/query
+profile enforcement. Labeled relevance and hosted lifecycle remain separate
+acceptance gates. Victor binds a new LanceDB table to the complete profile in its
+Arrow schema and rejects incompatible query encoders and mixed/orphan row markers.
+Legacy tables require a fresh destination; they are never silently relabeled.

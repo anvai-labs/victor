@@ -54,7 +54,7 @@ The older `docs/feps/` 0001/0002 documents form a separate historical series.
 | [FEP-0038](0038-model-reasoning-effort.md) | Model identity and reasoning effort across client surfaces | Draft |
 | [FEP-0039](fep-0039-unified-agent-service-api.md) | Unified agent-service API for web, IDE and automation clients | Review |
 
-| [FEP-0040](fep-0040-codegraph-embedding-conformance.md) | CodeGraph embedding conformance across local and hosted stores | Review |
+| [FEP-0040](fep-0040-codegraph-embedding-conformance.md) | CodeGraph embedding conformance across local and hosted stores | Accepted |
 
 ## Submit or Update a Proposal
 

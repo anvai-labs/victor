@@ -363,3 +363,16 @@ async def test_unversioned_source_cannot_claim_semantic_provenance(store_and_roo
     stats = await _pipeline(store, root)._generate_embeddings()
     assert stats.error_count == 1
     provider.index_embedded_documents.assert_not_awaited()
+
+
+async def test_collection_guard_precedes_force_deletion(store_and_root, monkeypatch):
+    store, root = store_and_root
+    await store.upsert_nodes([_node("n1", "a.py", "alpha")])
+    provider = MagicMock()
+    provider.validate_embedding_profile = AsyncMock(side_effect=ValueError("fresh collection"))
+    _patch_embedding_stack(monkeypatch, provider)
+    pipeline = _pipeline(store, root)
+    with pytest.raises(ValueError, match="fresh collection"):
+        await pipeline.index_repository()
+    assert len(await store.get_all_nodes()) == 1
+    provider.index_embedded_documents.assert_not_called()

@@ -2,7 +2,7 @@
 fep: "0040"
 title: "CodeGraph embedding conformance across local and hosted stores"
 type: Standards Track
-status: Review
+status: Accepted
 created: 2026-10-12
 modified: 2026-10-12
 authors:
@@ -22,10 +22,10 @@ same canonical symbols, source versions and semantic vectors. AnvaiOps adds
 policy, scheduling, billing and UX; it must not independently derive identities
 or silently replace semantic embeddings with hashes.
 
-Status is Review. The implementation is a reviewable candidate; publication of
-new public contracts requires recorded design acceptance. Existing parser and
-storage defect corrections proceed independently. User authorization to align
-the consumers is recorded in the originating session, not formal FEP acceptance.
+Status is Accepted. The repository owner explicitly approved FEP-0040 and an
+expedited review in the originating session ("i approve"). This waives the normal
+14-day review period for this proposal. Acceptance authorizes implementation and
+qualification; it does not claim release, semantic relevance or hosted acceptance.
 
 ## Motivation
 
@@ -124,27 +124,53 @@ were extended rather than creating another embedding suite per adapter.
 | Real BGE storage parity | Actual Victor generation → LanceDBProvider and AnvaiOps publication → ProximaDB 0.4.0 SST: 3 synthetic symbols / 8 published graph records; profile, canonical ID, input/source hash and vectors match; 6.799 s single local run |
 | Packaging | Candidate wheel/sdist build; no publication or 0.9.0 replacement. Clean Python 3.12 wheel import/optional-dependency smoke passed; Linux ARM64 Python 3.13 wheel installed and 18 contract tests passed. Optional native/model execution on 3.13 and the full release matrix remain gates. |
 
-**Collection/query conformance remains open.** The guard inspects graph-node
-markers, not every existing/orphan vector row. LanceDB can independently configure
-its query model. A persisted collection-level model contract, query encoder
-compatibility check and safe migration are prerequisites to accepting semantic
-search. No similarity search, relevance, hosted authorization, concurrent writer,
-restart or full Q&A acceptance is implied by the document-vector parity run.
+**Local collection/query enforcement is qualified locally; merge/release gates remain.**
+LanceDB commits the complete profile with the initial Arrow schema, retains the
+binding when empty, checks all row markers including orphans, and requires the
+actual query encoder's profile to match. Semantic vectors are validated before
+and after float32 conversion. Semantic upsert is one storage commit. Graph-index
+preflight rejects an incompatible collection before force deletion. Use a fresh
+collection/directory for legacy or changed profiles; no in-place migration or
+cross-store atomic publication is claimed. Existing unprofiled document indexes
+retain their defaults. Multi-process hosted publication, relevance, restart and
+full Q&A acceptance remain separate gates.
 The local BGE run uses immutable revision
 `5c38ec7c405ec4b44b94cc5a9bb96e735b38267a`; its profile is
 `468b9ab3e92f01de25d4244adf05ee5812bcfbcd90647c8e4466142a61d2b34b`.
 
+### 0.10.0 qualification update
+
+- Owner accepted this FEP and expedited its review. Package metadata, runtime
+  version and Victor graph-extra pin agree on the new 0.10.0 candidate.
+- 958 affected tests passed, 5 skipped in an explicitly offline model environment;
+  the first broader run was interrupted during upstream model-loading retries.
+  Shared package: 198 passed, 92.28% coverage. Independent focused review: 77 passed;
+  its query float32 overflow/underflow finding was fixed before final review.
+- AnvaiOps API/SDK: 1,703 passed, 3 skipped against the built 0.10.0 wheel, with no
+  source-path override. Published consumer pins remain unchanged until publication.
+- Wheel/sdist identities validated. Clean Python 3.12 base install and Linux ARM64
+  Python 3.13 wheel/18-contract-test run passed. Optional model execution was
+  measured on Python 3.12; no full native-model platform matrix is implied.
+- Real BGE persistence parity plus three synthetic top-1 queries and a table-reopen
+  query passed in 9.572 s. These are smoke cases, not representative relevance.
+- A 10,000-row/384-dimension local storage probe (20 repetitions, deterministic
+  encoder) measured median profile check 1.71 ms and search including check 8.02 ms;
+  initial write 3.797 s. Model inference, multi-writer behavior and service SLOs
+  are outside that measurement. No language rewrite or additional native toolchain.
+- Existing test owners were extended; the CI selector now maps the embedding-model
+  module to its existing embeddings suite instead of requiring duplicate tests.
+
 ## Unresolved Questions
 
-How should each vector store atomically bind a collection to its model profile
-and reject mixed-model/orphan rows? Which query adapter owns that same profile?
-What representative labeled corpus establishes relevance across languages? Those
+LanceDB binds its Arrow schema at creation and queries through the actual loaded
+encoder profile. Other vector adapters require equivalent qualification. What
+representative labeled corpus establishes relevance across languages? Those
 are open acceptance gates, not guarantees inferred from the prototype. Hosted
 policy, concurrent publication and restart semantics require separate evidence.
 
 ## Implementation Plan
 
-1. Record design acceptance under the repository FEP process. Complete collection/
+1. Design accepted with an explicitly approved expedited review. Complete collection/
    query-model ownership and migration before marking Q1 semantic search accepted.
 2. Qualify the optional package on supported Python versions and publish a new
    immutable release. Never republish the candidate over 0.9.0.

@@ -209,6 +209,10 @@ def test_selector_changes_select_its_own_regressions():
             ],
         ),
         (
+            "victor/storage/vector_stores/models.py",
+            ["tests/unit/embeddings/test_embedding_models.py"],
+        ),
+        (
             "victor/framework/policies/gate.py",
             [
                 "tests/unit/framework/policies/test_message_phases.py",

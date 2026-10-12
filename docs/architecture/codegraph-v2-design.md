@@ -404,9 +404,10 @@ unknown source hashes and incompatible tracked graph profiles.
 
 | Ordered remaining gate | State |
 |---|---|
-| Shared document-vector contract and local conformance | Prototype reviewed; 621 affected Victor/package tests, 198 standalone package tests (92.28% coverage); 1,703 AnvaiOps API/SDK tests, 3 skipped |
-| FEP acceptance and immutable package release | Open; published consumer pin remains 0.9.0; candidate is not a replacement artifact |
-| Collection/query model ownership and migration | Open: existing/orphan vector rows and independently configured query encoders are outside the graph-marker guard |
+| Shared document-vector contract and local conformance | #1303 candidate: 958 affected tests passed, 5 skipped; 198 standalone package tests (92.28% coverage); 1,703 AnvaiOps API/SDK tests, 3 skipped against the built 0.10.0 wheel |
+| FEP acceptance | Accepted by the repository owner with an explicitly approved expedited review; see FEP-0040 |
+| Immutable package release | 0.10.0 candidate built/installation-qualified; publication and final CI open. Published AnvaiOps pin remains 0.9.0; never replace that artifact |
+| Collection/query model ownership and migration | Local LanceDB implementation: schema-bound profile, whole-table orphan/mixed marker checks, actual query model validation, float32 validation and atomic semantic upsert. Fresh collection required for migration. Local qualification and independent review passed; hosted adapters remain separate. |
 | Semantic relevance and authorized generation-bound retrieval | Open; ingestion parity does not qualify ranking or Q&A |
 | Consumer published pin + browser/hosted lifecycle | Open; retain existing descriptive UI and OSS/commercial ownership boundaries |
 

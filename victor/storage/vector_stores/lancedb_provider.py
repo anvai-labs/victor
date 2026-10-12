@@ -28,10 +28,12 @@ For embedding models:
 - OpenAI: pip install openai (requires API key)
 """
 
+from dataclasses import asdict
 import importlib.util
+import json
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 # Provider registration must not load an optional native backend. Importing
 # LanceDB can fail at the machine-code level on unsupported CPUs, even when
@@ -49,7 +51,13 @@ from victor.storage.vector_stores.models import (
     create_embedding_model,
 )
 
+if TYPE_CHECKING:
+    from victor_codegraph import EmbeddingProfile
+
 logger = logging.getLogger(__name__)
+
+_PROFILE_METADATA_KEY = b"victor_codegraph.embedding_profile"
+
 
 _SEARCH_METADATA_EXCLUDE_KEYS = {
     "vector",
@@ -184,6 +192,92 @@ class LanceDBProvider(BaseEmbeddingProvider):
 
         return await self.embedding_model.embed_batch(texts)
 
+    def _collection_profile(self) -> "Optional[EmbeddingProfile]":
+        """Validate the persisted table binding, including orphan vector rows.
+
+        A profile is committed with the initial Arrow schema. Legacy collections
+        are never relabeled or migrated in place. Storage mutations outside this
+        adapter are unsupported; validate their row markers before use anyway.
+        """
+        if self.table is None:
+            return None
+        self.table.checkout_latest()
+        schema = self.table.schema
+        raw = (schema.metadata or {}).get(_PROFILE_METADATA_KEY)
+        if raw is None:
+            if "embedding_profile_id" in schema.names or "embedding_kind" in schema.names:
+                raise ValueError("unbound semantic rows; rebuild in a fresh collection")
+            return None
+        from victor_codegraph import EmbeddingProfile
+
+        try:
+            if not isinstance(raw, bytes) or len(raw) > 8192:
+                raise ValueError("invalid profile metadata")
+            profile = EmbeddingProfile(**json.loads(raw))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("invalid collection profile; rebuild in a fresh collection") from exc
+        if not {"embedding_profile_id", "embedding_kind"}.issubset(schema.names):
+            raise ValueError("collection profile columns are missing")
+        invalid = (
+            f"embedding_profile_id IS NULL OR embedding_profile_id != '{profile.identity}' "
+            "OR embedding_kind IS NULL OR embedding_kind != 'semantic'"
+        )
+        if self.table.count_rows(invalid):
+            raise ValueError("mixed collection embedding profiles; rebuild in a fresh collection")
+        return profile
+
+    async def validate_embedding_profile(self, profile: "EmbeddingProfile") -> None:
+        """Reject incompatible destinations before graph parsing/force deletion."""
+        if not self._initialized:
+            await self.initialize()
+        existing = self._collection_profile()
+        if self.table is not None and existing != profile:
+            raise ValueError("incompatible collection profile; rebuild in a fresh collection")
+
+    def _reject_unprofiled_write(self, metadata: List[Dict[str, Any]]) -> None:
+        if self._collection_profile() is not None or any(
+            "embedding_profile_id" in item or "embedding_kind" in item for item in metadata
+        ):
+            raise ValueError("profiled symbols require index_embedded_documents")
+
+    def _validate_embedded_documents(
+        self, documents: List[Dict[str, Any]]
+    ) -> "Optional[EmbeddingProfile]":
+        """Check the entire incoming batch before changing any persisted row."""
+        existing = self._collection_profile()
+        metadata = [doc.get("metadata", {}) for doc in documents]
+        profiled = any(
+            "embedding_profile_id" in item or "embedding_kind" in item for item in metadata
+        )
+        if not profiled:
+            if existing is not None:
+                raise ValueError("unprofiled write to a profiled collection")
+            return None
+        from victor_codegraph import EmbeddingProfile, validate_vectors
+
+        try:
+            profile = EmbeddingProfile(**metadata[0]["embedding_profile"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError("semantic embedding profile is required") from exc
+        for item in metadata:
+            if (
+                item.get("embedding_kind") != "semantic"
+                or item.get("embedding_profile_id") != profile.identity
+                or item.get("embedding_profile") != asdict(profile)
+            ):
+                raise ValueError("mixed or missing incoming embedding profile")
+        if self.table is not None and existing != profile:
+            raise ValueError("incompatible collection profile; rebuild in a fresh collection")
+        ids = [doc["id"] for doc in documents]
+        if any(not isinstance(sid, str) or not sid for sid in ids) or len(set(ids)) != len(ids):
+            raise ValueError("empty or duplicate canonical symbol identity")
+        for start in range(0, len(documents), 512):
+            batch = documents[start : start + 512]
+            validate_vectors(
+                (doc["vector"] for doc in batch), count=len(batch), dimension=profile.dimension
+            )
+        return profile
+
     async def index_document(
         self,
         doc_id: str,
@@ -199,6 +293,8 @@ class LanceDBProvider(BaseEmbeddingProvider):
         """
         if not self._initialized:
             await self.initialize()
+
+        self._reject_unprofiled_write([metadata or {}])
 
         # Generate embedding
         embedding = await self.embed_text(content)
@@ -229,6 +325,8 @@ class LanceDBProvider(BaseEmbeddingProvider):
 
         if not documents:
             return
+
+        self._reject_unprofiled_write([doc.get("metadata", {}) for doc in documents])
 
         # Generate embeddings in batch
         contents = [doc["content"] for doc in documents]
@@ -271,6 +369,11 @@ class LanceDBProvider(BaseEmbeddingProvider):
         if not documents:
             return
 
+        profile = self._validate_embedded_documents(documents)
+        if any(
+            {"id", "vector", "content"}.intersection(doc.get("metadata", {})) for doc in documents
+        ):
+            raise ValueError("metadata cannot override document identity, content or vector")
         lance_docs = []
         for doc in documents:
             lance_docs.append(
@@ -283,6 +386,34 @@ class LanceDBProvider(BaseEmbeddingProvider):
             )
 
         table_name = self.config.extra_config.get("table_name", "embeddings")
+        if profile is not None:
+            import pyarrow as pa
+
+            data = pa.Table.from_pylist(lance_docs)
+            # Fix width/type and bind the complete model contract in the same
+            # initial table commit. Deleting all rows does not erase this binding.
+            schema = data.schema.set(
+                data.schema.get_field_index("vector"),
+                pa.field("vector", pa.list_(pa.float32(), profile.dimension)),
+            ).with_metadata({_PROFILE_METADATA_KEY: json.dumps(asdict(profile)).encode()})
+            data = data.cast(schema)
+            from victor_codegraph import validate_vectors
+
+            # Float32 storage must not turn finite values into infinities or zeros.
+            for batch in data.to_batches(max_chunksize=512):
+                validate_vectors(
+                    batch.column("vector").to_pylist(),
+                    count=batch.num_rows,
+                    dimension=profile.dimension,
+                )
+            if self.table is None:
+                self.table = self.db.create_table(table_name, data=data)
+            else:
+                # One commit: a failed upsert must not delete the previous rows.
+                self.table.merge_insert(
+                    "id"
+                ).when_matched_update_all().when_not_matched_insert_all().execute(data)
+            return
         if self.table is None:
             self.table = self.db.create_table(table_name, data=lance_docs)
             return
@@ -316,8 +447,27 @@ class LanceDBProvider(BaseEmbeddingProvider):
         if self.table is None:
             return []
 
-        # Generate query embedding
-        query_embedding = await self.embed_text(query)
+        profile = self._collection_profile()
+        if profile is not None:
+            actual = self.embedding_model.profile if self.embedding_model is not None else None
+            if actual != profile:
+                raise ValueError("query encoder profile does not match collection profile")
+
+        # Prefix is part of the shared contract, not a model-name heuristic.
+        query_embedding = await self.embed_text((profile.query_prefix if profile else "") + query)
+        if profile is not None:
+            from victor_codegraph import validate_vectors
+
+            query_embedding = validate_vectors(
+                [query_embedding], count=1, dimension=profile.dimension
+            )[0]
+            import pyarrow as pa
+
+            query_embedding = validate_vectors(
+                [pa.array(query_embedding, type=pa.float32()).to_pylist()],
+                count=1,
+                dimension=profile.dimension,
+            )[0]
 
         # Search in LanceDB
         results = self.table.search(query_embedding).limit(limit)

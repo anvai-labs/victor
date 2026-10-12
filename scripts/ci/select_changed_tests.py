@@ -58,6 +58,7 @@ DEPRECATION_NOTICE_FILES = (
     "victor/agent/sqlite_session_persistence.py",
 )
 RELATED_TESTS = {
+    "victor/storage/vector_stores/models.py": ("tests/unit/embeddings/test_embedding_models.py",),
     # Text policy and Python stream ownership are tested once across providers,
     # rather than copied into provider-named mirror suites.
     **dict.fromkeys(

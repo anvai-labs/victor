@@ -512,6 +512,10 @@ class GraphIndexingPipeline:
             self._check_stored_embedding_profiles(
                 await self.graph_store.get_all_nodes(), profile.identity
             )
+            provider = self._get_vector_provider()
+            validate_profile = getattr(provider, "validate_embedding_profile", None)
+            if validate_profile is not None:
+                await validate_profile(profile)
 
         # Force mode: clear all existing data before rebuilding
         if not self.config.incremental:
