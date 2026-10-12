@@ -8,7 +8,7 @@
 
 # datasets 5.x currently requires fsspec[http] <= 2026.6.0.
 # Constraints cannot include extras, so constrain fsspec itself.
-fsspec<=2026.9.0,>=2026.9.0
+fsspec>=2023.1.0,<=2026.6.0
 
 # Semgrep 1.x requires peewee ~= 3.14.
 peewee>=4.5.2,<5

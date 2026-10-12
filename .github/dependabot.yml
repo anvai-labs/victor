@@ -1,4 +1,6 @@
 version: 2
+# Groups take minor/patch only: majors (e.g. multidict 7, TypeScript 7) arrive
+# as individual PRs so one incompatible major cannot break a whole group.
 # Security alerts are enabled and triaged independently of this routine schedule.
 # Native security-update PRs target main; keep that automation disabled while
 # fixes flow through the consolidated develop -> main promotion process.
@@ -25,6 +27,7 @@ updates:
     groups:
       python-maintenance:
         patterns: ['*']
+        update-types: ['minor', 'patch']
     commit-message:
       prefix: 'fix'
   - package-ecosystem: npm
@@ -43,6 +46,7 @@ updates:
     groups:
       javascript-maintenance:
         patterns: ['*']
+        update-types: ['minor', 'patch']
     commit-message:
       prefix: 'fix'
   - package-ecosystem: cargo
@@ -61,6 +65,7 @@ updates:
     groups:
       rust-maintenance:
         patterns: ['*']
+        update-types: ['minor', 'patch']
     commit-message:
       prefix: 'fix'
   - package-ecosystem: docker
@@ -81,6 +86,7 @@ updates:
     groups:
       container-maintenance:
         patterns: ['*']
+        update-types: ['minor', 'patch']
     commit-message:
       prefix: 'fix'
   - package-ecosystem: github-actions
@@ -97,6 +103,7 @@ updates:
     groups:
       actions-maintenance:
         patterns: ['*']
+        update-types: ['minor', 'patch']
     commit-message:
       prefix: 'ci'
 # Nested vertical/Rust workflow pins are covered by the repository hygiene guard
