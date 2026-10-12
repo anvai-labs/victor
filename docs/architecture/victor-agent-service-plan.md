@@ -71,13 +71,13 @@ edit. A mock test is not live provider or C5 evidence.
   as `8f503cf24272c81520847ddd41406f0ffb7a99c7`, with clean independent review and
   all applicable CI green. Failed loop verdicts survive presentation synthesis;
   member parent handoffs stay failed. Release/live acceptance remains separate.
-- SA-02/G90 post-effect evidence repair is LOCAL_PASS on
-  `fix/retain-agentic-execution-evidence`, based on that merge. The obsolete wrapper
-  rollback is removed; 55 owner tests and independent review pass, including a
-  committed temporary-file effect followed by failure. The broader cohort passes
-  498 tests; full collection finds 34,526. CI and merge remain pending. The [audit checkpoint](agentic-workflow-safety-audit.md#sa-02-implementation-checkpoint)
+- SA-02/G90 post-effect evidence repair merged in [#1307](https://github.com/anvai-labs/victor/pull/1307)
+  as `6ebacd4f806bfa0446d951cc2cbbdc10a41dbe2b`, with clean independent review and
+  all applicable CI green. The obsolete wrapper rollback is removed. The owner
+  suite passes 55 tests and the broader cohort passes 498; full collection finds
+  34,526. The [audit checkpoint](agentic-workflow-safety-audit.md#sa-02-implementation-checkpoint)
   owns the evidence and limits. Next are SA-03/G91 identity ownership and existing
-  G62/G70 durable reconciliation/continuation; VAS-17 and live C5 remain independent.
+  G62/G70 durable reconciliation/continuation; release, VAS-17 and live C5 remain independent.
 
 - VAS-17 release alignment merged in [#1276](https://github.com/anvai-labs/victor/pull/1276)
   as `9ff5b9862a17950f70d9d3c850eee03dcca075af`, after clean independent

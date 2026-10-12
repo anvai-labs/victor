@@ -420,8 +420,12 @@ Release evidence: exact-candidate independent review was clean; 41 applicable PR
 ### Repository audit and visible duplicate diagnostics — 2026-10-12
 
 This extends CG-P1/P2/P5 using the actual Victor polyglot repository at baseline
-`76c72e2eb32204c587485204f996543891905fed`. It is a candidate for CodeGraph
-0.10.1, not a published-release or hosted-service acceptance receipt.
+`76c72e2eb32204c587485204f996543891905fed`. Shared fixes merged in
+[#1305](https://github.com/anvai-labs/victor/pull/1305) as
+`0c1f07cebc9970b40e68ccd3d53d57ad8e34be81` and are published as
+[CodeGraph 0.10.1](https://github.com/anvai-labs/victor/releases/tag/victor-codegraph-v0.10.1).
+The actual-source preview below remains candidate-wheel evidence; published-wheel
+qualification is recorded separately. Neither establishes hosted acceptance.
 
 | Finding | Resolution / evidence |
 |---|---|
@@ -445,14 +449,21 @@ nodes or new traversal targets. AnvaiOps validates the allowlisted evidence afte
 record authorization and displays it in the inspector. Null/unreported evidence
 remains distinct from an explicit empty list. Candidate installed-wheel validation
 passes 209 shared-package tests and 1,725 AnvaiOps API/connector tests (three skips);
-174 UI tests and the production build pass. Publication and consumer repin remain
-pending; none of these counts establish hosted lifecycle acceptance.
+174 UI tests and the production build pass. The published 0.10.1 wheel was then
+independently qualified: 209 package tests and six runtime integration tests pass;
+AnvaiOps repeats 1,725 API/SDK tests (three skips), 174 UI tests and a production
+build against the published wheel. Consumer pin and explorer changes are in
+[AnvaiOps #491](https://github.com/anvai-labs/anvaiops/pull/491), merged as
+`74cb08de8ec294af761d2d641911caacb32be36d` after independent review and all applicable
+CI green. Configured integration/E2E skips are not acceptance evidence. None of these counts establishes hosted lifecycle acceptance.
 
 The [SQLite/source architecture audit](agentic-workflow-safety-audit.md#sqlite-and-source-re-audit--2026-10-12)
 uses this repository evidence to prioritize outcome correctness, effect retention,
 identity and typed contracts. It excludes unqualified semantic similarity and the
-current size-based cohesion heuristic from defect claims. G89–G91 remain open in
-the formation handoff; SA-04–SA-06 are tracked in that same canonical audit.
+current size-based cohesion heuristic from defect claims. G89/SA-01 and G90/SA-02
+source repairs merged in [#1306](https://github.com/anvai-labs/victor/pull/1306) and
+[#1307](https://github.com/anvai-labs/victor/pull/1307). G91/SA-03 and SA-04–SA-06
+remain open in the canonical audit; release/live acceptance is separate.
 
 Qualification uses tree-sitter 0.26.0 and language-pack 1.21.3, not older
 packages incidentally installed in a shared environment. The built 0.10.1 wheel
@@ -468,9 +479,11 @@ hosted API's current 20,000-symbol/60,000-edge scan caps; that API needs bounded
 indexed queries before whole-repository hosted acceptance. No cap increase,
 authentication bypass, cross-language FFI resolution or semantic Q&A is implied.
 
-Final full rebuild with the installed candidate wheel processed **4,818 files**,
-with **zero errors and zero partial parses**, producing **96,153 nodes / 157,160
-edges** in 101.1 seconds (one local run, not a throughput benchmark). Baseline
+Final grouped-source rebuild at candidate `8a4d8eccf0384ba5d108617e1db2f64a2524d158`
+with the installed candidate wheel processed **4,818 files**, with **zero errors
+and zero partial parses**, producing **96,153 nodes / 157,160 edges** in 108.4
+seconds (one local run, not a throughput benchmark). This is the preserved
+candidate rebuild, not a fresh rebuild with the published wheel. Baseline
 evidence is preserved separately. Full test collection found 34,518 tests; Black,
 Ruff and mypy (2,001 runtime files) passed.
 
@@ -483,9 +496,18 @@ duplicate mirrored test module.
 
 Grouped headed browser interaction/DOM acceptance retains three groups and six
 actual declaration occurrences, with exact source ranges, unresolved labels and
-one file marker/zero edges. Original replay evidence remains preserved. Both PNG
-and JPEG screenshot attempts timed out; no new screenshot visual pass is claimed.
+one file marker/zero edges. Original PNG/JPEG timeouts remain preserved. A later
+headed capture succeeds: overview plus scrolled inspector screenshots were visually
+reviewed for all six occurrence ranges, unresolved labels and omission counts
+(67 symbols/117 relations). This closes the local grouped screenshot gap only.
 
-Remaining gates: reviewed PR/CI,
-immutable package publication and consumer repin, then hosted query scaling,
+Published package pin: `victor-codegraph[treesitter]==0.10.1`.
+The [release workflow](https://github.com/anvai-labs/victor/actions/runs/38219320525)
+passed Python 3.12/3.13, build and PyPI publication. Wheel SHA-256
+`9d4f3f83602cb5f4d60446c0a4aa4cbc09073f80bb485cf1cc1b184776f37dd2` and sdist SHA-256
+`60ade5c859e10e5cc9f543cd5eb86f115ed3a8e1506584f296fd3f39e462c4be` match the
+workflow artifacts; all 18 package source/typing files match the merged revision.
+The independent package release does not change Victor AI's application version.
+
+Remaining gates: consumer deployment, then hosted query scaling,
 OIDC/lifecycle and Q1 relevance. Keep private graph/source artifacts local.
