@@ -67,7 +67,7 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
-- **G92 LOCAL_PASS** — owner: Victor co-design session; branch `fix/root-provider-identity`;
+- **G92 ✅ MERGED [#1311](https://github.com/anvai-labs/victor/pull/1311)** — owner: Victor co-design session; branch `fix/root-provider-identity`;
   baseline `9224960642704c55252247d387ad3343454fb5a4`. Canonical ChatService now
   binds transport identity through the existing typed ChatTurnRuntime state view;
   no binder-parameter growth, new ContextVar or strong owner capture. Buffered and
@@ -92,7 +92,11 @@ edit. A mock test is not live provider or C5 evidence.
   correctness gaps before SA-04 refactoring and broader lifecycle qualification.
   Earlier runs used shared Sandhi 0.11.0; one cached 0.13.0 build failed the
   published checksum comparison and its rerun was stopped. Those records are
-  retained and are not release-artifact qualification. Next: CI and merge.
+  retained and are not release-artifact qualification. Independent source and
+  documentation review is clean; all 39 applicable CI checks passed. Squash-merged
+  as `6695fbd364cbbe6352580790cce16ba1eb94ac8e`. The neutral Trivy comparison lacks
+  two baseline configurations and is not a passed scan. Next: G93/G94 turn-state
+  ownership, then SA-04 and G62/G70; release and C5 remain separate.
 
 - **SA-03/G91 ✅ MERGED [#1309](https://github.com/anvai-labs/victor/pull/1309)** — owner: Victor co-design session; branch
   `fix/shared-runtime-identity`; baseline `83708efc5e75aa17632a36a88a4e47225924ed7a`.

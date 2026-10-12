@@ -1912,8 +1912,8 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   verified merge `3031cd4f66f92118f5ebfc1428ec11b3ffd23aec` and the [audit scope](agentic-workflow-safety-audit.md#sa-03-implementation-scope)
   records limits. Universal root-provider correlation, release and C5 remain separate.
 
-- **G92 — root transport/session correlation (LOCAL_PASS).**
-  The `fix/root-provider-identity` candidate binds the existing core session
+- **G92 — root transport/session correlation (✅ merged [#1311](https://github.com/anvai-labs/victor/pull/1311)).**
+  The `fix/root-provider-identity` repair binds the existing core session
   ContextVar from the shared resolver at canonical ChatService entry, including
   memory-disabled roots and planning calls. It restores the caller before each
   outward stream yield and scopes stream cleanup even when another task closes it.
@@ -1929,8 +1929,8 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   `ChatService.chat(use_planning=True)` calls its planning handler under the turn
   lock; `PlanningRuntimeService._direct_chat()` calls `orchestrator.chat()`, which
   can attempt to acquire that same lock. This is a pre-existing control-flow gap,
-  not introduced by identity binding. Qualify a bounded fallback reproducer and
-  route fallback through a typed already-owned turn operation without duplicate
+  not introduced by identity binding. A bounded synthetic run confirms the reentry
+  timeout without model calls and releases the lock after cancellation. Route fallback through a typed already-owned turn operation without duplicate
   reports, resets or permission checks. Do not work around this with an unbounded
   reentrant lock or another dispatch path.
 
