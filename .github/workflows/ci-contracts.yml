@@ -58,7 +58,7 @@ jobs:
           python-version: "3.12"
       - name: Build and validate distribution metadata
         run: |
-          python -m pip install build twine mypy
+          python -m pip install build twine "$(python scripts/ci/release_contract.py mypy)"
           python -m build victor-contracts
           twine check victor-contracts/dist/*
           python -m pip install victor-contracts/dist/*.whl

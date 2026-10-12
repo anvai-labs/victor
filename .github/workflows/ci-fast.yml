@@ -136,7 +136,7 @@ jobs:
           cache: pip
 
       - name: Install MyPy
-        run: pip install mypy types-pyyaml types-aiofiles
+        run: python -m pip install "$(python scripts/ci/release_contract.py mypy)" types-pyyaml types-aiofiles
 
       - name: Type check with MyPy
         run: mypy
@@ -154,7 +154,7 @@ jobs:
           cache: pip
 
       - name: Install MyPy
-        run: pip install mypy types-pyyaml types-aiofiles
+        run: python -m pip install "$(python scripts/ci/release_contract.py mypy)" types-pyyaml types-aiofiles
 
       - name: Enforce global strict type checking
         run: |

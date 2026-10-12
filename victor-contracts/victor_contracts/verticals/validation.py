@@ -147,9 +147,9 @@ def audit_vertical_dependencies(
 
 def _get_manifest(vertical_cls: Type[Any]) -> Optional[ExtensionManifest]:
     """Extract manifest from a vertical class."""
-    manifest = getattr(vertical_cls, "_victor_manifest", None)
+    manifest: object = getattr(vertical_cls, "_victor_manifest", None)
     if manifest is not None and isinstance(manifest, ExtensionManifest):
-        return manifest  # type: ignore[no-any-return]
+        return manifest
     get_fn = getattr(vertical_cls, "get_manifest", None)
     if callable(get_fn):
         try:

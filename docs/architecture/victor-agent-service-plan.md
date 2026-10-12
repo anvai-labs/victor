@@ -98,8 +98,20 @@ edit. A mock test is not live provider or C5 evidence.
   lost production lines or branches across 1,796 traced files. Independent review
   passes 37 focused tests and the isolated wheel checker. Black, Ruff, hygiene,
   dependency locks, docs drift, strict MkDocs, built-site links and CLI smoke pass.
-  Final frozen review, CI and merge remain gates; evidence is preserved under
-  `var/codegraph-victor-20261012/type02-*`.
+  [PR #1319](https://github.com/anvai-labs/victor/pull/1319) exposed a checker-version
+  mismatch: CI installed MyPy 2.4.0 while the original local audit used 1.19.1.
+  A pre-existing manifest ignore is unused on 2.4.0; explicit `object` narrowing
+  removes it and passes both versions. MyPy 2.4.0 is the current stable PyPI release
+  and supports Python >=3.10, including Victor's 3.12 floor. Core/SDK/vertical
+  developer pins and CI now agree on 2.4.0 through the existing tool-pin resolver.
+  Its positive/missing/ranged/duplicate-pin cases extend the existing owner;
+  corrected collection finds 34,583 tests. The corrected selected cohort passes
+  107 tests; strict SDK/checker/tool-resolver typing passes 113 files. The user
+  requested a bounded promotion checkpoint: finish #1319, review the cumulative
+  develop-to-main diff and pass every promotion gate before continuing G96.
+  This is source promotion, not full typing or live C5 acceptance.
+  Final correction review, CI and merge
+  remain gates; evidence is preserved under `var/codegraph-victor-20261012/type02-*`.
 
 - **G96 / TYPE-01 ACTIVE — repository-wide MyPy qualification.** The user expanded
   scope to fix all typing errors, including independently packaged Python modules.
@@ -1358,6 +1370,14 @@ invocations above. Raw output/configuration and summaries are retained under
 The SDK now ships typing markers; core/vertical installed typing and legacy
 submodule static compatibility remain separate qualification work. No claim that
 all lazy host bridges are fully typed follows from SDK-source success.
+
+**Current checker: MyPy 2.4.0**, verified against PyPI metadata and installed in
+both the worktree and isolated wheel environment. Its new combined-source baseline
+reports **8,609 diagnostics / 1,189 files**, with zero SDK/shim diagnostics.
+This replaces the active checker baseline; the difference from the 1.19.1 counts
+above is not credited as code fixes. Historical test/script counts below retain
+their original checker label until re-inventoried. Diagnostic logs and the fetched
+release metadata remain in `var/codegraph-victor-20261012/type02-*`.
 
 The root test/script inventory uses MyPy 1.19.1, strict mode,
 `--explicit-package-bases --namespace-packages`, no target exclusions and the same

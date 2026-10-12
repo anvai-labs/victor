@@ -21,6 +21,8 @@ the deprecation policy are defined in
 
 ### Added
 
+- MyPy 2.4.0 developer pin aligned with core and first-party verticals; manifest
+  extraction narrows from `object` without a checker-version-specific ignore.
 - SDK and legacy-root `py.typed` wheel markers, strict SDK source checks and an
   installed-wheel consumer check with positive and negative typing examples.
   Runtime legacy submodule aliases remain available; static consumers should use

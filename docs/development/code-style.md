@@ -166,7 +166,11 @@ MyPy verifies type hints for type safety and better IDE support.
 
 ### Configuration and qualification
 
-`pyproject.toml` is the authoritative configuration. Strict flags are enabled, but
+`pyproject.toml` is the authoritative configuration. MyPy is pinned to 2.4.0 across
+core, SDK and vertical developer environments; CI reads the root CI pin through
+`scripts/ci/release_contract.py mypy`. This stable release supports Python >=3.10;
+Victor checks against its supported Python 3.12 floor. Update the pin and qualify
+the diagnostic changes together. Strict flags are enabled, but
 legacy `victor.*` error suppression remains except for explicitly qualified
 modules. A successful configured check is therefore not whole-repository typing
 acceptance. The SDK and its legacy root are included without that suppression.
