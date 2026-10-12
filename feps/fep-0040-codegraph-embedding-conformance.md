@@ -27,7 +27,16 @@ new public contracts requires recorded design acceptance. Existing parser and
 storage defect corrections proceed independently. User authorization to align
 the consumers is recorded in the originating session, not formal FEP acceptance.
 
-## Evidence and proposed change
+## Motivation
+
+Sharing parser output alone left an untested semantic boundary: the commercial
+consumer stored placeholders while the local runtime could silently substitute
+hash or zero vectors. Equal vector dimensions do not establish equal meaning.
+A reusable contract must identify exactly what text, model and preprocessing
+produced each vector and connect that evidence to the compiler's symbol identity.
+The customer should obtain compatible document vectors regardless of storage.
+
+## Proposed Change
 
 - Victor graph nodes currently embed name, signature and documentation. Code-body
   chunks are a different input contract and must remain separately versioned.
@@ -48,13 +57,23 @@ the consumers is recorded in the originating session, not formal FEP acceptance.
   injected encoder. Existing graph-only mode stays explicit. No automatic export
   of private code to a remote provider.
 
-## Compatibility and migration
+## Benefits
+
+One neutral contract reduces consumer drift and makes inference failures explicit.
+Optional dependencies preserve a lightweight compiler installation. The same test
+corpus can qualify different storage adapters without copying extraction logic.
+Model and source provenance distinguish stale data from a legitimate empty result.
+The commercial layer retains policy, deployment, metering and user experience.
+
+## Compatibility
 
 The existing compiler/parser APIs and graph-only storage remain available. Real
 embeddings require an explicit configured profile. Existing placeholder generations
 remain descriptive only. A model or preprocessing change creates a new generation;
 reusing cached vectors requires the full profile/input hash and canonical identity
 to match. Do not treat 384-dimensional shape alone as compatibility.
+
+## Migration Path
 
 The runtime graph boundary must report an embedding failure instead of counting
 fallback vectors as successfully embedded. Existing successful text preparation
@@ -66,7 +85,7 @@ profiles require a fresh index; neither incremental nor force parsing may erase
 those markers to bypass the check. Storage-generation publication remains the
 consumer's concern.
 
-## Acceptance criteria
+## Acceptance Criteria
 
 1. Shared synthetic fixtures preserve text, identity and vector evidence in both
    adapters; missing/malformed inference cannot publish a semantic generation.
@@ -79,7 +98,7 @@ consumer's concern.
 5. Independent adversarial review, all applicable CI gates, recorded design
    acceptance and a new immutable package release precede consumer pin adoption.
 
-## Alternatives and limits
+## Drawbacks and Alternatives
 
 Copying Victor's internal runtime into AnvaiOps recreates drift and breaks package
 boundaries. Loading the full agent runtime merely to embed symbols adds unrelated
@@ -87,7 +106,9 @@ services. Shared preparation with interchangeable trusted inference/storage
 adapters preserves optional deployment choices. Native graph acceleration, Q&A,
 repository policy, durable jobs and relevance acceptance remain separate gates.
 
-## Review process and prototype evidence — 2026-10-12
+## Review Process
+
+Prototype evidence dated 2026-10-12.
 
 The implementation is a local prototype, not a released contract. Independent
 adversarial review identified and corrected single-node validation bypass, stale
@@ -113,7 +134,15 @@ The local BGE run uses immutable revision
 `5c38ec7c405ec4b44b94cc5a9bb96e735b38267a`; its profile is
 `468b9ab3e92f01de25d4244adf05ee5812bcfbcd90647c8e4466142a61d2b34b`.
 
-## Ordered implementation and release plan
+## Unresolved Questions
+
+How should each vector store atomically bind a collection to its model profile
+and reject mixed-model/orphan rows? Which query adapter owns that same profile?
+What representative labeled corpus establishes relevance across languages? Those
+are open acceptance gates, not guarantees inferred from the prototype. Hosted
+policy, concurrent publication and restart semantics require separate evidence.
+
+## Implementation Plan
 
 1. Record design acceptance under the repository FEP process. Complete collection/
    query-model ownership and migration before marking Q1 semantic search accepted.
@@ -130,3 +159,7 @@ The local BGE run uses immutable revision
 - [CodeGraph tracker](../docs/architecture/codegraph-v2-design.md)
 - AnvaiOps TD-F1 and CODEGRAPH_POLYGLOT_HANDBACK
 - ProximaDB ADR-044 (identity) and ADR-061 (canonical authority versus projections)
+
+## Copyright
+
+This proposal is licensed under the Apache License, Version 2.0.
