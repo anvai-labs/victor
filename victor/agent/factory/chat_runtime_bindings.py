@@ -9,6 +9,7 @@ import logging
 from typing import Any
 import weakref
 
+from victor.agent.runtime.context import AgentRuntimeContext, RuntimeIdentity
 from victor.agent.services.chat_delivery import ChatDelivery
 from victor.agent.services.chat_planning import ChatPlanning
 
@@ -77,6 +78,10 @@ class _ChatTurnStateView(_WeakOwner):
     """Enumerate the live facade state required by ``ChatTurnRuntime``."""
 
     __slots__ = ()
+
+    def resolve_runtime_context(self) -> AgentRuntimeContext:
+        identity: RuntimeIdentity = self._owner()._runtime_identity
+        return identity.resolve()
 
     @property
     def provider_name(self) -> str:

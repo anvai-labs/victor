@@ -8,6 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Mapping, Protocol
 
+from victor.agent.runtime.context import AgentRuntimeContext
 from victor.agent.task_report_metadata import (
     build_compaction_metadata,
     build_task_report_finish_metadata,
@@ -64,6 +65,8 @@ class ChatTurnState(Protocol):
     @property
     def metrics(self) -> TaskReportMetrics: ...
 
+    def resolve_runtime_context(self) -> AgentRuntimeContext: ...
+
     def apply_skill_for_turn(self, user_message: str) -> None: ...
 
     def activate_constraints(self, constraints: Any, vertical: str | None) -> None: ...
@@ -78,6 +81,10 @@ class ChatTurnRuntime:
     """Own the complete per-turn frame without retaining the facade."""
 
     state: ChatTurnState
+
+    def resolve_runtime_context(self) -> AgentRuntimeContext:
+        """Read the current shared identity through the existing live state view."""
+        return self.state.resolve_runtime_context()
 
     def enter(
         self,

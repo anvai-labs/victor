@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass, replace
-from typing import Any, Callable, Dict, Optional, Protocol
+from typing import Any, Callable, Dict, Iterator, Optional, Protocol
 from uuid import uuid4
 
 
@@ -148,3 +149,15 @@ class RuntimeIdentity:
     def bind_member(self, context: AgentRuntimeContext) -> None:
         self._member = require_runtime_context(lambda: context)
         self._state.active_session_id = context.session_id
+
+
+@contextmanager
+def bind_runtime_session(context: AgentRuntimeContext) -> Iterator[None]:
+    """Bind a resolved identity to transport; never hold this scope across a yield."""
+    from victor.core.context import session_id
+
+    token = session_id.set(context.session_id)
+    try:
+        yield
+    finally:
+        session_id.reset(token)

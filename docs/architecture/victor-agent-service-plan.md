@@ -67,6 +67,33 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
+- **G92 LOCAL_PASS** — owner: Victor co-design session; branch `fix/root-provider-identity`;
+  baseline `9224960642704c55252247d387ad3343454fb5a4`. Canonical ChatService now
+  binds transport identity through the existing typed ChatTurnRuntime state view;
+  no binder-parameter growth, new ContextVar or strong owner capture. Buffered and
+  planning calls restore caller scope; streams restore it before outward yields
+  and bind cleanup even when another task closes the stream. Deprecated facade
+  restamping is removed. Eight original regressions fail before the fix. The final
+  affected suite passes 1,566 tests on the official pinned Sandhi 0.13.0 wheel
+  (PyPI SHA-256 verified); the focused service/factory/architecture cohort
+  passes 203, independent review passes 181, and orchestrator suites pass 622.
+  Collection finds 34,549 tests;
+  strict MyPy passes 2,001 files. Black, Ruff, CLI entry-point smoke, hygiene,
+  docs drift and strict MkDocs pass. The initial broad run's one injection-ratchet
+  failure is retained as evidence; the final design preserves its cap. Tests extend
+  existing owners; no coverage-bearing tests were removed or duplicated.
+  Real installed-binding tests use local HTTP fixtures for ZAI, DeepSeek and
+  InferFlux in embedded and gateway wire modes, buffered and streaming. Gateway
+  fixture requests carry matching session/run headers after resume; embedded
+  InferFlux carries its vendor session header. This is not deployed gateway,
+  account, release or C5 acceptance. Resume evidence applies **between turns**.
+  G94 records unisolated concurrent resume with a preserved synthetic reproducer;
+  G93 records pre-existing planning fallback lock reentry. Resolve those bounded
+  correctness gaps before SA-04 refactoring and broader lifecycle qualification.
+  Earlier runs used shared Sandhi 0.11.0; one cached 0.13.0 build failed the
+  published checksum comparison and its rerun was stopped. Those records are
+  retained and are not release-artifact qualification. Next: CI and merge.
+
 - **SA-03/G91 ✅ MERGED [#1309](https://github.com/anvai-labs/victor/pull/1309)** — owner: Victor co-design session; branch
   `fix/shared-runtime-identity`; baseline `83708efc5e75aa17632a36a88a4e47225924ed7a`.
   One typed identity owner now supplies both consumers, refreshes root identity
@@ -85,10 +112,10 @@ edit. A mock test is not live provider or C5 evidence.
   `3031cd4f66f92118f5ebfc1428ec11b3ffd23aec`. Trivy comparison remained neutral
   because baseline scan configurations were unavailable; this is not a passed scan.
   Release and C5 remain separate. See [implementation scope](agentic-workflow-safety-audit.md#sa-03-implementation-scope).
-  Newly recorded G92 remains TODO: qualify memory-disabled root provider correlation
+  G92 qualification is recorded above: qualify memory-disabled root provider correlation
   through the existing turn owner, including direct and Sandhi paths. This slice
-  does not change root transport scoping. Next implementation: G92, then SA-04
-  typed execution collaborators and existing G62/G70 recovery/continuation gates.
+  does not change root transport scoping. Follow-up order: G92, G93/G94 correctness,
+  SA-04 typed execution collaborators, then existing G62/G70 recovery/continuation gates.
 
 - SA-01/G89 outcome repair merged in [#1306](https://github.com/anvai-labs/victor/pull/1306)
   as `8f503cf24272c81520847ddd41406f0ffb7a99c7`, with clean independent review and

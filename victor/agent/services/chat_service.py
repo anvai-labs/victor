@@ -29,9 +29,13 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
-from typing import TYPE_CHECKING, Any, AsyncIterator, Callable, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, AsyncGenerator, AsyncIterator, Callable, Dict, List, Optional
 
 from victor.core.async_utils import aclosing_if_supported
+from victor.agent.runtime.context import (
+    bind_runtime_session,
+    require_runtime_context,
+)
 from victor.agent.services.chat_evidence import ChatEvidenceMixin
 from victor.agent.services.chat_persistence import ChatPersistenceMixin
 from victor.agent.services.chat_turn_runtime import ChatTurnRuntime
@@ -182,7 +186,13 @@ class ChatService(ChatEvidenceMixin, ChatPersistenceMixin):
     ) -> "CompletionResponse":
         """Process one exclusive buffered or aggregated streaming turn."""
         async with self._turn_lock:
-            return await self._chat_exclusive(user_message, stream=stream, **kwargs)
+            context = require_runtime_context(
+                self._turn_runtime.resolve_runtime_context
+                if self._turn_runtime is not None
+                else None
+            )
+            with bind_runtime_session(context):
+                return await self._chat_exclusive(user_message, stream=stream, **kwargs)
 
     async def _chat_exclusive(
         self, user_message: str, *, stream: bool = False, **kwargs
@@ -321,15 +331,29 @@ class ChatService(ChatEvidenceMixin, ChatPersistenceMixin):
     async def stream_chat(self, user_message: str, **kwargs) -> AsyncIterator["StreamChunk"]:
         """Stream one exclusive turn through the bound canonical runtime."""
         async with self._turn_lock:
-            async with aclosing_if_supported(
-                self._stream_chat_exclusive(user_message, **kwargs)
-            ) as stream:
-                async for chunk in stream:
+            context = require_runtime_context(
+                self._turn_runtime.resolve_runtime_context
+                if self._turn_runtime is not None
+                else None
+            )
+            stream = self._stream_chat_exclusive(user_message, **kwargs)
+            try:
+                while True:
+                    # Async generators run in the resumer's context. Restore it
+                    # before exposing a chunk; close may run in another task.
+                    with bind_runtime_session(context):
+                        try:
+                            chunk = await anext(stream)
+                        except StopAsyncIteration:
+                            break
                     yield chunk
+            finally:
+                with bind_runtime_session(context):
+                    await stream.aclose()
 
     async def _stream_chat_exclusive(
         self, user_message: str, **kwargs
-    ) -> AsyncIterator["StreamChunk"]:
+    ) -> AsyncGenerator["StreamChunk", None]:
         """Stream a chat response through the bound canonical runtime.
 
         Args:
@@ -430,7 +454,13 @@ class ChatService(ChatEvidenceMixin, ChatPersistenceMixin):
             return await self.chat(user_message, use_planning=False)
 
         if self._planning_handler is not None and (use_planning is True or use_planning is None):
-            return await self._planning_handler(user_message)
+            context = require_runtime_context(
+                self._turn_runtime.resolve_runtime_context
+                if self._turn_runtime is not None
+                else None
+            )
+            with bind_runtime_session(context):
+                return await self._planning_handler(user_message)
 
         return await self.chat(user_message, use_planning=use_planning)
 
