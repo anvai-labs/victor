@@ -141,7 +141,10 @@ async def paused_runtime(store, *, argument=None, empty=False, effect_error=None
         _tool_output_formatter=SimpleNamespace(format_tool_output=lambda **kw: str(kw["output"])),
         turn_executor=SimpleNamespace(execute_turn=AsyncMock(return_value=turn)),
     )
-    runtime = ToolExecutionRuntime(orch)
+    from victor.agent.runtime.context import RuntimeIdentity
+
+    orch._memory_session_id = None
+    runtime = ToolExecutionRuntime(orch, runtime_context=RuntimeIdentity(orch).resolve)
     runtime.execute_tool_calls = AsyncMock(wraps=runtime.execute_tool_calls)
     orch._get_tool_execution_runtime = lambda: runtime
     token = current_durable_pause_enabled.set(True)

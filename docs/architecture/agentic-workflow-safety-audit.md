@@ -49,7 +49,7 @@ availability and revision before exposing prescriptive recommendations.
 |---|---|---|---|
 | SA-01 / P1 | Audited `turn_execution_runtime.py:1167–1186` converted a failed loop with an empty final response to success after any successful tool and nonempty synthesis excluding a hardcoded prose prefix. `subagents/base.py:722` consumes that flag. | The bounded repair preserves the structured loop verdict/error while using the existing typed synthesis helper for presentation. Existing turn-runtime and member tests cover failed verdicts despite successful reads or completion claims, fallback/empty synthesis and failed parent handoffs. G89. | ✅ MERGED [#1306](https://github.com/anvai-labs/victor/pull/1306); release/live acceptance separate |
 | SA-02 / P2 | Audited `turn_execution_runtime.py:530–532` rolled back messages and `tool_calls_used` after ordinary exceptions from `_execute_via_agentic_loop`; restore at `:402–427` did not check whether tools executed. A late error can hide execution evidence or reduce the live-session counter. This is not a finding that durable receipts are deleted or tools automatically replayed. | Remove obsolete transcript/counter rollback; retain accepted history and consumed work. Existing regression owner covers a committed temporary-file write, late delegated policy denial, lost receipt, cancellation and pre-dispatch failure without repeat dispatch. Scoped configuration cleanup remains intact. G90; complements G62/G70. | ✅ MERGED [#1307](https://github.com/anvai-labs/victor/pull/1307); release/live acceptance separate |
-| SA-03 / P2 | `tool_execution_runtime.py:486–505` and `turn_execution_runtime.py:1864–1883` independently reconstruct runtime identity and default to `session_root` / `root_agent` / `manager`. Normal initialized paths use `AgentRuntimeContext`; actual member collisions are not demonstrated. | Construct one immutable context at assembly, inject it into both consumers, and reject missing identity at effect/persistence boundaries. Map legacy role inputs explicitly to `supervisor`; preserve the existing child-session derivation. Test isolation, missing context and both consumers in their existing suites. G91. | OPEN; duplicated fallback policy confirmed |
+| SA-03 / P2 | Two runtimes reconstructed identity independently with `session_root` / `manager` defaults. Source inspection also found that member contexts were not bound onto child orchestrators and successful recovery did not update an existing active ID. No live collision is claimed. | Shared typed owner supplies current immutable values to both consumers; member context is resolved once before provider binding. Identity is checked before checkpoint writes and session transitions before recovery/hydration. G91. | Implementation under validation; [canonical checkpoint](victor-agent-service-plan.md#current-checkpoint) owns status. |
 | SA-04 / P2 | `ToolExecutionRuntime(runtime_host: Any)` reaches pipeline, state, identity, persistence, formatting and context through one host. Adapter `__getattr__`/`__setattr__` forwards arbitrary access; `ChatContextProtocol` and peers retain broad `Any` fields. These permit dependencies and typos to escape static checking. | Inject narrow typed collaborators through the existing assembly boundary, starting with required execution/result-publication/identity operations. Keep one compatibility adapter; move optional capability decisions there. Extend delegation/parity tests with typed fakes and static negative fixtures. Do not add a second pipeline or registry. | OPEN; contract debt confirmed |
 | SA-05 / P3 | `_INTERNAL_KWARG_KEYS` is independently declared in protocol adapter `:53` and Sandhi transport `:159`; comments require manual synchronization. | One provider-neutral runtime-hints definition, consumed by both filtering boundaries. Keep both enforcement points. Existing kwarg-strip and transport tests must cover every reserved key, unchanged provider extras and no internal hints on the wire. | OPEN; duplicate policy ownership confirmed |
 | SA-06 / P2 for prescriptive analysis | Metric names imply stronger evidence than their algorithms provide; large modules are mechanically assigned lower “cohesion.” | Label proxies and unavailable metrics honestly; require source revision and coverage provenance. Use topology-based fixtures that distinguish equal-size classes with different cohesion if a real cohesion metric is implemented. Extend `tests/unit/analysis/test_module_analyzer.py`. | OPEN; excluded from this audit's defect ranking |
@@ -59,6 +59,27 @@ Inspection of dynamic attribute calls found 104 in the turn execution runtime,
 AST counts identify where to inspect contracts; they are neither a defect count
 nor a performance benchmark. Optional integration discovery can legitimately be
 dynamic when a single boundary validates and adapts it to an explicit contract.
+
+### SA-03 implementation scope
+
+- `RuntimeIdentity` owns current checkpoint/lifecycle identity. Assembly creates a
+  unique ephemeral root ID when no active or memory session exists; no consumer
+  invents `session_root`. Default root metadata uses the canonical `supervisor`
+  term; no new public role input or API is introduced.
+- Both consumers receive the same typed resolver. They capture its immutable
+  result at each operation boundary, including after root session recovery/resume.
+- Members cache their existing derived context before entering a provider session
+  scope and bind it onto the real child orchestrator. Existing dash/colon formats
+  and stream cancellation/restoration behavior are preserved.
+- Recovery rejects a bound member's different session before hydration. Missing or
+  malformed checkpoint identity blocks checkpoint writes and tool dispatch.
+- This is a local identity repair, not durable action reconciliation, a provider
+  acceptance run or C5. Root transport still uses its existing ContextVar binding;
+  universal provider/lifecycle correlation for memory-disabled roots is not
+  established here. No transport rebinding or second ContextVar is introduced.
+- Tests extend existing identity, tool, turn, session, member and facade owners.
+  The overlapping positive recovery test was strengthened instead of copied;
+  existing stream restoration and cancellation cases remain the canonical owners.
 
 ### SOLID and agentic design decisions
 

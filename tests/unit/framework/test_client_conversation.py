@@ -152,7 +152,10 @@ async def test_victor_client_get_messages_resolves_context_service_from_context_
 
 
 @pytest.mark.asyncio
-async def test_victor_client_resume_session_hydrates_and_stamps(monkeypatch) -> None:
+@pytest.mark.parametrize("allowed", [True, False])
+async def test_victor_client_resume_session_validates_before_hydration(
+    monkeypatch, allowed
+) -> None:
     """resume_session loads the store, hydrates both stores, stamps the id."""
     session_data = {"metadata": {"title": "arithmetic"}, "conversation": {}}
     monkeypatch.setattr(
@@ -183,11 +186,25 @@ async def test_victor_client_resume_session_hydrates_and_stamps(monkeypatch) -> 
     )
     controller = object()
     orchestrator = SimpleNamespace(
-        active_session_id=None, conversation_state=None, _conversation_controller=controller
+        active_session_id=None,
+        conversation_state=None,
+        _conversation_controller=controller,
+        _runtime_identity=SimpleNamespace(validate_session_transition=MagicMock()),
     )
     client._agent = SimpleNamespace(_orchestrator=orchestrator)
 
+    if not allowed:
+        orchestrator._runtime_identity.validate_session_transition.side_effect = ValueError(
+            "member session"
+        )
+        with pytest.raises(ValueError, match="member session"):
+            await client.resume_session("s42")
+        assert captured == {}
+        assert orchestrator.active_session_id is None
+        return
+
     metadata = await client.resume_session("s42")
+    orchestrator._runtime_identity.validate_session_transition.assert_called_once_with("s42")
 
     assert metadata == {"title": "arithmetic"}
     assert captured["data"] == session_data

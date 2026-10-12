@@ -7,12 +7,15 @@ from victor.agent.services.orchestrator_protocol_adapter import (
     OrchestratorProtocolAdapter,
 )
 from victor.agent.services.tool_execution_runtime import ToolExecutionRuntime
+from victor.agent.runtime.context import RuntimeIdentity
 from victor.agent.tool_output_formatter import FormattingContext
 from victor.agent.streaming.context import StreamingChatContext
 
 
 def _make_runtime_host(**overrides):
     values = {
+        "active_session_id": "session_root",
+        "_memory_session_id": None,
         "_tool_pipeline": SimpleNamespace(
             execute_tool_calls=AsyncMock(return_value=[{"name": "read", "success": True}]),
             calls_used=4,
@@ -46,13 +49,17 @@ def _make_runtime_host(**overrides):
         "settings": SimpleNamespace(model="mock-model", response_token_reserve=512),
     }
     values.update(overrides)
-    return SimpleNamespace(**values)
+    host = SimpleNamespace(**values)
+    host.runtime_context = RuntimeIdentity(host).resolve
+    return host
 
 
 @pytest.mark.asyncio
 async def test_tool_execution_runtime_returns_empty_for_empty_calls():
     host = _make_runtime_host()
-    runtime = ToolExecutionRuntime(OrchestratorProtocolAdapter(host))
+    runtime = ToolExecutionRuntime(
+        OrchestratorProtocolAdapter(host), runtime_context=host.runtime_context
+    )
 
     assert await runtime.execute_tool_calls([]) == []
 
@@ -60,7 +67,9 @@ async def test_tool_execution_runtime_returns_empty_for_empty_calls():
 @pytest.mark.asyncio
 async def test_tool_execution_runtime_filters_nondict_calls():
     host = _make_runtime_host()
-    runtime = ToolExecutionRuntime(OrchestratorProtocolAdapter(host))
+    runtime = ToolExecutionRuntime(
+        OrchestratorProtocolAdapter(host), runtime_context=host.runtime_context
+    )
 
     assert await runtime.execute_tool_calls(["bad-payload"]) == []
 
@@ -76,7 +85,9 @@ async def test_tool_execution_runtime_executes_pipeline_and_syncs_mutable_state(
         ctx.asking_input_prompts = 6
         return [{"name": "read", "success": True, "elapsed": 0.1}]
 
-    runtime = ToolExecutionRuntime(OrchestratorProtocolAdapter(host))
+    runtime = ToolExecutionRuntime(
+        OrchestratorProtocolAdapter(host), runtime_context=host.runtime_context
+    )
     host._tool_service.process_tool_results.side_effect = _process_results
 
     result = await runtime.execute_tool_calls([{"name": "read", "arguments": {}}, "bad-payload"])
@@ -112,7 +123,9 @@ async def test_tool_execution_runtime_creates_execution_checkpoint_before_write_
         return [{"name": "write", "success": True}]
 
     host._tool_pipeline.execute_tool_calls = AsyncMock(side_effect=execute_tool_calls)
-    runtime = ToolExecutionRuntime(OrchestratorProtocolAdapter(host))
+    runtime = ToolExecutionRuntime(
+        OrchestratorProtocolAdapter(host), runtime_context=host.runtime_context
+    )
 
     results = await runtime.execute_tool_calls(
         [
@@ -153,7 +166,9 @@ async def test_tool_execution_runtime_links_filesystem_checkpoint_owner():
     host._tool_service.process_tool_results.return_value = [
         {"name": "edit", "success": True, "elapsed": 0.1}
     ]
-    runtime = ToolExecutionRuntime(OrchestratorProtocolAdapter(host))
+    runtime = ToolExecutionRuntime(
+        OrchestratorProtocolAdapter(host), runtime_context=host.runtime_context
+    )
 
     await runtime.execute_tool_calls(
         [
@@ -175,7 +190,9 @@ async def test_tool_execution_runtime_skips_execution_checkpoint_for_read_only_b
     host._tool_service.process_tool_results.return_value = [
         {"name": "read", "success": True, "elapsed": 0.1}
     ]
-    runtime = ToolExecutionRuntime(OrchestratorProtocolAdapter(host))
+    runtime = ToolExecutionRuntime(
+        OrchestratorProtocolAdapter(host), runtime_context=host.runtime_context
+    )
 
     await runtime.execute_tool_calls(
         [{"id": "call_read_1", "name": "read", "arguments": {"path": "victor/app.py"}}]
@@ -193,7 +210,9 @@ async def test_tool_execution_runtime_backfills_missing_tool_response_ids():
     host._tool_service.process_tool_results.return_value = [
         {"name": "read", "success": True, "elapsed": 0.1, "tool_call_id": "call_1"}
     ]
-    runtime = ToolExecutionRuntime(OrchestratorProtocolAdapter(host))
+    runtime = ToolExecutionRuntime(
+        OrchestratorProtocolAdapter(host), runtime_context=host.runtime_context
+    )
 
     result = await runtime.execute_tool_calls(
         [
@@ -232,7 +251,9 @@ async def test_tool_execution_runtime_backfill_survives_add_message_failure():
     )
     host.add_message.side_effect = RuntimeError("conversation write failed")
     host._tool_service.process_tool_results.return_value = []
-    runtime = ToolExecutionRuntime(OrchestratorProtocolAdapter(host))
+    runtime = ToolExecutionRuntime(
+        OrchestratorProtocolAdapter(host), runtime_context=host.runtime_context
+    )
 
     result = await runtime.execute_tool_calls(
         [
@@ -292,7 +313,9 @@ async def test_tool_execution_runtime_compacts_before_large_tool_output_and_reco
         {"name": "read", "success": True, "elapsed": 0.1, "args": {"path": "app.py"}}
     ]
 
-    runtime = ToolExecutionRuntime(OrchestratorProtocolAdapter(host))
+    runtime = ToolExecutionRuntime(
+        OrchestratorProtocolAdapter(host), runtime_context=host.runtime_context
+    )
 
     await runtime.execute_tool_calls([{"name": "read", "arguments": {"path": "app.py"}}])
 
@@ -358,7 +381,9 @@ async def test_tool_execution_runtime_prefers_context_lifecycle_for_large_tool_o
     )
     host._tool_service.process_tool_results.return_value = []
 
-    runtime = ToolExecutionRuntime(OrchestratorProtocolAdapter(host))
+    runtime = ToolExecutionRuntime(
+        OrchestratorProtocolAdapter(host), runtime_context=host.runtime_context
+    )
 
     await runtime.execute_tool_calls([{"name": "read", "arguments": {"path": "app.py"}}])
 
@@ -388,7 +413,9 @@ def test_tool_execution_runtime_formats_output_with_runtime_context():
         provider=SimpleNamespace(name="openai"),
         settings=SimpleNamespace(model="gpt-4.1", response_token_reserve=2048),
     )
-    runtime = ToolExecutionRuntime(OrchestratorProtocolAdapter(host))
+    runtime = ToolExecutionRuntime(
+        OrchestratorProtocolAdapter(host), runtime_context=host.runtime_context
+    )
 
     result = runtime.format_tool_output("read", {"path": "app.py"}, {"content": "hello"})
 
@@ -465,7 +492,9 @@ async def test_interrupted_batch_publishes_only_known_results(cancel, withheld):
         raise control
 
     host._tool_pipeline.execute_tool_calls.side_effect = interrupted
-    runtime = ToolExecutionRuntime(OrchestratorProtocolAdapter(host))
+    runtime = ToolExecutionRuntime(
+        OrchestratorProtocolAdapter(host), runtime_context=host.runtime_context
+    )
     runtime._compact_before_tool_result_injection = AsyncMock()
     with pytest.raises(type(control)) as caught:
         await runtime.execute_tool_calls(calls)
@@ -520,7 +549,9 @@ async def test_interrupted_publication_failure_preserves_control_without_fallbac
         raise pause
 
     host._tool_pipeline.execute_tool_calls.side_effect = interrupted
-    runtime = ToolExecutionRuntime(OrchestratorProtocolAdapter(host))
+    runtime = ToolExecutionRuntime(
+        OrchestratorProtocolAdapter(host), runtime_context=host.runtime_context
+    )
     with pytest.raises(ApprovalPause) as caught:
         await runtime.execute_tool_calls([{"id": "pending", "name": "read", "arguments": {}}])
     assert caught.value is pause
@@ -559,7 +590,9 @@ async def test_completed_receipt_allows_exact_action_but_blocks_whole_member_rep
         raise pause
 
     host._tool_pipeline.execute_tool_calls.side_effect = interrupted
-    runtime = ToolExecutionRuntime(OrchestratorProtocolAdapter(host))
+    runtime = ToolExecutionRuntime(
+        OrchestratorProtocolAdapter(host), runtime_context=host.runtime_context
+    )
     with pytest.raises(pause_type) as caught:
         await runtime.execute_tool_calls([{"id": "pending", "name": "read", "arguments": {}}])
     assert caught.value is pause
@@ -588,3 +621,26 @@ async def test_completed_receipt_allows_exact_action_but_blocks_whole_member_rep
             await coord._load_member_resume(cp, "thread", "team")
     else:
         assert "batch_result_publication" not in pause.request.context
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("invalid", ["missing", "wrong_type", "empty_session"])
+async def test_missing_identity_blocks_checkpoint_effects_and_tool_dispatch(invalid):
+    host = _make_runtime_host()
+    runtime = ToolExecutionRuntime(OrchestratorProtocolAdapter(host))
+    runtime._save_conversation_checkpoint = AsyncMock()
+    runtime._create_filesystem_checkpoint = AsyncMock()
+    error = RuntimeError
+    if invalid == "wrong_type":
+        runtime._runtime_context = lambda: object()
+        error = TypeError
+    elif invalid == "empty_session":
+        from dataclasses import replace
+
+        runtime._runtime_context = lambda: replace(host.runtime_context(), session_id="")
+        error = ValueError
+    with pytest.raises(error, match="identity"):
+        await runtime.execute_tool_calls([{"id": "write-1", "name": "write", "arguments": {}}])
+    runtime._save_conversation_checkpoint.assert_not_awaited()
+    runtime._create_filesystem_checkpoint.assert_not_awaited()
+    host._tool_pipeline.execute_tool_calls.assert_not_awaited()

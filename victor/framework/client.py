@@ -822,6 +822,8 @@ class VictorClient:
         # below). Both are the live DI-container instances the turn path uses.
         agent = self._agent
         orchestrator = getattr(agent, "_orchestrator", None) if agent is not None else None
+        if orchestrator is not None:
+            orchestrator._runtime_identity.validate_session_transition(session_id)
         context_service = self._resolve_runtime_services().context
         controller = getattr(orchestrator, "_conversation_controller", None)
         metadata = hydrate_session(context_service, controller, session_data)

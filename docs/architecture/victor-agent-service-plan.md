@@ -67,6 +67,19 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
+- **SA-03/G91 RED → implementation under validation** — owner: Victor co-design session; branch
+  `fix/shared-runtime-identity`; baseline `83708efc5e75aa17632a36a88a4e47225924ed7a`.
+  RED: four focused regressions failed for missing owner, recovery binding and
+  absent pre-checkpoint identity enforcement. Next: qualify the shared owner,
+  member isolation and pre-hydration transition checks, then independent review/CI. Independent
+  design review identified stale resume IDs, absent member binding and identity
+  validation occurring after checkpoint writes. Preserve provider session formats;
+  explicitly initialize unique identities for memory-disabled roots.
+
+  Newly recorded G92 remains TODO: bind/qualify memory-disabled root provider
+  correlation through the existing turn owner, including direct and Sandhi paths.
+  This slice intentionally does not change root transport scoping.
+
 - SA-01/G89 outcome repair merged in [#1306](https://github.com/anvai-labs/victor/pull/1306)
   as `8f503cf24272c81520847ddd41406f0ffb7a99c7`, with clean independent review and
   all applicable CI green. Failed loop verdicts survive presentation synthesis;
@@ -994,7 +1007,7 @@ VAS-17 released InferFlux provenance and bounded wire acceptance now pass; track
 an effort-weighted completion percentage. The original formation denominator is
 independent. Update this paragraph and the rows together at each checkpoint.
 
-The [2026-10-12 SQLite/source re-audit](agentic-workflow-safety-audit.md#sqlite-and-source-re-audit--2026-10-12)
+The [2026-10-12 SQLite/source re-audit](agentic-workflow-safety-audit.md#sqlite-and-source-re-audit-2026-10-12)
 adds open G89–G91: truthful member outcomes, post-effect state retention and canonical
 runtime identity. Repair those through existing turn/tool/member owners before
 expanding automation. SA-04/SA-05 narrow typed service dependencies and consolidate
