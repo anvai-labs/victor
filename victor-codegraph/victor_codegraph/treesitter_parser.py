@@ -426,7 +426,9 @@ def _go_receiver_type(node, src: bytes) -> str | None:
 def _walk_collect(node, src, file_path, language, frames, symbols, relations, impl_traits):
     for child in _children(node):
         t = child.type
-        if t == "object" and language in {"javascript", "typescript", "tsx"}:
+        if t == "object" and child.is_named and language in {"javascript", "typescript", "tsx"}:
+            # TypeScript also uses an unnamed `object` keyword in type positions.
+            # Only named object expressions introduce a literal scope.
             # Anonymous object literals have a structural AST path, not a line ID.
             # Comments/whitespace do not participate; inserting a sibling object
             # can change the ordinal and requires a fresh graph generation.

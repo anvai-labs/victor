@@ -98,28 +98,28 @@ class TestBasicBlock:
 class TestVariableInfo:
     """Tests for VariableInfo dataclass."""
 
-    def test_create_variable_info(self) -> None:
-        """Test creating a VariableInfo."""
-        var = VariableInfo(
-            name="x",
-            defining_node="node_1",
-            scope="scope_123",
-            type="int",
-        )
-        assert var.name == "x"
-        assert var.defining_node == "node_1"
-        assert var.scope == "scope_123"
-        assert var.type == "int"
-        assert var.use_sites == []
-
     def test_variable_info_with_use_sites(self) -> None:
         """Test VariableInfo with use sites."""
         var = VariableInfo(
-            name="y",
-            defining_node="node_2",
-            use_sites=["node_3", "node_4"],
+            name="x",
+            defining_node="def_node",
+            use_sites=["use1", "use2", "use3"],
         )
-        assert var.use_sites == ["node_3", "node_4"]
+        assert var.use_sites == ["use1", "use2", "use3"]
+
+    def test_variable_info_creation(self) -> None:
+        """Test creating VariableInfo."""
+        var = VariableInfo(
+            name="test_var",
+            defining_node="node_123",
+            scope="scope_456",
+            type="str",
+        )
+        assert var.name == "test_var"
+        assert var.defining_node == "node_123"
+        assert var.scope == "scope_456"
+        assert var.type == "str"
+        assert var.use_sites == []
 
 
 class TestCodeContextGraphBuilder:
@@ -566,31 +566,3 @@ class TestCodeContextGraphBuilder:
         assert builder.supports_language("ruby") is False
         assert builder.supports_language("php") is False
         assert builder.supports_language("unknown") is False
-
-
-class TestVariableInfo:
-    """Tests for VariableInfo dataclass."""
-
-    def test_variable_info_creation(self) -> None:
-        """Test creating VariableInfo."""
-        var = VariableInfo(
-            name="test_var",
-            defining_node="node_123",
-            scope="scope_456",
-            type="str",
-        )
-        assert var.name == "test_var"
-        assert var.defining_node == "node_123"
-        assert var.scope == "scope_456"
-        assert var.type == "str"
-        assert var.use_sites == []
-
-    def test_variable_info_with_use_sites(self) -> None:
-        """Test VariableInfo with use sites."""
-        var = VariableInfo(
-            name="x",
-            defining_node="def_node",
-            use_sites=["use1", "use2", "use3"],
-        )
-        assert len(var.use_sites) == 3
-        assert "use1" in var.use_sites

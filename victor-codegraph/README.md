@@ -25,7 +25,7 @@ gaps:
 ## Install
 
 Published on PyPI as [`victor-codegraph`](https://pypi.org/project/victor-codegraph/).
-This source tree is version **0.10.0**; consumers should use a compatible `<1.0` pin.
+This source tree is version **0.10.1**; consumers should use a compatible `<1.0` pin.
 
 ```bash
 # from PyPI
@@ -97,9 +97,29 @@ records = to_proxima_records(repository, repo_graph_id="myrepo")
 
 ## Status
 
-`0.10.0` source version. Python (`ast`) is the full, offline frontend. JS/TS, Go, Rust,
+`0.10.1` source version. Python (`ast`) is the full, offline frontend. JS/TS, Go, Rust,
 Java, C, and C++ have conformance fixtures; other mapped tree-sitter languages report
 symbols-tier or fallback status rather than implying full fidelity.
+
+### Ambiguous declarations
+
+Duplicate structural identities retain raw declarations in `ParsedRepository.files`
+and report each conflicting source location. Repository projection emits only the
+canonical FILE marker for that file, with typed diagnostics, declaration spans and
+omitted symbol/relation counts in metadata. Calls into its declarations remain
+unresolved; healthy imports can still point to its diagnostic marker. Repairing the
+source restores normal projection through deletion-complete repository deltas.
+Direct record projection rejects duplicate identities before invoking an embedder,
+including when legacy OIDs are selected.
+
+### TypeScript grammar limitation
+
+The current tree-sitter grammar reports a partial parse for inline import types
+in generic calls, for example `load<typeof import('child_process')>()`, even though
+TypeScript accepts that syntax. A named type alias (`type ChildProcessModule =
+typeof import('child_process')`, then `load<ChildProcessModule>()`) is supported.
+Partial status and syntax diagnostics remain visible; the parser does not rewrite
+source or infer missing relationships.
 
 ### Rust graph fidelity
 

@@ -246,7 +246,7 @@ docs/PROMOTION_SPECIFICATION.md
 !scripts/*.bin
 *.pt
 *.pth
-models/
+/models/
 **/sentence-transformers/
 **/bge-*/
 /embeddings/  # Only root-level embeddings, not victor/contrib/embeddings

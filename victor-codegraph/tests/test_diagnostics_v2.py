@@ -24,3 +24,21 @@ def test_extract_relations_config_is_effective():
         config=ChunkConfig(extract_relations=False),
     )
     assert parsed.relations == []
+
+
+def test_shadowed_python_declarations_remain_explicit_identity_collisions():
+    parsed = parse(
+        "class C:\n    @property\n    def value(self): return 1\n"
+        "    @property\n    def value(self): return 2\n",
+        file_path="duplicate.py",
+    )
+    assert parsed.status == ParseStatus.PARTIAL
+    assert [(item.code, item.severity) for item in parsed.diagnostics] == [
+        ("identity_collision", "error"),
+        ("identity_collision", "error"),
+    ]
+    assert [(item.line, item.column) for item in parsed.diagnostics] == [(2, 4), (4, 4)]
+    definitions = [symbol for symbol in parsed.symbols if symbol.simple_name == "value"]
+    assert len(definitions) == 2
+    assert definitions[0].id == definitions[1].id
+    assert definitions[0].legacy_id != definitions[1].legacy_id

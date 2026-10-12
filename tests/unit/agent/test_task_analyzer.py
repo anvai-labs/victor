@@ -319,17 +319,29 @@ class TestTaskAnalyzer:
 
         assert analyzer._coordination_runtime is coordination_runtime
 
-    def test_classify_task_keywords(self):
-        """Test classify_task_keywords method."""
-        analyzer = TaskAnalyzer()
-
-        # Analysis task
-        result = analyzer.classify_task_keywords("What files are in this project?")
-        assert isinstance(result, dict)
-        assert "is_analysis_task" in result
-        assert "is_action_task" in result
-        assert "needs_execution" in result
-        assert "coarse_task_type" in result
+    @pytest.mark.parametrize(
+        "message,action,analysis,execution,coarse",
+        [
+            ("Create a Python function", True, False, False, "action"),
+            ("Execute the script", True, False, True, "action"),
+            ("Run the tests", True, False, True, "action"),
+            ("Analyze the codebase", False, True, False, "analysis"),
+            ("Review the code for bugs", False, True, False, "analysis"),
+            ("How does the authentication work?", False, True, False, "analysis"),
+            ("Hello there", False, False, False, "default"),
+            ("Analyze and create a report", True, True, False, "action"),
+            ("Create a summary and analyze it", True, True, False, "analysis"),
+            ("ANALYZE THE CODE", False, True, False, "analysis"),
+            ("CREATE a file", True, False, False, "action"),
+        ],
+    )
+    def test_classify_task_keywords(self, message, action, analysis, execution, coarse):
+        """Keyword classification belongs to the analyzer, not an unbootstrapped facade."""
+        result = TaskAnalyzer().classify_task_keywords(message)
+        assert result["is_action_task"] is action
+        assert result["is_analysis_task"] is analysis
+        assert result["needs_execution"] is execution
+        assert result["coarse_task_type"] == coarse
 
     def test_analyze_with_suggestions_no_coordinator(self):
         """Test analyze_with_suggestions without coordinator."""

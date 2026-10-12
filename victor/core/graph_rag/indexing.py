@@ -406,6 +406,7 @@ class GraphIndexingPipeline:
         # resolution passes. Populated lazily via _persisted_symbols().
         self._persisted_symbol_cache: Optional[List[Any]] = None
         self._codegraph_repository: Any = None
+        self._codegraph_file_metadata: Dict[str, Dict[str, Any]] = {}
         self._codegraph_owned_symbol_ids: Set[str] = set()
         self._codegraph_owned_files: Set[str] = set()
         # Canonical identity bridge for analysis providers that delegate their
@@ -486,6 +487,7 @@ class GraphIndexingPipeline:
         self._codegraph_owned_symbol_ids.clear()
         self._codegraph_owned_files.clear()
         self._codegraph_symbol_ids_by_location.clear()
+        self._codegraph_file_metadata.clear()
 
         # Resolve the analysis provider — and let it finish language-plugin
         # discovery — BEFORE the parallel parse burst. Resolution is lazy and
@@ -681,12 +683,17 @@ class GraphIndexingPipeline:
         allowed_files = (self._canonical_file_str(path) for path in files)
         self._codegraph_repository = prepare_repository_snapshot(root_path, allowed_files)
         self._codegraph_symbol_ids_by_location.clear()
+        self._codegraph_file_metadata.clear()
         repository = self._codegraph_repository
         if repository is None:
             return
 
         ambiguous: Set[Tuple[str, str, int, str]] = set()
         for symbol in repository.symbols:
+            if symbol.symbol_type.name == "FILE":
+                self._codegraph_file_metadata[str(symbol.location.file_path)] = dict(
+                    symbol.metadata
+                )
             key = (
                 str(symbol.location.file_path),
                 str(symbol.simple_name),
@@ -1736,8 +1743,10 @@ class GraphIndexingPipeline:
         if parsed is not None:
             from victor.core.graph_rag.codegraph_repository import project_file_symbols
 
-            if parsed.status.value not in {"success", "partial"} or any(
-                d.code == "identity_collision" for d in parsed.diagnostics
+            metadata = self._codegraph_file_metadata.get(canonical_file, {})
+            marker_only = metadata.get("projection_status") == "file_marker_only"
+            if parsed.status.value not in {"success", "partial"} or (
+                not marker_only and any(d.code == "identity_collision" for d in parsed.diagnostics)
             ):
                 return ParseResult(
                     file_path=file_path,
@@ -1747,8 +1756,18 @@ class GraphIndexingPipeline:
                     ),
                 )
             nodes = self._inject_module_node(
-                project_file_symbols(parsed), file_path, parsed.language
+                [] if marker_only else project_file_symbols(parsed), file_path, parsed.language
             )
+            # The shared compiler owns quarantine policy and diagnostic shape.
+            # Keep its canonical file evidence even when no declarations are safe.
+            nodes[0].metadata.update(metadata)
+            if marker_only:
+                return ParseResult(
+                    file_path=file_path,
+                    language=parsed.language,
+                    symbol_nodes=nodes,
+                    partial=True,
+                )
             ccg_nodes, ccg_edges = self._build_ccg_inline(file_path, language)
             return ParseResult(
                 file_path=file_path,
@@ -2529,6 +2548,11 @@ class GraphIndexingPipeline:
         """
         _, GraphEdge = _get_graph_types()
         from victor.storage.graph.edge_types import EdgeType
+
+        if any(node.metadata.get("projection_status") == "file_marker_only" for node in nodes):
+            # Do not re-parse quarantined declarations through a legacy resolver.
+            self._codegraph_owned_files.add(self._canonical_file_str(file_path))
+            return []
 
         edges: List[Any] = []
 

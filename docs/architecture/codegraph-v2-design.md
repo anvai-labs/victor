@@ -406,12 +406,58 @@ unknown source hashes and incompatible tracked graph profiles.
 |---|---|
 | Shared document-vector contract and local conformance | ✅ #1303 merged `91bae704573ecd80dc5aa2919fb8ba4cb7cdccec`: 958 affected tests passed, 5 skipped; 198 standalone package tests (92.28% coverage); 1,703 AnvaiOps API/SDK tests, 3 skipped against the built 0.10.0 wheel |
 | FEP acceptance | Accepted by the repository owner with an explicitly approved expedited review; see FEP-0040 |
-| Immutable package release | ✅ [CodeGraph 0.10.0](https://github.com/anvai-labs/victor/releases/tag/victor-codegraph-v0.10.0), source `91bae704573ecd80dc5aa2919fb8ba4cb7cdccec`; PyPI publication and independent release tests/build passed. 0.9.0 remains immutable. AnvaiOps adoption PR is the next gate |
+| Immutable package release | ✅ [CodeGraph 0.10.0](https://github.com/anvai-labs/victor/releases/tag/victor-codegraph-v0.10.0), source `91bae704573ecd80dc5aa2919fb8ba4cb7cdccec`; PyPI publication and independent release tests/build passed. 0.9.0 remains immutable. AnvaiOps adoption #490 merged; hosted Q1 acceptance remains open |
 | Collection/query model ownership and migration | Local LanceDB implementation: schema-bound profile, whole-table orphan/mixed marker checks, actual query model validation, float32 validation and atomic semantic upsert. Fresh collection required for migration. Local qualification and independent review passed; hosted adapters remain separate. |
 | Semantic relevance and authorized generation-bound retrieval | Open; ingestion parity does not qualify ranking or Q&A |
-| Consumer published pin + browser/hosted lifecycle | Open; retain existing descriptive UI and OSS/commercial ownership boundaries |
+| Consumer published pin + browser/hosted lifecycle | Published 0.10.0 adopted in AnvaiOps #490. Repository browser qualification in progress below; hosted lifecycle remains open |
 
 Extend these gates here and in AnvaiOps TD-F1; do not create another parser,
 embedding implementation or disconnected completion tracker.
 
 Release evidence: exact-candidate independent review was clean; 41 applicable PR checks passed, including Vertical Py3.12. The first failed CI run is preserved; its correction installs the in-repo CodeGraph package before vertical consumers and replaces duplicate mocked provider checks with a real legacy-storage test. The final collection has 34,367 tests. Release run [38208368472](https://github.com/anvai-labs/victor/actions/runs/38208368472) passed. No new Victor AI release or hosted Q1 acceptance is implied.
+
+
+### Repository audit and visible duplicate diagnostics — 2026-10-12
+
+This extends CG-P1/P2/P5 using the actual Victor polyglot repository at baseline
+`76c72e2eb32204c587485204f996543891905fed`. It is a candidate for CodeGraph
+0.10.1, not a published-release or hosted-service acceptance receipt.
+
+| Finding | Resolution / evidence |
+|---|---|
+| Misleading successful-looking partial index | Baseline had 19 failed files and two partial parses despite a green heading. CLI now distinguishes incomplete indexing, completed passes with coverage gaps, and clean passes. A no-op pass does not certify previously indexed files as clean. |
+| Seven Python files with shadowed definitions | Removed duplicate runtime methods while preserving the last effective implementation. Consolidated test classes preserve unique assertions; task classification belongs in the existing analyzer suite. 604 affected Python tests passed. Repeated names in different scopes are not automatically defects. |
+| TypeScript keyword confused with an object literal | Shared parser skips the unnamed `object` keyword node. Two valid inline-import generic fixtures use equivalent named aliases; the grammar limitation remains explicit and regression-tested. All 21 original problem files parse successfully with declared grammar dependencies. |
+| Hidden legitimate sources | Root artifact globs no longer omit nested source `models/`, `deps/` and coverage modules. Rooted glob matching respects path segments. Full nested gitignore/negation semantics remain outside this fix. |
+| Duplicates should not hide healthy graph evidence | Shared repository projection preserves a canonical file marker with `identity_collision` diagnostics for each declaration's line/column and omitted-symbol/relation counts. Ambiguous files are excluded from symbol and call resolution. Raw parse evidence remains available. |
+| Unsafe downstream publication | Duplicate symbol/alias/output identities fail before embedding. Victor copies shared diagnostic metadata onto its canonical module node; AnvaiOps rejects unquarantined single-file collisions rather than inventing another resolver. |
+| User-visible actionability | AnvaiOps candidate displays diagnostic badges on nodes and the symbol outline, with structured code/severity/message/source coordinates in the inspector. Missing evidence is unknown; explicit empty diagnostics means none reported. |
+
+A one-file replay of the actual baseline `orchestrator_protocol_adapter.py`
+retains one module, zero edges and six diagnostics for three conflicting pairs.
+It completes with coverage gaps; it does not claim a clean audit. General
+copy/paste similarity detection is not part of structural identity validation.
+
+Qualification uses tree-sitter 0.26.0 and language-pack 1.21.3, not older
+packages incidentally installed in a shared environment. The built 0.10.1 wheel
+passes 209 standalone tests. Compiler upgrades require a **full rebuild**:
+current incremental generation identity hashes source content, not compiler
+version; unchanged source must not reuse a graph from an older compiler.
+
+Local headed AgentBrowser qualification covers 36 representative combinations
+(six languages, three relationship types, both directions), comparing rendered
+edges to the SQLite snapshot. Empty resolved relations remain explicitly empty.
+This is not exhaustive node/path coverage. The actual repository exceeds the
+hosted API's current 20,000-symbol/60,000-edge scan caps; that API needs bounded
+indexed queries before whole-repository hosted acceptance. No cap increase,
+authentication bypass, cross-language FFI resolution or semantic Q&A is implied.
+
+Final full rebuild with the installed candidate wheel processed **4,818 files**,
+with **zero errors and zero partial parses**, producing **96,153 nodes / 157,160
+edges** in 101.1 seconds (one local run, not a throughput benchmark). Baseline
+evidence is preserved separately. Full test collection found 34,518 tests; Black,
+Ruff and mypy (2,001 runtime files) passed.
+
+Remaining gates: final browser evidence, reviewed PR/CI,
+immutable package publication and consumer repin, then hosted query scaling,
+OIDC/lifecycle and Q1 relevance. Keep private graph/source artifacts local.

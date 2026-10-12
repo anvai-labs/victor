@@ -75,3 +75,38 @@ def test_chunk_jsts_is_size_capped():
     if not parsed.symbols:
         pytest.skip("javascript grammar not installed")
     assert parsed.symbols  # routed through tree-sitter, not the empty stub
+
+
+@pytest.mark.parametrize(
+    "annotation",
+    [
+        "export type X<T> = T extends object ? T : never;",
+        "type Options = Record<string, object>;",
+        "function accept(value: object): object { return value; }",
+    ],
+)
+def test_typescript_object_keyword_is_not_an_object_literal_scope(annotation):
+    source = annotation + "\nconst handlers = { run() { return 1; } };"
+    parsed = parse(source, file_path="case.ts")
+    shifted = parse("// heading\n\n" + source, file_path="case.ts")
+    assert parsed.status.value == "success"
+    assert not parsed.diagnostics
+    methods = [symbol for symbol in parsed.symbols if symbol.simple_name == "run"]
+    assert len(methods) == 1
+    assert methods[0].scope_chain
+    assert {symbol.id for symbol in parsed.symbols} == {symbol.id for symbol in shifted.symbols}
+
+
+def test_inline_import_generic_grammar_limitation_stays_explicit():
+    # The pinned grammar rejects this valid TypeScript import type in a generic
+    # call. Do not hide the partial parse; an equivalent named alias is supported.
+    inline = parse("const value = load<typeof import('child_process')>();", file_path="case.ts")
+    assert inline.status.value == "partial"
+    assert "syntax_error" in {diagnostic.code for diagnostic in inline.diagnostics}
+    aliased = parse(
+        "type ChildProcessModule = typeof import('child_process');"
+        "const value = load<ChildProcessModule>();",
+        file_path="case.ts",
+    )
+    assert aliased.status.value == "success"
+    assert not aliased.diagnostics

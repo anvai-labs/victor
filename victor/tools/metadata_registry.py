@@ -925,14 +925,6 @@ class ToolMetadataRegistry:
         """
         return self._by_category.get(category, set()).copy()
 
-    def get_all_categories(self) -> Set[str]:
-        """Get all registered categories.
-
-        Returns:
-            Set of all category names from tools with @tool(category="...")
-        """
-        return set(self._by_category.keys())
-
     def get_category_keywords(self, category: str) -> Set[str]:
         """Get all keywords from tools in a category.
 
