@@ -30,8 +30,8 @@ def prepare_repository_snapshot(
         import victor_codegraph as codegraph
 
         repository = codegraph.parse_repo(root_path)
-    except Exception as exc:
-        logger.debug("victor-codegraph repository snapshot unavailable: %s", exc)
+    except ImportError as exc:
+        logger.warning("victor-codegraph repository snapshot unavailable: %s", exc)
         return None
 
     allowed = set(allowed_files)
@@ -108,3 +108,42 @@ def project_resolved_relations(
         imports,
         dropped_unmaterialized,
     )
+
+
+def project_file_symbols(parsed: Any) -> list[Any]:
+    """Project canonical symbols without recovering identities from names/lines."""
+    from dataclasses import asdict
+    from victor.storage.graph.protocol import GraphNode
+
+    parents = {
+        r.to_symbol_id: r.from_symbol_id
+        for r in parsed.relations
+        if r.relation_type.name == "CONTAINS" and r.target_ref is None
+    }
+    return [
+        GraphNode(
+            node_id=s.id,
+            type=s.symbol_type.name.lower(),
+            name=s.simple_name,
+            file=s.location.file_path,
+            line=s.location.start_line,
+            end_line=s.location.end_line,
+            lang=s.language,
+            signature=s.signature,
+            docstring=s.documentation,
+            parent_id=parents.get(s.id),
+            metadata={
+                **s.metadata,
+                "identity_version": s.identity_version,
+                "source_span": asdict(s.location),
+                "parse_status": parsed.status.value,
+                "diagnostics": [asdict(d) for d in parsed.diagnostics],
+                "unresolved_relations": [
+                    asdict(r)
+                    for r in parsed.relations
+                    if r.from_symbol_id == s.id and r.target_ref is not None
+                ],
+            },
+        )
+        for s in parsed.symbols
+    ]

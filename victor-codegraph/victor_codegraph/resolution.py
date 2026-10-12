@@ -62,13 +62,66 @@ def resolve_relations(
         candidates = list(by_name.get(ref.name, ()))
         source = by_id.get(r.from_symbol_id)
 
-        if ref.arity is not None:
+        if ref.arity is not None and (
+            source is None or source.language not in {"python", "javascript", "typescript", "tsx"}
+        ):
             arity_matches = [c for c in candidates if len(c.parameters) == ref.arity]
             if arity_matches:
                 candidates = arity_matches
 
         if source is not None and source.language == "rust":
             candidates = _rust_candidates(source, ref, candidates, symbols)
+        elif source is not None and source.language == "python":
+            if source.metadata.get("python_wildcard_import"):
+                candidates = []
+            elif ref.qualifier in {"self", "cls"}:
+                candidates = [
+                    c
+                    for c in candidates
+                    if source.scope_chain
+                    and ref.qualifier == source.metadata.get("python_receiver")
+                    and ref.qualifier not in source.metadata.get("python_rebound_names", [])
+                    and c.scope_chain == source.scope_chain
+                    and c.symbol_type == CodeSymbolType.METHOD
+                ]
+            elif (
+                ref.qualifier
+                or ref.name in source.metadata.get("python_bound_names", [])
+                or ref.name in source.metadata.get("python_import_names", [])
+            ):
+                candidates = []
+            else:
+                # Python class namespaces are not enclosing function namespaces.
+                candidates = [
+                    c
+                    for c in candidates
+                    if c.symbol_type != CodeSymbolType.METHOD
+                    and not any(
+                        parent.symbol_type == CodeSymbolType.CLASS
+                        and [*parent.scope_chain, parent.simple_name] == c.scope_chain
+                        for parent in symbols
+                    )
+                    and [*source.scope_chain, source.simple_name][: len(c.scope_chain)]
+                    == c.scope_chain
+                ]
+                nearest = max((len(c.scope_chain) for c in candidates), default=-1)
+                candidates = [c for c in candidates if len(c.scope_chain) == nearest]
+        elif source is not None and source.language in {"javascript", "typescript", "tsx"}:
+            candidates = [c for c in candidates if not c.metadata.get("javascript_conditional")]
+            if ref.qualifier == "this" and source.symbol_type == CodeSymbolType.METHOD:
+                candidates = [c for c in candidates if c.scope_chain == source.scope_chain]
+            elif ref.qualifier or ref.name in source.metadata.get("javascript_bound_names", []):
+                candidates = []
+            else:
+                candidates = [
+                    c
+                    for c in candidates
+                    if c.symbol_type != CodeSymbolType.METHOD
+                    and [*source.scope_chain, source.simple_name][: len(c.scope_chain)]
+                    == c.scope_chain
+                ]
+                nearest = max((len(c.scope_chain) for c in candidates), default=-1)
+                candidates = [c for c in candidates if len(c.scope_chain) == nearest]
         elif source is not None and candidates:
             qualifier = (ref.qualifier or "").split(".")[-1]
             if qualifier in {"self", "cls", "this", "super"}:

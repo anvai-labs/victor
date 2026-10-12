@@ -103,3 +103,19 @@ def test_rust_trait_and_cfg_variants_have_distinct_stable_identity(source, name)
     assert len(variants) == len({s.id for s in variants}) == 2
     assert not parsed.diagnostics
     assert {s.id for s in parsed.symbols} == {s.id for s in moved.symbols}
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "function configure() { use({element(x) { return x; }}); use({element(x) { return x; }}); }",
+        "function configure(){ xs.map(() => ({element(x){return x;}})); ys.map(() => ({element(x){return x;}})); }",
+    ],
+)
+def test_object_literal_methods_have_structural_scopes(source):
+    parsed = parse(source, file_path="a.js")
+    moved = parse("// header\n\n" + source, file_path="a.js")
+    methods = [s for s in parsed.symbols if s.simple_name == "element"]
+    assert len(methods) == len({s.id for s in methods}) == 2
+    assert not parsed.diagnostics
+    assert {s.id for s in parsed.symbols} == {s.id for s in moved.symbols}

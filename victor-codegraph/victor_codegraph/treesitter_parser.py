@@ -426,7 +426,31 @@ def _go_receiver_type(node, src: bytes) -> str | None:
 def _walk_collect(node, src, file_path, language, frames, symbols, relations, impl_traits):
     for child in _children(node):
         t = child.type
-        if t == "mod_item" and language == "rust":
+        if t == "object" and language in {"javascript", "typescript", "tsx"}:
+            # Anonymous object literals have a structural AST path, not a line ID.
+            # Comments/whitespace do not participate; inserting a sibling object
+            # can change the ordinal and requires a fresh graph generation.
+            path = []
+            current = child
+            while current.parent is not None and not (
+                current.parent.type in _FUNC_NODES and _name_of(current.parent, src) is not None
+            ):
+                parent = current.parent
+                peers = [n for n in parent.named_children if n.type != "comment"]
+                path.append(f"{current.type}:{peers.index(current)}")
+                current = parent
+            name = "<" + "/".join(reversed(path)) + ">"
+            _walk_collect(
+                child,
+                src,
+                file_path,
+                language,
+                [*frames, (name, "object")],
+                symbols,
+                relations,
+                impl_traits,
+            )
+        elif t == "mod_item" and language == "rust":
             name = _name_of(child, src)
             if name is None:
                 continue
@@ -495,7 +519,7 @@ def _walk_collect(node, src, file_path, language, frames, symbols, relations, im
                     child, src, file_path, language, frames, symbols, relations, impl_traits
                 )
                 continue
-            in_class = bool(frames) and frames[-1][1] == "class"
+            in_class = bool(frames) and frames[-1][1] in {"class", "object"}
             stype = CodeSymbolType.METHOD if in_class else CodeSymbolType.FUNCTION
             if name in ("constructor", "__init__", "new"):
                 stype = CodeSymbolType.CONSTRUCTOR
@@ -596,6 +620,84 @@ def _rust_cfg_attributes(node, src: bytes) -> list[str]:
     return attributes
 
 
+def _javascript_bound_names(node, src: bytes) -> list[str]:
+    """Record parameter and assignment shadowing in enclosing lexical scopes."""
+    names: set[str] = set()
+    value = node.child_by_field_name("value")
+    ancestor = value if value is not None and value.type in _FUNC_NODES else node
+    while ancestor is not None:
+        if ancestor.type in _FUNC_NODES or ancestor.type == "program":
+            stack = list(ancestor.named_children)
+            parameter = (
+                ancestor.child_by_field_name("parameter")
+                if ancestor.type == "arrow_function"
+                else None
+            )
+            if parameter is not None:
+                names.add(_text(parameter, src))
+            while stack:
+                item = stack.pop()
+                if (
+                    item.type in _FUNC_NODES and _name_of(item, src) is not None
+                ) or item.type in _CLASS_NODES:
+                    continue
+                field = None
+                if item.type == "arrow_function":
+                    field = item.child_by_field_name("parameter")
+                elif item.type == "catch_clause":
+                    field = item.child_by_field_name("parameter")
+                elif item.type in {"required_parameter", "optional_parameter"}:
+                    field = item.child_by_field_name("pattern")
+                elif item.type in {"assignment_expression", "augmented_assignment_expression"}:
+                    field = item.child_by_field_name("left")
+                elif item.type == "variable_declarator":
+                    value = item.child_by_field_name("value")
+                    owner = item.parent
+                    while owner is not None and owner.type not in _FUNC_NODES:
+                        owner = owner.parent
+                    if value is None or value.type not in _FUNC_NODES or owner is not None:
+                        field = item.child_by_field_name("name")
+                elif (
+                    item.parent is not None
+                    and item.parent.type == "formal_parameters"
+                    and item.type == "identifier"
+                ):
+                    field = item
+                if field is not None:
+                    pending = [field]
+                    while pending:
+                        part = pending.pop()
+                        if part.type in {"identifier", "shorthand_property_identifier_pattern"}:
+                            names.add(_text(part, src))
+                        elif part.type != "member_expression":
+                            pending.extend(part.named_children)
+                stack.extend(item.named_children)
+        ancestor = ancestor.parent
+    return sorted(names)
+
+
+def _javascript_conditional(node) -> bool:
+    ancestor = node.parent
+    while ancestor is not None:
+        if ancestor.type in {
+            "if_statement",
+            "else_clause",
+            "switch_case",
+            "for_statement",
+            "for_in_statement",
+            "while_statement",
+            "do_statement",
+            "catch_clause",
+        }:
+            return True
+        if ancestor.type == "statement_block" and (
+            ancestor.parent is None or ancestor.parent.type not in _FUNC_NODES
+        ):
+            return True
+        ancestor = ancestor.parent
+    return False
+
+
 def _mk(node, src, file_path, language, name, stype, scope) -> CodeSymbol:
     start_line = node.start_point[0] + 1
     end_line = node.end_point[0] + 1
@@ -625,7 +727,14 @@ def _mk(node, src, file_path, language, name, stype, scope) -> CodeSymbol:
         language=language,
         scope_chain=list(scope),
         complexity={"lines": end_line - start_line + 1},
-        metadata={"rust_conditional": True} if attributes else {},
+        metadata=(
+            {
+                "javascript_bound_names": _javascript_bound_names(node, src),
+                "javascript_conditional": _javascript_conditional(node),
+            }
+            if language in {"javascript", "typescript", "tsx"}
+            else {"rust_conditional": True} if attributes else {}
+        ),
     )
 
 
@@ -659,9 +768,13 @@ def _build_contains(symbols: list[CodeSymbol]) -> list[CodeRelation]:
 
     for s in symbols:
         if s.scope_chain:
-            parent = by_path.get(tuple(s.scope_chain))
-            if parent is not None:
-                _emit(parent, s.id)
+            scope = list(s.scope_chain)
+            while scope:
+                parent = by_path.get(tuple(scope))
+                if parent is not None:
+                    _emit(parent, s.id)
+                    break
+                scope.pop()
         receiver = s.metadata.get("receiver")
         if receiver:
             parent = by_path.get((*s.scope_chain, receiver))
