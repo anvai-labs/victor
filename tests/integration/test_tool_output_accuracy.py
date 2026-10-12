@@ -325,7 +325,9 @@ class TestToolServiceIntegration:
 
         host = MagicMock()
         host._tool_pipeline = MagicMock()
-        host._tool_pipeline.execute_tool_calls = AsyncMock(return_value=MagicMock(results=[]))
+        from victor.agent.tool_pipeline import PipelineExecutionResult
+
+        host._tool_pipeline.execute_tool_calls = AsyncMock(return_value=PipelineExecutionResult())
         host._tool_pipeline.calls_used = 2
         host._get_tool_context.return_value = {}
         host.executed_tools = []
@@ -350,7 +352,8 @@ class TestToolServiceIntegration:
             {"name": "read", "success": True, "elapsed": 0.1, "tool_call_id": "call_1"}
         ]
 
-        runtime = ToolExecutionRuntime(OrchestratorProtocolAdapter(host))
+        adapter = OrchestratorProtocolAdapter(host)
+        runtime = ToolExecutionRuntime(adapter, execution=adapter, publication=adapter)
         results = await runtime.execute_tool_calls(
             [
                 {

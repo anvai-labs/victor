@@ -35,6 +35,9 @@ from typing import Any, AsyncIterator, Dict, List, Optional, TYPE_CHECKING
 if TYPE_CHECKING:
     import asyncio
 
+    from victor.agent.services.tool_execution_contracts import ToolOutputFormatCallback
+    from victor.agent.services.tool_service import ToolResultContext
+    from victor.agent.tool_pipeline import PipelineExecutionResult, ToolCallResult
     from victor.agent.orchestrator import AgentOrchestrator
     from victor.agent.conversation.controller import ConversationController
     from victor.agent.context_compactor import ContextCompactor
@@ -229,6 +232,62 @@ class OrchestratorProtocolAdapter:
             "result": exec_result.result if exec_result.success else None,
             "error": exec_result.error if not exec_result.success else None,
         }
+
+    async def execute_tool_pipeline(
+        self,
+        tool_calls: List[Dict[str, Any]],
+        *,
+        interrupted_results: List[ToolCallResult],
+    ) -> PipelineExecutionResult:
+        """Use the current canonical pipeline without reentering the facade."""
+        orch = self._orchestrator
+        return await orch._tool_pipeline.execute_tool_calls(
+            tool_calls=tool_calls,
+            context=orch._get_tool_context(),
+            interrupted_results=interrupted_results,
+        )
+
+    def sync_tool_usage(self) -> None:
+        """Retain usage on normal completion and interrupted execution alike."""
+        self._orchestrator.tool_calls_used = self._orchestrator._tool_pipeline.calls_used
+
+    def create_tool_result_context(
+        self, *, format_tool_output: ToolOutputFormatCallback, require_persistence: bool
+    ) -> ToolResultContext:
+        """Adapt current state at publication time; never snapshot it at assembly."""
+        from victor.agent.services.tool_service import ToolResultContext
+
+        orch = self._orchestrator
+        return ToolResultContext(
+            require_persistence=require_persistence,
+            executed_tools=orch.executed_tools,
+            observed_files=orch.observed_files,
+            failed_tool_signatures=orch.failed_tool_signatures,
+            shown_tool_errors=orch._shown_tool_errors,
+            continuation_prompts=orch._continuation_prompts,
+            asking_input_prompts=orch._asking_input_prompts,
+            tool_calls_used=orch.tool_calls_used,
+            record_tool_execution=orch._record_tool_execution,
+            conversation_state=orch.conversation_state,
+            unified_tracker=orch.unified_tracker,
+            usage_logger=orch.usage_logger,
+            add_message=orch.add_message,
+            format_tool_output=format_tool_output,
+            console=orch.console,
+            presentation=orch._presentation,
+            stream_context=getattr(orch, "_current_stream_context", None),
+            task_type=getattr(orch, "_current_task_type", getattr(orch, "_task_type", "unknown")),
+        )
+
+    def publish_tool_results(
+        self, result: PipelineExecutionResult, context: ToolResultContext
+    ) -> List[Dict[str, Any]]:
+        """Retain the one canonical result-processing path, including strict writes."""
+        return self._orchestrator._tool_service.process_tool_results(result, context)
+
+    def sync_tool_result_state(self, context: ToolResultContext) -> None:
+        self._orchestrator._continuation_prompts = context.continuation_prompts
+        self._orchestrator._asking_input_prompts = context.asking_input_prompts
 
     async def execute_tool_calls(
         self,

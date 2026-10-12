@@ -144,7 +144,15 @@ async def paused_runtime(store, *, argument=None, empty=False, effect_error=None
     from victor.agent.runtime.context import RuntimeIdentity
 
     orch._memory_session_id = None
-    runtime = ToolExecutionRuntime(orch, runtime_context=RuntimeIdentity(orch).resolve)
+    from victor.agent.services.orchestrator_protocol_adapter import OrchestratorProtocolAdapter
+
+    adapter = OrchestratorProtocolAdapter(orch)
+    runtime = ToolExecutionRuntime(
+        adapter,
+        execution=adapter,
+        publication=adapter,
+        runtime_context=RuntimeIdentity(orch).resolve,
+    )
     runtime.execute_tool_calls = AsyncMock(wraps=runtime.execute_tool_calls)
     orch._get_tool_execution_runtime = lambda: runtime
     token = current_durable_pause_enabled.set(True)

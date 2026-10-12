@@ -67,6 +67,33 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
+- **SA-04a LOCAL_PASS; parent SA-04 remains open** — owner: Victor co-design session; branch
+  `refactor/typed-tool-runtime`; baseline `ac3c15e83dc74609167f178ccb98dea38bb0fef5`.
+  First bounded slice: typed required tool execution/result-publication collaborators
+  through the existing compatibility adapter, preserving checkpoint, cancellation
+  and strict publication behavior. Positive/negative static fixtures reject absent
+  or incompatible required collaborators; real delegation tests verify current
+  pipeline/service ownership after replacement and interrupted-result publication.
+  The affected cohort passes 1,498 tests; final focused coverage passes 232 tests
+  with 100% changed executable-line coverage. Collection finds 34,581 tests.
+  The assembled orchestrator/facade cohort passes 449 tests. Two invalid-input
+  tests now share parametrized setup while preserving both cases.
+  Required runtime/contracts modules are explicitly unsuppressed and pass strict
+  MyPy. Optional context helpers and the adapter's dynamic host forwarding remain
+  outside this slice. Configured MyPy passes 2,002 files under the stated legacy
+  suppression; that result does not close G96. Review, CI and merge remain gates.
+
+- **G96 / TYPE-01 ACTIVE — repository-wide MyPy qualification.** The user expanded
+  scope to fix all typing errors, including independently packaged Python modules.
+  The unsuppressed core audit at baseline `ac3c15e83dc74609167f178ccb98dea38bb0fef5`
+  plus the SA-04a candidate reports **7,794 errors in 1,082 files**. The historical
+  `victor.*` suppression means earlier successful configured runs are not proof of
+  whole-repository compliance. Preserve those historical receipts with this limit.
+  Full diagnostics and category/file counts are retained locally under
+  `var/codegraph-victor-20261012/mypy-unsuppressed-*`; no private graph/source export
+  is needed. The [typing sequence](#repository-wide-typing-qualification-g96)
+  below owns the remaining work. Source fixes precede release and live C5 claims.
+
 - **G95 ✅ MERGED [#1316](https://github.com/anvai-labs/victor/pull/1316)** — owner: Victor co-design session; branch `fix/reset-turn-ownership`;
   baseline `7cddd10e93b3fd6bb96aa5f615352273d8b8fff8`. The async client now calls
   the existing synchronous service contract without awaiting its result. One
@@ -1267,6 +1294,40 @@ failed/blocked/not-run counts. Never count both a parent and its children or use
 source completion as a proxy for C5/model quality. Before claiming full closure,
 all requested outcomes above must have accepted evidence or an explicit,
 user-approved scope change; a TODO plan entry is not delivery.
+
+## Repository-wide typing qualification (G96)
+
+Scope: root runtime, contracts SDK, codegraph, all five first-party verticals and
+their supported installation/import boundaries. Inventory tests/scripts separately;
+do not silently discard errors found in legacy `victor/tests`. TypeScript and Rust
+retain their own compiler checks. A configured green MyPy command with suppressed
+errors is not an acceptance result for this program.
+
+| ID | Dependency / work | Status and acceptance |
+| --- | --- | --- |
+| TYPE-01 | Unsuppressed inventory, reproducible commands, file/error ownership and existing test audit | ACTIVE; core audit 7,794 errors / 1,082 files; independent-package targets report 1,101 package-local errors plus imported core diagnostics; scripts/tests inventory remains |
+| TYPE-02 | Definition-layer contracts, missing symbols and concrete signature mismatches | TODO after TYPE-01; fix real runtime hazards first; negative/positive regressions for behavior changes |
+| TYPE-03 | Typed runtime assembly and adapters, completing SA-04 | TODO after TYPE-02; required collaborators explicit, optional capabilities centralized; no dynamic forwarding as evidence of protocol implementation |
+| TYPE-04 | Services, providers, tools, workflows, storage and client consumers | TODO in dependency order; retire each reviewed exception only with affected tests and strict checks |
+| TYPE-05 | Package/vertical integration and full unsuppressed matrix | TODO after contributing groups; build/install and supported Python jobs pass, no broad suppression, unused ignores removed |
+
+Each increment records exact source SHA, diagnostics before/after, tests, independent
+review and CI. Correct types at their owning boundary; do not replace errors with
+unrestricted `Any`, blanket casts/ignores or import exclusions. Keep genuinely
+dynamic external payloads explicit and validate before narrowing. Consolidate tests
+only when their invariants and coverage remain represented. Existing permissive
+configuration is debt to remove, not a template for new code. No full-compliance
+percentage is published before the complete denominator is inventoried, and error
+count reduction alone is not proof of behavior or security correctness.
+
+The independent-package audit found: contracts SDK 6, codegraph 87, coding 704,
+RAG 160, data analysis 69, DevOps 53 and research 22 package-local errors. The same
+invocation also reports 5,959 imported core errors; these overlap the core audit
+and must not be added to it as new debt. Different target sets can affect inferred
+types, so each qualifying increment retains its exact invocation. Both audits use
+the repository strict flags with every `ignore_errors = true` changed to `false`
+in an archived local config. `ignore_missing_imports` is still enabled: installation
+and optional dependency stub/import coverage need separate TYPE-05 qualification.
 
 ## TDD and test ownership
 

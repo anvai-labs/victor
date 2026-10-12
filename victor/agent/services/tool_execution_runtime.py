@@ -9,9 +9,10 @@ from __future__ import annotations
 
 import inspect
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from victor.agent.runtime.context import RuntimeContextResolver, require_runtime_context
+from victor.agent.services.tool_execution_contracts import ToolBatchExecution, ToolResultPublication
 from victor.agent.tool_execution.categorization import (
     ToolCategory,
     categorize_tool_call,
@@ -21,6 +22,10 @@ from victor.framework.execution_checkpoint import ExecutionCheckpoint
 from victor.framework.approval_pause import mark_batch_publication_incomplete
 from victor.agent.tool_pipeline import PipelineExecutionResult, ToolCallResult
 from victor.agent.member_approval_context import MemberApprovalPause
+
+if TYPE_CHECKING:
+    from victor.agent.conversation.controller import ConversationController
+    from victor.agent.tool_output_formatter import ToolOutputFormatter
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +47,7 @@ def _tool_result_matches_checkpoint(
     checkpoint_tool_call_id = tool_call.get("id")
     result_tool_call_id = result.get("tool_call_id")
     if checkpoint_tool_call_id and result_tool_call_id:
-        return checkpoint_tool_call_id == result_tool_call_id
+        return bool(checkpoint_tool_call_id == result_tool_call_id)
 
     return bool(checkpoint_tool_name and result_tool_name)
 
@@ -51,9 +56,16 @@ class ToolExecutionRuntime:
     """Bridge orchestrator tool pipeline state into the canonical tool service."""
 
     def __init__(
-        self, runtime_host: Any, *, runtime_context: Optional[RuntimeContextResolver] = None
+        self,
+        runtime_host: Any,
+        *,
+        execution: ToolBatchExecution,
+        publication: ToolResultPublication,
+        runtime_context: Optional[RuntimeContextResolver] = None,
     ) -> None:
         self._runtime = runtime_host
+        self._execution = execution
+        self._publication = publication
         self._runtime_context = runtime_context
 
     async def execute_tool_calls(
@@ -72,14 +84,13 @@ class ToolExecutionRuntime:
 
         interrupted_results: List[ToolCallResult] = []
         try:
-            pipeline_result = await runtime._tool_pipeline.execute_tool_calls(
+            pipeline_result = await self._execution.execute_tool_pipeline(
                 tool_calls=tool_calls,
-                context=runtime._get_tool_context(),
                 interrupted_results=interrupted_results,
             )
         except BaseException as control:
             try:
-                runtime.tool_calls_used = runtime._tool_pipeline.calls_used
+                self._execution.sync_tool_usage()
                 if interrupted_results and isinstance(control, MemberApprovalPause):
                     mark_batch_publication_incomplete(
                         control, reason="member_continuation_required"
@@ -112,7 +123,7 @@ class ToolExecutionRuntime:
                 logger.error("Interrupted tool batch result publication failed")
             raise
 
-        runtime.tool_calls_used = runtime._tool_pipeline.calls_used
+        self._execution.sync_tool_usage()
         self._record_tool_intents(runtime, tool_calls)
         if not require_persistence:
             await self._compact_before_tool_result_injection(runtime, pipeline_result)
@@ -123,55 +134,28 @@ class ToolExecutionRuntime:
 
     def _process_pipeline_result(
         self,
-        pipeline_result: Any,
+        pipeline_result: PipelineExecutionResult,
         tool_calls: List[Dict[str, Any]],
         *,
         require_persistence: bool = False,
     ) -> List[Dict[str, Any]]:
         """Publish through the canonical result service; interrupted batches are strict."""
         runtime = self._runtime
-        from victor.agent.services.tool_service import ToolResultContext
-
-        ctx = ToolResultContext(
-            require_persistence=require_persistence,
-            executed_tools=runtime.executed_tools,
-            observed_files=runtime.observed_files,
-            failed_tool_signatures=runtime.failed_tool_signatures,
-            shown_tool_errors=runtime._shown_tool_errors,
-            continuation_prompts=runtime._continuation_prompts,
-            asking_input_prompts=runtime._asking_input_prompts,
-            tool_calls_used=runtime.tool_calls_used,
-            record_tool_execution=runtime._record_tool_execution,
-            conversation_state=runtime.conversation_state,
-            unified_tracker=runtime.unified_tracker,
-            usage_logger=runtime.usage_logger,
-            add_message=runtime.add_message,
-            format_tool_output=self.format_tool_output,
-            console=runtime.console,
-            presentation=runtime._presentation,
-            stream_context=(
-                runtime._current_stream_context
-                if hasattr(runtime, "_current_stream_context")
-                else None
-            ),
-            task_type=getattr(
-                runtime, "_current_task_type", getattr(runtime, "_task_type", "unknown")
-            ),
+        ctx = self._publication.create_tool_result_context(
+            format_tool_output=self.format_tool_output, require_persistence=require_persistence
         )
-
-        results = runtime._tool_service.process_tool_results(pipeline_result, ctx)
+        results = self._publication.publish_tool_results(pipeline_result, ctx)
         if not require_persistence:
             results = self._ensure_tool_response_coverage(runtime, tool_calls, results)
         self._annotate_tool_results_with_execution_checkpoint(runtime, results)
         self._record_tool_results(runtime, results)
-        runtime._continuation_prompts = ctx.continuation_prompts
-        runtime._asking_input_prompts = ctx.asking_input_prompts
+        self._publication.sync_tool_result_state(ctx)
         return results
 
     def format_tool_output(self, tool_name: str, args: Dict[str, Any], output: Any) -> str:
         """Format tool output with provider/context-aware boundaries."""
         runtime = self._runtime
-        controller = getattr(runtime, "_conversation_controller", None)
+        controller: ConversationController = runtime._conversation_controller
         context_metrics = controller.get_context_metrics()
         provider = getattr(runtime, "provider", None)
         settings = getattr(runtime, "settings", None)
@@ -183,7 +167,8 @@ class ToolExecutionRuntime:
             response_token_reserve=getattr(settings, "response_token_reserve", 4096),
         )
 
-        return runtime._tool_output_formatter.format_tool_output(
+        formatter: ToolOutputFormatter = runtime._tool_output_formatter
+        return formatter.format_tool_output(
             tool_name=tool_name,
             args=args,
             output=output,
@@ -591,7 +576,9 @@ class ToolExecutionRuntime:
                 if path:
                     summary += f" ({path})"
             metadata: Dict[str, Any] = {"tool": tool_name}
-            if _tool_result_matches_checkpoint(result, execution_checkpoint):
+            if execution_checkpoint is not None and _tool_result_matches_checkpoint(
+                result, execution_checkpoint
+            ):
                 metadata.update(execution_checkpoint.to_trace_metadata())
             stream_ctx.record_intent_event("tool_result", summary, **metadata)
 
