@@ -73,7 +73,36 @@ def test_repository_quarantines_identity_collisions_and_delta_recovers(tmp_path)
     assert [d["line"] for d in marker.metadata["diagnostics"]] == [1, 2]
     collisions = marker.metadata["identity_collisions"]
     assert len(collisions) == 1 and collisions[0]["symbol_id"] == raw.symbols[0].id
+    assert collisions[0]["resolution"] == "ambiguous"
+    assert [d["qualified_name"] for d in collisions[0]["declarations"]] == [
+        "duplicate.py::f",
+        "duplicate.py::f",
+    ]
+    assert [d["symbol_type"] for d in collisions[0]["declarations"]] == ["function", "function"]
     assert [d["source_span"]["start_line"] for d in collisions[0]["declarations"]] == [1, 2]
+    from victor_codegraph import to_proxima_records
+
+    marker.metadata["private_source_metadata"] = "must not be exported"
+    records = to_proxima_records(current, repo_graph_id="repo")
+    record = next(
+        r
+        for r in records
+        if r.get("props", {}).get("file") == "duplicate.py"
+        and r.get("props", {}).get("ast_kind") == "FILE"
+    )
+    for key in (
+        "identity_collisions",
+        "projection_status",
+        "omitted_symbol_count",
+        "omitted_relation_count",
+    ):
+        assert record["props"][key] == marker.metadata[key]
+    assert "private_source_metadata" not in record["props"]
+    assert not any(
+        "/external/" not in r["edge"]["to_oid"]
+        for r in records
+        if "graph_edge" in r["labels"] and r["edge"]["edge_type"] == "CALLS"
+    )
     assert len({s.id for s in current.symbols}) == len(current.symbols)
     assert not any(r.from_symbol_id == marker.id for r in current.relations)
     calls = [r for r in current.relations if r.relation_type == CodeRelationType.CALLS]

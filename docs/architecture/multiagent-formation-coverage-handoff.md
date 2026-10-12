@@ -1868,6 +1868,33 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   history/checkpoint replay. Released dependency pin remains 0.13.0; upstream
   merge/release and matched provider qualification are still required.
 
+- **G89 — synthesized prose can promote a failed member loop to success (open).**
+  The [2026-10-12 SQLite/source audit](agentic-workflow-safety-audit.md#sqlite-and-source-re-audit--2026-10-12)
+  confirms that, when the failed loop's final response is empty, a successful earlier
+  tool plus nonempty synthesis can overwrite its verdict; the member consumes that
+  metadata as success. Preserve useful
+  synthesis without overriding failure/partial status unless the configured verifier
+  establishes completion. Extend the existing turn-runtime and member-result owners;
+  test failed verification and successful evidence gathering with an unfinished task.
+  Existing passing behavior tests confirm the issue, not its repair (SA-01).
+
+- **G90 — ordinary loop exceptions restore pre-execution messages/counters (open).**
+  The same audit finds unconditional state restoration after ordinary exceptions
+  from `_execute_via_agentic_loop`,
+  without distinguishing pre-dispatch failure from failure after an action. Preserve
+  execution evidence and monotonic consumption after dispatch; qualify a committed
+  fake write followed by provider failure, with no second effect. This is not evidence
+  that durable receipts are deleted or tools automatically replayed. Complements
+  G62/G70; existing rollback tests lack that post-effect scenario (SA-02).
+
+- **G91 — root runtime identity fallback is duplicated and noncanonical (open).**
+  Tool and turn runtimes separately synthesize `session_root` / `root_agent` /
+  `manager` when no typed context is found. Normal initialized member paths use the
+  existing context; no live collision is claimed. Construct and inject one immutable
+  identity at assembly, reject missing identity at effect/persistence boundaries,
+  and explicitly normalize the legacy role to `supervisor`. Preserve the existing
+  child-session derivation and qualify both consumers (SA-03).
+
 Validation-test audit: neither live harness had direct tests before this follow-up.
 The new mixed-harness suite covers rejected/malformed/missing reviews, inclusive
 cache accounting, missing artifacts, bad member usage, pytest timeout, startup and

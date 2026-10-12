@@ -982,6 +982,15 @@ VAS-17 released InferFlux provenance and bounded wire acceptance now pass; track
 an effort-weighted completion percentage. The original formation denominator is
 independent. Update this paragraph and the rows together at each checkpoint.
 
+The [2026-10-12 SQLite/source re-audit](agentic-workflow-safety-audit.md#sqlite-and-source-re-audit--2026-10-12)
+adds open G89–G91: truthful member outcomes, post-effect state retention and canonical
+runtime identity. Repair those through existing turn/tool/member owners before
+expanding automation. SA-04/SA-05 narrow typed service dependencies and consolidate
+runtime-hint policy; SA-06 qualifies architectural metrics before prescriptive use.
+This is an evidence-backed backlog, not completed implementation or a change to
+the milestone denominator. Current embeddings are not qualified for this snapshot.
+VAS-17 released-foundation and C5 gates remain unchanged.
+
 | ID | Milestone / bounded scope | Depends on | State | Evidence / next action |
 | --- | --- | --- | --- | --- |
 | VAS-00 | Audit current API shapes and reproduce boundary defects | — | ✅ ACCEPTED | Audit: real core router returns 422; compiled TS stub probes show approval loss, EOF success and false cancellation; independent review corrected binding/ownership details |

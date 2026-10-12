@@ -7,6 +7,115 @@ not a claim that the recommended repairs have shipped. Line references below use
 that revision. The [formation handoff](multiagent-formation-coverage-handoff.md)
 remains the acceptance record for formations and C5.
 
+## SQLite and source re-audit — 2026-10-12
+
+**Current assessment: preserve the existing execution architecture, repair outcome
+and recovery semantics first, then narrow its typed boundaries.** The evidence does
+not justify more formations, a replacement orchestration engine, a language rewrite,
+or indiscriminate renaming. Findings below are open, not shipped fixes. Historical
+sections retain their original source revisions; their superseding PRs remain valid.
+
+### Evidence and confidence
+
+Audited the local repository index built from candidate
+`b82d2c6c5faa79aa330d6d2ed9f6b2fa4629659a` on `develop`
+`76c72e2eb32204c587485204f996543891905fed`. SQLite integrity passes; the snapshot has
+96,153 nodes and 157,160 edges across 4,818 indexed files. Restricting the analysis
+to production `victor/` gives 2,003 files, 33,737 nodes and 3,424 distinct resolved
+inter-file import pairs. Test/example symbols are excluded from those production
+counts. Private graph and detailed audit JSON stay local; database SHA-256 is
+`ab534ccb2df29e079b982034910552c292d6285f13baf3462e9a340c627cee79`.
+
+| Signal | What it establishes | What it does not establish |
+|---|---|---|
+| Resolved imports/calls and source spans | Inspection targets and recorded static relationships, checked against source | Complete dynamic dispatch, runtime reachability, cross-language FFI, latency or a security exploit |
+| Embedding provenance | This snapshot has **zero non-null embedding references**. The older local manifest declares BGE-small/384 dimensions/LanceDB but is not bound to this generation | No qualified semantic clone, responsibility-cluster or naming-similarity result is claimed; a manifest alone is not vector evidence |
+| Persisted module metrics | Import fan-out highlights orchestrator (76), CLI (41) and settings (36); assembly and configuration naturally have broad dependencies | High degree is not a reason by itself to split a module. Counts depend on the selected corpus and resolver coverage |
+| Static import components | One three-file component links provider package exports, base and registry | This includes a package import of `failure_taxonomy`; it does not prove a harmful eager runtime cycle |
+| Source plus existing tests | Active synthesis and rollback behavior is confirmed; both existing behavior tests pass | Those expectations do not prove the behavior is safe after a failed verifier or committed write |
+
+Do not rank remediation using the current `cohesion_lcom4` field. In
+`victor/core/analysis/module_analyzer.py:356`, `_compute_cohesion` returns inverse
+symbol count, not method/field connected components. The abstractness calculation
+uses class-name substrings; skipped betweenness and missing coverage can become
+zero. These are heuristics or unavailable evidence, not measured design quality.
+Keep legacy fields compatible while adding explicit metric kind, method, scope,
+availability and revision before exposing prescriptive recommendations.
+
+### Prioritized, source-verified findings
+
+| ID / priority | Finding and user consequence | Bounded change and acceptance owner | State |
+|---|---|---|---|
+| SA-01 / P1 | `turn_execution_runtime.py:1167–1186` converts a failed loop with an empty final response to success after any successful tool and nonempty synthesis excluding a hardcoded prose prefix. `subagents/base.py:722` consumes that flag. Useful evidence or fluent prose can therefore be reported as completed work. | Preserve failed/partial status unless the configured verifier establishes completion; preserve useful synthesis separately. Extend existing `test_turn_execution_runtime.py` synthesis cases with failed-verifier and successful-read/unfinished-write outcomes, plus the member consumer. G89. | OPEN; behavior confirmed |
+| SA-02 / P2 | `turn_execution_runtime.py:530–532` rolls back messages and `tool_calls_used` after ordinary exceptions from `_execute_via_agentic_loop`; restore at `:402–427` does not check whether tools executed. A late error can hide execution evidence or reduce the live-session counter. This is not a finding that durable receipts are deleted or tools automatically replayed. | Restore speculative pre-dispatch state only; retain observed effects and monotonic consumption after dispatch. Extend existing rollback owner with a fake committed write followed by provider failure, retained receipt/transcript, no second effect, and cancellation/approval controls. G90; complements G62/G70. | OPEN; source-confirmed, new fault scenario pending |
+| SA-03 / P2 | `tool_execution_runtime.py:486–505` and `turn_execution_runtime.py:1864–1883` independently reconstruct runtime identity and default to `session_root` / `root_agent` / `manager`. Normal initialized paths use `AgentRuntimeContext`; actual member collisions are not demonstrated. | Construct one immutable context at assembly, inject it into both consumers, and reject missing identity at effect/persistence boundaries. Map legacy role inputs explicitly to `supervisor`; preserve the existing child-session derivation. Test isolation, missing context and both consumers in their existing suites. G91. | OPEN; duplicated fallback policy confirmed |
+| SA-04 / P2 | `ToolExecutionRuntime(runtime_host: Any)` reaches pipeline, state, identity, persistence, formatting and context through one host. Adapter `__getattr__`/`__setattr__` forwards arbitrary access; `ChatContextProtocol` and peers retain broad `Any` fields. These permit dependencies and typos to escape static checking. | Inject narrow typed collaborators through the existing assembly boundary, starting with required execution/result-publication/identity operations. Keep one compatibility adapter; move optional capability decisions there. Extend delegation/parity tests with typed fakes and static negative fixtures. Do not add a second pipeline or registry. | OPEN; contract debt confirmed |
+| SA-05 / P3 | `_INTERNAL_KWARG_KEYS` is independently declared in protocol adapter `:53` and Sandhi transport `:159`; comments require manual synchronization. | One provider-neutral runtime-hints definition, consumed by both filtering boundaries. Keep both enforcement points. Existing kwarg-strip and transport tests must cover every reserved key, unchanged provider extras and no internal hints on the wire. | OPEN; duplicate policy ownership confirmed |
+| SA-06 / P2 for prescriptive analysis | Metric names imply stronger evidence than their algorithms provide; large modules are mechanically assigned lower “cohesion.” | Label proxies and unavailable metrics honestly; require source revision and coverage provenance. Use topology-based fixtures that distinguish equal-size classes with different cohesion if a real cohesion metric is implemented. Extend `tests/unit/analysis/test_module_analyzer.py`. | OPEN; excluded from this audit's defect ranking |
+
+Inspection of dynamic attribute calls found 104 in the turn execution runtime,
+75 in the tool runtime and 14 in the protocol adapter. Planning has 167. These
+AST counts identify where to inspect contracts; they are neither a defect count
+nor a performance benchmark. Optional integration discovery can legitimately be
+dynamic when a single boundary validates and adapts it to an explicit contract.
+
+### SOLID and agentic design decisions
+
+| Principle | Apply in Victor | Avoid |
+|---|---|---|
+| Single responsibility | Keep outcome verification, response presentation, effect recording and identity construction under distinct existing owners | Moving methods to new files while retaining an unrestricted orchestrator host everywhere |
+| Open/closed | Extend the existing provider/formation registry through validated contracts and declared capabilities | Parallel dispatch trees, silent provider fallbacks or a new strategy class for every conditional |
+| Liskov substitution | Require every implementation to preserve cancellation, denied/unknown outcomes, receipt ownership and retry constraints; test shared conformance | Treating signature compatibility or a successful model response as behavioral equivalence |
+| Interface segregation | Small typed read/write capabilities; immutable value objects for identity and outcomes; explicit optional capabilities | One giant protocol of `Any`, unbounded attribute forwarding, or runtime member-presence checks as schema validation |
+| Dependency inversion | Constructor injection at the existing composition root; a validated compatibility adapter at the edge | Service-location probes throughout effectful code or introducing a new DI framework without a concrete need |
+| Bounded agentic control | Deterministic software owns permissions, budgets and recovery; models propose typed actions; verified artifacts/receipts establish completion | Mandatory supervisor LLMs, extra members without demonstrated benefit, or self-reported completion as verification |
+
+Use statically checked `Protocol` contracts or explicit ABCs, as appropriate to
+the extension boundary. `Protocol` is structural typing, but avoids the unchecked
+runtime duck typing at issue when its members have concrete types and implementations
+are actually checked. `@runtime_checkable` alone does not validate argument or
+return types. See the [Python typing specification](https://typing.python.org/en/latest/spec/protocol.html).
+Keep configuration separate from use through
+[dependency injection](https://martinfowler.com/articles/injection.html).
+Prefer simple workflows until measured benefit warrants more agent autonomy or
+coordination, consistent with
+[Building effective agents](https://www.anthropic.com/engineering/building-effective-agents).
+
+### Nomenclature and delivery order
+
+- Use `supervisor` for the orchestration role; `member` for team membership and
+  `subagent` for delegated execution. Preserve reviewer=one-pass, critic=iterative,
+  judge=one-shot verdict, synthesizer and router semantics. A `StateManager` or
+  resource manager is not automatically a misnamed agent role.
+- Keep `set_manager`/`manager` compatibility aliases delegating to their canonical
+  owner while consumers migrate. `PlanningCoordinator` is an alias of the active
+  planning service, not proof of a second engine. Rename with an explicit migration
+  and usage evidence, not global text replacement.
+- Distinguish invocation returned, action committed, result published and task
+  verified. Map public outcome contracts through the existing FEP/client work;
+  an approval is authority for an exact action, not a success result. No new public
+  enum or breaking API is approved by this audit alone.
+- Land SA-01 and SA-02 as focused behavioral repairs first, with failing regression
+  cases in existing owners. Then SA-03, the necessary SA-04 boundary extraction,
+  and SA-05. SA-06 gates automated architectural recommendations, not safety fixes.
+- Before semantic analysis, qualify a same-revision vector snapshot: content and
+  symbol IDs, chunker/model revision, dimensions, distance and normalization,
+  deleted-file handling, coverage and retrieval scope. Use similarity to propose
+  clone/responsibility candidates; verify signatures, side effects and call sites
+  before deduplication. Embeddings cannot prove substitution or authorization.
+
+Each increment requires preserved existing behavior outside its intentional repair,
+positive/negative tests, independent review and green CI. Reuse current test owners;
+remove tests only when distinct failure and branch coverage remain. Performance
+claims require representative end-to-end measurements under the
+[native acceleration policy](native-acceleration-strategy.md). These offline
+findings neither close C5 nor relax its released-foundation and member-evidence gates.
+
+Audit qualification: independent source/evidence review found no blocking issues;
+160 existing tests passed across turn-runtime/CI selection, module analysis and
+architecture/service-boundary owners. These are baseline behavior checks, not
+implementation acceptance for SA-01–SA-06. No runtime behavior changed in this audit.
+
 ## PDF recheck and design critique — 2026-09-25
 
 Rechecked the six-page **Agentic Workflow Automation** PDF at

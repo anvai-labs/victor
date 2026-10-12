@@ -438,6 +438,22 @@ retains one module, zero edges and six diagnostics for three conflicting pairs.
 It completes with coverage gaps; it does not claim a clean audit. General
 copy/paste similarity detection is not part of structural identity validation.
 
+The grouped-evidence follow-up retains every conflicting declaration's name,
+qualified name, kind and exact source range under its disputed structural key.
+These are ambiguous source occurrences on the file marker, not resolved graph
+nodes or new traversal targets. AnvaiOps validates the allowlisted evidence after
+record authorization and displays it in the inspector. Null/unreported evidence
+remains distinct from an explicit empty list. Candidate installed-wheel validation
+passes 209 shared-package tests and 1,725 AnvaiOps API/connector tests (three skips);
+174 UI tests and the production build pass. Publication and consumer repin remain
+pending; none of these counts establish hosted lifecycle acceptance.
+
+The [SQLite/source architecture audit](agentic-workflow-safety-audit.md#sqlite-and-source-re-audit--2026-10-12)
+uses this repository evidence to prioritize outcome correctness, effect retention,
+identity and typed contracts. It excludes unqualified semantic similarity and the
+current size-based cohesion heuristic from defect claims. G89–G91 remain open in
+the formation handoff; SA-04–SA-06 are tracked in that same canonical audit.
+
 Qualification uses tree-sitter 0.26.0 and language-pack 1.21.3, not older
 packages incidentally installed in a shared environment. The built 0.10.1 wheel
 passes 209 standalone tests. Compiler upgrades require a **full rebuild**:
@@ -458,6 +474,18 @@ edges** in 101.1 seconds (one local run, not a throughput benchmark). Baseline
 evidence is preserved separately. Full test collection found 34,518 tests; Black,
 Ruff and mypy (2,001 runtime files) passed.
 
-Remaining gates: final browser evidence, reviewed PR/CI,
+The grouped follow-up collects 34,519 tests. Its existing affected-suite selection
+passed 1,464 tests with 16 skips before the grouped extension; the extension is
+separately qualified by the shared-wheel suite and six runtime integration cases.
+The first PR CI failures (missing selector mapping and a VSCode download timeout)
+remain preserved; the selector now names existing owning suites without adding a
+duplicate mirrored test module.
+
+Grouped headed browser interaction/DOM acceptance retains three groups and six
+actual declaration occurrences, with exact source ranges, unresolved labels and
+one file marker/zero edges. Original replay evidence remains preserved. Both PNG
+and JPEG screenshot attempts timed out; no new screenshot visual pass is claimed.
+
+Remaining gates: reviewed PR/CI,
 immutable package publication and consumer repin, then hosted query scaling,
 OIDC/lifecycle and Q1 relevance. Keep private graph/source artifacts local.

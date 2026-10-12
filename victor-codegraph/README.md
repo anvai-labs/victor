@@ -112,6 +112,12 @@ source restores normal projection through deletion-complete repository deltas.
 Direct record projection rejects duplicate identities before invoking an embedder,
 including when legacy OIDs are selected.
 
+`identity_collisions` groups use the existing `symbol_id` with `resolution: ambiguous`.
+Each declaration retains `name`, `qualified_name`, `symbol_type` and its full
+`source_span`; these are inspectable evidence, not separately resolved graph nodes.
+The record adapter forwards these groups, projection status and omitted counts only
+when present, without copying arbitrary symbol metadata into exported properties.
+
 ### TypeScript grammar limitation
 
 The current tree-sitter grammar reports a partial parse for inline import types

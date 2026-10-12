@@ -262,8 +262,14 @@ def _file_projection_metadata(parsed: ParsedCode) -> dict[str, object]:
         "identity_collisions": [
             {
                 "symbol_id": symbol_id,
+                "resolution": "ambiguous",
                 "declarations": [
-                    {"name": symbol.simple_name, "source_span": asdict(symbol.location)}
+                    {
+                        "name": symbol.simple_name,
+                        "qualified_name": symbol.fully_qualified_name,
+                        "symbol_type": symbol.symbol_type.name.lower(),
+                        "source_span": asdict(symbol.location),
+                    }
                     for symbol in declarations
                 ],
             }

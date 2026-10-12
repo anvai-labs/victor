@@ -42,3 +42,5 @@ def test_shadowed_python_declarations_remain_explicit_identity_collisions():
     assert len(definitions) == 2
     assert definitions[0].id == definitions[1].id
     assert definitions[0].legacy_id != definitions[1].legacy_id
+    assert all("duplicate.py::C::value" in item.message for item in parsed.diagnostics)
+    assert all(definitions[0].id in item.message for item in parsed.diagnostics)

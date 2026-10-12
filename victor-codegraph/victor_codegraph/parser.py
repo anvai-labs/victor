@@ -77,7 +77,10 @@ def _finalize_identity(parsed: ParsedCode, content: str) -> ParsedCode:
             parsed.diagnostics.append(
                 ParseDiagnostic(
                     code="identity_collision",
-                    message=f"multiple symbols share structural key {stable}",
+                    message=(
+                        f"multiple declarations of {symbol.fully_qualified_name!r} "
+                        f"share structural key {stable}"
+                    ),
                     severity="error",
                     line=symbol.location.start_line,
                     column=symbol.location.start_column,

@@ -145,6 +145,15 @@ def symbol_to_record(
         },
         "embeddings": [],
     }
+    # Preserve compiler-owned ambiguity evidence without exposing arbitrary metadata.
+    for key in (
+        "identity_collisions",
+        "projection_status",
+        "omitted_symbol_count",
+        "omitted_relation_count",
+    ):
+        if key in symbol.metadata:
+            record["props"][key] = symbol.metadata[key]
     if embedder is not None and not symbol.metadata.get("embedding_excluded"):
         record["embeddings"].append(
             {
