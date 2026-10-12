@@ -24,7 +24,9 @@ async def test_planning_chat_runtime_caches_planning_service_on_runtime_host():
 
     assert result is response
     assert runtime_host._service_planning_coordinator is planning_instance
-    planning_cls.assert_called_once_with(runtime_host)
+    planning_cls.assert_called_once_with(
+        runtime_host, direct_chat=runtime_host._chat_service.execute_direct_in_turn
+    )
     planning_instance.chat_with_planning.assert_awaited_once_with(
         "plan this",
         task_analysis="task-analysis",

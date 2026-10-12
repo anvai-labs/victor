@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from victor.agent.runtime.context import AgentRuntimeContext
+from victor.agent.runtime.context import AgentRuntimeContext, RuntimeIdentity
 from victor.agent.services.chat_service import ChatService, ChatServiceConfig
 from victor.agent.services.chat_runtime_services import ChatGovernance
 from victor.agent.services.chat_runtime_services import (
@@ -148,6 +148,8 @@ async def test_inner_cleanup_finishes_before_reports_unlock_and_next_turn(public
                 self.events.append(("cleanup-end", message))
 
     service, runtime, metrics, events = make_services(Executor)
+    identity = RuntimeIdentity(SimpleNamespace(active_session_id="active", _memory_session_id=None))
+    identity.bind_turn_lock(runtime.services.stream_turn_lock)
     entry = runtime if public == "runtime" else service
     if public == "orchestrator":
         from victor.agent.orchestrator import AgentOrchestrator
@@ -167,6 +169,8 @@ async def test_inner_cleanup_finishes_before_reports_unlock_and_next_turn(public
     second = asyncio.create_task(consume(entry, "second"))
     try:
         await asyncio.sleep(0)
+        with pytest.raises(RuntimeError, match="active turn"):
+            identity.validate_session_transition("resumed")
         assert not closing.done()
         assert runtime.services.stream_turn_lock.locked()
         assert ("execute", "second") not in events
@@ -187,6 +191,7 @@ async def test_inner_cleanup_finishes_before_reports_unlock_and_next_turn(public
         assert events.index(("teardown", "first")) < events.index(("setup", "second"))
         assert [r["api_total_tokens"] for r in metrics.get_task_report_history()] == [5, 18]
     assert not runtime.services.stream_turn_lock.locked()
+    identity.validate_session_transition("resumed")
 
 
 @pytest.mark.asyncio

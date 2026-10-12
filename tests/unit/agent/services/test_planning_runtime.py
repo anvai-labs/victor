@@ -2952,3 +2952,11 @@ def test_artifact_produces_preserves_markdown_as_single_plan_state_item():
     )
 
     assert coerced == [output.strip()]
+
+
+async def test_standalone_direct_chat_acquires_public_turn_boundary():
+    response = CompletionResponse(content="standalone", role="assistant")
+    owner = SimpleNamespace(chat=AsyncMock(return_value=response))
+    service = PlanningRuntimeService(owner)
+    assert await service._direct_chat("hello") is response
+    owner.chat.assert_awaited_once_with("hello")

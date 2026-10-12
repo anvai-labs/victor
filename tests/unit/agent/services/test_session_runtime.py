@@ -116,3 +116,24 @@ def test_failed_session_recovery_preserves_both_session_ids():
     assert runtime.recover_session("unavailable") is False
     assert host.active_session_id == "active"
     assert host._memory_session_id == "session-123"
+
+
+async def test_recovery_rejects_active_turn_before_sync_or_hydration():
+    import asyncio
+    import pytest
+    from victor.agent.runtime.context import RuntimeIdentity
+
+    host = _make_runtime_host(active_session_id="active")
+    identity = RuntimeIdentity(host)
+    lock = asyncio.Lock()
+    identity.bind_turn_lock(lock)
+    runtime = SessionRuntime(host, validate_session=identity.validate_session_transition)
+    async with lock:
+        with pytest.raises(RuntimeError, match="active turn"):
+            runtime.recover_session("resumed")
+        host._session_service.bind_runtime_components.assert_not_called()
+        host._session_service.recover_session.assert_not_called()
+        assert host.active_session_id == "active"
+    host._session_service.recover_session.return_value = True
+    assert runtime.recover_session("resumed")
+    assert identity.resolve().session_id == "resumed"

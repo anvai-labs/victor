@@ -275,3 +275,81 @@ def test_victor_client_list_recent_sessions_survives_failure(monkeypatch) -> Non
     monkeypatch.setattr("victor.agent.conversation.store.ConversationStore", _boom)
     client = VictorClient(SessionConfig(), container=object())
     assert client.list_recent_sessions() == []
+
+
+@pytest.mark.parametrize("entry", ["chat", "planning", "stream", "aggregate"])
+@pytest.mark.parametrize("target", ["active", "resumed"])
+async def test_resume_rejects_active_turn_before_hydration(monkeypatch, entry, target):
+    import asyncio
+    from victor.agent.runtime.context import RuntimeIdentity
+    from victor.agent.services.chat_service import ChatService, ChatServiceConfig
+    from victor.providers.base import CompletionResponse, StreamChunk
+
+    owner = SimpleNamespace(active_session_id="active", _memory_session_id=None)
+    identity = owner._runtime_identity = RuntimeIdentity(owner)
+    service = ChatService(ChatServiceConfig(), None, None, None, None, None, None)
+    identity.bind_turn_lock(service._turn_lock)
+    started, finish = asyncio.Event(), asyncio.Event()
+
+    async def execute(message):
+        started.set()
+        await finish.wait()
+        return CompletionResponse(content=message, role="assistant")
+
+    async def stream(message, **kwargs):
+        started.set()
+        yield StreamChunk(content=message)
+        await finish.wait()
+        yield StreamChunk(content="done", is_final=True)
+
+    service.bind_runtime_components(
+        turn_executor=SimpleNamespace(execute_agentic_loop=execute),
+        planning_handler=execute,
+        stream_chat_handler=stream,
+        turn_runtime=SimpleNamespace(
+            resolve_runtime_context=identity.resolve,
+            enter=lambda *a, **k: None,
+            exit=lambda *a, **k: None,
+            start_task_report=lambda *a, **k: None,
+            finish_task_report=lambda *a, **k: None,
+        ),
+    )
+    client = VictorClient(SessionConfig(), container=object())
+    client._context, client._initialized = object(), True
+    client._agent = SimpleNamespace(_orchestrator=owner)
+    monkeypatch.setattr(
+        client, "_resolve_runtime_services", lambda: SimpleNamespace(context=object())
+    )
+    monkeypatch.setattr(
+        "victor.agent.conversation.store.ConversationStore",
+        lambda: SimpleNamespace(load_session=lambda _: {"metadata": {"title": "saved"}}),
+    )
+    hydrate = MagicMock(return_value={"title": "saved"})
+    monkeypatch.setattr("victor.agent.conversation.session_resume.hydrate_session", hydrate)
+
+    active_stream = None
+    task = None
+    if entry == "stream":
+        active_stream = service.stream_chat("hello", use_planning=False)
+        await anext(active_stream)
+    else:
+        task = asyncio.create_task(
+            service.chat_with_planning("hello")
+            if entry == "planning"
+            else service.chat("hello", stream=entry == "aggregate", use_planning=False)
+        )
+        await asyncio.wait_for(started.wait(), 2)
+    try:
+        with pytest.raises(RuntimeError, match="active turn"):
+            await client.resume_session(target)
+        hydrate.assert_not_called()
+        assert owner.active_session_id == identity.resolve().session_id == "active"
+    finally:
+        finish.set()
+        if active_stream is not None:
+            await active_stream.aclose()
+        if task is not None:
+            await asyncio.wait_for(task, 2)
+    assert await client.resume_session(target) == {"title": "saved"}
+    hydrate.assert_called_once()
+    assert identity.resolve().session_id == target

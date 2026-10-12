@@ -4764,3 +4764,11 @@ class TestTaskUsageAccumulatorIdentity:
         assert orchestrator._cumulative_token_usage.get("total_tokens") >= 26
         snapshot = orchestrator._metrics_coordinator._snapshot_task_usage()
         assert snapshot.total_tokens >= 26
+
+
+async def test_assembled_session_identity_uses_stream_turn_gate(orchestrator):
+    lock = orchestrator._session_accessor.stream_turn_lock
+    async with lock:
+        with pytest.raises(RuntimeError, match="active turn"):
+            orchestrator._runtime_identity.validate_session_transition("resumed")
+    orchestrator._runtime_identity.validate_session_transition("resumed")
