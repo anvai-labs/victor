@@ -197,3 +197,24 @@ flowchart TB
   PR -->|"main target"| C
   PR -->|"main target and matching paths"| I
 ```
+
+
+## CodeGraph release ordering and version checks
+
+CodeGraph and Victor retain independent versions. The source of truth for
+CodeGraph is `victor-codegraph/pyproject.toml`; after changing it, run
+`python scripts/sync_version.py --codegraph` to update its runtime version and
+Victor's exact `graph` extra dependency. `make check-version` rejects drift.
+
+Publish CodeGraph first from its matching `victor-codegraph-vX.Y.Z` tag. The
+release plan validates the tag, package/runtime version and exact Victor pin;
+both wheel and sdist metadata are checked after building and again immediately
+before upload. Existing versions are not silently skipped. An explicit TestPyPI
+rehearsal publishes only to TestPyPI, including when dispatched from a stable tag.
+
+Victor's release has a mandatory dependency job that installs that exact
+CodeGraph wheel from PyPI in a fresh Python 3.12 environment and smoke-tests the
+parser. All Victor publication destinations depend on this gate; an unpublished
+dependency blocks publication. Victor wheel/sdist metadata must also retain the
+exact `graph` extra pin at build and upload time. These workflow changes do not
+publish a version or create a tag by themselves.

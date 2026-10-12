@@ -261,3 +261,42 @@ the tag has published. After publication the consumer pin is
 `victor-codegraph[treesitter]==0.9.0`. AnvaiOps #488 owns its consumer rerun and atomic
 snapshot/read-boundary corrections; do not duplicate them here. Sandesha's handback,
 CG-P4 lifecycle and CG-P5 headed UI acceptance remain open.
+
+
+### Release alignment follow-up — 2026-10-11
+
+Owner: AnvaiOps consumer session, branch `fix/codegraph-release-alignment`,
+original baseline `fb310ec02` from parent PR #1299. #1299 is now merged as
+`62552e965`; the release-only commit was rebased onto that integration commit
+to remove duplicate pre-squash history. This branch owns publication/version checks.
+
+Independent package versions are preserved. Victor's graph extra now requires
+exactly `victor-codegraph[treesitter]==0.9.0`; the version checker and sync helper
+cover the CodeGraph package, runtime and consumer pin. The release workflows
+validate source/tag and wheel/sdist versions, isolate TestPyPI rehearsals, and
+require the exact published CodeGraph wheel before any Victor publication.
+See [release ordering](../development/PR_WORKFLOW.md#codegraph-release-ordering-and-version-checks).
+
+Local evidence: the original 12 release-contract regressions failed before the
+change; the extended suite and native version owner pass (49 tests) after implementation.
+Independent review found and corrected missing checkout permissions in publisher
+jobs and a test fixture directory collision. Both package wheel/sdist pairs were
+built and passed the artifact validator. Full-suite collection passed (34,257
+tests); this session performed no publication. The parent subsequently published
+CodeGraph 0.9.0 from `62552e9659c320c6ad22e875d099d56f0b5c9727`. Its
+[release receipt](https://github.com/anvai-labs/victor/releases/tag/victor-codegraph-v0.9.0)
+and PyPI wheel are now verified available; the earlier registry-blocker observation
+is superseded. No Victor AI release was published by that CodeGraph release.
+
+Execution ownership is now handed entirely to the parent session at the user's
+request. This consumer session winds down after reconciliation; do not run a
+second release or consumer migration lane here. Parent next: review/merge
+[release safeguards #1300](https://github.com/anvai-labs/victor/pull/1300) for future
+publication, then adopt the already-published
+the exact pin and complete commercial adapter/UI acceptance through
+[AnvaiOps #488](https://github.com/anvai-labs/anvaiops/pull/488). The Python 3.12
+API/worker migration is committed there at `3511a40`. The canonical detailed
+consumer receipt is AnvaiOps `docs/operations/CODEGRAPH_POLYGLOT_HANDBACK.md`
+and its adjacent JSON; those preserve exact source qualification and local
+image/test evidence. No tag, package publication, deployment or gate promotion
+was performed by this session.
