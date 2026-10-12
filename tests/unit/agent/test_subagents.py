@@ -526,10 +526,12 @@ class TestSubAgent:
         assert result.summary == "0123456789"
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("synthesized", [False, True])
     async def test_execute_propagates_failed_agentic_loop_metadata(
         self,
         sample_config,
         mock_parent_orchestrator,
+        synthesized,
     ):
         """Agentic loop failure metadata should make the sub-agent fail."""
         lifecycle = MagicMock()
@@ -545,10 +547,11 @@ class TestSubAgent:
         subagent.orchestrator.get_messages.return_value = []
         subagent._execute_with_retry = AsyncMock(
             return_value=SimpleNamespace(
-                content="I could not complete the task.",
+                content=("The implementation is complete." if synthesized else "Incomplete task."),
                 metadata={
                     "agentic_loop_success": False,
                     "agentic_loop_error": "Insufficient progress",
+                    **({"agentic_loop_synthesis": True} if synthesized else {}),
                 },
             )
         )
@@ -559,6 +562,12 @@ class TestSubAgent:
         assert result.error == "Insufficient progress"
         assert result.details["agentic_loop_success"] is False
         assert result.details["agentic_loop_error"] == "Insufficient progress"
+        assert result.summary == (
+            "The implementation is complete." if synthesized else "Incomplete task."
+        )
+        handoff = lifecycle.build_parent_handoff.call_args.kwargs
+        assert handoff["status"] == "failed"
+        assert handoff["metadata"]["agentic_loop_success"] is False
 
 
 # =============================================================================

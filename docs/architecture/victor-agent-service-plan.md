@@ -67,6 +67,14 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
+- SA-01/G89 outcome repair is LOCAL_PASS on `fix/preserve-agentic-loop-outcomes`,
+  owned by this co-design session, rebased onto `0c1f07cebc9970b40e68ccd3d53d57ad8e34be81`.
+  Failed loop verdicts survive presentation synthesis; member parent handoffs stay
+  failed. Existing tests own the regression, independent review is clean, and CI/
+  merge/release remain pending. The [audit checkpoint](agentic-workflow-safety-audit.md#sa-01-implementation-checkpoint)
+  owns the detailed evidence. Next is SA-02/G90 post-effect state retention; VAS-17
+  and live C5 gates remain independent.
+
 - VAS-17 release alignment merged in [#1276](https://github.com/anvai-labs/victor/pull/1276)
   as `9ff5b9862a17950f70d9d3c850eee03dcca075af`, after clean independent
   review and all 39 applicable CI checks passed (including Vertical Py3.12).

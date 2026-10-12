@@ -1169,20 +1169,13 @@ class TurnExecutor:
                 if hasattr(turn_result, "response"):
                     response = turn_result.response
                     if not loop_success and has_tool_evidence and not response.content:
-                        synthesized = await self._ensure_complete_response(
-                            None,
-                            ToolFailureContext(),
+                        # Synthesis recovers presentation, not task completion.
+                        # Preserve the loop/verifier verdict even when an earlier
+                        # read succeeded and the summary claims the work is done.
+                        synthesized = await self.synthesize_from_tool_evidence(
+                            recovery_reason=loop_error,
                         )
-                        if synthesized.content and not synthesized.content.startswith(
-                            "I was unable to generate a complete response."
-                        ):
-                            metadata = dict(getattr(synthesized, "metadata", None) or {})
-                            metadata["agentic_loop_success"] = True
-                            metadata["agentic_loop_recovered"] = True
-                            metadata["agentic_loop_recovery_reason"] = loop_error
-                            metadata["agentic_loop_iterations"] = loop_iterations
-                            synthesized.metadata = metadata
-                            return synthesized
+                        response = synthesized.response
 
                     metadata = dict(getattr(response, "metadata", None) or {})
                     metadata["agentic_loop_success"] = loop_success

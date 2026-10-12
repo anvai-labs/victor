@@ -1868,7 +1868,7 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   history/checkpoint replay. Released dependency pin remains 0.13.0; upstream
   merge/release and matched provider qualification are still required.
 
-- **G89 — synthesized prose can promote a failed member loop to success (open).**
+- **G89 — failed member verdict preservation (local repair; CI/merge/release pending).**
   The [2026-10-12 SQLite/source audit](agentic-workflow-safety-audit.md#sqlite-and-source-re-audit--2026-10-12)
   confirms that, when the failed loop's final response is empty, a successful earlier
   tool plus nonempty synthesis can overwrite its verdict; the member consumes that
@@ -1876,7 +1876,13 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   synthesis without overriding failure/partial status unless the configured verifier
   establishes completion. Extend the existing turn-runtime and member-result owners;
   test failed verification and successful evidence gathering with an unfinished task.
-  Existing passing behavior tests confirm the issue, not its repair (SA-01).
+  The SA-01 source repair now uses the existing typed synthesis helper and retains
+  the loop's failure/error/iteration metadata. Four regression cases replaced the
+  unsafe expectation; the member owner verifies a failed result and parent handoff
+  despite completion prose. Independent review is clean; 105 direct, 377 broader
+  runtime/member and 58 verifier/stream tests pass (direct tests overlap the broader
+  cohort). This is verdict propagation, not live verifier/C5 acceptance. See the
+  [implementation checkpoint](agentic-workflow-safety-audit.md#sa-01-implementation-checkpoint).
 
 - **G90 — ordinary loop exceptions restore pre-execution messages/counters (open).**
   The same audit finds unconditional state restoration after ordinary exceptions
