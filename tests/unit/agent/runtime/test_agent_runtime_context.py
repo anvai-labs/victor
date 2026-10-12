@@ -85,3 +85,27 @@ def test_runtime_identity_rejects_invalid_session_without_losing_previous_contex
         owner.resolve()
     state.active_session_id = "valid"
     assert owner.resolve() is previous
+
+
+async def test_session_guard_uses_one_lock_and_blocks_member_rebinding():
+    import asyncio
+    import pytest
+    from types import SimpleNamespace
+    from victor.agent.runtime.context import RuntimeIdentity
+
+    state = SimpleNamespace(active_session_id="root", _memory_session_id=None)
+    identity = RuntimeIdentity(state)
+    lock = asyncio.Lock()
+    identity.bind_turn_lock(lock)
+    identity.bind_turn_lock(lock)
+    with pytest.raises(RuntimeError, match="already bound"):
+        identity.bind_turn_lock(asyncio.Lock())
+    child = identity.resolve().derive_child(
+        agent_id="a", display_name="Member", role="member", member_id="m"
+    )
+    async with lock:
+        with pytest.raises(RuntimeError, match="active turn"):
+            identity.bind_member(child)
+        assert state.active_session_id == "root"
+    identity.bind_member(child)
+    assert identity.resolve() is child

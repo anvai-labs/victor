@@ -791,7 +791,7 @@ class VictorClient:
         """Resume a stored session so the agent recalls its prior turns.
 
         Hydrates the live conversation from the ConversationStore via
-        ``ChatService.resume_session`` (which repopulates both message stores),
+        the shared hydration helper (which repopulates both message stores),
         then stamps the resumed ``session_id`` (and conversation state, when
         present) onto the orchestrator so continuation writes append to the
         same session.
@@ -804,7 +804,9 @@ class VictorClient:
             ``None`` when the session is not found.
 
         Raises:
-            RuntimeError: If the client is not initialized.
+            RuntimeError: If the client is not initialized or a turn is active.
+                Finish or close the active turn before resuming, including when
+                reloading the same session. No live messages are changed on rejection.
         """
         if not self._initialized or not self._context:
             raise RuntimeError("VictorClient not initialized. Call initialize() first.")

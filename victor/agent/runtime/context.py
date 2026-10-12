@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from typing import Any, Callable, Dict, Iterator, Optional, Protocol
@@ -122,6 +123,7 @@ class RuntimeIdentity:
         )
         self._context = self._initial
         self._member: Optional[AgentRuntimeContext] = None
+        self._turn_lock: Optional[asyncio.Lock] = None
 
     def resolve(self) -> AgentRuntimeContext:
         active_session_id = self._state.active_session_id
@@ -139,14 +141,26 @@ class RuntimeIdentity:
             self._context = replace(self._initial, session_id=session)
         return self._context
 
+    def bind_turn_lock(self, lock: asyncio.Lock) -> None:
+        """Use the session's existing concurrency gate; never create a second one."""
+        if self._turn_lock is not None and self._turn_lock is not lock:
+            raise RuntimeError("Runtime identity turn lock is already bound")
+        self._turn_lock = lock
+
     def validate_session_transition(self, session_id: str) -> None:
         """Reject invalid/member-crossing recovery before hydration mutates state."""
+        self._require_idle_session()
         if not isinstance(session_id, str) or not session_id.strip():
             raise ValueError("Runtime identity requires a nonempty session_id")
         if self._member is not None and session_id != self._member.session_id:
             raise ValueError("Bound member session identity cannot be replaced")
 
+    def _require_idle_session(self) -> None:
+        if self._turn_lock is not None and self._turn_lock.locked():
+            raise RuntimeError("Cannot replace session state during an active turn")
+
     def bind_member(self, context: AgentRuntimeContext) -> None:
+        self._require_idle_session()
         self._member = require_runtime_context(lambda: context)
         self._state.active_session_id = context.session_id
 

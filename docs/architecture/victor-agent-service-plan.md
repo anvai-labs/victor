@@ -67,6 +67,36 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
+- **G93/G94 LOCAL_PASS — review clean, CI/merge pending** — owner: Victor co-design session; branch
+  `fix/turn-state-ownership`; initial baseline `8b9be15b1150a13dc50fde3ea6fe1a785e74ce58`.
+  Fast-forwarded to `be938af518e526b400373a3b0084a4bd97d8cb92` after the parallel
+  theme PR #1313 merged; runtime diff unchanged, brand check/strict MkDocs pass.
+  Planning fallback now uses a typed callback into the already-owned canonical
+  executor. Only the current planning task can use it; completion/error/cancellation
+  clear that capability. Public planning calls share preparation, lock, reporting
+  and teardown with chat. Buffered, aggregated and outward-stream fallback preserve
+  runtime overrides without adding options to default calls. Session identity uses
+  the existing session turn lock to reject resume/recovery and member rebinding
+  before live mutation, including same-session reload and stream cleanup.
+  Six initial planning cases reproduce lock timeouts; eight resume cases fail
+  because hydration is not rejected. Original failed evidence is retained. The
+  initial broad suite's file-size ratchet failure is also retained; redundant
+  helper documentation was condensed without changing the cap. Existing test
+  owners cover the fixes; no coverage-bearing tests were removed or duplicated.
+  The final affected service/identity/factory cohort passes 1,359 tests; the
+  client/ownership coverage cohort passes 182 with 92% changed-line coverage.
+  The assembled-orchestrator/facade cohort passes 448 with normal model-cache
+  network access; the earlier sandbox BGE lookup timeout is not a passed run.
+  Independent source review is clean with 128 focused tests. Full collection finds
+  34,573 tests; strict MyPy passes 2,001 files. Black, Ruff, dependency locks,
+  hygiene, docs drift, strict MkDocs and CLI entry-point smoke pass. Tests use the
+  official pinned Sandhi 0.13.0 binding. Interrupted coverage-import and sandboxed
+  BGE-lookup runs are preserved as failed/incomplete evidence, not passes. New G95 records the
+  separately reproduced synchronous-reset/async-client mismatch and active-turn
+  reset bypass. **Next: complete CI and squash merge, then G95
+  before SA-04/G62/G70.** This fix is not blanket session-mutation protection;
+  release and live mixed-team C5 acceptance remain separate.
+
 - **G92 ✅ MERGED [#1311](https://github.com/anvai-labs/victor/pull/1311)** — owner: Victor co-design session; branch `fix/root-provider-identity`;
   baseline `9224960642704c55252247d387ad3343454fb5a4`. Canonical ChatService now
   binds transport identity through the existing typed ChatTurnRuntime state view;

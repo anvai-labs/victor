@@ -139,6 +139,8 @@ class ChatService(ChatEvidenceMixin, ChatPersistenceMixin):
         self._turn_runtime: Optional[ChatTurnRuntime] = None
         self._context_accepts_keyword_messages: Optional[bool] = None
         self._turn_lock = asyncio.Lock()
+        self._planning_task: Optional[asyncio.Task[Any]] = None
+        self._planning_overrides: Optional[Dict[str, Any]] = None
 
         # Initialize metrics tracking
         self._metrics: Dict[str, Any] = {
@@ -220,6 +222,8 @@ class ChatService(ChatEvidenceMixin, ChatPersistenceMixin):
             self._prepare_new_turn()
 
         if stream:
+            if runtime_context_overrides is not None:
+                kwargs["runtime_context_overrides"] = runtime_context_overrides
             chunks = []
             async for chunk in self._stream_chat_exclusive(
                 user_message,
@@ -250,7 +254,9 @@ class ChatService(ChatEvidenceMixin, ChatPersistenceMixin):
                 if self._planning_handler is not None and (
                     use_planning is True or use_planning is None
                 ):
-                    response = await self._planning_handler(user_message)
+                    response = await self._run_planning(
+                        user_message, runtime_context_overrides=runtime_context_overrides
+                    )
                 else:
                     executor = self._turn_executor
                     if executor is None or not hasattr(executor, "execute_agentic_loop"):
@@ -398,7 +404,10 @@ class ChatService(ChatEvidenceMixin, ChatPersistenceMixin):
                         use_planning is None and explicit_planning_request
                     )
                     if should_plan:
-                        response = await self._planning_handler(user_message)
+                        response = await self._run_planning(
+                            user_message,
+                            runtime_context_overrides=kwargs.get("runtime_context_overrides"),
+                        )
                         if isinstance(response, dict):
                             content = str(response.get("content", "") or "")
                         else:
@@ -450,19 +459,40 @@ class ChatService(ChatEvidenceMixin, ChatPersistenceMixin):
         use_planning: Optional[bool] = None,
     ) -> "CompletionResponse":
         """Process chat with planning enabled or auto-detected."""
-        if use_planning is False:
-            return await self.chat(user_message, use_planning=False)
-
-        if self._planning_handler is not None and (use_planning is True or use_planning is None):
-            context = require_runtime_context(
-                self._turn_runtime.resolve_runtime_context
-                if self._turn_runtime is not None
-                else None
-            )
-            with bind_runtime_session(context):
-                return await self._planning_handler(user_message)
-
         return await self.chat(user_message, use_planning=use_planning)
+
+    async def _run_planning(
+        self, user_message: str, *, runtime_context_overrides: Optional[Dict[str, Any]] = None
+    ) -> "CompletionResponse":
+        """Permit direct fallback only while this task executes the planner."""
+        if self._planning_handler is None:
+            raise RuntimeError("Planning handler is not initialized")
+        self._planning_task = asyncio.current_task()
+        self._planning_overrides = runtime_context_overrides
+        try:
+            return await self._planning_handler(user_message)
+        finally:
+            self._planning_task = None
+            self._planning_overrides = None
+
+    async def execute_direct_in_turn(self, user_message: str) -> "CompletionResponse":
+        """Continue an owned planning turn without resetting or reframing it.
+
+        This is an internal planning collaborator, not a second public chat entry.
+        Unrelated tasks and callbacks retained after planning must acquire a new
+        turn through chat(); they cannot borrow a held lock.
+        """
+        if self._planning_task is None or self._planning_task is not asyncio.current_task():
+            raise RuntimeError("Direct planning fallback requires the owning task")
+        if not self._turn_lock.locked():
+            raise RuntimeError("Direct planning fallback requires an active turn")
+        if self._turn_executor is None:
+            raise RuntimeError("ChatService turn executor is not initialized")
+        return await self._execute_agentic_loop(
+            self._turn_executor,
+            user_message,
+            runtime_context_overrides=self._planning_overrides,
+        )
 
     async def handle_context_and_iteration_limits(self, *args, **kwargs) -> Any:
         """Delegate context/iteration limit handling to the bound runtime helper."""

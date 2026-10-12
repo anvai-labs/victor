@@ -1037,6 +1037,7 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
         # failed_tool_signatures, _read_files_session, _required_files, _required_outputs, etc.
         self._session_state = create_session_state_manager(tool_budget=self.tool_budget)
         self._session_accessor = SessionStateAccessor(self._session_state)
+        self._runtime_identity.bind_turn_lock(self._session_accessor.stream_turn_lock)
 
         # Gap implementations: Complexity classifier, action authorizer, search router (via factory)
         self.task_classifier = self._factory.create_complexity_classifier()

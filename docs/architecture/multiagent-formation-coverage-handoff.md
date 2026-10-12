@@ -1925,24 +1925,35 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   The [canonical checkpoint](victor-agent-service-plan.md#current-checkpoint)
   owns qualification and merge status. G93/G94 remain separate limits.
 
-- **G93 — planning fallback can re-enter the held turn lock (open).**
+- **G93 — planning fallback can re-enter the held turn lock (qualification active).**
   `ChatService.chat(use_planning=True)` calls its planning handler under the turn
-  lock; `PlanningRuntimeService._direct_chat()` calls `orchestrator.chat()`, which
-  can attempt to acquire that same lock. This is a pre-existing control-flow gap,
-  not introduced by identity binding. A bounded synthetic run confirms the reentry
-  timeout without model calls and releases the lock after cancellation. Route fallback through a typed already-owned turn operation without duplicate
-  reports, resets or permission checks. Do not work around this with an unbounded
-  reentrant lock or another dispatch path.
+  lock; the previous `PlanningRuntimeService._direct_chat()` called public chat
+  and attempted to reacquire that lock. A bounded synthetic run confirms the
+  timeout without model calls. The candidate routes fallback through a typed
+  already-owned turn operation with one executor, report and reset; retained or
+  wrong-task callbacks fail closed. The public planning alias shares the same
+  boundary. The [canonical tracker](victor-agent-service-plan.md#current-checkpoint)
+  owns qualification and merge evidence.
 
-- **G94 — concurrent resume is not isolated from an active turn (open).**
-  `VictorClient.resume_session()` validates identity before hydration but does not
-  share ChatService's turn lock. Root transition validation permits replacement
-  while a stream is suspended. The source reproducer observes transport identity
-  pinned to the original turn while the lifecycle resolver sees the resumed
-  session. Serialize or explicitly reject session mutation before hydration while
-  a turn owns state; test buffered/streaming, close/cancel and same-session reload.
-  Until qualified, resume acceptance applies only **between turns**. This remains
-  an identity/lifecycle prerequisite for broader C5 acceptance.
+- **G94 — concurrent resume is not isolated from an active turn (qualification active).**
+  Root transition validation previously allowed session hydration while a stream
+  was suspended, splitting provider and lifecycle identity. The candidate reuses
+  the existing session turn lock to reject resume, recovery and member rebinding
+  before mutation. Same-session reload is also rejected until turn teardown and
+  stream cleanup finish; between-turn resume remains supported. Existing test
+  owners cover buffered/planning/aggregated/outward-stream calls and close/cancel.
+  The [canonical tracker](victor-agent-service-plan.md#current-checkpoint) owns
+  evidence. Reset is a separate uncovered path (G95).
+
+- **G95 — conversation reset bypasses turn ownership and has a sync/async mismatch (open).**
+  Independent G93/G94 review found that `VictorClient.reset_conversation()` awaits
+  the synchronous `ChatService.reset_conversation()`: with the real binding the
+  messages can be cleared before `TypeError` is raised. The synchronous reset also
+  ignores the held session turn lock. Existing client tests use `AsyncMock` and
+  conceal the mismatch. Qualify the real binding with TDD; reject reset before
+  mutation during active execution/stream cleanup and preserve between-turn
+  reset compatibility. G94 protects resume/recovery/member rebinding, not reset.
+  Address this bounded defect before SA-04 refactoring.
 
 Validation-test audit: neither live harness had direct tests before this follow-up.
 The new mixed-harness suite covers rejected/malformed/missing reviews, inclusive

@@ -1509,7 +1509,7 @@ class TestRuntimeIdentityScope(BaseChatServiceTest):
                 await service.chat_with_planning("first")
             else:
                 await service.chat("first", stream=entry == "aggregate")
-            count = 1 if entry == "planning" else 2
+            count = 2
             assert observed == [initial] * count
             assert get_session_id() == "unrelated-caller"
             state.active_session_id = "resumed-session"
@@ -1675,3 +1675,123 @@ class TestRuntimeIdentityScope(BaseChatServiceTest):
             assert observed[2] == [member.session_id] * 2
         finally:
             session_id.reset(caller)
+
+
+class TestOwnedPlanningFallback(BaseChatServiceTest):
+    @pytest.mark.parametrize("entry", ["chat", "planning", "stream", "aggregate"])
+    @pytest.mark.parametrize("fallback", ["simple", "generation_failure"])
+    async def test_planning_fallback_uses_one_owned_turn(self, entry, fallback, monkeypatch):
+        from types import SimpleNamespace
+        from victor.agent.services.planning_chat_runtime import PlanningChatRuntime
+        from victor.agent.services.planning_runtime import PlanningRuntimeService
+
+        service = self._create_test_service()
+        events = []
+        response = CompletionResponse(content="direct result", role="assistant")
+        executor = SimpleNamespace(execute_agentic_loop=mock.AsyncMock(return_value=response))
+        host = SimpleNamespace(
+            _chat_service=service,
+            chat=service.chat,
+            task_analyzer=SimpleNamespace(analyze=lambda _: None),
+            _get_conversation_message_count=lambda: 1,
+            _system_added=True,
+            add_message=mock.Mock(),
+        )
+        monkeypatch.setattr(
+            PlanningRuntimeService, "_should_use_planning", lambda *a: fallback != "simple"
+        )
+        monkeypatch.setattr(PlanningRuntimeService, "_compact_context_if_needed", mock.AsyncMock())
+        monkeypatch.setattr(
+            PlanningRuntimeService,
+            "_generate_plan",
+            mock.AsyncMock(side_effect=ValueError("invalid plan")),
+        )
+        service.bind_runtime_components(
+            turn_executor=executor,
+            planning_handler=PlanningChatRuntime(host).run,
+            turn_runtime=_BoundTurnRuntime(
+                enter=lambda *a, **k: events.append("enter"),
+                exit=lambda *a, **k: events.append("exit"),
+                start=lambda *a, **k: events.append("start"),
+                finish=lambda *a, **k: events.append("finish"),
+            ),
+        )
+
+        options = {"tool_budget": 3}
+
+        async def invoke():
+            if entry == "stream":
+                return "".join(
+                    [
+                        c.content
+                        async for c in service.stream_chat(
+                            "hello", use_planning=True, runtime_context_overrides=options
+                        )
+                    ]
+                )
+            if entry == "planning":
+                return (await service.chat_with_planning("hello", True)).content
+            return (
+                await service.chat(
+                    "hello",
+                    stream=entry == "aggregate",
+                    use_planning=True,
+                    runtime_context_overrides=options,
+                )
+            ).content
+
+        assert await asyncio.wait_for(invoke(), 1) == "direct result"
+        expected = {} if entry == "planning" else {"runtime_context_overrides": options}
+        executor.execute_agentic_loop.assert_awaited_once_with("hello", **expected)
+        assert events == ["enter", "start", "finish", "exit"]
+        assert service._tools.turn_resets == 1
+        assert not service._turn_lock.locked()
+
+    @pytest.mark.parametrize("outcome", ["success", "error", "cancel"])
+    async def test_owned_fallback_rejects_other_tasks_and_releases_capability(self, outcome):
+        from types import SimpleNamespace
+
+        service = self._create_test_service()
+        calls = []
+        options = {"tool_budget": 3}
+
+        async def execute(message, *, runtime_context_overrides):
+            calls.append((message, runtime_context_overrides))
+            if outcome == "error":
+                raise ValueError("executor failed")
+            if outcome == "cancel":
+                raise asyncio.CancelledError()
+            return CompletionResponse(content="ok", role="assistant")
+
+        async def planning(message):
+            with pytest.raises(RuntimeError, match="owning task"):
+                await asyncio.create_task(service.execute_direct_in_turn("intruder"))
+            return await service.execute_direct_in_turn(message)
+
+        service.bind_runtime_components(
+            turn_executor=SimpleNamespace(execute_agentic_loop=execute), planning_handler=planning
+        )
+        with pytest.raises(RuntimeError, match="owning task"):
+            await service.execute_direct_in_turn("before")
+        operation = service.chat("owned", use_planning=True, runtime_context_overrides=options)
+        if outcome == "success":
+            assert (await operation).content == "ok"
+        else:
+            with pytest.raises(ValueError if outcome == "error" else asyncio.CancelledError):
+                await operation
+        assert calls == [("owned", options)]
+        with pytest.raises(RuntimeError, match="owning task"):
+            await service.execute_direct_in_turn("after")
+        assert not service._turn_lock.locked()
+
+    async def test_planning_alias_waits_for_existing_turn(self):
+        service = self._create_test_service()
+        planner = mock.AsyncMock(return_value=CompletionResponse(content="plan", role="assistant"))
+        service.bind_runtime_components(planning_handler=planner)
+        async with service._turn_lock:
+            task = asyncio.create_task(service.chat_with_planning("plan"))
+            await asyncio.sleep(0)
+            planner.assert_not_awaited()
+            assert service._tools.turn_resets == 0
+        assert (await asyncio.wait_for(task, 2)).content == "plan"
+        planner.assert_awaited_once()
