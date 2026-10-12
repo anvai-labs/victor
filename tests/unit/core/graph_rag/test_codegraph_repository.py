@@ -107,6 +107,7 @@ async def test_index_snapshot_preserves_symbols_edges_and_opaque_lookup(tmp_path
     (tmp_path / "b.py").write_text(
         "from a import target\n@decorate\ndef caller():\n target()\n target()\n"
     )
+    (tmp_path / "c.py").write_text("def target(): return 2\n")
     (tmp_path / "widget.tsx").write_text("export function Widget() { return <div/>; }")
     from unittest.mock import AsyncMock
 
@@ -138,6 +139,9 @@ async def test_index_snapshot_preserves_symbols_edges_and_opaque_lookup(tmp_path
         assert projected.edges and set(projected.edges) <= stored_edges
         target = next(s for s in shared.symbols if s.simple_name == "target")
         assert await _resolve_target(target.id, store) == target.id
+        caller = next(s for s in shared.symbols if s.simple_name == "caller")
+        assert await _resolve_target("caller", store) == caller.id
+        assert await _resolve_target("target", store) is None  # ambiguous names are not IDs
         counts = await store.stats()
         assert stats.persisted_nodes == counts["nodes"]
         assert stats.persisted_edges == counts["edges"]
