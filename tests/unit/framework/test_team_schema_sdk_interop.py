@@ -6,7 +6,9 @@ from victor.framework.team_schema import (
     create_team_spec as core_create_team_spec,
 )
 from victor_contracts.team_schema import (
+    MemoryConfig,
     RoleConfig as SdkRoleConfig,
+    TeamAgentCategory,
     TeamFormation,
     TeamMemberSpec,
     TeamSpec as SdkTeamSpec,
@@ -15,9 +17,13 @@ from victor_contracts.team_schema import (
 
 
 def test_team_schema_identity_is_shared() -> None:
+    from victor.teams import types
+
     assert CoreRoleConfig is SdkRoleConfig
     assert CoreTeamSpec is SdkTeamSpec
     assert core_create_team_spec is sdk_create_team_spec
+    assert types.MemoryConfig is MemoryConfig
+    assert types.TeamAgentCategory is TeamAgentCategory
 
 
 def test_core_team_schema_factory_accepts_sdk_member_specs() -> None:

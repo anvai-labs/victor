@@ -67,28 +67,51 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
-- **SA-04a LOCAL_PASS; parent SA-04 remains open** — owner: Victor co-design session; branch
-  `refactor/typed-tool-runtime`; baseline `ac3c15e83dc74609167f178ccb98dea38bb0fef5`.
-  First bounded slice: typed required tool execution/result-publication collaborators
-  through the existing compatibility adapter, preserving checkpoint, cancellation
-  and strict publication behavior. Positive/negative static fixtures reject absent
-  or incompatible required collaborators; real delegation tests verify current
-  pipeline/service ownership after replacement and interrupted-result publication.
-  The affected cohort passes 1,498 tests; final focused coverage passes 232 tests
-  with 100% changed executable-line coverage. Collection finds 34,581 tests.
-  The assembled orchestrator/facade cohort passes 449 tests. Two invalid-input
-  tests now share parametrized setup while preserving both cases.
-  Required runtime/contracts modules are explicitly unsuppressed and pass strict
-  MyPy. Optional context helpers and the adapter's dynamic host forwarding remain
-  outside this slice. Configured MyPy passes 2,002 files under the stated legacy
-  suppression; that result does not close G96. Independent review is clean with
-  151 tests. [PR #1318](https://github.com/anvai-labs/victor/pull/1318) initially
-  failed its fail-closed test selector because the definition-only contracts
-  module lacked a filename mirror. The correction maps it to its existing
-  runtime/static owners; one added case in the existing selector matrix fails
-  before the mapping and passes after it. Independent selector review passes
-  50 tests; selector plus owner/static tests pass 91. Final collection finds
-  34,582 tests. Exact CI-selected cohort, corrected CI and merge remain gates.
+- **SA-04a ✅ MERGED [#1318](https://github.com/anvai-labs/victor/pull/1318)** —
+  merge `dd0e47beff31472af1a3a25efb196b44489b6da8`; reviewed candidate
+  `63af50b13af32c0282a1adc15810f5e21f7a8ec3` has the same source tree.
+  Required execution/result-publication collaborators use the existing adapter;
+  positive/negative static fixtures and delegation tests preserve pipeline and
+  service ownership. The final CI-selected cohort passes 915 tests with 100%
+  changed executable-line coverage; collection finds 34,582 tests. Independent
+  review is clean. Final CI records 40 successful checks, one configured deployment
+  skip and one neutral Trivy comparison; all blocking gates passed. The initial
+  selector failure and its regression are preserved in `var/codegraph-victor-20261012/sa04-*`.
+  Parent SA-04 remains open: optional host capabilities and full adapter typing
+  still need qualification. Configured MyPy success under legacy core suppression
+  does not close G96. This merge is not release or C5 acceptance.
+
+- **TYPE-02 SDK slice LOCAL_PASS — contract qualification** — owner: Victor co-design session;
+  branch `fix/sdk-typing-contracts`; baseline `dd0e47beff31472af1a3a25efb196b44489b6da8`.
+  Canonical SDK memory/category definitions replace duplicate runtime definitions.
+  Processing exports resolve to their real owner; the deprecated handler bridge
+  stops advertising a nonexistent host function. SDK and compatibility-root sources
+  pass strict checks (111 files); root configured scope now includes them (2,113
+  files, with legacy core exceptions still present). Installed-wheel checks verify
+  both typing markers and reject malformed downstream consumers without ignoring
+  missing imports. Legacy submodule aliases preserve runtime identity; their static
+  import resolution is unsupported—use `victor_contracts.*` in typed consumers.
+  Existing test owners reproduced three failures before the repair. Final affected
+  tests pass 1,035 with two existing skips; CI-selected tests pass 62 with 100%
+  changed core-line coverage. Collection finds 34,582 tests. Four copies of the
+  member construction fixture now share one helper: all 20 cases remain, with no
+  lost production lines or branches across 1,796 traced files. Independent review
+  passes 37 focused tests and the isolated wheel checker. Black, Ruff, hygiene,
+  dependency locks, docs drift, strict MkDocs, built-site links and CLI smoke pass.
+  [PR #1319](https://github.com/anvai-labs/victor/pull/1319) exposed a checker-version
+  mismatch: CI installed MyPy 2.4.0 while the original local audit used 1.19.1.
+  A pre-existing manifest ignore is unused on 2.4.0; explicit `object` narrowing
+  removes it and passes both versions. MyPy 2.4.0 is the current stable PyPI release
+  and supports Python >=3.10, including Victor's 3.12 floor. Core/SDK/vertical
+  developer pins and CI now agree on 2.4.0 through the existing tool-pin resolver.
+  Its positive/missing/ranged/duplicate-pin cases extend the existing owner;
+  corrected collection finds 34,583 tests. The corrected selected cohort passes
+  107 tests; strict SDK/checker/tool-resolver typing passes 113 files. The user
+  requested a bounded promotion checkpoint: finish #1319, review the cumulative
+  develop-to-main diff and pass every promotion gate before continuing G96.
+  This is source promotion, not full typing or live C5 acceptance.
+  Final correction review, CI and merge
+  remain gates; evidence is preserved under `var/codegraph-victor-20261012/type02-*`.
 
 - **G96 / TYPE-01 ACTIVE — repository-wide MyPy qualification.** The user expanded
   scope to fix all typing errors, including independently packaged Python modules.
@@ -1312,8 +1335,8 @@ errors is not an acceptance result for this program.
 
 | ID | Dependency / work | Status and acceptance |
 | --- | --- | --- |
-| TYPE-01 | Unsuppressed inventory, reproducible commands, file/error ownership and existing test audit | ACTIVE; core audit 7,794 errors / 1,082 files; independent-package targets report 1,101 package-local errors; root tests/scripts also inventoried below; package tests and SDK compatibility namespace remain |
-| TYPE-02 | Definition-layer contracts, missing symbols and concrete signature mismatches | TODO after TYPE-01; fix real runtime hazards first; negative/positive regressions for behavior changes |
+| TYPE-01 | Unsuppressed inventory, reproducible commands, file/error ownership and existing test audit | ACTIVE; core audit 7,794 errors / 1,082 files; independent-package targets report 1,101 package-local errors; root tests/scripts also inventoried below; package tests remain; SDK compatibility sources now inventoried (5 additional diagnostics) |
+| TYPE-02 | Definition-layer contracts, missing symbols and concrete signature mismatches | ACTIVE SDK increment; 11 SDK/compatibility diagnostics repaired locally, real export and type-identity regressions covered; review/CI/merge pending |
 | TYPE-03 | Typed runtime assembly and adapters, completing SA-04 | TODO after TYPE-02; required collaborators explicit, optional capabilities centralized; no dynamic forwarding as evidence of protocol implementation |
 | TYPE-04 | Services, providers, tools, workflows, storage and client consumers | TODO in dependency order; retire each reviewed exception only with affected tests and strict checks |
 | TYPE-05 | Package/vertical integration and full unsuppressed matrix | TODO after contributing groups; build/install and supported Python jobs pass, no broad suppression, unused ignores removed |
@@ -1336,6 +1359,25 @@ types, so each qualifying increment retains its exact invocation. Both audits us
 the repository strict flags with every `ignore_errors = true` changed to `false`
 in an archived local config. `ignore_missing_imports` is still enabled: installation
 and optional dependency stub/import coverage need separate TYPE-05 qualification.
+
+The combined source invocation explicitly targets core, SDK plus legacy shim,
+codegraph and all five verticals in one resolution context: **8,860 diagnostics /
+1,194 files** before TYPE-02, **8,848 / 1,190 files** after its local SDK repair.
+All 11 SDK/shim diagnostics and one propagated core diagnostic are removed; the
+remaining package counts are unchanged. These counts are not added to separate
+invocations above. Raw output/configuration and summaries are retained under
+`var/codegraph-victor-20261012/{mypy,type02}-all-source-unsuppressed*`.
+The SDK now ships typing markers; core/vertical installed typing and legacy
+submodule static compatibility remain separate qualification work. No claim that
+all lazy host bridges are fully typed follows from SDK-source success.
+
+**Current checker: MyPy 2.4.0**, verified against PyPI metadata and installed in
+both the worktree and isolated wheel environment. Its new combined-source baseline
+reports **8,609 diagnostics / 1,189 files**, with zero SDK/shim diagnostics.
+This replaces the active checker baseline; the difference from the 1.19.1 counts
+above is not credited as code fixes. Historical test/script counts below retain
+their original checker label until re-inventoried. Diagnostic logs and the fetched
+release metadata remain in `var/codegraph-victor-20261012/type02-*`.
 
 The root test/script inventory uses MyPy 1.19.1, strict mode,
 `--explicit-package-bases --namespace-packages`, no target exclusions and the same

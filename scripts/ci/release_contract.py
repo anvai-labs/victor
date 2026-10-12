@@ -117,15 +117,17 @@ def validate_package_artifacts(
                 )
 
 
-def ruff_requirement(project: Path) -> str:
-    """Read the sole CI Ruff pin without installing the complete CI environment."""
+def tool_requirement(project: Path, tool: str) -> str:
+    """Read one exact CI tool pin without installing the complete CI environment."""
     data = tomllib.loads(project.read_text())
     requirements = data["project"]["optional-dependencies"]["ci"]
     matches: list[str] = [
-        value for value in requirements if isinstance(value, str) and re.match(r"^ruff\b", value)
+        value
+        for value in requirements
+        if isinstance(value, str) and re.match(rf"^{re.escape(tool)}\b", value)
     ]
-    if len(matches) != 1 or not re.fullmatch(r"ruff==\d+\.\d+\.\d+", matches[0]):
-        raise ValueError("project CI requirements must contain exactly one pinned Ruff version")
+    if len(matches) != 1 or not re.fullmatch(rf"{re.escape(tool)}==\d+\.\d+\.\d+", matches[0]):
+        raise ValueError(f"project CI requirements must contain exactly one pinned {tool} version")
     return matches[0]
 
 
@@ -169,14 +171,15 @@ def main() -> None:
     artifacts.add_argument(
         "--package", choices=["victor-ai", "victor-codegraph"], default="victor-codegraph"
     )
-    ruff = commands.add_parser("ruff")
-    ruff.add_argument("--project", type=Path, default=Path("pyproject.toml"))
+    for tool in ("ruff", "mypy"):
+        tool_parser = commands.add_parser(tool)
+        tool_parser.add_argument("--project", type=Path, default=Path("pyproject.toml"))
     checksums = commands.add_parser("checksums")
     checksums.add_argument("artifacts", type=Path)
     checksums.add_argument("output", type=Path)
     args = parser.parse_args()
-    if args.command == "ruff":
-        print(ruff_requirement(args.project))
+    if args.command in {"ruff", "mypy"}:
+        print(tool_requirement(args.project, args.command))
     elif args.command == "checksums":
         write_checksums(args.artifacts, args.output)
     elif args.command == "codegraph-requirement":

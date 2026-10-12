@@ -1,6 +1,7 @@
 """Validate publication prerequisites locally, without a release rehearsal."""
 
 from copy import deepcopy
+import ast
 import hashlib
 import importlib.util
 import json
@@ -9,6 +10,7 @@ import sys
 import tarfile
 import zipfile
 from pathlib import Path
+from types import ModuleType
 
 import pytest
 import yaml
@@ -236,19 +238,60 @@ def test_checksums_verify_flat_downloads_including_vsix_and_sbom(release_contrac
         release_contract.write_checksums(artifacts, manifest)
 
 
-def test_ruff_uses_the_project_ci_pin(release_contract, tmp_path):
+@pytest.mark.parametrize(
+    ("tool", "version", "workflows"),
+    [
+        ("ruff", "0.16.7", ("ci-fast.yml", "release.yml")),
+        ("mypy", "2.4.0", ("ci-fast.yml", "ci-contracts.yml")),
+    ],
+)
+def test_type_and_lint_tools_use_the_project_ci_pin(
+    release_contract: ModuleType,
+    tmp_path: Path,
+    tool: str,
+    version: str,
+    workflows: tuple[str, ...],
+) -> None:
     project = tmp_path / "pyproject.toml"
-    project.write_text('[project.optional-dependencies]\nci = ["ruff==0.16.7"]\n')
-    assert release_contract.ruff_requirement(project) == "ruff==0.16.7"
-    project.write_text('[project.optional-dependencies]\nci = ["ruff>=0.16.7"]\n')
-    with pytest.raises(ValueError):
-        release_contract.ruff_requirement(project)
-    for name in ("ci-fast.yml", "release.yml"):
+    requirement = f"{tool}=={version}"
+    project.write_text(f'[project.optional-dependencies]\nci = ["{requirement}"]\n')
+    assert release_contract.tool_requirement(project, tool) == requirement
+    for requirements in (f'"{tool}>={version}"', "", f'"{requirement}", "{requirement}"'):
+        project.write_text(f"[project.optional-dependencies]\nci = [{requirements}]\n")
+        with pytest.raises(ValueError):
+            release_contract.tool_requirement(project, tool)
+    for name in workflows:
         steps = [s for job in workflow(name)["jobs"].values() for s in job.get("steps", [])]
         installers = [
-            s["run"] for s in steps if "pip install" in s.get("run", "") and "ruff" in s["run"]
+            s["run"] for s in steps if "pip install" in s.get("run", "") and tool in s["run"]
         ]
-        assert installers and all("release_contract.py ruff" in s for s in installers)
+        assert installers and all(f"release_contract.py {tool}" in s for s in installers)
+
+    if tool == "mypy":
+        import tomllib
+
+        # Every declared developer/CI dependency must agree with the root owner.
+        expected = release_contract.tool_requirement(ROOT / "pyproject.toml", tool)
+        projects = [ROOT / "pyproject.toml", ROOT / "victor-contracts/pyproject.toml"]
+        projects.extend(sorted((ROOT / "verticals").glob("*/pyproject.toml")))
+        for package in projects:
+            extras = tomllib.loads(package.read_text())["project"]["optional-dependencies"]
+            for requirements in extras.values():
+                pins = [value for value in requirements if value.startswith("mypy")]
+                if pins:
+                    assert pins == [expected], package
+
+        legacy = ast.parse((ROOT / "verticals/victor-rag/setup.py").read_text())
+        pins = [
+            node.value
+            for node in ast.walk(legacy)
+            if isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+            and node.value.startswith("mypy")
+        ]
+        assert pins == [expected]
+        docs = (ROOT / "docs/requirements.txt").read_text().splitlines()
+        assert [line for line in docs if line.startswith("mypy")] == [expected]
 
 
 def test_native_version_check_rejects_partial_or_unconsumable_bumps(tmp_path):

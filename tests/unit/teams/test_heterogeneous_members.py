@@ -16,8 +16,11 @@
 
 import types
 
+import pytest
+
 from victor.agent.subagents import orchestrator as orch_mod
 from victor.agent.subagents.base import SubAgentConfig
+from victor.agent.runtime.context import RuntimeIdentity
 from victor.agent.subagents.orchestrator import SubAgentOrchestrator
 from victor.core.shared_types import SubAgentRole
 from victor.framework.teams import TeamMemberSpec
@@ -207,31 +210,7 @@ async def test_make_executor_forwards_provider_model(monkeypatch):
 # -- _create_constrained_orchestrator uses the override --------------------
 
 
-def test_constrained_orchestrator_uses_override_provider(monkeypatch):
-    from victor.agent.subagents.base import SubAgent
-
-    captured = {}
-
-    class _FakeRegistry:
-        def clear(self):
-            pass
-
-        def register(self, tool):
-            pass
-
-        def get(self, name):
-            return None
-
-    class _FakeOrchestrator:
-        def __init__(self, **kwargs):
-            captured.update(kwargs)
-            self.tool_registry = _FakeRegistry()
-            self._vertical_context = None
-
-    import victor.agent.orchestrator as orch_module
-
-    monkeypatch.setattr(orch_module, "AgentOrchestrator", _FakeOrchestrator)
-
+def test_constrained_orchestrator_uses_override_provider(monkeypatch: pytest.MonkeyPatch) -> None:
     override_provider = object()
     config = SubAgentConfig(
         role=SubAgentRole.REVIEWER,
@@ -243,50 +222,15 @@ def test_constrained_orchestrator_uses_override_provider(monkeypatch):
         provider_override=override_provider,
         model_override="claude-opus-4-8",
     )
-
-    sa = SubAgent.__new__(SubAgent)
-    sa.config = config
-    sa._context = types.SimpleNamespace(
-        settings=types.SimpleNamespace(tool_budget=1, max_context_chars=1),
-        provider=object(),  # parent provider (should NOT be used)
-        model="parent-model",
-        temperature=0.7,
-        provider_name="anthropic",
-        vertical_context=None,
-        tool_registry=_FakeRegistry(),
-    )
-
-    sa._create_constrained_orchestrator()
+    captured = _make_constrained(monkeypatch, config=config)
 
     assert captured["provider"] is override_provider
     assert captured["model"] == "claude-opus-4-8"
 
 
-def test_constrained_orchestrator_inherits_when_no_override(monkeypatch):
-    from victor.agent.subagents.base import SubAgent
-
-    captured = {}
-
-    class _FakeRegistry:
-        def clear(self):
-            pass
-
-        def register(self, tool):
-            pass
-
-        def get(self, name):
-            return None
-
-    class _FakeOrchestrator:
-        def __init__(self, **kwargs):
-            captured.update(kwargs)
-            self.tool_registry = _FakeRegistry()
-            self._vertical_context = None
-
-    import victor.agent.orchestrator as orch_module
-
-    monkeypatch.setattr(orch_module, "AgentOrchestrator", _FakeOrchestrator)
-
+def test_constrained_orchestrator_inherits_when_no_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     parent_provider = object()
     config = SubAgentConfig(
         role=SubAgentRole.EXECUTOR,
@@ -296,20 +240,7 @@ def test_constrained_orchestrator_inherits_when_no_override(monkeypatch):
         context_limit=1000,
         system_prompt_override="ROLE PROMPT",
     )
-
-    sa = SubAgent.__new__(SubAgent)
-    sa.config = config
-    sa._context = types.SimpleNamespace(
-        settings=types.SimpleNamespace(tool_budget=1, max_context_chars=1),
-        provider=parent_provider,
-        model="parent-model",
-        temperature=0.7,
-        provider_name="anthropic",
-        vertical_context=None,
-        tool_registry=_FakeRegistry(),
-    )
-
-    sa._create_constrained_orchestrator()
+    captured = _make_constrained(monkeypatch, config=config, parent_provider=parent_provider)
 
     assert captured["provider"] is parent_provider
     assert captured["model"] == "parent-model"
@@ -317,31 +248,9 @@ def test_constrained_orchestrator_inherits_when_no_override(monkeypatch):
     assert captured["temperature"] == 0.7
 
 
-def test_constrained_orchestrator_uses_temperature_override(monkeypatch):
-    from victor.agent.subagents.base import SubAgent
-
-    captured = {}
-
-    class _FakeRegistry:
-        def clear(self):
-            pass
-
-        def register(self, tool):
-            pass
-
-        def get(self, name):
-            return None
-
-    class _FakeOrchestrator:
-        def __init__(self, **kwargs):
-            captured.update(kwargs)
-            self.tool_registry = _FakeRegistry()
-            self._vertical_context = None
-
-    import victor.agent.orchestrator as orch_module
-
-    monkeypatch.setattr(orch_module, "AgentOrchestrator", _FakeOrchestrator)
-
+def test_constrained_orchestrator_uses_temperature_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     config = SubAgentConfig(
         role=SubAgentRole.REVIEWER,
         task="t",
@@ -351,20 +260,7 @@ def test_constrained_orchestrator_uses_temperature_override(monkeypatch):
         system_prompt_override="ROLE PROMPT",
         temperature_override=0.0,  # deterministic reviewer
     )
-
-    sa = SubAgent.__new__(SubAgent)
-    sa.config = config
-    sa._context = types.SimpleNamespace(
-        settings=types.SimpleNamespace(tool_budget=1, max_context_chars=1),
-        provider=object(),
-        model="parent-model",
-        temperature=0.7,  # parent default (should be overridden)
-        provider_name="anthropic",
-        vertical_context=None,
-        tool_registry=_FakeRegistry(),
-    )
-
-    sa._create_constrained_orchestrator()
+    captured = _make_constrained(monkeypatch, config=config)
 
     # temperature_override=0.0 must win over the parent's 0.7 (not be treated as falsy).
     assert captured["temperature"] == 0.0
@@ -423,11 +319,17 @@ async def test_make_executor_forwards_reasoning_effort(monkeypatch):
     assert recorded.get("reasoning_effort") == "high"
 
 
-def _make_constrained(monkeypatch, *, config, context_reasoning=None):
+def _make_constrained(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    config: SubAgentConfig,
+    context_reasoning: str | None = None,
+    parent_provider: object | None = None,
+) -> dict[str, object]:
     """Build a SubAgent with a fake AgentOrchestrator; return captured init kwargs."""
     from victor.agent.subagents.base import SubAgent
 
-    captured = {}
+    captured: dict[str, object] = {}
 
     class _FakeRegistry:
         def clear(self):
@@ -444,16 +346,20 @@ def _make_constrained(monkeypatch, *, config, context_reasoning=None):
             captured.update(kwargs)
             self.tool_registry = _FakeRegistry()
             self._vertical_context = None
+            self.active_session_id = None
+            self._memory_session_id = None
+            self._runtime_identity = RuntimeIdentity(self)
 
     import victor.agent.orchestrator as orch_module
 
     monkeypatch.setattr(orch_module, "AgentOrchestrator", _FakeOrchestrator)
 
     sa = SubAgent.__new__(SubAgent)
+    sa._runtime_context = None
     sa.config = config
     sa._context = types.SimpleNamespace(
         settings=types.SimpleNamespace(tool_budget=1, max_context_chars=1),
-        provider=object(),
+        provider=parent_provider if parent_provider is not None else object(),
         model="parent-model",
         temperature=0.7,
         reasoning_effort=context_reasoning,

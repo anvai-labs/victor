@@ -54,7 +54,31 @@ def get_runtime_team_registry() -> Any:
 
 @dataclass
 class MemoryConfig:
-    """Configuration for per-agent memory behavior."""
+    """Configuration for per-agent memory behavior.
+
+    Controls how an agent stores and retrieves memories across task executions.
+    This allows fine-grained control over memory persistence, search behavior,
+    and memory type preferences.
+
+    Attributes:
+        enabled: Whether memory is enabled for this agent
+        persist_across_sessions: Store memories beyond current session
+        search_own_memories_only: Only search this agent's memories (vs team)
+        memory_types: Types of memories to store (entity, episodic, semantic)
+        max_memories_per_query: Maximum memories returned per search
+        relevance_threshold: Minimum relevance score for memory retrieval (0.0-1.0)
+        auto_summarize: Automatically summarize long memories
+        ttl_seconds: Time-to-live for memories (None = permanent)
+
+    Example:
+        memory_config = MemoryConfig(
+            enabled=True,
+            persist_across_sessions=True,
+            memory_types={"entity", "episodic"},
+            max_memories_per_query=20,
+            relevance_threshold=0.7,
+        )
+    """
 
     enabled: bool = True
     persist_across_sessions: bool = False
