@@ -148,3 +148,20 @@ async def test_index_snapshot_preserves_symbols_edges_and_opaque_lookup(tmp_path
         assert stats.files_processed == len(shared.files)
     finally:
         await store.close()
+
+
+def test_canonical_projection_carries_body_hash_even_when_summary_is_unchanged():
+    import hashlib
+    from victor_codegraph import parse
+    from victor.core.graph_rag.codegraph_repository import project_file_symbols
+
+    before = parse("def f(): return 1", file_path="a.py")
+    after = parse("def f(): return 2", file_path="a.py")
+    old, new = project_file_symbols(before)[0], project_file_symbols(after)[0]
+    assert old.node_id == new.node_id
+    assert old.signature == new.signature
+    assert old.metadata["source_hash"] != new.metadata["source_hash"]
+    assert (
+        new.metadata["source_hash"]
+        == hashlib.sha256(after.symbols[0].source_code.encode()).hexdigest()
+    )

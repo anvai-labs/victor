@@ -111,3 +111,34 @@ def test_node_text_is_name_signature_docstring():
     assert "func_3" in text
     assert "func_3(x)" in text
     assert "does thing 3" in text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["exception", "zero", "short"])
+async def test_semantic_batch_failure_does_not_turn_into_successful_hash_vectors(failure):
+    service = _service()
+    if failure == "exception":
+        service.embed_batch.side_effect = RuntimeError("model unavailable")
+    else:
+        service.embed_batch.side_effect = None
+        service.embed_batch.return_value = [[0.0] * 4] if failure == "zero" else []
+    embedder = GraphAwareEmbedder(embedding_service=service)
+    with pytest.raises((RuntimeError, ValueError)):
+        await embedder.embed_batch([_node(1)], MagicMock())
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("batch", [False, True])
+@pytest.mark.parametrize("failure", ["nonsemantic", "dimension"])
+async def test_all_embedding_entrypoints_enforce_service_contract(batch, failure):
+    from victor_codegraph.embeddings import EmbeddingProfile
+
+    service = _service(dim=2)
+    service.profile = EmbeddingProfile("fixture", "a" * 40, 384)
+    service.semantic = failure != "nonsemantic"
+    embedder = GraphAwareEmbedder(embedding_service=service)
+    with pytest.raises(ValueError):
+        if batch:
+            await embedder.embed_batch([_node(1)], MagicMock())
+        else:
+            await embedder.embed_with_context(_node(1), MagicMock())

@@ -255,6 +255,13 @@ class TestSentenceTransformerModel:
             assert model._initialized
             assert model._embedding_service == mock_service
             mock_service._ensure_model_loaded.assert_called_once()
+            from victor_codegraph import BGE_SMALL_PROFILE
+
+            mock_service.profile = BGE_SMALL_PROFILE
+            assert model.profile is BGE_SMALL_PROFILE
+            # Closing the adapter must remove its ability to attest a profile.
+            await model.close()
+            assert model.profile is None
 
         # Reset singleton after test
         EmbeddingService.reset_instance()

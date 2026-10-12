@@ -384,3 +384,32 @@ vectors. Release a neutral public seam after the FEP gate, keeping heavyweight
 model dependencies optional. Consumers pin the release and run this conformance
 suite before upgrading. AnvaiOps owns tenancy, policy, jobs, billing and UX;
 neither those concerns nor storage choice justify different semantic identities.
+
+
+### Embedding alignment prototype — 2026-10-12
+
+Foundation consumer PR AnvaiOps #489 merged at
+`54b43ccf3a3d8fa2a57602f2943045d830e66b37`; Victor receipt #1302 merged at
+`37113d8f1db30872b790ca013dd0f215b3fa63b0`. Both had clean independent review
+and all applicable CI green. Conditional skips are not full integration acceptance.
+
+[FEP-0040](../../feps/fep-0040-codegraph-embedding-conformance.md) owns the next
+shared contract and its precise evidence. The local prototype adds one optional
+BGE encoder, canonical symbol-summary input, immutable model/profile identity,
+source/input hashes and strict vector validation. Both storage adapters consumed
+the same actual BGE evidence in a synthetic run (3 symbols; 8 published graph
+records; 6.799 s); no private source was exported. Missing/zero/malformed embeddings
+cannot become successful hashes. Semantic persistence rejects structural mixing,
+unknown source hashes and incompatible tracked graph profiles.
+
+| Ordered remaining gate | State |
+|---|---|
+| Shared document-vector contract and local conformance | #1303 candidate: 958 affected tests passed, 5 skipped; 198 standalone package tests (92.28% coverage); 1,703 AnvaiOps API/SDK tests, 3 skipped against the built 0.10.0 wheel |
+| FEP acceptance | Accepted by the repository owner with an explicitly approved expedited review; see FEP-0040 |
+| Immutable package release | 0.10.0 candidate built/installation-qualified; publication and final CI open. Published AnvaiOps pin remains 0.9.0; never replace that artifact |
+| Collection/query model ownership and migration | Local LanceDB implementation: schema-bound profile, whole-table orphan/mixed marker checks, actual query model validation, float32 validation and atomic semantic upsert. Fresh collection required for migration. Local qualification and independent review passed; hosted adapters remain separate. |
+| Semantic relevance and authorized generation-bound retrieval | Open; ingestion parity does not qualify ranking or Q&A |
+| Consumer published pin + browser/hosted lifecycle | Open; retain existing descriptive UI and OSS/commercial ownership boundaries |
+
+Extend these gates here and in AnvaiOps TD-F1; do not create another parser,
+embedding implementation or disconnected completion tracker.

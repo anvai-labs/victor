@@ -51,6 +51,8 @@ def mock_lancedb():
         mock_db = MagicMock()
         mock_table = MagicMock()
         mock_table.count_rows.return_value = 0
+        mock_table.schema.metadata = {}
+        mock_table.schema.names = []
 
         # Mock list_tables() API (new)
         mock_list_response = MagicMock()
@@ -522,3 +524,165 @@ class TestLanceDBProvider:
             assert provider.db is None
             assert provider.table is None
             assert not provider._initialized
+
+
+@pytest.fixture
+def semantic_store(tmp_path):
+    """Real storage, deterministic encoder; no model download or network."""
+    from dataclasses import asdict, replace
+    from victor_codegraph import BGE_SMALL_PROFILE
+
+    lancedb = pytest.importorskip("lancedb")
+    profile = replace(BGE_SMALL_PROFILE, dimension=2)
+    provider = LanceDBProvider(EmbeddingConfig(vector_store="lancedb"))
+    provider.db = lancedb.connect(str(tmp_path))
+    provider._initialized = True
+    provider.embedding_model = MagicMock()
+    provider.embedding_model.profile = profile
+    provider.embedding_model.embed_text = AsyncMock(return_value=[1.0, 0.5])
+    document = {
+        "id": "canonical-symbol",
+        "content": "calculate_tax",
+        "vector": [1.0, 0.5],
+        "metadata": {
+            "embedding_kind": "semantic",
+            "embedding_profile_id": profile.identity,
+            "embedding_profile": asdict(profile),
+        },
+    }
+    return provider, document, profile
+
+
+async def test_semantic_table_binding_survives_reopen_and_upsert(semantic_store):
+    provider, document, profile = semantic_store
+    await provider.index_embedded_documents([document])
+    provider.table = provider.db.open_table("embeddings")
+    await provider.index_embedded_documents([{**document, "content": "updated_tax"}])
+    assert provider.table.count_rows() == 1
+    result = await provider.search_similar("tax")
+    assert result[0].content == "updated_tax"
+    assert result[0].metadata["embedding_profile_id"] == profile.identity
+    assert b"victor_codegraph.embedding_profile" in provider.table.schema.metadata
+
+
+@pytest.mark.parametrize("model_state", ["different_revision", "unqualified"])
+async def test_semantic_search_rejects_incompatible_query_before_inference(
+    semantic_store, model_state
+):
+    from dataclasses import replace
+
+    provider, document, profile = semantic_store
+    await provider.index_embedded_documents([document])
+    provider.embedding_model.profile = (
+        replace(profile, revision="1" * 40) if model_state == "different_revision" else None
+    )
+    with pytest.raises(ValueError, match="query.*profile"):
+        await provider.search_similar("tax")
+    provider.embedding_model.embed_text.assert_not_awaited()
+
+
+@pytest.mark.parametrize("entrypoint", ["single", "batch", "precomputed"])
+async def test_profiled_collection_rejects_unprofiled_writes(semantic_store, entrypoint):
+    provider, document, _ = semantic_store
+    await provider.index_embedded_documents([document])
+    with pytest.raises(ValueError, match="profile"):
+        if entrypoint == "single":
+            await provider.index_document("other", "other")
+        elif entrypoint == "batch":
+            await provider.index_documents([{"id": "other", "content": "other"}])
+        else:
+            await provider.index_embedded_documents(
+                [{"id": "other", "content": "other", "vector": [0.5, 1.0]}]
+            )
+    assert provider.table.count_rows() == 1
+
+
+async def test_orphan_row_profile_mismatch_blocks_search_and_update(semantic_store):
+    provider, document, _ = semantic_store
+    await provider.index_embedded_documents([document])
+    # A vector row absent from SQLite is still part of this collection's contract.
+    orphan = provider.table.to_arrow().to_pylist()[0]
+    orphan.update(id="orphan", embedding_profile_id="0" * 64)
+    provider.table.add([orphan])
+    with pytest.raises(ValueError, match="mixed.*profile"):
+        await provider.search_similar("tax")
+    with pytest.raises(ValueError, match="mixed.*profile"):
+        await provider.index_embedded_documents([document])
+    assert provider.table.count_rows() == 2
+    provider.embedding_model.embed_text.assert_not_awaited()
+
+
+async def test_legacy_collection_requires_fresh_destination(semantic_store):
+    provider, document, _ = semantic_store
+    provider.table = provider.db.create_table(
+        "embeddings", data=[{"id": "legacy", "content": "legacy", "vector": [1.0, 0.5]}]
+    )
+    with pytest.raises(ValueError, match="fresh.*collection"):
+        await provider.index_embedded_documents([document])
+    assert provider.table.to_arrow().to_pylist()[0]["id"] == "legacy"
+
+
+@pytest.mark.parametrize(
+    "bad_vector",
+    [[0.0, 0.0], [float("nan"), 1.0], [1.0], [1e300, 1.0], [1e-300, 1e-300]],
+)
+async def test_semantic_query_rejects_failed_inference(semantic_store, bad_vector):
+    provider, document, _ = semantic_store
+    await provider.index_embedded_documents([document])
+    provider.embedding_model.embed_text.return_value = bad_vector
+    with pytest.raises(ValueError):
+        await provider.search_similar("tax")
+
+
+async def test_semantic_write_validates_entire_batch_before_mutation(semantic_store):
+    provider, document, _ = semantic_store
+    await provider.index_embedded_documents([document])
+    with pytest.raises(ValueError, match="zero vector"):
+        await provider.index_embedded_documents(
+            [{**document, "content": "changed"}, {**document, "id": "bad", "vector": [0, 0]}]
+        )
+    assert provider.table.to_arrow().to_pylist()[0]["content"] == "calculate_tax"
+
+
+@pytest.mark.parametrize("values", [[1e300, 1.0], [1e-300, 1e-300]])
+async def test_semantic_float32_conversion_cannot_publish_invalid_vectors(semantic_store, values):
+    provider, document, _ = semantic_store
+    with pytest.raises(ValueError):
+        await provider.index_embedded_documents([{**document, "vector": values}])
+    assert provider.table is None
+
+
+async def test_empty_profiled_table_retains_binding(semantic_store):
+    from dataclasses import asdict, replace
+
+    provider, document, profile = semantic_store
+    await provider.index_embedded_documents([document])
+    provider.table.delete("true")
+    changed = replace(profile, revision="1" * 40)
+    document["metadata"].update(
+        embedding_profile=asdict(changed), embedding_profile_id=changed.identity
+    )
+    with pytest.raises(ValueError, match="fresh collection"):
+        await provider.index_embedded_documents([document])
+
+
+async def test_failed_semantic_upsert_preserves_previous_rows(semantic_store):
+    provider, document, _ = semantic_store
+    await provider.index_embedded_documents([document])
+    with patch.object(
+        provider.table, "merge_insert", side_effect=RuntimeError("write unavailable")
+    ):
+        with pytest.raises(RuntimeError, match="write unavailable"):
+            await provider.index_embedded_documents([{**document, "content": "changed"}])
+    assert provider.table.to_arrow().to_pylist()[0]["content"] == "calculate_tax"
+
+
+async def test_legacy_roundtrip_needs_no_codegraph_contract(semantic_store):
+    """Core owns provider round trips; unprofiled users need no graph extra."""
+    provider, _, _ = semantic_store
+    with patch.dict("sys.modules", {"victor_codegraph": None}):
+        await provider.index_document("legacy", "legacy document")
+        provider.table = provider.db.open_table("embeddings")
+        results = await provider.search_similar("legacy")
+    assert results[0].content == "legacy document"
+    assert b"victor_codegraph.embedding_profile" not in (provider.table.schema.metadata or {})

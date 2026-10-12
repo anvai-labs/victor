@@ -25,9 +25,12 @@ This separation allows mixing and matching:
 
 import asyncio
 from abc import ABC, abstractmethod
-from typing import List, Optional
+from typing import TYPE_CHECKING, List, Optional
 
 from pydantic import BaseModel, Field
+
+if TYPE_CHECKING:
+    from victor_codegraph import EmbeddingProfile
 
 
 class EmbeddingModelConfig(BaseModel):
@@ -57,6 +60,11 @@ class BaseEmbeddingModel(ABC):
         """
         self.config = config
         self._initialized = False
+
+    @property
+    def profile(self) -> "Optional[EmbeddingProfile]":
+        """Actual immutable encoder contract, when this backend can attest it."""
+        return None
 
     @abstractmethod
     async def initialize(self) -> None:
@@ -157,6 +165,14 @@ class SentenceTransformerModel(BaseEmbeddingModel):
             logger.info(
                 f"Model loaded (shared via EmbeddingService)! Dimension: {self.get_dimension()}"
             )
+
+    @property
+    def profile(self) -> "Optional[EmbeddingProfile]":
+        # The loaded singleton may differ from the requested configuration.
+        # Report actual model evidence, never the requested name or dimension.
+        if self._embedding_service is None:
+            return None
+        return self._embedding_service.profile
 
     async def embed_text(self, text: str) -> List[float]:
         """Generate embedding for single text."""

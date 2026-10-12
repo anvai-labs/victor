@@ -45,6 +45,7 @@ import concurrent.futures
 import fnmatch
 import logging
 import os
+import re
 import threading
 import time
 from contextlib import asynccontextmanager
@@ -66,6 +67,7 @@ from typing import (
 from victor.core.graph_rag.exclude_patterns import is_path_excluded
 
 if TYPE_CHECKING:
+    from victor.storage.graph.protocol import GraphNode
     from victor.core.graph_rag.codegraph_repository import RepositoryRelationProjection
     from victor.storage.graph.protocol import GraphStoreProtocol
 
@@ -495,6 +497,25 @@ class GraphIndexingPipeline:
         # edges to this race.
         _status("Resolving analysis provider…")
         self._get_analysis_provider()
+
+        # Check the existing generation before parsing can replace its markers.
+        if self.config.enable_embeddings:
+            from victor.storage.embeddings.service import get_embedding_service
+            from victor_codegraph.embeddings import EmbeddingProfile
+
+            if self.config.embedding_structural_weight != 0:
+                raise ValueError("semantic persistence requires zero structural weight")
+            service = get_embedding_service()
+            profile = await asyncio.to_thread(lambda: service.profile)
+            if not isinstance(profile, EmbeddingProfile):
+                raise ValueError("semantic embedding profile is unavailable")
+            self._check_stored_embedding_profiles(
+                await self.graph_store.get_all_nodes(), profile.identity
+            )
+            provider = self._get_vector_provider()
+            validate_profile = getattr(provider, "validate_embedding_profile", None)
+            if validate_profile is not None:
+                await validate_profile(profile)
 
         # Force mode: clear all existing data before rebuilding
         if not self.config.incremental:
@@ -2967,6 +2988,13 @@ class GraphIndexingPipeline:
             logger.debug("Vector store unavailable for graph embeddings: %s", e)
             return None
 
+    @staticmethod
+    def _check_stored_embedding_profiles(nodes: list[GraphNode], profile_id: str) -> None:
+        for node in nodes:
+            metadata = node.metadata or {}
+            if metadata.get("has_embedding") and metadata.get("embedding_profile_id") != profile_id:
+                raise ValueError("embedding profile changed or unknown; rebuild in a fresh index")
+
     async def _generate_embeddings(self) -> GraphIndexStats:
         """Generate embeddings for graph nodes — batched and staleness-aware.
 
@@ -2974,8 +3002,8 @@ class GraphIndexingPipeline:
           force/full runs consider every node.
         - A node is skipped when its stored ``content_version`` (blake2b-8 of
           the embedded text: name + signature + docstring) matches and it
-          already has an embedding — bodies aren't embedded, so body-only edits
-          don't force re-embeds.
+          has an embedding with the same model profile and compiler source hash.
+          Body-only changes refresh persisted evidence even when text is unchanged.
         - Text vectors come from ONE ``EmbeddingService.embed_batch`` call per
           batch (see ``GraphAwareEmbedder.embed_batch``).
         - Persistence: ``index_embedded_documents`` on the vector store keyed
@@ -2997,6 +3025,9 @@ class GraphIndexingPipeline:
             )
             from victor.storage.embeddings.service import get_embedding_service
 
+            if self.config.embedding_structural_weight != 0:
+                raise ValueError("semantic persistence requires zero structural weight")
+
             config = GraphEmbeddingConfig(
                 neighborhood_radius=self.config.embedding_neighborhood_radius or 2,
                 include_edge_types=True,
@@ -3004,31 +3035,53 @@ class GraphIndexingPipeline:
                 semantic_weight=1.0 - self.config.embedding_structural_weight,
                 max_neighbors=self.config.embedding_max_neighbors or 50,
             )
-            embedder = GraphAwareEmbedder(config=config)
-
             embedding_service = get_embedding_service()
             if embedding_service is None:
-                logger.warning("EmbeddingService not available, skipping embedding generation")
-                return stats
+                raise RuntimeError("semantic embedding service is unavailable")
 
-            # Candidate nodes: changed files only on incremental runs.
+            from dataclasses import asdict
+            from victor_codegraph.embeddings import EmbeddingProfile
+
+            profile = await asyncio.to_thread(lambda: embedding_service.profile)
+            if not isinstance(profile, EmbeddingProfile):
+                raise ValueError("semantic embedding profile is unavailable")
+            profile_metadata = {
+                "embedding_profile_id": profile.identity,
+                "embedding_profile": asdict(profile),
+                "embedding_kind": "semantic",
+            }
+            embedder = GraphAwareEmbedder(config=config, embedding_service=embedding_service)
+
+            # Validate the whole graph before scoping incremental work. A model
+            # migration must rebuild the collection, never mix incompatible vectors.
+            all_nodes = await self.graph_store.get_all_nodes()
+            self._check_stored_embedding_profiles(all_nodes, profile.identity)
+            nodes = all_nodes
             if self.config.incremental and self._files_to_process:
-                nodes = []
-                for file_key in sorted(self._files_to_process):
-                    nodes.extend(await self.graph_store.get_nodes_by_file(file_key))
-            else:
-                nodes = await self.graph_store.get_all_nodes()
+                nodes = [n for n in all_nodes if n.file in self._files_to_process]
 
             # Staleness filter: fingerprint of the text that would be embedded.
             candidates = []
             versions: Dict[str, str] = {}
             for node in nodes:
+                if node.metadata.get("embedding_excluded"):
+                    continue
+                source_hash = node.metadata.get("source_hash")
+                if not isinstance(source_hash, str) or not re.fullmatch(
+                    r"[0-9a-f]{64}", source_hash
+                ):
+                    raise ValueError("canonical source hash unavailable; rebuild in a fresh index")
                 text = GraphAwareEmbedder.node_text(node)
                 if not text:
                     continue
                 cv = hashlib.blake2b(text.encode("utf-8"), digest_size=8).hexdigest()
                 meta = node.metadata or {}
-                if meta.get("content_version") == cv and meta.get("has_embedding"):
+                if (
+                    meta.get("content_version") == cv
+                    and meta.get("has_embedding")
+                    and meta.get("embedding_profile_id") == profile.identity
+                    and meta.get("embedding_source_hash") == meta.get("source_hash")
+                ):
                     continue
                 versions[node.node_id] = cv
                 candidates.append(node)
@@ -3043,6 +3096,17 @@ class GraphIndexingPipeline:
 
             vector_provider = self._get_vector_provider()
             node_by_id = {n.node_id: n for n in candidates}
+            evidence = {
+                n.node_id: {
+                    "content_version": versions[n.node_id],
+                    **profile_metadata,
+                    "embedding_input_hash": hashlib.sha256(
+                        GraphAwareEmbedder.node_text(n).encode("utf-8")
+                    ).hexdigest(),
+                    "embedding_source_hash": n.metadata.get("source_hash"),
+                }
+                for n in candidates
+            }
             batch_size = self.config.embedding_batch_size or 100
             embedded_total = 0
 
@@ -3071,7 +3135,7 @@ class GraphIndexingPipeline:
                                         "file_path": node.file,
                                         "symbol_name": node.name,
                                         "line_number": node.line or 0,
-                                        "content_version": versions[node_id],
+                                        **evidence[node_id],
                                     },
                                 }
                             )
@@ -3089,7 +3153,7 @@ class GraphIndexingPipeline:
                                     vector,
                                     {
                                         "has_embedding": True,
-                                        "content_version": versions[node_id],
+                                        **evidence[node_id],
                                     },
                                 )
                                 for node_id, vector in embeddings.items()
@@ -3113,7 +3177,7 @@ class GraphIndexingPipeline:
                                         vector,
                                         metadata={
                                             "has_embedding": True,
-                                            "content_version": versions[node_id],
+                                            **evidence[node_id],
                                         },
                                     )
                                     persisted_ids.add(node_id)
@@ -3138,7 +3202,7 @@ class GraphIndexingPipeline:
                             {
                                 "embedding_ref": f"emb:{node_id}",
                                 "has_embedding": True,
-                                "content_version": versions[node_id],
+                                **evidence[node_id],
                             },
                         )
                         for node_id in persisted_ids

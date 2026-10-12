@@ -231,3 +231,21 @@ def test_workflows_do_not_use_ambiguous_ubuntu_latest_label():
     assert (
         not offenders
     ), "Use an explicit hosted image or self-hosted capability labels: " + ", ".join(offenders)
+
+
+def test_vertical_bootstraps_install_current_codegraph_before_consumers():
+    """Unreleased source contracts cannot accidentally resolve an old PyPI wheel."""
+    import subprocess
+
+    for target in ("install-verticals", "install-standalone"):
+        result = subprocess.run(
+            ["make", "--dry-run", target, "PY=/usr/bin/true"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        commands = [line for line in result.stdout.splitlines() if "pip install" in line]
+        source = next(i for i, line in enumerate(commands) if "-e ./victor-codegraph" in line)
+        consumer = next(i for i, line in enumerate(commands) if "-e ./verticals/" in line)
+        assert source < consumer
