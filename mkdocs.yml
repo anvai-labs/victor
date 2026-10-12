@@ -12,6 +12,7 @@ exclude_docs: |
 
 theme:
   name: material
+  font: false
   language: en
   features:
     - navigation.instant
@@ -30,15 +31,15 @@ theme:
   palette:
     - media: "(prefers-color-scheme: light)"
       scheme: default
-      primary: indigo
-      accent: indigo
+      primary: custom
+      accent: custom
       toggle:
         icon: material/brightness-7
         name: Switch to dark mode
     - media: "(prefers-color-scheme: dark)"
       scheme: slate
-      primary: indigo
-      accent: indigo
+      primary: custom
+      accent: custom
       toggle:
         icon: material/brightness-4
         name: Switch to light mode
@@ -207,3 +208,7 @@ nav:
       - September Co-design Review: reviews/2026-09-03-codesign/README.md
       - Repository Map: development/repository-map.md
       - Completed and Superseded Work: development/completed-work.md
+
+extra_css:
+  - stylesheets/tokens.css
+  - stylesheets/brand.css

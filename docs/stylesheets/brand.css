@@ -1,0 +1,161 @@
+/* Anvai product-family brand for Material for MkDocs — shared v1.3.
+
+   This file is shared VERBATIM by every Anvai docs site (AgentBrowser,
+   AnvaiOps, genmedia, InferFlux, ProximaDB, Sandhi, Victor). It maps
+   Material's palette and type onto the family design tokens in tokens.css,
+   itself a verbatim copy of anvaiops design/tokens.css. Edit neither file in
+   a single repo: change the canonical tokens or this shared file, then
+   re-copy everywhere.
+
+   Family chrome: ink brand bar, teal accent, Inter text, system mono.
+   Selectors match ANY palette value ([data-md-color-primary], not only
+   "custom"): Material renders its stock indigo attributes on a first visit
+   before its script runs, with JS disabled, and for a system-preference
+   palette entry without colors — the brand must hold in all of those.
+   mkdocs.yml still sets `primary/accent: custom` and `font: false`.
+   Product logos stay per-product and are not recolored.
+
+   Type follows the tokens' stacks. Inter is self-hosted (fonts/, latin
+   subset, SIL OFL 1.1 — the license text is embedded in the font's name
+   table and shipped as fonts/Inter-OFL.txt) so every reader gets the same
+   face without a third-party font request; mono stays the system stack. */
+
+@font-face {
+  font-family: Inter;
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("fonts/inter-latin-wght-normal.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+    U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215,
+    U+FEFF, U+FFFD;
+}
+
+:root {
+  --md-text-font: var(--font-sans);
+  --md-code-font: var(--font-mono);
+}
+
+/* ── chrome: ink brand bar (both schemes, any palette value) ──────── */
+[data-md-color-primary] {
+  --md-primary-fg-color: var(--ink);
+  --md-primary-fg-color--light: var(--ink-2);
+  --md-primary-fg-color--dark: var(--ink);
+  --md-primary-bg-color: var(--ink-text);
+  --md-primary-bg-color--light: var(--ink-muted);
+}
+
+/* ── light scheme: token surfaces, teal accent ────────────────────── */
+[data-md-color-scheme="default"] {
+  --md-default-bg-color: var(--surface);
+  --md-default-fg-color: var(--text);
+  --md-default-fg-color--light: var(--text-2);
+  --md-default-fg-color--lighter: var(--text-2);
+  --md-typeset-a-color: var(--accent);
+  /* --bg keeps every Material light syntax color >= 4.6:1 (surface-2 fell to 4.41). */
+  --md-code-bg-color: var(--bg);
+  --md-code-fg-color: var(--text);
+  --anvai-surface: var(--surface);
+  --anvai-line: var(--line);
+  --anvai-soft: var(--accent-soft);
+}
+
+[data-md-color-scheme="default"][data-md-color-accent] {
+  --md-accent-fg-color: var(--accent);
+  --md-accent-fg-color--transparent: rgb(15 118 110 / 10%);
+  --md-accent-bg-color: #ffffff;
+  --md-accent-bg-color--light: rgb(255 255 255 / 70%);
+}
+
+/* ── dark scheme: ink surfaces, ink-chrome accent (teal is too dark here) ── */
+/* Two attributes so this outranks Material's slate-plus-stock-primary rules. */
+[data-md-color-scheme="slate"][data-md-color-primary] {
+  color-scheme: dark;
+  --md-default-bg-color: #0c111d;
+  --md-default-fg-color: #f1f5f9;
+  --md-default-fg-color--light: var(--ink-muted);
+  --md-default-fg-color--lighter: var(--ink-muted);
+  --md-typeset-a-color: var(--ink-accent);
+  --md-code-bg-color: var(--ink-2);
+  --md-code-fg-color: var(--ink-text);
+  --anvai-surface: #111827;
+  --anvai-line: #263247;
+  --anvai-soft: #134e4a;
+}
+
+[data-md-color-scheme="slate"][data-md-color-accent] {
+  --md-accent-fg-color: var(--ink-accent);
+  --md-accent-fg-color--transparent: rgb(94 234 212 / 10%);
+  --md-accent-bg-color: var(--ink);
+  --md-accent-bg-color--light: rgb(15 23 42 / 70%);
+}
+
+/* ── components ───────────────────────────────────────────────────── */
+/* Material draws outline buttons in the primary color; ink on the slate page
+   would vanish (1.06:1), so outline buttons take the accent there. */
+[data-md-color-scheme="slate"] .md-typeset .md-button:not(.md-button--primary) {
+  color: var(--md-accent-fg-color);
+  border-color: currentcolor;
+}
+
+.md-banner {
+  background: var(--anvai-surface);
+  color: var(--md-default-fg-color);
+  border-bottom: 1px solid var(--anvai-line);
+}
+
+/* Banner links must not rely on hue alone (WCAG 1.4.1). */
+.md-banner a {
+  text-decoration: underline;
+}
+
+.md-typeset h1 {
+  font-weight: 750;
+  letter-spacing: -0.035em;
+  color: var(--md-default-fg-color);
+}
+
+.md-typeset h2 {
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+.md-typeset .grid.cards > ul > li,
+.md-typeset .grid > .card {
+  background: var(--anvai-surface);
+  border: 1px solid var(--anvai-line);
+  border-radius: var(--radius-lg);
+}
+
+.md-typeset table:not([class]) {
+  border: 1px solid var(--anvai-line);
+  border-radius: var(--radius);
+}
+
+.md-typeset table:not([class]) th {
+  background: var(--anvai-soft);
+  color: var(--md-default-fg-color);
+}
+
+.md-typeset .mermaid {
+  padding: 1rem;
+  background: var(--anvai-surface);
+  border: 1px solid var(--anvai-line);
+  border-radius: var(--radius-lg);
+  overflow-x: auto;
+}
+
+:where(a, button, input, select, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--md-accent-fg-color);
+  outline-offset: 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
