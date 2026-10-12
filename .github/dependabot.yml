@@ -1,6 +1,4 @@
 version: 2
-# Groups take minor/patch only: majors (e.g. multidict 7, TypeScript 7) arrive
-# as individual PRs so one incompatible major cannot break a whole group.
 # Security alerts are enabled and triaged independently of this routine schedule.
 # Native security-update PRs target main; keep that automation disabled while
 # fixes flow through the consolidated develop -> main promotion process.
@@ -27,7 +25,18 @@ updates:
     groups:
       python-maintenance:
         patterns: ['*']
-        update-types: ['minor', 'patch']
+    ignore:
+      # Deliberate caps in constraints.txt (see its comments): Semgrep pins
+      # peewee ~=3.14 and OpenTelemetry 1.37/0.58b0 (wrapt follows them);
+      # datasets caps fsspec. Dependabot rewrote these in #1073 (reverted in
+      # #1093) and again in #1321, so they move only by hand.
+      - dependency-name: fsspec
+      - dependency-name: peewee
+      - dependency-name: wrapt
+      - dependency-name: 'opentelemetry-*'
+      # aiohttp 3.x requires multidict<7.
+      - dependency-name: multidict
+        update-types: ['version-update:semver-major']
     commit-message:
       prefix: 'fix'
   - package-ecosystem: npm
@@ -46,7 +55,14 @@ updates:
     groups:
       javascript-maintenance:
         patterns: ['*']
-        update-types: ['minor', 'patch']
+    ignore:
+      # TypeScript 7 (native compiler) breaks the typescript-eslint peer range;
+      # a deliberate migration, not a maintenance bump.
+      - dependency-name: typescript
+        update-types: ['version-update:semver-major']
+      # Types track the Node runtime VS Code ships, not the newest Node.
+      - dependency-name: '@types/node'
+        update-types: ['version-update:semver-major']
     commit-message:
       prefix: 'fix'
   - package-ecosystem: cargo
@@ -65,7 +81,6 @@ updates:
     groups:
       rust-maintenance:
         patterns: ['*']
-        update-types: ['minor', 'patch']
     commit-message:
       prefix: 'fix'
   - package-ecosystem: docker
@@ -86,7 +101,6 @@ updates:
     groups:
       container-maintenance:
         patterns: ['*']
-        update-types: ['minor', 'patch']
     commit-message:
       prefix: 'fix'
   - package-ecosystem: github-actions
@@ -103,7 +117,6 @@ updates:
     groups:
       actions-maintenance:
         patterns: ['*']
-        update-types: ['minor', 'patch']
     commit-message:
       prefix: 'ci'
 # Nested vertical/Rust workflow pins are covered by the repository hygiene guard
