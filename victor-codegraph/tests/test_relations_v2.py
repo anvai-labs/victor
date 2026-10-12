@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from victor_codegraph import CodeRelationType, parse, parse_repo, to_proxima_records
@@ -317,6 +319,40 @@ def test_python_enclosing_and_capture_bindings_block_import_guess(tmp_path, body
     graph = parse_repo(tmp_path)
     calls = [r for r in graph.relations if r.relation_type.name == "CALLS"]
     assert calls and all(r.target_ref for r in calls)
+
+
+@pytest.mark.parametrize(
+    ("body", "target_scope"),
+    [
+        ("def caller():\n def target(): return 2\n return target()", ["caller"]),
+        ("async def caller():\n async def target(): return 2\n return await target()", ["caller"]),
+        ("def caller():\n class target: pass\n return target()", ["caller"]),
+        ("def outer():\n def target(): return 2\n def caller(): return target()", ["outer"]),
+        ("def caller(flag):\n if flag:\n  def target(): return 2\n return target()", None),
+        (
+            "def outer():\n def target(): return 2\n def caller(flag):\n  if flag:\n   def target(): return 3\n  return target()",
+            None,
+        ),
+        ("def caller(): return target()", []),
+    ],
+)
+def test_python_nearest_definition_precedes_import(
+    tmp_path: Path, body: str, target_scope: list[str] | None
+) -> None:
+    (tmp_path / "a.py").write_text("def target(): return 1\n")
+    (tmp_path / "b.py").write_text("from a import target\n" + body)
+    graph = parse_repo(tmp_path)
+    calls = [r for r in graph.relations if r.relation_type == CodeRelationType.CALLS]
+    assert len(calls) == 1
+    call = calls[0]
+    if target_scope is None:
+        assert call.target_ref is not None
+        assert call.confidence < 1.0
+    else:
+        target = next(s for s in graph.symbols if s.id == call.to_symbol_id)
+        assert call.target_ref is None
+        assert target.scope_chain == target_scope
+        assert target.location.file_path == ("b.py" if target_scope else "a.py")
 
 
 def test_python_reassigned_self_is_not_a_proven_receiver():

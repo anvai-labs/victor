@@ -25,7 +25,11 @@ gaps:
 ## Install
 
 Published on PyPI as [`victor-codegraph`](https://pypi.org/project/victor-codegraph/).
-This source tree is version **0.10.1**; consumers should use a compatible `<1.0` pin.
+This source tree is version **0.10.2**; consumers should use a compatible `<1.0` pin.
+It repairs nested Python definition/import shadowing: proven local definitions
+retain their targets, while unmodeled conditional bindings stay unresolved.
+Rebuild derived graphs when adopting the new parser; unchanged source hashes do
+not invalidate old semantic results automatically. Publication is a separate gate.
 
 ```bash
 # from PyPI
@@ -97,7 +101,7 @@ records = to_proxima_records(repository, repo_graph_id="myrepo")
 
 ## Status
 
-`0.10.1` source version. Python (`ast`) is the full, offline frontend. JS/TS, Go, Rust,
+`0.10.2` source version. Python (`ast`) is the full, offline frontend. JS/TS, Go, Rust,
 Java, C, and C++ have conformance fixtures; other mapped tree-sitter languages report
 symbols-tier or fallback status rather than implying full fidelity.
 

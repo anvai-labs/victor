@@ -7,6 +7,10 @@ import hashlib
 import os
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .rust_repository import RustBinding
 
 from .model import (
     CodeRelation,
@@ -67,7 +71,7 @@ def _resolve_across_files(
     symbols: list[CodeSymbol],
     relations: list[CodeRelation],
     files: dict[str, ParsedCode],
-    rust_bindings: dict[str, list] | None = None,
+    rust_bindings: dict[str, list[RustBinding]] | None = None,
     javascript: JavaScriptRepository | None = None,
 ) -> list[CodeRelation]:
     """Resolve only unambiguous repository targets; ambiguity remains explicit."""
@@ -147,11 +151,15 @@ def _resolve_across_files(
         if source.language == "python":
             text = ref.text or ref.name
             root, *tail = text.split(".")
-            if not source.metadata.get(
-                "python_wildcard_import"
-            ) and root not in source.metadata.get("python_bound_names", []):
-                for binding, targets in python_bindings.get(source.location.file_path, {}).items():
-                    prefix = binding.split(".")
+            if (
+                not source.metadata.get("python_wildcard_import")
+                and root not in source.metadata.get("python_bound_names", [])
+                and root not in source.metadata.get("python_definition_scopes", {})
+            ):
+                for import_name, targets in python_bindings.get(
+                    source.location.file_path, {}
+                ).items():
+                    prefix = import_name.split(".")
                     parts = text.split(".")
                     if parts[: len(prefix)] != prefix:
                         continue
@@ -198,7 +206,7 @@ def _python_bindings(
             if isinstance(node, ast.ImportFrom):
                 module = "." * node.level + (node.module or "")
                 name = alias.asname or alias.name
-                target = (alias.name,)
+                target: tuple[str, ...] = (alias.name,)
                 options = [
                     (module, target),
                     (module + ("." if node.module else "") + alias.name, ()),
@@ -347,7 +355,7 @@ def parse_repo(
 
     rust = RustRepository(root_path, resolution_files)
     javascript = JavaScriptRepository(resolution_files)
-    rust_bindings: dict[str, list] = {}
+    rust_bindings: dict[str, list[RustBinding]] = {}
     for relative, parsed in resolution_files.items():
         owner = file_symbols[relative]
         for symbol in parsed.symbols:
