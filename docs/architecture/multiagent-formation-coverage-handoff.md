@@ -1943,25 +1943,26 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   stream cleanup finish; between-turn resume remains supported. Existing test
   owners cover buffered/planning/aggregated/outward-stream calls and close/cancel.
   The [canonical tracker](victor-agent-service-plan.md#current-checkpoint) owns
-  evidence. Reset is a separate uncovered path (G95).
+  evidence. Reset protection is tracked separately under G95.
 
-- **G95 — conversation reset bypasses turn ownership and has a sync/async mismatch (open).**
-  Independent G93/G94 review found that `VictorClient.reset_conversation()` awaits
+- **G95 — conversation reset bypasses turn ownership and has a sync/async mismatch (✅ fixed: [#1316](https://github.com/anvai-labs/victor/pull/1316)).**
+  Independent G93/G94 review found that `VictorClient.reset_conversation()` awaited
   the synchronous `ChatService.reset_conversation()`: with the real binding the
-  messages can be cleared before `TypeError` is raised. The synchronous reset also
-  ignores the held session turn lock. Existing client tests use `AsyncMock` and
-  conceal the mismatch. Qualify the real binding with TDD; reject reset before
-  mutation during active execution/stream cleanup and preserve between-turn
-  reset compatibility. G94 protects resume/recovery/member rebinding, not reset.
-  Address this bounded defect before SA-04 refactoring.
-  The candidate repairs the synchronous client/service binding and shares the
+  messages could be cleared before `TypeError` was raised. The synchronous reset also
+  ignored the held session turn lock. Former client tests used `AsyncMock` and
+  concealed the mismatch. The merged repair qualifies the real binding with TDD,
+  rejects reset before mutation during active execution/stream cleanup, and
+  preserves between-turn reset compatibility. It complements G94 protection for
+  resume/recovery/member rebinding; SA-04 refactoring is next.
+  The implementation repairs the synchronous client/service binding and shares the
   existing turn-lock precondition across service/facade resets and workspace
   changes that invoke reset. Independent review exposed the workspace partial
   mutation path; a regression verifies rejection before root/context/RL/prompt
   effects and successful idle switching. Existing tests cover active buffered,
   planning, aggregated and outward streams plus close/cancellation cleanup.
   The [canonical tracker](victor-agent-service-plan.md#current-checkpoint) owns
-  current qualification and merge evidence; source work does not close release/C5.
+  qualification and merge evidence (`e9db76a9d4e05752413dc33aa82b0d8ea40ee167`);
+  source work does not close release/C5.
 
 Validation-test audit: neither live harness had direct tests before this follow-up.
 The new mixed-harness suite covers rejected/malformed/missing reviews, inclusive

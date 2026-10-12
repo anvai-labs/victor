@@ -2,7 +2,7 @@
 plan_id: VAS-2026-10
 status: active
 updated: 2026-10-12
-baseline_develop: 7cddd10e93b3fd6bb96aa5f615352273d8b8fff8
+baseline_develop: e9db76a9d4e05752413dc33aa82b0d8ea40ee167
 next_task: VAS-17
 ---
 
@@ -67,7 +67,7 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
-- **G95 LOCAL_PASS** — owner: Victor co-design session; branch `fix/reset-turn-ownership`;
+- **G95 ✅ MERGED [#1316](https://github.com/anvai-labs/victor/pull/1316)** — owner: Victor co-design session; branch `fix/reset-turn-ownership`;
   baseline `7cddd10e93b3fd6bb96aa5f615352273d8b8fff8`. The async client now calls
   the existing synchronous service contract without awaiting its result. One
   shared guard checks the existing session lock before reset effects, including
@@ -90,8 +90,16 @@ edit. A mock test is not live provider or C5 evidence.
   official pinned Sandhi 0.13.0 binding. The initial collection coverage-file
   collision is retained as failed evidence; isolated coverage and collection
   without coverage pass. The assembled orchestrator/facade cohort passes 448 tests;
-  the final coverage cohort also includes the later workspace regression. PR CI
-  and merge remain pending; release and live C5 are separate gates.
+  the final coverage cohort also includes the later workspace regression.
+  Squash-merged as `e9db76a9d4e05752413dc33aa82b0d8ea40ee167` after clean
+  exact-diff review and all 39 applicable CI checks passed, including Vertical
+  Py3.12. The merged tree matches reviewed candidate
+  `df69e09b916a36e8f88110988a794e5159d11e92`. Two configured jobs were skipped;
+  Trivy's neutral comparison cannot compare two scan configurations listed on
+  develop and is not a passed scan. The separate blocking security check passed.
+  **Next: SA-04 typed execution collaborators, then G62/G70 durable reconciliation
+  and member continuation.** This is bounded reset protection, not a guarantee
+  for every session mutator. Release and live mixed-team C5 remain separate gates.
 
 - **G93/G94 ✅ MERGED [#1314](https://github.com/anvai-labs/victor/pull/1314)** — owner: Victor co-design session; branch
   `fix/turn-state-ownership`; initial baseline `8b9be15b1150a13dc50fde3ea6fe1a785e74ce58`.
@@ -1111,8 +1119,8 @@ independent. Update this paragraph and the rows together at each checkpoint.
 The [2026-10-12 SQLite/source re-audit](agentic-workflow-safety-audit.md#sqlite-and-source-re-audit-2026-10-12)
 identified G89–G91: truthful member outcomes, post-effect state retention and canonical
 runtime identity, now merged through their existing owners (#1306, #1307, #1309).
-G92–G94 follow-up ownership repairs are also merged; G95 reset qualification is
-the current prerequisite. SA-04/SA-05 narrow typed service dependencies and consolidate
+G92–G95 follow-up ownership/reset repairs are also merged. SA-04 is next;
+SA-04/SA-05 narrow typed service dependencies and consolidate
 runtime-hint policy; SA-06 qualifies architectural metrics before prescriptive use.
 This is an evidence-backed backlog, not completed implementation or a change to
 the milestone denominator. Current embeddings are not qualified for this snapshot.
