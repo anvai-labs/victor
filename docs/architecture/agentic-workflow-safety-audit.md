@@ -47,8 +47,8 @@ availability and revision before exposing prescriptive recommendations.
 
 | ID / priority | Finding and user consequence | Bounded change and acceptance owner | State |
 |---|---|---|---|
-| SA-01 / P1 | Audited `turn_execution_runtime.py:1167–1186` converted a failed loop with an empty final response to success after any successful tool and nonempty synthesis excluding a hardcoded prose prefix. `subagents/base.py:722` consumes that flag. | The bounded repair preserves the structured loop verdict/error while using the existing typed synthesis helper for presentation. Existing turn-runtime and member tests cover failed verdicts despite successful reads or completion claims, fallback/empty synthesis and failed parent handoffs. G89. | LOCAL_PASS; source review clean, CI/merge/release pending |
-| SA-02 / P2 | `turn_execution_runtime.py:530–532` rolls back messages and `tool_calls_used` after ordinary exceptions from `_execute_via_agentic_loop`; restore at `:402–427` does not check whether tools executed. A late error can hide execution evidence or reduce the live-session counter. This is not a finding that durable receipts are deleted or tools automatically replayed. | Restore speculative pre-dispatch state only; retain observed effects and monotonic consumption after dispatch. Extend existing rollback owner with a fake committed write followed by provider failure, retained receipt/transcript, no second effect, and cancellation/approval controls. G90; complements G62/G70. | OPEN; source-confirmed, new fault scenario pending |
+| SA-01 / P1 | Audited `turn_execution_runtime.py:1167–1186` converted a failed loop with an empty final response to success after any successful tool and nonempty synthesis excluding a hardcoded prose prefix. `subagents/base.py:722` consumes that flag. | The bounded repair preserves the structured loop verdict/error while using the existing typed synthesis helper for presentation. Existing turn-runtime and member tests cover failed verdicts despite successful reads or completion claims, fallback/empty synthesis and failed parent handoffs. G89. | ✅ MERGED [#1306](https://github.com/anvai-labs/victor/pull/1306); release/live acceptance separate |
+| SA-02 / P2 | Audited `turn_execution_runtime.py:530–532` rolled back messages and `tool_calls_used` after ordinary exceptions from `_execute_via_agentic_loop`; restore at `:402–427` did not check whether tools executed. A late error can hide execution evidence or reduce the live-session counter. This is not a finding that durable receipts are deleted or tools automatically replayed. | Remove obsolete transcript/counter rollback; retain accepted history and consumed work. Existing regression owner covers a committed temporary-file write, late delegated policy denial, lost receipt, cancellation and pre-dispatch failure without repeat dispatch. Scoped configuration cleanup remains intact. G90; complements G62/G70. | LOCAL_PASS; 498 affected tests pass, independent review clean, CI/merge pending |
 | SA-03 / P2 | `tool_execution_runtime.py:486–505` and `turn_execution_runtime.py:1864–1883` independently reconstruct runtime identity and default to `session_root` / `root_agent` / `manager`. Normal initialized paths use `AgentRuntimeContext`; actual member collisions are not demonstrated. | Construct one immutable context at assembly, inject it into both consumers, and reject missing identity at effect/persistence boundaries. Map legacy role inputs explicitly to `supervisor`; preserve the existing child-session derivation. Test isolation, missing context and both consumers in their existing suites. G91. | OPEN; duplicated fallback policy confirmed |
 | SA-04 / P2 | `ToolExecutionRuntime(runtime_host: Any)` reaches pipeline, state, identity, persistence, formatting and context through one host. Adapter `__getattr__`/`__setattr__` forwards arbitrary access; `ChatContextProtocol` and peers retain broad `Any` fields. These permit dependencies and typos to escape static checking. | Inject narrow typed collaborators through the existing assembly boundary, starting with required execution/result-publication/identity operations. Keep one compatibility adapter; move optional capability decisions there. Extend delegation/parity tests with typed fakes and static negative fixtures. Do not add a second pipeline or registry. | OPEN; contract debt confirmed |
 | SA-05 / P3 | `_INTERNAL_KWARG_KEYS` is independently declared in protocol adapter `:53` and Sandhi transport `:159`; comments require manual synchronization. | One provider-neutral runtime-hints definition, consumed by both filtering boundaries. Keep both enforcement points. Existing kwarg-strip and transport tests must cover every reserved key, unchanged provider extras and no internal hints on the wire. | OPEN; duplicate policy ownership confirmed |
@@ -138,14 +138,47 @@ The fixtures use real `LoopResult`, `LoopIteration`, `EvaluationResult` and
 completion prose with synthesis metadata still produces a failed parent handoff.
 Independent review and 105 directly affected tests pass; the broader runtime/member
 cohort passes 377 tests and the verifier/stream cohort passes 58 tests. The combined
-final-base run passes all 435 tests; full collection finds 34,523 tests. CI and merge
-evidence remain required before declaring this landed.
+final-base run passes all 435 tests; full collection finds 34,523 tests.
+[#1306](https://github.com/anvai-labs/victor/pull/1306) squash-merged with all
+applicable CI green (including Vertical Py3.12) as
+`8f503cf24272c81520847ddd41406f0ffb7a99c7`. Release/live acceptance remains separate.
 
 This qualifies propagation of a structured failed verdict. It does not make every
 unconfigured completion heuristic an independent verifier, change the inner loop's
-evaluation strategy, repair post-effect rollback (SA-02/G90), or close C5. Next:
-finish the reviewed source milestone, then fault-inject a committed action followed
-by a late exception in the existing rollback owner before implementing SA-02.
+evaluation strategy, repair post-effect rollback (SA-02/G90), or close C5.
+
+### SA-02 implementation checkpoint
+
+Branch `fix/retain-agentic-execution-evidence` starts from merged SA-01 revision
+`8f503cf24272c81520847ddd41406f0ffb7a99c7`. The delegation wrapper now retains
+accepted transcript entries, tool-call envelopes, observed receipts and consumed
+budget when delegation raises. It propagates the failure without retrying. The
+obsolete snapshot/restore helpers and their sentinel are removed; scoped runtime
+configuration restoration remains unchanged.
+
+Review found no remaining legacy retry caller that needs speculative rollback.
+A pre-execution snapshot cannot roll back external effects, token usage or the
+action ledger, so conditional effect detection here would add an incomplete second
+owner. The existing rollback test is replaced with four cases, rather than adding
+a duplicate test suite. A bounded fake tool writes a real temporary file and
+records its matching receipt; fault injection covers later policy denial,
+cancellation, a lost receipt and pre-dispatch failure. Before the repair, both
+ordinary post-dispatch failures refunded consumption (two red cases); the
+pre-dispatch and cancellation controls passed. All 55 owner tests now pass, with
+independent source review clean. The affected tool/chat/planning/member/loop,
+verifier, stream, effect-gate and ledger cohort passes 498 tests; full collection
+finds 34,526 tests. Formatting, Ruff, touched-module mypy and repository hygiene
+pass. The final formatted owner suite passes all 55 tests.
+
+These tests isolate the delegation wrapper using a bounded fake loop driver.
+They do not claim that generic provider errors always propagate: real
+`AgenticLoop.run` normally converts those to failed `LoopResult` values, while
+`ProviderPolicyError` propagates and cancellation bypasses ordinary exception
+handlers. An unknown result retains its intent without inventing a receipt. No
+restart durability, backend reconciliation, automatic safe retry, or exactly-once
+claim is established. CI/merge/release and full C5 acceptance remain open.
+Next audit priorities are SA-03/G91 runtime identity ownership and the existing
+G62/G70 durable reconciliation/continuation gates.
 
 ## PDF recheck and design critique — 2026-09-25
 
