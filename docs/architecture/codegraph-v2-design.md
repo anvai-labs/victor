@@ -113,10 +113,11 @@ standalone OSS operation and commercial adapter parity before service acceptance
 |---|---|---|
 | CG-P0: Rust baseline | Sandhi audit at `a2b0f0c`, Victor #1297; parser dependencies present, explicit conservative resolution, 107 Rust files without parse diagnostics. Static results are lower bounds, not complete runtime calls or a performance diagnosis. | Complete for that snapshot only |
 | CG-P1: Consumer inventory and handback | AnvaiOps polyglot and Sandesha TS/TSX/JS snapshots; capability/diagnostic matrix; labeled relationship truth set; measured cold/warm indexing and bounded query performance; minimized reproducible gaps. | AnvaiOps evidence received; Sandesha pending |
-| CG-P2: Shared correctness fixes | TDD in existing parser/resolver/identity/delta suites. Preserve unresolved ambiguity, deletion equivalence, byte/line spans and stable IDs across checkout roots; deduplicate tests by invariant. Both consumers rerun pinned fixes. | CG-S01–CG-S05 implemented and locally qualified; pinned consumer reruns remain |
-| CG-P3: Release/package qualification | Build/install exact wheels in supported Python/platform shapes; dependencies complete, missing-grammar failures explicit before index mutation, migration and consumer compatibility verified. Publish source 0.9.0 or its approved successor before released consumers require it. | Local wheel/sdist qualified; publication tracked by `victor-codegraph-v0.9.0`; consumer qualification pending |
+| CG-P2: Shared correctness fixes | TDD in existing parser/resolver/identity/delta suites. Preserve unresolved ambiguity, deletion equivalence, byte/line spans and stable IDs across checkout roots; deduplicate tests by invariant. Both consumers rerun pinned fixes. | CG-S01–CG-S05 qualified; AnvaiOps published-0.9.0 canonical rebuild passes; Sandesha rerun pending |
+| CG-P3: Release/package qualification | Build/install exact wheels in supported Python/platform shapes; dependencies complete, missing-grammar failures explicit before index mutation, migration and consumer compatibility verified. Publish source 0.9.0 or its approved successor before released consumers require it. | Published 0.9.0 from `62552e965`; AnvaiOps API/worker installation and canonical store parity qualified; Sandesha pending |
 | CG-P4: Service contract and lifecycle | Review existing Victor and AnvaiOps routes, then propose one versioned neutral contract with bounded snapshot jobs, explicit partial/error/cancelled states, generation-bound queries and pagination. FEP before new public framework API implementation. | Planned; no new service claim |
-| CG-P5: UI and agent acceptance | Same snapshot IDs/edges/diagnostics in CLI, API and UI; source navigation, ambiguity display, filters, bounded expansion, accessibility and shared dark/light/system theme. Synthetic authorized/denied/cancel/restart journeys through headed AgentBrowser. | Planned after CG-P2–P4 |
+| CG-P5: UI and agent acceptance | Same snapshot IDs/edges/diagnostics in CLI, API and UI; source navigation, ambiguity display, filters, bounded expansion, accessibility and shared dark/light/system theme. Synthetic authorized/denied/cancel/restart journeys through headed AgentBrowser. | AnvaiOps bounded descriptive preview qualified locally; hosted SSO, lifecycle and scale acceptance remain open |
+| CG-P6: Grounded repository Q&A | Real embedding/lexical retrieval selects authorized candidate symbols; canonical graph expansion and source citations substantiate answers. One immutable generation, typed evidence IDs and click-through navigation. FEP before new shared public APIs. | Planned after descriptive evidence/retrieval gates; hashed placeholder vectors are not semantic search |
 
 Security and correctness precede throughput tuning. Predeclare representative
 workloads and numeric targets before profiling. Report wall time, CPU, peak RSS,
@@ -213,7 +214,8 @@ interim notes only after evidence and dispositions are preserved in the owning p
 Received `docs/operations/CODEGRAPH_POLYGLOT_HANDBACK.md` and adjacent JSON
 from the sibling AnvaiOps repository (consumer snapshot `1aeef9fa`, shared source
 `b09e8d88`). Evidence ingestion acknowledges the findings, not service acceptance.
-The consumer corrections remain owned by AnvaiOps draft PR #488. Only minimized
+The foundation corrections landed in AnvaiOps #488; #489 owns the canonical
+consumer and descriptive explorer follow-up. Only minimized
 synthetic fixtures may enter this OSS repository; private source and graphs stay local.
 
 | Finding | Owner | Disposition / qualification gate |
@@ -254,13 +256,14 @@ unresolved evidence. `nodes_created`/`edges_created` remain attempted-upsert cou
 store without a stats operation. File eligibility remains a consumer configuration,
 so compare the same eligible snapshot. See the package README's migration table.
 
-**Release receipt:** the exact source and package pin are owned by
+**Release receipt:**
 [`victor-codegraph-v0.9.0`](https://github.com/anvai-labs/victor/releases/tag/victor-codegraph-v0.9.0)
-and its release workflow; this pre-publication qualification does not establish that
-the tag has published. After publication the consumer pin is
-`victor-codegraph[treesitter]==0.9.0`. AnvaiOps #488 owns its consumer rerun and atomic
-snapshot/read-boundary corrections; do not duplicate them here. Sandesha's handback,
-CG-P4 lifecycle and CG-P5 headed UI acceptance remain open.
+published from `62552e9659c320c6ad22e875d099d56f0b5c9727`; consumer pin is
+`victor-codegraph[treesitter]==0.9.0`. Victor #1300 adds mandatory future-release
+safeguards. Never republish 0.9.0 to change its artifacts. CG-S04 is a Victor runtime
+correction on develop; this receipt does not claim a new Victor AI distribution.
+AnvaiOps #488 is merged and #489 carries the bounded consumer follow-up. Sandesha,
+CG-P4 lifecycle and hosted CG-P5 acceptance remain open.
 
 
 ### Release alignment follow-up — 2026-10-11
@@ -300,3 +303,84 @@ consumer receipt is AnvaiOps `docs/operations/CODEGRAPH_POLYGLOT_HANDBACK.md`
 and its adjacent JSON; those preserve exact source qualification and local
 image/test evidence. No tag, package publication, deployment or gate promotion
 was performed by this session.
+
+### Consumer qualification and next customer journey — 2026-10-12
+
+AnvaiOps adopted the published 0.9.0 distribution, removed its duplicate parser/
+resolver and ID derivation, and preserved canonical relation endpoints, diagnostics,
+status and source locations. Complete snapshots require reindex; no silent legacy
+name-join path remains. Its commercial tracker is `docs/td/TD-F1-code-graph-service.md`;
+the original handback and JSON remain the evidence owners.
+
+| Evidence | Result / limit |
+|---|---|
+| Frozen private snapshot | 738 files, 7,647 canonical symbols and 35,428 semantic relation keys; exact compiler → consumer → store parity. Aggregate evidence only; no private source or graph export enters OSS. |
+| Released storage runtime | ProximaDB 0.4.0, Linux ARM64 image `sha256:c24757088a29b996160f1535a4e92bf905f203bc76d41bb15b9c8aa281e79dad`; explicit SST run took 39.828 s to publish and 21.031 s to scan. Not percentile, durability or service-SLO acceptance. |
+| Failed older runtime | Cached ProximaDB 0.2.2 rejected its page-two named-collection cursor. Failed evidence retained; 0.4.0 passes without consumer cursor rewriting. |
+| Consumer checks | 1,732 API/package tests passed, 3 skipped; 153 console tests; two source→engine→HTTP replacement/empty-snapshot cases; API and worker image compilation/publication smokes. |
+| Headed descriptive preview | AgentBrowser verified calls/imports/containment, source inspector and keyboard selection, zoom/fit/full screen, layered layouts, file/symbol drill-down and breadcrumbs back. Local synthetic identity; not hosted SSO or full authorization-lifecycle acceptance. |
+
+Post-flush qualification found a separate released-engine defect: automatic
+selection chose HELIX, whose record enumeration returned zero after flush
+(ProximaDB TD-HELIX-2, still open in refreshed upstream). Failed evidence is
+preserved. The consumer now explicitly creates SST collections and validates
+existing engine/dimension metadata before writing. A confirmed SST flush retained
+six synthetic graph records plus the manifest. All 43,075 full-snapshot records
+also retained exact parity after a confirmed flush (25.277 s scan). Restart and
+production digest rollout remain separate gates.
+
+Victor's index/graph commands remain the shared indexing and graph-navigation
+foundation. Commercial ingestion uses the same compiler identity/evidence contracts,
+while retaining its own policy, hosted jobs, UI and metering. Different store/file
+eligibility projections must report their scope rather than claiming equal counts.
+
+The next useful customer flow is **question → candidate retrieval → canonical graph
+traversal → grounded answer → clickable symbol/relationship citation**:
+
+1. Reuse Victor's existing BGE baseline (`BAAI/bge-small-en-v1.5`, 384 dimensions)
+   and embedding service through a qualified public seam. Local SQLite graph +
+   LanceDB remains the default; Q1 will store qualified corresponding vectors in
+   ProximaDB. `victor index` is semantic indexing; `victor graph index --embeddings`
+   opts into graph-node embeddings. The standalone compiler itself does not run
+   an embedding model. Version node text versus body chunks, preprocessing and
+   query normalization: reuse stored vectors only when that complete contract
+   and canonical symbol/source mapping match. No copied parser or new model
+   implementation. Qualify retrieval against a lexical baseline. Record model/version,
+   dimension, source/chunk hash, authorization and snapshot generation. Explicitly
+   distinguish missing embeddings from a valid empty result; do not treat hashed
+   placeholder vectors as semantic retrieval.
+2. Retrieve only authorized candidates, then expand a bounded canonical graph in
+   the same generation. Embedding similarity is evidence of relevance, never proof
+   that one symbol calls another. Preserve ambiguity, partial parsing and no-answer
+   states; prevent retrieved source instructions from granting tool permissions.
+3. Return typed answer/evidence references tied to repository/commit, symbol IDs,
+   source spans and relation endpoints. UI citations focus the graph and retain a
+   path back to the answer. Measure grounded-answer precision on labeled questions.
+4. Add reviewed structural metrics and only then prescriptive recommendations.
+   Cite evidence, uncertainty, alternatives and expected impact. Preview changes
+   and verify tests/outcomes before approved mutations; graph degree alone is not
+   a design defect.
+
+Remaining shared package work: add `py.typed` in a future release and qualify
+non-Python call spans. Remaining commercial gates include repository policy before
+retrieval, ordered publication, durable job/recovery/GC behavior, hosted OIDC,
+large-canvas performance and theme/accessibility qualification. No new parser,
+service implementation or recommendation engine is introduced by this roadmap.
+
+
+### Shared indexing parity gate
+
+The AnvaiOps handback exposed a boundary that was too narrow: sharing a parser
+package alone did not ensure the consumer preserved graph projection or real
+embedding semantics. AnvaiOps #489 removes the duplicate parser/identity path;
+embedding reuse is the next shared contract, not a commercial reimplementation.
+
+Before Q1 adoption, use one synthetic corpus and matched eligibility/configuration
+to compare local SQLite/LanceDB and hosted ProximaDB adapters: canonical IDs,
+embedding-input hashes, model revision, dimensions, preprocessing/normalization,
+source spans, generation binding and deletion behavior. Test failures and missing
+models explicitly; test actual BGE relevance separately from deterministic fixture
+vectors. Release a neutral public seam after the FEP gate, keeping heavyweight
+model dependencies optional. Consumers pin the release and run this conformance
+suite before upgrading. AnvaiOps owns tenancy, policy, jobs, billing and UX;
+neither those concerns nor storage choice justify different semantic identities.
