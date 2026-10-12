@@ -11,10 +11,13 @@ Checks:
      the victor-ai release version (the native wheel version is synchronized —
      a drift re-uploads an already-published wheel and 400s the release)
 
+  5. CodeGraph package/runtime versions and Victor exact graph-extra pin agree
+
 Exit code 0 on success, 1 on mismatch.
 """
 
 import re
+import subprocess
 import sys
 import tomllib
 from typing import Any
@@ -87,6 +90,18 @@ def main() -> None:
     ai_version = read_version(ROOT / "VERSION")
     ai_toml_version = extract_toml_version(ROOT / "pyproject.toml")
     errors = native_version_errors(ROOT, ai_toml_version)
+    codegraph = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts/ci/release_contract.py"),
+            "codegraph-requirement",
+            "--root",
+            str(ROOT),
+        ],
+        check=False,
+    )
+    if codegraph.returncode:
+        errors.append("CodeGraph package/runtime version and exact Victor dependency must agree")
     print(f"victor-ai VERSION file: {ai_version}")
     print(f"victor-ai pyproject.toml: {ai_toml_version}")
     if ai_version != ai_toml_version:

@@ -4,7 +4,10 @@ from copy import deepcopy
 import hashlib
 import importlib.util
 import json
+import io
 import sys
+import tarfile
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -295,3 +298,189 @@ def test_dispatch_webhook_flag_reaches_publication_outputs(
         with pytest.raises(ValueError, match="matching"):
             release_contract.main()
         assert not output.exists()
+
+
+@pytest.fixture
+def codegraph_tree(tmp_path):
+    package = tmp_path / "victor-codegraph"
+    (package / "victor_codegraph").mkdir(parents=True)
+    (package / "pyproject.toml").write_text(
+        '[project]\nname = "victor-codegraph"\nversion = "0.9.0"\n'
+    )
+    (package / "victor_codegraph/__init__.py").write_text('__version__ = "0.9.0"\n')
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nversion = "0.12.0"\n[project.optional-dependencies]\n'
+        'graph = ["victor-codegraph[treesitter]==0.9.0"]\n'
+    )
+    return tmp_path
+
+
+def test_codegraph_independent_version_requires_exact_consumer_pin(
+    release_contract, codegraph_tree
+):
+    assert (
+        release_contract.codegraph_requirement(codegraph_tree)
+        == "victor-codegraph[treesitter]==0.9.0"
+    )
+
+
+@pytest.mark.parametrize(
+    "replacement", [">=0.9.0,<1.0", "==0.8.1", "==0.9.*", "==0.9.0; python_version<'3.13'"]
+)
+def test_codegraph_rejects_loose_stale_or_conditional_pin(
+    release_contract, codegraph_tree, replacement
+):
+    path = codegraph_tree / "pyproject.toml"
+    path.write_text(path.read_text().replace("==0.9.0", replacement))
+    with pytest.raises(ValueError, match="exact"):
+        release_contract.codegraph_requirement(codegraph_tree)
+
+
+def test_codegraph_rejects_runtime_version_drift(release_contract, codegraph_tree):
+    (codegraph_tree / "victor-codegraph/victor_codegraph/__init__.py").write_text(
+        '__version__ = "0.8.1"\n'
+    )
+    with pytest.raises(ValueError, match="runtime"):
+        release_contract.codegraph_requirement(codegraph_tree)
+
+
+def test_codegraph_tag_and_test_only_destination_are_enforced(release_contract):
+    plan = release_contract.release_plan(
+        "push", "refs/tags/victor-codegraph-v0.9.0", False, "0.9.0", tag_prefix="victor-codegraph-v"
+    )
+    assert plan["production"] == "true" and plan["testpypi"] == "false"
+    plan = release_contract.release_plan(
+        "workflow_dispatch",
+        "refs/tags/victor-codegraph-v0.9.0",
+        True,
+        "0.9.0",
+        tag_prefix="victor-codegraph-v",
+    )
+    assert plan["production"] == "false" and plan["testpypi"] == "true"
+    with pytest.raises(ValueError):
+        release_contract.release_plan(
+            "push", "refs/tags/v0.9.0", False, "0.9.0", tag_prefix="victor-codegraph-v"
+        )
+
+
+def _package_artifacts(path, *, wheel_version="0.9.0", sdist_version="0.9.0"):
+    path.mkdir(exist_ok=True)
+    with zipfile.ZipFile(path / "victor_codegraph-0.9.0-py3-none-any.whl", "w") as wheel:
+        wheel.writestr(
+            "victor_codegraph-0.9.0.dist-info/METADATA",
+            f"Name: victor-codegraph\nVersion: {wheel_version}\n",
+        )
+    with tarfile.open(path / "victor_codegraph-0.9.0.tar.gz", "w:gz") as sdist:
+        data = f"Name: victor-codegraph\nVersion: {sdist_version}\n".encode()
+        member = tarfile.TarInfo("victor_codegraph-0.9.0/PKG-INFO")
+        member.size = len(data)
+        sdist.addfile(member, io.BytesIO(data))
+
+
+@pytest.mark.parametrize(
+    "wheel,sdist", [("0.9.0", "0.9.0"), ("0.8.1", "0.9.0"), ("0.9.0", "0.8.1")]
+)
+def test_codegraph_published_artifacts_match_declared_version(
+    release_contract, tmp_path, wheel, sdist
+):
+    dist = tmp_path / "dist"
+    _package_artifacts(dist, wheel_version=wheel, sdist_version=sdist)
+    if wheel == sdist == "0.9.0":
+        release_contract.validate_package_artifacts(dist, "victor-codegraph", "0.9.0")
+    else:
+        with pytest.raises(ValueError, match="metadata"):
+            release_contract.validate_package_artifacts(dist, "victor-codegraph", "0.9.0")
+
+
+def test_codegraph_rejects_missing_or_extra_artifacts(release_contract, tmp_path):
+    _package_artifacts(tmp_path)
+    (tmp_path / "unexpected.whl").write_bytes(b"wrong")
+    with pytest.raises(ValueError):
+        release_contract.validate_package_artifacts(tmp_path, "victor-codegraph", "0.9.0")
+    (tmp_path / "unexpected.whl").unlink()
+    (tmp_path / "victor_codegraph-0.9.0.tar.gz").unlink()
+    with pytest.raises(ValueError):
+        release_contract.validate_package_artifacts(tmp_path, "victor-codegraph", "0.9.0")
+
+
+def test_codegraph_checks_are_mandatory_publication_prerequisites():
+    jobs = workflow("release.yml")["jobs"]
+    gate = jobs["codegraph-dependency"]
+    assert not gate.get("continue-on-error") and "if" not in gate
+    assert "--index-url https://pypi.org/simple" in str(gate)
+    for name in (
+        "publish-pypi",
+        "publish-testpypi",
+        "publish-native-pypi",
+        "publish-docker",
+        "create-release",
+    ):
+        assert "codegraph-dependency" in ancestors(jobs, name)
+    jobs = workflow("release-codegraph.yml")["jobs"]
+    for name, destination in (("publish-pypi", "production"), ("publish-testpypi", "testpypi")):
+        assert "release-plan" in ancestors(jobs, name)
+        assert jobs[name]["if"] == f"needs.release-plan.outputs.{destination} == 'true'"
+        assert not jobs[name].get("continue-on-error")
+        steps = jobs[name]["steps"]
+        validate = next(
+            i for i, step in enumerate(steps) if "package-artifacts" in step.get("run", "")
+        )
+        publish = next(i for i, step in enumerate(steps) if "pypi-publish@" in step.get("uses", ""))
+        assert validate < publish
+
+
+def test_codegraph_sync_updates_only_its_own_runtime_and_consumer_pin(
+    release_contract, codegraph_tree
+):
+    spec = importlib.util.spec_from_file_location("sync_version", ROOT / "scripts/sync_version.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    package = codegraph_tree / "victor-codegraph/pyproject.toml"
+    package.write_text(package.read_text().replace("0.9.0", "0.10.0"))
+    module.sync_codegraph(codegraph_tree)
+    module.sync_codegraph(codegraph_tree)
+    assert (
+        release_contract.codegraph_requirement(codegraph_tree)
+        == "victor-codegraph[treesitter]==0.10.0"
+    )
+    assert 'version = "0.12.0"' in (codegraph_tree / "pyproject.toml").read_text()
+
+
+@pytest.mark.parametrize(
+    "dependency",
+    [
+        'victor-codegraph[treesitter]==0.9.0; extra == "graph"',
+        'victor-codegraph[treesitter]>=0.9.0; extra == "graph"',
+        'victor-codegraph[treesitter]==0.8.1; extra == "graph"',
+        'victor-codegraph[treesitter]==0.9.0; extra == "other"',
+        "",
+    ],
+)
+def test_victor_wheel_and_sdist_retain_exact_graph_dependency(
+    release_contract, tmp_path, dependency
+):
+    tmp_path = tmp_path / "dist"
+    tmp_path.mkdir()
+    metadata = f"Name: victor-ai\nVersion: 0.12.0\nRequires-Dist: {dependency}\n".encode()
+    with zipfile.ZipFile(tmp_path / "victor_ai-0.12.0-py3-none-any.whl", "w") as wheel:
+        wheel.writestr("victor_ai-0.12.0.dist-info/METADATA", metadata)
+    with tarfile.open(tmp_path / "victor_ai-0.12.0.tar.gz", "w:gz") as sdist:
+        member = tarfile.TarInfo("victor_ai-0.12.0/PKG-INFO")
+        member.size = len(metadata)
+        sdist.addfile(member, io.BytesIO(metadata))
+    if dependency == 'victor-codegraph[treesitter]==0.9.0; extra == "graph"':
+        release_contract.validate_package_artifacts(
+            tmp_path, "victor-ai", "0.12.0", codegraph_pin="victor-codegraph[treesitter]==0.9.0"
+        )
+    else:
+        with pytest.raises(ValueError, match="exact CodeGraph"):
+            release_contract.validate_package_artifacts(
+                tmp_path, "victor-ai", "0.12.0", codegraph_pin="victor-codegraph[treesitter]==0.9.0"
+            )
+
+
+def test_publish_validation_checkout_has_read_permission():
+    for filename in ("release.yml", "release-codegraph.yml"):
+        jobs = workflow(filename)["jobs"]
+        for name in ("publish-pypi", "publish-testpypi"):
+            assert jobs[name]["permissions"] == {"contents": "read", "id-token": "write"}

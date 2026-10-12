@@ -4,6 +4,7 @@
 victor-ai and victor-contracts have independent version files:
   - VERSION          → victor-ai version
   - victor-contracts/VERSION → victor-contracts version
+  - victor-codegraph/pyproject.toml → independent CodeGraph version
 
 Updates:
   - pyproject.toml (victor-ai) version
@@ -16,19 +17,21 @@ Updates:
     (0.11.0's publish 400'd exactly that way on a stale 0.8.2 wheel)
 
 Usage:
-  python scripts/sync_version.py          # Sync both packages
+  python scripts/sync_version.py          # Sync all package references
   python scripts/sync_version.py --ai     # Sync victor-ai only
   python scripts/sync_version.py --sdk    # Sync victor-contracts only
+  python scripts/sync_version.py --codegraph  # Sync CodeGraph runtime + exact Victor pin
 """
 
 import re
 import sys
+import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 
 
-def sync_ai(root: Path = ROOT):
+def sync_ai(root: Path = ROOT) -> None:
     """Sync victor-ai version (and the native artifact line) from VERSION."""
     version_file = root / "VERSION"
     if not version_file.exists():
@@ -113,7 +116,7 @@ def sync_native(root: Path, version: str) -> None:
     print(f"  Synced native artifact line to {version}")
 
 
-def sync_sdk():
+def sync_sdk() -> None:
     """Sync victor-contracts version from its own VERSION file."""
     sdk_version_file = ROOT / "victor-contracts" / "VERSION"
     if not sdk_version_file.exists():
@@ -148,14 +151,43 @@ def sync_sdk():
     print(f"  Updated SDK dependency bound in {ai_toml}")
 
 
-def main():
+def sync_codegraph(root: Path = ROOT) -> None:
+    """Propagate the independent CodeGraph package version into runtime and Victor pin."""
+    package = root / "victor-codegraph"
+    version = tomllib.loads((package / "pyproject.toml").read_text())["project"]["version"]
+    if not re.fullmatch(r"\d+\.\d+\.\d+(?:(?:a|b|rc)\d+)?", version):
+        raise ValueError("invalid CodeGraph version")
+    runtime = package / "victor_codegraph/__init__.py"
+    consumer = root / "pyproject.toml"
+    runtime_text, runtime_count = re.subn(
+        r'^__version__ = "[^"]+"',
+        f'__version__ = "{version}"',
+        runtime.read_text(),
+        flags=re.MULTILINE,
+    )
+    consumer_text, consumer_count = re.subn(
+        r'"victor-codegraph\[treesitter\][^"]+"',
+        f'"victor-codegraph[treesitter]=={version}"',
+        consumer.read_text(),
+    )
+    if runtime_count != 1 or consumer_count != 1:
+        raise ValueError("expected one CodeGraph runtime version and one consumer dependency")
+    runtime.write_text(runtime_text)
+    consumer.write_text(consumer_text)
+    print(f"Synced independent CodeGraph package/runtime/pin to {version}")
+
+
+def main() -> None:
     if "--ai" in sys.argv:
         sync_ai()
     elif "--sdk" in sys.argv:
         sync_sdk()
+    elif "--codegraph" in sys.argv:
+        sync_codegraph()
     else:
         sync_ai()
         sync_sdk()
+        sync_codegraph()
 
     print("\nSync complete. Run 'python scripts/check_version_sync.py' to verify.")
 
