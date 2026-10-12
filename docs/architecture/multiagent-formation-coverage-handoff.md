@@ -1954,6 +1954,14 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   mutation during active execution/stream cleanup and preserve between-turn
   reset compatibility. G94 protects resume/recovery/member rebinding, not reset.
   Address this bounded defect before SA-04 refactoring.
+  The candidate repairs the synchronous client/service binding and shares the
+  existing turn-lock precondition across service/facade resets and workspace
+  changes that invoke reset. Independent review exposed the workspace partial
+  mutation path; a regression verifies rejection before root/context/RL/prompt
+  effects and successful idle switching. Existing tests cover active buffered,
+  planning, aggregated and outward streams plus close/cancellation cleanup.
+  The [canonical tracker](victor-agent-service-plan.md#current-checkpoint) owns
+  current qualification and merge evidence; source work does not close release/C5.
 
 Validation-test audit: neither live harness had direct tests before this follow-up.
 The new mixed-harness suite covers rejected/malformed/missing reviews, inclusive

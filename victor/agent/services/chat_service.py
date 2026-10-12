@@ -34,6 +34,7 @@ from typing import TYPE_CHECKING, Any, AsyncGenerator, AsyncIterator, Callable, 
 from victor.core.async_utils import aclosing_if_supported
 from victor.agent.runtime.context import (
     bind_runtime_session,
+    require_idle_turn,
     require_runtime_context,
 )
 from victor.agent.services.chat_evidence import ChatEvidenceMixin
@@ -503,9 +504,10 @@ class ChatService(ChatEvidenceMixin, ChatPersistenceMixin):
     def reset_conversation(self) -> None:
         """Reset the conversation history and state.
 
-        Clears all conversation context, effectively starting
-        a new conversation session.
+        Preserves the system prompt and rejects active turns before clearing
+        messages or the prior task report. Close a stream before resetting it.
         """
+        require_idle_turn(self._turn_lock)
         self._logger.debug("Resetting conversation")
         self._last_task_report = None
         self._context.clear_messages(retain_system=True)

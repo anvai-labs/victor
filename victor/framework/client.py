@@ -712,14 +712,16 @@ class VictorClient:
         system prompts and session configuration.
 
         Raises:
-            RuntimeError: If client is not initialized
+            RuntimeError: If the client is not initialized or a turn is active.
+                Finish or close that turn before resetting. Rejection preserves
+                live messages and task-report state.
         """
         if not self._initialized or not self._context:
             raise RuntimeError("VictorClient not initialized. Call initialize() first.")
 
         services = self._resolve_runtime_services()
         if services.chat is not None:
-            await services.chat.reset_conversation()
+            services.chat.reset_conversation()
         else:
             logger.warning("ChatService not available for conversation reset")
 
