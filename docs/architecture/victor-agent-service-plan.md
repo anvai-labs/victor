@@ -67,7 +67,7 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
-- **G93/G94 LOCAL_PASS — review clean, CI/merge pending** — owner: Victor co-design session; branch
+- **G93/G94 ✅ MERGED [#1314](https://github.com/anvai-labs/victor/pull/1314)** — owner: Victor co-design session; branch
   `fix/turn-state-ownership`; initial baseline `8b9be15b1150a13dc50fde3ea6fe1a785e74ce58`.
   Fast-forwarded to `be938af518e526b400373a3b0084a4bd97d8cb92` after the parallel
   theme PR #1313 merged; runtime diff unchanged, brand check/strict MkDocs pass.
@@ -93,8 +93,12 @@ edit. A mock test is not live provider or C5 evidence.
   official pinned Sandhi 0.13.0 binding. Interrupted coverage-import and sandboxed
   BGE-lookup runs are preserved as failed/incomplete evidence, not passes. New G95 records the
   separately reproduced synchronous-reset/async-client mismatch and active-turn
-  reset bypass. **Next: complete CI and squash merge, then G95
-  before SA-04/G62/G70.** This fix is not blanket session-mutation protection;
+  reset bypass. Squash-merged as `e243f6e985902614dd4bd9d610ce761c224cca0b`
+  after clean exact-diff review and all 39 applicable CI checks passed. The merged
+  tree matches the reviewed candidate. Two configured jobs were skipped; the
+  neutral Trivy comparison lacks two baseline configurations and is not a passed
+  scan. The separate blocking security check passed. **Next: G95 before
+  SA-04/G62/G70.** This fix is not blanket session-mutation protection;
   release and live mixed-team C5 acceptance remain separate.
 
 - **G92 ✅ MERGED [#1311](https://github.com/anvai-labs/victor/pull/1311)** — owner: Victor co-design session; branch `fix/root-provider-identity`;

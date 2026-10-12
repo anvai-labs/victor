@@ -1925,19 +1925,19 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   The [canonical checkpoint](victor-agent-service-plan.md#current-checkpoint)
   owns qualification and merge status. G93/G94 remain separate limits.
 
-- **G93 — planning fallback can re-enter the held turn lock (qualification active).**
+- **G93 — planning fallback can re-enter the held turn lock (✅ merged [#1314](https://github.com/anvai-labs/victor/pull/1314)).**
   `ChatService.chat(use_planning=True)` calls its planning handler under the turn
   lock; the previous `PlanningRuntimeService._direct_chat()` called public chat
   and attempted to reacquire that lock. A bounded synthetic run confirms the
-  timeout without model calls. The candidate routes fallback through a typed
+  timeout without model calls. The merged implementation routes fallback through a typed
   already-owned turn operation with one executor, report and reset; retained or
   wrong-task callbacks fail closed. The public planning alias shares the same
   boundary. The [canonical tracker](victor-agent-service-plan.md#current-checkpoint)
   owns qualification and merge evidence.
 
-- **G94 — concurrent resume is not isolated from an active turn (qualification active).**
+- **G94 — concurrent resume is not isolated from an active turn (✅ merged [#1314](https://github.com/anvai-labs/victor/pull/1314)).**
   Root transition validation previously allowed session hydration while a stream
-  was suspended, splitting provider and lifecycle identity. The candidate reuses
+  was suspended, splitting provider and lifecycle identity. The implementation reuses
   the existing session turn lock to reject resume, recovery and member rebinding
   before mutation. Same-session reload is also rejected until turn teardown and
   stream cleanup finish; between-turn resume remains supported. Existing test
