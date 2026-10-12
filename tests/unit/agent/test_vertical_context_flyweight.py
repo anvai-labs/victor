@@ -121,20 +121,22 @@ class TestSubAgentVerticalContextInheritance:
         return ctx
 
     @patch("victor.agent.orchestrator.AgentOrchestrator", autospec=False)
-    def test_child_orchestrator_gets_vertical_context(self, MockOrch):
+    @pytest.mark.parametrize("has_context", [True, False])
+    def test_child_orchestrator_gets_vertical_context(self, MockOrch, has_context):
         from victor.agent.subagents.base import SubAgent, SubAgentConfig, SubAgentRole
 
         # Setup mock orchestrator returned by constructor
         mock_orch = MagicMock()
         mock_orch.tool_registry = MagicMock()
         mock_orch.tool_registry.clear = MagicMock()
+        mock_orch._vertical_context = None
         MockOrch.return_value = mock_orch
 
         parent_vc = self._make_parent_vc()
 
         # Setup mock parent context
         mock_context = MagicMock()
-        mock_context.vertical_context = parent_vc
+        mock_context.vertical_context = parent_vc if has_context else None
         mock_context.settings = MagicMock()
         mock_context.provider = MagicMock()
         mock_context.model = "test-model"
@@ -151,10 +153,7 @@ class TestSubAgentVerticalContextInheritance:
             context_limit=10000,
         )
 
-        subagent = SubAgent.__new__(SubAgent)
-        subagent._context = mock_context
-        subagent.config = config
-        subagent._presentation = MagicMock()
+        subagent = SubAgent(config, mock_context, presentation=MagicMock())
 
         orch = subagent._create_constrained_orchestrator()
 
@@ -162,25 +161,12 @@ class TestSubAgentVerticalContextInheritance:
         assert MockOrch.call_args.kwargs["system_prompt_override"]
         mock_orch.set_system_prompt.assert_not_called()
 
-        # Verify vertical context was set on child orchestrator
-        assert hasattr(mock_orch, "_vertical_context")
+        # Exercise the real inheritance branch for both populated and absent contexts.
         child_vc = mock_orch._vertical_context
+        if not has_context:
+            assert child_vc is None
+            return
         assert child_vc.name == "coding"
         assert child_vc.system_prompt == "Parent prompt"
         assert child_vc.enabled_tools == {"read"}
         assert child_vc.stages == {"plan": {"desc": "plan"}}
-
-    def test_no_vertical_context_when_parent_has_none(self):
-        """When parent has no vertical context, child should not get one either."""
-        parent_vc = self._make_parent_vc()
-        # Verify the guard: create_child_context is NOT called when vc is None
-        child = parent_vc.create_child_context(enabled_tools={"read"})
-        assert child.name == "coding"
-
-        # The actual code path: if parent_vc is None, we skip entirely
-        # This is a logic test — when vertical_context is None, hasattr guard prevents call
-        vc = None
-        called = False
-        if vc is not None and hasattr(vc, "create_child_context"):
-            called = True
-        assert not called
