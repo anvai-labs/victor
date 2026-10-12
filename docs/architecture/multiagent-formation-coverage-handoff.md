@@ -1885,7 +1885,7 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   cohort). This is verdict propagation, not live verifier/C5 acceptance. See the
   [implementation checkpoint](agentic-workflow-safety-audit.md#sa-01-implementation-checkpoint).
 
-- **G90 — post-effect execution evidence retention (local repair; CI/merge pending).**
+- **G90 — post-effect execution evidence retention (✅ source repair [#1307](https://github.com/anvai-labs/victor/pull/1307); release/live acceptance separate).**
   The same audit finds unconditional state restoration after ordinary exceptions
   from `_execute_via_agentic_loop`,
   without distinguishing pre-dispatch failure from failure after an action. Preserve
@@ -1898,7 +1898,8 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   followed by policy denial or cancellation, and an unknown receipt without replay.
   Two post-dispatch cases fail before the repair; all 55 owner tests and the broader
   498-test cohort pass afterward. Full collection finds 34,526 tests; independent
-  review is clean. The bounded fake driver qualifies wrapper behavior,
+  review and all applicable CI are green; merged as
+  `6ebacd4f806bfa0446d951cc2cbbdc10a41dbe2b`. The bounded fake driver qualifies wrapper behavior,
   not live provider propagation or durable restart recovery. See the
   [implementation checkpoint](agentic-workflow-safety-audit.md#sa-02-implementation-checkpoint).
 
