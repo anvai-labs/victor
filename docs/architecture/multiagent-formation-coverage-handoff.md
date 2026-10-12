@@ -1868,7 +1868,7 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   history/checkpoint replay. Released dependency pin remains 0.13.0; upstream
   merge/release and matched provider qualification are still required.
 
-- **G89 — failed member verdict preservation (local repair; CI/merge/release pending).**
+- **G89 — failed member verdict preservation (✅ source repair [#1306](https://github.com/anvai-labs/victor/pull/1306); release/live acceptance separate).**
   The [2026-10-12 SQLite/source audit](agentic-workflow-safety-audit.md#sqlite-and-source-re-audit--2026-10-12)
   confirms that, when the failed loop's final response is empty, a successful earlier
   tool plus nonempty synthesis can overwrite its verdict; the member consumes that
@@ -1879,19 +1879,28 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   The SA-01 source repair now uses the existing typed synthesis helper and retains
   the loop's failure/error/iteration metadata. Four regression cases replaced the
   unsafe expectation; the member owner verifies a failed result and parent handoff
-  despite completion prose. Independent review is clean; 105 direct, 377 broader
+  despite completion prose. Independent review and all applicable CI are green; merged as
+  `8f503cf24272c81520847ddd41406f0ffb7a99c7`. 105 direct, 377 broader
   runtime/member and 58 verifier/stream tests pass (direct tests overlap the broader
   cohort). This is verdict propagation, not live verifier/C5 acceptance. See the
   [implementation checkpoint](agentic-workflow-safety-audit.md#sa-01-implementation-checkpoint).
 
-- **G90 — ordinary loop exceptions restore pre-execution messages/counters (open).**
+- **G90 — post-effect execution evidence retention (local repair; CI/merge pending).**
   The same audit finds unconditional state restoration after ordinary exceptions
   from `_execute_via_agentic_loop`,
   without distinguishing pre-dispatch failure from failure after an action. Preserve
   execution evidence and monotonic consumption after dispatch; qualify a committed
   fake write followed by provider failure, with no second effect. This is not evidence
   that durable receipts are deleted or tools automatically replayed. Complements
-  G62/G70; existing rollback tests lack that post-effect scenario (SA-02).
+  G62/G70. The SA-02 repair removes obsolete wrapper snapshot/restore, retaining
+  accepted history and consumed work; temporary configuration cleanup is unchanged.
+  Its existing regression owner now covers pre-dispatch failure, a committed write
+  followed by policy denial or cancellation, and an unknown receipt without replay.
+  Two post-dispatch cases fail before the repair; all 55 owner tests and the broader
+  498-test cohort pass afterward. Full collection finds 34,526 tests; independent
+  review is clean. The bounded fake driver qualifies wrapper behavior,
+  not live provider propagation or durable restart recovery. See the
+  [implementation checkpoint](agentic-workflow-safety-audit.md#sa-02-implementation-checkpoint).
 
 - **G91 — root runtime identity fallback is duplicated and noncanonical (open).**
   Tool and turn runtimes separately synthesize `session_root` / `root_agent` /

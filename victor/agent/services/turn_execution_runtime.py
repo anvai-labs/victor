@@ -144,7 +144,6 @@ from victor.agent.services.runtime_overrides import (
 )
 
 logger = logging.getLogger(__name__)
-_MISSING = object()
 
 __all__ = ["TurnExecutor", "TurnResult"]
 
@@ -381,51 +380,6 @@ class TurnExecutor:
             for parameter in parameters
         )
 
-    def _snapshot_agentic_loop_state(self) -> Dict[str, Any]:
-        """Capture mutable state before delegated AgenticLoop execution."""
-        conversation = getattr(self._chat_context, "conversation", None)
-        messages = getattr(conversation, "messages", None) if conversation is not None else None
-        if messages is None:
-            messages = getattr(self._chat_context, "messages", None)
-
-        return {
-            "messages": list(messages) if messages is not None else None,
-            "conversation_system_added": (
-                getattr(conversation, "_system_added", _MISSING)
-                if conversation is not None
-                else _MISSING
-            ),
-            "chat_context_system_added": getattr(self._chat_context, "_system_added", _MISSING),
-            "tool_calls_used": getattr(self._tool_context, "tool_calls_used", _MISSING),
-        }
-
-    def _restore_agentic_loop_state(self, snapshot: Dict[str, Any]) -> None:
-        """Restore state before resuming the legacy execution loop."""
-        conversation = getattr(self._chat_context, "conversation", None)
-        if conversation is not None and snapshot.get("messages") is not None:
-            restored_messages = list(snapshot["messages"])
-            if hasattr(conversation, "_messages"):
-                conversation._messages = restored_messages
-            else:
-                current_messages = getattr(conversation, "messages", None)
-                if isinstance(current_messages, list):
-                    current_messages[:] = restored_messages
-
-        conversation_system_added = snapshot.get("conversation_system_added", _MISSING)
-        if conversation is not None and conversation_system_added is not _MISSING:
-            conversation._system_added = conversation_system_added
-
-        chat_context_system_added = snapshot.get("chat_context_system_added", _MISSING)
-        if chat_context_system_added is _MISSING:
-            if hasattr(self._chat_context, "_system_added"):
-                delattr(self._chat_context, "_system_added")
-        else:
-            self._chat_context._system_added = chat_context_system_added
-
-        tool_calls_used = snapshot.get("tool_calls_used", _MISSING)
-        if tool_calls_used is not _MISSING and hasattr(self._tool_context, "tool_calls_used"):
-            self._tool_context.tool_calls_used = tool_calls_used
-
     async def _execute_tool_calls(self, tool_calls: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Execute tool calls through the canonical tool-context surface."""
         from victor.agent.background_tasks import BackgroundTaskDef
@@ -519,17 +473,14 @@ class TurnExecutor:
             user_message,
             metadata={MESSAGE_SOURCE_METADATA_KEY: MessageSource.USER_TYPED.value},
         )
-        agentic_loop_state = self._snapshot_agentic_loop_state()
-
-        try:
-            response = await self._execute_via_agentic_loop(
-                user_message,
-                max_iterations,
-                runtime_context_overrides=runtime_context_overrides,
-            )
-        except Exception:
-            self._restore_agentic_loop_state(agentic_loop_state)
-            raise
+        # Accepted execution history and consumed budget are evidence, not
+        # speculative state: restoring them cannot undo an external tool effect.
+        # Propagate delegated failures without erasing that evidence or replaying.
+        response = await self._execute_via_agentic_loop(
+            user_message,
+            max_iterations,
+            runtime_context_overrides=runtime_context_overrides,
+        )
 
         # Governance RESPONSE phase: gate/redact the assistant's final output.
         if self._message_policy_gate is not None and response is not None:

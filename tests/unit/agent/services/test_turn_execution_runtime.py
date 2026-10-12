@@ -1,5 +1,8 @@
 """Focused tests for TurnExecutor runtime behavior."""
 
+import asyncio
+import json
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
@@ -10,6 +13,7 @@ from victor.agent.orchestrator import AgentOrchestrator
 from victor.agent.services.turn_execution_runtime import TurnExecutor, TurnResult
 from victor.agent.topology_contract import TopologyAction, TopologyKind
 from victor.agent.topology_grounder import GroundedTopologyPlan
+from victor.core.errors import ProviderPolicyError
 from victor.framework.agentic_loop import LoopIteration, LoopResult, LoopStage
 from victor.framework.evaluation_nodes import EvaluationDecision, EvaluationResult
 from victor.framework.task.protocols import TaskComplexity
@@ -914,8 +918,26 @@ async def test_prepare_runtime_topology_resolves_framework_team_plan():
 
 
 @pytest.mark.asyncio
-async def test_execute_agentic_loop_restores_state_before_reraising_failure():
-    messages = []
+@pytest.mark.parametrize(
+    ("failure_phase", "failure"),
+    [
+        pytest.param("before_dispatch", RuntimeError("setup failed"), id="before-dispatch"),
+        pytest.param(
+            "after_receipt", ProviderPolicyError("policy_denied"), id="late-policy-denial"
+        ),
+        pytest.param("after_receipt", asyncio.CancelledError(), id="late-cancellation"),
+        pytest.param("before_receipt", TimeoutError("receipt lost"), id="unknown-write-outcome"),
+    ],
+)
+async def test_execute_agentic_loop_retains_execution_evidence_on_failure(
+    tmp_path: Path, failure_phase: str, failure: BaseException
+):
+    """The delegation boundary must not roll back evidence of dispatched work.
+
+    The bounded loop driver isolates this wrapper's exception behavior; generic
+    exceptions inside the real AgenticLoop can instead become failed LoopResults.
+    """
+    messages: list[Message] = []
 
     class FakeConversation:
         def __init__(self):
@@ -930,7 +952,7 @@ async def test_execute_agentic_loop_restores_state_before_reraising_failure():
     conversation = FakeConversation()
 
     def _add_message(role: str, content: str, **kwargs) -> None:
-        messages.append(Message(role=role, content=content))
+        messages.append(Message(role=role, content=content, **kwargs))
 
     chat_context = SimpleNamespace(
         settings=SimpleNamespace(chat_max_iterations=5),
@@ -962,25 +984,63 @@ async def test_execute_agentic_loop_restores_state_before_reraising_failure():
     executor._is_question_only = MagicMock(return_value=True)
     executor._check_context_compaction = AsyncMock()
 
+    call = {"id": "call_write_1", "name": "write", "arguments": {"content": "committed"}}
+    receipt = {"operation_id": "operation_1", "status": "committed"}
+    committed_file = tmp_path / "effect.json"
+
+    async def _commit_write(tool_calls):
+        assert tool_calls == [call]
+        tool_context.tool_calls_used += 1
+        committed_file.write_text(json.dumps(receipt))
+        if failure_phase == "before_receipt":
+            raise failure
+        chat_context.add_message("tool", json.dumps(receipt), tool_call_id=call["id"], name="write")
+        return [{"success": True, "result": receipt, "tool_call_id": call["id"]}]
+
+    tool_context.execute_tool_calls = AsyncMock(side_effect=_commit_write)
+    executor._execute_model_turn = AsyncMock(side_effect=failure)
+    executor._ensure_complete_response = AsyncMock()
     loop_instance = MagicMock()
 
     async def _loop_run(query: str, context=None, conversation_history=None):
         assert query == "hello"
-        chat_context.add_message("assistant", "partial delegated answer")
-        tool_context.tool_calls_used = 4
-        raise RuntimeError("delegated loop failed mid-turn")
+        if failure_phase != "before_dispatch":
+            chat_context.add_message("assistant", "", tool_calls=[call])
+            await executor._execute_tool_calls([call])
+        await executor._execute_model_turn()
 
     loop_instance.run = AsyncMock(side_effect=_loop_run)
 
     with (
         patch("victor.framework.agentic_loop.AgenticLoop", return_value=loop_instance),
-        pytest.raises(RuntimeError, match="delegated loop failed mid-turn"),
+        pytest.raises(type(failure)) as caught,
     ):
         await executor.execute_agentic_loop("hello", max_iterations=5)
 
-    assert tool_context.tool_calls_used == 7
-    assert [message.role for message in messages] == ["system", "user"]
-    assert [message.content for message in messages] == ["system prompt", "hello"]
+    assert caught.value is failure
+    loop_instance.run.assert_awaited_once()
+    executor._ensure_complete_response.assert_not_awaited()
+    assert conversation._system_added is True
+    assert chat_context._system_added is True
+    assert [message.content for message in messages[:2]] == ["system prompt", "hello"]
+    if failure_phase == "before_dispatch":
+        assert tool_context.tool_calls_used == 7
+        assert [message.role for message in messages] == ["system", "user"]
+        assert not committed_file.exists()
+        tool_context.execute_tool_calls.assert_not_awaited()
+    else:
+        assert json.loads(committed_file.read_text()) == receipt
+        assert tool_context.tool_calls_used == 8
+        tool_context.execute_tool_calls.assert_awaited_once_with([call])
+        assert messages[2].role == "assistant"
+        assert messages[2].tool_calls == [call]
+        if failure_phase == "after_receipt":
+            assert len(messages) == 4
+            assert messages[3].role == "tool"
+            assert messages[3].tool_call_id == call["id"]
+            assert json.loads(messages[3].content) == receipt
+        else:
+            assert len(messages) == 3  # No invented receipt for an unknown result.
 
 
 @pytest.mark.asyncio
