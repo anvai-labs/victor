@@ -786,7 +786,10 @@ class TestChatServiceBootstrapLaziness:
         from victor.agent.orchestrator import AgentOrchestrator
         from victor.agent.services.tool_execution_runtime import ToolExecutionRuntime
 
+        from victor.agent.runtime.context import RuntimeIdentity
+
         obj = object.__new__(AgentOrchestrator)
+        obj._runtime_identity = RuntimeIdentity(obj)
         adapter = MagicMock(name="protocol_adapter")
         obj._protocol_adapter = adapter
 
@@ -796,12 +799,16 @@ class TestChatServiceBootstrapLaziness:
         assert isinstance(first, ToolExecutionRuntime)
         assert first is second
         assert first._runtime is adapter
+        assert first._runtime_context.__self__ is obj._runtime_identity
 
     def test_get_session_runtime_prefers_cached_helper_and_protocol_adapter(self):
         from victor.agent.orchestrator import AgentOrchestrator
         from victor.agent.services.session_runtime import SessionRuntime
 
+        from victor.agent.runtime.context import RuntimeIdentity
+
         obj = object.__new__(AgentOrchestrator)
+        obj._runtime_identity = RuntimeIdentity(obj)
         adapter = MagicMock(name="protocol_adapter")
         obj._protocol_adapter = adapter
 
@@ -811,6 +818,7 @@ class TestChatServiceBootstrapLaziness:
         assert isinstance(first, SessionRuntime)
         assert first is second
         assert first._runtime is adapter
+        assert first._validate_session.__self__ is obj._runtime_identity
 
     @pytest.mark.asyncio
     async def test_switch_provider_delegates_to_helper(self):

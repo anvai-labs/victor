@@ -219,3 +219,31 @@ def test_constrained_registry_wraps_worktree_tools(tmp_path):
     bound = target.tool_registry.register.call_args.args[0]
     assert isinstance(bound, WorkspaceBoundTool)
     assert bound._tool is raw_tool
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("explicit_child", [False, True])
+async def test_concurrent_member_identity_matches_stream_and_never_rederives_in_child_scope(
+    parent_session, explicit_child
+):
+    members = [_member(), _member()]
+    for index, member in enumerate(members):
+        member.config.member_id = f"member-{index}"
+        member.config.agent_id = f"agent-{index}"
+        member.config.parent_session_id = None  # derive from caller before installing child scope
+        if explicit_child:
+            member.config.child_session_id = f"session_root:team:member-{index}"
+        member.orchestrator.on_advance = lambda member=member: (
+            member._get_runtime_context().session_id == get_session_id()
+        ) or pytest.fail("Provider and lifecycle identity diverged")
+
+    async def consume(member):
+        return [chunk async for chunk in member.stream_execute()]
+
+    await asyncio.gather(*(consume(member) for member in members))
+    contexts = [member._get_runtime_context() for member in members]
+    assert len({context.session_id for context in contexts}) == 2
+    for member, context in zip(members, contexts):
+        assert member.orchestrator.sessions == [context.session_id] * 2
+        assert member._identity_metadata()["session_id"] == context.session_id
+    assert get_session_id() == parent_session

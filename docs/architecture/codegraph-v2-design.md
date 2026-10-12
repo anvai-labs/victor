@@ -393,7 +393,7 @@ Foundation consumer PR AnvaiOps #489 merged at
 `37113d8f1db30872b790ca013dd0f215b3fa63b0`. Both had clean independent review
 and all applicable CI green. Conditional skips are not full integration acceptance.
 
-[FEP-0040](../../feps/fep-0040-codegraph-embedding-conformance.md) owns the next
+[FEP-0040](https://github.com/anvai-labs/victor/blob/develop/feps/fep-0040-codegraph-embedding-conformance.md) owns the next
 shared contract and its precise evidence. The released package adds one optional
 BGE encoder, canonical symbol-summary input, immutable model/profile identity,
 source/input hashes and strict vector validation. Both storage adapters consumed
@@ -457,7 +457,7 @@ build against the published wheel. Consumer pin and explorer changes are in
 `74cb08de8ec294af761d2d641911caacb32be36d` after independent review and all applicable
 CI green. Configured integration/E2E skips are not acceptance evidence. None of these counts establishes hosted lifecycle acceptance.
 
-The [SQLite/source architecture audit](agentic-workflow-safety-audit.md#sqlite-and-source-re-audit--2026-10-12)
+The [SQLite/source architecture audit](agentic-workflow-safety-audit.md#sqlite-and-source-re-audit-2026-10-12)
 uses this repository evidence to prioritize outcome correctness, effect retention,
 identity and typed contracts. It excludes unqualified semantic similarity and the
 current size-based cohesion heuristic from defect claims. G89/SA-01 and G90/SA-02

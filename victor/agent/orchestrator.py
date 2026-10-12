@@ -64,6 +64,7 @@ from rich.console import Console
 
 # Coordinators (Phase 2 refactoring - being integrated)
 # NOTE: These are runtime imports, not type-checking only
+from victor.agent.runtime.context import RuntimeIdentity
 from victor.core.async_utils import aclosing_if_supported as _aclosing
 from victor.agent.services.metrics_service import AgentMetricsService  # noqa: F401
 
@@ -901,6 +902,7 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
         self._profile_name = profile_name
         # Track active session ID for parallel session support
         self.active_session_id: Optional[str] = None
+        self._runtime_identity = RuntimeIdentity(self)
         # Bootstrap DI container - ensures all services are available
         # This is idempotent and will only bootstrap if not already done
         self._container = ensure_bootstrapped(settings)
@@ -3403,7 +3405,9 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
                 ToolExecutionRuntime,
             )
 
-            runtime = ToolExecutionRuntime(self.protocol_adapter)
+            runtime = ToolExecutionRuntime(
+                self.protocol_adapter, runtime_context=self._runtime_identity.resolve
+            )
             self._tool_execution_runtime = runtime
         return runtime
 
@@ -3671,7 +3675,10 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
         if runtime is None:
             from victor.agent.services.session_runtime import SessionRuntime
 
-            runtime = SessionRuntime(self.protocol_adapter)
+            runtime = SessionRuntime(
+                self.protocol_adapter,
+                validate_session=self._runtime_identity.validate_session_transition,
+            )
             self._session_runtime = runtime
         return runtime
 

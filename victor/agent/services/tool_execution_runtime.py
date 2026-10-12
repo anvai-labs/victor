@@ -11,7 +11,7 @@ import inspect
 import logging
 from typing import Any, Dict, List, Optional
 
-from victor.agent.runtime.context import AgentRuntimeContext
+from victor.agent.runtime.context import RuntimeContextResolver, require_runtime_context
 from victor.agent.tool_execution.categorization import (
     ToolCategory,
     categorize_tool_call,
@@ -50,8 +50,11 @@ def _tool_result_matches_checkpoint(
 class ToolExecutionRuntime:
     """Bridge orchestrator tool pipeline state into the canonical tool service."""
 
-    def __init__(self, runtime_host: Any) -> None:
+    def __init__(
+        self, runtime_host: Any, *, runtime_context: Optional[RuntimeContextResolver] = None
+    ) -> None:
         self._runtime = runtime_host
+        self._runtime_context = runtime_context
 
     async def execute_tool_calls(
         self, tool_calls: List[Dict[str, Any]], *, require_persistence: bool = False
@@ -197,6 +200,7 @@ class ToolExecutionRuntime:
         if triggering_tool_call is None:
             return None
 
+        context = require_runtime_context(self._runtime_context)
         tool_name = str(triggering_tool_call.get("name") or "tool")
         conversation_checkpoint_id = await self._save_conversation_checkpoint(
             runtime,
@@ -207,7 +211,7 @@ class ToolExecutionRuntime:
             tool_name,
         )
         checkpoint = ExecutionCheckpoint.create(
-            session_id=self._resolve_runtime_context(runtime).session_id,
+            session_id=context.session_id,
             graph_checkpoint_id=self._resolve_graph_checkpoint_id(runtime),
             conversation_checkpoint_id=conversation_checkpoint_id,
             filesystem_checkpoint_id=filesystem_checkpoint_id,
@@ -413,7 +417,7 @@ class ToolExecutionRuntime:
         before_tool_output = getattr(lifecycle, "before_tool_output", None)
         if not callable(before_tool_output):
             return None
-        runtime_context = self._resolve_runtime_context(runtime)
+        runtime_context = require_runtime_context(self._runtime_context)
         messages = self._get_runtime_messages(runtime)
         decision = before_tool_output(
             runtime_context,
@@ -482,27 +486,6 @@ class ToolExecutionRuntime:
                 stream_ctx.last_compaction_turn = getattr(stream_ctx, "total_iterations", 0)
                 stream_ctx.compaction_message_removed_count = removed
                 stream_ctx.compaction_summary = compaction_summary
-
-    def _resolve_runtime_context(self, runtime: Any) -> AgentRuntimeContext:
-        existing = getattr(runtime, "_agent_runtime_context", None) or getattr(
-            runtime,
-            "agent_runtime_context",
-            None,
-        )
-        if isinstance(existing, AgentRuntimeContext):
-            return existing
-        session_id = (
-            getattr(runtime, "active_session_id", None)
-            or getattr(runtime, "session_id", None)
-            or getattr(runtime, "_memory_session_id", None)
-            or "session_root"
-        )
-        return AgentRuntimeContext(
-            agent_id=str(getattr(runtime, "agent_id", None) or "root_agent"),
-            display_name=str(getattr(runtime, "display_name", None) or "Root Agent"),
-            role=str(getattr(runtime, "role", None) or "manager"),
-            session_id=str(session_id),
-        )
 
     @staticmethod
     def _get_runtime_messages(runtime: Any) -> List[Any]:

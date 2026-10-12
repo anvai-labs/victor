@@ -306,6 +306,7 @@ class SubAgent(IAgent):  # type: ignore[misc]
         # (some code may access self.parent directly)
         self.parent = parent
         self.orchestrator: Optional["AgentOrchestrator"] = None
+        self._runtime_context: Optional["AgentRuntimeContext"] = None
         self._context_lifecycle = context_lifecycle
         self._owned_context_lifecycle: Optional["ContextLifecycleService"] = None
 
@@ -313,6 +314,12 @@ class SubAgent(IAgent):  # type: ignore[misc]
             f"Created {config.role.value} sub-agent: {config.task[:50]}... "
             f"(budget={config.tool_budget}, tools={len(config.allowed_tools)})"
         )
+
+    def _get_runtime_context(self) -> "AgentRuntimeContext":
+        """Resolve once before installing the child provider session scope."""
+        if self._runtime_context is None:
+            self._runtime_context = self.config.to_runtime_context()
+        return self._runtime_context
 
     @property
     def id(self) -> str:
@@ -489,6 +496,8 @@ class SubAgent(IAgent):  # type: ignore[misc]
             )
         finally:
             current_member_approval_handler.reset(_approval_token)
+
+        orchestrator._runtime_identity.bind_member(self._get_runtime_context())
 
         # Inherit parent's vertical context via flyweight pattern
         parent_vc = self._context.vertical_context
@@ -694,6 +703,7 @@ class SubAgent(IAgent):  # type: ignore[misc]
         start_time = time.time()
 
         try:
+            self._get_runtime_context()
             # Create constrained orchestrator lazily
             if self.orchestrator is None:
                 self.orchestrator = self._create_constrained_orchestrator()
@@ -711,7 +721,7 @@ class SubAgent(IAgent):  # type: ignore[misc]
                 session_id as _ctx_session_id,
             )
 
-            self._resolved_session_id = self.config.resolve_member_session_id()
+            self._resolved_session_id = self._get_runtime_context().session_id
             session_token = set_session_id(self._resolved_session_id)
             try:
                 # Run the task with retry on rate limits
@@ -740,7 +750,7 @@ class SubAgent(IAgent):  # type: ignore[misc]
 
             # Create structured result. A failed agentic loop is a real sub-agent
             # failure even when the provider returned a final response object.
-            runtime_context = self.config.to_runtime_context()
+            runtime_context = self._get_runtime_context()
             lifecycle_report = await self._run_context_lifecycle(runtime_context)
             status = "success" if execution_success else "failed"
             result = SubAgentResult(
@@ -823,7 +833,7 @@ class SubAgent(IAgent):  # type: ignore[misc]
                 except Exception as e:
                     logger.debug("Failed to compute sub-agent context size: %s", e)
 
-            runtime_context = self.config.to_runtime_context()
+            runtime_context = self._get_runtime_context()
             return SubAgentResult(
                 success=False,
                 summary=f"Sub-agent failed: {error_msg[:450]}",
@@ -1005,7 +1015,7 @@ class SubAgent(IAgent):  # type: ignore[misc]
             session_id as _ctx_session_id,
         )
 
-        member_session_id = self.config.resolve_member_session_id()
+        member_session_id = self._get_runtime_context().session_id
         self._resolved_session_id = member_session_id
         stream = None
         try:

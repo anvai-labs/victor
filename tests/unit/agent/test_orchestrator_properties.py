@@ -217,3 +217,53 @@ class TestOrchestratorPropertyInstallation:
         orchestrator.session_ledger = new_value
 
         assert orchestrator._session_ledger is new_value
+
+
+@pytest.mark.asyncio
+async def test_shared_runtime_identity_survives_recovery_and_reaches_both_consumers():
+    """Exercise facade wiring, not copies of its resolution policy in test mocks."""
+    from unittest.mock import AsyncMock
+    from victor.agent.orchestrator import AgentOrchestrator
+    from victor.agent.runtime.context import RuntimeIdentity
+
+    orchestrator = object.__new__(AgentOrchestrator)
+    orchestrator._runtime_identity = RuntimeIdentity(orchestrator)
+    orchestrator.active_session_id = "old-active"
+    orchestrator._memory_session_id = "old-memory"
+    orchestrator._turn_executor = None
+    orchestrator._context_lifecycle_service = SimpleNamespace(
+        after_agent_turn=AsyncMock(return_value={})
+    )
+    orchestrator.get_messages = lambda: []
+    orchestrator._session_service = SimpleNamespace(recover_session=MagicMock(return_value=True))
+    tools = orchestrator._get_tool_execution_runtime()
+    turn = orchestrator.turn_executor
+    tools._save_conversation_checkpoint = AsyncMock(return_value=None)
+    tools._create_filesystem_checkpoint = AsyncMock(return_value=None)
+    tools._record_execution_checkpoint = MagicMock()
+    before = orchestrator._runtime_identity.resolve()
+    assert before.session_id == "old-active"
+    assert orchestrator._get_session_runtime().recover_session("recovered")
+    current = orchestrator._runtime_identity.resolve()
+    assert current is tools._runtime_context() is turn._runtime_context()
+    assert current.session_id == "recovered"
+    assert before.session_id == "old-active"
+    checkpoint = await tools._maybe_create_execution_checkpoint(
+        orchestrator.protocol_adapter, [{"id": "write", "name": "write", "arguments": {}}]
+    )
+    assert checkpoint.session_id == current.session_id
+    await turn._check_lifecycle_context_compaction("hello")
+    assert orchestrator._context_lifecycle_service.after_agent_turn.await_args.args[0] is current
+    # A later explicit resume must be visible to already-created consumers too.
+    orchestrator.active_session_id = "loaded"
+    assert tools._runtime_context().session_id == turn._runtime_context().session_id == "loaded"
+
+    child = current.derive_child(
+        agent_id="member-agent", display_name="Member", role="researcher", member_id="m"
+    )
+    orchestrator._runtime_identity.bind_member(child)
+    with pytest.raises(ValueError, match="member session"):
+        orchestrator._get_session_runtime().recover_session("another-member")
+    orchestrator._session_service.recover_session.assert_called_once_with("recovered")
+    assert orchestrator.active_session_id == child.session_id
+    assert tools._runtime_context() is turn._runtime_context() is child

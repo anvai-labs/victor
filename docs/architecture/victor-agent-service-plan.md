@@ -67,6 +67,26 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
+- **SA-03/G91 LOCAL_PASS** — owner: Victor co-design session; branch
+  `fix/shared-runtime-identity`; baseline `83708efc5e75aa17632a36a88a4e47225924ed7a`.
+  One typed identity owner now supplies both consumers, refreshes root identity
+  after resume/recovery and binds the already-derived member context. Checkpoint
+  identity validation precedes writes; member transition validation precedes hydration.
+  Four initial regressions failed as intended; final focused coverage run passes
+  369 tests and independent review passes 153. The broader 2,160-case run passed
+  2,157 in the restricted environment: two incomplete assembly fixtures were
+  corrected (their full 75-test owner passes); the remaining Hugging Face lookup
+  timeout passes outside the sandbox. Earlier interrupted/failed logs are retained,
+  not counted as full passes. Existing member/exploration extras pass 71 tests.
+  Strict MyPy passes 2,001 files; collection finds 34,525 tests; Black, Ruff,
+  facade guards, hygiene, dependency locks, CLI entry-point smoke and strict
+  MkDocs pass. No duplicate test copies were added or coverage-bearing tests removed.
+  Independent review is clean; next are PR CI and gated squash merge. Release and
+  C5 remain separate. See [implementation scope](agentic-workflow-safety-audit.md#sa-03-implementation-scope).
+  Newly recorded G92 remains TODO: qualify memory-disabled root provider correlation
+  through the existing turn owner, including direct and Sandhi paths. This slice
+  does not change root transport scoping.
+
 - SA-01/G89 outcome repair merged in [#1306](https://github.com/anvai-labs/victor/pull/1306)
   as `8f503cf24272c81520847ddd41406f0ffb7a99c7`, with clean independent review and
   all applicable CI green. Failed loop verdicts survive presentation synthesis;
@@ -994,7 +1014,7 @@ VAS-17 released InferFlux provenance and bounded wire acceptance now pass; track
 an effort-weighted completion percentage. The original formation denominator is
 independent. Update this paragraph and the rows together at each checkpoint.
 
-The [2026-10-12 SQLite/source re-audit](agentic-workflow-safety-audit.md#sqlite-and-source-re-audit--2026-10-12)
+The [2026-10-12 SQLite/source re-audit](agentic-workflow-safety-audit.md#sqlite-and-source-re-audit-2026-10-12)
 adds open G89–G91: truthful member outcomes, post-effect state retention and canonical
 runtime identity. Repair those through existing turn/tool/member owners before
 expanding automation. SA-04/SA-05 narrow typed service dependencies and consolidate

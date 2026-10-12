@@ -1869,7 +1869,7 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   merge/release and matched provider qualification are still required.
 
 - **G89 — failed member verdict preservation (✅ source repair [#1306](https://github.com/anvai-labs/victor/pull/1306); release/live acceptance separate).**
-  The [2026-10-12 SQLite/source audit](agentic-workflow-safety-audit.md#sqlite-and-source-re-audit--2026-10-12)
+  The [2026-10-12 SQLite/source audit](agentic-workflow-safety-audit.md#sqlite-and-source-re-audit-2026-10-12)
   confirms that, when the failed loop's final response is empty, a successful earlier
   tool plus nonempty synthesis can overwrite its verdict; the member consumes that
   metadata as success. Preserve useful
@@ -1903,13 +1903,25 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   not live provider propagation or durable restart recovery. See the
   [implementation checkpoint](agentic-workflow-safety-audit.md#sa-02-implementation-checkpoint).
 
-- **G91 — root runtime identity fallback is duplicated and noncanonical (open).**
-  Tool and turn runtimes separately synthesize `session_root` / `root_agent` /
-  `manager` when no typed context is found. Normal initialized member paths use the
-  existing context; no live collision is claimed. Construct and inject one immutable
-  identity at assembly, reject missing identity at effect/persistence boundaries,
-  and explicitly normalize the legacy role to `supervisor`. Preserve the existing
-  child-session derivation and qualify both consumers (SA-03).
+- **G91 — shared runtime identity ownership (LOCAL_PASS; merge pending).**
+  The two fallback builders are replaced by one typed owner/resolver, with current
+  immutable contexts for root resume and explicitly bound member contexts. Missing
+  checkpoint identity fails before persistence; cross-member recovery fails before
+  hydration. Member dash/colon session formats remain unchanged. The
+  [canonical checkpoint](victor-agent-service-plan.md#current-checkpoint) owns
+  review/CI/merge state and the [audit scope](agentic-workflow-safety-audit.md#sa-03-implementation-scope)
+  records limits. Universal root-provider correlation, release and C5 remain separate.
+
+- **G92 — memory-disabled root transport/session correlation is unqualified (open).**
+  SA-03 assigns an explicit unique checkpoint/lifecycle identity to roots without
+  an active or memory session. Provider transport still reads the existing core
+  session ContextVar, and the facade only restamps a nonempty active session. It
+  can therefore observe an empty/inherited provider session while lifecycle uses
+  the explicit root identity. Follow up in the existing turn owner: preserve
+  caller restoration, streaming cancellation and resume behavior; qualify direct
+  and Sandhi transport correlation without introducing another ContextVar or
+  silently changing an in-flight scope. This is source evidence, not a live
+  collision result; it remains a separate C5/identity acceptance prerequisite.
 
 Validation-test audit: neither live harness had direct tests before this follow-up.
 The new mixed-harness suite covers rejected/malformed/missing reviews, inclusive

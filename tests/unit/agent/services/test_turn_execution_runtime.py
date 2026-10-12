@@ -83,6 +83,10 @@ async def test_check_context_compaction_prefers_lifecycle_service():
         display_name="Root Agent",
         get_messages=MagicMock(return_value=[{"role": "user", "content": "hello"}]),
     )
+    from victor.agent.runtime.context import RuntimeIdentity
+
+    orchestrator._memory_session_id = None
+    executor._runtime_context = RuntimeIdentity(orchestrator).resolve
     executor._orchestrator = orchestrator
     executor._chat_context._context_compactor = legacy_compactor
     executor._tool_context.tool_calls_used = 0

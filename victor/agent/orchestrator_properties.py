@@ -210,6 +210,7 @@ def _turn_executor(self: "AgentOrchestrator") -> Any:
             provider_context=self.protocol_adapter,
             execution_provider=self.protocol_adapter,
             message_policy_gate=getattr(self, "_message_policy_gate", None),
+            runtime_context=self._runtime_identity.resolve,
         )
     return self._turn_executor
 

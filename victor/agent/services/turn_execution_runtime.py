@@ -52,7 +52,7 @@ from typing import Any, Dict, List, Optional, Set, TYPE_CHECKING
 from dataclasses import dataclass, field, replace
 
 from victor.agent.conversation.types import MESSAGE_SOURCE_METADATA_KEY, MessageSource
-from victor.agent.runtime.context import AgentRuntimeContext
+from victor.agent.runtime.context import RuntimeContextResolver, require_runtime_context
 from victor.agent.response_completer import ToolFailureContext
 from victor.agent.services.context_service import compact_context_if_recommended
 from victor.providers.base import CompletionResponse
@@ -179,6 +179,7 @@ class TurnExecutor:
         execution_provider: Any,  # ExecutionProvider protocol
         exploration_coordinator: Optional[Any] = None,
         message_policy_gate: Optional[Any] = None,
+        runtime_context: Optional[RuntimeContextResolver] = None,
     ) -> None:
         """Initialize the TurnExecutor.
 
@@ -197,12 +198,15 @@ class TurnExecutor:
                 :class:`~victor.framework.policies.gate.MessagePolicyGate` that
                 gates the REQUEST (user message pre-LLM) and RESPONSE (assistant
                 output) phases. None disables message-phase governance (default).
+            runtime_context: Shared identity resolver, required when lifecycle
+                compaction is enabled. Resolved at the operation boundary.
         """
         self._chat_context = chat_context
         self._tool_context = tool_context
         self._provider_context = provider_context
         self._execution_provider = execution_provider
         self._exploration_coordinator = exploration_coordinator
+        self._runtime_context = runtime_context
         self._message_policy_gate = message_policy_gate
         self._exploration_done = False  # Instance-level: fires once per conversation
         self._last_tool_follow_up_guidance_signature: Optional[tuple[str, ...]] = None
@@ -1789,7 +1793,7 @@ class TurnExecutor:
         if not callable(after_agent_turn):
             return False
 
-        runtime_context = self._root_runtime_context(orchestrator)
+        runtime_context = require_runtime_context(self._runtime_context)
         result = after_agent_turn(
             runtime_context,
             messages=self._root_runtime_messages(orchestrator),
@@ -1803,28 +1807,6 @@ class TurnExecutor:
                 result.get("messages_removed", 0),
             )
         return True
-
-    @staticmethod
-    def _root_runtime_context(orchestrator: Any) -> AgentRuntimeContext:
-        existing = getattr(orchestrator, "_agent_runtime_context", None) or getattr(
-            orchestrator,
-            "agent_runtime_context",
-            None,
-        )
-        if isinstance(existing, AgentRuntimeContext):
-            return existing
-        session_id = (
-            getattr(orchestrator, "active_session_id", None)
-            or getattr(orchestrator, "session_id", None)
-            or getattr(orchestrator, "_memory_session_id", None)
-            or "session_root"
-        )
-        return AgentRuntimeContext(
-            agent_id=str(getattr(orchestrator, "agent_id", None) or "root_agent"),
-            display_name=str(getattr(orchestrator, "display_name", None) or "Root Agent"),
-            role=str(getattr(orchestrator, "role", None) or "manager"),
-            session_id=str(session_id),
-        )
 
     def _root_runtime_messages(self, orchestrator: Any) -> List[Any]:
         get_messages = getattr(orchestrator, "get_messages", None)
