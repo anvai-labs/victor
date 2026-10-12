@@ -1964,6 +1964,24 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   qualification and merge evidence (`e9db76a9d4e05752413dc33aa82b0d8ea40ee167`);
   source work does not close release/C5.
 
+- **G96 — broad MyPy suppression weakens runtime type qualification (open).**
+  SA-04 inspection found `pyproject.toml` applies `ignore_errors = true` to
+  `victor.*`. A successful repository-wide `mypy --strict` command therefore
+  does not prove every checked module is type-safe. Enabling errors for the tool
+  execution runtime exposed four previously suppressed errors. The SA-04a
+  candidate explicitly checks that runtime and its required collaborator
+  contracts, plus positive/negative constructor fixtures. Other modules,
+  including the compatibility adapter, retain their historical exception;
+  retire exceptions in bounded, behavior-qualified increments. Adapter dynamic
+  forwarding is not proof of explicit protocol implementation: retain real
+  delegation tests alongside static checks. No blanket typing-completion claim.
+  The user subsequently authorized repository-wide remediation. The unsuppressed
+  core audit reports 7,794 errors across 1,082 files (baseline `ac3c15e8` plus the
+  SA-04a candidate). Independent Python packages are also in scope. The canonical
+  [G96 typing sequence](victor-agent-service-plan.md#repository-wide-typing-qualification-g96)
+  owns ordered remediation and acceptance; this gap stays open until the final
+  unsuppressed matrix passes.
+
 Validation-test audit: neither live harness had direct tests before this follow-up.
 The new mixed-harness suite covers rejected/malformed/missing reviews, inclusive
 cache accounting, missing artifacts, bad member usage, pytest timeout, startup and

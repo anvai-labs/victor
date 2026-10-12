@@ -3398,7 +3398,10 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
             )
 
             runtime = ToolExecutionRuntime(
-                self.protocol_adapter, runtime_context=self._runtime_identity.resolve
+                self.protocol_adapter,
+                execution=self.protocol_adapter,
+                publication=self.protocol_adapter,
+                runtime_context=self._runtime_identity.resolve,
             )
             self._tool_execution_runtime = runtime
         return runtime

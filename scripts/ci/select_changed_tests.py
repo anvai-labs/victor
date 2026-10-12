@@ -164,6 +164,12 @@ RELATED_TESTS = {
         "tests/unit/agent/services/test_protocol_adapter_kwarg_strip.py",
         "tests/unit/agent/services/test_service_runtime_parity.py",
     ),
+    # Definition-only contracts share the runtime behavior and static fixtures;
+    # do not add a duplicate mirror suite just to satisfy source-name matching.
+    "victor/agent/services/tool_execution_contracts.py": (
+        "tests/unit/agent/services/test_tool_execution_runtime.py",
+        "tests/unit/agent/services/test_typed_contracts.py",
+    ),
     "victor/agent/services/chat_persistence.py": (
         "tests/unit/agent/services/test_chat_service.py",
         "tests/unit/agent/test_orchestrator_core.py",

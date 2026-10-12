@@ -831,7 +831,9 @@ ignore = [
 
 [tool.mypy]
 python_version = "3.12"
-# Type checking configuration - M3: Global strict mode enabled (2026-03-10)
+# Strict flags apply globally, but the legacy ignore_errors override below still
+# suppresses most diagnostics. G96 tracks removal; configured success is not full
+# repository compliance (see docs/architecture/victor-agent-service-plan.md).
 strict = true
 warn_return_any = true
 warn_unused_configs = true
@@ -852,7 +854,7 @@ files = ["victor"]
 # M1 baseline (2026-03-10): 6 modules
 # M1 expansion (2026-03-10): +5 modules (total 11)
 # M2 expansion (2026-03-10): +4 modules (total 15)
-# M3 achievement (2026-03-10): Global strict enabled
+# Historical M3 milestone enabled strict flags, not unsuppressed qualification.
 [[tool.mypy.overrides]]
 module = [
     # These modules paved the way for global strict adoption
@@ -878,11 +880,11 @@ module = [
 # Note: These modules now inherit strict=true from global config
 # Keeping this override for documentation and milestone tracking
 
-# M4: Technical debt remediation in progress (2026-03-11)
-# Modules verified as type-safe (removed from ignore_errors):
+# Historical M4 inventory (2026-03-11). These no-op overrides do not cancel the
+# catch-all ignore_errors below; do not interpret them as current type-safety proof.
 [[tool.mypy.overrides]]
 module = [
-    # Verified type-safe in M4
+    # Recorded M4 targets; requalification belongs to G96
     "victor.providers.*",  # 41 files
     "victor.codebase.*",  # victor/contrib/codebase: 5, victor/verticals/contrib/coding/codebase: 20
     "victor.tools.*",  # 86 files - Fixed 74 errors in language_analyzer.py
@@ -916,13 +918,18 @@ module = [
 ]
 ignore_errors = true
 
-# M4 Status Summary (2026-03-11):
-# - Removed ignore_errors for 13 modules (946 files)
-# - Fixed 76 type errors:
-#   * 74 in language_analyzer.py
-#   * 2 in ui/commands/init.py
-# - All major modules now verified type-safe
-# - Remaining: Catch-all for any new/unvisited modules
+# SA-04: required execution/publication contracts must actually be checked,
+# rather than inheriting the historical victor.* error-suppression exception.
+[[tool.mypy.overrides]]
+module = [
+    "victor.agent.services.tool_execution_contracts",
+    "victor.agent.services.tool_execution_runtime",
+]
+ignore_errors = false
+
+# G96 audit (2026-10-12): disabling legacy ignore_errors exposes 7,794 core
+# errors across 1,082 files. Only the exact SA-04 modules above are requalified
+# in this increment; independent packages and remaining modules stay open.
 
 [tool.black]
 line-length = 100
