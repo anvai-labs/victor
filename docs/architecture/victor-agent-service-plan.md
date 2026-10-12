@@ -67,27 +67,34 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
-- **Promotion checkpoint ACTIVE; CG-S06 blocks main** — owner: Victor co-design
-  session; branch `fix/python-lexical-bindings`; baseline `78805fca374b43841c580475c0135b7e1f418e7e`.
-  The user requested source promotion before more broad typing work. Cumulative
-  main-to-develop review found #1299 could resolve a nested function/class/closure
-  call to a shadowed import with confidence 1.0. Existing relation tests reproduce
-  six failures; nearest lexical definition scopes repair those while preserving
-  unresolved conditional bindings and the unshadowed import control. Three touched
-  production modules pass strict MyPy 2.4.0; 372 package/affected tests pass locally
-  with 100% changed-line coverage. Independent repair review is clean; seven
-  synthetic cases also pass against an isolated installed 0.10.2 wheel.
-  CodeGraph 0.10.2 is prepared with Victor's matching exact pin; CI/merge and
-  publication remain gates. Rebuild derived
-  graphs after installing the corrected parser. Source repair is not deployed
-  consumer acceptance. Full promotion review/CI and required GitHub approval still
-  gate main; no new unrelated remediation or dependency batch is added.
+- **Promotion checkpoint ACTIVE [#1323](https://github.com/anvai-labs/victor/pull/1323)** —
+  owner: Victor co-design session. The reviewed candidate `e1970fee1ebb658040277ba0865020d4af135cc5`
+  needs a reviewed main-to-develop ancestry sync before the full promotion battery
+  can start. Branch `chore/sync-main-promotion` merges main `02f8a1af3ca340716f64d85c6a8e7d07c6ccbd06`
+  into that develop baseline. Preserve develop's newer receipt/recovery behavior,
+  Sandhi 0.13 locks and all qualification tests; retain main's AgentBrowser 1.16+
+  tool-name acceptance correction. No production change is needed for this sync.
+  Merge the ancestry sync with a merge commit; squashing would lose its purpose.
+  Full promotion CI and required GitHub approval still gate main, with no admin
+  bypass. Broader typing and unrelated dependency updates stay outside this batch.
   Cumulative runtime review passes 645 tests. Client/release review passes 219
-  Python checks, 113 TypeScript tests and 11 real HTTP tests. The existing
-  VAS-06/G62/G70 approval-continuation lock gap reproduces on both main and the
-  candidate: G94 protects hydration, not the whole resumed execution. Keep consumed
-  approval claims closed on failure. Synthetic evidence and review receipts live
-  under `var/codegraph-victor-20261012/promotion-*`; live C5 remains open.
+  Python checks, 113 TypeScript tests and 11 real HTTP tests (overlapping counts).
+  The existing VAS-06/G62/G70 approval-continuation lock gap reproduces on main and
+  the candidate: G94 protects hydration, not the whole resumed execution. Keep
+  consumed approval claims closed on failure. Review receipts and reboot state
+  live under `var/codegraph-victor-20261012/promotion-*`; live C5 remains open.
+
+- **CG-S06 ✅ MERGED and package RELEASED [#1322](https://github.com/anvai-labs/victor/pull/1322)** —
+  merge/source `e1970fee1ebb658040277ba0865020d4af135cc5`; 39 successful checks,
+  two configured skips and neutral Trivy. Nested Python definitions/closures now
+  take precedence over shadowed imports; unmodeled conditional bindings remain
+  unresolved. TDD retained six pre-fix failures and the valid-import control;
+  372 package/affected tests, 100% changed-line coverage and strict MyPy 2.4.0 on
+  three production modules pass. Independent repair review is clean.
+  CodeGraph 0.10.2 release workflow `38309761485` passed, including Python 3.12/3.13;
+  PyPI wheel/sdist hashes match its artifacts and seven isolated published-wheel
+  regression cases pass. Victor's exact pin matches. Rebuild derived graphs after
+  upgrading; consumer deployment/rebuild acceptance remains open.
 
 - **SA-04a ✅ MERGED [#1318](https://github.com/anvai-labs/victor/pull/1318)** —
   merge `dd0e47beff31472af1a3a25efb196b44489b6da8`; reviewed candidate

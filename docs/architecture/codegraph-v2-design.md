@@ -523,10 +523,10 @@ fall through to imports or an outer definition despite shadowing them.
 | Gate | Status |
 | --- | --- |
 | Synthetic regression | Six expected failures in the existing relation suite; unshadowed import control retained |
-| Shared parser repair | Local pass: collect writes and definitions once per scope; choose the nearest definition scope; unresolved conditionals block imported/outer fallback |
+| Shared parser repair | ✅ Merged [#1322](https://github.com/anvai-labs/victor/pull/1322): collect writes and definitions once per scope; choose the nearest definition scope; unresolved conditionals block imported/outer fallback |
 | Typing and tests | Touched Python parser/local/repository resolver modules pass strict MyPy 2.4.0; 216 package / 372 affected tests pass; 100% changed-line coverage |
-| Version and consumer pin | CodeGraph 0.10.2 prepared with matching Victor pin; isolated installed-wheel seven-case smoke passes; publication pending |
-| Promotion and consumers | Independent repair review clean; green CI and main promotion pending; consumer graphs must be rebuilt and requalified |
+| Version and consumer pin | CodeGraph 0.10.2 published from `e1970fee1ebb658040277ba0865020d4af135cc5`; matching Victor pin; release workflow `38309761485` green; PyPI artifact hashes match and seven published-wheel cases pass |
+| Promotion and consumers | Independent repair review and feature CI clean; main promotion #1323 and consumer acceptance pending; consumer graphs must be rebuilt and requalified |
 
 `python_definition_scopes` is additive parser metadata mapping a name to its
 nearest lexical defining scope. It does not claim execution or dynamic binding
