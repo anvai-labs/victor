@@ -68,15 +68,25 @@ edit. A mock test is not live provider or C5 evidence.
 ## Current checkpoint
 
 - **Promotion checkpoint ACTIVE [#1323](https://github.com/anvai-labs/victor/pull/1323)** —
-  owner: Victor co-design session. The reviewed candidate `e1970fee1ebb658040277ba0865020d4af135cc5`
-  needs a reviewed main-to-develop ancestry sync before the full promotion battery
-  can start. Branch `chore/sync-main-promotion` merges main `02f8a1af3ca340716f64d85c6a8e7d07c6ccbd06`
-  into that develop baseline. Preserve develop's newer receipt/recovery behavior,
-  Sandhi 0.13 locks and all qualification tests; retain main's AgentBrowser 1.16+
-  tool-name acceptance correction. No production change is needed for this sync.
-  Merge the ancestry sync with a merge commit; squashing would lose its purpose.
-  Full promotion CI and required GitHub approval still gate main, with no admin
-  bypass. Broader typing and unrelated dependency updates stay outside this batch.
+  owner: Victor co-design session. Main ancestry sync [#1324](https://github.com/anvai-labs/victor/pull/1324)
+  merged as `7e7ad5462b63b70c8b931e921f0de6e86d9846f5`, preserving production behavior
+  and main's AgentBrowser acceptance correction. Its 39 successful checks, two
+  configured skips and neutral Trivy are recorded. Main is now an ancestor of develop.
+  The first full promotion matrix (`38311891912`) passed 20 of 24 Python shards;
+  two stale fixture failures each affected Python 3.12 and 3.13. Coverage Gate and
+  Test Summary correctly failed closed. Other blocking build, integration and
+  security checks passed; the promotion is not accepted.
+  Branch `fix/promotion-session-coverage`, based on that merge, consolidates obsolete
+  facade identity mocks into the real service/facade test and replaces incomplete
+  subagent construction and a copied conditional with actual inheritance cases.
+  No production workaround is introduced. Local qualification: 193 affected tests,
+  64 focused tests, 34,582 collected tests, and no lost production lines or branches
+  across 1,796 coverage files. Disabling canonical session binding makes the new
+  facade case fail, preserving negative regression evidence. Initial failures and
+  the interrupted broad baseline are retained separately from completed evidence.
+  Next: independent repair review, feature CI/merge, then full promotion CI on the
+  new develop head and required GitHub approval before main, with no admin bypass.
+  Broader typing and unrelated dependency updates stay outside this batch.
   Cumulative runtime review passes 645 tests. Client/release review passes 219
   Python checks, 113 TypeScript tests and 11 real HTTP tests (overlapping counts).
   The existing VAS-06/G62/G70 approval-continuation lock gap reproduces on main and
