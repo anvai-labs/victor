@@ -67,6 +67,28 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
+- **Promotion checkpoint ACTIVE; CG-S06 blocks main** — owner: Victor co-design
+  session; branch `fix/python-lexical-bindings`; baseline `78805fca374b43841c580475c0135b7e1f418e7e`.
+  The user requested source promotion before more broad typing work. Cumulative
+  main-to-develop review found #1299 could resolve a nested function/class/closure
+  call to a shadowed import with confidence 1.0. Existing relation tests reproduce
+  six failures; nearest lexical definition scopes repair those while preserving
+  unresolved conditional bindings and the unshadowed import control. Three touched
+  production modules pass strict MyPy 2.4.0; 372 package/affected tests pass locally
+  with 100% changed-line coverage. Independent repair review is clean; seven
+  synthetic cases also pass against an isolated installed 0.10.2 wheel.
+  CodeGraph 0.10.2 is prepared with Victor's matching exact pin; CI/merge and
+  publication remain gates. Rebuild derived
+  graphs after installing the corrected parser. Source repair is not deployed
+  consumer acceptance. Full promotion review/CI and required GitHub approval still
+  gate main; no new unrelated remediation or dependency batch is added.
+  Cumulative runtime review passes 645 tests. Client/release review passes 219
+  Python checks, 113 TypeScript tests and 11 real HTTP tests. The existing
+  VAS-06/G62/G70 approval-continuation lock gap reproduces on both main and the
+  candidate: G94 protects hydration, not the whole resumed execution. Keep consumed
+  approval claims closed on failure. Synthetic evidence and review receipts live
+  under `var/codegraph-victor-20261012/promotion-*`; live C5 remains open.
+
 - **SA-04a ✅ MERGED [#1318](https://github.com/anvai-labs/victor/pull/1318)** —
   merge `dd0e47beff31472af1a3a25efb196b44489b6da8`; reviewed candidate
   `63af50b13af32c0282a1adc15810f5e21f7a8ec3` has the same source tree.
@@ -81,7 +103,7 @@ edit. A mock test is not live provider or C5 evidence.
   still need qualification. Configured MyPy success under legacy core suppression
   does not close G96. This merge is not release or C5 acceptance.
 
-- **TYPE-02 SDK slice LOCAL_PASS — contract qualification** — owner: Victor co-design session;
+- **TYPE-02 SDK slice ✅ MERGED [#1319](https://github.com/anvai-labs/victor/pull/1319)** — owner: Victor co-design session;
   branch `fix/sdk-typing-contracts`; baseline `dd0e47beff31472af1a3a25efb196b44489b6da8`.
   Canonical SDK memory/category definitions replace duplicate runtime definitions.
   Processing exports resolve to their real owner; the deprecated handler bridge
@@ -110,8 +132,10 @@ edit. A mock test is not live provider or C5 evidence.
   requested a bounded promotion checkpoint: finish #1319, review the cumulative
   develop-to-main diff and pass every promotion gate before continuing G96.
   This is source promotion, not full typing or live C5 acceptance.
-  Final correction review, CI and merge
-  remain gates; evidence is preserved under `var/codegraph-victor-20261012/type02-*`.
+  Final reviewed candidate `cfe26d4835644413fa0f94568152583235e8edfa` merged as
+  `78805fca374b43841c580475c0135b7e1f418e7e` with identical trees: 40 successful
+  checks, one configured deployment skip and one neutral Trivy result. Evidence
+  is preserved under `var/codegraph-victor-20261012/type02-*`. G96 remains open.
 
 - **G96 / TYPE-01 ACTIVE — repository-wide MyPy qualification.** The user expanded
   scope to fix all typing errors, including independently packaged Python modules.
@@ -1336,7 +1360,7 @@ errors is not an acceptance result for this program.
 | ID | Dependency / work | Status and acceptance |
 | --- | --- | --- |
 | TYPE-01 | Unsuppressed inventory, reproducible commands, file/error ownership and existing test audit | ACTIVE; core audit 7,794 errors / 1,082 files; independent-package targets report 1,101 package-local errors; root tests/scripts also inventoried below; package tests remain; SDK compatibility sources now inventoried (5 additional diagnostics) |
-| TYPE-02 | Definition-layer contracts, missing symbols and concrete signature mismatches | ACTIVE SDK increment; 11 SDK/compatibility diagnostics repaired locally, real export and type-identity regressions covered; review/CI/merge pending |
+| TYPE-02 | Definition-layer contracts, missing symbols and concrete signature mismatches | SDK slice merged #1319; 11 SDK/compatibility diagnostics repaired, real export and type-identity regressions covered; remaining definition-layer work open |
 | TYPE-03 | Typed runtime assembly and adapters, completing SA-04 | TODO after TYPE-02; required collaborators explicit, optional capabilities centralized; no dynamic forwarding as evidence of protocol implementation |
 | TYPE-04 | Services, providers, tools, workflows, storage and client consumers | TODO in dependency order; retire each reviewed exception only with affected tests and strict checks |
 | TYPE-05 | Package/vertical integration and full unsuppressed matrix | TODO after contributing groups; build/install and supported Python jobs pass, no broad suppression, unused ignores removed |

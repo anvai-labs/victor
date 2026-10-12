@@ -511,3 +511,25 @@ The independent package release does not change Victor AI's application version.
 
 Remaining gates: consumer deployment, then hosted query scaling,
 OIDC/lifecycle and Q1 relevance. Keep private graph/source artifacts local.
+
+
+### Promotion review follow-up: lexical Python bindings (CG-S06)
+
+Cumulative review before main promotion reproduced a regression introduced by
+#1299: a nested function, class or closure could lose to a module import and be
+reported as a resolved call to the wrong file. Conditional definitions could also
+fall through to imports or an outer definition despite shadowing them.
+
+| Gate | Status |
+| --- | --- |
+| Synthetic regression | Six expected failures in the existing relation suite; unshadowed import control retained |
+| Shared parser repair | Local pass: collect writes and definitions once per scope; choose the nearest definition scope; unresolved conditionals block imported/outer fallback |
+| Typing and tests | Touched Python parser/local/repository resolver modules pass strict MyPy 2.4.0; 216 package / 372 affected tests pass; 100% changed-line coverage |
+| Version and consumer pin | CodeGraph 0.10.2 prepared with matching Victor pin; isolated installed-wheel seven-case smoke passes; publication pending |
+| Promotion and consumers | Independent repair review clean; green CI and main promotion pending; consumer graphs must be rebuilt and requalified |
+
+`python_definition_scopes` is additive parser metadata mapping a name to its
+nearest lexical defining scope. It does not claim execution or dynamic binding
+proof. Symbol IDs and public relation shapes are unchanged. Existing graph stores
+are derived data: perform a full rebuild with the corrected package, since an
+unchanged source file's prior semantic result can otherwise remain cached.

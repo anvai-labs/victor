@@ -72,6 +72,7 @@ def resolve_relations(
         if source is not None and source.language == "rust":
             candidates = _rust_candidates(source, ref, candidates, symbols)
         elif source is not None and source.language == "python":
+            definition_scope = source.metadata.get("python_definition_scopes", {}).get(ref.name)
             if source.metadata.get("python_wildcard_import"):
                 candidates = []
             elif ref.qualifier in {"self", "cls"}:
@@ -87,7 +88,10 @@ def resolve_relations(
             elif (
                 ref.qualifier
                 or ref.name in source.metadata.get("python_bound_names", [])
-                or ref.name in source.metadata.get("python_import_names", [])
+                or (
+                    ref.name in source.metadata.get("python_import_names", [])
+                    and definition_scope is None
+                )
             ):
                 candidates = []
             else:
@@ -104,6 +108,10 @@ def resolve_relations(
                     and [*source.scope_chain, source.simple_name][: len(c.scope_chain)]
                     == c.scope_chain
                 ]
+                # A lexical definition shadows imports and outer definitions even
+                # when its conditional body is not represented by this parser.
+                if definition_scope is not None:
+                    candidates = [c for c in candidates if c.scope_chain == definition_scope]
                 nearest = max((len(c.scope_chain) for c in candidates), default=-1)
                 candidates = [c for c in candidates if len(c.scope_chain) == nearest]
         elif source is not None and source.language in {"javascript", "typescript", "tsx"}:
