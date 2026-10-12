@@ -10,6 +10,8 @@ from victor.agent.orchestrator import AgentOrchestrator
 from victor.agent.services.turn_execution_runtime import TurnExecutor, TurnResult
 from victor.agent.topology_contract import TopologyAction, TopologyKind
 from victor.agent.topology_grounder import GroundedTopologyPlan
+from victor.framework.agentic_loop import LoopIteration, LoopResult, LoopStage
+from victor.framework.evaluation_nodes import EvaluationDecision, EvaluationResult
 from victor.framework.task.protocols import TaskComplexity
 from victor.framework.team_runtime import ResolvedTeamExecutionPlan
 from victor.teams.types import TeamFormation
@@ -639,7 +641,24 @@ async def test_execute_via_agentic_loop_marks_failed_loop_response_metadata():
 
 
 @pytest.mark.asyncio
-async def test_execute_via_agentic_loop_synthesizes_after_tool_evidence_spin():
+@pytest.mark.parametrize(
+    "loop_error,synthesized_content",
+    [
+        (
+            "Agent stuck: 3 turns without tool calls",
+            "Cargo.toml defines a Rust workspace with clients/rust included.",
+        ),
+        ("Verification failed: tests did not pass", "The implementation is complete."),
+        (
+            "Verification failed: tests did not pass",
+            "I was unable to generate a complete response.",
+        ),
+        ("Verification failed: tests did not pass", ""),
+    ],
+)
+async def test_execute_via_agentic_loop_synthesis_preserves_failed_verdict(
+    loop_error, synthesized_content
+):
     chat_context = SimpleNamespace(
         settings=SimpleNamespace(chat_max_iterations=5),
         conversation=SimpleNamespace(messages=[]),
@@ -655,7 +674,7 @@ async def test_execute_via_agentic_loop_synthesizes_after_tool_evidence_spin():
     response_completer = SimpleNamespace(
         ensure_response=AsyncMock(
             return_value=SimpleNamespace(
-                content="Cargo.toml defines a Rust workspace with clients/rust included.",
+                content=synthesized_content,
                 provider_responses=(),
             )
         )
@@ -679,22 +698,30 @@ async def test_execute_via_agentic_loop_synthesizes_after_tool_evidence_spin():
     executor._is_question_only = MagicMock(return_value=False)
 
     empty_response = CompletionResponse(content="", role="assistant")
-    evaluation = SimpleNamespace(reason="Agent stuck: 3 turns without tool calls")
-    loop_result = SimpleNamespace(
+    loop_result = LoopResult(
         success=False,
+        final_state={},
+        total_duration=0.0,
         iterations=[
-            SimpleNamespace(
+            LoopIteration(
+                iteration=0,
+                stage=LoopStage.ACT,
                 action_result=TurnResult(
                     response=CompletionResponse(content="", role="assistant"),
                     tool_results=[{"tool_name": "read", "success": True}],
                     has_tool_calls=True,
                     tool_calls_count=1,
                 ),
-                evaluation=SimpleNamespace(reason="Successful tools produced execution evidence"),
+                evaluation=EvaluationResult(
+                    decision=EvaluationDecision.CONTINUE,
+                    reason="Successful tools produced execution evidence",
+                ),
             ),
-            SimpleNamespace(
-                action_result=SimpleNamespace(response=empty_response),
-                evaluation=evaluation,
+            LoopIteration(
+                iteration=1,
+                stage=LoopStage.EVALUATE,
+                action_result=TurnResult(response=empty_response),
+                evaluation=EvaluationResult(decision=EvaluationDecision.FAIL, reason=loop_error),
             ),
         ],
     )
@@ -704,12 +731,18 @@ async def test_execute_via_agentic_loop_synthesizes_after_tool_evidence_spin():
     with patch("victor.framework.agentic_loop.AgenticLoop", return_value=loop_instance):
         result = await executor._execute_via_agentic_loop("hello", max_iterations=5)
 
-    assert result.content == "Cargo.toml defines a Rust workspace with clients/rust included."
-    assert result.metadata["agentic_loop_success"] is True
-    assert result.metadata["agentic_loop_recovered"] is True
-    assert result.metadata["agentic_loop_recovery_reason"] == (
-        "Agent stuck: 3 turns without tool calls"
+    assert result.content == (
+        synthesized_content
+        or "I was unable to generate a complete response. Please try rephrasing your request."
     )
+    assert result.metadata["agentic_loop_success"] is False
+    assert result.metadata["agentic_loop_error"] == loop_error
+    assert result.metadata["agentic_loop_synthesis"] is True
+    assert result.metadata["agentic_loop_synthesis_reason"] == loop_error
+    assert result.metadata["agentic_loop_iterations"] == 2
+    assert "agentic_loop_recovered" not in result.metadata
+    response_completer.ensure_response.assert_awaited_once()
+    loop_instance.run.assert_awaited_once()
 
 
 @pytest.mark.asyncio
