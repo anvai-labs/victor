@@ -315,10 +315,19 @@ the original handback and JSON remain the evidence owners.
 | Evidence | Result / limit |
 |---|---|
 | Frozen private snapshot | 738 files, 7,647 canonical symbols and 35,428 semantic relation keys; exact compiler → consumer → store parity. Aggregate evidence only; no private source or graph export enters OSS. |
-| Released storage runtime | ProximaDB 0.4.0, Linux ARM64 image `sha256:c24757088a29b996160f1535a4e92bf905f203bc76d41bb15b9c8aa281e79dad`; one run took 39.808 s to publish and 21.866 s to scan. Not percentile, durability or service-SLO acceptance. |
+| Released storage runtime | ProximaDB 0.4.0, Linux ARM64 image `sha256:c24757088a29b996160f1535a4e92bf905f203bc76d41bb15b9c8aa281e79dad`; explicit SST run took 39.828 s to publish and 21.031 s to scan. Not percentile, durability or service-SLO acceptance. |
 | Failed older runtime | Cached ProximaDB 0.2.2 rejected its page-two named-collection cursor. Failed evidence retained; 0.4.0 passes without consumer cursor rewriting. |
-| Consumer checks | 1,728 API/package tests passed, 3 skipped; 153 console tests; two source→engine→HTTP replacement/empty-snapshot cases; API and worker image compilation/publication smokes. |
+| Consumer checks | 1,732 API/package tests passed, 3 skipped; 153 console tests; two source→engine→HTTP replacement/empty-snapshot cases; API and worker image compilation/publication smokes. |
 | Headed descriptive preview | AgentBrowser verified calls/imports/containment, source inspector and keyboard selection, zoom/fit/full screen, layered layouts, file/symbol drill-down and breadcrumbs back. Local synthetic identity; not hosted SSO or full authorization-lifecycle acceptance. |
+
+Post-flush qualification found a separate released-engine defect: automatic
+selection chose HELIX, whose record enumeration returned zero after flush
+(ProximaDB TD-HELIX-2, still open in refreshed upstream). Failed evidence is
+preserved. The consumer now explicitly creates SST collections and validates
+existing engine/dimension metadata before writing. A confirmed SST flush retained
+six synthetic graph records plus the manifest. All 43,075 full-snapshot records
+also retained exact parity after a confirmed flush (25.277 s scan). Restart and
+production digest rollout remain separate gates.
 
 Victor's index/graph commands remain the shared indexing and graph-navigation
 foundation. Commercial ingestion uses the same compiler identity/evidence contracts,
@@ -328,7 +337,15 @@ eligibility projections must report their scope rather than claiming equal count
 The next useful customer flow is **question → candidate retrieval → canonical graph
 traversal → grounded answer → clickable symbol/relationship citation**:
 
-1. Qualify a real embedding model and lexical baseline. Record model/version,
+1. Reuse Victor's existing BGE baseline (`BAAI/bge-small-en-v1.5`, 384 dimensions)
+   and embedding service through a qualified public seam. Local SQLite graph +
+   LanceDB remains the default; Q1 will store qualified corresponding vectors in
+   ProximaDB. `victor index` is semantic indexing; `victor graph index --embeddings`
+   opts into graph-node embeddings. The standalone compiler itself does not run
+   an embedding model. Version node text versus body chunks, preprocessing and
+   query normalization: reuse stored vectors only when that complete contract
+   and canonical symbol/source mapping match. No copied parser or new model
+   implementation. Qualify retrieval against a lexical baseline. Record model/version,
    dimension, source/chunk hash, authorization and snapshot generation. Explicitly
    distinguish missing embeddings from a valid empty result; do not treat hashed
    placeholder vectors as semantic retrieval.
@@ -349,3 +366,21 @@ non-Python call spans. Remaining commercial gates include repository policy befo
 retrieval, ordered publication, durable job/recovery/GC behavior, hosted OIDC,
 large-canvas performance and theme/accessibility qualification. No new parser,
 service implementation or recommendation engine is introduced by this roadmap.
+
+
+### Shared indexing parity gate
+
+The AnvaiOps handback exposed a boundary that was too narrow: sharing a parser
+package alone did not ensure the consumer preserved graph projection or real
+embedding semantics. AnvaiOps #489 removes the duplicate parser/identity path;
+embedding reuse is the next shared contract, not a commercial reimplementation.
+
+Before Q1 adoption, use one synthetic corpus and matched eligibility/configuration
+to compare local SQLite/LanceDB and hosted ProximaDB adapters: canonical IDs,
+embedding-input hashes, model revision, dimensions, preprocessing/normalization,
+source spans, generation binding and deletion behavior. Test failures and missing
+models explicitly; test actual BGE relevance separately from deterministic fixture
+vectors. Release a neutral public seam after the FEP gate, keeping heavyweight
+model dependencies optional. Consumers pin the release and run this conformance
+suite before upgrading. AnvaiOps owns tenancy, policy, jobs, billing and UX;
+neither those concerns nor storage choice justify different semantic identities.
