@@ -1,8 +1,8 @@
 ---
 plan_id: VAS-2026-10
 status: active
-updated: 2026-10-11
-baseline_develop: decfc3ad5d8200a937e7ab156c5493d5bf74c464
+updated: 2026-10-12
+baseline_develop: 7cddd10e93b3fd6bb96aa5f615352273d8b8fff8
 next_task: VAS-17
 ---
 
@@ -66,6 +66,32 @@ failed/timeout/interrupted run never becomes passed through a later documentatio
 edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
+
+- **G95 LOCAL_PASS** — owner: Victor co-design session; branch `fix/reset-turn-ownership`;
+  baseline `7cddd10e93b3fd6bb96aa5f615352273d8b8fff8`. The async client now calls
+  the existing synchronous service contract without awaiting its result. One
+  shared guard checks the existing session lock before reset effects, including
+  legacy reset aliases and workspace changes that call reset. No second lock or
+  dispatch path is added. Buffered, planning, aggregated and outward-stream calls
+  and pending close/cancellation cleanup reject reset before clearing messages or
+  task reports. Existing idle reset semantics remain intact.
+  TDD reproduced six real-binding client failures and two facade rejection failures.
+  Independent review then reproduced workspace mutation before reset rejection;
+  the guard now precedes workspace root/context/RL/prompt changes. Its negative
+  and positive test passes. Independent source review is clean with 130 tests.
+  Two redundant facade reset tests were consolidated into the existing reset
+  owner: before/after coverage (10/8 tests) loses no executed lines or branches
+  across 1,795 files. Original failed evidence and coverage receipts are retained
+  in the local `var/codegraph-victor-20261012/g95-*` archive. The affected service,
+  client, runtime and factory cohort passes 1,416 tests; final isolated coverage
+  passes 129 tests with 100% changed-line coverage. Full collection succeeds with
+  34,578 tests; strict MyPy passes 2,001 files. Black, Ruff, repository hygiene,
+  dependency locks, brand/docs checks, strict MkDocs and CLI smoke pass with the
+  official pinned Sandhi 0.13.0 binding. The initial collection coverage-file
+  collision is retained as failed evidence; isolated coverage and collection
+  without coverage pass. The assembled orchestrator/facade cohort passes 448 tests;
+  the final coverage cohort also includes the later workspace regression. PR CI
+  and merge remain pending; release and live C5 are separate gates.
 
 - **G93/G94 ✅ MERGED [#1314](https://github.com/anvai-labs/victor/pull/1314)** — owner: Victor co-design session; branch
   `fix/turn-state-ownership`; initial baseline `8b9be15b1150a13dc50fde3ea6fe1a785e74ce58`.
@@ -1083,9 +1109,10 @@ an effort-weighted completion percentage. The original formation denominator is
 independent. Update this paragraph and the rows together at each checkpoint.
 
 The [2026-10-12 SQLite/source re-audit](agentic-workflow-safety-audit.md#sqlite-and-source-re-audit-2026-10-12)
-adds open G89–G91: truthful member outcomes, post-effect state retention and canonical
-runtime identity. Repair those through existing turn/tool/member owners before
-expanding automation. SA-04/SA-05 narrow typed service dependencies and consolidate
+identified G89–G91: truthful member outcomes, post-effect state retention and canonical
+runtime identity, now merged through their existing owners (#1306, #1307, #1309).
+G92–G94 follow-up ownership repairs are also merged; G95 reset qualification is
+the current prerequisite. SA-04/SA-05 narrow typed service dependencies and consolidate
 runtime-hint policy; SA-06 qualifies architectural metrics before prescriptive use.
 This is an evidence-backed backlog, not completed implementation or a change to
 the milestone denominator. Current embeddings are not qualified for this snapshot.

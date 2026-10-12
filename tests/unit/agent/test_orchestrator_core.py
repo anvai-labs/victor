@@ -324,13 +324,6 @@ class TestPromptOptimizationMetadata:
             {"prompt_optimization": expected}
         )
 
-    def test_reset_conversation(self, orchestrator):
-        """Test reset_conversation resets state."""
-        orchestrator.add_message("user", "test")
-        orchestrator.reset_conversation()
-        # After reset, messages should be empty
-        assert len(orchestrator.conversation.messages) == 0
-
     def test_conversation_messages_property(self, orchestrator):
         """Test conversation.messages property returns messages."""
         orchestrator.add_message("user", "test message")
@@ -2423,6 +2416,57 @@ class TestIntelligentIntegration:
 class TestResetConversation:
     """Tests for reset_conversation method."""
 
+    async def test_workspace_reset_checks_ownership_before_side_effects(
+        self, orchestrator, monkeypatch, tmp_path
+    ):
+        root = MagicMock()
+        project = MagicMock()
+        project.return_value.content = ""
+        rl = MagicMock()
+        monkeypatch.setattr("victor.config.settings.set_project_root", root)
+        monkeypatch.setattr("victor.context.project_context.ProjectContext", project)
+        monkeypatch.setattr("victor.agent.services.rl_runtime.get_rl_coordinator", rl)
+        monkeypatch.setattr(orchestrator, "build_system_prompt", lambda: "new workspace")
+        orchestrator.add_message("user", "keep")
+        old_context = orchestrator.project_context
+        old_prompt = orchestrator._system_prompt
+        messages = list(orchestrator.conversation.messages)
+
+        async with orchestrator._session_accessor.stream_turn_lock:
+            with pytest.raises(RuntimeError, match="active turn"):
+                orchestrator.set_workspace(tmp_path)
+            root.assert_not_called()
+            project.assert_not_called()
+            rl.assert_not_called()
+            assert orchestrator.project_context is old_context
+            assert orchestrator._system_prompt == old_prompt
+            assert orchestrator.conversation.messages == messages
+
+        orchestrator.set_workspace(tmp_path)
+        root.assert_called_once_with(tmp_path)
+        project.assert_called_once_with(root_path=str(tmp_path))
+        rl.return_value.set_repo_context.assert_called_once_with(tmp_path.name)
+        assert orchestrator._system_prompt == "new workspace"
+        assert orchestrator.conversation.messages == []
+
+    @pytest.mark.parametrize("entry", ["reset_conversation", "reset"])
+    async def test_reset_rejects_active_turn_before_any_mutation(self, orchestrator, entry):
+        orchestrator.tool_calls_used = 10
+        orchestrator.add_message("user", "keep")
+        before = list(orchestrator.conversation.messages)
+        lifecycle_reset = MagicMock(wraps=orchestrator._lifecycle_manager.reset_conversation)
+        orchestrator._lifecycle_manager.reset_conversation = lifecycle_reset
+        async with orchestrator._session_accessor.stream_turn_lock:
+            with pytest.raises(RuntimeError, match="active turn"):
+                getattr(orchestrator, entry)()
+            lifecycle_reset.assert_not_called()
+            assert orchestrator.tool_calls_used == 10
+            assert orchestrator.conversation.messages == before
+        getattr(orchestrator, entry)()
+        lifecycle_reset.assert_called_once()
+        assert orchestrator.tool_calls_used == 0
+        assert orchestrator.conversation.messages == []
+
     def test_reset_clears_tool_calls(self, orchestrator):
         """reset_conversation clears tool calls used."""
         orchestrator.tool_calls_used = 10
@@ -2449,11 +2493,9 @@ class TestResetConversation:
 
     def test_reset_conversation_clears_messages(self, orchestrator):
         """Test reset_conversation clears conversation."""
-        # Add a message first
-        orchestrator.conversation.add_message(role="user", content="test")
-
-        # Reset
+        orchestrator.add_message("user", "test")
         orchestrator.reset_conversation()
+        assert orchestrator.conversation.messages == []
 
 
 class TestToolBudgetManagement:
@@ -4494,16 +4536,6 @@ class TestAddAssistantMessage:
         """Test add_message with assistant role."""
         orchestrator.add_message("assistant", "Test assistant message")
         # Should not raise
-
-
-class TestClearConversation:
-    """Tests for clearing conversation."""
-
-    def test_reset_conversation(self, orchestrator):
-        """Test reset_conversation clears history."""
-        orchestrator.add_message("user", "Test")
-        orchestrator.reset_conversation()
-        # After reset, should have fresh state
 
 
 class TestConversationHistory:

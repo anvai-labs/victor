@@ -64,7 +64,7 @@ from rich.console import Console
 
 # Coordinators (Phase 2 refactoring - being integrated)
 # NOTE: These are runtime imports, not type-checking only
-from victor.agent.runtime.context import RuntimeIdentity
+from victor.agent.runtime.context import RuntimeIdentity, require_idle_turn
 from victor.core.async_utils import aclosing_if_supported as _aclosing
 from victor.agent.services.metrics_service import AgentMetricsService  # noqa: F401
 
@@ -1433,7 +1433,11 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
 
         Args:
             workspace_dir: Path to the workspace directory
+
+        Raises:
+            RuntimeError: If a turn owns the session; no workspace state is changed.
         """
+        require_idle_turn(self._session_accessor.stream_turn_lock)
         from victor.config.settings import set_project_root
         from victor.context.project_context import ProjectContext
 
@@ -3590,6 +3594,7 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
         - Sequence tracker history (preserves learned patterns)
         - Usage analytics session (ends current, starts fresh)
         """
+        require_idle_turn(self._session_accessor.stream_turn_lock)
         # Delegate to LifecycleManager for core reset
         self._lifecycle_manager.reset_conversation()
 

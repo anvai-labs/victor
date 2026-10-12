@@ -105,6 +105,16 @@ class RuntimeSessionState(Protocol):
     _memory_session_id: Optional[str]
 
 
+def require_idle_turn(lock: asyncio.Lock) -> None:
+    """Reject synchronous session mutation while a turn owns execution or cleanup.
+
+    Callers must check and mutate without an intervening await. The gate belongs
+    to the session; this helper neither acquires nor replaces it.
+    """
+    if lock.locked():
+        raise RuntimeError("Cannot replace session state during an active turn")
+
+
 class RuntimeIdentity:
     """Own current root identity or an explicitly bound immutable member identity.
 
@@ -156,8 +166,8 @@ class RuntimeIdentity:
             raise ValueError("Bound member session identity cannot be replaced")
 
     def _require_idle_session(self) -> None:
-        if self._turn_lock is not None and self._turn_lock.locked():
-            raise RuntimeError("Cannot replace session state during an active turn")
+        if self._turn_lock is not None:
+            require_idle_turn(self._turn_lock)
 
     def bind_member(self, context: AgentRuntimeContext) -> None:
         self._require_idle_session()
