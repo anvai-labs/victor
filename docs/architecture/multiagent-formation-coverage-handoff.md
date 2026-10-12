@@ -1903,13 +1903,13 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   not live provider propagation or durable restart recovery. See the
   [implementation checkpoint](agentic-workflow-safety-audit.md#sa-02-implementation-checkpoint).
 
-- **G91 — shared runtime identity ownership (LOCAL_PASS; merge pending).**
+- **G91 — shared runtime identity ownership (✅ merged [#1309](https://github.com/anvai-labs/victor/pull/1309)).**
   The two fallback builders are replaced by one typed owner/resolver, with current
   immutable contexts for root resume and explicitly bound member contexts. Missing
   checkpoint identity fails before persistence; cross-member recovery fails before
   hydration. Member dash/colon session formats remain unchanged. The
   [canonical checkpoint](victor-agent-service-plan.md#current-checkpoint) owns
-  review/CI/merge state and the [audit scope](agentic-workflow-safety-audit.md#sa-03-implementation-scope)
+  verified merge `3031cd4f66f92118f5ebfc1428ec11b3ffd23aec` and the [audit scope](agentic-workflow-safety-audit.md#sa-03-implementation-scope)
   records limits. Universal root-provider correlation, release and C5 remain separate.
 
 - **G92 — memory-disabled root transport/session correlation is unqualified (open).**
