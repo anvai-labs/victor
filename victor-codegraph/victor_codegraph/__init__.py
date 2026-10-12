@@ -14,6 +14,15 @@ from __future__ import annotations
 
 from .adapter import relation_to_record, symbol_to_record, to_proxima_records
 from .config import ChunkConfig
+from .embeddings import (
+    BGE_SMALL_PROFILE,
+    EmbeddingProfile,
+    SymbolEmbedding,
+    SentenceTransformerEncoder,
+    embedding_text,
+    embed_symbols,
+    validate_vectors,
+)
 from .languages import detect_language
 from .model import (
     CapabilityTier,
@@ -49,6 +58,13 @@ __version__ = "0.9.0"
 
 __all__ = [
     "__version__",
+    "BGE_SMALL_PROFILE",
+    "EmbeddingProfile",
+    "SymbolEmbedding",
+    "SentenceTransformerEncoder",
+    "embedding_text",
+    "embed_symbols",
+    "validate_vectors",
     "chunk",
     "parse",
     "chunk_repo",

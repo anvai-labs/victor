@@ -113,6 +113,7 @@ def project_resolved_relations(
 def project_file_symbols(parsed: Any) -> list[Any]:
     """Project canonical symbols without recovering identities from names/lines."""
     from dataclasses import asdict
+    import hashlib
     from victor.storage.graph.protocol import GraphNode
 
     parents = {
@@ -136,6 +137,7 @@ def project_file_symbols(parsed: Any) -> list[Any]:
                 **s.metadata,
                 "identity_version": s.identity_version,
                 "source_span": asdict(s.location),
+                "source_hash": hashlib.sha256(s.source_code.encode("utf-8")).hexdigest(),
                 "parse_status": parsed.status.value,
                 "diagnostics": [asdict(d) for d in parsed.diagnostics],
                 "unresolved_relations": [

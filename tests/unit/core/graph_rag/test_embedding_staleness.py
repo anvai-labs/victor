@@ -45,6 +45,7 @@ def _node(node_id: str, file: str, name: str) -> GraphNode:
         line=1,
         signature=f"{name}()",
         docstring=f"doc for {name}",
+        metadata={"source_hash": "a" * 64},
     )
 
 
@@ -64,7 +65,11 @@ def _patch_embedding_stack(monkeypatch, provider):
     from victor.processing import graph_embeddings as ge
     from victor.storage.embeddings import service as svc
 
-    monkeypatch.setattr(svc, "get_embedding_service", lambda: MagicMock())
+    from victor_codegraph.embeddings import EmbeddingProfile
+
+    service = MagicMock()
+    service.profile = EmbeddingProfile("fixture", "a" * 40, 3)
+    monkeypatch.setattr(svc, "get_embedding_service", lambda: service)
 
     async def _fake_embed_batch(self, nodes, graph_store):
         return {n.node_id: [0.1, 0.2, 0.3] for n in nodes}
@@ -92,6 +97,8 @@ async def test_second_run_skips_unchanged_nodes(store_and_root, monkeypatch):
     for n in nodes:
         assert n.metadata.get("has_embedding") is True
         assert n.metadata.get("content_version")
+        assert n.metadata.get("embedding_profile_id")
+        assert len(n.metadata["embedding_input_hash"]) == 64
         assert n.embedding_ref == f"emb:{n.node_id}"
 
     # Second run: everything unchanged -> nothing re-embedded.
@@ -282,3 +289,77 @@ async def test_update_node_metadata_merges_and_sets_embedding_ref(store_and_root
 
     # Unknown node id: silent no-op.
     await store.update_node_metadata("missing", {"x": 1})
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["structural", "old_profile", "legacy_profile"])
+async def test_semantic_profile_conflicts_block_all_vector_writes(
+    store_and_root, monkeypatch, failure
+):
+    store, root = store_and_root
+    old = _node("n2", "untouched.py", "beta")
+    old.metadata = {"has_embedding": True}
+    if failure == "old_profile":
+        old.metadata["embedding_profile_id"] = "old-model"
+    if failure == "structural":
+        old.metadata = {}
+    await store.upsert_nodes([_node("n1", "changed.py", "alpha"), old])
+    provider = MagicMock()
+    provider.index_embedded_documents = AsyncMock()
+    _patch_embedding_stack(monkeypatch, provider)
+    pipeline = _pipeline(store, root, incremental=True)
+    pipeline._files_to_process = {"changed.py"}
+    if failure == "structural":
+        pipeline.config.embedding_structural_weight = 0.3
+    stats = await pipeline._generate_embeddings()
+    assert stats.error_count == 1
+    assert stats.embeddings_generated == 0
+    provider.index_embedded_documents.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_body_only_change_refreshes_source_evidence(store_and_root, monkeypatch):
+    store, root = store_and_root
+    node = _node("n1", "a.py", "alpha")
+    node.metadata["source_hash"] = "a" * 64
+    await store.upsert_nodes([node])
+    provider = MagicMock()
+    provider.index_embedded_documents = AsyncMock()
+    _patch_embedding_stack(monkeypatch, provider)
+    await _pipeline(store, root)._generate_embeddings()
+    await store.update_node_metadata("n1", {"source_hash": "b" * 64})
+    provider.index_embedded_documents.reset_mock()
+    stats = await _pipeline(store, root)._generate_embeddings()
+    assert stats.embeddings_generated == 1
+    docs = provider.index_embedded_documents.await_args.args[0]
+    assert docs[0]["metadata"]["embedding_source_hash"] == "b" * 64
+    node = (await store.get_all_nodes())[0]
+    assert node.metadata["embedding_source_hash"] == "b" * 64
+
+
+@pytest.mark.asyncio
+async def test_profile_guard_precedes_parse_and_force_deletion(store_and_root, monkeypatch):
+    store, root = store_and_root
+    old = _node("n1", "a.py", "alpha")
+    old.metadata = {"has_embedding": True, "embedding_profile_id": "old-model"}
+    await store.upsert_nodes([old])
+    _patch_embedding_stack(monkeypatch, MagicMock())
+    pipeline = _pipeline(store, root)
+    monkeypatch.setattr(pipeline, "_get_analysis_provider", lambda: None)
+    with pytest.raises(ValueError, match="fresh index"):
+        await pipeline.index_repository()
+    assert (await store.get_all_nodes())[0].metadata["embedding_profile_id"] == "old-model"
+
+
+@pytest.mark.asyncio
+async def test_unversioned_source_cannot_claim_semantic_provenance(store_and_root, monkeypatch):
+    store, root = store_and_root
+    node = _node("n1", "a.py", "alpha")
+    node.metadata = {}
+    await store.upsert_nodes([node])
+    provider = MagicMock()
+    provider.index_embedded_documents = AsyncMock()
+    _patch_embedding_stack(monkeypatch, provider)
+    stats = await _pipeline(store, root)._generate_embeddings()
+    assert stats.error_count == 1
+    provider.index_embedded_documents.assert_not_awaited()

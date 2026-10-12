@@ -47,7 +47,7 @@ def _get_embedding_service() -> Any:
             logger.debug("GraphAwareEmbedder using EmbeddingService for embeddings")
         except ImportError:
             logger.warning(
-                "EmbeddingService not available, using hash-based fallback. "
+                "EmbeddingService not available. "
                 "Install sentence-transformers for better embeddings."
             )
             _embedding_service = False  # Mark as unavailable
@@ -155,7 +155,9 @@ class GraphAwareEmbedder:
         Also the input to the staleness fingerprint (``content_version``) used by
         the indexing pipeline — keep the two in lockstep.
         """
-        return " ".join(filter(None, [node.name, node.signature or "", node.docstring or ""]))
+        from victor_codegraph.embeddings import embedding_text
+
+        return embedding_text(node.name, node.signature, node.docstring)
 
     async def embed_batch(
         self,
@@ -182,18 +184,11 @@ class GraphAwareEmbedder:
 
         texts = [self.node_text(n) for n in nodes]
         service = self._explicit_service or _get_embedding_service()
-        text_vectors: List[List[float]]
-        if service is not None:
-            try:
-                import numpy as np
-
-                batch = await service.embed_batch(texts)
-                text_vectors = [v.tolist() if isinstance(v, np.ndarray) else list(v) for v in batch]
-            except Exception as e:
-                logger.warning(f"Batch embedding failed, using hash fallback: {e}")
-                text_vectors = [self._hash_encode(t) for t in texts]
-        else:
-            text_vectors = [self._hash_encode(t) for t in texts]
+        if service is None:
+            raise RuntimeError("semantic embedding service is unavailable")
+        text_vectors = self._validate_service_vectors(
+            service, await service.embed_batch(texts), count=len(nodes)
+        )
 
         embeddings: Dict[str, List[float]] = {}
         for node, vec in zip(nodes, text_vectors):
@@ -219,19 +214,31 @@ class GraphAwareEmbedder:
         """
         text = self.node_text(node)
 
-        # Use embedding service if available
         service = self._explicit_service or _get_embedding_service()
-        if service is not None:
-            try:
-                import numpy as np
+        if service is None:
+            raise RuntimeError("semantic embedding service is unavailable")
+        return self._validate_service_vectors(
+            service, [await service.embed_text(text, use_cache=True)], count=1
+        )[0]
 
-                embedding = await service.embed_text(text, use_cache=True)
-                return embedding.tolist() if isinstance(embedding, np.ndarray) else list(embedding)
-            except Exception as e:
-                logger.warning(f"EmbeddingService encoding failed: {e}")
+    @staticmethod
+    def _validate_service_vectors(service: Any, vectors: Any, *, count: int) -> List[List[float]]:
+        """One validation boundary for single-node and batched inference."""
+        from victor_codegraph.embeddings import EmbeddingProfile, validate_vectors
 
-        # Fallback: simple hash-based encoding
-        return self._hash_encode(text)
+        if getattr(service, "semantic", True) is False:
+            raise ValueError("non-semantic encoder cannot produce semantic embeddings")
+        from itertools import islice
+
+        batch = list(islice(vectors, count + 1))
+        declared = getattr(service, "dimension", None)
+        profile = getattr(service, "profile", None)
+        if isinstance(profile, EmbeddingProfile):
+            declared = profile.dimension
+        dimension = declared if type(declared) is int else (len(batch[0]) if batch else 0)
+        if not dimension:
+            raise ValueError("semantic embedding batch is empty")
+        return validate_vectors(batch, count=count, dimension=dimension)
 
     def _hash_encode(self, text: str) -> List[float]:
         """Generate a simple hash-based encoding.

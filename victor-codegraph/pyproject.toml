@@ -40,6 +40,7 @@ classifiers = [
 dependencies = []
 
 [project.optional-dependencies]
+embeddings = ["sentence-transformers>=3,<6"]
 treesitter = [
     "tree-sitter>=0.26.0",
     "tree-sitter-language-pack>=1.21.3",
@@ -77,3 +78,6 @@ select = ["E4", "E7", "E9", "F"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = ""
+
+[tool.setuptools.package-data]
+victor_codegraph = ["py.typed"]

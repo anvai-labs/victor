@@ -115,3 +115,24 @@ types retain unresolved references. Glob imports retain a module dependency but
 do not guess call targets. This is a conservative static graph, not rustc name
 resolution or evidence that a call executes. Publish this package before a Victor
 release that requires its `0.9.0` repository graph contract.
+
+
+### Embedding conformance candidate (unreleased)
+
+The working-tree prototype described by FEP-0040 supplies store-neutral
+`EmbeddingProfile`, `SymbolEmbedding`, `embed_symbols` and an optional
+`SentenceTransformerEncoder`. The base compiler stays dependency-free. The
+`embeddings` extra loads sentence-transformers only when explicitly selected;
+private source is not sent to a remote model by default.
+
+The contract uses canonical compiler IDs and `symbol-summary-v1` (name,
+signature and documentation), with an immutable model revision, dimensions,
+token limit, normalization, query prefix and separate input/source hashes.
+Inference errors propagate; hash placeholders, zero vectors and malformed batches
+are not semantic evidence. File/container symbols marked `embedding_excluded`
+remain graph evidence only.
+
+This is not part of the published 0.9.0 distribution. Installation instructions
+and consumer pins follow a new qualified release. Current evidence covers
+synthetic document-vector persistence parity; collection/query compatibility,
+relevance and hosted lifecycle remain separate acceptance gates.
