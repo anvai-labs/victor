@@ -321,10 +321,12 @@ class TurnBoundaryContextAssembler:
 
         # 3. Identify recent turns to keep in full
         full_turn_count = self._config.full_turn_count
-        # Count turns (a turn = user message + subsequent assistant/tool messages)
+        # Synthetic user-role guidance belongs to the current genuine user turn.
+        from victor.agent.conversation.history_metadata import is_user_turn
+
         turn_boundaries = []
         for i, msg in enumerate(remaining):
-            if msg.role == "user":
+            if is_user_turn(msg.role, msg.metadata):
                 turn_boundaries.append(i)
 
         if len(turn_boundaries) <= full_turn_count:

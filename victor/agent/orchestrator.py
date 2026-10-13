@@ -2979,9 +2979,10 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
           injection into the user prefix instead of appending a new system message.
         - This preserves byte-identical system prompts for provider KV caching.
 
-        Enforces max_conversation_history ceiling by removing oldest
-        non-system messages when the limit is reached. Persistence
-        and usage logging are delegated to ``ChatService.persist_message``.
+        Delegates count retention to MessageHistory, preserving the active task
+        and current tool exchange even when their retention floor exceeds the
+        configured target. Persistence and usage logging are delegated to
+        ``ChatService.persist_message``.
 
         Args:
             role: Message role (user, assistant, system, tool)

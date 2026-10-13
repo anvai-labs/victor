@@ -1093,6 +1093,35 @@ class TestServiceFirstDelegation:
                 )
         writer.assert_called_once()
 
+    def test_publication_retains_original_task_past_configured_history_limit(self, orchestrator):
+        from victor.agent.message_history import MessageHistory
+
+        orchestrator.settings.max_conversation_history = 10
+        orchestrator.conversation = MessageHistory(system_prompt="System", max_history_messages=10)
+        orchestrator.conversation.ensure_system_prompt()
+        orchestrator._conversation_controller.load_history(orchestrator.conversation)
+        with patch("victor.agent.services.chat_service.ChatService.persist_message"):
+            orchestrator.add_message("user", "Active task", metadata={"source": "u"})
+            orchestrator._apply_task_guidance(
+                user_message="Active task",
+                unified_task_type=MagicMock(value="analyze"),
+                is_analysis_task=True,
+                is_action_task=False,
+                needs_execution=False,
+                max_exploration_iterations=10,
+            )
+            guidance = [
+                m
+                for m in orchestrator.conversation.messages
+                if (m.metadata or {}).get("source") == "ag"
+            ]
+            assert len(guidance) == 2
+            assert all(m.metadata["interactive_history"] is False for m in guidance)
+            for i in range(25):
+                orchestrator.add_message("assistant", f"Evidence {i}")
+        assert any(m.content == "Active task" for m in orchestrator.conversation.messages)
+        assert len(orchestrator.conversation.messages) == 10
+
     def test_add_message_uses_chat_service_persist_message(self, orchestrator):
         """Message persistence should go through ChatService, not ChatCoordinator."""
         with patch("victor.agent.services.chat_service.ChatService.persist_message") as persist:

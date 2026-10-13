@@ -4,7 +4,7 @@ title: "Unified Agentic Loop (single loop, two I/O modes)"
 type: Standards Track
 status: Implemented
 created: 2026-06-21
-modified: 2026-09-06
+modified: 2026-10-13
 authors:
   - name: Vijaykumar Singh
     email: vijay@anvaiops.com
@@ -22,6 +22,25 @@ The [canonical unified streaming diagram](../docs/architecture.md#agenticloop) s
 The #1043 cleanup removed `StreamingChatExecutor.run()` and `AgenticLoop.stream_chat()`.
 The original problem, implementation plan, and dated progress reports below are retained as
 design history; the final cleanup section records their completed disposition.
+
+## Execution-contract qualification (2026-10-13)
+
+The streaming ACT cutover remains implemented. The later
+[execution-path audit](../docs/architecture/victor-agent-service-plan.md#full-execution-path-review-and-contract-fit)
+found that shared phase methods do not yet establish full lifecycle parity.
+G97/G98 in the canonical tracker own current repairs and acceptance; this FEP does
+not introduce another loop, feature flag or fallback path.
+
+- One run-state reset now serves buffered and token streaming in the local candidate;
+  completion-score isolation and truthful recorded decisions are regression-tested.
+- Terminal RESPONSE governance/status, controller/guard dispatch, recovery disposition
+  and iteration/StateGraph parity remain open. The current text/tool parity battery
+  does not prove those contracts.
+- Extend existing typed turn/terminal contracts and ACT adapters. A provider finish
+  reason is not a run-success verdict. Tool batching remains inside ACT.
+- Strict response policy must gate content before exposure; a terminal check cannot
+  retract earlier streaming deltas. Cancellation must close the active iterator and
+  preserve an unknown effect outcome rather than retry a write blindly.
 
 ## Original problem statement (historical)
 

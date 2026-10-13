@@ -14,6 +14,8 @@
 
 """Tests for agent/message_history module."""
 
+import pytest
+
 from victor.agent.message_history import MessageHistory
 
 
@@ -138,6 +140,69 @@ class TestMessageHistory:
         assert messages[0].role == "system"
         # Allow for system message + max_history messages
         assert len(messages) <= 6
+
+    def test_trim_retains_active_user_across_runtime_nudges_and_tool_batches(self):
+        """A long single task must survive count eviction with complete tool exchanges."""
+        manager = MessageHistory(system_prompt="System", max_history_messages=10)
+        manager.ensure_system_prompt()
+        task = manager.add_user_message("Audit the repository", metadata={"source": "u"})
+        for batch in range(12):
+            manager.add_user_message("Continue inspecting", metadata={"source": "an"})
+            ids = [f"call_{batch}_{i}" for i in range(3)]
+            manager.add_assistant_message("", tool_calls=[{"id": i, "name": "read"} for i in ids])
+            for call_id in ids:
+                manager.add_tool_result(call_id, "evidence", "read")
+            messages = manager.messages
+            assert task in messages
+            assert messages[0].role == "system"
+            owners = {tc["id"] for m in messages for tc in (m.tool_calls or [])}
+            assert all(m.tool_call_id in owners for m in messages if m.role == "tool")
+            # At most the one boundary batch extends the soft count target.
+            assert len(messages) <= 13
+
+    @pytest.mark.parametrize(
+        "metadata",
+        [{"source": "ag"}, {"interactive_history": False}, {"internal_prompt_kind": "budget"}],
+    )
+    def test_trim_protects_latest_legacy_user_not_internal_guidance(self, metadata):
+        manager = MessageHistory(system_prompt="System", max_history_messages=5)
+        manager.ensure_system_prompt()
+        old = manager.add_user_message("Old task", metadata={"source": "u"})
+        active = manager.add_user_message("New task")
+        for i in range(15):
+            manager.add_user_message(f"Guidance {i}", metadata=metadata)
+        assert active in manager.messages
+        assert old not in manager.messages
+        assert len(manager.messages) == 5
+
+    @pytest.mark.parametrize("batch_size", [1, 6])
+    def test_tool_exchange_survives_publication_then_releases_floor(self, caplog, batch_size):
+        manager = MessageHistory(system_prompt="System", max_history_messages=4)
+        manager.ensure_system_prompt()
+        task = manager.add_user_message("Inspect these files")
+        ids = [f"read_{index}" for index in range(batch_size)]
+        owner = manager.add_assistant_message("", tool_calls=[{"id": i} for i in ids])
+        for count, call_id in enumerate(ids, start=1):
+            manager.add_tool_result(call_id, "evidence", "read")
+            assert task in manager.messages
+            assert owner in manager.messages
+            assert [m.tool_call_id for m in manager.messages if m.role == "tool"] == ids[:count]
+            assert len(manager.messages) == 3 + count
+        final = manager.add_assistant_message("Final audited answer")
+        assert final in manager.messages
+        assert owner in manager.messages
+        guidance = manager.add_user_message("Next", metadata={"source": "an"})
+        assert guidance in manager.messages
+        assert owner in manager.messages
+        assert task in manager.messages
+        assert len(manager.messages) <= 4 + batch_size
+        assert "History retention floor exceeds message target" in caplog.text
+
+        replacement = manager.add_assistant_message("", tool_calls=[{"id": "last"}])
+        manager.add_tool_result("last", "final evidence", "read")
+        assert manager.messages == [manager.messages[0], task, replacement, manager.messages[-1]]
+        assert owner not in manager.messages
+        assert len(manager.messages) == 4
 
     def test_get_last_user_message(self):
         """Test getting last user message."""

@@ -85,6 +85,21 @@ class TestAssembleTokenBudget:
 
 
 class TestAssembleRecentTurns:
+    @pytest.mark.parametrize("metadata", [{"source": "an"}, {"interactive_history": False}])
+    def test_internal_guidance_does_not_evict_active_turn(self, metadata):
+        assembler = TurnBoundaryContextAssembler(session_ledger=SessionLedger())
+        task = Message(role="user", content="Read only these two files", metadata={"source": "u"})
+        msgs = [_msg("system", "sys"), task]
+        for i in range(5):
+            msgs.append(Message(role="user", content="guidance " * 20, metadata=metadata))
+            msgs.append(Message(role="assistant", content="", tool_calls=[{"id": f"read_{i}"}]))
+            msgs.append(Message(role="tool", content="evidence", tool_call_id=f"read_{i}"))
+        before = list(msgs)
+        result = assembler.assemble(msgs, max_context_chars=400, current_query=task.content)
+        assert task in result
+        assert result == before
+        assert msgs == before
+
     def test_last_3_turns_always_kept(self):
         ledger = SessionLedger()
         assembler = TurnBoundaryContextAssembler(session_ledger=ledger)

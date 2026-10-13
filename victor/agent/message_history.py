@@ -322,23 +322,66 @@ class MessageHistory:
         self._system_added = False
 
     def _trim_history(self) -> None:
-        """Trim history to max_history_messages, preserving system prompt."""
+        """Retain active intent and atomic tool exchanges at the history count boundary.
+
+        The count target has a floor of system + active user + newest tool exchange
+        + newest publication.
+        A batch larger than the target stays intact rather than losing executed effects;
+        the next exchange replaces that floor. Token/context limits remain separate.
+        """
         if len(self._messages) <= self._max_history:
             return
 
-        # Keep system message if present
-        system_msg = None
+        from victor.agent.conversation.history_metadata import is_user_turn
+
+        protected: set[int] = set()
         if self._messages and self._messages[0].role == "system":
-            system_msg = self._messages[0]
+            protected.add(0)
+        active_user = -1
+        for index, message in enumerate(self._messages):
+            if is_user_turn(message.role, message.metadata):
+                active_user = index
+        if active_user >= 0:
+            protected.add(active_user)
 
-        # Trim from the front (oldest messages), keeping recent ones
-        excess = len(self._messages) - self._max_history
-        kept = self._messages[excess:]
-        self._messages = _TrackedList(kept)
+        # One owner per assistant declaration; results join by ID, not tool name.
+        groups: dict[int, list[int]] = {}
+        owners: dict[str, int] = {}
+        newest_exchange: int | None = None
+        for index, message in enumerate(self._messages):
+            owner = owners.get(message.tool_call_id or "") if message.role == "tool" else None
+            if owner is not None:
+                groups[owner].append(index)
+                continue
+            groups[index] = [index]
+            if message.role == "assistant" and message.tool_calls:
+                for call in message.tool_calls:
+                    call_id = call.get("id")
+                    if isinstance(call_id, str) and call_id:
+                        owners[call_id] = index
+                if index > active_user:
+                    newest_exchange = index
+        if newest_exchange is not None:
+            protected.update(groups[newest_exchange])
 
-        # Re-add system message at front if it was removed
-        if system_msg and (not self._messages or self._messages[0].role != "system"):
-            self._messages.insert(0, system_msg)
+        # Never return a just-published message that is already absent from history.
+        protected.add(len(self._messages) - 1)
+        kept = set(protected)
+        remaining = max(0, self._max_history - len(kept))
+        for group in sorted(groups.values(), key=lambda items: items[-1], reverse=True):
+            candidates = [index for index in group if index not in protected]
+            if len(candidates) > remaining:
+                break
+            kept.update(candidates)
+            remaining -= len(candidates)
+        if len(protected) > self._max_history:
+            logger.warning(
+                "History retention floor exceeds message target: target=%d protected=%d; "
+                "preserving active request, newest tool exchange and newest publication",
+                self._max_history,
+                len(protected),
+            )
+        self._messages[:] = [message for i, message in enumerate(self._messages) if i in kept]
 
     def get_last_user_message(self) -> Optional[str]:
         """Get the content of the last user message."""

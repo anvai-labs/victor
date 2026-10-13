@@ -67,29 +67,68 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
-- **TYPE-03 coordination assembly LOCAL_PASS** — owner: Victor co-design session;
-  branch `fix/typed-runtime-assembly`, baseline
-  `9d94135679410a530271f13566d69e8dd936c10e`. Qualify the five lazy coordination
-  handles and their factory using canonical service protocols. Preserve factory
-  dispatch, component identity, lazy initialization and recovery binding timing.
-  Reuse existing assembly and static-consumer test owners; reject incompatible
-  factories/components without casts or new fallback paths. TDD reproduced five
-  `no-any-return` errors; the new consumer accepts the real factory and rejects
-  an incompatible factory and all five incompatible component return types.
-  Final qualification: 58 affected tests, 33 CI-selected tests and 28 independent
-  review tests pass (overlapping cohorts); 34,599 tests collect. Strict MyPy passes
-  both assembly/proxy modules; the configured 2,113-file gate passes separately.
-  Changed executable-line coverage is 100%. Independent adversarial review is
-  clean. Existing runtime cases now verify deferred dispatch, stable identity and
-  recovery accessor timing; no runtime cases were duplicated or removed.
-  [#1332](https://github.com/anvai-labs/victor/pull/1332) initially passed all 39
-  CI checks. Develop then advanced through dependency PRs #1289/#1325; merged
-  `3ce744b063e6404fb27c003f8eba212ed2fc4a9f` into the published branch without
-  rewriting history. Next: revalidate the updated base, feature CI and squash merge.
-  Adapter dynamic forwarding, the optional
-  recovery accessor and remaining protocol payload `Any` boundaries remain open;
-  this is not full adapter/SA-04 qualification, release or C5 acceptance.
-  Evidence: `var/codegraph-victor-20261012/assembly-*`.
+- **G97 retention / G98 run isolation ACTIVE, local qualification** — owner: Victor
+  co-design session; branch `fix/retain-active-task`, baseline
+  `5e2afec204d046d979354166f2048d74259262d6` (freshly fetched; unchanged).
+  The original subscription self-audit lost its task at the history count boundary.
+  Preserved failed evidence also includes a gateway policy HTTP 503 and an
+  interrupted ten-message-window run (2/20 requests retained the task).
+  `MessageHistory` now owns count retention; the competing publisher pre-trim is
+  removed. It protects genuine task intent, system context, the newest pending or
+  completed tool batch by call ID and the latest publication. An oversized current
+  batch has an observable count floor; model context/token limits remain in force.
+  History and assembly share one genuine-user predicate. All four task-guidance
+  injection sites and verification feedback use canonical internal metadata.
+  Producer-repair live evidence: `session_cc9aa0e6d369`, eight provider requests,
+  task present in 8/8 raw/assembled/neutral requests; the bounded read-only audit
+  returned two concrete findings. Gateway fresh input 99,693 + cache read 27,136 +
+  output 1,195 = 128,024 neutral tokens. This run preceded the final predicate
+  extraction/assembler and run-isolation changes. Final-candidate replay
+  `session_3cfba21c27f1` subsequently passed: task retained on 21/21 provider/neutral
+  requests and 22/22 pre/post-assembly checks, ten-message history window, exit zero,
+  two correctly scoped findings. Gateway records the same 21 calls: 214,238 fresh
+  input + 111,360 cache read + 3,538 output = 329,136 neutral tokens. This qualifies
+  task retention, not efficiency: 21 calls for four files leaves LOOP-04 attempt and
+  continuation accounting open; outer iteration limits are not provider-attempt limits.
+  Gateway was unchanged: PID 561574, `/usr/local/libexec/sandhi-proxy-b6123c1`, SHA256
+  `3093ea221547499e5178e99b3f796acc1037bb0dcba48aba3303554728751fae`.
+  Independent review additionally found cross-run completion scores and stale
+  recorded success after a backslide. Both real drivers now share run-state reset;
+  buffered results retain the actual decision with or without a verifier. Seven
+  new RED cases reproduced these defects and verifier provenance, then passed.
+  Four source-inspection/manual-copy tests were replaced by real driver tests.
+  Final local checks: 430 history/assembly/task/loop/policy/adapter/parity tests,
+  18 service-publication tests and six stream-metrics/add-message tests passed;
+  34,639 tests collected. Black, Ruff, repository hygiene/docs drift, configured
+  MyPy and `mypy --strict` pass (2,114 files; legacy suppressions remain). Independent
+  final loop cohort: 71 passed; scoped production/test review approved. CI/merge
+  remain pending; no release or full lifecycle/C5 claim.
+  Next: finish this candidate; then LOOP-02/03 terminal governance/status, shared
+  controller/guard dispatch, and context-limit final-summary retention.
+  Evidence and reboot patch: `var/codegraph-victor-20261012/` (private, ignored).
+
+- **Weighted allowance foundation ✅ MERGED [Sandhi #370](https://github.com/anvai-labs/sandhi/pull/370)** —
+  exact reviewed source `f35739420c18f2de11cccc4abbad6278fb95e2ec`, merge
+  `3d661a3e09f560113f9ae5229933e5eb56ace2c0`; identical trees. Fixed-point,
+  opt-in input/cache/output/reasoning weights preserve raw neutral accounting.
+  Independent review clean; 894 workspace tests passed (6 ignored) and all
+  applicable CI gates green. Live policy remains unchanged. Sandhi TD-0032 owns
+  provenance, immutable admitted policy, durable settlement, operator controls and
+  release/live acceptance (W02–W05). Exact development subject allowance was raised
+  from 1M to 10M neutral tokens/day without resetting spend; weighted discounts
+  are not deployed and no broad rate-limit changes were made.
+
+- **TYPE-03 coordination assembly ✅ MERGED [#1332](https://github.com/anvai-labs/victor/pull/1332)** —
+  merge `5e2afec204d046d979354166f2048d74259262d6`; reviewed candidate
+  `b6e90bc346b06057017035da3bf73206c5a640e3`. Five lazy coordination handles
+  and their factory use canonical service protocols, retaining dispatch, component
+  identity, initialization and recovery binding timing. TDD/static consumers accept
+  the real factory and reject incompatible factory/components. Final qualification:
+  198 affected tests; 34,624 collected; strict two-module and configured 2,113-file
+  MyPy gates pass. Independent review clean; 40 CI successes, one configured skip
+  and neutral Trivy. Adapter dynamic forwarding, optional recovery accessor and
+  remaining payload `Any` boundaries remain open under G96/SA-04. This is not
+  release or C5 acceptance. Evidence: `var/codegraph-victor-20261012/assembly-*`.
 
 - **TYPE-06 shared feature-flag fixture ✅ MERGED [#1330](https://github.com/anvai-labs/victor/pull/1330)** — owner: Victor co-design session;
   branch `fix/feature-flag-test-isolation`, baseline
@@ -1459,6 +1498,146 @@ source completion as a proxy for C5/model quality. Before claiming full closure,
 all requested outcomes above must have accepted evidence or an explicit,
 user-approved scope change; a TODO plan entry is not delivery.
 
+## Agentic-loop fitness audit (G97/G98, 2026-10-13)
+
+Scope: source at `5e2afec204d046d979354166f2048d74259262d6` plus the local G97
+retention candidate. This is a control-flow and live-failure audit, not a latency
+profile or a claim that all optional collaborators execute on every run. The user
+requested this audit before further loop simplification. Preserve public defaults
+until a reviewed opt-in change or explicitly approved migration qualifies them.
+
+| Stage / owner | Assessment | Direction |
+| --- | --- | --- |
+| Factory, immutable session settings, session turn lock | Necessary | Keep one configuration and execution owner; preserve explicit user limits |
+| Request governance, tool schema/authorization, exact approvals | Necessary | Keep independent model proposals and runtime permission checks |
+| Perception / task classification / requirement extraction | Useful conditionally | Run once initially; update only after relevant new evidence; never broaden a bounded request |
+| Planning gate / topology / paradigm routing | Optional capability | Simple tasks need no extra planner; specialist formation only when requested or measured benefit warrants it |
+| Task guidance / generic analysis/action prompts | Provenance repaired locally; pressure still under review | Four injection sites now mark runtime guidance; broad analysis directives can still contradict bounded tasks |
+| History, context assembly, session ledger / retrieval | Necessary with one task anchor | Fix source provenance first; synthetic guidance must not count as a human turn; preserve tool exchanges |
+| Prompt optimizer / temperature ratchet / online learning | Experimental optimization | Keep opt-in and evaluate against a fixed-model baseline; no speed/quality benefit established by this audit |
+| Provider execution through optional Sandhi | Necessary boundary | Preserve provider finish reasons, usage provenance and policy errors; record each actual provider attempt |
+| Tool dispatch / dedup / result correlation | Necessary | Keep exact call IDs; recover schema errors once from structured feedback; never force a different tool solely to defeat dedup |
+| Transport retries / empty-response recovery / context recovery | Useful but overlapping | One run-wide model-attempt, elapsed-time and token budget; explicit changed recovery condition; no blind side-effect replay |
+| Enhanced completion / fulfillment / terminal-answer overrides | Overlapping completion authorities | Prefer typed outcomes and task-specific evidence; prose length, keywords and confidence are advisory |
+| Verifier / effect gate | Valuable for concrete writes and claims | Run relevant verification before success; exact failures can permit bounded correction, subject to original permissions |
+| Rubric judge / per-turn auditor | Optional, currently opt-in | Use calibrated eval evidence for difficult tasks; do not add model judging to every ordinary read/tool turn |
+| Spin/repetition/plateau guards | Necessary reliability control | Stop or diagnose stalled work; nudges do not themselves prove progress |
+| Loop execution variants | Incomplete semantic parity | `run`, `run_streaming`, iteration `stream` and optional StateGraph have different surrounding guards and terminal behavior |
+| Final publication / UI / CLI status | Necessary, defects confirmed | Nonzero terminal failure; exact result IDs; distinguish completed, failed, blocked, cancelled and exhausted |
+
+Specific findings:
+
+- `TaskCoordinator.apply_task_guidance` tells every analysis task to inspect multiple
+  modules and not stop after a few files, even when the user explicitly bounded the
+  task. Its four analysis/action injection sites omit internal metadata (two execute for
+  analysis; one action branch executes for an action task). This is a
+  concrete producer defect at the audited baseline, repaired in this candidate using
+  canonical metadata (including verifier feedback). Broad prompt pressure remains
+  open; do not compensate with content parsing or larger budgets.
+- `NudgePolicy.budget_warning` says "Make your edits NOW" without task intent.
+  `_inject_decide_nudges` calls the otherwise intent-aware evaluator without intent.
+  Read-only work must never acquire implied write permission through these prompts.
+- `run_streaming` reuses phase methods but does not call `LoopGuards.enforce`,
+  `TurnEvaluationController.evaluate` or `_check_adaptive_termination` where buffered
+  `run` does. A reset/shared object is not parity. Exhaustion returns without the
+  same explicit `LoopResult` terminal contract. Buffered `total_timeout` also defaults
+  to `None` (off); the missing deadline parity matters when configured.
+  The optional StateGraph path rejects
+  an attached verifier; it is not a transparent equivalent of the ordinary loop.
+- Tool budget is intentionally advisory in `UnifiedTaskTracker.should_stop`, while
+  `ToolPipeline._dispatch_unique_calls` has `remaining_budget` admission and budget-
+  exhausted skips. Audit propagation/ownership rather than claim no hard tool limit.
+  Iteration caps and transport attempts are different quantities. The observed twenty provider
+  requests with a ten-iteration request require attribution before claiming a limit
+  bypass: retries/recovery can add model calls within one outer iteration.
+- Completion still uses response text/length and cascading evaluators. There are
+  valuable Q&A/terminal-answer fast paths; do not remove them merely to reduce files.
+  A short response warning in `chat_stream_helpers` alone does NOT trigger retry.
+- Live errors currently appear as normal CLI completion, and buffered rendering pairs
+  repeated tool names in reverse order rather than by ID. These undermine self-test
+  trust even when transport succeeds.
+
+Recommended loop contract: admitted task → bounded context → model turn → either
+validated tool calls/results, a typed terminal outcome, or one specific recovery.
+Continue automatically after legitimate tool results while work remains. Do not
+inject generic "continue", minimum-tool-count or minimum-answer-length pressure after
+an acceptable final answer. A clarification/approval wait is not permission to answer
+on the user's behalf. Denial, unresolved effect, cancellation and exhausted allowance
+are terminal recorded outcomes. Internal feedback retains internal provenance.
+
+| Increment | Status | Acceptance before advancing |
+| --- | --- | --- |
+| LOOP-01 / G97 | LOCAL FIX, qualification in progress | One retention owner and provenance predicate; guidance/verifier producers repaired; exact-candidate live retention audit passes; review/local checks pass, CI pending |
+| LOOP-02 / G97 | TODO | Terminal error reaches CLI exit/status; concurrent/repeated tool names reconcile by ID; no false success |
+| LOOP-03 / G98 | PARTIAL LOCAL FIX | Shared run reset and truthful recorded evaluation repaired; terminal governance/status, controller/guard dispatch and StateGraph parity remain open |
+| LOOP-04 / G98 | AUDITED, implementation pending | Intent-aware recovery and one attempt ledger; repeated invalid/denied tools do not produce unbounded nudges |
+| LOOP-05 / G98 | AUDITED, design pending | Structured terminal evidence replaces prose as control authority; ordinary read tasks do not need judges or minimum tool counts |
+| LOOP-06 | TODO, depends on LOOP-01–05 | Fixed baseline versus optional planner/judge/learning, reporting verified success, model calls, tokens, elapsed time, CPU/memory and cancellation reliability; retain only measured improvements |
+
+### Full execution-path review and contract fit
+
+Reviewed the buffered `run`, token `run_streaming`, iteration `stream` and optional
+StateGraph adapter, together with `TurnExecutor`, `StreamingChatExecutor`,
+`StreamingActAdapter`, `TurnEvaluationController`, context/history owners and the
+existing streaming parity/governance suites. Buffered tool batches are ACT results,
+not a reason for a third control loop. Concurrent members require separate run state;
+the reset helper does not make one mutable loop instance concurrency-safe.
+
+| Severity / status | Code owner and evidence | Required repair / acceptance |
+| --- | --- | --- |
+| P1 — LOCAL FIX | `AgenticLoop._reset_run_state`: completion scores survived consecutive calls; all four buffered/streaming mode pairs failed before repair | Reset once per run; retain within-run score history; no change to thresholds |
+| P1 — LOCAL FIX | Buffered DECIDE recorded pre-backslide COMPLETE without a verifier; existing verifier test expanded to prove false success | Always record the actual decision; both verifier configurations pass |
+| P1 — LOCAL FIX | `_inject_verify_feedback` used an unrecognized source and could replace the protected task | Shared internal-metadata helper; real verification retry + history eviction tests in both modes |
+| P1 — OPEN | `StreamingChatExecutor._emit_assistant_turn` governs RESPONSE only for forced completion; normal unified COMPLETE returns later without that call | One post-decision terminal delivery owner; test normal unified completion with allow/redact/block. Previously emitted deltas cannot be retracted; strict output policy must buffer before exposure |
+| P1 — OPEN | `run_streaming` emits identical content for COMPLETE, FAIL and CONTINUE at cap (independent fixture reproduction) | Existing stream contract must carry a typed run outcome distinct from a provider turn's finish reason; CLI/API/UI consume it consistently |
+| P1 — OPEN | Buffered `run` evaluates `TurnEvaluationController`; token streaming resets it but omits evaluation | One shared post-turn decision helper over canonical `TurnResult`/`TurnObservation`; negative repetition/search-novelty parity tests |
+| P1 — OPEN | `LoopGuards` is installed/enforced only by buffered driver; deadline checks between phases do not interrupt an in-flight await | Share guard lifetime and cancellation cleanup; qualify blocked await, timeout, perception runaway and generator close; do not claim a hard deadline from a phase-boundary check |
+| P2 — OPEN | Streaming ACT produces recovery return/continue signals but adapter only forwards `turn_result` | Declare recovery disposition in canonical turn contract; one DECIDE consumption; test no extra provider request after terminal recovery |
+| P2 — OPEN | Adaptive extension changes the bound after `range` construction | A bounded driver must consult the current limit; real executed-turn-count test, including absolute cap |
+| P2 — OPEN | `StreamingTurnOutcome`, ACT session fields and adapter arguments use `Any`; missing turn result reaches evaluation | Narrow existing protocols, declare current dynamic fields, reject incomplete ACT at its boundary; no silent synthetic success |
+| P2 — OPEN | `EvaluationResult` accepts string decisions but loop branches compare enums; ESCALATE is treated as nonterminal nudge | Normalize supported decisions once; preserve documented custom graph routing outside the loop; explicit needs-input outcome with no autonomous retry |
+| P2 — OPEN | Executor resolver constructs fresh `AgenticLoopSettings()` instead of accepting the resolved session config | One factory/config authority, invalid-value rejection, explicit unsupported-capability error; no new flag path |
+| P2 — OPEN | Iteration `stream` independently replans and omits reset/guards/nudges; StateGraph rejects verifier | Treat iteration output as an observer of the same lifecycle; keep unsupported combinations explicit until qualified |
+| P2 — OPEN | Read-only audits receive write-oriented budget nudges; model attempts can occur inside an outer iteration | Pass original intent; count all recovery/provider attempts separately from tool and loop bounds; never broaden permissions |
+
+| Pattern / principle | Fit | Concrete application |
+| --- | --- | --- |
+| State machine + composition | Keep | One lifecycle decides transition/termination; adapters change output timing, not authorization or success |
+| Adapter / ports and adapters | Keep, tighten contracts | Existing ACT port converts provider I/O into `TurnResult`; reject an unset result; no second provider or tool registry |
+| Strategy | Keep conditionally | Select completion/planning strategy once from validated config; optional judges require measured benefit, not nested fallback authorities |
+| Single responsibility | Repair | History owns retention; run owns counters/decisions; delivery owns governed publication; tools own effects and receipts |
+| Interface segregation / dependency inversion | Repair | Depend on narrow typed services already present, replacing runtime `getattr` probing at internal seams; adapt legacy inputs at entry only |
+| Substitutability | Not yet established | Every mode must honor the same failure, recovery, cancellation and governance contracts; same answer text is insufficient |
+| Factory / dependency injection | Keep | Assemble one validated configuration and supported capabilities; never silently reconstruct defaults mid-run |
+| Template Method inheritance, new event bus or loop framework | Unnecessary here | Extract shared behavior into existing owners; avoid a class hierarchy or generic registry merely to reduce line count |
+
+Target flow (implementation is staged in LOOP-02–05, not an acceptance claim):
+
+```mermaid
+flowchart LR
+  A[Admitted task and run state] --> B[Shared bounded lifecycle]
+  B --> C[Buffered or streaming ACT adapter]
+  C --> D[Typed turn and tool results]
+  D --> E[Shared evaluation and decision]
+  E -->|bounded continuation| B
+  E -->|terminal or needs input| F[Governed terminal delivery]
+  F --> G[CLI / API / UI outcome and audit]
+```
+
+Test consolidation: removed four `test_agentic_loop_decide.py` cases that asserted
+source strings or duplicated a decision `if` statement. Retained four score-velocity
+boundary tests; the existing verification owner now executes real drivers for
+cross-run isolation, nonterminal behavior and stale completion. The streaming
+characterization battery remains useful for output/tool ordering; extend it with
+failure contracts instead of creating a second parity suite. No performance gain
+is claimed: only correctness, less duplicated reset code and stronger regression
+coverage have been established. Optional planner/judge/learning removal or native
+acceleration still requires representative end-to-end measurements.
+
+No new loop implementation was promoted by this audit. The retention worktree and
+patch are preserved; no failed smoke was relabelled as passed. Sandhi #370 is a
+separate merged arithmetic foundation, not live weighted-policy or C5 acceptance.
+
 ## Repository-wide typing qualification (G96)
 
 Scope: root runtime, contracts SDK, codegraph, all five first-party verticals and
@@ -1471,7 +1650,7 @@ errors is not an acceptance result for this program.
 | --- | --- | --- |
 | TYPE-01 | Unsuppressed inventory, reproducible commands, file/error ownership and existing test audit | ACTIVE; core audit 7,794 errors / 1,082 files; independent-package targets report 1,101 package-local errors; root tests/scripts also inventoried below; package tests remain; SDK compatibility sources now inventoried (5 additional diagnostics) |
 | TYPE-02 | Definition-layer contracts, missing symbols and concrete signature mismatches | SDK #1319, shared event/stream #1327 and mutable registry #1328 merged; registration compatibility exports #1329 merged (checkpoint above); remaining definition-layer work open |
-| TYPE-03 | Typed runtime assembly and adapters, completing SA-04 | LOCAL_PASS: coordination assembly slice (checkpoint above); broader adapter qualification remains open: required collaborators explicit, optional capabilities centralized; no dynamic forwarding as evidence of protocol implementation |
+| TYPE-03 | Typed runtime assembly and adapters, completing SA-04 | Coordination assembly ✅ MERGED #1332 (checkpoint above); broader adapter qualification remains open: required collaborators explicit, optional capabilities centralized; no dynamic forwarding as evidence of protocol implementation |
 | TYPE-04 | Services, providers, tools, workflows, storage and client consumers | TODO in dependency order; retire each reviewed exception only with affected tests and strict checks |
 | TYPE-05 | Package/vertical integration and full unsuppressed matrix | TODO after contributing groups; build/install and supported Python jobs pass, no broad suppression, unused ignores removed |
 | TYPE-06 | Test and development-script typing | TODO after their production contracts; root tests 48,242 diagnostics, scripts 440; shared feature-flag fixture prerequisite merged #1330 (checkpoint above); use canonical reset and remove duplicated flag isolation; retain intentional negative fixtures and behavior coverage; no blanket test exclusion as a compliance claim |
