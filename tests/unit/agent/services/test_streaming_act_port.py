@@ -31,6 +31,7 @@ from victor.agent.services.chat_stream_executor import (
 )
 from victor.agent.services.chat_runtime_services import (
     ChatCompletion,
+    ChatGovernance,
     ChatConversation,
     ChatStreamLifecycle,
     ChatToolCalls,
@@ -66,6 +67,7 @@ def _executor(*, detector=None, lifecycle=None) -> StreamingChatExecutor:
     services = SimpleNamespace(
         tool_calls=ChatToolCalls(runtime=_PassThroughToolRuntime()),
         completion=ChatCompletion(detector=detector),
+        governance=ChatGovernance(),
         conversation=ChatConversation(),
         stream_lifecycle=ChatStreamLifecycle(lifecycle or _StreamLifecycle()),
     )

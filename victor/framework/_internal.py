@@ -451,6 +451,7 @@ async def stream_with_events(
     registry = get_event_registry()
     output_state = DirectResponseOutputState(response_prompt or prompt)
     saw_content_event = False
+    terminal_metadata: Dict[str, Any] | None = None
 
     sink = MemberEventSink()
     sink_token = current_member_sink.set(sink)
@@ -478,6 +479,13 @@ async def stream_with_events(
             chunk = item
             metadata = getattr(chunk, "metadata", None)
             chunk_metadata = metadata if isinstance(metadata, dict) else {}
+
+            if "agentic_loop_success" in chunk_metadata:
+                if type(chunk_metadata["agentic_loop_success"]) is not bool:
+                    raise ValueError("Invalid agentic loop outcome: success must be a boolean")
+                if terminal_metadata is not None:
+                    raise ValueError("Duplicate agentic loop terminal outcome")
+                terminal_metadata = dict(chunk_metadata)
 
             status_message = chunk_metadata.get("status") or chunk_metadata.get("status_update")
             if status_message:
@@ -560,7 +568,7 @@ async def stream_with_events(
                 EventTarget.STREAM_CHUNK,
                 metadata=final_metadata,
             )
-        elif not saw_content_event:
+        elif not saw_content_event and terminal_metadata is None:
             fallback_content = _get_stream_completion_fallback(orchestrator, output_state)
             if fallback_content:
                 yield registry.from_external(
@@ -570,8 +578,14 @@ async def stream_with_events(
                     metadata={"source": "completion_summary_fallback"},
                 )
 
-        # Emit stream end
-        yield stream_end_event(success=True)
+        # Provider EOF is not a loop verdict. Preserve explicit runtime failure,
+        # including cancellation, and never substitute ungoverned history output.
+        success = terminal_metadata is None or terminal_metadata["agentic_loop_success"]
+        error = None
+        if not success:
+            error = str(terminal_metadata.get("agentic_loop_error") or "Agentic loop failed")
+            yield error_event(error, recoverable=False, metadata=terminal_metadata)
+        yield stream_end_event(success=success, error=error, metadata=terminal_metadata or {})
 
     except Exception as e:
         error_message = _sanitize_stream_error_message(e)

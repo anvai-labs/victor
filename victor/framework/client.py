@@ -203,11 +203,21 @@ def _to_stream_event(event: Any) -> _StreamEvent:
         return _StreamEvent(
             EventType.ERROR,
             content=str(error_text),
+            success=False,
             metadata={
                 **getattr(event, "metadata", {}),
                 "error": str(error_text),
                 "recoverable": getattr(event, "recoverable", None),
             },
+        )
+    if event.type == EventType.STREAM_END:
+        metadata = dict(event.metadata)
+        if event.error:
+            metadata["error"] = event.error
+        return _StreamEvent(
+            EventType.STREAM_END,
+            success=event.success,
+            metadata=metadata,
         )
     if event.type == EventType.AWAITING_APPROVAL:
         # FEP-0029: the streamed turn durably paused on a policy ASK — surface the resume token +

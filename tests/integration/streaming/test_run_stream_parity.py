@@ -90,3 +90,61 @@ async def test_run_stream_parity(scenario):
 async def test_parity_battery_is_non_empty():
     """Guard: the battery actually runs scenarios (so the parity assertions above mean something)."""
     assert SCENARIOS, "expected a non-empty QA battery"
+
+
+@pytest.mark.parametrize("policy", ["absent", "redact", "block", "empty"])
+async def test_unified_response_policy_and_terminal_verdict(policy, monkeypatch):
+    """Real service/ACT/loop/event wiring: withheld output never causes a second call."""
+    from unittest.mock import AsyncMock
+    from victor.framework.agentic_loop import AgenticLoop
+    from victor.framework.evaluation_nodes import EvaluationDecision, EvaluationResult
+    from victor.framework._internal import stream_with_events
+    from victor.framework.events import EventType
+    from victor.framework.policies import (
+        BlockPatternPolicy,
+        MessagePolicyGate,
+        Phase,
+        PolicyEngine,
+        RedactContentPolicy,
+    )
+    from .parity_harness import TurnScript
+
+    original = "The result is sk-abc123. " + "This is the verified answer. " * 6
+    provider = ScriptedProvider([TurnScript(content=original)])
+    policies = []
+    if policy == "redact":
+        policies = [RedactContentPolicy([r"sk-\w+"], placeholder="[KEY]")]
+    elif policy == "block":
+        policies = [BlockPatternPolicy([r"sk-\w+"], phases={Phase.RESPONSE}, reason="withheld")]
+    elif policy == "empty":
+        policies = [RedactContentPolicy([r".+"], placeholder="")]
+    gate = MessagePolicyGate(PolicyEngine(policies)) if policies else None
+    monkeypatch.setattr(
+        "victor.agent.factory.coordination_builders.build_message_policy_gate", lambda *args: gate
+    )
+    orch = build_streaming_orchestrator(provider)
+    evaluate = AsyncMock(
+        return_value=EvaluationResult(
+            decision=EvaluationDecision.COMPLETE, score=1.0, reason="done"
+        )
+    )
+    monkeypatch.setattr(AgenticLoop, "_evaluate", evaluate)
+
+    events = [event async for event in stream_with_events(orch, "Give the result.")]
+    content = "".join(event.content for event in events if event.type == EventType.CONTENT)
+    ends = [event for event in events if event.type == EventType.STREAM_END]
+    assert len(ends) == 1
+    assert provider.turn_index == 1
+    if policy in {"block", "empty"}:
+        assert ends[0].success is False
+        assert not content
+        assert len([event for event in events if event.type == EventType.ERROR]) == 1
+        evaluate.assert_not_awaited()
+    else:
+        assert ends[0].success is True
+        expected = original.replace("sk-abc123", "[KEY]") if policy == "redact" else original
+        assert content.strip() == expected.strip()
+        evaluate.assert_awaited_once()
+    if policy != "absent":
+        assert "sk-abc123" not in content
+        assert all("sk-abc123" not in (message.content or "") for message in orch.messages)

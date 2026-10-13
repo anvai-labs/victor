@@ -455,3 +455,30 @@ class in `chat_stream_runtime.py`.
 The buffered-only preamble/DECIDE bands listed in the September refresh remain
 separate follow-up work. Removing obsolete entry points does not claim those
 optional capabilities have gained streaming parity.
+
+
+### Terminal delivery qualification — 2026-10-13
+
+The LOOP-02/03 increment extends the existing buffered result metadata to streaming:
+`agentic_loop_success` (boolean), `agentic_loop_iterations` (completed ACT turns),
+and `agentic_loop_error` on failure. A provider's `is_final` or stop reason is not
+an agent verdict. The loop emits an empty final marker after accepted COMPLETE (after any configured
+verification), FAIL or iteration exhaustion; framework events and VictorClient preserve its
+verdict, and audit/resume finalizers must not override failure with a quality score.
+Existing consumers without a loop marker retain their legacy EOF behavior.
+
+Normal no-tool assistant candidates pass RESPONSE policy before publication,
+history and completion detection. Forced delivery reuses that result rather than
+invoking policy twice. Denial and a policy that removes all deliverable content
+raise a nonrecoverable error before publication; neither retries the model nor
+recovers an earlier ungoverned summary. The latter is a delivery failure, not proof
+of task completion. With no configured gate, content bytes and provider attempts
+are unchanged. Tool-bearing intermediate narration, raw provider diagnostics and
+separate recovery paths require their own qualification; this is not an assertion
+that all possible emissions are governed.
+
+Acceptance is tracked in the canonical agent-service plan. Existing policy, ACT,
+loop, runtime-finalization, framework/client and run/stream parity suites own the
+regressions. No additional loop framework or terminal-status registry is introduced.
+CLI process exit status, shared guards/controllers, recovery disposition and
+iteration/StateGraph parity remain open obligations.

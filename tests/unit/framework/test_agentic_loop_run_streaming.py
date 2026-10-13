@@ -103,8 +103,10 @@ async def test_run_streaming_yields_chunks_and_completes_on_first_turn():
 
     chunks = [c async for c in loop.run_streaming("q")]
 
-    assert [c.content for c in chunks] == ["hello ", "world"]
+    assert [c.content for c in chunks if c.content] == ["hello ", "world"]
     assert loop._progress_scores == [1.0]
+    assert chunks[-1].is_final is True
+    assert chunks[-1].metadata == {"agentic_loop_success": True, "agentic_loop_iterations": 1}
 
 
 async def test_run_streaming_iterates_until_complete():
@@ -120,7 +122,7 @@ async def test_run_streaming_iterates_until_complete():
     chunks = [c async for c in loop.run_streaming("q")]
 
     # Both turns' chunks stream through in order; progress recorded per turn.
-    assert [c.content for c in chunks] == ["a", "b"]
+    assert [c.content for c in chunks if c.content] == ["a", "b"]
     assert loop._progress_scores == [0.4, 0.9]
 
 
@@ -159,8 +161,14 @@ async def test_run_streaming_stops_on_fail():
 
     chunks = [c async for c in loop.run_streaming("q")]
 
-    assert [c.content for c in chunks] == ["x"]
+    assert [c.content for c in chunks if c.content] == ["x"]
     assert loop._progress_scores == [0.0]
+    assert chunks[-1].is_final is True
+    assert chunks[-1].metadata == {
+        "agentic_loop_success": False,
+        "agentic_loop_iterations": 1,
+        "agentic_loop_error": "bad",
+    }
 
 
 async def test_run_streaming_requires_a_port():
@@ -452,8 +460,14 @@ async def test_run_streaming_emits_prompt_reward_on_exhaustion(monkeypatch):
         lambda identities, *, completion_score, **kw: captured.append(completion_score),
     )
 
-    [c async for c in loop.run_streaming("q")]
+    chunks = [c async for c in loop.run_streaming("q")]
 
+    assert chunks[-1].is_final is True
+    assert chunks[-1].metadata == {
+        "agentic_loop_success": False,
+        "agentic_loop_iterations": 2,
+        "agentic_loop_error": "Maximum iterations (2) reached without completion",
+    }
     assert captured == [0.5]  # final evaluation score (not the mid-loop 0.3), once
 
 
@@ -499,7 +513,7 @@ async def test_run_streaming_verify_gate_fires_and_reenters():
 
     chunks = [c async for c in loop.run_streaming("q")]
 
-    assert [c.content for c in chunks] == ["hello", "fixed"]  # both turns ran
+    assert [c.content for c in chunks if c.content] == ["hello", "fixed"]  # both turns ran
     assert call_count[0] == 2  # verify called twice (fail -> re-enter -> pass)
 
 
@@ -554,4 +568,4 @@ async def test_run_streaming_accepts_plain_async_iterator_without_aclose():
 
     chunks = [chunk async for chunk in loop.run_streaming("q")]
 
-    assert [chunk.content for chunk in chunks] == ["plain"]
+    assert [chunk.content for chunk in chunks if chunk.content] == ["plain"]

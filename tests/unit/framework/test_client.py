@@ -240,6 +240,7 @@ async def test_victor_client_stream_preserves_error_event_message() -> None:
 
     assert len(events) == 1
     assert events[0].event_type == "error"
+    assert events[0].success is False
     assert events[0].content == "provider rejected tool schema"
     assert events[0].metadata["error"] == "provider rejected tool schema"
     assert events[0].metadata["recoverable"] is False
@@ -370,3 +371,25 @@ async def test_victor_client_create_session_reuses_agent_session_and_closes_serv
 
     await session.close()
     session_service.close_session.assert_awaited_once_with("session-123")
+
+
+@pytest.mark.parametrize("success", [True, False])
+async def test_client_preserves_terminal_loop_verdict(success):
+    client = VictorClient(SessionConfig(), container=object())
+    metadata = {"agentic_loop_iterations": 2, "agentic_loop_success": success}
+    error = None if success else "verification failed"
+
+    class Agent:
+        async def stream(self, message):
+            yield AgentExecutionEvent(
+                type=EventType.STREAM_END, success=success, error=error, metadata=metadata
+            )
+
+    client._agent = Agent()
+    events = [event async for event in client.stream("q")]
+    assert len(events) == 1
+    assert events[0].event_type == EventType.STREAM_END
+    assert events[0].success is success
+    assert events[0].metadata["agentic_loop_iterations"] == 2
+    if not success:
+        assert events[0].metadata["error"] == error
