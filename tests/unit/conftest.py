@@ -17,6 +17,7 @@
 import logging
 import os
 import sys
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -340,20 +341,19 @@ def reset_vertical_registry():
 
 
 @pytest.fixture(autouse=True)
-def reset_feature_flags():
-    """Reset FeatureFlagManager singleton between tests."""
-    yield
-    import sys
-
+def reset_feature_flags() -> Iterator[None]:
+    """Clear runtime overrides before and after each case without eager imports."""
     if "victor.core.feature_flags" in sys.modules:
-        try:
-            from victor.core.feature_flags import get_feature_flag_manager
+        from victor.core.feature_flags import reset_feature_flag_manager
 
-            mgr = get_feature_flag_manager()
-            if hasattr(mgr, "_instance"):
-                type(mgr)._instance = None
-        except (ImportError, AttributeError):
-            pass
+        reset_feature_flag_manager()
+    try:
+        yield
+    finally:
+        if "victor.core.feature_flags" in sys.modules:
+            from victor.core.feature_flags import reset_feature_flag_manager
+
+            reset_feature_flag_manager()
 
 
 @pytest.fixture

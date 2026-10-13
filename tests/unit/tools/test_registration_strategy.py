@@ -33,11 +33,8 @@ from victor.tools.registration.registry import ToolRegistrationStrategyRegistry
 
 @pytest.fixture(autouse=True)
 def isolate_strategy_registry(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Restore both shared strategy and feature-flag state after every case."""
-    from victor.core import feature_flags
-
+    """Restore shared strategy state; the unit fixture owns feature-flag isolation."""
     monkeypatch.setattr(ToolRegistrationStrategyRegistry, "_instance", None)
-    monkeypatch.setattr(feature_flags, "_global_manager", None)
 
 
 def test_legacy_strategy_exports_resolve_in_a_fresh_interpreter() -> None:

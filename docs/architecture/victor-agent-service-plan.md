@@ -2,7 +2,7 @@
 plan_id: VAS-2026-10
 status: active
 updated: 2026-10-12
-baseline_develop: 04162f583167ad16ba08ed39a87756ada2cdd926
+baseline_develop: f8b252cc2b7877393f8cf546227a704b747c6467
 next_task: VAS-17
 ---
 
@@ -67,7 +67,26 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
-- **TYPE-02 tool-registration exports LOCAL_PASS** — owner: Victor co-design session;
+- **TYPE-06 shared feature-flag fixture LOCAL_PASS** — owner: Victor co-design session;
+  branch `fix/feature-flag-test-isolation`, baseline
+  `f8b252cc2b7877393f8cf546227a704b747c6467`. The shared fixture now uses the
+  canonical lock-protected reset before and after each case, including failures,
+  without importing an unused feature-flag module. One existing-owner subprocess
+  regression verifies collection pollution, normal/failure transitions and final
+  teardown; the original fixture fails all three child cases and retains its
+  singleton. Removed redundant registration/formatter flag resets; no existing
+  behavior tests were removed and no production dispatch/defaults changed.
+  Final consumer qualification: **981 passed / 2 skipped** across flag consumers,
+  formatter, registration, execution and typed-contract suites. BGE CPU encoding
+  was verified from the local cache before running those suites offline, matching
+  CI's cached-model approach. Interrupted online/setup runs remain separate evidence.
+  Full collection: 34,598 tests; configured MyPy: 2,113 files. Independent review
+  is clean with 284 owner tests passing (overlapping cohort); its incorrect-default
+  probe finding is fixed. Next: final docs/review, all feature CI gates and squash
+  merge. Evidence: `var/codegraph-victor-20261012/feature-flags-*`. SA-04, broader
+  unsuppressed typing, release and C5 remain open.
+
+- **TYPE-02 tool-registration exports ✅ MERGED [#1329](https://github.com/anvai-labs/victor/pull/1329)** — owner: Victor co-design session;
   branch `fix/registration-contract-exports`, baseline
   `04162f583167ad16ba08ed39a87756ada2cdd926`. Repaired the compatibility module's
   self-import by re-exporting the four canonical strategy classes. No duplicate
@@ -81,8 +100,10 @@ edit. A mock test is not live provider or C5 evidence.
   executed lines or branches across 1,796 production files. Independent review
   found shared feature-flag state leakage in the test fixture; the local fixture
   now restores both singleton owners, and 79 independent review tests pass.
-  Next: final review reconciliation, feature CI and squash merge. TYPE-02, SA-04
-  and C5 remain open. Evidence: `var/codegraph-victor-20261012/type02-registration-*`.
+  Merge `f8b252cc2b7877393f8cf546227a704b747c6467` matches reviewed candidate
+  `8511148132a2e3d3d23cc1d80ad1efc34cea1b0a`. All 39 CI checks passed, with two
+  configured skips and neutral Trivy; CI-selected tests: 104 passed / 4 skipped,
+  100% changed-line coverage. TYPE-02, SA-04 and C5 remain open. Evidence: `var/codegraph-victor-20261012/type02-registration-*`.
 
 - **TYPE-02 mutable registry contract ✅ MERGED [#1328](https://github.com/anvai-labs/victor/pull/1328)** — owner: Victor co-design session;
   branch `fix/typed-registry-contracts`, baseline
@@ -1423,11 +1444,11 @@ errors is not an acceptance result for this program.
 | ID | Dependency / work | Status and acceptance |
 | --- | --- | --- |
 | TYPE-01 | Unsuppressed inventory, reproducible commands, file/error ownership and existing test audit | ACTIVE; core audit 7,794 errors / 1,082 files; independent-package targets report 1,101 package-local errors; root tests/scripts also inventoried below; package tests remain; SDK compatibility sources now inventoried (5 additional diagnostics) |
-| TYPE-02 | Definition-layer contracts, missing symbols and concrete signature mismatches | SDK #1319, shared event/stream #1327 and mutable registry #1328 merged; registration compatibility exports LOCAL_PASS (checkpoint above); remaining definition-layer work open |
+| TYPE-02 | Definition-layer contracts, missing symbols and concrete signature mismatches | SDK #1319, shared event/stream #1327 and mutable registry #1328 merged; registration compatibility exports #1329 merged (checkpoint above); remaining definition-layer work open |
 | TYPE-03 | Typed runtime assembly and adapters, completing SA-04 | TODO after TYPE-02; required collaborators explicit, optional capabilities centralized; no dynamic forwarding as evidence of protocol implementation |
 | TYPE-04 | Services, providers, tools, workflows, storage and client consumers | TODO in dependency order; retire each reviewed exception only with affected tests and strict checks |
 | TYPE-05 | Package/vertical integration and full unsuppressed matrix | TODO after contributing groups; build/install and supported Python jobs pass, no broad suppression, unused ignores removed |
-| TYPE-06 | Test and development-script typing | TODO after their production contracts; root tests 48,242 diagnostics, scripts 440; audit shared `reset_feature_flags` fixture: it checks a manager `_instance` instead of module `_global_manager` (contained locally in registration tests); retain intentional negative fixtures and behavior coverage; no blanket test exclusion as a compliance claim |
+| TYPE-06 | Test and development-script typing | TODO after their production contracts; root tests 48,242 diagnostics, scripts 440; shared feature-flag fixture prerequisite LOCAL_PASS (checkpoint above); use canonical reset and remove duplicated flag isolation; retain intentional negative fixtures and behavior coverage; no blanket test exclusion as a compliance claim |
 
 Each increment records exact source SHA, diagnostics before/after, tests, independent
 review and CI. Correct types at their owning boundary; do not replace errors with
