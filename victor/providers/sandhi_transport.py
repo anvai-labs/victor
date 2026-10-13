@@ -399,7 +399,14 @@ async def map_sandhi_error(exc: BaseException, provider_name: str, timeout: floa
     if code == "authentication_error":
         return ProviderAuthError(detail, provider=provider_name, status_code=int(status or 401))
     if code == "timeout":
-        return ProviderTimeoutError(detail, provider=provider_name, timeout=timeout)
+        # Sandhi may have hit a stream-idle or upstream deadline shorter than
+        # Victor's configured overall timeout. Preserve its diagnosis without
+        # claiming that the unrelated overall budget actually elapsed.
+        return ProviderTimeoutError(
+            detail,
+            provider=provider_name,
+            status_code=status if isinstance(status, int) else None,
+        )
     if code in {"circuit_open", "transport_error"}:
         # "error sending request" wraps both real network failures and TLS
         # trust failures; the default recovery hint is wrong for the latter.

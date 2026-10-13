@@ -1462,3 +1462,24 @@ async def test_close_releases_owned_handles_and_preserves_native_cleanup_outcome
     assert runtime_ref() is None
     assert handle_ref() is None
     assert other._sandhi_runtime is not None
+
+
+async def test_typed_timeout_does_not_claim_the_configured_overall_deadline():
+    error = await st.map_sandhi_error(
+        RuntimeError(
+            json.dumps(
+                {
+                    "code": "timeout",
+                    "message": "timed out after 90s",
+                    "retryable": True,
+                    "http_status": 504,
+                }
+            )
+        ),
+        "openai",
+        300.0,
+    )
+    assert "90s" in error.message
+    assert "300" not in error.recovery_hint
+    assert error.timeout is None
+    assert error.status_code == 504
