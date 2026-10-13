@@ -27,7 +27,8 @@ import asyncio
 
 import pytest
 
-from victor.agent.turn_policy import SpinDetector, TurnEvaluationController
+from victor.agent.action_authorizer import ActionIntent
+from victor.agent.turn_policy import SpinDetector, TurnDecision, TurnEvaluationController
 from victor.framework.agentic_loop import AgenticLoop, AgenticLoopConfig, StreamingTurnOutcome
 from victor.framework.evaluation_nodes import EvaluationDecision, EvaluationResult
 from victor.providers.base import StreamChunk
@@ -74,6 +75,7 @@ def _loop(port, *, evaluations, turn_executor=None):
 
     async def fake_analyze(query, context, history):
         return SimpleNamespace(
+            intent=ActionIntent.READ_ONLY,
             to_dict=lambda: {"query": query},
             task_analysis=SimpleNamespace(task_type="qa"),
         )
@@ -231,65 +233,81 @@ def test_extract_turn_content_handles_empty_tool_turn():
     )
 
 
-def _nudge_loop(chat_ctx, *, should_inject_nudge, should_inject_budget=False):
+def _nudge_loop(chat_ctx):
     loop = AgenticLoop.__new__(AgenticLoop)
     loop.turn_executor = SimpleNamespace(_chat_context=chat_ctx)
-    loop.spin_detector = object()
-    loop.nudge_policy = SimpleNamespace(
-        evaluate=lambda spin: SimpleNamespace(
-            should_inject=should_inject_nudge,
-            role="system",
-            message="use a tool",
-            nudge_type=SimpleNamespace(value="USE_TOOLS"),
-        ),
-        budget_warning=lambda i, m: SimpleNamespace(
-            should_inject=should_inject_budget,
-            role="system",
-            message="budget low",
-        ),
-    )
+    # No policy or detector: dispatch must use the already-selected decision.
     return loop
 
 
-def test_inject_decide_nudges_adds_message_on_continue():
+@pytest.mark.parametrize("kind", ["plateau", "budget_warning"])
+def test_inject_decide_nudges_adds_selected_message_on_continue(kind):
     added = []
     chat_ctx = SimpleNamespace(
-        add_message=lambda role, message, metadata=None: added.append((role, message))
+        add_message=lambda role, message, metadata: added.append((role, message, metadata))
     )
-    loop = _nudge_loop(chat_ctx, should_inject_nudge=True)
-
+    loop = _nudge_loop(chat_ctx)
     loop._inject_decide_nudges(
         EvaluationResult(decision=EvaluationDecision.CONTINUE, score=0.3, reason="x"),
-        1,
-        5,
+        TurnDecision(nudge_message="use permitted evidence", nudge_role="system", nudge_kind=kind),
+    )
+    assert len(added) == 1
+    assert added[0][:2] == ("system", "use permitted evidence")
+    assert added[0][2]["interactive_history"] is False
+    assert added[0][2]["internal_prompt_kind"] == (
+        "budget_nudge" if kind == "budget_warning" else "nudge"
     )
 
-    assert added == [("system", "use a tool")]
 
-
-def test_inject_decide_nudges_noop_on_terminal_decision():
+@pytest.mark.parametrize(
+    "terminal", [EvaluationDecision.COMPLETE, EvaluationDecision.FAIL, EvaluationDecision.ESCALATE]
+)
+def test_inject_decide_nudges_noop_on_terminal_decision(terminal):
     added = []
-    chat_ctx = SimpleNamespace(add_message=lambda *a, **k: added.append(a))
-    loop = _nudge_loop(chat_ctx, should_inject_nudge=True)
-
+    loop = _nudge_loop(SimpleNamespace(add_message=lambda *a, **k: added.append(a)))
     loop._inject_decide_nudges(
-        EvaluationResult(decision=EvaluationDecision.COMPLETE, score=1.0, reason="done"),
-        1,
-        5,
+        EvaluationResult(terminal, 1.0, metadata={"completion_without_effect": True}),
+        TurnDecision(nudge_message="never publish"),
     )
-
     assert added == []
 
 
 def test_inject_decide_nudges_noop_without_turn_executor():
     loop = AgenticLoop.__new__(AgenticLoop)
     loop.turn_executor = None
-    # Should simply return without touching nudge_policy / chat context.
     loop._inject_decide_nudges(
         EvaluationResult(decision=EvaluationDecision.CONTINUE, score=0.2, reason="x"),
-        2,
-        5,
+        TurnDecision(nudge_message="never publish"),
     )
+
+
+@pytest.mark.parametrize("stop", [False, True])
+def test_effect_retry_guidance_never_expands_scope(stop):
+    added = []
+    loop = _nudge_loop(
+        SimpleNamespace(
+            add_message=lambda role, message, metadata: added.append((message, metadata))
+        )
+    )
+    loop._inject_decide_nudges(
+        EvaluationResult(
+            EvaluationDecision.RETRY,
+            0.4,
+            metadata={
+                "completion_without_effect": True,
+                "expected_effect_class": "workspace_write",
+            },
+        ),
+        TurnDecision(stop=stop, nudge_message="generic guidance must not compete"),
+    )
+    if stop:
+        assert added == []
+    else:
+        assert len(added) == 1
+        assert "within the original request" in added[0][0]
+        assert "ask the user before acting" in added[0][0]
+        assert added[0][1]["interactive_history"] is False
+        assert added[0][1]["internal_prompt_kind"] == "effect_gate_nudge"
 
 
 def _terminal_loop(total_tool_calls=0):

@@ -676,8 +676,13 @@ class TestNudgeInjection:
 
         # Check that nudge was injected into conversation
         add_calls = mock_chat_ctx.add_message.call_args_list
-        nudge_calls = [c for c in add_calls if "MUST use a tool" in str(c)]
+        nudge_calls = [
+            c
+            for c in add_calls
+            if c.kwargs.get("metadata", {}).get("internal_prompt_kind") == "nudge"
+        ]
         assert len(nudge_calls) >= 1, "Nudge message should be injected"
+        assert all("within the original request" in c.args[1] for c in nudge_calls)
 
     async def test_spin_nudge_injected_on_blocked_tools(self):
         """When all tools are blocked by dedup, spin nudge is injected."""

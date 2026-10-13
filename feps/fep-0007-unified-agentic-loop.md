@@ -545,3 +545,24 @@ delivery and evaluation; the adapter does not repeat it. Other forced summaries 
 tool-bearing emissions, remote effect rollback, durable replay safety, whole-run
 attempt accounting and live C5 still require qualification.
 The canonical tracker and G98 own those remaining acceptance gates.
+
+
+### Intent-aware continuation follow-up (LOOP-03)
+
+Buffered and token-streamed loops capture the first perception's canonical intent
+as run-local guidance context, including unknown intent. Later perceptions do not
+expand it; a new run starts with its own context. `TurnObservation.intent` is the
+single source for write-specific guidance; the independent `intent_is_write`
+constructor field is removed from this internal contract.
+
+The shared controller returns its `TurnDecision` alongside the gated evaluation.
+DECIDE delivers that selection once, after terminal gates, without re-running spin
+or budget policy. Effect-gate feedback supersedes the generic selection and asks
+for evidence within the original request or explicit additional permission. Stop,
+FAIL, COMPLETE and ESCALATE suppress all continuation prompts. Every delivered
+prompt retains internal history metadata; none becomes a new user-task anchor.
+
+Read/display/unknown guidance never requests edits or shell work. This corrects
+unsafe prompting; it does not enforce tool permissions, prove completion, or solve
+uncertain-effect replay. StateGraph/iteration lifecycle parity and whole-run attempt
+accounting remain separately tracked. No public client wire schema changes.

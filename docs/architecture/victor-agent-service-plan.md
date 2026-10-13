@@ -67,7 +67,37 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
-- **LOOP-03 typed ACT disposition — implementation in review** — owner: Victor
+- **LOOP-03 intent-aware nudge dispatch — implementation in review** — owner:
+  Victor co-design session; branch `fix/intent-aware-loop-nudges`, baseline `e58329d42`.
+  Both live loop modes capture the first `Perception.intent` for guidance, including
+  unknown intent, without adopting later model reinterpretation or caller state.
+  One typed `TurnDecision` carries the controller-selected nudge to DECIDE. Delivery
+  never evaluates the policy again; effect-gate evidence feedback takes precedence
+  over generic nudges. Terminal decisions and controller stops publish no continuation
+  prompt. `TurnObservation.intent` replaces its independently writable write flag.
+  Read/display/unknown tasks receive no edit/write/shell instructions; write-specific
+  guidance requires canonical `WRITE_ALLOWED`. Internal provenance is preserved.
+  This is guidance consistency, not a replacement for tool authorization or durable
+  approval. Missing runtime permission cannot be granted by a nudge.
+  TDD reproduced 15 behavioral failures in existing policy and loop suites. Existing
+  dispatch tests now consume the typed contract; no new test suite or dispatcher.
+  Local qualification: 428 affected and 101 integration/boundary tests pass;
+  34,793 tests collect; configured strict MyPy passes 2,003 files (existing
+  suppressions remain). All 27 changed runtime lines are covered. Black/Ruff,
+  repository hygiene and docs drift pass. Separate adversarial review passed 279
+  owner tests and 31 final-delta checks with no blockers. One redundant budget
+  example was removed; identical coverage retains 245 policy lines and 63 branches.
+  The broader run caught stale intent fixtures and wording assertions; all repaired
+  cases pass in the final cohort. A dotted-source coverage run deadlocked during
+  telemetry import; the standard repository coverage configuration passed instead.
+  Exact-commit review, CI and landing follow the PR for this branch; local
+  qualification is not release or live acceptance.
+  Remaining: forced-summary/tool-bearing publication, whole-run attempt/deadline
+  ownership including buffered post-loop synthesis, adaptive bounds, StateGraph/
+  iteration parity, durable unknown-effect reconciliation and full live C5.
+  Evidence: `var/codegraph-victor-20261012/nudge-evidence.json`.
+
+- **LOOP-03 typed ACT disposition — ✅ MERGED [#1341](https://github.com/anvai-labs/victor/pull/1341)** — owner: Victor
   co-design session; branch `fix/typed-turn-disposition`, baseline `02f888109`.
   The canonical `TurnResult` carries source-classified continuation, recovery retry,
   completion candidate, recovery exhaustion, tool-budget exhaustion or forced stop.
@@ -95,8 +125,9 @@ edit. A mock test is not live provider or C5 evidence.
   cases, then approved the final selector and recovery-retry test additions.
   The duplicate removal preserved exactly 206 capability lines and 62 branches.
   A stale local coverage database failed aggregation; an isolated final run passed.
-  Final CI/landing follows the PR for this branch; local qualification is not
-  release or live C5 acceptance. Preserved evidence location:
+  Merged as `e58329d42` after clean exact-commit review and all required CI gates
+  (40 successful, two intentional skips and one neutral historical Trivy comparison).
+  Merged/reviewed trees match; this is not release or live C5 acceptance. Preserved evidence location:
   `var/codegraph-victor-20261012/disposition-evidence.json`.
   Next: intent-aware nudge dispatch and remaining forced-summary/publication
   qualification, then run-wide provider-attempt accounting and lifecycle acceptance.
@@ -1735,7 +1766,7 @@ are terminal recorded outcomes. Internal feedback retains internal provenance.
 | --- | --- | --- |
 | LOOP-01 / G97 | ✅ MERGED #1336 | One count-retention owner and provenance predicate; producer repairs, live retention audit, independent review and all 41 CI checks passed; context-limit slices remain follow-up |
 | LOOP-02 / G97 | PARTIAL: terminal event/client verdict ✅ #1337 | CLI exit/status ✅ #1338; concurrent/repeated tool names must reconcile by ID; no false success |
-| LOOP-03 / G98 | PARTIAL: reset/recorded evaluation ✅ #1336; terminal delivery ✅ #1337 | RESPONSE governance and terminal status qualified; shared controller stop dispatch ✅ #1339; cooperative guard/deadline dispatch in review; nudges and StateGraph parity remain open |
+| LOOP-03 / G98 | PARTIAL: reset/recorded evaluation ✅ #1336; terminal delivery ✅ #1337 | RESPONSE governance and terminal status qualified; shared controller stop dispatch ✅ #1339; cooperative guard/deadline dispatch ✅ #1340; typed disposition/recovery governance ✅ #1341; intent-aware nudge dispatch in review; StateGraph parity remains open |
 | LOOP-04 / G98 | AUDITED, implementation pending | Intent-aware recovery and one attempt ledger; repeated invalid/denied tools do not produce unbounded nudges |
 | LOOP-05 / G98 | AUDITED, design pending | Structured terminal evidence replaces prose as control authority; ordinary read tasks do not need judges or minimum tool counts |
 | LOOP-06 | TODO, depends on LOOP-01–05 | Fixed baseline versus optional planner/judge/learning, reporting verified success, model calls, tokens, elapsed time, CPU/memory and cancellation reliability; retain only measured improvements |
@@ -1757,14 +1788,14 @@ the reset helper does not make one mutable loop instance concurrency-safe.
 | P1 — ✅ qualified #1337 | Normal no-tool streaming candidates previously bypassed RESPONSE governance | Check the candidate once before publication/history/detection; real unified allow/redact/deny/empty tests. Completely removed content is an explicit failure, not inferred completion or retry. Intermediate tool-bearing output remains separately scoped |
 | P1 — PARTIAL #1337 | `run_streaming` previously emitted identical content for COMPLETE, FAIL and CONTINUE at cap | Explicit run verdict now reaches framework/client events and audit finalizers. CLI process exit status ✅ #1338; provider finish reason is not a verdict |
 | P1 — ✅ MERGED #1339 | Streaming omitted controller evaluation; buffered convergence could overwrite evaluator failure | Shared stop helper over `TurnObservation`; convergence never promotes non-COMPLETE; mode precedence, real repetition/reset and downstream verifier tests |
-| P1 — IN REVIEW (`fix/shared-loop-deadline`) | Shared guard now bounds owned awaits in both modes, restoring context before outward yield | Qualify blocked phases, timeout/underlying-error distinction, consumer pause, cancellation, awaited cleanup and stale verification success. Perception counts remain checked between iterations; no remote-cancellation guarantee |
-| P2 — OPEN | Streaming ACT produces recovery return/continue signals but adapter only forwards `turn_result` | Declare recovery disposition in canonical turn contract; one DECIDE consumption; test no extra provider request after terminal recovery |
+| P1 — ✅ MERGED #1340 | Shared guard now bounds owned awaits in both modes, restoring context before outward yield | Qualify blocked phases, timeout/underlying-error distinction, consumer pause, cancellation, awaited cleanup and stale verification success. Perception counts remain checked between iterations; no remote-cancellation guarantee |
+| P2 — ✅ MERGED #1341 | Streaming ACT previously lost source recovery/stop decisions | Canonical typed disposition, no further ACT after terminal recovery, governed recovered text; post-loop synthesis remains separate |
 | P2 — OPEN | Adaptive extension changes the bound after `range` construction | A bounded driver must consult the current limit; real executed-turn-count test, including absolute cap |
-| P2 — OPEN | `StreamingTurnOutcome`, ACT session fields and adapter arguments use `Any`; missing turn result reaches evaluation | Narrow existing protocols, declare current dynamic fields, reject incomplete ACT at its boundary; no silent synthetic success |
-| P2 — OPEN | `EvaluationResult` accepts string decisions but loop branches compare enums; ESCALATE is treated as nonterminal nudge | Normalize supported decisions once; preserve documented custom graph routing outside the loop; explicit needs-input outcome with no autonomous retry |
+| P2 — PARTIAL #1341 | Production `StreamingActAdapter` now rejects missing/malformed results; custom-port/outcome and ACT session fields still use `Any` | Narrow remaining protocols and declare current dynamic fields; preserve the qualified production-boundary rejection |
+| P2 — PARTIAL #1341 | ESCALATE now terminates both live loops; string/enum decision normalization remains open | Normalize supported decisions once; preserve documented custom graph routing outside the loop; no autonomous retry on escalation |
 | P2 — OPEN | Executor resolver constructs fresh `AgenticLoopSettings()` instead of accepting the resolved session config | One factory/config authority, invalid-value rejection, explicit unsupported-capability error; no new flag path |
 | P2 — OPEN | Iteration `stream` independently replans and omits reset/guards/nudges; StateGraph rejects verifier | Treat iteration output as an observer of the same lifecycle; keep unsupported combinations explicit until qualified |
-| P2 — OPEN | Read-only audits receive write-oriented budget nudges; model attempts can occur inside an outer iteration | Pass original intent; count all recovery/provider attempts separately from tool and loop bounds; never broaden permissions |
+| P2 — IN REVIEW (`fix/intent-aware-loop-nudges`) | Read-only audits previously received write-oriented nudges and a second policy decision | Capture initial intent and dispatch one typed decision; guidance grants no permission. Run-wide provider attempts remain open |
 
 | Pattern / principle | Fit | Concrete application |
 | --- | --- | --- |

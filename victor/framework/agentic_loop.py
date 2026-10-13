@@ -79,11 +79,13 @@ from typing import (
 )
 
 from victor.core.async_utils import aclosing_if_supported
+from victor.agent.action_authorizer import ActionIntent
 from victor.agent.turn_policy import (
     FulfillmentCriteriaBuilder,
     NudgePolicy,
     SpinDetector,
     SpinState,
+    TurnDecision,
     TurnEvaluationController,
     TurnObservation,
 )
@@ -864,6 +866,7 @@ class AgenticLoop:
         state: Dict[str, Any] = {"query": query, **(context or {})}
         self._reset_run_state()
         effective_max = self.max_iterations
+        nudge_intent: Optional[ActionIntent] = None
 
         try:
             _loop_guards.enforce()
@@ -1070,6 +1073,8 @@ class AgenticLoop:
                     lambda: self._analyze_turn(query, context, conversation_history)
                 )
                 iteration.perception = perception
+                if i == 1:
+                    nudge_intent = perception.intent
                 self._last_perception = perception  # Cache for next iteration check
 
                 # Update task_type from perception for more accurate gating
@@ -1216,8 +1221,13 @@ class AgenticLoop:
                 # Track progress (SubSearch intermediate rewards)
                 self._progress_scores.append(evaluation.score)
 
-                evaluation = self._apply_turn_controller(
-                    action_result, evaluation, state, iteration=i, max_iterations=effective_max
+                evaluation, turn_decision = self._apply_turn_controller(
+                    action_result,
+                    evaluation,
+                    state,
+                    iteration=i,
+                    max_iterations=effective_max,
+                    intent=nudge_intent,
                 )
 
                 # FULFILLMENT CHECK (optional)
@@ -1327,7 +1337,7 @@ class AgenticLoop:
                 # NUDGE INJECTION via shared NudgePolicy (consistent with streaming).
                 # Inject on any non-terminal decision (RETRY or CONTINUE). Shared with
                 # run_streaming() so buffered and streaming nudge behavior can't drift.
-                self._inject_decide_nudges(evaluation, i, effective_max)
+                self._inject_decide_nudges(evaluation, turn_decision)
 
             _loop_guards.enforce()
             # Determine success
@@ -1499,7 +1509,8 @@ class AgenticLoop:
         *,
         iteration: int,
         max_iterations: int,
-    ) -> EvaluationResult:
+        intent: Optional[ActionIntent],
+    ) -> tuple[EvaluationResult, TurnDecision]:
         """Apply one shared stop decision without manufacturing task success.
 
         Adapt the existing ACT/legacy result boundary to the controller's typed
@@ -1524,12 +1535,13 @@ class AgenticLoop:
             tool_results=tool_results,
             iteration=iteration,
             max_iterations=max_iterations,
+            intent=intent,
         )
         decision = self.turn_evaluation_controller.evaluate(observation, record_spin=False)
         if not decision.stop or evaluation.should_fail:
-            return evaluation
+            return evaluation, decision
         if decision.terminal_success and evaluation.should_complete:
-            return evaluation
+            return evaluation, decision
 
         reason = decision.stop_reason or "turn_controller_stop"
         state.setdefault("degradation_events", []).append(
@@ -1546,13 +1558,16 @@ class AgenticLoop:
             }
         )
         logger.warning("Turn controller stopped run (%s) at iteration %d", reason, iteration)
-        return replace(
-            evaluation,
-            decision=EvaluationDecision.FAIL,
-            reason=(
-                f"Turn controller stopped before verified completion: {reason} "
-                f"(iteration {iteration}); evaluator: {evaluation.reason}"
+        return (
+            replace(
+                evaluation,
+                decision=EvaluationDecision.FAIL,
+                reason=(
+                    f"Turn controller stopped before verified completion: {reason} "
+                    f"(iteration {iteration}); evaluator: {evaluation.reason}"
+                ),
             ),
+            decision,
         )
 
     def _populate_session_ledger(self, action_result: Any, turn_index: int) -> None:
@@ -1607,19 +1622,17 @@ class AgenticLoop:
     def _inject_decide_nudges(
         self,
         evaluation: EvaluationResult,
-        iteration: int,
-        effective_max: int,
+        decision: TurnDecision,
     ) -> None:
-        """Inject shared NudgePolicy nudges on a non-terminal DECIDE (RETRY/CONTINUE/ESCALATE).
+        """Deliver the controller's selected nudge only when DECIDE allows continuation.
 
-        Extracted from run() so the buffered and streaming loops share one nudge path and can't
-        drift (FEP-0007 Addendum A). The nudge *decision* already comes from the shared
-        ``self.nudge_policy`` / ``self.spin_detector``; this is the conversation-injection glue.
-        No-op on terminal decisions or when no turn executor / chat context is available.
+        The turn-local decision is consumed once by either loop. Never re-run policy
+        here: precedence and original task intent belong to the controller observation.
+        Internal history metadata keeps these messages distinct from user permission.
         """
-        if evaluation.decision in (
-            EvaluationDecision.COMPLETE,
-            EvaluationDecision.FAIL,
+        if decision.stop or evaluation.decision not in (
+            EvaluationDecision.RETRY,
+            EvaluationDecision.CONTINUE,
         ):
             return
         if self.turn_executor is None:
@@ -1628,46 +1641,32 @@ class AgenticLoop:
         if not (chat_ctx and hasattr(chat_ctx, "add_message")):
             return
 
-        from victor.agent.conversation.history_metadata import (
-            build_internal_history_metadata,
-        )
+        from victor.agent.conversation.history_metadata import build_internal_history_metadata
         from victor.agent.conversation.types import MessageSource
 
-        nudge = self.nudge_policy.evaluate(self.spin_detector)
-        if nudge.should_inject:
-            chat_ctx.add_message(
-                nudge.role,
-                nudge.message,
-                metadata=build_internal_history_metadata("nudge", source=MessageSource.AGENT_NUDGE),
-            )
-            logger.info(f"Nudge injected: {nudge.nudge_type.value}")
-
-        budget_nudge = self.nudge_policy.budget_warning(iteration, effective_max)
-        if budget_nudge.should_inject:
-            chat_ctx.add_message(
-                budget_nudge.role,
-                budget_nudge.message,
-                metadata=build_internal_history_metadata(
-                    "budget_nudge", source=MessageSource.AGENT_NUDGE
-                ),
-            )
-
-        # ADR-010: the effect gate downgraded a COMPLETE to RETRY — tell the model why, so the
-        # retry turn produces a verifiable effect (or grounds its claim) instead of restating.
+        # An effect-gate retry explains missing evidence; it grants no new authority.
         if evaluation.metadata.get("completion_without_effect"):
             expected = evaluation.metadata.get("expected_effect_class", "effect")
             chat_ctx.add_message(
                 "user",
                 (
                     "Your completion claim has no verifiable effect on record "
-                    f"(expected: {expected}). Use tools to actually perform the work "
-                    "(e.g. write/edit files, run the relevant checks) or ground your answer "
-                    "in tool evidence before finishing."
+                    f"(expected: {expected}). Use permitted tools within the original request "
+                    "to obtain verifiable evidence, or report what remains unverified. "
+                    "If more permission is needed, ask the user before acting."
                 ),
                 metadata=build_internal_history_metadata(
                     "effect_gate_nudge", source=MessageSource.AGENT_NUDGE
                 ),
             )
+        elif decision.nudge_message:
+            kind = "budget_nudge" if decision.nudge_kind == "budget_warning" else "nudge"
+            chat_ctx.add_message(
+                decision.nudge_role,
+                decision.nudge_message,
+                metadata=build_internal_history_metadata(kind, source=MessageSource.AGENT_NUDGE),
+            )
+            logger.info("Nudge injected: %s", decision.nudge_kind)
 
     async def _run_verification(self, state: Dict[str, Any]) -> "VerificationResult":
         """Run the framework verification hook (FEP-0018).
@@ -1925,6 +1924,7 @@ class AgenticLoop:
         state: Dict[str, Any] = {"query": query, **(context or {})}
         self._reset_run_state()
         effective_max = self.max_iterations
+        nudge_intent: Optional[ActionIntent] = None
         evaluation: Optional[EvaluationResult] = None  # bound per turn; None if loop never runs
 
         try:
@@ -1938,6 +1938,8 @@ class AgenticLoop:
                 perception = await _loop_guards.run(
                     lambda: self._analyze_turn(query, context, conversation_history)
                 )
+                if i == 1:
+                    nudge_intent = perception.intent
                 self._last_perception = perception
                 state["iteration"] = i
                 if getattr(perception, "task_analysis", None):
@@ -1994,8 +1996,13 @@ class AgenticLoop:
                 )
                 self._progress_scores.append(evaluation.score)
 
-                evaluation = self._apply_turn_controller(
-                    action_result, evaluation, state, iteration=i, max_iterations=effective_max
+                evaluation, turn_decision = self._apply_turn_controller(
+                    action_result,
+                    evaluation,
+                    state,
+                    iteration=i,
+                    max_iterations=effective_max,
+                    intent=nudge_intent,
                 )
 
                 # DECIDE — terminal decisions end the stream; non-terminal nudge + continue.
@@ -2025,7 +2032,7 @@ class AgenticLoop:
                         error=None if success else evaluation.reason or "Agentic loop failed",
                     )
                     return
-                self._inject_decide_nudges(evaluation, i, effective_max)
+                self._inject_decide_nudges(evaluation, turn_decision)
 
             # Loop exhausted without a terminal decision — attribute the final turn's
             # evaluation too (FEP-0017 streaming parity; mirrors run()'s epilogue).
