@@ -15,7 +15,7 @@ peewee>=3.14,<4
 
 # Keep the shared environment on Victor's supported NumPy range. Numba 0.67
 # accepts NumPy <2.6, so this remains compatible with its current release.
-numpy>=1.24,<2.5
+numpy>=1.24,<2.6
 
 # arxiv 4.x requires requests >=2.32,<2.35.
 requests>=2.32,<2.35

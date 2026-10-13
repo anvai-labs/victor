@@ -25,6 +25,18 @@ updates:
     groups:
       python-maintenance:
         patterns: ['*']
+    ignore:
+      # Deliberate caps in constraints.txt (see its comments): Semgrep pins
+      # peewee ~=3.14 and OpenTelemetry 1.37/0.58b0 (wrapt follows them);
+      # datasets caps fsspec. Dependabot rewrote these in #1073 (reverted in
+      # #1093) and again in #1321, so they move only by hand.
+      - dependency-name: fsspec
+      - dependency-name: peewee
+      - dependency-name: wrapt
+      - dependency-name: 'opentelemetry-*'
+      # aiohttp 3.x requires multidict<7.
+      - dependency-name: multidict
+        update-types: ['version-update:semver-major']
     commit-message:
       prefix: 'fix'
   - package-ecosystem: npm
@@ -43,6 +55,14 @@ updates:
     groups:
       javascript-maintenance:
         patterns: ['*']
+    ignore:
+      # TypeScript 7 (native compiler) breaks the typescript-eslint peer range;
+      # a deliberate migration, not a maintenance bump.
+      - dependency-name: typescript
+        update-types: ['version-update:semver-major']
+      # Types track the Node runtime VS Code ships, not the newest Node.
+      - dependency-name: '@types/node'
+        update-types: ['version-update:semver-major']
     commit-message:
       prefix: 'fix'
   - package-ecosystem: cargo
