@@ -8,6 +8,10 @@ concrete implementations they describe.
 
 from __future__ import annotations
 
+from pathlib import Path
+import subprocess
+import sys
+
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
 from unittest.mock import AsyncMock, MagicMock
@@ -15,12 +19,111 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 
-@pytest.mark.timeout(260)
-def test_tool_execution_collaborators_are_statically_checked(tmp_path):
-    """The real constructor rejects missing dependencies and incompatible contracts."""
-    import subprocess
-    import sys
+def _check_types(fixture: Path, source: str) -> subprocess.CompletedProcess[str]:
+    fixture.write_text(source, encoding="utf-8")
+    return subprocess.run(
+        [sys.executable, "-m", "mypy", "--strict", "--follow-imports=silent", str(fixture)],
+        text=True,
+        capture_output=True,
+        timeout=120,
+    )
 
+
+@pytest.mark.timeout(260)
+@pytest.mark.parametrize(
+    "contract", ["event_timestamp", "stream_iterator", "mutable_registry", "registration_exports"]
+)
+def test_shared_contracts_reject_incompatible_consumers(tmp_path: Path, contract: str) -> None:
+    """Shared contracts reject unsafe return types, awaiting and mutable variance."""
+    if contract == "event_timestamp":
+        valid = """from datetime import datetime
+from victor.core.events.protocols import MessagingEvent
+
+def consume(event: MessagingEvent) -> datetime:
+    return event.datetime
+"""
+        invalid = valid + """
+def invalid(event: MessagingEvent) -> str:
+    return event.datetime
+"""
+        diagnostic = "[return-value]"
+    elif contract == "stream_iterator":
+        valid = """from typing import AsyncIterator
+from victor.framework.protocols import FrameworkOrchestratorProtocol, OrchestratorStreamChunk
+
+def stream(agent: FrameworkOrchestratorProtocol) -> AsyncIterator[OrchestratorStreamChunk]:
+    return agent.stream_chat("hello")
+
+async def consume(agent: FrameworkOrchestratorProtocol) -> str:
+    return "".join([chunk.content async for chunk in stream(agent)])
+"""
+        invalid = valid + """
+async def invalid(agent: FrameworkOrchestratorProtocol) -> None:
+    await agent.stream_chat("hello")
+"""
+        diagnostic = "[misc]"
+    elif contract == "mutable_registry":
+        valid = """from victor.core.registry import BaseRegistry, IRegistry
+
+def consume() -> tuple[list[str], int | None]:
+    registry: IRegistry[str, int] = BaseRegistry[str, int]()
+    registry.register("count", 1)
+    return registry.list_all(), registry.get("count")
+"""
+        invalid = valid + """
+def narrow_keys(registry: IRegistry[object, int]) -> IRegistry[str, int]:
+    # Reading keys through this alias could return non-strings.
+    return registry
+
+def widen_keys(registry: IRegistry[str, int]) -> IRegistry[object, int]:
+    # This alias would permit registering non-string keys.
+    return registry
+
+def widen_values(registry: IRegistry[str, int]) -> IRegistry[str, object]:
+    # This alias would permit storing values other than integers.
+    return registry
+
+def narrow_values(registry: IRegistry[str, object]) -> IRegistry[str, int]:
+    # Reading through this alias could return values other than integers.
+    return registry
+"""
+        diagnostic = "[return-value]"
+    else:
+        valid = """from victor.tools.registration.strategies.base import (
+    ToolRegistrationStrategy, FunctionDecoratorStrategy, BaseToolSubclassStrategy, MCPDictStrategy,
+)
+from victor.tools.registration.registry import ToolRegistrationStrategyRegistry
+from victor.tools.registration.strategies.strategies import (
+    FunctionDecoratorStrategy as CanonicalFunctionDecoratorStrategy,
+)
+
+def build() -> CanonicalFunctionDecoratorStrategy:
+    return FunctionDecoratorStrategy()
+
+def register(registry: ToolRegistrationStrategyRegistry) -> None:
+    strategies: list[ToolRegistrationStrategy] = [
+        FunctionDecoratorStrategy(), BaseToolSubclassStrategy(), MCPDictStrategy(),
+    ]
+    for strategy in strategies:
+        registry.register_strategy(strategy)
+"""
+        invalid = valid + """
+def invalid(registry: ToolRegistrationStrategyRegistry) -> None:
+    registry.register_strategy(object())
+"""
+        diagnostic = "[arg-type]"
+    fixture = tmp_path / "shared_contract_probe.py"
+    positive = _check_types(fixture, valid)
+    assert positive.returncode == 0, positive.stdout + positive.stderr
+    negative = _check_types(fixture, invalid)
+    assert negative.returncode == 1, negative.stdout + negative.stderr
+    expected_errors = 4 if contract == "mutable_registry" else 1
+    assert negative.stdout.count(diagnostic) == expected_errors, negative.stdout
+
+
+@pytest.mark.timeout(260)
+def test_tool_execution_collaborators_are_statically_checked(tmp_path: Path) -> None:
+    """The real constructor rejects missing dependencies and incompatible contracts."""
     fixture = tmp_path / "tool_contract_probe.py"
     valid = """from victor.agent.services.tool_execution_runtime import ToolExecutionRuntime
 from victor.agent.services.orchestrator_protocol_adapter import OrchestratorProtocolAdapter
@@ -32,22 +135,16 @@ def bind(adapter: OrchestratorProtocolAdapter) -> ToolExecutionRuntime:
     return ToolExecutionRuntime(adapter, execution=execution, publication=publication)
 """
 
-    def check(source):
-        fixture.write_text(source)
-        return subprocess.run(
-            [sys.executable, "-m", "mypy", "--strict", "--follow-imports=silent", str(fixture)],
-            text=True,
-            capture_output=True,
-            timeout=120,
-        )
-
-    positive = check(valid)
+    positive = _check_types(fixture, valid)
     assert positive.returncode == 0, positive.stdout + positive.stderr
-    negative = check(valid + """
+    negative = _check_types(
+        fixture,
+        valid + """
 def invalid(adapter: OrchestratorProtocolAdapter) -> None:
     ToolExecutionRuntime(adapter)
     ToolExecutionRuntime(adapter, execution=object(), publication=object())
-""")
+""",
+    )
     assert negative.returncode == 1, negative.stdout + negative.stderr
     assert 'Missing named argument "execution"' in negative.stdout
     assert 'Missing named argument "publication"' in negative.stdout

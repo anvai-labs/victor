@@ -2,7 +2,7 @@
 plan_id: VAS-2026-10
 status: active
 updated: 2026-10-12
-baseline_develop: e9db76a9d4e05752413dc33aa82b0d8ea40ee167
+baseline_develop: f8b252cc2b7877393f8cf546227a704b747c6467
 next_task: VAS-17
 ---
 
@@ -67,22 +67,99 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
-- **Promotion checkpoint ACTIVE [#1323](https://github.com/anvai-labs/victor/pull/1323)** —
-  owner: Victor co-design session. The reviewed candidate `e1970fee1ebb658040277ba0865020d4af135cc5`
-  needs a reviewed main-to-develop ancestry sync before the full promotion battery
-  can start. Branch `chore/sync-main-promotion` merges main `02f8a1af3ca340716f64d85c6a8e7d07c6ccbd06`
-  into that develop baseline. Preserve develop's newer receipt/recovery behavior,
-  Sandhi 0.13 locks and all qualification tests; retain main's AgentBrowser 1.16+
-  tool-name acceptance correction. No production change is needed for this sync.
-  Merge the ancestry sync with a merge commit; squashing would lose its purpose.
-  Full promotion CI and required GitHub approval still gate main, with no admin
-  bypass. Broader typing and unrelated dependency updates stay outside this batch.
-  Cumulative runtime review passes 645 tests. Client/release review passes 219
-  Python checks, 113 TypeScript tests and 11 real HTTP tests (overlapping counts).
-  The existing VAS-06/G62/G70 approval-continuation lock gap reproduces on main and
-  the candidate: G94 protects hydration, not the whole resumed execution. Keep
-  consumed approval claims closed on failure. Review receipts and reboot state
-  live under `var/codegraph-victor-20261012/promotion-*`; live C5 remains open.
+- **TYPE-06 shared feature-flag fixture LOCAL_PASS** — owner: Victor co-design session;
+  branch `fix/feature-flag-test-isolation`, baseline
+  `f8b252cc2b7877393f8cf546227a704b747c6467`. The shared fixture now uses the
+  canonical lock-protected reset before and after each case, including failures,
+  without importing an unused feature-flag module. One existing-owner subprocess
+  regression verifies collection pollution, normal/failure transitions and final
+  teardown; the original fixture fails all three child cases and retains its
+  singleton. Removed redundant registration/formatter flag resets; no existing
+  behavior tests were removed and no production dispatch/defaults changed.
+  Final consumer qualification: **981 passed / 2 skipped** across flag consumers,
+  formatter, registration, execution and typed-contract suites. BGE CPU encoding
+  was verified from the local cache before running those suites offline, matching
+  CI's cached-model approach. Interrupted online/setup runs remain separate evidence.
+  Full collection: 34,598 tests; configured MyPy: 2,113 files. Independent review
+  is clean with 284 owner tests passing (overlapping cohort); its incorrect-default
+  probe finding is fixed. Next: final docs/review, all feature CI gates and squash
+  merge. Evidence: `var/codegraph-victor-20261012/feature-flags-*`. SA-04, broader
+  unsuppressed typing, release and C5 remain open.
+
+- **TYPE-02 tool-registration exports ✅ MERGED [#1329](https://github.com/anvai-labs/victor/pull/1329)** — owner: Victor co-design session;
+  branch `fix/registration-contract-exports`, baseline
+  `04162f583167ad16ba08ed39a87756ada2cdd926`. Repaired the compatibility module's
+  self-import by re-exporting the four canonical strategy classes. No duplicate
+  implementation, dispatch change or opt-in default change. TDD reproduced the
+  cold-import failure, four strict typing diagnostics and an untyped constructor
+  escaping the compatibility boundary. The registration package now passes strict
+  MyPy (five files); the configured 2,113-file gate is separately qualified and
+  does not imply full unsuppressed compliance. All 144 affected tests pass and
+  34,597 tests collect. The existing owner retains 29 cases after replacing vacuous
+  assertions and consolidating overlaps; sequential coverage comparison loses no
+  executed lines or branches across 1,796 production files. Independent review
+  found shared feature-flag state leakage in the test fixture; the local fixture
+  now restores both singleton owners, and 79 independent review tests pass.
+  Merge `f8b252cc2b7877393f8cf546227a704b747c6467` matches reviewed candidate
+  `8511148132a2e3d3d23cc1d80ad1efc34cea1b0a`. All 39 CI checks passed, with two
+  configured skips and neutral Trivy; CI-selected tests: 104 passed / 4 skipped,
+  100% changed-line coverage. TYPE-02, SA-04 and C5 remain open. Evidence: `var/codegraph-victor-20261012/type02-registration-*`.
+
+- **TYPE-02 mutable registry contract ✅ MERGED [#1328](https://github.com/anvai-labs/victor/pull/1328)** — owner: Victor co-design session;
+  branch `fix/typed-registry-contracts`, baseline
+  `80fd59fcfabb08a7151cbee224ea9b5991e618d6`. The registry both accepts and returns
+  keys and values, but its contravariant key/covariant value declarations allow
+  unsafe aliases. TDD reproduces three strict MyPy diagnostics and a consumer test
+  that incorrectly accepts two of four incompatible aliases. Qualify invariant
+  parameters without changing registry methods, dispatch or runtime behavior.
+  Extend the existing shared-contract consumer harness; retain the registry runtime
+  owner and remove its duplicate empty-key-list case only after coverage parity.
+  Final qualification: 103 affected tests, 161 CI-selected tests and 23 independent
+  review tests pass (overlapping cohorts); 34,584 tests collect. Strict MyPy passes
+  the protocol and the configured 2,113-file gate. All four unsafe aliases are now
+  rejected. The removed duplicate loses no executed production lines or branches
+  across 1,796 measured files. Independent adversarial review is clean. All 39 CI
+  checks pass, with two configured skips and neutral Trivy. Merge
+  `04162f583167ad16ba08ed39a87756ada2cdd926` matches the reviewed source tree.
+  This is one bounded definition-layer repair, not completion
+  of TYPE-02, SA-04 or C5.
+  Evidence: `var/codegraph-victor-20261012/type02-registry-*`.
+
+- **TYPE-02 shared event/stream contracts ✅ MERGED [#1327](https://github.com/anvai-labs/victor/pull/1327)** —
+  merge `80fd59fcfabb08a7151cbee224ea9b5991e618d6`; tree matches reviewed candidate
+  `4f8088d6ad896cb06723e121bfdee4e31de0ae84`. Event timestamp annotations resolve,
+  dataclass initialization hooks are typed and the streaming protocol preserves its
+  existing async-generator shape without an invalid MyPy ignore. Both modules
+  have explicit unsuppressed overrides. TDD reproduced four checker diagnostics
+  and two failing consumers. Strict checks and the configured 2,113-file gate pass;
+  226 affected tests, 182 CI-selected tests, 22 focused tests and 59 independent
+  review tests pass (overlapping cohorts). Collection finds 34,584 tests. Changed
+  executable-line coverage is 83%; the unchanged protocol yield is checked
+  statically. Final CI: 39 successes, two configured skips and neutral Trivy.
+  The increment stayed outside #1323 and merged after that promotion. Repository
+  typing and lifecycle acceptance remain open. Evidence: `type02-shared-*`.
+
+- **Promotion checkpoint ✅ MERGED [#1323](https://github.com/anvai-labs/victor/pull/1323)** —
+  main merge `a18b26e23bb59d5412b9642ccba7b44016dc0509` has the exact reviewed
+  develop tree `69c119454e773fc33ea98f9bcfb8c52206a0e687`. Main ancestry sync #1324
+  preserves production behavior and the main AgentBrowser acceptance correction.
+  The first matrix (`38311891912`) remains failed evidence: 20/24 Python shards
+  passed; two stale fixtures failed on both versions and summary/coverage gates
+  correctly failed closed. Fixture repair #1326 changed no production behavior;
+  193 affected and 87 independent tests passed, with no lost executed production
+  lines or branches across 1,796 files and a rejected session-binding mutation.
+  The final matrix (`38320270669`) passes all 24 Python 3.12/3.13 shards, summary
+  and coverage gates; combined Python 3.12 coverage is 71%. All 129 successful
+  promotion checks, four configured skips and neutral Trivy were reverified on
+  the unchanged candidate. Independent cumulative adversarial review is clean.
+  The user explicitly authorized the admin exception for this promotion after
+  review/CI qualification; the normal main policy remains unchanged. Post-merge
+  workflows are separate evidence. The existing VAS-06/G62/G70 approval-continuation
+  lock gap remains: hydration ownership does not cover the whole resumed execution.
+  Consumed approval claims stay closed on failure. This source promotion does not
+  publish a new Victor AI release or establish live C5 acceptance. Receipts and
+  retained failed evidence: `var/codegraph-victor-20261012/promotion-*` and
+  `pr1323-merge-receipt.json`.
 
 - **CG-S06 ✅ MERGED and package RELEASED [#1322](https://github.com/anvai-labs/victor/pull/1322)** —
   merge/source `e1970fee1ebb658040277ba0865020d4af135cc5`; 39 successful checks,
@@ -1367,11 +1444,11 @@ errors is not an acceptance result for this program.
 | ID | Dependency / work | Status and acceptance |
 | --- | --- | --- |
 | TYPE-01 | Unsuppressed inventory, reproducible commands, file/error ownership and existing test audit | ACTIVE; core audit 7,794 errors / 1,082 files; independent-package targets report 1,101 package-local errors; root tests/scripts also inventoried below; package tests remain; SDK compatibility sources now inventoried (5 additional diagnostics) |
-| TYPE-02 | Definition-layer contracts, missing symbols and concrete signature mismatches | SDK slice merged #1319; 11 SDK/compatibility diagnostics repaired, real export and type-identity regressions covered; remaining definition-layer work open |
+| TYPE-02 | Definition-layer contracts, missing symbols and concrete signature mismatches | SDK #1319, shared event/stream #1327 and mutable registry #1328 merged; registration compatibility exports #1329 merged (checkpoint above); remaining definition-layer work open |
 | TYPE-03 | Typed runtime assembly and adapters, completing SA-04 | TODO after TYPE-02; required collaborators explicit, optional capabilities centralized; no dynamic forwarding as evidence of protocol implementation |
 | TYPE-04 | Services, providers, tools, workflows, storage and client consumers | TODO in dependency order; retire each reviewed exception only with affected tests and strict checks |
 | TYPE-05 | Package/vertical integration and full unsuppressed matrix | TODO after contributing groups; build/install and supported Python jobs pass, no broad suppression, unused ignores removed |
-| TYPE-06 | Test and development-script typing | TODO after their production contracts; root tests 48,242 diagnostics, scripts 440; retain intentional negative fixtures and behavior coverage; no blanket test exclusion as a compliance claim |
+| TYPE-06 | Test and development-script typing | TODO after their production contracts; root tests 48,242 diagnostics, scripts 440; shared feature-flag fixture prerequisite LOCAL_PASS (checkpoint above); use canonical reset and remove duplicated flag isolation; retain intentional negative fixtures and behavior coverage; no blanket test exclusion as a compliance claim |
 
 Each increment records exact source SHA, diagnostics before/after, tests, independent
 review and CI. Correct types at their owning boundary; do not replace errors with

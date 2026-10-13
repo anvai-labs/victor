@@ -1473,13 +1473,19 @@ async def test_required_message_persistence_is_synchronous_in_running_loop():
 class TestRuntimeIdentityScope(BaseChatServiceTest):
     """Provider/lifecycle correlation belongs to the service, including bare roots."""
 
-    @pytest.mark.parametrize("entry", ["chat", "aggregate", "planning"])
+    @pytest.mark.parametrize("entry", ["chat", "aggregate", "planning", "facade"])
     async def test_memory_disabled_root_and_resume_share_provider_identity(self, entry):
+        from functools import partial
         from types import SimpleNamespace
+        from victor.agent.orchestrator import AgentOrchestrator
         from victor.agent.runtime.context import RuntimeIdentity
         from victor.core.context import get_session_id, session_id
 
-        state = SimpleNamespace(active_session_id=None, _memory_session_id=None)
+        state = (
+            AgentOrchestrator.__new__(AgentOrchestrator) if entry == "facade" else SimpleNamespace()
+        )
+        state.active_session_id = None
+        state._memory_session_id = None
         identity = RuntimeIdentity(state)
         service = self._create_test_service()
         service._turn_runtime.runtime_context = identity.resolve
@@ -1502,21 +1508,24 @@ class TestRuntimeIdentityScope(BaseChatServiceTest):
                 runtime_context=identity.resolve,
             ),
         )
+        invoke = (
+            service.chat_with_planning
+            if entry == "planning"
+            else partial(service.chat, stream=entry == "aggregate")
+        )
+        if entry == "facade":
+            # Keep the real identity-owning service behind the compatibility facade.
+            state._chat_service = service
+            invoke = state.chat
         caller = session_id.set("unrelated-caller")
         try:
             initial = identity.resolve().session_id
-            if entry == "planning":
-                await service.chat_with_planning("first")
-            else:
-                await service.chat("first", stream=entry == "aggregate")
+            await invoke("first")
             count = 2
             assert observed == [initial] * count
             assert get_session_id() == "unrelated-caller"
             state.active_session_id = "resumed-session"
-            if entry == "planning":
-                await service.chat_with_planning("second")
-            else:
-                await service.chat("second", stream=entry == "aggregate")
+            await invoke("second")
             assert observed[-count:] == ["resumed-session"] * count
             assert get_session_id() == "unrelated-caller"
         finally:

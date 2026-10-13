@@ -26,7 +26,8 @@ Run with: pytest tests/unit/core/events/test_event_backends.py -v
 
 import asyncio
 import time
-from typing import List
+from datetime import datetime
+from typing import List, get_type_hints
 
 import pytest
 
@@ -67,6 +68,8 @@ class TestMessagingEvent:
         assert event.data == {"key": "value"}
         assert event.id is not None
         assert event.timestamp > 0
+        assert event.datetime == datetime.fromtimestamp(event.timestamp)
+        assert get_type_hints(MessagingEvent.datetime.fget)["return"] is datetime
         assert event.source == "victor"
         assert event.delivery_guarantee == DeliveryGuarantee.AT_MOST_ONCE
 

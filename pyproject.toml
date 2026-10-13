@@ -919,17 +919,25 @@ module = [
 ]
 ignore_errors = true
 
-# SA-04: required execution/publication contracts must actually be checked,
+# SA-04/TYPE-02: qualified shared contracts must actually be checked,
 # rather than inheriting the historical victor.* error-suppression exception.
 [[tool.mypy.overrides]]
 module = [
     "victor.agent.services.tool_execution_contracts",
     "victor.agent.services.tool_execution_runtime",
+    "victor.core.events.protocols",
+    "victor.core.registry.protocols",
+    "victor.tools.registration",
+    "victor.tools.registration.registry",
+    "victor.tools.registration.strategies",
+    "victor.tools.registration.strategies.base",
+    "victor.tools.registration.strategies.strategies",
+    "victor.framework.protocols",
 ]
 ignore_errors = false
 
 # G96 audit (2026-10-12): disabling legacy ignore_errors exposes 7,794 core
-# errors across 1,082 files. Only the exact SA-04 modules above are requalified
+# errors across 1,082 files. Only the exact qualified modules above are requalified
 # in this increment; independent packages and remaining modules stay open.
 
 [tool.black]
