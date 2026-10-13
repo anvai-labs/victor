@@ -809,6 +809,18 @@ class AgenticLoop:
             return snapshot.perception
         raise RuntimeError("Runtime intelligence did not produce a perception snapshot")
 
+    def _reset_run_state(self) -> None:
+        """Reset run-owned evaluation state for buffered and token-streamed execution."""
+        self._progress_scores = []
+        self._score_history = []
+        self._verify_retries = 0  # FEP-0018: reset per run
+        self._last_lsp_signature = None  # FEP-0019 Phase 3: reset per run
+        self.turn_evaluation_controller.reset()  # resets spin_detector + content-repetition + plateau
+        self.criteria_builder.reset()
+        # Both collaborators exist even when disabled; their state belongs to this run.
+        self.effect_gate.reset()
+        self.per_turn_auditor.reset()
+
     async def run(
         self,
         query: str,
@@ -843,19 +855,7 @@ class AgenticLoop:
         start_time = time.time()
         iterations: List[LoopIteration] = []
         state: Dict[str, Any] = {"query": query, **(context or {})}
-        self._progress_scores = []
-        self._verify_retries = 0  # FEP-0018: reset per run
-        self._last_lsp_signature = None  # FEP-0019 Phase 3: reset per run
-        self.turn_evaluation_controller.reset()  # resets spin_detector + content-repetition + plateau
-        self.criteria_builder.reset()
-        # ADR-010: session-scoped effect ledger + downgrade budget (getattr: tests build
-        # partial loops via __new__ without the gate; a missing gate means no gating).
-        _effect_gate = getattr(self, "effect_gate", None)
-        if _effect_gate is not None:
-            _effect_gate.reset()
-        _auditor = getattr(self, "per_turn_auditor", None)
-        if _auditor is not None:
-            _auditor.reset()
+        self._reset_run_state()
         effective_max = self.max_iterations
 
         # Semantic response cache check (arXiv:2508.07675)
@@ -1352,8 +1352,7 @@ class AgenticLoop:
                 # DECIDE
                 logger.info(f"[Iteration {i}/{effective_max}] DECIDE: {evaluation.decision}")
                 iteration.stage = LoopStage.DECIDE
-                if getattr(self, "_verifier", None) is not None:
-                    iteration.evaluation = evaluation
+                iteration.evaluation = evaluation
                 iterations.append(iteration)
 
                 # Check termination conditions
@@ -1362,8 +1361,7 @@ class AgenticLoop:
                 # be considered done yet.
                 if evaluation.decision == EvaluationDecision.COMPLETE:
                     evaluation = self._apply_backslide_guard(evaluation)
-                    if getattr(self, "_verifier", None) is not None:
-                        iteration.evaluation = evaluation
+                    iteration.evaluation = evaluation
                     # FEP-0018: framework verification hook — verify before accepting.
                     if await self._maybe_verify_and_retry(i, evaluation, state, streaming=False):
                         continue  # re-enter the loop (skip break)
@@ -1640,6 +1638,9 @@ class AgenticLoop:
 
     def _inject_verify_feedback(self, result: "VerificationResult") -> None:
         """Inject the verifier's feedback as a user message for the retry turn."""
+        from victor.agent.conversation.history_metadata import build_internal_history_metadata
+        from victor.agent.conversation.types import MessageSource
+
         feedback = result.feedback or (
             f"Verification: {result.passed}/{result.total} checks passed.\n"
             f"{result.raw_output[:2000]}"
@@ -1650,7 +1651,9 @@ class AgenticLoop:
                 chat_ctx.add_message(
                     role="user",
                     content=feedback,
-                    metadata={"source": "verification"},
+                    metadata=build_internal_history_metadata(
+                        "verification", source=MessageSource.AGENT_GUIDANCE
+                    ),
                 )
         except Exception:
             logger.debug("Failed to inject verify feedback", exc_info=True)
@@ -1839,20 +1842,7 @@ class AgenticLoop:
             )
 
         state: Dict[str, Any] = {"query": query, **(context or {})}
-        self._progress_scores = []
-        self._verify_retries = 0  # FEP-0018: reset per run
-        self._last_lsp_signature = None  # FEP-0019 Phase 3: reset per run
-        # Resets the shared spin detector + content-repetition + plateau (same as run()).
-        self.turn_evaluation_controller.reset()
-        self.criteria_builder.reset()
-        # ADR-010: session-scoped effect ledger + downgrade budget (getattr: tests build
-        # partial loops via __new__ without the gate; a missing gate means no gating).
-        _effect_gate = getattr(self, "effect_gate", None)
-        if _effect_gate is not None:
-            _effect_gate.reset()
-        _auditor = getattr(self, "per_turn_auditor", None)
-        if _auditor is not None:
-            _auditor.reset()
+        self._reset_run_state()
         effective_max = self.max_iterations
         evaluation: Optional[EvaluationResult] = None  # bound per turn; None if loop never runs
 
@@ -2399,9 +2389,9 @@ class AgenticLoop:
 
     def _apply_backslide_guard(
         self,
-        evaluation: Any,
+        evaluation: EvaluationResult,
         backslide_threshold: float = -0.10,
-    ) -> Any:
+    ) -> EvaluationResult:
         """Downgrade COMPLETE to CONTINUE if score velocity indicates backslide.
 
         A significant drop in score from the previous turn (velocity below
@@ -2420,10 +2410,7 @@ class AgenticLoop:
             EvaluationResult,
         )
 
-        score = getattr(evaluation, "score", None)
-        if score is None:
-            return evaluation
-
+        score = evaluation.score
         self._score_history.append(score)
         if len(self._score_history) < 2:
             return evaluation
@@ -2445,8 +2432,8 @@ class AgenticLoop:
                     f"Backslide guard: velocity {velocity:.2f} below threshold "
                     f"{backslide_threshold:.2f} — deferring completion"
                 ),
-                metrics=getattr(evaluation, "metrics", {}),
-                metadata=getattr(evaluation, "metadata", {}),
+                metrics=evaluation.metrics,
+                metadata=evaluation.metadata,
             )
         return evaluation
 

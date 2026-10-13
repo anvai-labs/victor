@@ -25,6 +25,7 @@ from victor.agent.action_authorizer import ActionIntent, IntentClassification
 from victor.agent.services.task_runtime import TaskCoordinator
 from victor.agent.conversation.history_metadata import build_internal_history_metadata
 from victor.config.settings import Settings
+from victor.agent.conversation.types import MessageSource
 
 
 @pytest.fixture
@@ -574,10 +575,17 @@ class TestTaskGuidance:
         # The temperature remains unchanged here - the policy is applied elsewhere.
         assert task_coordinator.temperature == initial_temperature
 
-        # Verify system messages were added
-        assert mock_conversation_controller.add_message.call_count >= 2
+        calls = mock_conversation_controller.add_message.call_args_list
+        assert len(calls) == 2
+        for call, kind in zip(calls, ("analysis_approach", "analysis_guidance")):
+            assert call.kwargs["metadata"] == build_internal_history_metadata(
+                kind, source=MessageSource.AGENT_GUIDANCE
+            )
 
-    def test_apply_task_guidance_action_task(self, task_coordinator, mock_conversation_controller):
+    @pytest.mark.parametrize("needs_execution", [True, False])
+    def test_apply_task_guidance_action_task(
+        self, task_coordinator, mock_conversation_controller, needs_execution
+    ):
         """Test task guidance for action tasks."""
         unified_type = Mock(value="create")
         message = "Create a new script"
@@ -587,7 +595,7 @@ class TestTaskGuidance:
             unified_task_type=unified_type,
             is_analysis_task=False,
             is_action_task=True,
-            needs_execution=True,
+            needs_execution=needs_execution,
             max_exploration_iterations=10,
             conversation_controller=mock_conversation_controller,
         )
@@ -596,6 +604,9 @@ class TestTaskGuidance:
         mock_conversation_controller.add_message.assert_called()
         calls = mock_conversation_controller.add_message.call_args_list
         assert any("action-oriented" in str(call).lower() for call in calls)
+        assert calls[0].kwargs["metadata"] == build_internal_history_metadata(
+            "action_guidance", source=MessageSource.AGENT_GUIDANCE
+        )
 
     def test_apply_task_guidance_analysis_tool_budget(
         self, task_coordinator, mock_conversation_controller

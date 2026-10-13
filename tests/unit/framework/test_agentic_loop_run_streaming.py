@@ -62,6 +62,8 @@ def _loop(port, *, evaluations, turn_executor=None):
     loop.spin_detector = SpinDetector()
     loop.turn_evaluation_controller = SimpleNamespace(reset=lambda: None)
     loop.criteria_builder = SimpleNamespace(reset=lambda: None)
+    loop.effect_gate = SimpleNamespace(reset=lambda: None)
+    loop.per_turn_auditor = SimpleNamespace(reset=lambda: None)
     loop.nudge_policy = SimpleNamespace(
         evaluate=lambda spin: SimpleNamespace(should_inject=False),
         budget_warning=lambda i, m: SimpleNamespace(should_inject=False),

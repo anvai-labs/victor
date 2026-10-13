@@ -176,8 +176,9 @@ async def test_controller_completion_cannot_leave_stale_success_after_verificati
     assert result.iterations[-1].evaluation.decision == EvaluationDecision.FAIL
 
 
-async def test_backslide_downgrade_cannot_leave_stale_complete_iteration():
-    verifier = MagicMock(verify=AsyncMock())
+@pytest.mark.parametrize("with_verifier", [False, True])
+async def test_backslide_downgrade_cannot_leave_stale_complete_iteration(with_verifier):
+    verifier = MagicMock(verify=AsyncMock()) if with_verifier else None
     loop = make_loop(verifier, retries=0, iterations=1)
     loop._apply_backslide_guard = lambda evaluation: EvaluationResult(
         EvaluationDecision.CONTINUE, 0.5
@@ -185,4 +186,53 @@ async def test_backslide_downgrade_cannot_leave_stale_complete_iteration():
     result = await loop.run("task")
     assert result.success is False
     assert result.iterations[-1].evaluation.decision == EvaluationDecision.CONTINUE
-    verifier.verify.assert_not_awaited()
+    if verifier is not None:
+        verifier.verify.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    "first_streaming,second_streaming", [(False, False), (True, True), (False, True), (True, False)]
+)
+async def test_completion_scores_are_scoped_to_each_run(first_streaming, second_streaming):
+    loop = make_loop(None, retries=0, iterations=1)
+    loop._evaluate.side_effect = [
+        EvaluationResult(EvaluationDecision.COMPLETE, 1.0),
+        EvaluationResult(EvaluationDecision.COMPLETE, 0.75),
+    ]
+    for streaming in (first_streaming, second_streaming):
+        result = await execute(loop, streaming)
+        final, _ = loop._emit_prompt_reward_outcome.call_args.args
+        assert final.decision == EvaluationDecision.COMPLETE
+        if result is not None:
+            assert result.success is True
+    assert loop._score_history == [0.75]
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+async def test_nonterminal_turn_does_not_enter_completion_guard(streaming):
+    loop = make_loop(None, retries=0, iterations=1)
+    loop._evaluate.side_effect = lambda *args: EvaluationResult(EvaluationDecision.CONTINUE, 0.5)
+    await execute(loop, streaming)
+    assert loop._score_history == []
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+async def test_verification_feedback_preserves_original_task(streaming):
+    from victor.agent.conversation.history_metadata import is_hidden_from_interactive_history
+    from victor.agent.message_history import MessageHistory
+
+    history = MessageHistory(max_history_messages=3)
+    history.add_message("system", "system")
+    task = history.add_user_message("Write the requested files")
+    verifier = MagicMock(
+        verify=AsyncMock(return_value=VerificationResult(0, 1, feedback="Fix failed check"))
+    )
+    loop = make_loop(verifier, retries=1)
+    loop.turn_executor._chat_context = history
+    await execute(loop, streaming)
+    feedback = history.messages[-1]
+    assert feedback.content == "Fix failed check"
+    assert is_hidden_from_interactive_history(feedback.metadata)
+    history.add_assistant_message("Retry result")
+    assert task in history.messages
+    assert history.messages[-1].content == "Retry result"

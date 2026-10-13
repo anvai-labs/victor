@@ -1989,9 +1989,43 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   shared setup/failure teardown with the canonical reset API and removes duplicate
   registration/formatter flag resets. Qualification and merge status live in the
   tracker; the fixture repair is merged in #1330. Coordination assembly is the
-  next TYPE-03 slice, retaining canonical service protocols and lazy dispatch.
+  TYPE-03 slice merged in #1332, retaining canonical service protocols and lazy dispatch.
   This does not close adapter dynamic forwarding, optional host capabilities or
   the broader G96 typing program.
+
+- **G97 — active task and tool evidence can be evicted during long execution (open).**
+  Actual subscription self-audits through Sandhi lost their original task before
+  provider serialization: a metadata-only replay crossed from 98 messages with the
+  request to 100 messages with no user message. `ChatPersistenceMixin` pre-trimmed
+  history independently of `MessageHistory`, whose count trimming also retained
+  only the system prompt. The repair makes history the sole count-retention owner
+  and protects genuine task intent, atomic tool exchanges and newest publication.
+  Oversized current exchanges require an observable retention floor, not silent
+  loss of executed results. Independent review reproduced and repaired final-answer
+  eviction at the floor. The [canonical tracker](victor-agent-service-plan.md#current-checkpoint)
+  records source, test, review and live acceptance status for
+  [PR #1336](https://github.com/anvai-labs/victor/pull/1336).
+  Local candidate also shares genuine-user detection with recent-turn assembly and
+  tags task guidance/verifier feedback. Follow-ups remain: context-limit final-summary
+  slices can lose task/tool pairing; CLI terminal errors
+  can return exit zero; buffered tool rendering may lose call IDs and pair by name.
+  Audit each existing owner with TDD. The present fix does not establish durable
+  transcript recovery, overlapping unfinished tool batches, member continuation or C5.
+
+- **G98 — agent-loop termination and continuation lack complete execution-mode parity (open).**
+  Source audit finds buffered-only loop guards/controller evaluation/adaptive checks,
+  multiple completion authorities and generic write-oriented budget nudges without
+  original task intent. A model continuation is not renewed authorization or proof
+  of progress. Qualify one typed transition/terminal contract and run-wide attempt
+  accounting before expanding autonomous self-improvement. Optional planners,
+  judges and online learning require measured benefit, not automatic inclusion.
+  The [agentic-loop audit](victor-agent-service-plan.md#agentic-loop-fitness-audit-g97g98-2026-10-13)
+  inventories responsibilities and LOOP-01–06 gates. G97 owns the immediate
+  task-provenance, context-retention and CLI/result-publication failures. Local
+  G98 repairs reset completion scores across runs and record post-backslide decisions
+  even without a verifier. Streaming RESPONSE governance, explicit terminal status,
+  recovery disposition, adaptive extension and typed ACT contracts remain open in
+  the audit table; do not equate phase-method reuse with execution-mode parity.
 
 Validation-test audit: neither live harness had direct tests before this follow-up.
 The new mixed-harness suite covers rejected/malformed/missing reviews, inclusive

@@ -43,3 +43,25 @@ def is_hidden_from_interactive_history(metadata: Mapping[str, Any] | None) -> bo
     if not metadata:
         return False
     return metadata.get(INTERACTIVE_HISTORY_KEY) is False
+
+
+def is_user_turn(role: str, metadata: Mapping[str, Any] | None) -> bool:
+    """Identify a genuine user turn, retaining compatibility with untagged history.
+
+    Runtime guidance can use the user wire role without becoming a new task.
+    History retention and provider assembly must use the same provenance rule.
+    """
+    from victor.agent.conversation.types import MESSAGE_SOURCE_METADATA_KEY, MessageSource
+
+    metadata = metadata or {}
+    internal_sources = {
+        source.value
+        for source in MessageSource
+        if source not in (MessageSource.USER_TYPED, MessageSource.UNKNOWN)
+    }
+    return (
+        role == "user"
+        and metadata.get(MESSAGE_SOURCE_METADATA_KEY) not in internal_sources
+        and metadata.get(INTERACTIVE_HISTORY_KEY) is not False
+        and not metadata.get(INTERNAL_PROMPT_KIND_KEY)
+    )

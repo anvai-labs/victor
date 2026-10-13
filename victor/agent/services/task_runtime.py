@@ -25,6 +25,7 @@ import logging
 from typing import Any, Optional, TYPE_CHECKING
 
 from victor.agent.conversation.history_metadata import build_internal_history_metadata
+from victor.agent.conversation.types import MessageSource
 from victor.core.events import ObservabilityBus
 from victor.core.events.emit_helper import emit_event_sync
 
@@ -528,6 +529,9 @@ class TaskCoordinator:
                 "[ANALYSIS-APPROACH: Work through the codebase one module at a time. "
                 "For each module: 1) List its files, 2) Read 2-3 key files, 3) Note observations. "
                 "After examining 3-4 modules, provide your summary. Keep responses concise.]",
+                metadata=build_internal_history_metadata(
+                    "analysis_approach", source=MessageSource.AGENT_GUIDANCE
+                ),
             )
 
             # Increase tool budget for comprehensive analysis,
@@ -551,6 +555,9 @@ class TaskCoordinator:
                 "Continue using tools until you have gathered comprehensive information about "
                 "all major components of the codebase. "
                 "Only provide your final analysis AFTER you have examined all relevant modules.]",
+                metadata=build_internal_history_metadata(
+                    "analysis_guidance", source=MessageSource.AGENT_GUIDANCE
+                ),
             )
 
         if is_action_task:
@@ -567,6 +574,9 @@ class TaskCoordinator:
                     "2. EXECUTE it immediately with shell (don't skip this step!) "
                     "3. SHOW the output to the user. "
                     "Minimize exploration and proceed directly to create→execute→show results.]",
+                    metadata=build_internal_history_metadata(
+                        "action_guidance", source=MessageSource.AGENT_GUIDANCE
+                    ),
                 )
             else:
                 conversation_controller.add_message(
@@ -574,6 +584,9 @@ class TaskCoordinator:
                     "[ACTION-GUIDANCE: This is an action-oriented task (create/write/build). "
                     "Minimize exploration and proceed directly to creating what was requested. "
                     "Only explore if absolutely necessary to complete the task.]",
+                    metadata=build_internal_history_metadata(
+                        "action_guidance", source=MessageSource.AGENT_GUIDANCE
+                    ),
                 )
 
     # =====================================================================
