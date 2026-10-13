@@ -108,3 +108,107 @@ class TestEnforce:
         g.iteration_count = 20
         g.perception_calls = 20  # once per iteration
         g.enforce(total_timeout=None, effective_max=20, backstop_factor=8)
+
+
+async def test_bounded_operation_times_out_and_restores_parent_context():
+    import asyncio
+    import pytest
+    from victor.framework.loop.guards import LoopSpinError
+
+    parent = LoopGuards()
+    guard = LoopGuards(total_timeout=0.02)
+    token = set_current_guards(parent)
+    cleaned = asyncio.Event()
+
+    async def blocked():
+        assert current_guards() is guard
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cleaned.set()
+
+    try:
+        with pytest.raises(LoopSpinError, match="deadline"):
+            await guard.run(blocked)
+        assert cleaned.is_set()
+        assert current_guards() is parent
+    finally:
+        reset_current_guards(token)
+
+
+async def test_bounded_operations_share_elapsed_budget_without_starting_expired_work():
+    import pytest
+    from unittest.mock import AsyncMock
+    from victor.framework.loop.guards import LoopSpinError
+
+    guard = LoopGuards(total_timeout=10)
+    operation = AsyncMock(return_value="first")
+    assert await guard.run(operation) == "first"
+    guard.run_started_monotonic -= 11
+    with pytest.raises(LoopSpinError, match="deadline"):
+        await guard.run(operation)
+    assert operation.await_count == 1
+    assert operation.call_count == 1
+
+
+async def test_bounded_operation_preserves_underlying_timeout_and_disabled_default():
+    import pytest
+
+    failure = TimeoutError("provider timeout")
+    guard = LoopGuards()
+    guard.run_started_monotonic -= 10000
+
+    async def operation():
+        assert current_guards() is guard
+        raise failure
+
+    with pytest.raises(TimeoutError) as exc:
+        await guard.run(operation)
+    assert exc.value is failure
+    assert current_guards() is None
+
+
+async def test_bounded_operation_rejects_suppressed_timeout_success():
+    import asyncio
+    import pytest
+    from victor.framework.loop.guards import LoopSpinError
+
+    async def ignores_cancel():
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            return "unverified success"
+
+    with pytest.raises(LoopSpinError, match="deadline"):
+        await LoopGuards(total_timeout=0.01).run(ignores_cancel)
+
+
+async def test_bounded_operation_propagates_external_cancellation():
+    import asyncio
+    import pytest
+
+    entered = asyncio.Event()
+    cleaned = asyncio.Event()
+
+    async def blocked():
+        try:
+            entered.set()
+            await asyncio.Event().wait()
+        finally:
+            cleaned.set()
+
+    task = asyncio.create_task(LoopGuards(total_timeout=60).run(blocked))
+    await entered.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert cleaned.is_set()
+    assert current_guards() is None
+
+
+def test_guard_rejects_invalid_deadlines():
+    import pytest
+
+    for timeout in (-1, float("nan"), float("inf")):
+        with pytest.raises(ValueError, match="finite and nonnegative"):
+            LoopGuards(total_timeout=timeout)

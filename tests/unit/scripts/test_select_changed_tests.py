@@ -80,7 +80,17 @@ def test_selector_changes_select_its_own_regressions():
             "victor/framework/agentic_loop.py",
             {
                 "tests/unit/agent/test_turn_evaluation_controller.py",
+                "tests/unit/framework/test_loop_guards.py",
                 *glob.glob("tests/unit/framework/test_agentic_loop*.py"),
+            },
+        ),
+        (
+            "victor/framework/loop/guards.py",
+            {
+                "tests/unit/framework/test_loop_guards.py",
+                "tests/unit/framework/test_agentic_loop_spin_guard.py",
+                "tests/unit/framework/test_agentic_loop_run_streaming.py",
+                "tests/unit/framework/test_agentic_loop_verification.py",
             },
         ),
         *[

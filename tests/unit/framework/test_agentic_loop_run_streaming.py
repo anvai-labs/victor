@@ -28,7 +28,7 @@ import asyncio
 import pytest
 
 from victor.agent.turn_policy import SpinDetector, TurnEvaluationController
-from victor.framework.agentic_loop import AgenticLoop, StreamingTurnOutcome
+from victor.framework.agentic_loop import AgenticLoop, AgenticLoopConfig, StreamingTurnOutcome
 from victor.framework.evaluation_nodes import EvaluationDecision, EvaluationResult
 from victor.providers.base import StreamChunk
 
@@ -52,6 +52,7 @@ def _fake_port(turns):
 def _loop(port, *, evaluations, turn_executor=None):
     """A bare AgenticLoop with the run_streaming collaborators stubbed."""
     loop = AgenticLoop.__new__(AgenticLoop)
+    loop.config = AgenticLoopConfig()
     loop.streaming_act_port = port
     loop.max_iterations = 5
     loop._progress_scores = []
@@ -594,3 +595,97 @@ async def test_run_streaming_accepts_plain_async_iterator_without_aclose():
     chunks = [chunk async for chunk in loop.run_streaming("q")]
 
     assert [chunk.content for chunk in chunks if chunk.content] == ["plain"]
+
+
+async def test_streaming_deadline_interrupts_act_and_preserves_partial_output():
+    from victor.framework.agentic_loop import AgenticLoopConfig
+    from victor.framework.loop.guards import current_guards
+
+    cleaned = asyncio.Event()
+    calls = []
+
+    class Port:
+        async def stream_turn_act(self, **kwargs):
+            calls.append(kwargs["turn_index"])
+            try:
+                assert current_guards() is not None
+                yield StreamChunk(content="partial")
+                await asyncio.Event().wait()
+            finally:
+                cleaned.set()
+
+    loop = _loop(Port(), evaluations=[])
+    loop.config = AgenticLoopConfig(total_timeout=0.03)
+
+    async def consume():
+        return [chunk async for chunk in loop.run_streaming("q")]
+
+    chunks = await asyncio.wait_for(consume(), timeout=1)
+    assert [chunk.content for chunk in chunks if chunk.content] == ["partial"]
+    assert chunks[-1].metadata["agentic_loop_success"] is False
+    assert "deadline" in chunks[-1].metadata["agentic_loop_error"]
+    assert calls == [1]
+    assert cleaned.is_set()
+    assert current_guards() is None
+
+
+async def test_stream_deadline_counts_consumer_pause_without_cancelling_consumer():
+    from victor.framework.loop.guards import current_guards
+
+    resumed = []
+    cleaned = asyncio.Event()
+
+    class Port:
+        async def stream_turn_act(self, **kwargs):
+            try:
+                yield StreamChunk(content="partial")
+                resumed.append(True)
+                yield StreamChunk(content="late")
+            finally:
+                cleaned.set()
+
+    loop = _loop(Port(), evaluations=[])
+    loop.config.total_timeout = 0.03
+    stream = loop.run_streaming("q")
+    first = await asyncio.create_task(anext(stream))
+    assert first.content == "partial"
+    assert current_guards() is None
+    # No timeout or ContextVar can stay active while control belongs to the consumer.
+    await asyncio.sleep(0.06)
+    terminal = await asyncio.create_task(anext(stream))
+    assert terminal.metadata["agentic_loop_success"] is False
+    assert "deadline" in terminal.metadata["agentic_loop_error"]
+    assert resumed == []
+    assert cleaned.is_set()
+    await asyncio.create_task(stream.aclose())
+    assert current_guards() is None
+
+
+async def test_streaming_external_cancellation_waits_for_cleanup():
+    entered, cleanup_started, release = asyncio.Event(), asyncio.Event(), asyncio.Event()
+
+    class Port:
+        async def stream_turn_act(self, **kwargs):
+            try:
+                yield StreamChunk(content="partial")
+                entered.set()
+                await asyncio.Event().wait()
+            finally:
+                cleanup_started.set()
+                await release.wait()
+
+    loop = _loop(Port(), evaluations=[])
+    loop.config.total_timeout = 60
+    stream = loop.run_streaming("q")
+    await anext(stream)
+    advancing = asyncio.create_task(anext(stream))
+    await entered.wait()
+    advancing.cancel()
+    try:
+        await asyncio.wait_for(cleanup_started.wait(), 1)
+        assert not advancing.done()
+    finally:
+        release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await advancing
+    await stream.aclose()

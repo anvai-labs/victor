@@ -242,3 +242,52 @@ async def test_verification_feedback_preserves_original_task(streaming):
     history.add_assistant_message("Retry result")
     assert task in history.messages
     assert history.messages[-1].content == "Retry result"
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+async def test_deadline_during_verification_cannot_succeed_or_retry(streaming):
+    import asyncio
+
+    closed = asyncio.Event()
+
+    async def verify(**kwargs):
+        try:
+            await asyncio.Event().wait()
+        finally:
+            closed.set()
+
+    loop = make_loop(MagicMock(verify=AsyncMock(side_effect=verify)), retries=2)
+    loop.config.total_timeout = 0.03
+    if streaming:
+        chunks = await asyncio.wait_for(_collect_deadline_stream(loop), 1)
+        assert chunks[-1].metadata["agentic_loop_success"] is False
+        assert "deadline" in chunks[-1].metadata["agentic_loop_error"]
+    else:
+        result = await asyncio.wait_for(loop.run("bounded task"), 1)
+        assert result.success is False
+        assert result.iterations[-1].evaluation.decision == EvaluationDecision.FAIL
+    assert closed.is_set()
+    assert loop._evaluate.await_count == 1
+    loop._emit_prompt_reward_outcome.assert_not_called()
+
+
+async def _collect_deadline_stream(loop):
+    return [chunk async for chunk in loop.run_streaming("bounded task")]
+
+
+@pytest.mark.parametrize("mode", ["stategraph", "iterations"])
+async def test_unsupported_mode_rejects_configured_deadline_before_execution(monkeypatch, mode):
+    loop = make_loop(None, retries=0)
+    loop.config.total_timeout = 1
+    loop._run_with_stategraph = AsyncMock()
+    if mode == "stategraph":
+        monkeypatch.setattr(
+            "victor.framework.agentic_loop_executor.use_stategraph_executor", lambda: True
+        )
+        with pytest.raises(NotImplementedError, match="deadlines"):
+            await loop.run("q")
+        loop._run_with_stategraph.assert_not_called()
+    else:
+        with pytest.raises(NotImplementedError, match="deadlines"):
+            await anext(loop.stream("q"))
+    loop._act.assert_not_called()

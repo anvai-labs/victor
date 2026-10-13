@@ -182,3 +182,87 @@ class TestSpinGuardTerminatesLoop:
         assert "wall-clock deadline exceeded" in result.metadata.get("error", "")
         # Terminated at the very first iteration's guard — nowhere near 50.
         assert len(result.iterations) < 50
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+@pytest.mark.parametrize("phase", ["_analyze_turn", "_plan", "_act", "_evaluate"])
+async def test_deadline_interrupts_blocked_phase(phase, streaming):
+    import asyncio
+
+    loop = continuing_loop(3)
+    loop.config.total_timeout = 0.1
+    from types import SimpleNamespace
+
+    loop._analyze_turn = AsyncMock(
+        return_value=SimpleNamespace(task_analysis=None, to_dict=lambda: {})
+    )
+    loop._plan = AsyncMock(return_value={})
+    closed = asyncio.Event()
+
+    async def blocked(*args, **kwargs):
+        try:
+            await asyncio.Event().wait()
+        finally:
+            closed.set()
+
+    setattr(loop, phase, blocked)
+    if streaming:
+
+        class Port:
+            async def stream_turn_act(self, *, outcome, plan, state, **kwargs):
+                outcome.turn_result = await loop._act(plan, state)
+                if False:
+                    yield
+
+        loop.streaming_act_port = Port()
+
+        async def collect():
+            return [chunk async for chunk in loop.run_streaming("bounded task")]
+
+        chunks = await asyncio.wait_for(collect(), timeout=1)
+        assert chunks[-1].metadata["agentic_loop_success"] is False
+        assert "deadline" in chunks[-1].metadata["agentic_loop_error"]
+    else:
+        result = await asyncio.wait_for(loop.run("bounded task"), timeout=1)
+        assert result.success is False
+        assert result.metadata["terminated_by"] == "loop_spin_guard"
+        assert "deadline" in result.metadata["error"]
+    assert closed.is_set()
+    assert loop_guards.current_guards() is None
+
+
+@pytest.mark.parametrize("timeout", [None, 0, 1])
+async def test_semantic_cache_respects_deadline_and_disabled_default(monkeypatch, timeout):
+    loop = continuing_loop(3)
+    loop.config.total_timeout = timeout
+    captured = {}
+    real_guard = loop_guards.LoopGuards
+
+    def guard(**kwargs):
+        captured["guard"] = real_guard(**kwargs)
+        return captured["guard"]
+
+    def cache_lookup(query):
+        captured["guard"].run_started_monotonic -= 2
+        return {"response": "cached answer", "similarity": 1.0}
+
+    cache = MagicMock()
+    cache.get.side_effect = cache_lookup
+    monkeypatch.setattr(loop_guards, "LoopGuards", guard)
+    from victor.core.feature_flags import FeatureFlag
+
+    monkeypatch.setattr(
+        "victor.core.feature_flags.is_feature_enabled",
+        lambda flag: flag == FeatureFlag.USE_SEMANTIC_RESPONSE_CACHE,
+    )
+    monkeypatch.setattr("victor.agent.semantic_response_cache.get_semantic_cache", lambda: cache)
+    result = await loop.run("q")
+    if timeout is None:
+        assert result.success is True
+        assert result.final_state["response"] == "cached answer"
+        assert result.metadata["source"] == "semantic_cache"
+    else:
+        assert result.success is False
+        assert "deadline" in result.metadata["error"]
+    assert cache.get.call_count == (0 if timeout == 0 else 1)
+    loop._act.assert_not_called()
