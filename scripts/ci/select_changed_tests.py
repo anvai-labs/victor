@@ -59,7 +59,16 @@ DEPRECATION_NOTICE_FILES = (
 )
 RELATED_TESTS = {
     # Controller policy and its two loop consumers share stop precedence.
-    "victor/framework/agentic_loop.py": ("tests/unit/agent/test_turn_evaluation_controller.py",),
+    "victor/framework/agentic_loop.py": (
+        "tests/unit/agent/test_turn_evaluation_controller.py",
+        "tests/unit/framework/test_loop_guards.py",
+    ),
+    "victor/framework/loop/guards.py": (
+        "tests/unit/framework/test_loop_guards.py",
+        "tests/unit/framework/test_agentic_loop_spin_guard.py",
+        "tests/unit/framework/test_agentic_loop_run_streaming.py",
+        "tests/unit/framework/test_agentic_loop_verification.py",
+    ),
     "victor/agent/turn_policy.py": (
         "tests/unit/agent/test_turn_evaluation_controller.py",
         "tests/unit/framework/test_agentic_loop.py",

@@ -2030,12 +2030,16 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   review, local and CI evidence. ✅ [#1338](https://github.com/anvai-labs/victor/pull/1338)
   carries failed terminal events and thinking aborts through CLI exit 1. One-shot failure, partial buffered/JSON output and interactive streaming
   continuation are covered; non-streaming/planning and approval presentation remain
-  separate. The follow-up `fix/shared-loop-controller` increment (in review) shares
+  separate. ✅ [#1339](https://github.com/anvai-labs/victor/pull/1339) shares
   controller stop dispatch and repairs a newly confirmed false-success path:
   buffered search convergence could overwrite an explicit evaluator/effect failure.
   Convergence never executes synthesis or proves completion; preserve evaluator
-  evidence and require the existing verifier. Run guards, controller nudge dispatch,
-  recovery disposition, adaptive extension and typed ACT contracts remain open; phase-method reuse is not execution-mode parity.
+  evidence and require the existing verifier. The `fix/shared-loop-deadline` follow-up (in review) bounds owned awaits and
+  terminal/cache success in both modes against one cooperative elapsed budget.
+  Context and timeout scopes never span streaming yields; expiry is failure, not
+  safe-to-retry evidence. Awaited cleanup can exceed the budget; remote effects
+  and thread work are not proven stopped. Controller nudge dispatch, recovery
+  disposition, adaptive extension and typed ACT contracts remain open; phase-method reuse is not execution-mode parity.
 
 Validation-test audit: neither live harness had direct tests before this follow-up.
 The new mixed-harness suite covers rejected/malformed/missing reviews, inclusive

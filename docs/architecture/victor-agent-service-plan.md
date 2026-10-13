@@ -67,7 +67,35 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
-- **LOOP-03 shared stop-controller dispatch — implementation in review** — owner:
+- **LOOP-03 shared cooperative deadlines — implementation in review** — owner:
+  Victor co-design session; branch `fix/shared-loop-deadline`, baseline `aa2d2a744`.
+  Existing `LoopGuards` owns the elapsed budget and bounds each owned await in
+  buffered and token-streamed execution. Timeout/context scopes end before outward
+  yields; a consumer pause counts toward elapsed time without cancelling consumer
+  work. Expiry prevents further dispatch, preserves partial output, and fails the
+  run, including expiry during verification or semantic-cache lookup. Recorded
+  COMPLETE cannot survive a verification timeout. `None` retains the disabled
+  default; unsupported StateGraph/iteration streaming rejects configured deadlines.
+  Initial tests reproduced eight failures; verification qualification additionally
+  reproduced stale COMPLETE before repair. Existing guard, streaming, verification
+  and spin-test owners hold the regressions; no alternate loop or queue is added.
+  Local validation: 389 affected cases passed; after extending the existing cache
+  case with the disabled default, its full 16-case owner passed. The broader loop,
+  streaming integration and ACT-adapter cohort passed 406 cases. Changed runtime
+  coverage is 109/115 lines (94%); 34,717 tests collect. Configured strict MyPy
+  passed 2,114 files (legacy suppressions remain), with Black/Ruff, repository
+  hygiene and docs drift checks passing. Independent review passed 118 lifecycle
+  cases plus 33 final guard/matrix cases without blockers. PR CI and landing remain
+  pending; the PR for this branch is the landing authority. Evidence is preserved at
+  `var/codegraph-victor-20261012/deadline-evidence.json`.
+  Limits: cancellation is cooperative; awaited cleanup can extend return latency.
+  Synchronous callbacks are not rolled back. Threads, native work and remote
+  effects may continue, so a timeout never grants
+  permission to replay an effect. Perception backstop remains a between-iteration
+  check. Recovery disposition, intent-aware nudges, attempt accounting and full
+  lifecycle/C5 acceptance remain open.
+
+- **LOOP-03 shared stop-controller dispatch ✅ MERGED, [PR #1339](https://github.com/anvai-labs/victor/pull/1339)** — owner:
   Victor co-design session; branch `fix/shared-loop-controller`, baseline `9743e4bad`.
   One helper adapts ACT results to a typed turn observation for both buffered and
   streaming execution, without double-counting spin. Controller convergence cannot
@@ -80,8 +108,9 @@ edit. A mock test is not live provider or C5 evidence.
   integration), 59 selector cases and 100% changed runtime-line coverage. Independent
   adversarial review is clean with 233 cases passed. Full collection found 34,692
   tests; configured strict MyPy passed 2,114 files (legacy suppressions remain).
-  Black/Ruff, repo hygiene and docs drift checks passed. PR CI and landing remain
-  pending; the PR for this branch is the landing authority. Reboot evidence:
+  Black/Ruff, repo hygiene and docs drift checks passed. All required CI passed (40 successful checks including vertical tests); squash
+  merge `aa2d2a744` matches the reviewed candidate. Local develop synchronized and
+  the completed worktree removed. Reboot evidence:
   `var/codegraph-victor-20261012/controller-parity-evidence.json`.
   Next: shared run guards/deadlines, intent-aware nudge/recovery dispatch and
   run-wide attempt accounting. Convergence does not execute synthesis; complete
@@ -1665,7 +1694,7 @@ are terminal recorded outcomes. Internal feedback retains internal provenance.
 | --- | --- | --- |
 | LOOP-01 / G97 | ✅ MERGED #1336 | One count-retention owner and provenance predicate; producer repairs, live retention audit, independent review and all 41 CI checks passed; context-limit slices remain follow-up |
 | LOOP-02 / G97 | PARTIAL: terminal event/client verdict ✅ #1337 | CLI exit/status ✅ #1338; concurrent/repeated tool names must reconcile by ID; no false success |
-| LOOP-03 / G98 | PARTIAL: reset/recorded evaluation ✅ #1336; terminal delivery ✅ #1337 | RESPONSE governance and terminal status qualified; shared controller stop dispatch in review (`fix/shared-loop-controller`); guards/nudges and StateGraph parity remain open |
+| LOOP-03 / G98 | PARTIAL: reset/recorded evaluation ✅ #1336; terminal delivery ✅ #1337 | RESPONSE governance and terminal status qualified; shared controller stop dispatch ✅ #1339; cooperative guard/deadline dispatch in review; nudges and StateGraph parity remain open |
 | LOOP-04 / G98 | AUDITED, implementation pending | Intent-aware recovery and one attempt ledger; repeated invalid/denied tools do not produce unbounded nudges |
 | LOOP-05 / G98 | AUDITED, design pending | Structured terminal evidence replaces prose as control authority; ordinary read tasks do not need judges or minimum tool counts |
 | LOOP-06 | TODO, depends on LOOP-01–05 | Fixed baseline versus optional planner/judge/learning, reporting verified success, model calls, tokens, elapsed time, CPU/memory and cancellation reliability; retain only measured improvements |
@@ -1686,8 +1715,8 @@ the reset helper does not make one mutable loop instance concurrency-safe.
 | P1 — ✅ MERGED #1336 | `_inject_verify_feedback` used an unrecognized source and could replace the protected task | Shared internal-metadata helper; real verification retry + history eviction tests in both modes |
 | P1 — ✅ qualified #1337 | Normal no-tool streaming candidates previously bypassed RESPONSE governance | Check the candidate once before publication/history/detection; real unified allow/redact/deny/empty tests. Completely removed content is an explicit failure, not inferred completion or retry. Intermediate tool-bearing output remains separately scoped |
 | P1 — PARTIAL #1337 | `run_streaming` previously emitted identical content for COMPLETE, FAIL and CONTINUE at cap | Explicit run verdict now reaches framework/client events and audit finalizers. CLI process exit status ✅ #1338; provider finish reason is not a verdict |
-| P1 — IN REVIEW (`fix/shared-loop-controller`) | Streaming omitted controller evaluation; buffered convergence could overwrite evaluator failure | Shared stop helper over `TurnObservation`; convergence never promotes non-COMPLETE; mode precedence, real repetition/reset and downstream verifier tests |
-| P1 — OPEN | `LoopGuards` is installed/enforced only by buffered driver; deadline checks between phases do not interrupt an in-flight await | Share guard lifetime and cancellation cleanup; qualify blocked await, timeout, perception runaway and generator close; do not claim a hard deadline from a phase-boundary check |
+| P1 — ✅ MERGED #1339 | Streaming omitted controller evaluation; buffered convergence could overwrite evaluator failure | Shared stop helper over `TurnObservation`; convergence never promotes non-COMPLETE; mode precedence, real repetition/reset and downstream verifier tests |
+| P1 — IN REVIEW (`fix/shared-loop-deadline`) | Shared guard now bounds owned awaits in both modes, restoring context before outward yield | Qualify blocked phases, timeout/underlying-error distinction, consumer pause, cancellation, awaited cleanup and stale verification success. Perception counts remain checked between iterations; no remote-cancellation guarantee |
 | P2 — OPEN | Streaming ACT produces recovery return/continue signals but adapter only forwards `turn_result` | Declare recovery disposition in canonical turn contract; one DECIDE consumption; test no extra provider request after terminal recovery |
 | P2 — OPEN | Adaptive extension changes the bound after `range` construction | A bounded driver must consult the current limit; real executed-turn-count test, including absolute cap |
 | P2 — OPEN | `StreamingTurnOutcome`, ACT session fields and adapter arguments use `Any`; missing turn result reaches evaluation | Narrow existing protocols, declare current dynamic fields, reject incomplete ACT at its boundary; no silent synthetic success |

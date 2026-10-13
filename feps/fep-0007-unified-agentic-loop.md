@@ -406,7 +406,7 @@ a latent buffered-`run()` bug (a tool-only turn's empty content fell through to 
 cleanup, not new design):
 
 1. **Reconcile the run()-only preamble/DECIDE bands into `run_streaming`.** The fast-slow
-   planning gate, semantic response cache, paradigm/topology routing, run guards
+   planning gate, semantic response cache, paradigm/topology routing
    and adaptive termination still have their sole production call site in
    the buffered `run()`'s inline body — the streaming path shares PERCEIVE/ACT/EVALUATE
    (fulfillment, effect gate, auditor, backslide/verify) but not yet those bands.
@@ -490,5 +490,28 @@ disabled because ACT already recorded it. It never upgrades a non-complete
 assessment to success; a clean stop retains only existing COMPLETE, which still
 passes backslide and verification. Degraded stops fail with evaluator diagnostics,
 metrics and metadata preserved. Search convergence is a stop signal, not synthesis.
-Shared run guards, controller nudge dispatch, recovery disposition and
-iteration/StateGraph parity remain open obligations.
+Controller nudge dispatch, recovery disposition and iteration/StateGraph parity
+remain open obligations. Shared cooperative run deadlines are qualified in the
+follow-up below; external-effect cancellation remains a separate acceptance gate.
+
+
+### Cooperative deadline follow-up (LOOP-03)
+
+The shared stop policy landed in [#1339](https://github.com/anvai-labs/victor/pull/1339).
+The `fix/shared-loop-deadline` increment reuses `LoopGuards` for a single elapsed
+budget across buffered and token-streamed awaits. Its callable boundary checks
+admission before creating an awaitable, restores the prior guard context, and
+converts only its own timeout. No timer/context remains active across an outward
+yield; consumer pause consumes elapsed budget but cannot cancel consumer work.
+
+Expiry fails with partial evidence retained, including verification and cache
+shortcut paths. No additional model/tool attempt follows expiry. External
+cancellation propagates and iterator cleanup is awaited. `total_timeout=None`
+remains disabled; durations must be finite/nonnegative. StateGraph and iteration
+streaming reject a configured deadline before execution until qualified.
+
+This is a cooperative deadline, not proof of cancellation of threads, native work,
+remote inference or committed effects. Cleanup can extend return latency; synchronous callbacks admitted before expiry
+are not rolled back. Unknown effects require reconciliation, never blind replay. The perception backstop is
+still checked between iterations. Nudge/recovery dispatch, attempt accounting,
+adaptive iteration limits and full lifecycle/C5 acceptance remain open.

@@ -23,10 +23,9 @@ calls* (perception is invoked exactly once per iteration in healthy runs, so
 signal that the iteration counter and the post-ACT ``SpinDetector`` both miss).
 
 ``LoopGuards`` is a per-run counter + monotonic timer object, threaded to the
-perception seam via a :class:`contextvars.ContextVar` so both the legacy loop
-and the StateGraph loop are covered without signature churn. This module is
-log-only in Phase 1 (instrumentation); the terminating deadline/backstop land in
-later phases (they reuse these same counters).
+perception seam via a :class:`contextvars.ContextVar` during owned awaits in
+buffered and token-streamed execution. The same elapsed clock bounds every await;
+StateGraph and iteration streaming reject configured deadlines until qualified.
 
 Kept out of ``agentic_loop.py`` (a large hotspot) on purpose — the loop only
 gains thin call-sites.
@@ -34,13 +33,17 @@ gains thin call-sites.
 
 from __future__ import annotations
 
+import asyncio
 import contextvars
 import logging
+import math
 import time
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Awaitable, Callable, Optional, TypeVar
 
 logger = logging.getLogger(__name__)
+
+_T = TypeVar("_T")
 
 # Healthy runs call perception exactly once per iteration. This many times the
 # iteration count is a strong spin signal without false positives on legitimate
@@ -68,8 +71,8 @@ _CURRENT_GUARDS: "contextvars.ContextVar[Optional[LoopGuards]]" = contextvars.Co
 class LoopGuards:
     """Per-run spin telemetry: perception/iteration/restart counters + timers.
 
-    Phase 1 is log-only (rate-limited WARNING when a threshold trips). The
-    terminating deadline/backstop (later phases) read the same fields.
+    Counter warnings and between-iteration enforcement use the same fields as
+    the cooperative deadline. A timeout cannot prove remote side effects stopped.
     """
 
     perception_spin_factor: int = PERCEPTION_SPIN_FACTOR
@@ -79,6 +82,43 @@ class LoopGuards:
     run_started_monotonic: float = field(default_factory=time.monotonic)
     phase_started_monotonic: float = field(default_factory=time.monotonic)
     _warned_spin: bool = field(default=False, repr=False)
+
+    total_timeout: Optional[float] = None
+
+    def __post_init__(self) -> None:
+        if self.total_timeout is not None and (
+            not math.isfinite(self.total_timeout) or self.total_timeout < 0
+        ):
+            raise ValueError("total_timeout must be finite and nonnegative, or None")
+
+    async def run(self, operation: Callable[[], Awaitable[_T]]) -> _T:
+        """Await owned work within this run's remaining cooperative deadline.
+
+        The factory is called only after admission. Context and timeout ownership
+        end before returning to the caller, so a streaming consumer never inherits
+        them across a yield. External cancellation and unrelated timeouts propagate.
+        Cleanup may extend return latency; threads and remote effects may continue.
+        """
+        self.enforce()
+        remaining = (
+            None if self.total_timeout is None else self.total_timeout - self.total_elapsed()
+        )
+        token = set_current_guards(self)
+        timer = asyncio.timeout(remaining)
+        try:
+            try:
+                async with timer:
+                    result = await operation()
+            except TimeoutError:
+                if not timer.expired():
+                    raise
+                self.enforce()
+                raise  # defensive: never disguise an unrelated timeout
+            # A collaborator may suppress cancellation and return after expiry.
+            self.enforce()
+            return result
+        finally:
+            reset_current_guards(token)
 
     # ----- counters -----
 
@@ -158,13 +198,13 @@ class LoopGuards:
     ) -> None:
         """Raise :class:`LoopSpinError` if a wall-clock or perception guard trips.
 
-        Called once per iteration. ``total_timeout`` (default None = off) is a
-        hard per-run wall-clock deadline. The perception backstop terminates a
-        within-run runaway (perception far exceeding the iteration budget) — a
-        defense against a broken once-per-iteration invariant; the cross-run
-        spin is bounded at the adapter (total_timeout there).
+        Without an override, use the configured timeout (default None = off).
+        Checks alone cannot interrupt an await; :meth:`run` owns cancellation.
+        The perception backstop is checked between iterations, not inside a
+        blocking phase. Cleanup may extend the time until the caller regains control.
         """
-        if total_timeout is not None and self.total_elapsed() > total_timeout:
+        total_timeout = self.total_timeout if total_timeout is None else total_timeout
+        if total_timeout is not None and self.total_elapsed() >= total_timeout:
             raise LoopSpinError(
                 f"loop wall-clock deadline exceeded: {self.total_elapsed():.1f}s > "
                 f"{total_timeout:.1f}s (iterations={self.iteration_count}, "
