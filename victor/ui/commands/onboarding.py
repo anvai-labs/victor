@@ -81,6 +81,7 @@ class OnboardingWizard:
         """
         try:
             self._show_welcome()
+            self._show_environment_issues()
 
             if not self._confirm_start():
                 self.console.print("\n[yellow]Onboarding cancelled.[/]")
@@ -212,6 +213,18 @@ class OnboardingWizard:
             )
         except Exception:
             pass  # marker is an optimization; setup itself succeeded
+
+    def _show_environment_issues(self) -> None:
+        """Surface dependency repair before configuring provider credentials."""
+        from victor.config.dependencies import check_dependencies
+
+        issues = check_dependencies()
+        if issues:
+            self.console.print("[yellow]Environment needs attention:[/]")
+            for issue in issues:
+                self.console.print(issue.message, markup=False, highlight=False)
+            self.console.print(issues[0].suggestion, markup=False, highlight=False)
+            self.console.print("[dim]Run the repair command, then restart Victor.[/]")
 
     def _show_doctor_hint(self) -> None:
         """Point at ``victor doctor``, with a quick inline snapshot."""
