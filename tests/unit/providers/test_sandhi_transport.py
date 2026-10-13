@@ -318,6 +318,138 @@ async def test_binding_failure_is_mapped_and_never_replayed(
     assert len(runtime.handle.requests) == 1
 
 
+class TestMissingGatewayUpstream:
+    @staticmethod
+    def error(*, nested=True, message="no upstream registered for this key", status=502):
+        payload = {
+            "code": "invalid_request",
+            "message": message,
+            "http_status": status,
+            "retryable": False,
+        }
+        if nested:
+            payload = {
+                "code": "upstream_error",
+                "message": "upstream status 502",
+                "http_status": 502,
+                "retryable": True,
+                "details": {"upstream_body": json.dumps({"error": payload})},
+            }
+        return RuntimeError(json.dumps(payload))
+
+    @pytest.mark.parametrize("nested", [True, False])
+    async def test_setup_failure_is_terminal_and_explains_registration(self, nested):
+        error = await st.map_sandhi_error(self.error(nested=nested), "openai", 30.0)
+
+        assert error.recoverable is False
+        assert error.status_code == 502
+        assert error.category.value == "config_missing"
+        assert "codex login status" in str(error)
+        assert "/admin/keys/reference" in str(error)
+        assert "credential backend" in str(error)
+        assert "retry" in str(error).lower()
+        assert error.recovery_hint
+
+    async def test_non_openai_route_does_not_prescribe_codex(self):
+        error = await st.map_sandhi_error(self.error(), "inferflux", 30.0)
+
+        assert error.recoverable is False
+        assert "/admin/keys/reference" in str(error)
+        assert "codex login" not in str(error)
+
+    @pytest.mark.parametrize(
+        "message,status",
+        [
+            ("unknown virtual key", 401),
+            ("backend unavailable", 502),
+            ("no upstream registered for this key", 400),
+            ("quoted: no upstream registered for this key", 502),
+        ],
+    )
+    async def test_other_errors_are_not_misdiagnosed(self, message, status):
+        error = await st.map_sandhi_error(
+            self.error(message=message, status=status), "openai", 30.0
+        )
+
+        assert error.recovery_hint is None
+        assert error.category.value != "config_missing"
+
+    async def test_completion_failure_is_not_replayed(self, monkeypatch):
+        runtime = install_runtime(monkeypatch, FakeTypedProvider(complete_error=self.error()))
+        provider = make_provider()
+
+        with pytest.raises(st.ProviderError) as raised:
+            await provider.chat([Message(role="user", content="hi")], model="deepseek-chat")
+
+        assert raised.value.recoverable is False
+        assert len(runtime.handle.requests) == 1
+
+    async def test_stream_failure_is_not_replayed(self, monkeypatch):
+        failure = self.error()
+
+        class FailingStream(FakeTypedProvider):
+            async def stream_json(self, request_json, wire_headers_json=None):
+                self.requests.append(json.loads(request_json))
+                raise failure
+                yield  # pragma: no cover - retain the async-iterator contract
+
+        runtime = install_runtime(monkeypatch, FailingStream())
+        provider = make_provider()
+        with pytest.raises(st.ProviderError) as raised:
+            async for _ in provider.stream(
+                [Message(role="user", content="hi")], model="deepseek-chat"
+            ):
+                pass
+
+        assert raised.value.recoverable is False
+        assert raised.value.recovery_hint
+        assert len(runtime.handle.requests) == 1
+
+    async def test_setup_hint_does_not_echo_untrusted_details(self):
+        payload = json.loads(str(self.error()))
+        payload["message"] = "secret-from-upstream"
+        error = await st.map_sandhi_error(RuntimeError(json.dumps(payload)), "openai", 30.0)
+
+        assert "secret-from-upstream" not in str(error)
+        assert "secret-from-upstream" not in json.dumps(error.to_dict())
+        assert error.raw_error is None
+
+    @pytest.mark.parametrize("streaming", [True, False])
+    async def test_setup_traceback_does_not_echo_upstream_payload(self, monkeypatch, streaming):
+        import traceback
+
+        payload = json.loads(str(self.error()))
+        payload["message"] = "secret-from-upstream"
+        failure = RuntimeError(json.dumps(payload))
+
+        class FailingProvider(FakeTypedProvider):
+            async def stream_json(self, request_json, wire_headers_json=None):
+                raise failure
+                yield  # pragma: no cover - retain the async-iterator contract
+
+        install_runtime(monkeypatch, FailingProvider(complete_error=failure))
+        provider = make_provider()
+        with pytest.raises(st.ProviderError) as raised:
+            messages = [Message(role="user", content="hi")]
+            if streaming:
+                async for _ in provider.stream(messages, model="deepseek-chat"):
+                    pass
+            else:
+                await provider.chat(messages, model="deepseek-chat")
+
+        assert "secret-from-upstream" not in "".join(traceback.format_exception(raised.value))
+        assert raised.value.__cause__ is None
+        assert raised.value.raw_error is None
+
+    @pytest.mark.parametrize("body", ["{", "[]", '{"error": "not an object"}', "x" * 8193])
+    async def test_malformed_or_oversized_body_does_not_trigger_setup_hint(self, body):
+        payload = json.loads(str(self.error()))
+        payload["details"]["upstream_body"] = body
+        error = await st.map_sandhi_error(RuntimeError(json.dumps(payload)), "openai", 30.0)
+
+        assert error.recovery_hint is None
+
+
 class TestTransportErrorTlsDiagnosis:
     """Transport errors must say WHY when the endpoint is a self-signed or
     private-CA gateway: the default recovery hint ("check network") is wrong
