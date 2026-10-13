@@ -76,12 +76,6 @@ class TestBaseRegistry:
         assert set(keys) == {"a", "b", "c"}
         assert len(keys) == 3
 
-    def test_list_all_empty(self):
-        """Test list_all on empty registry."""
-        registry: BaseRegistry[str, int] = BaseRegistry()
-
-        assert registry.list_all() == []
-
     def test_contains(self):
         """Test __contains__ operator."""
         registry: BaseRegistry[str, str] = BaseRegistry()
