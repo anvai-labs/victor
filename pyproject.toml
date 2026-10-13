@@ -927,6 +927,11 @@ module = [
     "victor.agent.services.tool_execution_runtime",
     "victor.core.events.protocols",
     "victor.core.registry.protocols",
+    "victor.tools.registration",
+    "victor.tools.registration.registry",
+    "victor.tools.registration.strategies",
+    "victor.tools.registration.strategies.base",
+    "victor.tools.registration.strategies.strategies",
     "victor.framework.protocols",
 ]
 ignore_errors = false

@@ -30,7 +30,9 @@ def _check_types(fixture: Path, source: str) -> subprocess.CompletedProcess[str]
 
 
 @pytest.mark.timeout(260)
-@pytest.mark.parametrize("contract", ["event_timestamp", "stream_iterator", "mutable_registry"])
+@pytest.mark.parametrize(
+    "contract", ["event_timestamp", "stream_iterator", "mutable_registry", "registration_exports"]
+)
 def test_shared_contracts_reject_incompatible_consumers(tmp_path: Path, contract: str) -> None:
     """Shared contracts reject unsafe return types, awaiting and mutable variance."""
     if contract == "event_timestamp":
@@ -60,7 +62,7 @@ async def invalid(agent: FrameworkOrchestratorProtocol) -> None:
     await agent.stream_chat("hello")
 """
         diagnostic = "[misc]"
-    else:
+    elif contract == "mutable_registry":
         valid = """from victor.core.registry import BaseRegistry, IRegistry
 
 def consume() -> tuple[list[str], int | None]:
@@ -86,6 +88,30 @@ def narrow_values(registry: IRegistry[str, object]) -> IRegistry[str, int]:
     return registry
 """
         diagnostic = "[return-value]"
+    else:
+        valid = """from victor.tools.registration.strategies.base import (
+    ToolRegistrationStrategy, FunctionDecoratorStrategy, BaseToolSubclassStrategy, MCPDictStrategy,
+)
+from victor.tools.registration.registry import ToolRegistrationStrategyRegistry
+from victor.tools.registration.strategies.strategies import (
+    FunctionDecoratorStrategy as CanonicalFunctionDecoratorStrategy,
+)
+
+def build() -> CanonicalFunctionDecoratorStrategy:
+    return FunctionDecoratorStrategy()
+
+def register(registry: ToolRegistrationStrategyRegistry) -> None:
+    strategies: list[ToolRegistrationStrategy] = [
+        FunctionDecoratorStrategy(), BaseToolSubclassStrategy(), MCPDictStrategy(),
+    ]
+    for strategy in strategies:
+        registry.register_strategy(strategy)
+"""
+        invalid = valid + """
+def invalid(registry: ToolRegistrationStrategyRegistry) -> None:
+    registry.register_strategy(object())
+"""
+        diagnostic = "[arg-type]"
     fixture = tmp_path / "shared_contract_probe.py"
     positive = _check_types(fixture, valid)
     assert positive.returncode == 0, positive.stdout + positive.stderr
