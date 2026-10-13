@@ -2003,7 +2003,8 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   Oversized current exchanges require an observable retention floor, not silent
   loss of executed results. Independent review reproduced and repaired final-answer
   eviction at the floor. The [canonical tracker](victor-agent-service-plan.md#current-checkpoint)
-  records source, test, review and live acceptance status.
+  records source, test, review and live acceptance status for
+  [PR #1336](https://github.com/anvai-labs/victor/pull/1336).
   Local candidate also shares genuine-user detection with recent-turn assembly and
   tags task guidance/verifier feedback. Follow-ups remain: context-limit final-summary
   slices can lose task/tool pairing; CLI terminal errors

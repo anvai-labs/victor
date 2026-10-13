@@ -67,7 +67,7 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
-- **G97 retention / G98 run isolation ACTIVE, local qualification** — owner: Victor
+- **G97 retention / G98 run isolation ACTIVE, [PR #1336](https://github.com/anvai-labs/victor/pull/1336)** — owner: Victor
   co-design session; branch `fix/retain-active-task`, baseline
   `5e2afec204d046d979354166f2048d74259262d6` (freshly fetched; unchanged).
   The original subscription self-audit lost its task at the history count boundary.
@@ -99,10 +99,18 @@ edit. A mock test is not live provider or C5 evidence.
   Four source-inspection/manual-copy tests were replaced by real driver tests.
   Final local checks: 430 history/assembly/task/loop/policy/adapter/parity tests,
   18 service-publication tests and six stream-metrics/add-message tests passed;
-  34,639 tests collected. Black, Ruff, repository hygiene/docs drift, configured
+  34,642 tests collected. Black, Ruff, repository hygiene/docs drift, configured
   MyPy and `mypy --strict` pass (2,114 files; legacy suppressions remain). Independent
   final loop cohort: 71 passed; scoped production/test review approved. CI/merge
   remain pending; no release or full lifecycle/C5 claim.
+  Initial CI stopped before pytest because three source modules lacked selector
+  mappings to their existing descriptive test owners. The correction adds those
+  mappings, not duplicate suites; three RED selector cases reproduced it, all 53
+  selector tests now pass, and independent review approves the correction.
+  Broader selected-owner coverage run: 705 passed, 100% of 64 changed runtime lines
+  covered. Local coverage used the changed service-publication owner instead of
+  repeating the previously passed full orchestrator suite; CI still selects that
+  full suite without exclusions. Collection after the selector cases: 34,642.
   Next: finish this candidate; then LOOP-02/03 terminal governance/status, shared
   controller/guard dispatch, and context-limit final-summary retention.
   Evidence and reboot patch: `var/codegraph-victor-20261012/` (private, ignored).

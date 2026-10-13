@@ -66,6 +66,22 @@ def test_selector_changes_select_its_own_regressions():
 @pytest.mark.parametrize(
     ("source", "owners"),
     [
+        (
+            "victor/agent/message_history.py",
+            ["tests/unit/agent/test_agent_conversation.py"],
+        ),
+        (
+            "victor/agent/conversation/history_metadata.py",
+            [
+                "tests/unit/agent/test_agent_conversation.py",
+                "tests/unit/agent/test_context_assembler.py",
+                "tests/unit/agent/conversation/test_message_source.py",
+            ],
+        ),
+        (
+            "victor/agent/services/task_runtime.py",
+            ["tests/unit/agent/test_task_coordinator.py"],
+        ),
         *[
             (
                 f"victor/providers/{provider}_provider.py",

@@ -58,6 +58,15 @@ DEPRECATION_NOTICE_FILES = (
     "victor/agent/sqlite_session_persistence.py",
 )
 RELATED_TESTS = {
+    # These descriptive owners predate the current source layout. Keep coverage
+    # in those suites instead of adding duplicate source-named test files.
+    "victor/agent/message_history.py": ("tests/unit/agent/test_agent_conversation.py",),
+    "victor/agent/conversation/history_metadata.py": (
+        "tests/unit/agent/test_agent_conversation.py",
+        "tests/unit/agent/test_context_assembler.py",
+        "tests/unit/agent/conversation/test_message_source.py",
+    ),
+    "victor/agent/services/task_runtime.py": ("tests/unit/agent/test_task_coordinator.py",),
     "victor/storage/vector_stores/models.py": ("tests/unit/embeddings/test_embedding_models.py",),
     # Text policy and Python stream ownership are tested once across providers,
     # rather than copied into provider-named mirror suites.
