@@ -8,6 +8,10 @@ concrete implementations they describe.
 
 from __future__ import annotations
 
+from pathlib import Path
+import subprocess
+import sys
+
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
 from unittest.mock import AsyncMock, MagicMock
@@ -15,12 +19,58 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 
-@pytest.mark.timeout(260)
-def test_tool_execution_collaborators_are_statically_checked(tmp_path):
-    """The real constructor rejects missing dependencies and incompatible contracts."""
-    import subprocess
-    import sys
+def _check_types(fixture: Path, source: str) -> subprocess.CompletedProcess[str]:
+    fixture.write_text(source, encoding="utf-8")
+    return subprocess.run(
+        [sys.executable, "-m", "mypy", "--strict", "--follow-imports=silent", str(fixture)],
+        text=True,
+        capture_output=True,
+        timeout=120,
+    )
 
+
+@pytest.mark.timeout(260)
+@pytest.mark.parametrize("contract", ["event_timestamp", "stream_iterator"])
+def test_shared_contracts_reject_incompatible_consumers(tmp_path: Path, contract: str) -> None:
+    """Shared contracts preserve concrete timestamps and directly iterable streams."""
+    if contract == "event_timestamp":
+        valid = """from datetime import datetime
+from victor.core.events.protocols import MessagingEvent
+
+def consume(event: MessagingEvent) -> datetime:
+    return event.datetime
+"""
+        invalid = valid + """
+def invalid(event: MessagingEvent) -> str:
+    return event.datetime
+"""
+        diagnostic = "[return-value]"
+    else:
+        valid = """from typing import AsyncIterator
+from victor.framework.protocols import FrameworkOrchestratorProtocol, OrchestratorStreamChunk
+
+def stream(agent: FrameworkOrchestratorProtocol) -> AsyncIterator[OrchestratorStreamChunk]:
+    return agent.stream_chat("hello")
+
+async def consume(agent: FrameworkOrchestratorProtocol) -> str:
+    return "".join([chunk.content async for chunk in stream(agent)])
+"""
+        invalid = valid + """
+async def invalid(agent: FrameworkOrchestratorProtocol) -> None:
+    await agent.stream_chat("hello")
+"""
+        diagnostic = "[misc]"
+    fixture = tmp_path / "shared_contract_probe.py"
+    positive = _check_types(fixture, valid)
+    assert positive.returncode == 0, positive.stdout + positive.stderr
+    negative = _check_types(fixture, invalid)
+    assert negative.returncode == 1, negative.stdout + negative.stderr
+    assert diagnostic in negative.stdout, negative.stdout
+
+
+@pytest.mark.timeout(260)
+def test_tool_execution_collaborators_are_statically_checked(tmp_path: Path) -> None:
+    """The real constructor rejects missing dependencies and incompatible contracts."""
     fixture = tmp_path / "tool_contract_probe.py"
     valid = """from victor.agent.services.tool_execution_runtime import ToolExecutionRuntime
 from victor.agent.services.orchestrator_protocol_adapter import OrchestratorProtocolAdapter
@@ -32,22 +82,16 @@ def bind(adapter: OrchestratorProtocolAdapter) -> ToolExecutionRuntime:
     return ToolExecutionRuntime(adapter, execution=execution, publication=publication)
 """
 
-    def check(source):
-        fixture.write_text(source)
-        return subprocess.run(
-            [sys.executable, "-m", "mypy", "--strict", "--follow-imports=silent", str(fixture)],
-            text=True,
-            capture_output=True,
-            timeout=120,
-        )
-
-    positive = check(valid)
+    positive = _check_types(fixture, valid)
     assert positive.returncode == 0, positive.stdout + positive.stderr
-    negative = check(valid + """
+    negative = _check_types(
+        fixture,
+        valid + """
 def invalid(adapter: OrchestratorProtocolAdapter) -> None:
     ToolExecutionRuntime(adapter)
     ToolExecutionRuntime(adapter, execution=object(), publication=object())
-""")
+""",
+    )
     assert negative.returncode == 1, negative.stdout + negative.stderr
     assert 'Missing named argument "execution"' in negative.stdout
     assert 'Missing named argument "publication"' in negative.stdout

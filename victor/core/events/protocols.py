@@ -38,6 +38,7 @@ Example:
 
 from __future__ import annotations
 
+import datetime as dt
 import uuid
 import time
 from abc import ABC, abstractmethod
@@ -135,7 +136,7 @@ class MessagingEvent:
     headers: Dict[str, str] = field(default_factory=dict)
     delivery_guarantee: DeliveryGuarantee = DeliveryGuarantee.AT_MOST_ONCE
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Initialize correlation ID and headers from context if not provided."""
         from victor.core.context import get_trace_id, get_session_id
 
@@ -160,15 +161,13 @@ class MessagingEvent:
         return self.topic.split(".")[0] if self.topic else "unknown"
 
     @property
-    def datetime(self) -> "datetime":
+    def datetime(self) -> dt.datetime:
         """Convert timestamp to datetime object for display purposes.
 
         Returns:
             datetime object corresponding to the timestamp
         """
-        from datetime import datetime
-
-        return datetime.fromtimestamp(self.timestamp)
+        return dt.datetime.fromtimestamp(self.timestamp)
 
     def to_dict(self) -> Dict[str, Any]:
         """Serialize event to dictionary for transport."""
