@@ -30,9 +30,9 @@ def _check_types(fixture: Path, source: str) -> subprocess.CompletedProcess[str]
 
 
 @pytest.mark.timeout(260)
-@pytest.mark.parametrize("contract", ["event_timestamp", "stream_iterator"])
+@pytest.mark.parametrize("contract", ["event_timestamp", "stream_iterator", "mutable_registry"])
 def test_shared_contracts_reject_incompatible_consumers(tmp_path: Path, contract: str) -> None:
-    """Shared contracts preserve concrete timestamps and directly iterable streams."""
+    """Shared contracts reject unsafe return types, awaiting and mutable variance."""
     if contract == "event_timestamp":
         valid = """from datetime import datetime
 from victor.core.events.protocols import MessagingEvent
@@ -45,7 +45,7 @@ def invalid(event: MessagingEvent) -> str:
     return event.datetime
 """
         diagnostic = "[return-value]"
-    else:
+    elif contract == "stream_iterator":
         valid = """from typing import AsyncIterator
 from victor.framework.protocols import FrameworkOrchestratorProtocol, OrchestratorStreamChunk
 
@@ -60,12 +60,39 @@ async def invalid(agent: FrameworkOrchestratorProtocol) -> None:
     await agent.stream_chat("hello")
 """
         diagnostic = "[misc]"
+    else:
+        valid = """from victor.core.registry import BaseRegistry, IRegistry
+
+def consume() -> tuple[list[str], int | None]:
+    registry: IRegistry[str, int] = BaseRegistry[str, int]()
+    registry.register("count", 1)
+    return registry.list_all(), registry.get("count")
+"""
+        invalid = valid + """
+def narrow_keys(registry: IRegistry[object, int]) -> IRegistry[str, int]:
+    # Reading keys through this alias could return non-strings.
+    return registry
+
+def widen_keys(registry: IRegistry[str, int]) -> IRegistry[object, int]:
+    # This alias would permit registering non-string keys.
+    return registry
+
+def widen_values(registry: IRegistry[str, int]) -> IRegistry[str, object]:
+    # This alias would permit storing values other than integers.
+    return registry
+
+def narrow_values(registry: IRegistry[str, object]) -> IRegistry[str, int]:
+    # Reading through this alias could return values other than integers.
+    return registry
+"""
+        diagnostic = "[return-value]"
     fixture = tmp_path / "shared_contract_probe.py"
     positive = _check_types(fixture, valid)
     assert positive.returncode == 0, positive.stdout + positive.stderr
     negative = _check_types(fixture, invalid)
     assert negative.returncode == 1, negative.stdout + negative.stderr
-    assert diagnostic in negative.stdout, negative.stdout
+    expected_errors = 4 if contract == "mutable_registry" else 1
+    assert negative.stdout.count(diagnostic) == expected_errors, negative.stdout
 
 
 @pytest.mark.timeout(260)

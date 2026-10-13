@@ -16,8 +16,8 @@
 
 from typing import List, Optional, Protocol, TypeVar, runtime_checkable
 
-K = TypeVar("K", contravariant=True)
-V = TypeVar("V", covariant=True)
+K = TypeVar("K")
+V = TypeVar("V")
 
 
 @runtime_checkable
@@ -29,8 +29,8 @@ class IRegistry(Protocol[K, V]):
     across different registry implementations (tools, providers, etc.).
 
     Type Parameters:
-        K: The key type (contravariant - accepts subtypes of K)
-        V: The value type (covariant - returns subtypes of V)
+        K: The key type (invariant - accepted by writes and returned by list_all)
+        V: The value type (invariant - accepted by register and returned by get)
 
     Example:
         >>> class MyRegistry(IRegistry[str, MyItem]):
